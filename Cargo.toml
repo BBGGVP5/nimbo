@@ -5,6 +5,7 @@ members = [
     "apps/ui/src-tauri",
     "crates/ipc",
     "crates/subscription",
+    "crates/xray-config",
 ]
 
 [workspace.package]
@@ -25,6 +26,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 nimbo-ipc = { path = "crates/ipc" }
 nimbo-subscription = { path = "crates/subscription" }
+nimbo-xray-config = { path = "crates/xray-config" }
 url = "2.5"
 base64 = "0.22"
 percent-encoding = "2.3"
