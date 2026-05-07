@@ -1,7 +1,9 @@
 import { NavLink, Route, Routes, Navigate } from "react-router-dom";
 import { Home } from "./pages/Home";
 import { Subscriptions } from "./pages/Subscriptions";
+import { Servers } from "./pages/Servers";
 import { Settings } from "./pages/Settings";
+import { useAppStore } from "./store";
 
 const navItems = [
   { to: "/", label: "Главная", end: true },
@@ -9,7 +11,17 @@ const navItems = [
   { to: "/settings", label: "Настройки", end: false },
 ];
 
+const stateLabel: Record<string, string> = {
+  disconnected: "не подключено",
+  connecting: "подключение…",
+  connected: "подключено",
+  service_unavailable: "сервис не запущен",
+};
+
 export default function App() {
+  const status = useAppStore((s) => s.status);
+  const stateText = stateLabel[status?.state ?? "service_unavailable"];
+
   return (
     <div className="flex h-full">
       <aside className="w-60 shrink-0 flex flex-col p-3">
@@ -19,7 +31,7 @@ export default function App() {
               Nimbo
             </div>
             <div className="text-[11px] text-[var(--color-text-faint)] font-mono mt-0.5">
-              v0.1.0 · disconnected
+              v0.1.0 · {stateText}
             </div>
           </div>
           <nav className="flex-1 px-2">
@@ -51,6 +63,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/subscriptions" element={<Subscriptions />} />
+          <Route path="/subscriptions/:url" element={<Servers />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

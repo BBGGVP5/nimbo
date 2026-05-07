@@ -16,7 +16,13 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 nimbo-ipc.workspace = true
+nimbo-subscription.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+dirs.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
