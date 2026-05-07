@@ -9,8 +9,12 @@ const STORAGE_FILE: &str = "subscriptions.json";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PersistedState {
+    #[serde(default)]
     pub subscriptions: Vec<Subscription>,
+    #[serde(default)]
     pub active_server_id: Option<String>,
+    #[serde(default)]
+    pub user_agent_override: Option<String>,
 }
 
 pub struct AppState {

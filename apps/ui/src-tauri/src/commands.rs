@@ -68,7 +68,7 @@ pub async fn add_subscription(
         return Err("Подписка с таким URL уже добавлена".into());
     }
 
-    let opts = FetchOptions::default();
+    let opts = build_fetch_options(&snapshot_before);
     let fetched = fetch_subscription(&url, &opts)
         .await
         .map_err(|e| format!("Не удалось загрузить: {e}"))?;
@@ -87,7 +87,7 @@ pub async fn refresh_subscription(
     state: State<'_, AppState>,
     url: String,
 ) -> Result<Subscription, String> {
-    let opts = FetchOptions::default();
+    let opts = build_fetch_options(&state.snapshot());
     let fetched = fetch_subscription(&url, &opts)
         .await
         .map_err(|e| format!("Не удалось обновить: {e}"))?;
@@ -149,6 +149,34 @@ pub fn remove_subscription(
         })
         .map_err(|e| format!("Не удалось сохранить: {e}"))?;
     Ok(state.snapshot())
+}
+
+#[tauri::command]
+pub fn set_user_agent_override(
+    state: State<'_, AppState>,
+    user_agent: Option<String>,
+) -> Result<PersistedState, String> {
+    let cleaned = user_agent.and_then(|s| {
+        let trimmed = s.trim().to_string();
+        if trimmed.is_empty() { None } else { Some(trimmed) }
+    });
+    state
+        .mutate(|s| s.user_agent_override = cleaned)
+        .map_err(|e| format!("Не удалось сохранить: {e}"))?;
+    Ok(state.snapshot())
+}
+
+#[tauri::command]
+pub fn get_user_agent_override(state: State<'_, AppState>) -> Option<String> {
+    state.snapshot().user_agent_override
+}
+
+fn build_fetch_options(state: &PersistedState) -> FetchOptions {
+    let mut opts = FetchOptions::default();
+    if let Some(ua) = &state.user_agent_override {
+        opts.user_agent = Some(ua.clone());
+    }
+    opts
 }
 
 #[tauri::command]

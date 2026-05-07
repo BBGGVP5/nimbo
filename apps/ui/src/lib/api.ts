@@ -87,6 +87,10 @@ export const api = {
   getStatus: () => invoke<AppStatus>("get_status"),
   getDeviceInfo: () => invoke<DeviceInfo>("get_device_info"),
   resetDeviceId: () => invoke<DeviceInfo>("reset_device_id"),
+  getUserAgentOverride: () =>
+    invoke<string | null>("get_user_agent_override"),
+  setUserAgentOverride: (userAgent: string | null) =>
+    invoke<PersistedState>("set_user_agent_override", { userAgent }),
   listSubscriptions: () => invoke<Subscription[]>("list_subscriptions"),
   addSubscription: (url: string, name?: string) =>
     invoke<Subscription>("add_subscription", { url, name: name ?? null }),

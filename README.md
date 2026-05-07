@@ -195,6 +195,43 @@ nimbo-app/
 5. GitHub Release (приватный) с MSI-артефактом
 6. Auto-update подхватывает из releases.json
 
+## Интеграция с Remnawave: правило подписки
+
+Remnawave-панель решает что отдать в подписке по правилам user-agent. Чтобы Nimbo получал `XRAY_BASE64` (наш базовый формат), добавь в `Subscription Settings → Response Rules` правило **перед Fallback**:
+
+```json
+{
+  "name": "Nimbo",
+  "description": "Nimbo Windows VPN client",
+  "enabled": true,
+  "operator": "AND",
+  "conditions": [
+    {
+      "headerName": "user-agent",
+      "operator": "CONTAINS",
+      "value": "nimbo",
+      "caseSensitive": false
+    },
+    {
+      "headerName": "x-hwid",
+      "operator": "REGEX",
+      "value": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "caseSensitive": false
+    }
+  ],
+  "responseType": "XRAY_BASE64"
+}
+```
+
+Что важно:
+- `user-agent contains "nimbo"` — наш UA по умолчанию `Nimbo/0.1.0 (Windows; …)`, сматчится
+- `x-hwid` regex — обязательный валидный UUID. Левый клиент без HWID попадёт во Fallback → BLOCK. Это hardenит панель: маскироваться под Nimbo одним UA не получится.
+- Все клиенты Nimbo автоматически шлют `X-Hwid`, `X-Device-Os`, `X-Device-Os-Version`, `X-Device-Model`. HWID = `MachineGuid` из реестра Windows, кешируется в `%APPDATA%\Nimbo\hwid.txt`.
+
+### Маскировка для legacy-конфигов
+
+Если у клиента нет правила для Nimbo (например, чужая подписка), в `Settings → User-Agent` есть пресет «Маскировка под Happ» — клиент будет слать `Happ/2.0.0` и попадёт в Happ-правило. HWID-заголовки идут в любом случае.
+
 ## Code-signing — отдельной задачей
 
 - **Старт**: без подписи. SmartScreen-варнинг при первой установке, юзеры обходят `More info → Run anyway`.
