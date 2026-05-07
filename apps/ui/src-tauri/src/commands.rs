@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use nimbo_device::{DeviceInfo, device_info, reset_cache};
 use nimbo_ipc::PROTOCOL_VERSION;
 use nimbo_subscription::{
     FetchOptions, Subscription, build_subscription, fetch_subscription,
@@ -24,6 +25,18 @@ pub enum ConnectionState {
     Connecting,
     Connected,
     ServiceUnavailable,
+}
+
+#[tauri::command]
+pub fn get_device_info() -> DeviceInfo {
+    device_info()
+}
+
+#[tauri::command]
+pub fn reset_device_id() -> Result<DeviceInfo, String> {
+    reset_cache().map_err(|e| format!("Не удалось сбросить кеш HWID: {e}"))?;
+    // нельзя пересоздать OnceLock, так что новый HWID применится после рестарта приложения
+    Ok(device_info())
 }
 
 #[tauri::command]

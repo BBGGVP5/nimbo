@@ -2,8 +2,8 @@ pub mod commands;
 pub mod state;
 
 use crate::commands::{
-    add_subscription, get_status, list_subscriptions, refresh_subscription, remove_subscription,
-    set_active_server,
+    add_subscription, get_device_info, get_status, list_subscriptions, refresh_subscription,
+    remove_subscription, reset_device_id, set_active_server,
 };
 use crate::state::AppState;
 
@@ -16,6 +16,8 @@ pub fn run() {
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             get_status,
+            get_device_info,
+            reset_device_id,
             list_subscriptions,
             add_subscription,
             refresh_subscription,

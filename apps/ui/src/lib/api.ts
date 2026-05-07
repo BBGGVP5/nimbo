@@ -14,6 +14,14 @@ export interface AppStatus {
   service_protocol: number;
 }
 
+export interface DeviceInfo {
+  hwid: string;
+  os: string;
+  os_version: string;
+  hostname: string;
+  user_agent: string;
+}
+
 export type Network =
   | "tcp"
   | "ws"
@@ -77,6 +85,8 @@ export interface PersistedState {
 
 export const api = {
   getStatus: () => invoke<AppStatus>("get_status"),
+  getDeviceInfo: () => invoke<DeviceInfo>("get_device_info"),
+  resetDeviceId: () => invoke<DeviceInfo>("reset_device_id"),
   listSubscriptions: () => invoke<Subscription[]>("list_subscriptions"),
   addSubscription: (url: string, name?: string) =>
     invoke<Subscription>("add_subscription", { url, name: name ?? null }),

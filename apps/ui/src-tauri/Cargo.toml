@@ -15,6 +15,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+nimbo-device.workspace = true
 nimbo-ipc.workspace = true
 nimbo-subscription.workspace = true
 serde.workspace = true

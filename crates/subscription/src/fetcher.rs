@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use thiserror::Error;
 
+use nimbo_device::{DeviceInfo, device_info};
+
 use crate::USER_AGENT;
 use crate::model::{Server, Subscription};
 use crate::parser::{ParseError, parse_aggregate};
@@ -10,14 +12,31 @@ use crate::userinfo::{SubscriptionInfo, parse_subscription_userinfo};
 #[derive(Debug, Clone)]
 pub struct FetchOptions {
     pub timeout: Duration,
-    pub user_agent: String,
+    pub user_agent: Option<String>,
+    pub device: DeviceInfo,
 }
 
 impl Default for FetchOptions {
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(15),
-            user_agent: USER_AGENT.to_string(),
+            user_agent: None,
+            device: device_info(),
+        }
+    }
+}
+
+impl FetchOptions {
+    fn effective_user_agent(&self) -> String {
+        match &self.user_agent {
+            Some(ua) => ua.clone(),
+            None => {
+                if self.device.user_agent.is_empty() {
+                    USER_AGENT.to_string()
+                } else {
+                    self.device.user_agent.clone()
+                }
+            }
         }
     }
 }
@@ -40,9 +59,17 @@ pub struct Fetched {
 }
 
 pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetched, FetchError> {
+    let mut headers = reqwest::header::HeaderMap::new();
+
+    insert_header(&mut headers, "X-Hwid", &opts.device.hwid);
+    insert_header(&mut headers, "X-Device-Os", &opts.device.os);
+    insert_header(&mut headers, "X-Device-Os-Version", &opts.device.os_version);
+    insert_header(&mut headers, "X-Device-Model", &opts.device.hostname);
+
     let client = reqwest::Client::builder()
         .timeout(opts.timeout)
-        .user_agent(&opts.user_agent)
+        .user_agent(opts.effective_user_agent())
+        .default_headers(headers)
         .build()
         .map_err(|e| FetchError::Http(e.to_string()))?;
 
@@ -86,6 +113,17 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
         servers: fetched.servers,
         info: fetched.info,
         fetched_at: now_unix(),
+    }
+}
+
+fn insert_header(headers: &mut reqwest::header::HeaderMap, name: &'static str, value: &str) {
+    if value.is_empty() {
+        return;
+    }
+    if let Ok(v) = reqwest::header::HeaderValue::from_str(value) {
+        headers.insert(name, v);
+    } else {
+        tracing::debug!(name, "header value contains non-ascii chars; skipping");
     }
 }
 

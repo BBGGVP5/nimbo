@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "apps/service",
     "apps/ui/src-tauri",
+    "crates/device",
     "crates/ipc",
     "crates/subscription",
     "crates/xray-config",
@@ -24,9 +25,11 @@ anyhow = "1.0"
 thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+nimbo-device = { path = "crates/device" }
 nimbo-ipc = { path = "crates/ipc" }
 nimbo-subscription = { path = "crates/subscription" }
 nimbo-xray-config = { path = "crates/xray-config" }
+uuid = { version = "1.11", features = ["v4"] }
 url = "2.5"
 base64 = "0.22"
 percent-encoding = "2.3"

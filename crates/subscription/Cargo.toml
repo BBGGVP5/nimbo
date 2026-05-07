@@ -8,6 +8,7 @@ license.workspace = true
 description = "Subscription parser: vless/vmess/trojan/ss + base64/json/yaml aggregates"
 
 [dependencies]
+nimbo-device.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
