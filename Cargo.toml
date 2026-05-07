@@ -4,6 +4,7 @@ members = [
     "apps/service",
     "apps/ui/src-tauri",
     "crates/ipc",
+    "crates/subscription",
 ]
 
 [workspace.package]
@@ -23,6 +24,11 @@ thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 nimbo-ipc = { path = "crates/ipc" }
+nimbo-subscription = { path = "crates/subscription" }
+url = "2.5"
+base64 = "0.22"
+percent-encoding = "2.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli"] }
 
 [profile.release]
 opt-level = 3
