@@ -3,6 +3,7 @@ pub mod shadowsocks;
 pub mod trojan;
 pub mod vless;
 pub mod vmess;
+pub mod xray_json;
 
 pub use aggregate::parse_aggregate;
 

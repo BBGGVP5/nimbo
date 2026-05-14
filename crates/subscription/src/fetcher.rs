@@ -467,12 +467,12 @@ fn collect_server_descriptions_inner(
         Value::Object(_) => {
             let mut pushed_description = false;
             let description = server_description_from_object(value);
-            let xray_json_template_uuid = first_string_any_case_deep(
+            let xray_json_template_uuid = first_string_any_case(
                 value,
                 &["xrayJsonTemplateUuid", "xray_json_template_uuid"],
             )
             .filter(|uuid| !uuid.eq_ignore_ascii_case("null"));
-            if description.is_some() || xray_json_template_uuid.is_some() {
+            if description.is_some() {
                 pushed_description = true;
                 out.push(ServerDescriptionCandidate {
                     description,
@@ -559,16 +559,18 @@ fn server_description_from_object(value: &Value) -> Option<String> {
             })
     })
     .or_else(|| {
-        deep_find_encoded_string(
-            value,
-            &[
-                "serverDescription",
-                "server_description",
-                "server-description",
-                "serverDesc",
-                "server_desc",
-            ],
-        )
+        get_case_insensitive(value, "meta").and_then(|meta| {
+            first_encoded_string_any_case(
+                meta,
+                &[
+                    "serverDescription",
+                    "server_description",
+                    "server-description",
+                    "serverDesc",
+                    "server_desc",
+                ],
+            )
+        })
     })
 }
 
@@ -662,7 +664,7 @@ fn server_description_matches(candidate: &ServerDescriptionCandidate, server: &S
     }
 
     if let Some(candidate_name) = &candidate.name {
-        return text_contains_either(&server.name, candidate_name);
+        return same_text(&server.name, candidate_name);
     }
 
     false

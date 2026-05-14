@@ -1,5 +1,5 @@
 use crate::model::Server;
-use crate::parser::{ParseError, b64_decode_str, shadowsocks, trojan, vless, vmess};
+use crate::parser::{ParseError, b64_decode_str, shadowsocks, trojan, vless, vmess, xray_json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
@@ -17,13 +17,20 @@ pub fn detect_format(body: &str) -> Format {
         return Format::Unknown;
     }
 
-    if trimmed.starts_with('{') {
+    if trimmed.starts_with('{') || trimmed.starts_with('[') {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            if value.get("outbounds").is_some() {
-                if has_singbox_marker(&value) {
-                    return Format::SingboxJson;
+            let probe = match &value {
+                serde_json::Value::Array(items) => items.first(),
+                serde_json::Value::Object(_) => Some(&value),
+                _ => None,
+            };
+            if let Some(node) = probe {
+                if node.get("outbounds").is_some() {
+                    if has_singbox_marker(node) {
+                        return Format::SingboxJson;
+                    }
+                    return Format::XrayJson;
                 }
-                return Format::XrayJson;
             }
         }
     }
@@ -56,11 +63,10 @@ pub fn parse_aggregate(body: &str) -> Result<Vec<Server>, ParseError> {
             parse_plain_list(&decoded)
         }
         Format::PlainList => parse_plain_list(body),
-        Format::XrayJson | Format::SingboxJson | Format::ClashYaml => {
-            Err(ParseError::InvalidUrl(
-                "json/yaml subscription formats not yet supported (planned for next pass)".into(),
-            ))
-        }
+        Format::XrayJson => xray_json::parse(body),
+        Format::SingboxJson | Format::ClashYaml => Err(ParseError::InvalidUrl(
+            "sing-box/clash subscription formats not yet supported".into(),
+        )),
         Format::Unknown => Err(ParseError::Empty),
     }
 }
