@@ -1,0 +1,38 @@
+[package]
+name = "nimbo-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Nimbo UI (Tauri shell)"
+
+[lib]
+name = "nimbo_ui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+nimbo-device.workspace = true
+nimbo-ipc.workspace = true
+nimbo-subscription.workspace = true
+nimbo-xray-config.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+url.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+dirs.workspace = true
+uuid.workspace = true
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-deep-link = "2"
+arboard = "3.6"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

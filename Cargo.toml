@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/service",
+    "apps/ui/src-tauri",
+    "crates/device",
+    "crates/ipc",
+    "crates/subscription",
+    "crates/xray-config",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+authors = ["Case211"]
+license = "Proprietary"
+repository = "https://github.com/Case211/nimbo-app"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.41", features = ["full"] }
+anyhow = "1.0"
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+nimbo-device = { path = "crates/device" }
+nimbo-ipc = { path = "crates/ipc" }
+nimbo-subscription = { path = "crates/subscription" }
+nimbo-xray-config = { path = "crates/xray-config" }
+uuid = { version = "1.11", features = ["v4"] }
+url = "2.5"
+base64 = "0.22"
+percent-encoding = "2.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli"] }
+dirs = "5.0"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
