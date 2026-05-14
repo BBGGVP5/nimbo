@@ -4,6 +4,7 @@ import { api, formatBytes, type AppPreferences, type AppUpdateInfo, type Connect
 import { fillTemplate, useMessages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
 import { useAppStore } from "../store";
+import { showAppUpdateDialog } from "../App";
 
 const HAPP_UA = "Happ/2.0.0";
 const APP_VERSION = "0.1.0";
@@ -168,6 +169,9 @@ export function Settings() {
     try {
       const info = await api.checkAppUpdate();
       setUpdateInfo(info);
+      if (info.available) {
+        showAppUpdateDialog(info);
+      }
       notifyInfo(
         info.available
           ? fillTemplate(m.settings.updateReady, { version: info.latest_version })

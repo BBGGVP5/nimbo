@@ -3,6 +3,13 @@ use tauri::AppHandle;
 
 const DEFAULT_RELEASE_API_URL: &str = "https://api.github.com/repos/BBGGVP5/nimbo/releases/latest";
 const LOCAL_HTTP_PROXY: &str = "http://127.0.0.1:10809";
+const GITHUB_API_DOMAIN: &str = "api.github.com";
+const GITHUB_API_IPS: &[&str] = &[
+    "140.82.112.6",
+    "140.82.113.6",
+    "140.82.114.6",
+    "140.82.121.6",
+];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AppUpdateInfo {
@@ -96,32 +103,72 @@ async fn fetch_latest_release() -> Result<GithubRelease, String> {
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_RELEASE_API_URL.to_string());
 
-    let direct_result = fetch_release_text(&url, false).await;
+    let direct_result = fetch_release_text(&url, FetchMode::Direct).await;
     let text = match direct_result {
         Ok(text) => text,
-        Err(direct_error) => fetch_release_text(&url, true)
-            .await
-            .map_err(|proxy_error| {
-                format!(
-                    "Не удалось проверить обновления напрямую ({direct_error}) и через локальный proxy ({proxy_error})"
-                )
-            })?,
+        Err(direct_error) => match fetch_release_text(&url, FetchMode::PinnedGithubDns).await {
+            Ok(text) => text,
+            Err(pinned_error) => fetch_release_text(&url, FetchMode::LocalProxy)
+                .await
+                .map_err(|proxy_error| {
+                    format!(
+                        "Не удалось проверить обновления напрямую ({direct_error}), через GitHub DNS fallback ({pinned_error}) и через локальный proxy ({proxy_error})"
+                    )
+                })?,
+        },
     };
 
     serde_json::from_str(&text).map_err(|e| format!("Не удалось разобрать релиз GitHub: {e}"))
 }
 
-async fn fetch_release_text(url: &str, use_local_proxy: bool) -> Result<String, String> {
+#[derive(Debug, Clone, Copy)]
+enum FetchMode {
+    Direct,
+    PinnedGithubDns,
+    LocalProxy,
+}
+
+async fn fetch_release_text(url: &str, mode: FetchMode) -> Result<String, String> {
+    if matches!(mode, FetchMode::PinnedGithubDns) {
+        let mut last_error = None;
+        for ip in GITHUB_API_IPS {
+            match fetch_release_text_with_pinned_ip(url, ip).await {
+                Ok(text) => return Ok(text),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        return Err(last_error.unwrap_or_else(|| "нет доступных GitHub IP fallback".into()));
+    }
+
     let mut builder = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(18))
         .no_proxy();
 
-    if use_local_proxy {
+    if matches!(mode, FetchMode::LocalProxy) {
         let proxy = reqwest::Proxy::all(LOCAL_HTTP_PROXY)
             .map_err(|e| format!("Не удалось настроить локальный proxy обновлений: {e}"))?;
         builder = builder.proxy(proxy);
     }
 
+    fetch_release_text_with_client(builder, url).await
+}
+
+async fn fetch_release_text_with_pinned_ip(url: &str, ip: &str) -> Result<String, String> {
+    let socket_addr = format!("{ip}:443")
+        .parse()
+        .map_err(|e| format!("Некорректный GitHub IP fallback {ip}: {e}"))?;
+    let builder = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(18))
+        .no_proxy()
+        .resolve(GITHUB_API_DOMAIN, socket_addr);
+
+    fetch_release_text_with_client(builder, url).await
+}
+
+async fn fetch_release_text_with_client(
+    builder: reqwest::ClientBuilder,
+    url: &str,
+) -> Result<String, String> {
     let response = builder
         .build()
         .map_err(|e| format!("Не удалось создать HTTP-клиент обновлений: {e}"))?
@@ -132,7 +179,13 @@ async fn fetch_release_text(url: &str, use_local_proxy: bool) -> Result<String, 
         .await
         .map_err(|e| format!("Не удалось проверить обновления: {e}"))?
         .error_for_status()
-        .map_err(|e| format!("GitHub не отдал релиз: {e}"))?;
+        .map_err(|e| {
+            if e.status() == Some(reqwest::StatusCode::NOT_FOUND) {
+                "GitHub не нашёл опубликованный release. Проверьте, что это именно опубликованный релиз, а не draft или только tag.".to_string()
+            } else {
+                format!("GitHub не отдал релиз: {e}")
+            }
+        })?;
 
     response
         .text()

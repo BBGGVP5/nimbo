@@ -12,6 +12,10 @@ import { initNimboDeepLinks } from "./lib/deepLinks";
 import { fillTemplate, useMessages, type Messages } from "./lib/i18n";
 import nimboLogo from "./assets/nimbo.png";
 
+const APP_UPDATE_DIALOG_EVENT = "nimbo:show-update-dialog";
+
+type AppUpdateDialogEvent = CustomEvent<AppUpdateInfo>;
+
 const navItems = [
   { to: "/", key: "home", icon: "bolt", end: true },
   { to: "/subscriptions", key: "profiles", icon: "globe", end: false },
@@ -29,10 +33,17 @@ export default function App() {
   const launchedActions = useRef(false);
   const updateChecked = useRef(false);
   const updateCheckInFlight = useRef(false);
+  const updateStartupScheduled = useRef(false);
+  const updateRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const checkUpdatesOnLaunch = useRef(preferences.check_updates_on_launch);
   const [startupUpdate, setStartupUpdate] = useState<AppUpdateInfo | null>(null);
   const m = useMessages();
 
   useEffect(() => applyVisualPreferences(preferences), [preferences]);
+
+  useEffect(() => {
+    checkUpdatesOnLaunch.current = preferences.check_updates_on_launch;
+  }, [preferences.check_updates_on_launch]);
 
   useEffect(() => {
     if (launchedActions.current || !status) return;
@@ -54,29 +65,71 @@ export default function App() {
 
   useEffect(() => {
     if (
+      updateStartupScheduled.current ||
       updateChecked.current ||
-      updateCheckInFlight.current ||
-      !status ||
       !preferences.check_updates_on_launch
     ) {
       return;
     }
 
-    updateCheckInFlight.current = true;
-    void api.checkAppUpdate()
-      .then((update) => {
+    updateStartupScheduled.current = true;
+
+    const retryDelaysMs = [180, 1200, 3000, 7000, 15000, 30000];
+    let attempt = 0;
+    let cancelled = false;
+
+    const scheduleAttempt = (delay: number) => {
+      updateRetryTimer.current = setTimeout(runAttempt, delay);
+    };
+
+    const runAttempt = () => {
+      if (cancelled) return;
+
+      if (!checkUpdatesOnLaunch.current) {
         updateChecked.current = true;
-        if (update.available) setStartupUpdate(update);
-      })
-      .catch(() => {
-        if (status.state === "connected") {
+        return;
+      }
+
+      if (updateChecked.current || updateCheckInFlight.current) return;
+
+      updateCheckInFlight.current = true;
+      void api.checkAppUpdate()
+        .then((update) => {
+          if (cancelled) return;
+
           updateChecked.current = true;
-        }
-      })
-      .finally(() => {
-        updateCheckInFlight.current = false;
-      });
-  }, [preferences.check_updates_on_launch, status, status?.state]);
+          if (update.available) setStartupUpdate(update);
+        })
+        .catch(() => {
+          if (cancelled) return;
+
+          attempt += 1;
+          if (!updateChecked.current && attempt < retryDelaysMs.length) {
+            scheduleAttempt(retryDelaysMs[attempt]);
+          }
+        })
+        .finally(() => {
+          updateCheckInFlight.current = false;
+        });
+    };
+
+    scheduleAttempt(retryDelaysMs[attempt]);
+
+    return () => {
+      cancelled = true;
+      if (updateRetryTimer.current) clearTimeout(updateRetryTimer.current);
+      if (!updateChecked.current) updateStartupScheduled.current = false;
+    };
+  }, [preferences.check_updates_on_launch]);
+
+  useEffect(() => {
+    const onShowUpdateDialog = (event: Event) => {
+      const update = (event as AppUpdateDialogEvent).detail;
+      if (update?.available) setStartupUpdate(update);
+    };
+    window.addEventListener(APP_UPDATE_DIALOG_EVENT, onShowUpdateDialog);
+    return () => window.removeEventListener(APP_UPDATE_DIALOG_EVENT, onShowUpdateDialog);
+  }, []);
 
   return (
     <div className="app-shell flex h-full">
@@ -144,6 +197,11 @@ export default function App() {
   );
 }
 
+export function showAppUpdateDialog(update: AppUpdateInfo) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(APP_UPDATE_DIALOG_EVENT, { detail: update }));
+}
+
 function UpdateDialog({
   update,
   onDownload,
@@ -161,7 +219,7 @@ function UpdateDialog({
       <div className="update-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="update-dialog-art">
           <div className="update-dialog-orbit">
-            <RocketIcon />
+            <img src={nimboLogo} alt="" className="update-dialog-logo" aria-hidden="true" />
           </div>
         </div>
         <h2 className="update-dialog-title">{m.settings.updateAvailable}</h2>
@@ -184,25 +242,6 @@ function UpdateDialog({
         </button>
       </div>
     </div>
-  );
-}
-
-function RocketIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M13.5 4.3c1.7-1.2 3.7-1.6 5.8-1.4.2 2.1-.2 4.1-1.4 5.8l-5.5 7.5-4.7-4.7 5.8-7.2Z"
-        fill="currentColor"
-      />
-      <path
-        d="M7.8 11.5 4.9 12 3.5 15.5l4.3-.7m4.7 1.4-.7 4.3 3.5-1.4.5-2.9M9 17l-2 2"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="15.6" cy="7.3" r="1.15" fill="#07150c" />
-    </svg>
   );
 }
 
