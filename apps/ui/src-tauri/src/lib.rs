@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod state;
 pub mod tray;
+pub mod updater;
 
 use crate::commands::{
     add_subscription, connect_server, disconnect_server, get_device_info, get_preferences, get_session_traffic,
@@ -11,6 +12,7 @@ use crate::commands::{
     set_user_agent_override, update_subscription_settings, write_clipboard_text,
 };
 use crate::state::AppState;
+use crate::updater::{check_app_update, open_update_download};
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 
@@ -99,6 +101,8 @@ pub fn run() {
             refresh_tray_menu,
             connect_server,
             disconnect_server,
+            check_app_update,
+            open_update_download,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

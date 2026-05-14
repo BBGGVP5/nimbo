@@ -153,6 +153,7 @@ export interface AppPreferences {
   start_minimized: boolean;
   minimize_to_tray: boolean;
   ping_on_launch: boolean;
+  check_updates_on_launch: boolean;
   provider_theme: boolean;
   theme_mode: ThemeMode;
   accent_mode: AccentMode;
@@ -204,6 +205,26 @@ export interface TunInstallStatus {
   message: string;
 }
 
+export interface AppUpdateAsset {
+  name: string;
+  download_url: string;
+  size: number;
+  content_type?: string | null;
+}
+
+export interface AppUpdateInfo {
+  available: boolean;
+  current_version: string;
+  latest_version: string;
+  release_name: string;
+  release_notes?: string | null;
+  release_url: string;
+  published_at?: string | null;
+  target: string;
+  asset?: AppUpdateAsset | null;
+  download_url?: string | null;
+}
+
 const BROWSER_PERSISTED_STATE_KEY = "nimbo.persistedState";
 
 export const defaultAppPreferences: AppPreferences = {
@@ -212,6 +233,7 @@ export const defaultAppPreferences: AppPreferences = {
   start_minimized: false,
   minimize_to_tray: true,
   ping_on_launch: true,
+  check_updates_on_launch: true,
   provider_theme: true,
   theme_mode: "system",
   accent_mode: "preset",
@@ -245,6 +267,7 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     start_minimized: Boolean(value?.start_minimized),
     minimize_to_tray: value?.minimize_to_tray !== false,
     ping_on_launch: value?.ping_on_launch !== false,
+    check_updates_on_launch: value?.check_updates_on_launch !== false,
     provider_theme: value?.provider_theme !== false,
   };
 }
@@ -428,6 +451,43 @@ function browserDeviceInfo(): DeviceInfo {
   return device;
 }
 
+function browserUpdateInfo(): AppUpdateInfo {
+  const params = new URLSearchParams(window.location.search);
+  const mockUpdate = params.has("mockUpdate") || readBrowserJson<boolean>("nimbo.mockUpdate", false);
+  if (mockUpdate) {
+    return {
+      available: true,
+      current_version: "0.1.0",
+      latest_version: "3.0.33",
+      release_name: "3.0.33",
+      release_notes: "Демо обновления для браузерного предпросмотра.",
+      release_url: "https://github.com/BBGGVP5/nimbo/releases",
+      published_at: new Date().toISOString(),
+      target: "Windows x64",
+      asset: {
+        name: "Nimbo_3.0.33_x64-setup.exe",
+        download_url: "https://github.com/BBGGVP5/nimbo/releases",
+        size: 0,
+        content_type: "application/octet-stream",
+      },
+      download_url: "https://github.com/BBGGVP5/nimbo/releases",
+    };
+  }
+
+  return {
+    available: false,
+    current_version: "0.1.0",
+    latest_version: "0.1.0",
+    release_name: "0.1.0",
+    release_notes: null,
+    release_url: "https://github.com/BBGGVP5/nimbo/releases",
+    published_at: null,
+    target: "Browser preview",
+    asset: null,
+    download_url: null,
+  };
+}
+
 const browserInstalledApps: InstalledApp[] = [
   { name: "Google Chrome", executable_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" },
   { name: "Telegram", executable_path: "C:\\Users\\User\\AppData\\Roaming\\Telegram Desktop\\Telegram.exe" },
@@ -555,6 +615,14 @@ export const api = {
     isTauriRuntime()
       ? invoke<void>("restart_as_admin")
       : Promise.resolve(),
+  checkAppUpdate: () =>
+    isTauriRuntime()
+      ? invoke<AppUpdateInfo>("check_app_update")
+      : Promise.resolve(browserUpdateInfo()),
+  openUpdateDownload: (downloadUrl: string) =>
+    isTauriRuntime()
+      ? invoke<void>("open_update_download", { downloadUrl })
+      : Promise.resolve(window.open(downloadUrl, "_blank", "noopener")),
   setProxySettings: (settings: ProxySettingsPatch) =>
     isTauriRuntime()
       ? invoke<PersistedState>("set_proxy_settings", { settings })

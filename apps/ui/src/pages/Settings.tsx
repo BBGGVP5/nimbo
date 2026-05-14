@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { api, type AppPreferences, type ConnectionMode, type DeviceInfo } from "../lib/api";
-import { useMessages } from "../lib/i18n";
+import { api, formatBytes, type AppPreferences, type AppUpdateInfo, type ConnectionMode, type DeviceInfo } from "../lib/api";
+import { fillTemplate, useMessages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
 import { useAppStore } from "../store";
 
@@ -20,6 +20,7 @@ type SettingsSection =
   | "servers"
   | "latency"
   | "backup"
+  | "updates"
   | "about";
 
 const sectionItems: Array<{
@@ -37,6 +38,7 @@ const sectionItems: Array<{
   { id: "servers", labelKey: "servers", icon: <ListIcon /> },
   { id: "latency", labelKey: "latency", icon: <SignalIcon /> },
   { id: "backup", labelKey: "backup", icon: <ArchiveIcon /> },
+  { id: "updates", labelKey: "updates", icon: <DownloadIcon /> },
   { id: "about", labelKey: "about", icon: <InfoIcon /> },
 ];
 
@@ -63,6 +65,8 @@ export function Settings() {
   const [copied, setCopied] = useState(false);
   const [savingUa, setSavingUa] = useState(false);
   const [refreshingSubscriptions, setRefreshingSubscriptions] = useState(false);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   const connectionMode = status?.connection_mode ?? "tun";
 
@@ -159,6 +163,32 @@ export function Settings() {
     }
   };
 
+  const checkForUpdates = async () => {
+    setCheckingUpdates(true);
+    try {
+      const info = await api.checkAppUpdate();
+      setUpdateInfo(info);
+      notifyInfo(
+        info.available
+          ? fillTemplate(m.settings.updateReady, { version: info.latest_version })
+          : m.settings.updateCurrent,
+      );
+    } catch (e) {
+      notifyError(`${m.settings.updateCheckFailed} ${String(e)}`);
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  const downloadUpdate = async (info: AppUpdateInfo) => {
+    const url = info.download_url ?? info.release_url;
+    try {
+      await api.openUpdateDownload(url);
+    } catch (e) {
+      notifyError(String(e));
+    }
+  };
+
   const updateConnectionMode = async (nextMode: ConnectionMode) => {
     try {
       if (nextMode === "tun") {
@@ -252,6 +282,16 @@ export function Settings() {
           {section === "servers" && <ServersSection />}
           {section === "latency" && <LatencySection />}
           {section === "backup" && <BackupSection />}
+          {section === "updates" && (
+            <UpdatesSection
+              preferences={preferences}
+              updateInfo={updateInfo}
+              checking={checkingUpdates}
+              onChange={updatePreferences}
+              onCheck={checkForUpdates}
+              onDownload={downloadUpdate}
+            />
+          )}
           {section === "about" && (
             <AboutSection
               device={device}
@@ -732,6 +772,76 @@ function BackupSection() {
   );
 }
 
+function UpdatesSection({
+  preferences,
+  updateInfo,
+  checking,
+  onChange,
+  onCheck,
+  onDownload,
+}: {
+  preferences: AppPreferences;
+  updateInfo: AppUpdateInfo | null;
+  checking: boolean;
+  onChange: (patch: Partial<AppPreferences>) => Promise<void>;
+  onCheck: () => Promise<void>;
+  onDownload: (info: AppUpdateInfo) => Promise<void>;
+}) {
+  const m = useMessages();
+  const versionValue = updateInfo
+    ? `${updateInfo.current_version} -> ${updateInfo.latest_version}`
+    : APP_VERSION;
+  const assetValue = updateInfo?.asset
+    ? `${updateInfo.asset.name}${updateInfo.asset.size ? ` · ${formatBytes(updateInfo.asset.size)}` : ""}`
+    : updateInfo?.available
+      ? m.settings.updateNoAsset
+      : "—";
+
+  return (
+    <Section title={m.settings.updates}>
+      <SettingsCard>
+        <div className="settings-row settings-row-block">
+          <div>
+            <div className="settings-row-title">{m.settings.appUpdates}</div>
+            <div className="settings-row-description">{m.settings.appUpdatesDescription}</div>
+          </div>
+          <button
+            disabled={checking}
+            onClick={() => void onCheck()}
+            className="settings-action"
+          >
+            {checking ? m.settings.checkingUpdates : m.settings.checkForUpdates}
+          </button>
+        </div>
+        <ToggleRow
+          label={m.settings.checkUpdatesOnLaunch}
+          description={m.settings.checkUpdatesOnLaunchDescription}
+          enabled={preferences.check_updates_on_launch}
+          onToggle={(check_updates_on_launch) => onChange({ check_updates_on_launch })}
+        />
+        <ValueRow label={m.settings.version} value={versionValue} />
+        <ValueRow label={m.settings.systemTarget} value={updateInfo?.target ?? "—"} />
+        <ValueRow label={m.settings.latestVersion} value={updateInfo?.latest_version ?? "—"} />
+        <ValueRow label={m.settings.releaseAsset} value={assetValue} mono={Boolean(updateInfo?.asset)} />
+        {updateInfo && (
+          <div className="settings-row justify-end gap-3">
+            <a className="settings-action" href={updateInfo.release_url} target="_blank" rel="noreferrer">
+              {m.settings.releasePage}
+            </a>
+            <button
+              disabled={!updateInfo.download_url && !updateInfo.release_url}
+              onClick={() => void onDownload(updateInfo)}
+              className="settings-action settings-action-primary"
+            >
+              {m.settings.downloadUpdate}
+            </button>
+          </div>
+        )}
+      </SettingsCard>
+    </Section>
+  );
+}
+
 function AboutSection({
   device,
   copied,
@@ -1013,6 +1123,9 @@ function SignalIcon() {
 }
 function ArchiveIcon() {
   return <Icon><path d="M4 8h16" /><path d="M5 8l1 12h12l1-12" /><path d="M7 4h10l1 4H6l1-4Z" /><path d="M10 12h4" /></Icon>;
+}
+function DownloadIcon() {
+  return <Icon><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></Icon>;
 }
 function InfoIcon() {
   return <Icon><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 8h.01" /></Icon>;

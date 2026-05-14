@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Route, Routes, Navigate, useNavigate } from "react-router-dom";
 import { Home } from "./pages/Home";
 import { Subscriptions } from "./pages/Subscriptions";
@@ -7,9 +7,9 @@ import { Applications } from "./pages/Applications";
 import { Settings } from "./pages/Settings";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { useAppStore } from "./store";
-import { api, type AppPreferences } from "./lib/api";
+import { api, type AppPreferences, type AppUpdateInfo } from "./lib/api";
 import { initNimboDeepLinks } from "./lib/deepLinks";
-import { useMessages, type Messages } from "./lib/i18n";
+import { fillTemplate, useMessages, type Messages } from "./lib/i18n";
 import nimboLogo from "./assets/nimbo.png";
 
 const navItems = [
@@ -27,6 +27,8 @@ export default function App() {
   const connectServer = useAppStore((s) => s.connectServer);
   const hydrate = useAppStore((s) => s.hydrate);
   const launchedActions = useRef(false);
+  const updateChecked = useRef(false);
+  const [startupUpdate, setStartupUpdate] = useState<AppUpdateInfo | null>(null);
   const m = useMessages();
 
   useEffect(() => applyVisualPreferences(preferences), [preferences]);
@@ -49,10 +51,32 @@ export default function App() {
     }
   }, [activeServerId, connectServer, hydrate, preferences.auto_connect_on_launch, preferences.ping_on_launch, status, subscriptions]);
 
+  useEffect(() => {
+    if (updateChecked.current || !status || !preferences.check_updates_on_launch) return;
+    updateChecked.current = true;
+
+    void api.checkAppUpdate()
+      .then((update) => {
+        if (update.available) setStartupUpdate(update);
+      })
+      .catch(() => undefined);
+  }, [preferences.check_updates_on_launch, status]);
+
   return (
     <div className="app-shell flex h-full">
       <DeepLinkBridge />
       <NotificationCenter />
+      {startupUpdate && (
+        <UpdateDialog
+          update={startupUpdate}
+          onDownload={() => {
+            const url = startupUpdate.download_url ?? startupUpdate.release_url;
+            void api.openUpdateDownload(url);
+            setStartupUpdate(null);
+          }}
+          onClose={() => setStartupUpdate(null)}
+        />
+      )}
       <aside className="app-sidebar w-60 shrink-0 flex flex-col p-3">
         <div className="glass rounded-2xl flex-1 flex flex-col overflow-hidden">
           <div className="app-brand px-5 pt-5 pb-4">
@@ -101,6 +125,68 @@ export default function App() {
         </Routes>
       </main>
     </div>
+  );
+}
+
+function UpdateDialog({
+  update,
+  onDownload,
+  onClose,
+}: {
+  update: AppUpdateInfo;
+  onDownload: () => void;
+  onClose: () => void;
+}) {
+  const m = useMessages();
+  const canDownload = Boolean(update.download_url || update.release_url);
+
+  return (
+    <div className="update-dialog-backdrop" onClick={onClose}>
+      <div className="update-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="update-dialog-art">
+          <div className="update-dialog-orbit">
+            <RocketIcon />
+          </div>
+        </div>
+        <h2 className="update-dialog-title">{m.settings.updateAvailable}</h2>
+        <div className="update-dialog-version">v{update.latest_version}</div>
+        <p className="update-dialog-text">
+          {fillTemplate(m.settings.updateReady, { version: update.latest_version })}
+          <br />
+          {update.asset ? m.settings.updateRecommended : m.settings.updateNoAsset}
+        </p>
+        <button
+          type="button"
+          className="update-dialog-download"
+          disabled={!canDownload}
+          onClick={onDownload}
+        >
+          {m.settings.downloadUpdate}
+        </button>
+        <button type="button" className="update-dialog-later" onClick={onClose}>
+          {m.common.later}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RocketIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M13.5 4.3c1.7-1.2 3.7-1.6 5.8-1.4.2 2.1-.2 4.1-1.4 5.8l-5.5 7.5-4.7-4.7 5.8-7.2Z"
+        fill="currentColor"
+      />
+      <path
+        d="M7.8 11.5 4.9 12 3.5 15.5l4.3-.7m4.7 1.4-.7 4.3 3.5-1.4.5-2.9M9 17l-2 2"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="15.6" cy="7.3" r="1.15" fill="#07150c" />
+    </svg>
   );
 }
 

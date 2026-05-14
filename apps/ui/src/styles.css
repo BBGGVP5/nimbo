@@ -720,6 +720,131 @@ select {
   box-shadow: 0 14px 30px var(--color-glow-accent);
 }
 
+.update-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.update-dialog {
+  --update-lime: #bce84b;
+  --update-lime-soft: rgba(188, 232, 75, 0.18);
+  width: min(704px, 100%);
+  min-height: 620px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid rgba(188, 232, 75, 0.32);
+  border-radius: 44px;
+  background:
+    radial-gradient(52% 34% at 50% 0%, rgba(188, 232, 75, 0.18), transparent 72%),
+    linear-gradient(180deg, rgba(13, 28, 16, 0.98), rgba(8, 20, 12, 0.98));
+  box-shadow:
+    0 34px 95px rgba(0, 0, 0, 0.58),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 0 1px rgba(188, 232, 75, 0.08);
+  padding: 44px 46px 42px;
+  text-align: center;
+}
+
+.update-dialog-art {
+  width: 240px;
+  height: 156px;
+  display: grid;
+  place-items: center;
+  margin-top: -44px;
+  margin-bottom: 10px;
+  background: linear-gradient(90deg, transparent, rgba(188, 232, 75, 0.09), transparent);
+}
+
+.update-dialog-orbit {
+  width: 138px;
+  height: 138px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 4px solid rgba(188, 232, 75, 0.48);
+  color: var(--update-lime);
+  background: radial-gradient(circle, rgba(188, 232, 75, 0.13), rgba(188, 232, 75, 0.02) 64%, transparent);
+  box-shadow: 0 0 42px rgba(188, 232, 75, 0.14);
+}
+
+.update-dialog-orbit svg {
+  width: 64px;
+  height: 64px;
+}
+
+.update-dialog-title {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(32px, 5.2vw, 44px);
+  line-height: 1.08;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.update-dialog-version {
+  margin-top: 18px;
+  border-radius: 15px;
+  background: rgba(188, 232, 75, 0.16);
+  color: var(--update-lime);
+  padding: 10px 24px;
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.update-dialog-text {
+  max-width: 590px;
+  margin: 26px 0 46px;
+  color: rgba(245, 248, 239, 0.72);
+  font-size: clamp(21px, 3.3vw, 30px);
+  line-height: 1.32;
+  font-weight: 520;
+}
+
+.update-dialog-download {
+  width: 100%;
+  min-height: 88px;
+  border: 0;
+  border-radius: 24px;
+  background: var(--update-lime);
+  color: #07140c;
+  font-size: 28px;
+  font-weight: 900;
+  transition: transform 160ms ease, filter 160ms ease, box-shadow 160ms ease;
+}
+
+.update-dialog-download:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.04);
+  box-shadow: 0 18px 44px rgba(188, 232, 75, 0.20);
+}
+
+.update-dialog-download:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.update-dialog-later {
+  margin-top: 42px;
+  border: 0;
+  background: transparent;
+  color: rgba(245, 248, 239, 0.46);
+  font-size: 27px;
+  font-weight: 800;
+}
+
+.update-dialog-later:hover {
+  color: rgba(245, 248, 239, 0.76);
+}
+
 .dark-input {
   width: 100%;
   background: var(--color-glass-bg);
@@ -938,6 +1063,17 @@ select {
 .settings-icon-button:hover {
   background: rgba(255, 255, 255, 0.09);
   border-color: var(--color-border-strong);
+}
+
+.settings-action-primary {
+  background: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 52%, transparent);
+  color: #fff;
+  font-weight: 800;
+}
+
+.settings-action-primary:hover {
+  background: var(--color-accent-bright);
 }
 
 .settings-icon-button {

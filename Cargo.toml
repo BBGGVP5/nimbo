@@ -15,7 +15,7 @@ edition = "2021"
 rust-version = "1.80"
 authors = ["Case211"]
 license = "Proprietary"
-repository = "https://github.com/Case211/nimbo-app"
+repository = "https://github.com/BBGGVP5/nimbo"
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
