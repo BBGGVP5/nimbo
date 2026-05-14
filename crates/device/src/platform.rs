@@ -42,10 +42,19 @@ mod imp {
     }
 
     fn cmd_windows_version() -> Option<String> {
-        let output = std::process::Command::new("cmd")
+        let mut command = std::process::Command::new("cmd");
+        command
             .args(["/C", "ver"])
-            .output()
-            .ok()?;
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+
+        let output = command.output().ok()?;
         if !output.status.success() {
             return None;
         }
