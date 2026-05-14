@@ -28,6 +28,7 @@ export default function App() {
   const hydrate = useAppStore((s) => s.hydrate);
   const launchedActions = useRef(false);
   const updateChecked = useRef(false);
+  const updateCheckInFlight = useRef(false);
   const [startupUpdate, setStartupUpdate] = useState<AppUpdateInfo | null>(null);
   const m = useMessages();
 
@@ -52,15 +53,30 @@ export default function App() {
   }, [activeServerId, connectServer, hydrate, preferences.auto_connect_on_launch, preferences.ping_on_launch, status, subscriptions]);
 
   useEffect(() => {
-    if (updateChecked.current || !status || !preferences.check_updates_on_launch) return;
-    updateChecked.current = true;
+    if (
+      updateChecked.current ||
+      updateCheckInFlight.current ||
+      !status ||
+      !preferences.check_updates_on_launch
+    ) {
+      return;
+    }
 
+    updateCheckInFlight.current = true;
     void api.checkAppUpdate()
       .then((update) => {
+        updateChecked.current = true;
         if (update.available) setStartupUpdate(update);
       })
-      .catch(() => undefined);
-  }, [preferences.check_updates_on_launch, status]);
+      .catch(() => {
+        if (status.state === "connected") {
+          updateChecked.current = true;
+        }
+      })
+      .finally(() => {
+        updateCheckInFlight.current = false;
+      });
+  }, [preferences.check_updates_on_launch, status, status?.state]);
 
   return (
     <div className="app-shell flex h-full">

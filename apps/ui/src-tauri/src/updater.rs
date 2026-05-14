@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 const DEFAULT_RELEASE_API_URL: &str = "https://api.github.com/repos/BBGGVP5/nimbo/releases/latest";
+const LOCAL_HTTP_PROXY: &str = "http://127.0.0.1:10809";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AppUpdateInfo {
@@ -95,8 +96,33 @@ async fn fetch_latest_release() -> Result<GithubRelease, String> {
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_RELEASE_API_URL.to_string());
 
-    let response = reqwest::Client::builder()
+    let direct_result = fetch_release_text(&url, false).await;
+    let text = match direct_result {
+        Ok(text) => text,
+        Err(direct_error) => fetch_release_text(&url, true)
+            .await
+            .map_err(|proxy_error| {
+                format!(
+                    "Не удалось проверить обновления напрямую ({direct_error}) и через локальный proxy ({proxy_error})"
+                )
+            })?,
+    };
+
+    serde_json::from_str(&text).map_err(|e| format!("Не удалось разобрать релиз GitHub: {e}"))
+}
+
+async fn fetch_release_text(url: &str, use_local_proxy: bool) -> Result<String, String> {
+    let mut builder = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(18))
+        .no_proxy();
+
+    if use_local_proxy {
+        let proxy = reqwest::Proxy::all(LOCAL_HTTP_PROXY)
+            .map_err(|e| format!("Не удалось настроить локальный proxy обновлений: {e}"))?;
+        builder = builder.proxy(proxy);
+    }
+
+    let response = builder
         .build()
         .map_err(|e| format!("Не удалось создать HTTP-клиент обновлений: {e}"))?
         .get(url)
@@ -108,11 +134,10 @@ async fn fetch_latest_release() -> Result<GithubRelease, String> {
         .error_for_status()
         .map_err(|e| format!("GitHub не отдал релиз: {e}"))?;
 
-    let text = response
+    response
         .text()
         .await
-        .map_err(|e| format!("Не удалось прочитать ответ GitHub: {e}"))?;
-    serde_json::from_str(&text).map_err(|e| format!("Не удалось разобрать релиз GitHub: {e}"))
+        .map_err(|e| format!("Не удалось прочитать ответ GitHub: {e}"))
 }
 
 fn select_asset(assets: &[GithubAsset]) -> Option<&GithubAsset> {

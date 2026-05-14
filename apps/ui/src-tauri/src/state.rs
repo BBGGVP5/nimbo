@@ -185,8 +185,18 @@ impl AppState {
         let storage_path = storage_path()?;
         let mut inner = if storage_path.exists() {
             let bytes = std::fs::read(&storage_path)?;
+            let had_update_launch_preference = serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|value| value.get("preferences").cloned())
+                .and_then(|preferences| preferences.get("check_updates_on_launch").cloned())
+                .is_some();
             match serde_json::from_slice::<PersistedState>(&bytes) {
-                Ok(s) => s,
+                Ok(mut s) => {
+                    if !had_update_launch_preference {
+                        s.preferences.check_updates_on_launch = true;
+                    }
+                    s
+                }
                 Err(e) => {
                     tracing::warn!(?e, "subscriptions.json corrupted, starting fresh");
                     PersistedState::default()
