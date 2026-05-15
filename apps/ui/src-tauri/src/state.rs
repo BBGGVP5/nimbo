@@ -16,6 +16,8 @@ pub struct PersistedState {
     #[serde(default)]
     pub active_server_id: Option<String>,
     #[serde(default)]
+    pub active_subscription_url: Option<String>,
+    #[serde(default)]
     pub user_agent_override: Option<String>,
     #[serde(default)]
     pub app_proxy_rules: Vec<AppProxyRule>,

@@ -8,8 +8,8 @@ use crate::commands::{
     get_status, get_tun_status, get_user_agent_override, inspect_subscription_headers, install_tun,
     list_app_proxy_rules, list_installed_apps, list_subscriptions, ping_server, ping_servers, read_clipboard_text,
     refresh_subscription, refresh_tray_menu, remove_subscription, reset_device_id, restart_as_admin,
-    set_active_server, set_app_proxy_rules, set_connection_mode, set_preferences, set_proxy_settings,
-    set_user_agent_override, update_subscription_settings, write_clipboard_text,
+    set_active_server, set_active_subscription, set_app_proxy_rules, set_connection_mode, set_preferences,
+    set_proxy_settings, set_user_agent_override, update_subscription_settings, write_clipboard_text,
 };
 use crate::state::AppState;
 use crate::updater::{check_app_update, open_update_download};
@@ -96,6 +96,7 @@ pub fn run() {
             update_subscription_settings,
             remove_subscription,
             set_active_server,
+            set_active_subscription,
             ping_server,
             ping_servers,
             refresh_tray_menu,

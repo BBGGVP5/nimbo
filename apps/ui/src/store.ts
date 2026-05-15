@@ -13,6 +13,7 @@ interface AppStoreState {
   preferences: AppPreferences;
   subscriptions: Subscription[];
   activeServerId: string | null;
+  activeSubscriptionUrl: string | null;
   serverPings: Record<string, number>;
   connectingServerId: string | null;
   disconnecting: boolean;
@@ -27,6 +28,7 @@ interface AppStoreState {
   updateSubscriptionSettings: (url: string, settings: SubscriptionSettingsPatch) => Promise<Subscription>;
   removeSubscription: (url: string) => Promise<void>;
   setActiveServer: (serverId: string | null) => Promise<void>;
+  setActiveSubscription: (url: string | null) => Promise<void>;
   connectServer: (serverId: string) => Promise<void>;
   disconnectServer: () => Promise<void>;
   setServerPing: (serverId: string, latency: number) => void;
@@ -40,6 +42,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   preferences: defaultAppPreferences,
   subscriptions: [],
   activeServerId: null,
+  activeSubscriptionUrl: null,
   serverPings: {},
   connectingServerId: null,
   disconnecting: false,
@@ -60,6 +63,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         subscriptions: subs,
         status,
         activeServerId: status.active_server_id,
+        activeSubscriptionUrl: status.active_subscription_url,
         serverPings: status.server_pings ?? {},
         preferences,
         disconnecting: false,
@@ -122,6 +126,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       subscriptions: persisted.subscriptions,
       activeServerId: persisted.active_server_id,
       serverPings: persisted.server_pings ?? {},
+    });
+    await get().hydrate();
+    void api.refreshTrayMenu();
+  },
+
+  setActiveSubscription: async (url) => {
+    const persisted = await api.setActiveSubscription(url);
+    set({
+      subscriptions: persisted.subscriptions,
+      activeSubscriptionUrl: persisted.active_subscription_url ?? null,
     });
     await get().hydrate();
     void api.refreshTrayMenu();

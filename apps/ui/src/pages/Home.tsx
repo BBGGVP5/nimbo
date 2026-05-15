@@ -27,17 +27,20 @@ export function Home() {
   const m = useMessages();
   const subs = useAppStore((s) => s.subscriptions);
   const activeId = useAppStore((s) => s.activeServerId);
+  const activeSubscriptionUrl = useAppStore((s) => s.activeSubscriptionUrl);
   const status = useAppStore((s) => s.status);
   const serverPings = useAppStore((s) => s.serverPings);
   const connectingServerId = useAppStore((s) => s.connectingServerId);
   const disconnecting = useAppStore((s) => s.disconnecting);
   const setActive = useAppStore((s) => s.setActiveServer);
+  const setActiveSubscription = useAppStore((s) => s.setActiveSubscription);
   const connectServer = useAppStore((s) => s.connectServer);
   const disconnectServer = useAppStore((s) => s.disconnectServer);
   const refreshSubscription = useAppStore((s) => s.refreshSubscription);
   const setServerPing = useAppStore((s) => s.setServerPing);
 
   const [serverListOpen, setServerListOpen] = useState(false);
+  const [subSwitcherOpen, setSubSwitcherOpen] = useState(false);
   const [refreshingUrl, setRefreshingUrl] = useState<string | null>(null);
   const [pinging, setPinging] = useState(false);
   const [pingingServerIds, setPingingServerIds] = useState<Set<string>>(() => new Set());
@@ -46,17 +49,27 @@ export function Home() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [sessionTraffic, setSessionTraffic] = useState({ upload: 0, download: 0 });
 
-  const entries = useMemo<ServerEntry[]>(
-    () =>
-      subs
-        .filter(subscriptionVisibleOnHome)
-        .flatMap((sub) => sub.servers.map((server) => ({ server, sub }))),
+  const visibleSubs = useMemo(
+    () => subs.filter(subscriptionVisibleOnHome),
     [subs],
+  );
+
+  const currentSub = useMemo(() => {
+    if (activeSubscriptionUrl) {
+      const match = visibleSubs.find((sub) => sub.url === activeSubscriptionUrl);
+      if (match) return match;
+    }
+    return visibleSubs[0] ?? null;
+  }, [visibleSubs, activeSubscriptionUrl]);
+
+  const entries = useMemo<ServerEntry[]>(
+    () => (currentSub ? currentSub.servers.map((server) => ({ server, sub: currentSub })) : []),
+    [currentSub],
   );
 
   const activeEntry = activeId ? entries.find((item) => item.server.id === activeId) ?? null : null;
   const fallbackEntry = activeEntry ?? entries[0] ?? null;
-  const selectedSubscription = fallbackEntry?.sub ?? null;
+  const selectedSubscription = currentSub;
   const connected = status?.state === "connected";
   const connecting = Boolean(connectingServerId);
 
@@ -168,9 +181,29 @@ export function Home() {
     }
   };
 
+  const onSwitchSubscription = async (url: string) => {
+    setSubSwitcherOpen(false);
+    if (currentSub?.url === url) return;
+    try {
+      await setActiveSubscription(url);
+    } catch (e) {
+      notifyError(String(e));
+    }
+  };
+
   return (
     <div className="page-view h-full">
       <div className="flex min-h-full flex-col items-center justify-center pb-8 pt-3">
+        {visibleSubs.length > 1 && (
+          <SubscriptionSwitcher
+            subs={visibleSubs}
+            current={currentSub}
+            open={subSwitcherOpen}
+            onToggleOpen={() => setSubSwitcherOpen((v) => !v)}
+            onPick={onSwitchSubscription}
+            labels={m}
+          />
+        )}
         <ProfileSummary
           sub={selectedSubscription}
           refreshing={refreshingUrl === selectedSubscription?.url}
@@ -381,6 +414,76 @@ function ProfileSummary({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function SubscriptionSwitcher({
+  subs,
+  current,
+  open,
+  onToggleOpen,
+  onPick,
+  labels,
+}: {
+  subs: Subscription[];
+  current: Subscription | null;
+  open: boolean;
+  onToggleOpen: () => void;
+  onPick: (url: string) => void;
+  labels: Messages;
+}) {
+  const currentName = current?.name?.trim() || labels.common.subscription;
+  return (
+    <div className="mb-2 w-full max-w-[740px]">
+      <button
+        onClick={onToggleOpen}
+        className="interactive panel grid w-full grid-cols-[28px_1fr_18px] items-center gap-2.5 px-4 py-2.5 text-left"
+      >
+        <div className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
+          <GlobeIcon />
+        </div>
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-faint)]">
+            {labels.common.subscription}
+          </div>
+          <div className="truncate text-sm font-semibold text-white">{currentName}</div>
+        </div>
+        <ChevronDownIcon open={open} />
+      </button>
+      {open && (
+        <div className="panel mt-2 max-h-[260px] overflow-auto py-1">
+          {subs.map((sub) => {
+            const name = sub.name?.trim() || sub.url;
+            const active = current?.url === sub.url;
+            return (
+              <button
+                key={sub.url}
+                onClick={() => onPick(sub.url)}
+                className={[
+                  "grid w-full grid-cols-[24px_1fr_auto] items-center gap-2.5 px-3.5 py-2 text-left transition-all hover:bg-[var(--color-glass-bg)]",
+                  active ? "bg-[var(--color-glass-bg-strong)]" : "",
+                ].join(" ")}
+              >
+                <div className="grid h-6 w-6 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
+                  <GlobeIcon />
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-white">{name}</div>
+                  <div className="truncate text-[11px] text-[var(--color-text-faint)]">
+                    {sub.servers.length} {labels.common.servers}
+                  </div>
+                </div>
+                {active && (
+                  <span className="rounded-full bg-[var(--color-accent-active-bg)] px-2 py-0.5 text-[10px] font-bold text-[var(--color-accent-bright)]">
+                    ●
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ export type ConnectionState =
 export interface AppStatus {
   state: ConnectionState;
   active_server_id: string | null;
+  active_subscription_url: string | null;
   subscription_count: number;
   server_count: number;
   service_protocol: number;
@@ -131,6 +132,7 @@ export interface SubscriptionHeaderMetadata {
 export interface PersistedState {
   subscriptions: Subscription[];
   active_server_id: string | null;
+  active_subscription_url?: string | null;
   user_agent_override?: string | null;
   app_proxy_rules?: AppProxyRule[];
   connected?: boolean;
@@ -300,6 +302,7 @@ function browserPersistedState(): PersistedState {
   return {
     subscriptions: Array.isArray(stored?.subscriptions) ? stored.subscriptions : [],
     active_server_id: stored?.active_server_id ?? null,
+    active_subscription_url: stored?.active_subscription_url ?? null,
     user_agent_override: stored?.user_agent_override ?? null,
     app_proxy_rules: Array.isArray(stored?.app_proxy_rules) ? stored.app_proxy_rules : [],
     connected: Boolean(stored?.connected),
@@ -523,6 +526,7 @@ export const api = {
           return {
             state: state.connected ? "connected" : "disconnected",
             active_server_id: state.active_server_id,
+            active_subscription_url: state.active_subscription_url ?? null,
             subscription_count: state.subscriptions.length,
             server_count: serverCount,
             service_protocol: 1,
@@ -751,6 +755,13 @@ export const api = {
       : Promise.resolve((() => {
           const current = browserPersistedState();
           return writeBrowserPersistedState({ ...current, active_server_id: serverId });
+        })()),
+  setActiveSubscription: (url: string | null) =>
+    isTauriRuntime()
+      ? invoke<PersistedState>("set_active_subscription", { url })
+      : Promise.resolve((() => {
+          const current = browserPersistedState();
+          return writeBrowserPersistedState({ ...current, active_subscription_url: url });
         })()),
   pingServer: (serverId: string) =>
     isTauriRuntime()

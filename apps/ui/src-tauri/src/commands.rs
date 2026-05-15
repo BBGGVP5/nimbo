@@ -37,6 +37,7 @@ const XRAY_PROXY_TAG: &str = "proxy";
 pub struct AppStatus {
     pub state: ConnectionState,
     pub active_server_id: Option<String>,
+    pub active_subscription_url: Option<String>,
     pub subscription_count: usize,
     pub server_count: usize,
     pub service_protocol: u32,
@@ -169,6 +170,7 @@ pub fn get_status(state: State<'_, AppState>) -> AppStatus {
             ConnectionState::Disconnected
         },
         active_server_id: snapshot.active_server_id,
+        active_subscription_url: snapshot.active_subscription_url,
         subscription_count: snapshot.subscriptions.len(),
         server_count,
         service_protocol: PROTOCOL_VERSION,
@@ -450,6 +452,12 @@ pub fn remove_subscription(
                     .any(|sub| sub.servers.iter().any(|srv| &srv.id == active));
                 if !still_present {
                     s.active_server_id = None;
+                }
+            }
+            if let Some(active_url) = &s.active_subscription_url {
+                let still_present = s.subscriptions.iter().any(|sub| &sub.url == active_url);
+                if !still_present {
+                    s.active_subscription_url = None;
                 }
             }
         })
@@ -883,6 +891,24 @@ pub fn set_active_server(
     state
         .mutate(|s| s.active_server_id = server_id)
         .map_err(|e| format!("Не удалось сохранить: {e}"))?;
+    Ok(state.snapshot())
+}
+
+#[tauri::command]
+pub fn set_active_subscription(
+    state: State<'_, AppState>,
+    url: Option<String>,
+) -> Result<PersistedState, String> {
+    if let Some(url) = &url {
+        let snap = state.snapshot();
+        let exists = snap.subscriptions.iter().any(|sub| sub.url == *url);
+        if !exists {
+            return Err("Подписка не найдена".into());
+        }
+    }
+    state
+        .mutate(|s| s.active_subscription_url = url)
+        .map_err(|e| format!("Не удалось сохранить активную подписку: {e}"))?;
     Ok(state.snapshot())
 }
 
