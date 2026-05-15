@@ -46,8 +46,8 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.42;
+  font-size: 13px;
+  line-height: 1.45;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -253,6 +253,10 @@ select {
   -webkit-backdrop-filter: blur(20px);
 }
 
+.app-sidebar {
+  width: var(--sidebar-width, 200px);
+}
+
 .app-sidebar > .glass {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.025)),
@@ -293,16 +297,16 @@ select {
 }
 
 .page-title {
-  font-size: 33px;
-  line-height: 1.08;
+  font-size: 22px;
+  line-height: 1.12;
   font-weight: 800;
   color: white;
-  margin: 0 0 8px;
+  margin: 0 0 6px;
 }
 
 .page-subtitle {
   color: var(--color-text-faint);
-  font-size: 17px;
+  font-size: 13px;
   margin: 0;
 }
 
@@ -572,10 +576,101 @@ select {
   animation-direction: reverse;
 }
 
+.home-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+}
+
+.home-center {
+  min-width: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding: 12px 0 16px;
+  align-items: center;
+  justify-items: center;
+}
+
+.home-top,
+.home-bottom {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.home-middle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.home-right {
+  width: 280px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-sidebar-resizer {
+  width: 6px;
+  margin: 0 2px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  background: transparent;
+  transition: background 120ms ease;
+  align-self: stretch;
+}
+
+.app-sidebar-resizer:hover,
+.app-sidebar-resizer:active {
+  background: var(--color-glow-accent);
+}
+
+.profile-summary-description {
+  white-space: pre-line;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-height: 5.5em;
+  overflow-y: auto;
+}
+
+.profile-summary-description::-webkit-scrollbar { width: 4px; }
+.profile-summary-description::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 2px; }
+
+.server-side-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.014) 100%);
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  height: 100%;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.server-side-list::-webkit-scrollbar { width: 6px; }
+.server-side-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+
+.server-side-item {
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .home-grid { grid-template-columns: minmax(0, 1fr); }
+  .home-right { display: none; }
+}
+
 .connection-status {
-  color: var(--color-text-faint);
-  font-size: clamp(18px, 1.35vw, 24px);
+  color: var(--color-text);
+  font-size: clamp(15px, 1.1vw, 20px);
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   text-align: center;
   transition: color 180ms ease, text-shadow 180ms ease;
@@ -587,8 +682,8 @@ select {
 }
 
 .connection-status-connected {
-  color: var(--color-accent-bright);
-  text-shadow: 0 0 24px var(--color-glow-accent);
+  color: #6fe28a;
+  text-shadow: 0 0 24px rgba(111, 226, 138, 0.45);
 }
 
 .connection-status-disconnecting {
@@ -1451,13 +1546,17 @@ body[data-theme="light"] .update-dialog-backdrop {
   }
 
   .app-sidebar {
-    width: 100%;
+    width: 100% !important;
     height: 84px;
     padding: 8px 10px 10px;
     z-index: 20;
     background: transparent;
     border: 0;
     box-shadow: none;
+  }
+
+  .app-sidebar-resizer {
+    display: none;
   }
 
   .app-sidebar > .glass {
@@ -1633,6 +1732,21 @@ body[data-theme="light"] .update-dialog-backdrop {
 
   .mobile-wrap {
     flex-wrap: wrap;
+  }
+
+  .app-nav-text,
+  .app-nav-short {
+    display: none !important;
+  }
+
+  .app-nav-link {
+    font-size: 0;
+    padding: 8px 4px;
+  }
+
+  .app-nav-icon {
+    width: 24px;
+    height: 24px;
   }
 }
 

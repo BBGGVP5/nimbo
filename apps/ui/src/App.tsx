@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { NavLink, Route, Routes, Navigate, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { NavLink, Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Home } from "./pages/Home";
 import { Subscriptions } from "./pages/Subscriptions";
 import { Servers } from "./pages/Servers";
@@ -31,6 +31,8 @@ export default function App() {
   const connectServer = useAppStore((s) => s.connectServer);
   const hydrate = useAppStore((s) => s.hydrate);
   const launchedActions = useRef(false);
+  const onboardingChecked = useRef(false);
+  const sidebarWidth = useResizableSidebar();
   const updateChecked = useRef(false);
   const updateCheckInFlight = useRef(false);
   const updateStartupScheduled = useRef(false);
@@ -134,6 +136,11 @@ export default function App() {
   return (
     <div className="app-shell flex h-full">
       <DeepLinkBridge />
+      <OnboardingRedirect
+        ready={Boolean(status)}
+        hasSubscriptions={subscriptions.length > 0}
+        checkedRef={onboardingChecked}
+      />
       <NotificationCenter />
       {startupUpdate && (
         <UpdateDialog
@@ -146,7 +153,10 @@ export default function App() {
           onClose={() => setStartupUpdate(null)}
         />
       )}
-      <aside className="app-sidebar w-60 shrink-0 flex flex-col p-3">
+      <aside
+        className="app-sidebar shrink-0 flex flex-col p-3"
+        style={{ "--sidebar-width": `${sidebarWidth.width}px` } as React.CSSProperties}
+      >
         <div className="glass rounded-2xl flex-1 flex flex-col overflow-hidden">
           <div className="app-brand px-5 pt-5 pb-4">
             <div className="app-brand-lockup">
@@ -183,6 +193,15 @@ export default function App() {
         </div>
       </aside>
 
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Изменить ширину панели навигации"
+        className="app-sidebar-resizer"
+        onMouseDown={sidebarWidth.onResizeStart}
+        onDoubleClick={sidebarWidth.reset}
+      />
+
       <main className="app-main flex-1 overflow-auto p-3 pl-0">
         <Routes>
           <Route path="/" element={<Home />} />
@@ -214,17 +233,32 @@ function UpdateDialog({
   const m = useMessages();
   const canDownload = Boolean(update.download_url || update.release_url);
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
-    <div className="update-dialog-backdrop" onClick={onClose}>
-      <div className="update-dialog" onClick={(e) => e.stopPropagation()}>
+    <div className="update-dialog-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="update-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="update-dialog-title"
+        aria-describedby="update-dialog-text"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="update-dialog-art">
           <div className="update-dialog-orbit">
             <img src={nimboLogo} alt="" className="update-dialog-logo" aria-hidden="true" />
           </div>
         </div>
-        <h2 className="update-dialog-title">{m.settings.updateAvailable}</h2>
+        <h2 id="update-dialog-title" className="update-dialog-title">{m.settings.updateAvailable}</h2>
         <div className="update-dialog-version">v{update.latest_version}</div>
-        <p className="update-dialog-text">
+        <p id="update-dialog-text" className="update-dialog-text">
           {fillTemplate(m.settings.updateReady, { version: update.latest_version })}
           <br />
           {update.asset ? m.settings.updateRecommended : m.settings.updateNoAsset}
@@ -339,6 +373,73 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 
 function rgbToHex(r: number, g: number, b: number): string {
   return `#${[r, g, b].map((x) => Math.max(0, Math.min(255, x)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+const SIDEBAR_WIDTH_KEY = "nimbo.sidebarWidth";
+const SIDEBAR_WIDTH_DEFAULT = 200;
+const SIDEBAR_WIDTH_MIN = 160;
+const SIDEBAR_WIDTH_MAX = 340;
+
+function useResizableSidebar() {
+  const [width, setWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return SIDEBAR_WIDTH_DEFAULT;
+    const stored = Number.parseInt(window.localStorage.getItem(SIDEBAR_WIDTH_KEY) ?? "", 10);
+    if (Number.isFinite(stored) && stored >= SIDEBAR_WIDTH_MIN && stored <= SIDEBAR_WIDTH_MAX) {
+      return stored;
+    }
+    return SIDEBAR_WIDTH_DEFAULT;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+  }, [width]);
+
+  const onResizeStart = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = (event.currentTarget.previousElementSibling as HTMLElement | null)?.getBoundingClientRect().width ?? width;
+    const onMove = (e: MouseEvent) => {
+      const delta = e.clientX - startX;
+      const next = Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, startWidth + delta));
+      setWidth(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [width]);
+
+  const reset = useCallback(() => setWidth(SIDEBAR_WIDTH_DEFAULT), []);
+
+  return { width, onResizeStart, reset };
+}
+
+function OnboardingRedirect({
+  ready,
+  hasSubscriptions,
+  checkedRef,
+}: {
+  ready: boolean;
+  hasSubscriptions: boolean;
+  checkedRef: React.MutableRefObject<boolean>;
+}) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  useEffect(() => {
+    if (checkedRef.current || !ready) return;
+    checkedRef.current = true;
+    if (!hasSubscriptions && location.pathname === "/") {
+      navigate("/subscriptions", { replace: true });
+    }
+  }, [ready, hasSubscriptions, location.pathname, navigate, checkedRef]);
+  return null;
 }
 
 function DeepLinkBridge() {
