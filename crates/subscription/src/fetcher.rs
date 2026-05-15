@@ -137,9 +137,10 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         apply_server_descriptions(&mut servers, &remnawave.server_descriptions);
     if !remnawave.server_descriptions.is_empty() {
         println!(
-            "subscription server descriptions: found {}, applied {}",
+            "subscription server descriptions: candidates={}, applied to {}/{} servers",
             remnawave.server_descriptions.len(),
-            applied_server_descriptions
+            applied_server_descriptions,
+            servers.len()
         );
     }
 
@@ -446,7 +447,6 @@ fn parse_remnawave_info(json: &Value) -> RemnawaveInfo {
 #[derive(Debug, Clone)]
 struct ServerDescriptionCandidate {
     description: Option<String>,
-    name: Option<String>,
     address: Option<String>,
     port: Option<u16>,
     uuid: Option<String>,
@@ -464,44 +464,20 @@ fn collect_server_descriptions_inner(
     out: &mut Vec<ServerDescriptionCandidate>,
 ) {
     match value {
-        Value::Object(_) => {
-            let mut pushed_description = false;
-            let description = server_description_from_object(value);
-            let xray_json_template_uuid = first_string_any_case(
-                value,
-                &["xrayJsonTemplateUuid", "xray_json_template_uuid"],
-            )
-            .filter(|uuid| !uuid.eq_ignore_ascii_case("null"));
-            if description.is_some() {
-                pushed_description = true;
+        Value::Object(map) => {
+            if let Some(description) = server_description_from_object(value) {
                 out.push(ServerDescriptionCandidate {
-                    description,
-                    name: first_string_any_case_deep(
-                        value,
-                        &[
-                            "name",
-                            "serverName",
-                            "server_name",
-                            "remark",
-                            "remarks",
-                            "tag",
-                            "inboundTag",
-                            "inbound_tag",
-                            "host",
-                            "address",
-                        ],
-                    ),
-                    address: first_string_any_case_deep(
+                    description: Some(description),
+                    address: host_local_string(
                         value,
                         &["address", "host", "serverAddress", "server_address"],
                     ),
-                    port: first_u64_any_case_deep(value, &["port", "serverPort", "server_port"])
+                    port: host_local_u64(value, &["port", "serverPort", "server_port"])
                         .and_then(|p| u16::try_from(p).ok()),
-                    uuid: first_string_any_case_deep(
+                    uuid: host_local_string(
                         value,
                         &[
                             "uuid",
-                            "id",
                             "hostUuid",
                             "host_uuid",
                             "host-uuid",
@@ -511,19 +487,27 @@ fn collect_server_descriptions_inner(
                             "serverUuid",
                             "server_uuid",
                             "server-uuid",
+                            "id",
                         ],
                     ),
-                    xray_json_template_uuid,
+                    xray_json_template_uuid: host_local_string(
+                        value,
+                        &["xrayJsonTemplateUuid", "xray_json_template_uuid"],
+                    )
+                    .filter(|uuid| !uuid.eq_ignore_ascii_case("null")),
                 });
             }
 
-            if let Value::Object(map) = value {
-                for (key, nested) in map {
-                    if pushed_description && normalize_json_key(key) == "clientoverrides" {
-                        continue;
-                    }
-                    collect_server_descriptions_inner(nested, out);
+            for (key, nested) in map {
+                let normalized = normalize_json_key(key);
+                // host-local lookups уже подобрали поля из meta/clientOverrides,
+                // повторно туда не лезем — иначе захватим чужие name/uuid из дочерних объектов.
+                if normalized == "meta"
+                    || normalized == "clientoverrides"
+                {
+                    continue;
                 }
+                collect_server_descriptions_inner(nested, out);
             }
         }
         Value::Array(items) => {
@@ -533,6 +517,37 @@ fn collect_server_descriptions_inner(
         }
         _ => {}
     }
+}
+
+fn host_local_string(value: &Value, keys: &[&str]) -> Option<String> {
+    if let Some(found) = first_string_any_case(value, keys) {
+        return Some(found);
+    }
+    if let Some(meta) = get_case_insensitive(value, "meta") {
+        if let Some(found) = first_string_any_case(meta, keys) {
+            return Some(found);
+        }
+    }
+    if let Some(overrides) = get_case_insensitive(value, "clientOverrides")
+        .or_else(|| get_case_insensitive(value, "client_overrides"))
+    {
+        if let Some(found) = first_string_any_case(overrides, keys) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn host_local_u64(value: &Value, keys: &[&str]) -> Option<u64> {
+    if let Some(found) = first_u64_any_case(value, keys) {
+        return Some(found);
+    }
+    if let Some(meta) = get_case_insensitive(value, "meta") {
+        if let Some(found) = first_u64_any_case(meta, keys) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn server_description_from_object(value: &Value) -> Option<String> {
@@ -582,18 +597,12 @@ fn apply_server_descriptions(
         return 0;
     }
 
-    let can_match_by_index = candidates.len() == servers.len();
     let address_counts = server_address_counts(servers);
     let mut applied = 0;
-    for (index, server) in servers.iter_mut().enumerate() {
+    for server in servers.iter_mut() {
         let matched = candidates
             .iter()
             .find(|candidate| server_description_matches(candidate, server))
-            .or_else(|| {
-                can_match_by_index
-                    .then(|| candidates.get(index))
-                    .flatten()
-            })
             .or_else(|| {
                 candidates
                     .iter()
@@ -602,29 +611,44 @@ fn apply_server_descriptions(
                     })
             });
 
-        if let Some(candidate) = matched {
-            if let Some(host_uuid) = &candidate.uuid {
-                if sanitize_name(Some(host_uuid.clone())).is_some() {
-                    server.host_uuid = Some(host_uuid.clone());
-                }
+        let Some(candidate) = matched else {
+            continue;
+        };
+
+        let mut changed = false;
+        if let Some(host_uuid) = candidate
+            .uuid
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            if server.host_uuid.is_none() {
+                server.host_uuid = Some(host_uuid.to_string());
+                changed = true;
             }
-            if let Some(template_uuid) = &candidate.xray_json_template_uuid {
+        }
+        if let Some(template_uuid) = &candidate.xray_json_template_uuid {
+            if server.xray_json_template_uuid.is_none() {
                 server.xray_json_template_uuid = Some(template_uuid.clone());
-                applied += 1;
+                changed = true;
             }
-            if server
-                .server_description
-                .as_ref()
-                .and_then(|value| sanitize_name(Some(value.clone())))
-                .is_none()
-            {
-                if let Some(description) = &candidate.description {
-                    if !same_text(description, &server.name) || server.name.is_empty() {
-                        server.server_description = Some(description.clone());
-                        applied += 1;
-                    }
+        }
+        if server
+            .server_description
+            .as_ref()
+            .and_then(|value| sanitize_name(Some(value.clone())))
+            .is_none()
+        {
+            if let Some(description) = &candidate.description {
+                if !same_text(description, &server.name) || server.name.is_empty() {
+                    server.server_description = Some(description.clone());
+                    changed = true;
                 }
             }
+        }
+
+        if changed {
+            applied += 1;
         }
     }
 
@@ -661,10 +685,6 @@ fn server_description_matches(candidate: &ServerDescriptionCandidate, server: &S
         if same_text(candidate_address, address) && candidate_port == port {
             return true;
         }
-    }
-
-    if let Some(candidate_name) = &candidate.name {
-        return same_text(&server.name, candidate_name);
     }
 
     false
@@ -714,12 +734,6 @@ fn server_identity(server: &Server) -> (&str, u16, Option<&str>) {
 
 fn same_text(left: &str, right: &str) -> bool {
     normalized_identity_text(left) == normalized_identity_text(right)
-}
-
-fn text_contains_either(left: &str, right: &str) -> bool {
-    let left = normalized_identity_text(left);
-    let right = normalized_identity_text(right);
-    !left.is_empty() && !right.is_empty() && (left.contains(&right) || right.contains(&left))
 }
 
 fn normalized_identity_text(value: &str) -> String {
@@ -794,32 +808,6 @@ fn first_encoded_string_any_case(value: &Value, keys: &[&str]) -> Option<String>
     None
 }
 
-fn first_string_any_case_deep(value: &Value, keys: &[&str]) -> Option<String> {
-    if let Some(found) = first_string_any_case(value, keys) {
-        return Some(found);
-    }
-
-    match value {
-        Value::Object(map) => {
-            for nested in map.values() {
-                if let Some(found) = first_string_any_case_deep(nested, keys) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-        Value::Array(items) => {
-            for nested in items {
-                if let Some(found) = first_string_any_case_deep(nested, keys) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
 fn deep_find_string(value: &Value, keys: &[&str]) -> Option<String> {
     if let Some(found) = first_string(value, keys) {
         return Some(found);
@@ -837,58 +825,6 @@ fn deep_find_string(value: &Value, keys: &[&str]) -> Option<String> {
         Value::Array(items) => {
             for nested in items {
                 if let Some(found) = deep_find_string(nested, keys) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-fn deep_find_encoded_string(value: &Value, keys: &[&str]) -> Option<String> {
-    if let Some(found) = first_encoded_string_any_case(value, keys) {
-        return Some(found);
-    }
-
-    match value {
-        Value::Object(map) => {
-            for nested in map.values() {
-                if let Some(found) = deep_find_encoded_string(nested, keys) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-        Value::Array(items) => {
-            for nested in items {
-                if let Some(found) = deep_find_encoded_string(nested, keys) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-fn first_u64_any_case_deep(value: &Value, keys: &[&str]) -> Option<u64> {
-    if let Some(found) = first_u64_any_case(value, keys) {
-        return Some(found);
-    }
-
-    match value {
-        Value::Object(map) => {
-            for nested in map.values() {
-                if let Some(found) = first_u64_any_case_deep(nested, keys) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-        Value::Array(items) => {
-            for nested in items {
-                if let Some(found) = first_u64_any_case_deep(nested, keys) {
                     return Some(found);
                 }
             }
@@ -1281,10 +1217,91 @@ mod tests {
         let info = parse_remnawave_info(&json);
         let applied = apply_server_descriptions(&mut servers, &info.server_descriptions);
 
-        assert_eq!(applied, 2);
+        assert_eq!(applied, 1);
         assert_eq!(
             servers[0].server_description.as_deref(),
             Some("Template-linked description")
+        );
+    }
+
+    #[test]
+    fn candidate_without_identifying_fields_is_not_applied_by_name() {
+        let mut servers = parse_aggregate(
+            "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?type=tcp&security=tls#Berlin",
+        )
+        .unwrap();
+        // Кандидат с тем же именем что у сервера, но без uuid/address/port —
+        // раньше это давало ложный матч по name.
+        let json = json!({
+            "response": {
+                "items": [
+                    {
+                        "remarks": "Berlin",
+                        "serverDescription": "ВЛЕСС-узел из чужой подписки"
+                    }
+                ]
+            }
+        });
+
+        let info = parse_remnawave_info(&json);
+        let applied = apply_server_descriptions(&mut servers, &info.server_descriptions);
+
+        assert_eq!(applied, 0);
+        assert_eq!(servers[0].server_description, None);
+    }
+
+    #[test]
+    fn host_local_lookup_does_not_borrow_uuid_from_nested_object() {
+        let mut servers = parse_aggregate(
+            "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?type=tcp&security=tls&hostUuid=host-1#Node",
+        )
+        .unwrap();
+        // Description у внешнего объекта; uuid `host-1` лежит глубже,
+        // в дочернем объекте (settings.user.id). Это НЕ должно матчить.
+        let json = json!({
+            "response": {
+                "hosts": [
+                    {
+                        "serverDescription": "Чужое описание",
+                        "settings": {
+                            "user": { "id": "host-1" }
+                        }
+                    }
+                ]
+            }
+        });
+
+        let info = parse_remnawave_info(&json);
+        let applied = apply_server_descriptions(&mut servers, &info.server_descriptions);
+
+        assert_eq!(applied, 0);
+        assert_eq!(servers[0].server_description, None);
+    }
+
+    #[test]
+    fn host_local_lookup_picks_uuid_from_meta() {
+        let mut servers = parse_aggregate(
+            "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?type=tcp&security=tls&hostUuid=host-1#Node",
+        )
+        .unwrap();
+        let json = json!({
+            "response": {
+                "hosts": [
+                    {
+                        "serverDescription": "Описание с meta.hostUuid",
+                        "meta": { "hostUuid": "host-1" }
+                    }
+                ]
+            }
+        });
+
+        let info = parse_remnawave_info(&json);
+        let applied = apply_server_descriptions(&mut servers, &info.server_descriptions);
+
+        assert_eq!(applied, 1);
+        assert_eq!(
+            servers[0].server_description.as_deref(),
+            Some("Описание с meta.hostUuid")
         );
     }
 
