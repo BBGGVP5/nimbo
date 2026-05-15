@@ -64,6 +64,10 @@ pub struct Fetched {
     pub description: Option<String>,
     pub support_url: Option<String>,
     pub website_url: Option<String>,
+    /// Полный xray-config template, извлечённый из тела подписки
+    /// (первый item массива XRAY_JSON или сам объект, если body — одиночный JSON-конфиг).
+    /// Используется как источник routing/dns/log при сборке runtime-конфига xray.
+    pub xray_template: Option<Value>,
 }
 
 pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetched, FetchError> {
@@ -144,6 +148,8 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         );
     }
 
+    let xray_template = extract_xray_template_from_body(&body);
+
     Ok(Fetched {
         raw_body: body,
         servers,
@@ -152,7 +158,36 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         description: remnawave.description.or(announce),
         support_url: remnawave.support_url.or(support_url),
         website_url: remnawave.website_url.or(website_url),
+        xray_template,
     })
+}
+
+/// Если body — XRAY_JSON массив или одиночный объект с outbounds, возвращает первый
+/// item с полной структурой (routing/dns/log/outbounds), который можно использовать
+/// как template для построения runtime xray-config.
+fn extract_xray_template_from_body(body: &str) -> Option<Value> {
+    let trimmed = body.trim();
+    if !trimmed.starts_with('[') && !trimmed.starts_with('{') {
+        return None;
+    }
+    let parsed: Value = serde_json::from_str(trimmed).ok()?;
+    let candidate = match &parsed {
+        Value::Array(items) => items
+            .iter()
+            .find(|item| {
+                item.is_object() && item.get("outbounds").and_then(Value::as_array).is_some()
+            })
+            .cloned()?,
+        Value::Object(_) => {
+            if parsed.get("outbounds").and_then(Value::as_array).is_some() {
+                parsed
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+    Some(candidate)
 }
 
 pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> Subscription {
@@ -164,6 +199,7 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
         description,
         support_url,
         website_url,
+        xray_template: _,
     } = fetched;
     let resolved_name = sanitize_name(name).or_else(|| sanitize_name(suggested_name));
 
@@ -324,9 +360,6 @@ fn subscription_api_info_urls(subscription_url: &str) -> Vec<String> {
         let mut base = parsed;
         base.set_fragment(None);
 
-        base.set_path("/api/subscription-settings");
-        urls.push(base.to_string());
-
         base.set_path(&format!("/api/sub/{short_uuid}/info"));
         urls.push(base.to_string());
 
@@ -337,9 +370,6 @@ fn subscription_api_info_urls(subscription_url: &str) -> Vec<String> {
         urls.push(base.to_string());
 
         base.set_path(&format!("/api/sub/{short_uuid}/happ"));
-        urls.push(base.to_string());
-
-        base.set_path(&format!("/api/subscriptions/by-short-uuid/{short_uuid}/raw"));
         urls.push(base.to_string());
 
         let public_base = subscription_public_base_path(&segments, &short_uuid);
@@ -1315,8 +1345,11 @@ mod tests {
             url == "https://example.com/api/sub/e37b73d0-ec4d-4b49-b4cd-86685d6703ee/info?token=abc"
         }));
         assert!(urls.iter().any(|url| {
-            url == "https://example.com/api/subscriptions/by-short-uuid/e37b73d0-ec4d-4b49-b4cd-86685d6703ee/raw?token=abc"
+            url == "https://example.com/api/sub/e37b73d0-ec4d-4b49-b4cd-86685d6703ee/json?token=abc"
         }));
+        // admin-only endpoints (subscription-settings, by-short-uuid) больше не запрашиваются
+        assert!(!urls.iter().any(|url| url.contains("/api/subscription-settings")));
+        assert!(!urls.iter().any(|url| url.contains("/api/subscriptions/by-short-uuid/")));
     }
 
     #[test]

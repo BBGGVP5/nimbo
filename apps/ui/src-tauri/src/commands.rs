@@ -307,6 +307,7 @@ pub async fn add_subscription(
     } else {
         let servers = parse_aggregate(source)
             .map_err(|e| format!("Не удалось распарсить конфиг: {e}"))?;
+        let xray_template = serde_json::from_str::<serde_json::Value>(source.trim()).ok();
         Fetched {
             raw_body: source.to_string(),
             servers,
@@ -315,14 +316,12 @@ pub async fn add_subscription(
             description: None,
             support_url: None,
             website_url: None,
+            xray_template,
         }
     };
 
-    let xray_templates = fetch_xray_templates_for_subscription(
-        source,
-        snapshot_before.user_agent_override.as_deref(),
-    )
-    .await;
+    let xray_templates =
+        collect_subscription_xray_templates(&fetched, source, snapshot_before.user_agent_override.as_deref()).await;
     let subscription = build_subscription(source, fetched, name);
 
     state
@@ -355,7 +354,7 @@ pub async fn refresh_subscription(
     };
 
     let xray_templates =
-        fetch_xray_templates_for_subscription(&url, opts.user_agent.as_deref()).await;
+        collect_subscription_xray_templates(&fetched, &url, opts.user_agent.as_deref()).await;
     let updated_name = state
         .mutate(|s| {
             merge_xray_template_cache(&mut s.xray_templates, xray_templates);
@@ -990,6 +989,23 @@ async fn fetch_xray_templates_for_subscription(
     }
 
     out
+}
+
+/// Сначала пытаемся взять template прямо из тела подписки (мы его уже скачали в
+/// fetch_subscription) — это бесплатно и не зависит от того, поддерживает ли
+/// панель отдельную template-ручку. Если в теле template нет — fallback на
+/// публичный API подписки за отдельным template'ом.
+async fn collect_subscription_xray_templates(
+    fetched: &Fetched,
+    subscription_url: &str,
+    user_agent_override: Option<&str>,
+) -> HashMap<String, serde_json::Value> {
+    if let Some(template) = fetched.xray_template.as_ref() {
+        let mut out = HashMap::new();
+        out.insert(DEFAULT_XRAY_TEMPLATE_KEY.into(), template.clone());
+        return out;
+    }
+    fetch_xray_templates_for_subscription(subscription_url, user_agent_override).await
 }
 
 fn build_remnawave_client(
