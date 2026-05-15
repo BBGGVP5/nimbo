@@ -299,7 +299,7 @@ pub async fn add_subscription(
         return Err("Вставьте ссылку подписки или proxy-конфиг".into());
     }
 
-    let mut fetched = if is_remote_subscription(source) {
+    let fetched = if is_remote_subscription(source) {
         let opts = build_fetch_options(&snapshot_before);
         fetch_subscription(source, &opts)
             .await
@@ -318,17 +318,8 @@ pub async fn add_subscription(
         }
     };
 
-    if is_remote_subscription(source) {
-        enrich_servers_from_remnawave_api(
-            source,
-            &mut fetched.servers,
-            snapshot_before.user_agent_override.as_deref(),
-        )
-        .await;
-    }
     let xray_templates = fetch_xray_templates_for_subscription(
         source,
-        &fetched.servers,
         snapshot_before.user_agent_override.as_deref(),
     )
     .await;
@@ -350,10 +341,9 @@ pub async fn refresh_subscription(
     url: String,
 ) -> Result<Subscription, String> {
     let opts = build_fetch_options(&state.snapshot());
-    let mut fetched = fetch_subscription(&url, &opts)
+    let fetched = fetch_subscription(&url, &opts)
         .await
         .map_err(|e| format!("Не удалось обновить: {e}"))?;
-    enrich_servers_from_remnawave_api(&url, &mut fetched.servers, opts.user_agent.as_deref()).await;
 
     let active_was_in_servers = {
         let snap = state.snapshot();
@@ -365,8 +355,7 @@ pub async fn refresh_subscription(
     };
 
     let xray_templates =
-        fetch_xray_templates_for_subscription(&url, &fetched.servers, opts.user_agent.as_deref())
-            .await;
+        fetch_xray_templates_for_subscription(&url, opts.user_agent.as_deref()).await;
     let updated_name = state
         .mutate(|s| {
             merge_xray_template_cache(&mut s.xray_templates, xray_templates);
@@ -983,107 +972,11 @@ fn merge_xray_template_cache(
     }
 }
 
-#[derive(Debug, Clone)]
-struct RemnawaveApiContext {
-    base: String,
-}
-
-#[derive(Debug, Clone, Default)]
-struct HostApiInfo {
-    server_description: Option<String>,
-    xray_json_template_uuid: Option<String>,
-}
-
-async fn enrich_servers_from_remnawave_api(
-    subscription_url: &str,
-    servers: &mut [Server],
-    user_agent_override: Option<&str>,
-) {
-    let Some(context) = remnawave_api_context(subscription_url) else {
-        return;
-    };
-    let client = match build_remnawave_client(user_agent_override) {
-        Ok(client) => client,
-        Err(error) => {
-            println!("remnawave host cache: client init failed: {error}");
-            return;
-        }
-    };
-
-    let mut host_cache = HashMap::<String, Option<HostApiInfo>>::new();
-    for server in servers {
-        let Some(host_uuid) = clean_optional_uuid(server.host_uuid.as_deref()) else {
-            continue;
-        };
-        if !host_cache.contains_key(&host_uuid) {
-            let info = fetch_host_api_info(&client, &context, &host_uuid).await;
-            host_cache.insert(host_uuid.clone(), info);
-        }
-        let Some(Some(info)) = host_cache.get(&host_uuid) else {
-            continue;
-        };
-        if server
-            .server_description
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .is_none()
-        {
-            if let Some(description) = &info.server_description {
-                server.server_description = Some(description.clone());
-            }
-        }
-        if server.xray_json_template_uuid.is_none() {
-            server.xray_json_template_uuid = info.xray_json_template_uuid.clone();
-        }
-    }
-}
-
-async fn fetch_host_api_info(
-    client: &reqwest::Client,
-    context: &RemnawaveApiContext,
-    host_uuid: &str,
-) -> Option<HostApiInfo> {
-    let url = format!("{}/api/hosts/{host_uuid}", context.base);
-    let json = get_remnawave_json(client, &url).await?;
-    let root = json
-        .get("response")
-        .or_else(|| json.get("data"))
-        .unwrap_or(&json);
-    Some(HostApiInfo {
-        server_description: first_json_string_deep(
-            root,
-            &[
-                "serverDescription",
-                "server_description",
-                "server-description",
-                "serverDesc",
-                "server_desc",
-                "hostDescription",
-                "host_description",
-            ],
-        ),
-        xray_json_template_uuid: first_json_string_deep(
-            root,
-            &[
-                "xrayJsonTemplateUuid",
-                "xray_json_template_uuid",
-                "xray-json-template-uuid",
-            ],
-        )
-        .and_then(|value| clean_optional_uuid(Some(&value))),
-    })
-}
-
 async fn fetch_xray_templates_for_subscription(
     subscription_url: &str,
-    servers: &[Server],
     user_agent_override: Option<&str>,
 ) -> HashMap<String, serde_json::Value> {
     let mut out = HashMap::new();
-    let Some(context) = remnawave_api_context(subscription_url) else {
-        return out;
-    };
     let client = match build_remnawave_client(user_agent_override) {
         Ok(client) => client,
         Err(error) => {
@@ -1092,40 +985,8 @@ async fn fetch_xray_templates_for_subscription(
         }
     };
 
-    let mut template_uuids = servers
-        .iter()
-        .filter_map(|server| clean_optional_uuid(server.xray_json_template_uuid.as_deref()))
-        .collect::<Vec<_>>();
-
-    for host_uuid in servers
-        .iter()
-        .filter(|server| server.xray_json_template_uuid.is_none())
-        .filter_map(|server| clean_optional_uuid(server.host_uuid.as_deref()))
-    {
-        if let Some(uuid) = fetch_host_xray_template_uuid(&client, &context, &host_uuid).await {
-            template_uuids.push(uuid);
-        }
-    }
-
-    template_uuids.sort();
-    template_uuids.dedup();
-
-    for uuid in template_uuids {
-        if let Some(template) = fetch_xray_template_by_uuid(&client, &context, &uuid).await {
-            out.insert(uuid, template);
-        }
-    }
-
-    if let Some(template) = fetch_default_xray_template(&client, &context).await {
+    if let Some(template) = fetch_public_xray_template(&client, subscription_url).await {
         out.insert(DEFAULT_XRAY_TEMPLATE_KEY.into(), template);
-    } else if let Some(template) = fetch_public_xray_template(&client, subscription_url).await {
-        out.insert(DEFAULT_XRAY_TEMPLATE_KEY.into(), template);
-    }
-
-    if !out.contains_key(DEFAULT_XRAY_TEMPLATE_KEY) && out.len() == 1 {
-        if let Some(template) = out.values().next().cloned() {
-            out.insert(DEFAULT_XRAY_TEMPLATE_KEY.into(), template);
-        }
     }
 
     out
@@ -1159,79 +1020,6 @@ fn insert_request_header(
     if let Ok(value) = reqwest::header::HeaderValue::from_str(value) {
         headers.insert(name, value);
     }
-}
-
-fn remnawave_api_context(subscription_url: &str) -> Option<RemnawaveApiContext> {
-    let parsed = url::Url::parse(subscription_url).ok()?;
-    Some(RemnawaveApiContext {
-        base: format!("{}://{}", parsed.scheme(), parsed.host_str()?),
-    })
-}
-
-fn clean_optional_uuid(value: Option<&str>) -> Option<String> {
-    let value = value?.trim();
-    if value.is_empty() || value.eq_ignore_ascii_case("null") {
-        None
-    } else {
-        Some(value.to_string())
-    }
-}
-
-async fn fetch_host_xray_template_uuid(
-    client: &reqwest::Client,
-    context: &RemnawaveApiContext,
-    host_uuid: &str,
-) -> Option<String> {
-    let url = format!("{}/api/hosts/{host_uuid}", context.base);
-    let json = get_remnawave_json(client, &url).await?;
-    let root = json
-        .get("response")
-        .or_else(|| json.get("data"))
-        .unwrap_or(&json);
-    first_json_string_deep(root, &["xrayJsonTemplateUuid", "xray_json_template_uuid"])
-        .and_then(|value| clean_optional_uuid(Some(&value)))
-}
-
-async fn fetch_xray_template_by_uuid(
-    client: &reqwest::Client,
-    context: &RemnawaveApiContext,
-    uuid: &str,
-) -> Option<serde_json::Value> {
-    let urls = [
-        format!("{}/api/subscription-templates/{uuid}", context.base),
-        format!("{}/api/subscription-template/{uuid}", context.base),
-        format!("{}/api/xray-json-templates/{uuid}", context.base),
-        format!("{}/api/xray-json-template/{uuid}", context.base),
-    ];
-    for url in urls {
-        let Some(json) = get_remnawave_json(client, &url).await else {
-            continue;
-        };
-        if let Some(template) = extract_xray_template_json(&json) {
-            return Some(template);
-        }
-    }
-    None
-}
-
-async fn fetch_default_xray_template(
-    client: &reqwest::Client,
-    context: &RemnawaveApiContext,
-) -> Option<serde_json::Value> {
-    let urls = [
-        format!("{}/api/subscription-templates", context.base),
-        format!("{}/api/subscription-templates?templateType=XRAY_JSON", context.base),
-        format!("{}/api/xray-json-templates", context.base),
-    ];
-    for url in urls {
-        let Some(json) = get_remnawave_json(client, &url).await else {
-            continue;
-        };
-        if let Some(template) = extract_default_xray_template_json(&json) {
-            return Some(template);
-        }
-    }
-    None
 }
 
 async fn fetch_public_xray_template(
@@ -1356,31 +1144,6 @@ async fn get_remnawave_json(
     serde_json::from_str::<serde_json::Value>(&text).ok()
 }
 
-fn extract_default_xray_template_json(json: &serde_json::Value) -> Option<serde_json::Value> {
-    let mut templates = Vec::new();
-    collect_json_objects(json, &mut templates);
-
-    templates
-        .iter()
-        .copied()
-        .filter(|value| looks_like_xray_template_record(value))
-        .find(|value| {
-            first_json_bool(value, &["isDefault", "is_default", "default"]).unwrap_or(false)
-                || first_json_string(value, &["name", "templateName", "template_name"])
-                    .map(|name| name.to_ascii_lowercase().contains("default"))
-                    .unwrap_or(false)
-        })
-        .and_then(extract_xray_template_json)
-        .or_else(|| {
-            templates
-                .iter()
-                .copied()
-                .find(|value| looks_like_xray_template_record(value))
-                .and_then(extract_xray_template_json)
-        })
-        .or_else(|| extract_xray_template_json(json))
-}
-
 fn extract_xray_template_json(value: &serde_json::Value) -> Option<serde_json::Value> {
     if value.get("outbounds").is_some() {
         return Some(value.clone());
@@ -1416,79 +1179,6 @@ fn parse_template_value(value: &serde_json::Value) -> Option<serde_json::Value> 
         return serde_json::from_str::<serde_json::Value>(text)
             .ok()
             .filter(|json| json.get("outbounds").is_some());
-    }
-    None
-}
-
-fn looks_like_xray_template_record(value: &serde_json::Value) -> bool {
-    let template_type = first_json_string(
-        value,
-        &["templateType", "template_type", "type", "kind"],
-    )
-    .unwrap_or_default()
-    .to_ascii_lowercase();
-    template_type.contains("xray") || extract_xray_template_json(value).is_some()
-}
-
-fn collect_json_objects<'a>(value: &'a serde_json::Value, out: &mut Vec<&'a serde_json::Value>) {
-    match value {
-        serde_json::Value::Object(map) => {
-            out.push(value);
-            for nested in map.values() {
-                collect_json_objects(nested, out);
-            }
-        }
-        serde_json::Value::Array(items) => {
-            for nested in items {
-                collect_json_objects(nested, out);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn first_json_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
-    for key in keys {
-        if let Some(text) = get_case_insensitive_json(value, key).and_then(serde_json::Value::as_str) {
-            let text = text.trim();
-            if !text.is_empty() {
-                return Some(text.to_string());
-            }
-        }
-    }
-    None
-}
-
-fn first_json_string_deep(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
-    if let Some(found) = first_json_string(value, keys) {
-        return Some(found);
-    }
-    match value {
-        serde_json::Value::Object(map) => {
-            for nested in map.values() {
-                if let Some(found) = first_json_string_deep(nested, keys) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-        serde_json::Value::Array(items) => {
-            for nested in items {
-                if let Some(found) = first_json_string_deep(nested, keys) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-fn first_json_bool(value: &serde_json::Value, keys: &[&str]) -> Option<bool> {
-    for key in keys {
-        if let Some(value) = get_case_insensitive_json(value, key).and_then(serde_json::Value::as_bool) {
-            return Some(value);
-        }
     }
     None
 }
