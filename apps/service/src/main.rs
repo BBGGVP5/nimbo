@@ -1,18 +1,25 @@
-use nimbo_ipc::{PIPE_NAME, PROTOCOL_VERSION};
-use tracing::info;
+// Nimbo helper service.
+//
+// Runs as LocalSystem. Listens on a named pipe and currently handles process
+// kill requests so Nimbo can terminate SYSTEM-owned services (Cloudflare WARP,
+// Clash Verge service, FlClash helper) without showing a UAC prompt every
+// time. The protocol is defined in `nimbo-ipc`.
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+// Windows subsystem so neither the SCM-launched service nor the
+// installer-spawned `--install` flash a console window. For dev
+// (`--run-foreground`) we re-attach to the parent terminal if there is one.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
+#[cfg(windows)]
+mod platform;
+
+#[cfg(windows)]
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    platform::run()
+}
 
-    info!(version = VERSION, protocol = PROTOCOL_VERSION, pipe = PIPE_NAME, "nimbo-svc starting");
-    info!("skeleton — windows-service integration pending (Этап 4)");
-
-    Ok(())
+#[cfg(not(windows))]
+fn main() -> anyhow::Result<()> {
+    eprintln!("nimbo-svc is Windows-only.");
+    std::process::exit(1);
 }

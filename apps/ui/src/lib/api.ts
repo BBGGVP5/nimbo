@@ -190,6 +190,15 @@ export interface ConflictingProcess {
   process_name: string;
   pid: number;
   path?: string | null;
+  pids: number[];
+}
+
+export interface HelperStatus {
+  installed: boolean;
+  running: boolean;
+  version: string | null;
+  exe_present: boolean;
+  exe_path: string | null;
 }
 
 export interface ProxySettingsPatch {
@@ -538,12 +547,14 @@ function browserConflictingProcesses(): ConflictingProcess[] {
       process_name: "warp-svc.exe",
       pid: 4820,
       path: "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\warp-svc.exe",
+      pids: [4820],
     },
     {
       name: "FlClash",
       process_name: "FlClashCore.exe",
       pid: 6144,
       path: "C:\\Users\\User\\AppData\\Local\\FlClash\\FlClashCore.exe",
+      pids: [6144],
     },
   ];
 }
@@ -640,6 +651,24 @@ export const api = {
     isTauriRuntime()
       ? invoke<ConflictingProcess[]>("stop_conflicting_processes", { pids: pids ?? null })
       : (writeBrowserJson("nimbo.mockConflictsDismissed", true), Promise.resolve([])),
+  helperStatus: (): Promise<HelperStatus> =>
+    isTauriRuntime()
+      ? invoke<HelperStatus>("helper_status")
+      : Promise.resolve({
+          installed: false,
+          running: false,
+          version: null,
+          exe_present: false,
+          exe_path: null,
+        }),
+  installHelper: (): Promise<HelperStatus> =>
+    isTauriRuntime()
+      ? invoke<HelperStatus>("install_helper")
+      : Promise.reject(new Error("Helper доступен только в десктоп-приложении")),
+  uninstallHelper: (): Promise<HelperStatus> =>
+    isTauriRuntime()
+      ? invoke<HelperStatus>("uninstall_helper")
+      : Promise.reject(new Error("Helper доступен только в десктоп-приложении")),
   getAppIcon: (path: string): Promise<string | null> =>
     isTauriRuntime()
       ? invoke<string | null>("get_app_icon", { path })

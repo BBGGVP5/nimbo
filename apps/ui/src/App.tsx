@@ -7,7 +7,7 @@ import { Applications } from "./pages/Applications";
 import { Settings } from "./pages/Settings";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { useAppStore } from "./store";
-import { api, type AppPreferences, type AppUpdateInfo, type ConflictingProcess } from "./lib/api";
+import { api, type AppPreferences, type AppUpdateInfo, type ConflictingProcess, type HelperStatus } from "./lib/api";
 import { initNimboDeepLinks } from "./lib/deepLinks";
 import { fillTemplate, useMessages, type Messages } from "./lib/i18n";
 import nimboLogo from "./assets/nimbo.png";
@@ -37,6 +37,10 @@ export default function App() {
   const scanConflictingProcesses = useAppStore((s) => s.scanConflictingProcesses);
   const closeConflictDialog = useAppStore((s) => s.closeConflictDialog);
   const stopConflictingProcesses = useAppStore((s) => s.stopConflictingProcesses);
+  const helperStatus = useAppStore((s) => s.helperStatus);
+  const helperInstalling = useAppStore((s) => s.helperInstalling);
+  const helperError = useAppStore((s) => s.helperError);
+  const installHelper = useAppStore((s) => s.installHelper);
   const launchedActions = useRef(false);
   const onboardingChecked = useRef(false);
   const sidebarWidth = useResizableSidebar();
@@ -172,6 +176,10 @@ export default function App() {
           conflicts={conflictingProcesses}
           busy={conflictStopping}
           error={conflictStopError}
+          helper={helperStatus}
+          helperInstalling={helperInstalling}
+          helperError={helperError}
+          onInstallHelper={() => void installHelper().catch(() => undefined)}
           onClose={closeConflictDialog}
           onStop={() => void stopConflictingProcesses().catch(() => undefined)}
         />
@@ -306,12 +314,20 @@ function ConflictingSoftwareDialog({
   conflicts,
   busy,
   error,
+  helper,
+  helperInstalling,
+  helperError,
+  onInstallHelper,
   onClose,
   onStop,
 }: {
   conflicts: ConflictingProcess[];
   busy: boolean;
   error: string | null;
+  helper: HelperStatus | null;
+  helperInstalling: boolean;
+  helperError: string | null;
+  onInstallHelper: () => void;
   onClose: () => void;
   onStop: () => void;
 }) {
@@ -374,6 +390,26 @@ function ConflictingSoftwareDialog({
         </ul>
 
         <p className="conflict-dialog-note">{m.home.conflictAdvice}</p>
+        {helper && !helper.running && helper.exe_present && (
+          <div className="conflict-helper-offer">
+            <div className="conflict-helper-offer-text">
+              <div className="conflict-helper-offer-title">{m.home.helperOfferTitle}</div>
+              <div className="conflict-helper-offer-body">{m.home.helperOfferText}</div>
+            </div>
+            <button
+              type="button"
+              className="settings-action settings-action-primary"
+              disabled={helperInstalling || busy}
+              onClick={onInstallHelper}
+            >
+              {helperInstalling ? m.home.helperInstalling : m.home.helperInstall}
+            </button>
+          </div>
+        )}
+        {helper && helper.running && (
+          <div className="conflict-helper-ready">{m.home.helperReady}</div>
+        )}
+        {helperError && <div className="conflict-dialog-error">{helperError}</div>}
         {error && (
           <div className="conflict-dialog-error">
             {error === "remaining_conflicts" ? m.home.conflictRemaining : error}

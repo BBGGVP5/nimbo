@@ -1,15 +1,17 @@
 pub mod commands;
+#[cfg(windows)]
+pub mod helper;
 pub mod state;
 pub mod tray;
 pub mod updater;
 
 use crate::commands::{
     add_subscription, connect_server, disconnect_server, get_device_info, get_preferences, get_session_traffic,
-    get_status, get_tun_status, get_user_agent_override, inspect_subscription_headers, install_tun,
+    get_status, get_tun_status, get_user_agent_override, helper_status, inspect_subscription_headers, install_helper, install_tun,
     get_app_icon, list_app_proxy_rules, list_conflicting_processes, list_installed_apps, list_subscriptions, pick_app_executable, ping_server, ping_servers, read_clipboard_text,
     refresh_subscription, refresh_tray_menu, remove_subscription, reset_device_id, restart_as_admin,
     set_active_server, set_active_subscription, set_app_proxy_rules, set_connection_mode, set_preferences,
-    set_proxy_settings, set_user_agent_override, stop_conflicting_processes, update_subscription_settings, write_clipboard_text,
+    set_proxy_settings, set_user_agent_override, stop_conflicting_processes, uninstall_helper, update_subscription_settings, write_clipboard_text,
 };
 use crate::state::AppState;
 use crate::updater::{check_app_update, open_update_download};
@@ -108,6 +110,9 @@ pub fn run() {
             disconnect_server,
             check_app_update,
             open_update_download,
+            helper_status,
+            install_helper,
+            uninstall_helper,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

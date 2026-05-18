@@ -54,6 +54,20 @@ function Resolve-ReleaseExe([string]$Target) {
   throw "Release executable was not found for target ${Target}."
 }
 
+function Resolve-HelperExe([string]$Target) {
+  $targetExe = Join-Path $repoRoot "target\$Target\release\nimbo-svc.exe"
+  if (Test-Path -LiteralPath $targetExe) {
+    return $targetExe
+  }
+
+  $hostExe = Join-Path $repoRoot "target\release\nimbo-svc.exe"
+  if (Test-Path -LiteralPath $hostExe) {
+    return $hostExe
+  }
+
+  throw "Helper executable (nimbo-svc.exe) was not found for target ${Target}. Build it with: cargo build -p nimbo-svc --release --target $Target"
+}
+
 if ($Targets.Count -eq 1 -and $Targets[0].ToLowerInvariant() -eq "current") {
   $Targets = @(Resolve-CurrentTarget)
 }
@@ -120,13 +134,33 @@ foreach ($target in $Targets) {
     Pop-Location
   }
 
+  Push-Location $repoRoot
+  try {
+    & cargo build -p nimbo-svc --release --target $target
+    if ($LASTEXITCODE -ne 0) {
+      throw "cargo build -p nimbo-svc failed for ${target} with exit code $LASTEXITCODE."
+    }
+  } catch {
+    if ($Strict) {
+      throw
+    }
+    Write-Warning "Skipped ${target}: $($_.Exception.Message)"
+    $failed += $target
+    Pop-Location
+    continue
+  } finally {
+    Pop-Location
+  }
+
   $releaseExe = Resolve-ReleaseExe $target
+  $helperExe = Resolve-HelperExe $target
 
   & $makensis `
     "/INPUTCHARSET" `
     "UTF8" `
     "/DPRODUCT_ARCH=$arch" `
     "/DRELEASE_EXE=$releaseExe" `
+    "/DHELPER_EXE=$helperExe" `
     "/DOUT_FILE=$outputFile" `
     $installerScript
 

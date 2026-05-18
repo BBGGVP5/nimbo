@@ -5,6 +5,7 @@ import {
   type AppPreferences,
   type AppStatus,
   type ConflictingProcess,
+  type HelperStatus,
   type Subscription,
   type SubscriptionSettingsPatch,
 } from "./lib/api";
@@ -24,6 +25,9 @@ interface AppStoreState {
   conflictingProcesses: ConflictingProcess[];
   conflictStopping: boolean;
   conflictStopError: string | null;
+  helperStatus: HelperStatus | null;
+  helperInstalling: boolean;
+  helperError: string | null;
   loading: boolean;
   error: string | null;
   hydrate: () => Promise<void>;
@@ -39,6 +43,9 @@ interface AppStoreState {
   scanConflictingProcesses: () => Promise<ConflictingProcess[]>;
   closeConflictDialog: () => void;
   stopConflictingProcesses: () => Promise<void>;
+  refreshHelperStatus: () => Promise<HelperStatus>;
+  installHelper: () => Promise<void>;
+  uninstallHelper: () => Promise<void>;
   setServerPing: (serverId: string, latency: number) => void;
   openImportDialog: (source?: string) => void;
   closeImportDialog: () => void;
@@ -60,6 +67,9 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   conflictingProcesses: [],
   conflictStopping: false,
   conflictStopError: null,
+  helperStatus: null,
+  helperInstalling: false,
+  helperError: null,
   loading: false,
   error: null,
 
@@ -184,6 +194,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   scanConflictingProcesses: async () => {
     const conflicts = await api.listConflictingProcesses().catch(() => []);
     if (conflicts.length > 0) {
+      void get().refreshHelperStatus();
       set({
         conflictDialogOpen: true,
         conflictingProcesses: conflicts,
@@ -192,6 +203,46 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       });
     }
     return conflicts;
+  },
+
+  refreshHelperStatus: async () => {
+    try {
+      const status = await api.helperStatus();
+      set({ helperStatus: status });
+      return status;
+    } catch {
+      const fallback: HelperStatus = {
+        installed: false,
+        running: false,
+        version: null,
+        exe_present: false,
+        exe_path: null,
+      };
+      set({ helperStatus: fallback });
+      return fallback;
+    }
+  },
+
+  installHelper: async () => {
+    set({ helperInstalling: true, helperError: null });
+    try {
+      const status = await api.installHelper();
+      set({ helperInstalling: false, helperStatus: status });
+    } catch (e) {
+      set({ helperInstalling: false, helperError: String(e) });
+      throw e;
+    }
+  },
+
+  uninstallHelper: async () => {
+    set({ helperInstalling: true, helperError: null });
+    try {
+      const status = await api.uninstallHelper();
+      set({ helperInstalling: false, helperStatus: status });
+    } catch (e) {
+      set({ helperInstalling: false, helperError: String(e) });
+      throw e;
+    }
   },
 
   closeConflictDialog: () => {
@@ -206,7 +257,13 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   stopConflictingProcesses: async () => {
     const { conflictingProcesses } = get();
-    const pids = conflictingProcesses.map((process) => process.pid);
+    const pids = Array.from(
+      new Set(
+        conflictingProcesses.flatMap((process) =>
+          process.pids && process.pids.length > 0 ? process.pids : [process.pid],
+        ),
+      ),
+    );
     set({ conflictStopping: true, conflictStopError: null, error: null });
 
     try {

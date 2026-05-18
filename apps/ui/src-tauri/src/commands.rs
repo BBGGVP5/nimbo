@@ -79,6 +79,8 @@ pub struct ConflictingProcess {
     pub process_name: String,
     pub pid: u32,
     pub path: Option<String>,
+    #[serde(default)]
+    pub pids: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -518,25 +520,102 @@ pub fn list_conflicting_processes() -> Result<Vec<ConflictingProcess>, String> {
 }
 
 #[tauri::command]
-pub fn stop_conflicting_processes(pids: Option<Vec<u32>>) -> Result<Vec<ConflictingProcess>, String> {
+pub fn stop_conflicting_processes(
+    #[cfg(windows)] app: AppHandle,
+    pids: Option<Vec<u32>>,
+) -> Result<Vec<ConflictingProcess>, String> {
     let detected = detect_conflicting_processes()?;
-    let requested = pids
-        .unwrap_or_else(|| detected.iter().map(|process| process.pid).collect::<Vec<_>>())
+    let detected_pids: HashSet<u32> = detected
+        .iter()
+        .flat_map(|process| process.pids.iter().copied())
+        .collect();
+    let requested: HashSet<u32> = match pids {
+        Some(list) => list.into_iter().collect(),
+        None => detected_pids.iter().copied().collect(),
+    };
+    let safe_pids: Vec<u32> = requested
         .into_iter()
-        .collect::<HashSet<_>>();
-    let safe_pids = detected
-        .into_iter()
-        .filter(|process| requested.contains(&process.pid))
-        .map(|process| process.pid)
-        .collect::<Vec<_>>();
+        .filter(|pid| detected_pids.contains(pid))
+        .collect();
 
     if safe_pids.is_empty() {
         return Ok(detect_conflicting_processes()?);
     }
 
+    #[cfg(windows)]
+    {
+        let helper = crate::helper::status(&app);
+        if helper.running {
+            // Route through the privileged helper — no UAC prompt, can kill SYSTEM processes.
+            let _ = crate::helper::kill_processes(&safe_pids);
+            std::thread::sleep(std::time::Duration::from_millis(700));
+            return detect_conflicting_processes();
+        }
+    }
+
     stop_conflicting_process_ids(&safe_pids)?;
-    std::thread::sleep(std::time::Duration::from_millis(450));
-    detect_conflicting_processes()
+    std::thread::sleep(std::time::Duration::from_millis(850));
+    let mut remaining = detect_conflicting_processes()?;
+
+    #[cfg(windows)]
+    {
+        let remaining_pids: Vec<u32> = remaining
+            .iter()
+            .flat_map(|process| process.pids.iter().copied())
+            .filter(|pid| safe_pids.contains(pid))
+            .collect();
+        if !remaining_pids.is_empty() && !is_running_as_admin() {
+            stop_conflicting_process_ids_elevated(&remaining_pids)?;
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            remaining = detect_conflicting_processes()?;
+        }
+    }
+
+    Ok(remaining)
+}
+
+#[cfg(windows)]
+#[tauri::command]
+pub fn helper_status(app: AppHandle) -> crate::helper::HelperStatus {
+    crate::helper::status(&app)
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+pub fn helper_status() -> serde_json::Value {
+    serde_json::json!({
+        "installed": false,
+        "running": false,
+        "version": null,
+        "exe_present": false,
+        "exe_path": null,
+    })
+}
+
+#[cfg(windows)]
+#[tauri::command]
+pub fn install_helper(app: AppHandle) -> Result<crate::helper::HelperStatus, String> {
+    crate::helper::install(&app)?;
+    Ok(crate::helper::status(&app))
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+pub fn install_helper() -> Result<(), String> {
+    Err("Хелпер доступен только на Windows.".into())
+}
+
+#[cfg(windows)]
+#[tauri::command]
+pub fn uninstall_helper(app: AppHandle) -> Result<crate::helper::HelperStatus, String> {
+    crate::helper::uninstall(&app)?;
+    Ok(crate::helper::status(&app))
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+pub fn uninstall_helper() -> Result<(), String> {
+    Err("Хелпер доступен только на Windows.".into())
 }
 
 #[tauri::command]
@@ -592,6 +671,34 @@ const CONFLICTING_PROCESS_NAMES: &[&str] = &[
     "ProtonVPNService",
     "NordVPN",
     "NordVPNService",
+    "Incy",
+    "incy",
+    "IncyService",
+    "IncyHelper",
+];
+
+const CONFLICTING_PROCESS_PARTIAL_KEYS: &[&str] = &[
+    "cloudflarewarp",
+    "warpsvc",
+    "zapret",
+    "winws",
+    "flclash",
+    "clashverge",
+    "clash",
+    "mihomo",
+    "singbox",
+    "happdesktop",
+    "happservice",
+    "hiddify",
+    "v2rayn",
+    "nekoray",
+    "nekobox",
+    "outline",
+    "wireguard",
+    "openvpn",
+    "protonvpn",
+    "nordvpn",
+    "incy",
 ];
 
 #[cfg(windows)]
@@ -603,29 +710,39 @@ struct PowershellProcess {
     id: u32,
     #[serde(rename = "Path")]
     path: Option<String>,
+    #[serde(rename = "CommandLine")]
+    command_line: Option<String>,
 }
 
 #[cfg(windows)]
 fn detect_conflicting_processes() -> Result<Vec<ConflictingProcess>, String> {
-    let names = CONFLICTING_PROCESS_NAMES
-        .iter()
-        .map(|name| format!("'{}'", name.replace('\'', "''")))
-        .collect::<Vec<_>>()
-        .join(",");
     let script = format!(
         r#"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
-$names = @({names})
 $items = @()
-foreach ($p in Get-Process -ErrorAction SilentlyContinue) {{
-  if ($names -contains $p.ProcessName) {{
+try {{
+  foreach ($p in Get-CimInstance Win32_Process -ErrorAction Stop) {{
+    if ($null -eq $p.ProcessId -or [string]::IsNullOrWhiteSpace($p.Name)) {{
+      continue
+    }}
+    $processName = [System.IO.Path]::GetFileNameWithoutExtension($p.Name)
+    $items += [PSCustomObject]@{{
+      ProcessName = $processName
+      Id = [uint32]$p.ProcessId
+      Path = $p.ExecutablePath
+      CommandLine = $p.CommandLine
+    }}
+  }}
+}} catch {{
+  foreach ($p in Get-Process -ErrorAction SilentlyContinue) {{
     $path = $null
     try {{ $path = $p.Path }} catch {{}}
     $items += [PSCustomObject]@{{
       ProcessName = $p.ProcessName
       Id = $p.Id
       Path = $path
+      CommandLine = $null
     }}
   }}
 }}
@@ -667,29 +784,78 @@ foreach ($p in Get-Process -ErrorAction SilentlyContinue) {{
         _ => Vec::new(),
     };
 
-    let mut conflicts = raw
+    let flat = raw
         .into_iter()
-        .map(|process| ConflictingProcess {
-            name: conflict_display_name(&process.process_name),
-            process_name: process_exe_name(&process.process_name),
-            pid: process.id,
-            path: process
-                .path
-                .and_then(|path| {
-                    let trimmed = path.trim().to_string();
-                    if trimmed.is_empty() { None } else { Some(trimmed) }
-                }),
+        .filter(is_conflicting_process)
+        .map(|process| {
+            let display = conflict_display_name(
+                &process.process_name,
+                process.path.as_deref(),
+                process.command_line.as_deref(),
+            );
+            let exe = process_exe_name(&process.process_name);
+            let path = process.path.and_then(|path| {
+                let trimmed = path.trim().to_string();
+                if trimmed.is_empty() { None } else { Some(trimmed) }
+            });
+            (display, exe, process.id, path)
         })
         .collect::<Vec<_>>();
-    conflicts.sort_by(|a, b| {
-        a.name
-            .to_ascii_lowercase()
-            .cmp(&b.name.to_ascii_lowercase())
-            .then(a.process_name.cmp(&b.process_name))
-            .then(a.pid.cmp(&b.pid))
-    });
-    conflicts.dedup_by_key(|process| process.pid);
+
+    let mut order: Vec<String> = Vec::new();
+    let mut groups: HashMap<String, ConflictingProcess> = HashMap::new();
+    let mut seen_pids: HashSet<u32> = HashSet::new();
+    for (display, exe, pid, path) in flat {
+        if !seen_pids.insert(pid) {
+            continue;
+        }
+        let entry = groups.entry(display.clone()).or_insert_with(|| {
+            order.push(display.clone());
+            ConflictingProcess {
+                name: display.clone(),
+                process_name: exe.clone(),
+                pid,
+                path: path.clone(),
+                pids: Vec::new(),
+            }
+        });
+        entry.pids.push(pid);
+        if process_exe_priority(&exe) < process_exe_priority(&entry.process_name)
+            || (process_exe_priority(&exe) == process_exe_priority(&entry.process_name)
+                && pid < entry.pid)
+        {
+            entry.process_name = exe;
+            entry.pid = pid;
+            entry.path = path;
+        }
+    }
+
+    let mut conflicts: Vec<ConflictingProcess> = order
+        .into_iter()
+        .filter_map(|key| groups.remove(&key))
+        .map(|mut group| {
+            group.pids.sort_unstable();
+            group.pids.dedup();
+            group
+        })
+        .collect();
+    conflicts.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
     Ok(conflicts)
+}
+
+fn process_exe_priority(exe: &str) -> u8 {
+    let lower = exe.to_ascii_lowercase();
+    let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
+    if stem.ends_with("helperservice") || stem.ends_with("helper") {
+        return 3;
+    }
+    if stem.ends_with("service") || stem.ends_with("svc") {
+        return 2;
+    }
+    if stem.ends_with("core") {
+        return 1;
+    }
+    0
 }
 
 #[cfg(not(windows))]
@@ -706,19 +872,15 @@ fn stop_conflicting_process_ids(pids: &[u32]) -> Result<(), String> {
         .join(",");
     let script = format!(
         r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+$ErrorActionPreference = 'SilentlyContinue'
 $ids = @({ids})
-$errors = @()
 foreach ($id in $ids) {{
-  try {{
-    Stop-Process -Id $id -Force -ErrorAction Stop
-  }} catch {{
-    $errors += ('{{0}}: {{1}}' -f $id, $_.Exception.Message)
-  }}
+  Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
+  taskkill.exe /PID $id /T /F 1>$null 2>$null
 }}
-if ($errors.Count -gt 0) {{
-  [Console]::Out.Write(($errors -join "`n"))
-  exit 1
-}}
+exit 0
 "#
     );
 
@@ -731,16 +893,11 @@ if ($errors.Count -gt 0) {{
         .output()
         .map_err(|e| format!("Не удалось выгрузить конфликтующие процессы: {e}"))?;
 
-    if output.status.success() {
-        return Ok(());
+    if !output.status.success() {
+        return Err("Не удалось запустить выгрузку конфликтующих процессов.".into());
     }
 
-    let details = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if details.is_empty() {
-        Err("Не удалось выгрузить конфликтующие процессы.".into())
-    } else {
-        Err(format!("Не удалось выгрузить конфликтующие процессы: {details}"))
-    }
+    Ok(())
 }
 
 #[cfg(not(windows))]
@@ -748,7 +905,136 @@ fn stop_conflicting_process_ids(_pids: &[u32]) -> Result<(), String> {
     Ok(())
 }
 
-fn conflict_display_name(process_name: &str) -> String {
+#[cfg(windows)]
+fn stop_conflicting_process_ids_elevated(pids: &[u32]) -> Result<(), String> {
+    let ids = pids
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let inner = format!(
+        "$ErrorActionPreference='SilentlyContinue'; $ids=@({ids}); foreach($id in $ids) {{ try {{ Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }} catch {{}}; & taskkill.exe /PID $id /T /F *> $null }}; exit 0"
+    );
+    let inner_escaped = inner.replace('\'', "''");
+    let outer = format!(
+        "try {{ $p = Start-Process -FilePath 'powershell' -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-Command','{inner_escaped}') -Verb RunAs -Wait -PassThru -ErrorAction Stop; exit $p.ExitCode }} catch {{ exit 1223 }}"
+    );
+
+    let status = hidden_command("powershell")
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-Command")
+        .arg(&outer)
+        .status()
+        .map_err(|e| format!("Не удалось запустить выгрузку с правами администратора: {e}"))?;
+
+    if !status.success() {
+        if status.code() == Some(1223) {
+            return Err("Выгрузка от имени администратора отменена.".into());
+        }
+        return Err("Не удалось завершить выгрузку с правами администратора.".into());
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn is_conflicting_process(process: &PowershellProcess) -> bool {
+    let name_key = compact_process_identity(&process.process_name);
+    if name_key.is_empty() {
+        return false;
+    }
+
+    if CONFLICTING_PROCESS_NAMES
+        .iter()
+        .map(|name| compact_process_identity(name))
+        .any(|known| known == name_key)
+    {
+        return true;
+    }
+
+    let mut search = name_key;
+    if let Some(path) = process.path.as_deref() {
+        search.push_str(&compact_text_identity(path));
+    }
+    if let Some(command_line) = process.command_line.as_deref() {
+        search.push_str(&compact_text_identity(command_line));
+    }
+
+    CONFLICTING_PROCESS_PARTIAL_KEYS
+        .iter()
+        .any(|key| search.contains(key))
+}
+
+fn conflict_display_name(
+    process_name: &str,
+    path: Option<&str>,
+    command_line: Option<&str>,
+) -> String {
+    let mut identity = compact_process_identity(process_name);
+    if let Some(path) = path {
+        identity.push_str(&compact_text_identity(path));
+    }
+    if let Some(command_line) = command_line {
+        identity.push_str(&compact_text_identity(command_line));
+    }
+
+    if identity.contains("cloudflarewarp") || identity.contains("warpsvc") || identity == "warp" {
+        return "Cloudflare WARP".to_string();
+    }
+    if identity.contains("clashverge") {
+        return "Clash Verge".to_string();
+    }
+    if identity.contains("flclash") {
+        return "FlClash".to_string();
+    }
+    if identity.contains("clash") || identity.contains("mihomo") {
+        return "Clash/Mihomo".to_string();
+    }
+    if identity.contains("singbox") {
+        return "sing-box".to_string();
+    }
+    if identity.contains("zapret") || identity.contains("winws") {
+        return "zapret".to_string();
+    }
+    let process_key = compact_process_identity(process_name);
+    if process_key == "happ"
+        || identity.contains("happdesktop")
+        || identity.contains("happservice")
+    {
+        return "Happ".to_string();
+    }
+    if identity.contains("hiddify") {
+        return "Hiddify".to_string();
+    }
+    if identity.contains("v2rayn") {
+        return "v2rayN".to_string();
+    }
+    if identity.contains("nekoray") {
+        return "Nekoray".to_string();
+    }
+    if identity.contains("nekobox") {
+        return "NekoBox".to_string();
+    }
+    if identity.contains("outline") {
+        return "Outline".to_string();
+    }
+    if identity.contains("wireguard") || identity == "wg" {
+        return "WireGuard".to_string();
+    }
+    if identity.contains("openvpn") {
+        return "OpenVPN".to_string();
+    }
+    if identity.contains("protonvpn") {
+        return "Proton VPN".to_string();
+    }
+    if identity.contains("nordvpn") {
+        return "NordVPN".to_string();
+    }
+    if identity.contains("incy") {
+        return "Incy".to_string();
+    }
+
     match normalized_process_name(process_name).as_str() {
         "cloudflare warp" | "cloudflarewarp" | "warp" | "warp-svc" => {
             "Cloudflare WARP".to_string()
@@ -772,6 +1058,7 @@ fn conflict_display_name(process_name: &str) -> String {
         "openvpn" | "openvpnconnect" | "openvpnconnectagent" => "OpenVPN".to_string(),
         "protonvpn" | "protonvpnservice" => "Proton VPN".to_string(),
         "nordvpn" | "nordvpnservice" => "NordVPN".to_string(),
+        "incy" | "incyservice" | "incyhelper" => "Incy".to_string(),
         _ => process_name.trim_end_matches(".exe").to_string(),
     }
 }
@@ -786,10 +1073,24 @@ fn process_exe_name(process_name: &str) -> String {
 }
 
 fn normalized_process_name(process_name: &str) -> String {
-    process_name
-        .trim()
-        .trim_end_matches(".exe")
-        .to_ascii_lowercase()
+    let trimmed = process_name.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    lower
+        .strip_suffix(".exe")
+        .unwrap_or(&lower)
+        .to_string()
+}
+
+fn compact_process_identity(process_name: &str) -> String {
+    compact_text_identity(&normalized_process_name(process_name))
+}
+
+fn compact_text_identity(value: &str) -> String {
+    value
+        .chars()
+        .filter(|char| char.is_ascii_alphanumeric())
+        .map(|char| char.to_ascii_lowercase())
+        .collect()
 }
 
 #[cfg(windows)]
