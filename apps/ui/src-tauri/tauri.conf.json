@@ -35,9 +35,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "resources/tun/*"
-    ],
     "windows": {
       "nsis": {
         "installerHooks": "./windows/hooks.nsh"

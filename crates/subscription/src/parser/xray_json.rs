@@ -36,55 +36,158 @@ fn collect_servers_from_item(item: &Value, out: &mut Vec<Server>) {
         Some(o) => o,
         None => return,
     };
-    let name = item
-        .get("remarks")
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
-    let server_description = item
-        .get("meta")
-        .and_then(|m| m.get("serverDescription"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
-        .or_else(|| {
-            item.get("serverDescription")
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-        });
-    let host_uuid = item
-        .get("meta")
-        .and_then(|m| m.get("hostUuid"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
-    let xray_json_template_uuid = item
-        .get("meta")
-        .and_then(|m| m.get("xrayJsonTemplateUuid"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
+    let name = display_name(item);
+    let server_description = metadata_string(
+        item,
+        &[
+            "serverDescription",
+            "server_description",
+            "server-description",
+            "serverDesc",
+            "server_desc",
+        ],
+    );
+    let host_uuid = metadata_string(item, &["hostUuid", "host_uuid", "host-uuid"]);
+    let xray_json_template_uuid = metadata_string(
+        item,
+        &[
+            "xrayJsonTemplateUuid",
+            "xray_json_template_uuid",
+            "xray-json-template-uuid",
+        ],
+    );
 
-    let item_index = out.len();
+    let proxy_count = outbounds
+        .iter()
+        .filter(|outbound| is_proxy_outbound(outbound))
+        .count();
+    let mut proxy_index = 0usize;
+    let mut seen_ids = std::collections::HashSet::new();
     for outbound in outbounds {
         if !is_proxy_outbound(outbound) {
             continue;
         }
+        proxy_index += 1;
+        // Secondary outbounds without their own display name are internal proxy
+        // chains (e.g. "proxy-2", "proxy-3" inside an auto-balancer config).
+        // Skip them to avoid exposing internal routing entries as user-visible servers.
+        if proxy_count > 1 && proxy_index > 1 && display_name(outbound).is_none() {
+            continue;
+        }
+        let item_index = out.len();
         if let Some(mut server) = parse_outbound(outbound, item_index) {
-            if let Some(name) = &name {
+            let outbound_server_description = metadata_string(
+                outbound,
+                &[
+                    "serverDescription",
+                    "server_description",
+                    "server-description",
+                    "serverDesc",
+                    "server_desc",
+                ],
+            )
+            .or_else(|| server_description.clone());
+            let outbound_host_uuid = metadata_string(outbound, &["hostUuid", "host_uuid", "host-uuid"])
+                .or_else(|| host_uuid.clone());
+            let outbound_template_uuid = metadata_string(
+                outbound,
+                &[
+                    "xrayJsonTemplateUuid",
+                    "xray_json_template_uuid",
+                    "xray-json-template-uuid",
+                ],
+            )
+            .or_else(|| xray_json_template_uuid.clone());
+
+            let resolved_name = display_name(outbound)
+                .or_else(|| {
+                    if proxy_count <= 1 || proxy_index == 1 {
+                        name.clone()
+                    } else {
+                        outbound_tag(outbound).map(|tag| {
+                            name.as_ref()
+                                .map(|name| format!("{name} · {tag}"))
+                                .unwrap_or(tag)
+                        })
+                    }
+                });
+
+            if let Some(name) = &resolved_name {
                 if !name.trim().is_empty() {
                     server.name = name.clone();
                 }
             }
             if server.server_description.is_none() {
-                server.server_description = server_description.clone();
+                server.server_description = outbound_server_description;
             }
             if server.host_uuid.is_none() {
-                server.host_uuid = host_uuid.clone();
+                server.host_uuid = outbound_host_uuid;
             }
             if server.xray_json_template_uuid.is_none() {
-                server.xray_json_template_uuid = xray_json_template_uuid.clone();
+                server.xray_json_template_uuid = outbound_template_uuid;
             }
-            out.push(server);
-            return;
+            server.id = stable_server_id(&server);
+            if seen_ids.insert(server.id.clone()) {
+                out.push(server);
+            }
         }
     }
+}
+
+fn display_name(value: &Value) -> Option<String> {
+    metadata_string(value, &["remarks", "remark", "ps", "name", "title"])
+}
+
+fn outbound_tag(value: &Value) -> Option<String> {
+    value
+        .get("tag")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(ToString::to_string)
+}
+
+fn metadata_string(value: &Value, keys: &[&str]) -> Option<String> {
+    field_string(value, keys)
+        .or_else(|| nested_field_string(value, "meta", keys))
+        .or_else(|| nested_field_string(value, "clientOverrides", keys))
+        .or_else(|| nested_field_string(value, "client_overrides", keys))
+}
+
+fn nested_field_string(value: &Value, object_key: &str, keys: &[&str]) -> Option<String> {
+    get_case_insensitive(value, object_key).and_then(|nested| field_string(nested, keys))
+}
+
+fn field_string(value: &Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(text) = get_case_insensitive(value, key).and_then(Value::as_str) {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn get_case_insensitive<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    let Value::Object(map) = value else {
+        return None;
+    };
+    map.get(key).or_else(|| {
+        let normalized = normalize_json_key(key);
+        map.iter()
+            .find(|(candidate, _)| normalize_json_key(candidate) == normalized)
+            .map(|(_, value)| value)
+    })
+}
+
+fn normalize_json_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| *ch != '-' && *ch != '_')
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn is_proxy_outbound(outbound: &Value) -> bool {
@@ -135,6 +238,47 @@ fn parse_outbound(outbound: &Value, item_index: usize) -> Option<Server> {
         xray_json_template_uuid: None,
         protocol,
     })
+}
+
+fn stable_server_id(server: &Server) -> String {
+    if let Some(host_uuid) = server.host_uuid.as_deref().filter(|value| !value.trim().is_empty()) {
+        return fingerprint(&format!("xray-json:host:{host_uuid}"));
+    }
+
+    let identity = protocol_identity(&server.protocol);
+    if let Some(template_uuid) = server
+        .xray_json_template_uuid
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return fingerprint(&format!(
+            "xray-json:template:{template_uuid}:{identity}:{}",
+            server.name
+        ));
+    }
+
+    fingerprint(&format!("xray-json:item:{identity}:{}", server.name))
+}
+
+fn protocol_identity(protocol: &Protocol) -> String {
+    match protocol {
+        Protocol::Vless(config) => format!(
+            "vless:{}:{}:{}:{:?}",
+            config.address, config.port, config.uuid, config.stream
+        ),
+        Protocol::Vmess(config) => format!(
+            "vmess:{}:{}:{}:{:?}",
+            config.address, config.port, config.uuid, config.stream
+        ),
+        Protocol::Trojan(config) => format!(
+            "trojan:{}:{}:{}:{:?}",
+            config.address, config.port, config.password, config.stream
+        ),
+        Protocol::Shadowsocks(config) => format!(
+            "shadowsocks:{}:{}:{}:{}",
+            config.address, config.port, config.method, config.password
+        ),
+    }
 }
 
 fn parse_vless(
@@ -485,6 +629,154 @@ mod tests {
             }
             _ => panic!("expected trojan"),
         }
+    }
+
+    #[test]
+    fn parses_outbound_level_metadata() {
+        let body = r#"{
+            "outbounds": [
+                {
+                    "tag": "proxy",
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [{
+                            "address": "meta.example.com",
+                            "port": 443,
+                            "users": [{
+                                "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                                "encryption": "none"
+                            }]
+                        }]
+                    },
+                    "meta": {
+                        "serverDescription": "Outbound custom description",
+                        "hostUuid": "host-1",
+                        "xrayJsonTemplateUuid": "tpl-1"
+                    }
+                }
+            ]
+        }"#;
+        let servers = parse(body).unwrap();
+        assert_eq!(servers.len(), 1);
+        let server = &servers[0];
+        assert_eq!(
+            server.server_description.as_deref(),
+            Some("Outbound custom description")
+        );
+        assert_eq!(server.host_uuid.as_deref(), Some("host-1"));
+        assert_eq!(server.xray_json_template_uuid.as_deref(), Some("tpl-1"));
+    }
+
+    #[test]
+    fn parses_multiple_proxy_outbounds_from_one_config() {
+        let body = r#"{
+            "remarks": "Bundle",
+            "outbounds": [
+                {
+                    "tag": "proxy",
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [{
+                            "address": "a.example.com",
+                            "port": 443,
+                            "users": [{ "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }]
+                        }]
+                    }
+                },
+                {
+                    "tag": "proxy-2",
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [{
+                            "address": "b.example.com",
+                            "port": 443,
+                            "users": [{ "id": "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee" }]
+                        }]
+                    }
+                }
+            ]
+        }"#;
+
+        let servers = parse(body).unwrap();
+
+        assert_eq!(servers.len(), 2);
+        assert_eq!(servers[0].name, "Bundle");
+        assert_eq!(servers[1].name, "Bundle · proxy-2");
+    }
+
+    #[test]
+    fn server_id_is_stable_when_xray_json_order_changes() {
+        let first = r#"[
+            {
+                "remarks": "A",
+                "meta": { "hostUuid": "host-a" },
+                "outbounds": [{
+                    "tag": "proxy",
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [{
+                            "address": "a.example.com",
+                            "port": 443,
+                            "users": [{ "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }]
+                        }]
+                    }
+                }]
+            },
+            {
+                "remarks": "B",
+                "meta": { "hostUuid": "host-b" },
+                "outbounds": [{
+                    "tag": "proxy",
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [{
+                            "address": "b.example.com",
+                            "port": 443,
+                            "users": [{ "id": "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee" }]
+                        }]
+                    }
+                }]
+            }
+        ]"#;
+        let second = r#"[
+            {
+                "remarks": "B",
+                "meta": { "hostUuid": "host-b" },
+                "outbounds": [{
+                    "tag": "proxy",
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [{
+                            "address": "b.example.com",
+                            "port": 443,
+                            "users": [{ "id": "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee" }]
+                        }]
+                    }
+                }]
+            },
+            {
+                "remarks": "A",
+                "meta": { "hostUuid": "host-a" },
+                "outbounds": [{
+                    "tag": "proxy",
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [{
+                            "address": "a.example.com",
+                            "port": 443,
+                            "users": [{ "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }]
+                        }]
+                    }
+                }]
+            }
+        ]"#;
+
+        let servers_a = parse(first).unwrap();
+        let servers_b = parse(second).unwrap();
+        let a_id = servers_a.iter().find(|server| server.name == "A").unwrap().id.clone();
+        let a_id_after_reorder = servers_b.iter().find(|server| server.name == "A").unwrap().id.clone();
+
+        assert_eq!(a_id, a_id_after_reorder);
     }
 
     #[test]

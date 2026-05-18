@@ -32,13 +32,28 @@ export function Subscriptions() {
   const openImportDialog = useAppStore((s) => s.openImportDialog);
   const closeImportDialog = useAppStore((s) => s.closeImportDialog);
   const [query, setQuery] = useState("");
+  const [showFavOnly, setShowFavOnly] = useState(false);
+  const [favorites] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("nimbo.favorites");
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const serverCount = subs.reduce((sum, sub) => sum + sub.servers.length, 0);
 
   const filteredSubs = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return subs;
-    return subs
+    let base = subs;
+    if (showFavOnly) {
+      base = subs
+        .map((sub) => ({ ...sub, servers: sub.servers.filter((s) => favorites.has(s.id)) }))
+        .filter((sub) => sub.servers.length > 0);
+    }
+    if (!q) return base;
+    return base
       .map((sub) => ({
         ...sub,
         servers: sub.servers.filter(
@@ -82,8 +97,12 @@ export function Subscriptions() {
           </p>
         </div>
         <div className="flex gap-3">
-          <IconButton title={m.profiles.testLatency} icon={<ZapIcon />} />
-          <IconButton title={m.profiles.favorite} icon={<StarIcon />} />
+          <IconButton
+            title={showFavOnly ? "Все профили" : m.profiles.favorite}
+            icon={<StarIcon filled={showFavOnly} />}
+            onClick={() => setShowFavOnly((v) => !v)}
+            active={showFavOnly}
+          />
           <IconButton
             title={m.profiles.add}
             icon={<PlusIcon />}
@@ -252,6 +271,28 @@ function ProfileCard({
     }
   };
 
+  const onPingServerClick = async (serverId: string) => {
+    setPingingServerIds((current) => {
+      const next = new Set(current);
+      next.add(serverId);
+      return next;
+    });
+    try {
+      const result = await api.pingServer(serverId);
+      if (result.latency_ms != null) {
+        setServerPing(result.server_id, result.latency_ms);
+      }
+    } catch (e) {
+      notifyError(String(e));
+    } finally {
+      setPingingServerIds((current) => {
+        const next = new Set(current);
+        next.delete(serverId);
+        return next;
+      });
+    }
+  };
+
   return (
     <section className="panel relative">
       <div
@@ -369,7 +410,7 @@ function ProfileCard({
 
       {expanded && (
         <div className="divide-y divide-[var(--color-border)] border-t border-[var(--color-border)] bg-[rgba(255,255,255,0.018)]">
-          {sub.servers.map((server) => (
+          {deduplicateById(sub.servers).map((server) => (
             <ServerLine
               key={server.id}
               server={server}
@@ -379,6 +420,7 @@ function ProfileCard({
               ping={serverPings[server.id]}
               pinging={pingingServerIds.has(server.id)}
               onSelect={() => onSelect(server)}
+              onPing={() => onPingServerClick(server.id)}
             />
           ))}
         </div>
@@ -418,6 +460,7 @@ function ServerLine({
   ping,
   pinging,
   onSelect,
+  onPing,
 }: {
   server: Server;
   servers: Server[];
@@ -426,15 +469,25 @@ function ServerLine({
   ping?: number;
   pinging: boolean;
   onSelect: () => void;
+  onPing: () => void;
 }) {
   const m = useMessages();
   const label = serverDisplayName(server.name);
   const description = serverListDescription(server, servers);
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.currentTarget !== event.target) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
       className={[
-        "grid w-full grid-cols-[50px_minmax(0,1fr)_auto] items-center gap-3 px-5 py-3.5 text-left transition-all hover:bg-[var(--color-glass-bg)]",
+        "grid w-full grid-cols-[40px_minmax(0,1fr)_auto_32px] items-center gap-2.5 px-4 py-3 text-left transition-all hover:bg-[var(--color-glass-bg)]",
         active
           ? "border-l-2 border-[var(--color-accent)] bg-[var(--color-accent-active-bg)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_16%,transparent)]"
           : connecting
@@ -442,32 +495,48 @@ function ServerLine({
           : "border-l-2 border-transparent",
       ].join(" ")}
     >
-      <div className="grid h-10 w-10 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-lg text-[var(--color-text-faint)]">
+      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
         <CountryFlag serverName={server.name} fallback={<GlobeIcon className="h-5 w-5" />} />
       </div>
       <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2 pr-3">
-          <div className="truncate text-base font-semibold text-white">{label}</div>
+        <div className="flex min-w-0 items-center gap-2 pr-2">
+          <div className="truncate text-sm font-semibold text-white">{label}</div>
           <PingBadge ping={ping} loading={pinging} />
         </div>
         {description && (
-          <div className="mt-0.5 truncate pr-3 text-xs text-[var(--color-text-faint)]">
+          <div className="mt-0.5 truncate pr-2 text-[11px] text-[var(--color-text-faint)]">
             {description}
           </div>
         )}
       </div>
-      <div className="flex items-center gap-1.5">
-        <span className="tag-pill px-2 py-1 text-[10px]">{protocolLabel(server.protocol)}</span>
-        <span className="rounded-full bg-[var(--color-glass-bg-strong)] px-2 py-1 text-[10px] font-bold text-[var(--color-accent-bright)]">
+      <div className="flex shrink-0 items-center gap-1">
+        <span className="tag-pill shrink-0 px-1.5 py-0.5 text-[9px]">{protocolLabel(server.protocol)}</span>
+        <span className="shrink-0 rounded-full bg-[var(--color-glass-bg-strong)] px-1.5 py-0.5 text-[9px] font-bold text-[var(--color-accent-bright)]">
           {networkBadge(server.protocol)}
         </span>
-        {connecting ? (
-          <span className="rounded-full bg-[var(--color-accent-active-bg)] px-2 py-1 text-[10px] font-semibold text-[var(--color-accent-bright)]">
+        {connecting && (
+          <span className="shrink-0 rounded-full bg-[var(--color-accent-active-bg)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--color-accent-bright)]">
             {m.common.connecting}
           </span>
-        ) : null}
+        )}
       </div>
-    </button>
+      <button
+        type="button"
+        title={m.home.pingServers}
+        aria-label={m.home.pingServers}
+        onClick={(event) => {
+          event.stopPropagation();
+          void onPing();
+        }}
+        disabled={pinging}
+        className={[
+          "interactive grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[var(--color-border)] bg-[var(--color-glass-bg)] text-[var(--color-text-dim)] transition-all hover:border-[var(--color-border-strong)] hover:bg-[var(--color-glass-bg-strong)] hover:text-white",
+          pinging ? "text-[var(--color-accent-bright)] opacity-70" : "",
+        ].join(" ")}
+      >
+        <SignalIcon pulse={pinging} small />
+      </button>
+    </div>
   );
 }
 
@@ -570,7 +639,7 @@ function SubscriptionSettingsDialog({
               </div>
               <div className="text-base font-semibold text-white">{m.profiles.showOnHome}</div>
               <div className="text-xs text-[var(--color-text-faint)]">
-                {m.profiles.hiddenFromHome}
+                {visible ? m.profiles.shownOnHome : m.profiles.hiddenFromHome}
               </div>
             </div>
             <button
@@ -922,24 +991,30 @@ function IconButton({
   title,
   onClick,
   accent = false,
+  active = false,
   disabled = false,
   compact = false,
 }: {
   icon: ReactNode;
   title: string;
-  onClick?: () => void;
+  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   accent?: boolean;
+  active?: boolean;
   disabled?: boolean;
   compact?: boolean;
 }) {
   return (
     <button
+      type="button"
       title={title}
       onClick={onClick}
       disabled={disabled}
       className={[
-        "interactive grid place-items-center rounded-xl border border-[var(--color-border)] bg-[var(--color-glass-bg)] text-[var(--color-text-dim)]",
+        "interactive grid place-items-center rounded-xl border bg-[var(--color-glass-bg)]",
         compact ? "h-9 w-9" : "h-12 w-12",
+        active
+          ? "border-[var(--color-accent)] bg-[var(--color-accent-active-bg)] text-[var(--color-accent-bright)]"
+          : "border-[var(--color-border)] text-[var(--color-text-dim)]",
         accent ? "text-[var(--color-accent-bright)]" : "",
         disabled ? "cursor-not-allowed opacity-50" : "",
       ].join(" ")}
@@ -1029,19 +1104,12 @@ function ExternalIcon() {
   );
 }
 
-function ZapIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m13 2-9 12h7l-1 8 9-12h-7l1-8Z" />
-    </svg>
-  );
-}
 
-function SignalIcon({ pulse = false }: { pulse?: boolean }) {
+function SignalIcon({ pulse = false, small = false }: { pulse?: boolean; small?: boolean }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      className={["h-5 w-5", pulse ? "animate-pulse" : ""].join(" ")}
+      className={[small ? "h-4 w-4" : "h-5 w-5", pulse ? "animate-pulse" : ""].join(" ")}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"
@@ -1147,9 +1215,17 @@ function SupportIcon() {
   );
 }
 
-function StarIcon() {
+function StarIcon({ filled = false }: { filled?: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={filled ? "0" : "1.8"}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z" />
     </svg>
   );
@@ -1197,6 +1273,15 @@ function AdminRestartDialog({ onClose }: { onClose: () => void }) {
       </div>
     </ModalPortal>
   );
+}
+
+function deduplicateById<T extends { id: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
 }
 
 function isAdminRestartError(message: string): boolean {

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { CountryFlag } from "../components/CountryFlag";
 import { notifyError } from "../lib/notify";
 import { useMessages } from "../lib/i18n";
@@ -19,16 +19,103 @@ import {
 } from "../lib/api";
 
 type ServerEntry = { server: Server; sub: Subscription };
+type SortMode = "default" | "ping" | "protocol";
+
+// ── Favorites persistence ────────────────────────────────────
+
+function useFavorites() {
+  const [favorites, setFavorites] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("nimbo.favorites");
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
+
+  const toggle = useCallback((id: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      try {
+        localStorage.setItem("nimbo.favorites", JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  return { favorites, toggle };
+}
+
+function makeOrderKey(subUrl: string): string {
+  return `nimbo.order.${subUrl.replace(/[^a-z0-9]/gi, "_").slice(0, 80)}`;
+}
+
+function readServerOrder(subUrl: string): string[] {
+  try {
+    const raw = localStorage.getItem(makeOrderKey(subUrl));
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeServerOrder(subUrl: string, order: string[]) {
+  try {
+    localStorage.setItem(makeOrderKey(subUrl), JSON.stringify(order));
+  } catch {}
+}
+
+function validateServerOrder(stored: string[], currentIds: string[], subUrl: string): string[] {
+  if (!stored.length) return [];
+  const currentSet = new Set(currentIds);
+  // Discard stored order if it references IDs not present in the current subscription
+  const hasUnknown = stored.some((id) => !currentSet.has(id));
+  if (hasUnknown) {
+    try { localStorage.removeItem(makeOrderKey(subUrl)); } catch {}
+    return [];
+  }
+  return stored;
+}
+
+function sortEntries(
+  entries: ServerEntry[],
+  mode: SortMode,
+  pings: Record<string, number>,
+  order: string[],
+  pingOrder: "asc" | "desc" = "asc",
+): ServerEntry[] {
+  if (mode === "ping") {
+    return [...entries].sort((a, b) => {
+      const pa = pings[a.server.id] ?? Infinity;
+      const pb = pings[b.server.id] ?? Infinity;
+      return pingOrder === "asc" ? pa - pb : pb - pa;
+    });
+  }
+  if (mode === "protocol") {
+    return [...entries].sort((a, b) =>
+      a.server.protocol.kind.localeCompare(b.server.protocol.kind),
+    );
+  }
+  if (order.length) {
+    const idx = new Map(order.map((id, i) => [id, i]));
+    return [...entries].sort(
+      (a, b) =>
+        (idx.get(a.server.id) ?? Number.MAX_SAFE_INTEGER) -
+        (idx.get(b.server.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }
+  return entries;
+}
+
+// ── Dismissable hook ─────────────────────────────────────────
 
 function useDismissable(open: boolean, onClose: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: MouseEvent) => {
-      const node = ref.current;
-      if (node && !node.contains(event.target as Node)) {
-        onClose();
-      }
+      if (ref.current && !ref.current.contains(event.target as Node)) onClose();
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -43,8 +130,11 @@ function useDismissable(open: boolean, onClose: () => void) {
   return ref;
 }
 
+// ── Home ─────────────────────────────────────────────────────
+
 export function Home() {
   const m = useMessages();
+  const navigate = useNavigate();
   const subs = useAppStore((s) => s.subscriptions);
   const activeId = useAppStore((s) => s.activeServerId);
   const activeSubscriptionUrl = useAppStore((s) => s.activeSubscriptionUrl);
@@ -67,10 +157,15 @@ export function Home() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [sessionTraffic, setSessionTraffic] = useState({ upload: 0, download: 0 });
 
-  const visibleSubs = useMemo(
-    () => subs.filter(subscriptionVisibleOnHome),
-    [subs],
-  );
+  // Server list features
+  const [sortMode, setSortMode] = useState<SortMode>("default");
+  const [pingOrder, setPingOrder] = useState<"asc" | "desc">("asc");
+  const [protocolFilter, setProtocolFilter] = useState<string | null>(null);
+  const [showFavOnly, setShowFavOnly] = useState(false);
+  const [compactSheetOpen, setCompactSheetOpen] = useState(false);
+  const { favorites, toggle: toggleFavorite } = useFavorites();
+
+  const visibleSubs = useMemo(() => subs.filter(subscriptionVisibleOnHome), [subs]);
 
   const currentSub = useMemo(() => {
     if (activeSubscriptionUrl) {
@@ -80,14 +175,61 @@ export function Home() {
     return visibleSubs[0] ?? null;
   }, [visibleSubs, activeSubscriptionUrl]);
 
-  const entries = useMemo<ServerEntry[]>(
-    () => (currentSub ? currentSub.servers.map((server) => ({ server, sub: currentSub })) : []),
+  const baseEntries = useMemo<ServerEntry[]>(
+    () =>
+      currentSub
+        ? currentSub.servers.map((server) => ({ server, sub: currentSub }))
+        : [],
     [currentSub],
   );
 
-  const activeEntry = activeId ? entries.find((item) => item.server.id === activeId) ?? null : null;
-  const fallbackEntry = activeEntry ?? entries[0] ?? null;
-  const selectedSubscription = currentSub;
+  const [customOrder, setCustomOrder] = useState<string[]>(() => {
+    if (!currentSub) return [];
+    return validateServerOrder(readServerOrder(currentSub.url), currentSub.servers.map((s) => s.id), currentSub.url);
+  });
+
+  const currentSubUrl = currentSub?.url;
+  useEffect(() => {
+    if (!currentSubUrl || !currentSub) {
+      setCustomOrder([]);
+      return;
+    }
+    const stored = readServerOrder(currentSubUrl);
+    setCustomOrder(validateServerOrder(stored, currentSub.servers.map((s) => s.id), currentSubUrl));
+  }, [currentSubUrl, currentSub]);
+
+  const availableProtocols = useMemo(() => {
+    const kinds = new Set(baseEntries.map((e) => e.server.protocol.kind));
+    return [...kinds].sort();
+  }, [baseEntries]);
+
+  const sortedEntries = useMemo(() => {
+    let result = sortEntries(baseEntries, sortMode, serverPings, customOrder, pingOrder);
+    if (showFavOnly) result = result.filter((e) => favorites.has(e.server.id));
+    if (protocolFilter) result = result.filter((e) => e.server.protocol.kind === protocolFilter);
+    return result;
+  }, [baseEntries, sortMode, serverPings, customOrder, showFavOnly, favorites, pingOrder, protocolFilter]);
+
+  const onReorder = useCallback(
+    (reordered: ServerEntry[]) => {
+      const order = reordered.map((e) => e.server.id);
+      setCustomOrder(order);
+      if (currentSubUrl) writeServerOrder(currentSubUrl, order);
+    },
+    [currentSubUrl],
+  );
+
+  const activeEntry = useMemo(() => {
+    if (!activeId) return null;
+    const inCurrent = baseEntries.find((item) => item.server.id === activeId);
+    if (inCurrent) return inCurrent;
+    for (const sub of visibleSubs) {
+      const server = sub.servers.find((s) => s.id === activeId);
+      if (server) return { server, sub };
+    }
+    return null;
+  }, [activeId, baseEntries, visibleSubs]);
+  const fallbackEntry = activeEntry ?? baseEntries[0] ?? null;
   const connected = status?.state === "connected";
   const connecting = Boolean(connectingServerId);
 
@@ -103,9 +245,8 @@ export function Home() {
 
   useEffect(() => {
     if (!connected || connectedAt == null) return;
-    const tick = () => {
+    const tick = () =>
       setElapsedSeconds(Math.max(0, Math.floor((Date.now() - connectedAt) / 1000)));
-    };
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
@@ -135,19 +276,16 @@ export function Home() {
       await setActive(activeId === serverId ? null : serverId);
     } catch (e) {
       const message = String(e);
-      if (isAdminRestartError(message)) {
-        setAdminDialogOpen(true);
-      } else {
-        notifyError(message);
-      }
+      if (isAdminRestartError(message)) setAdminDialogOpen(true);
+      else notifyError(message);
     }
   };
 
   const onRefreshSelected = async () => {
-    if (!selectedSubscription) return;
-    setRefreshingUrl(selectedSubscription.url);
+    if (!currentSub) return;
+    setRefreshingUrl(currentSub.url);
     try {
-      await refreshSubscription(selectedSubscription.url);
+      await refreshSubscription(currentSub.url);
     } catch (e) {
       notifyError(String(e));
     } finally {
@@ -156,8 +294,8 @@ export function Home() {
   };
 
   const onPingServers = async () => {
-    if (!entries.length) return;
-    const serverIds = entries.map(({ server }) => server.id);
+    if (!baseEntries.length) return;
+    const serverIds = baseEntries.map(({ server }) => server.id);
     setPinging(true);
     setPingingServerIds(new Set(serverIds));
     try {
@@ -167,13 +305,31 @@ export function Home() {
           next.delete(result.server_id);
           return next;
         });
-        if (result.latency_ms != null) {
-          setServerPing(result.server_id, result.latency_ms);
-        }
+        if (result.latency_ms != null) setServerPing(result.server_id, result.latency_ms);
       });
     } finally {
       setPinging(false);
       setPingingServerIds(new Set());
+    }
+  };
+
+  const onPingServer = async (serverId: string) => {
+    setPingingServerIds((current) => {
+      const next = new Set(current);
+      next.add(serverId);
+      return next;
+    });
+    try {
+      const result = await api.pingServer(serverId);
+      if (result.latency_ms != null) setServerPing(result.server_id, result.latency_ms);
+    } catch (e) {
+      notifyError(String(e));
+    } finally {
+      setPingingServerIds((current) => {
+        const next = new Set(current);
+        next.delete(serverId);
+        return next;
+      });
     }
   };
 
@@ -190,11 +346,8 @@ export function Home() {
       await connectServer(fallbackEntry.server.id);
     } catch (e) {
       const message = String(e);
-      if (isAdminRestartError(message)) {
-        setAdminDialogOpen(true);
-      } else {
-        notifyError(message);
-      }
+      if (isAdminRestartError(message)) setAdminDialogOpen(true);
+      else notifyError(message);
     }
   };
 
@@ -207,16 +360,46 @@ export function Home() {
     }
   };
 
+  const onNavigateToProfile = () => {
+    const sub = activeEntry?.sub ?? currentSub;
+    if (sub) navigate(`/subscriptions/${encodeURIComponent(sub.url)}`);
+  };
+
+  const sharedPanelProps = {
+    subs: visibleSubs,
+    currentSub,
+    entries: sortedEntries,
+    activeId,
+    pingByServer: serverPings,
+    pingingServerIds,
+    favorites,
+    onToggleFavorite: toggleFavorite,
+    sortMode,
+    onSortMode: setSortMode,
+    pingOrder,
+    onPingOrder: setPingOrder,
+    protocolFilter,
+    onProtocolFilter: setProtocolFilter,
+    availableProtocols,
+    showFavOnly,
+    onShowFavOnly: setShowFavOnly,
+    onPickServer: onToggleServer,
+    pinging,
+    onPing: onPingServers,
+    onPingServer,
+    onSwitchSubscription,
+    onReorder,
+    labels: m,
+  };
+
   return (
     <div className="home-grid h-full">
       <section className="home-center">
         <div className="home-top">
           <ProfileSummary
-            sub={selectedSubscription}
-            refreshing={refreshingUrl === selectedSubscription?.url}
-            pinging={pinging}
+            sub={currentSub}
+            refreshing={refreshingUrl === currentSub?.url}
             onRefresh={onRefreshSelected}
-            onPing={onPingServers}
             labels={m}
           />
         </div>
@@ -246,6 +429,14 @@ export function Home() {
                   ? `${m.home.connected} ${formatDuration(elapsedSeconds)}`
                   : m.home.pressToConnect}
           </div>
+
+          <CompactServerBar
+            entry={fallbackEntry}
+            ping={fallbackEntry ? serverPings[fallbackEntry.server.id] : undefined}
+            onNavigate={onNavigateToProfile}
+            onOpenList={() => setCompactSheetOpen(true)}
+            labels={m}
+          />
         </div>
 
         <div className="home-bottom">
@@ -259,22 +450,463 @@ export function Home() {
       </section>
 
       <aside className="home-right">
-        <ServerSidePanel
-          subs={visibleSubs}
-          currentSub={currentSub}
-          entries={entries}
-          activeId={activeId}
-          pingByServer={serverPings}
-          pingingServerIds={pingingServerIds}
-          onPickServer={onToggleServer}
-          onSwitchSubscription={onSwitchSubscription}
-          labels={m}
-        />
+        <ServerSidePanel {...sharedPanelProps} />
       </aside>
+
+      {compactSheetOpen && (
+        <CompactServerSheet
+          {...sharedPanelProps}
+          onClose={() => setCompactSheetOpen(false)}
+        />
+      )}
+
       {adminDialogOpen && <AdminRestartDialog onClose={() => setAdminDialogOpen(false)} />}
     </div>
   );
 }
+
+// ── CompactServerBar ──────────────────────────────────────────
+
+function CompactServerBar({
+  entry,
+  ping,
+  onNavigate,
+  onOpenList,
+  labels,
+}: {
+  entry: ServerEntry | null;
+  ping?: number;
+  onNavigate: () => void;
+  onOpenList: () => void;
+  labels: Messages;
+}) {
+  if (!entry) return null;
+  const label = serverDisplayName(entry.server.name);
+
+  return (
+    <div className="compact-server-bar mt-4 flex w-full max-w-[400px] items-center gap-1.5">
+      <button
+        onClick={onNavigate}
+        className="flex h-14 min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-glass-bg)] px-3 text-left transition-all hover:border-[var(--color-border-strong)] hover:bg-[var(--color-glass-bg-strong)]"
+      >
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[var(--color-glass-bg)]">
+          <CountryFlag
+            serverName={entry.server.name}
+            fallback={<GlobeIcon />}
+            className="country-flag-sm"
+          />
+        </div>
+        <span className="flex-1 truncate text-[15px] font-semibold text-white">{label}</span>
+        {ping != null && (
+          <span
+            className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums"
+            style={(() => {
+              const tier = pingTier(ping);
+              return { background: tier.bg, color: tier.fg };
+            })()}
+          >
+            {ping} ms
+          </span>
+        )}
+      </button>
+      <button
+        onClick={onOpenList}
+        title={labels.home.changeServer}
+        className="grid h-14 w-14 shrink-0 place-items-center rounded-xl border border-[var(--color-border)] bg-[var(--color-glass-bg)] text-[var(--color-text-faint)] transition-all hover:border-[var(--color-border-strong)] hover:bg-[var(--color-glass-bg-strong)] hover:text-white"
+      >
+        <ListIcon />
+      </button>
+    </div>
+  );
+}
+
+// ── CompactServerSheet ────────────────────────────────────────
+
+type PanelProps = {
+  subs: Subscription[];
+  currentSub: Subscription | null;
+  entries: ServerEntry[];
+  activeId: string | null;
+  pingByServer: Record<string, number>;
+  pingingServerIds: ReadonlySet<string>;
+  favorites: ReadonlySet<string>;
+  onToggleFavorite: (id: string) => void;
+  sortMode: SortMode;
+  onSortMode: (mode: SortMode) => void;
+  pingOrder: "asc" | "desc";
+  onPingOrder: (order: "asc" | "desc") => void;
+  protocolFilter: string | null;
+  onProtocolFilter: (proto: string | null) => void;
+  availableProtocols: string[];
+  showFavOnly: boolean;
+  onShowFavOnly: (v: boolean) => void;
+  pinging: boolean;
+  onPing: () => void;
+  onPingServer: (serverId: string) => Promise<void>;
+  onPickServer: (serverId: string) => Promise<void>;
+  onSwitchSubscription: (url: string) => Promise<void>;
+  onReorder: (entries: ServerEntry[]) => void;
+  labels: Messages;
+};
+
+function CompactServerSheet({
+  onClose,
+  ...panelProps
+}: PanelProps & { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex flex-col"
+      style={{ background: "rgba(15,15,26,0.97)", backdropFilter: "blur(20px)" }}
+    >
+      <div className="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-3">
+        <h2 className="flex-1 text-base font-bold text-white">
+          {panelProps.labels.home.changeServer}
+        </h2>
+        <button
+          onClick={onClose}
+          className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)] hover:text-white"
+        >
+          <CloseIcon />
+        </button>
+      </div>
+      <div className="flex-1 overflow-hidden">
+        <ServerSidePanel {...panelProps} />
+      </div>
+    </div>
+  );
+}
+
+// ── ServerSidePanel ───────────────────────────────────────────
+
+function ServerSidePanel({
+  subs,
+  currentSub,
+  entries,
+  activeId,
+  pingByServer,
+  pingingServerIds,
+  favorites,
+  onToggleFavorite,
+  sortMode,
+  onSortMode,
+  pingOrder,
+  onPingOrder,
+  protocolFilter,
+  onProtocolFilter,
+  availableProtocols,
+  showFavOnly,
+  onShowFavOnly,
+  pinging,
+  onPing,
+  onPingServer,
+  onPickServer,
+  onSwitchSubscription,
+  onReorder,
+  labels,
+}: PanelProps) {
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcherRef = useDismissable(switcherOpen, () => setSwitcherOpen(false));
+  const showSwitcher = subs.length > 1;
+  const currentName = currentSub?.name?.trim() || labels.common.subscription;
+
+  const isReorderable = sortMode === "default";
+
+  const handleMoveUp = (idx: number) => {
+    if (idx === 0) return;
+    const next = [...entries];
+    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+    onReorder(next);
+  };
+
+  const handleMoveDown = (idx: number) => {
+    if (idx === entries.length - 1) return;
+    const next = [...entries];
+    [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+    onReorder(next);
+  };
+
+  if (!entries.length && !showFavOnly) {
+    return (
+      <div className="server-side-panel flex flex-col">
+        <Link
+          to="/subscriptions"
+          className="interactive panel mx-3 mt-3 grid grid-cols-[28px_1fr_18px] items-center gap-2.5 px-3 py-2.5 text-left"
+        >
+          <div className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
+            <GlobeIcon />
+          </div>
+          <div className="min-w-0 text-[13px] font-medium text-[var(--color-text-dim)]">
+            {labels.common.serverNotSelected}
+          </div>
+          <ChevronDownIcon open={false} />
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="server-side-panel flex h-full flex-col">
+      {/* Subscription switcher */}
+      {showSwitcher && (
+        <div ref={switcherRef} className="px-3 pt-3">
+          <button
+            onClick={() => setSwitcherOpen((v) => !v)}
+            className="interactive panel grid w-full grid-cols-[28px_1fr_18px] items-center gap-2.5 px-3 py-2.5 text-left"
+          >
+            <div className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
+              <GlobeIcon />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-faint)]">
+                {labels.common.subscription}
+              </div>
+              <div className="truncate text-[13px] font-semibold text-white">{currentName}</div>
+            </div>
+            <ChevronDownIcon open={switcherOpen} />
+          </button>
+          {switcherOpen && (
+            <div className="panel mt-2 max-h-[260px] overflow-auto py-1" onWheel={(e) => e.stopPropagation()}>
+              {subs.map((sub) => {
+                const name = sub.name?.trim() || sub.url;
+                const active = currentSub?.url === sub.url;
+                return (
+                  <button
+                    key={sub.url}
+                    onClick={() => {
+                      setSwitcherOpen(false);
+                      void onSwitchSubscription(sub.url);
+                    }}
+                    className={[
+                      "grid w-full grid-cols-[24px_1fr_auto] items-center gap-2 px-3 py-2 text-left transition-all hover:bg-[var(--color-glass-bg)]",
+                      active ? "bg-[var(--color-glass-bg-strong)]" : "",
+                    ].join(" ")}
+                  >
+                    <div className="grid h-6 w-6 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
+                      <GlobeIcon />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-semibold text-white">{name}</div>
+                      <div className="truncate text-[11px] text-[var(--color-text-faint)]">
+                        {sub.servers.length} {labels.common.servers}
+                      </div>
+                    </div>
+                    {active && (
+                      <span className="rounded-full bg-[var(--color-accent-active-bg)] px-2 py-0.5 text-[10px] font-bold text-[var(--color-accent-bright)]">
+                        ●
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Sort & favorites controls */}
+      <div className="px-3 pt-2 pb-1 space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => onShowFavOnly(!showFavOnly)}
+            title={showFavOnly ? labels.home.showAll : labels.home.favoritesOnly}
+            className={[
+              "shrink-0 flex h-8 w-8 items-center justify-center rounded-xl transition-all",
+              showFavOnly
+                ? "bg-[var(--color-accent-active-bg)] text-[var(--color-accent-bright)] ring-1 ring-[color-mix(in_srgb,var(--color-accent)_40%,transparent)]"
+                : "bg-[var(--color-glass-bg)] text-[var(--color-text-faint)] hover:bg-[var(--color-glass-bg-strong)] hover:text-white",
+            ].join(" ")}
+          >
+            <StarIcon filled={showFavOnly} />
+          </button>
+          <div className="flex flex-1 items-center gap-0.5 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[rgba(255,255,255,0.04)] p-0.5">
+            {(["default", "ping", "protocol"] as SortMode[]).map((mode) => {
+              const active = sortMode === mode;
+              const isPing = mode === "ping";
+              return (
+                <button
+                  key={mode}
+                  onClick={() => {
+                    if (isPing && active) {
+                      onPingOrder(pingOrder === "asc" ? "desc" : "asc");
+                    } else {
+                      onSortMode(mode);
+                      if (mode !== "protocol") onProtocolFilter(null);
+                    }
+                  }}
+                  className={[
+                    "flex min-w-0 flex-1 items-center justify-center gap-1 truncate rounded-lg py-1.5 px-1.5 text-[11px] font-semibold transition-all",
+                    active
+                      ? isPing
+                        ? "bg-[var(--color-accent-active-bg)] text-[var(--color-accent-bright)] shadow-sm"
+                        : "bg-[rgba(255,255,255,0.1)] text-white shadow-sm"
+                      : "text-[var(--color-text-faint)] hover:text-[var(--color-text)]",
+                  ].join(" ")}
+                >
+                  <span className="truncate">
+                    {mode === "default"
+                      ? labels.home.sortDefault
+                      : mode === "ping"
+                        ? labels.home.sortPing
+                        : labels.home.sortProtocol}
+                  </span>
+                  {isPing && <PingSortArrow active={active} order={pingOrder} />}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            onClick={onPing}
+            title={labels.home.pingServers}
+            className={[
+              "shrink-0 flex h-8 w-8 items-center justify-center rounded-xl transition-all",
+              pinging
+                ? "bg-[var(--color-accent-active-bg)] text-[var(--color-accent-bright)]"
+                : "bg-[var(--color-glass-bg)] text-[var(--color-text-faint)] hover:bg-[var(--color-glass-bg-strong)] hover:text-white",
+            ].join(" ")}
+          >
+            <PingIcon spinning={pinging} />
+          </button>
+        </div>
+        {sortMode === "protocol" && availableProtocols.length > 1 && (
+          <div className="flex flex-wrap gap-1 px-0.5">
+            {availableProtocols.map((proto) => {
+              const isActive = protocolFilter === proto;
+              return (
+                <button
+                  key={proto}
+                  onClick={() => onProtocolFilter(isActive ? null : proto)}
+                  className={[
+                    "flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold transition-all",
+                    isActive
+                      ? "bg-[var(--color-accent-active-bg)] text-[var(--color-accent-bright)] ring-1 ring-[color-mix(in_srgb,var(--color-accent)_40%,transparent)]"
+                      : "bg-[var(--color-glass-bg)] text-[var(--color-text-faint)] hover:bg-[var(--color-glass-bg-strong)] hover:text-white",
+                  ].join(" ")}
+                >
+                  {protoName(proto)}
+                  {isActive && <span className="opacity-70">×</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Server list */}
+      <div className="server-side-list mt-1 flex-1 overflow-y-auto px-2 pb-3">
+        {entries.length === 0 ? (
+          <div className="px-3 py-8 text-center text-[12px] text-[var(--color-text-faint)]">
+            {labels.home.noFavorites}
+          </div>
+        ) : (
+          entries.map(({ server }, idx) => {
+            const label = serverDisplayName(server.name);
+            const description = serverListDescription(
+              server,
+              entries.map((e) => e.server),
+            );
+            const isActive = activeId === server.id;
+            const isFav = favorites.has(server.id);
+
+            return (
+              <div
+                key={server.id}
+                className={[
+                  "group relative flex items-center rounded-lg transition-all",
+                  isActive ? "bg-[var(--color-glass-bg-strong)]" : "hover:bg-[var(--color-glass-bg)]",
+                ].join(" ")}
+              >
+                {isReorderable && (
+                  <div className="flex shrink-0 flex-col items-center gap-0 pl-1">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleMoveUp(idx); }}
+                      disabled={idx === 0}
+                      className="flex h-4 w-5 items-center justify-center rounded text-[var(--color-text-faint)] opacity-0 transition-all group-hover:opacity-40 hover:!opacity-90 hover:text-[var(--color-accent-bright)] disabled:pointer-events-none disabled:!opacity-0"
+                      aria-label="Move up"
+                    >
+                      <ChevronUpSmIcon />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleMoveDown(idx); }}
+                      disabled={idx === entries.length - 1}
+                      className="flex h-4 w-5 items-center justify-center rounded text-[var(--color-text-faint)] opacity-0 transition-all group-hover:opacity-40 hover:!opacity-90 hover:text-[var(--color-accent-bright)] disabled:pointer-events-none disabled:!opacity-0"
+                      aria-label="Move down"
+                    >
+                      <ChevronDownSmIcon />
+                    </button>
+                  </div>
+                )}
+                <button
+                  onClick={() => void onPickServer(server.id)}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 py-3 pl-2.5 pr-1 text-left"
+                >
+                  <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
+                    <CountryFlag
+                      serverName={server.name}
+                      fallback={<GlobeIcon />}
+                      className="country-flag-sm"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[14px] font-semibold text-white">{label}</div>
+                    {description && (
+                      <div className="truncate text-[12px] text-[var(--color-text-faint)]">
+                        {description}
+                      </div>
+                    )}
+                  </div>
+                </button>
+                <div className="flex shrink-0 items-center gap-1 pr-2">
+                  <PingBadge
+                    ping={pingByServer[server.id]}
+                    loading={pingingServerIds.has(server.id)}
+                  />
+                  <button
+                    onClick={() => onToggleFavorite(server.id)}
+                    title={isFav ? "Убрать из избранных" : "В избранное"}
+                    className={[
+                      "grid h-7 w-7 shrink-0 place-items-center rounded-md transition-all",
+                      isFav
+                        ? "text-[var(--color-accent-bright)] opacity-100"
+                        : "text-[var(--color-text-faint)] opacity-0 group-hover:opacity-60",
+                    ].join(" ")}
+                  >
+                    <StarIcon filled={isFav} />
+                  </button>
+                  <button
+                    onClick={() => void onPingServer(server.id)}
+                    title={labels.home.pingServers}
+                    aria-label={labels.home.pingServers}
+                    disabled={pingingServerIds.has(server.id)}
+                    className={[
+                      "grid h-7 w-7 shrink-0 place-items-center rounded-md transition-all",
+                      pingingServerIds.has(server.id)
+                        ? "text-[var(--color-accent-bright)] opacity-100"
+                        : "text-[var(--color-text-faint)] opacity-0 group-hover:opacity-70 hover:bg-[var(--color-glass-bg-strong)] hover:text-white",
+                    ].join(" ")}
+                  >
+                    <PingIcon spinning={pingingServerIds.has(server.id)} />
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── ConnectionButton ──────────────────────────────────────────
 
 function ConnectionButton({
   connected,
@@ -312,36 +944,49 @@ function ConnectionButton({
       <span className="connection-button-halo" />
       <span className="connection-button-ring" />
       <span className="connection-button-core">
-        {busy ? <span className="connection-button-loader" /> : connected ? <ShieldButtonIcon /> : <PowerButtonIcon />}
+        {busy ? (
+          <span className="connection-button-loader" />
+        ) : connected ? (
+          <ShieldButtonIcon />
+        ) : (
+          <PowerButtonIcon />
+        )}
       </span>
     </button>
   );
 }
 
+// ── AdminRestartDialog ────────────────────────────────────────
+
 function AdminRestartDialog({ onClose }: { onClose: () => void }) {
   const m = useMessages();
   return (
-    <div className="app-dialog-backdrop" role="presentation" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center p-5"
+      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(12px)" }}
+      role="presentation"
+      onClick={onClose}
+    >
       <div
-        className="panel w-full max-w-md bg-[rgba(26,26,46,0.98)] p-8 text-center shadow-[0_32px_100px_rgba(0,0,0,0.6)]"
+        className="panel w-full max-w-sm bg-[rgb(26,26,46)] p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.9)]"
         role="dialog"
         aria-modal="true"
         aria-labelledby="admin-dialog-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mx-auto mb-6 grid h-20 w-20 place-items-center rounded-full bg-[var(--color-accent-active-bg)] text-[var(--color-accent-bright)]">
+        <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-full bg-[var(--color-accent-active-bg)] text-[var(--color-accent-bright)]">
           <ShieldAlertIcon />
         </div>
-        <h2 id="admin-dialog-title" className="mb-4 text-2xl font-black text-white">
+        <h2 id="admin-dialog-title" className="mb-3 text-xl font-black text-white">
           {m.home.adminTitle}
         </h2>
-        <p className="mb-8 text-lg font-medium leading-relaxed text-[var(--color-text-dim)]">
+        <p className="mb-6 text-sm font-medium leading-relaxed text-[var(--color-text-dim)]">
           {m.home.adminText}
         </p>
-        <div className="grid grid-cols-1 gap-3">
+        <div className="grid grid-cols-1 gap-2">
           <button
             onClick={onClose}
-            className="primary-button interactive rounded-2xl py-4 text-lg font-bold"
+            className="primary-button interactive rounded-xl py-3 text-base font-bold"
           >
             {m.common.ok}
           </button>
@@ -351,19 +996,17 @@ function AdminRestartDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ── ProfileSummary ────────────────────────────────────────────
+
 function ProfileSummary({
   sub,
   refreshing,
-  pinging,
   onRefresh,
-  onPing,
   labels,
 }: {
   sub: Subscription | null;
   refreshing: boolean;
-  pinging: boolean;
   onRefresh: () => void;
-  onPing: () => void;
   labels: Messages;
 }) {
   if (!sub) return null;
@@ -372,181 +1015,42 @@ function ProfileSummary({
   const total = sub.info?.total ?? null;
   const expires = formatExpire(sub.info?.expire);
   const description = sub.meta?.description?.trim() || "";
-  const visibleDescription = /^описание подписки$/i.test(description) ? "" : description;
 
   return (
     <div className="home-stack w-full max-w-[740px] space-y-2">
       <div className="panel px-4 py-2.5">
         <div className="grid grid-cols-[1fr_auto] items-start gap-2">
           <div className="min-w-0">
-            <div className="truncate text-[15px] font-semibold text-white">{sub.name ?? labels.common.subscription}</div>
+            <div className="truncate text-[15px] font-semibold text-white">
+              {sub.name ?? labels.common.subscription}
+            </div>
             <div className="mt-0.5 text-[12px] text-[var(--color-text-dim)]">{expires}</div>
           </div>
           <div className="flex gap-2">
-            <SmallActionButton title={labels.home.pingServers} onClick={onPing}>
-              <PingIcon spinning={pinging} />
-            </SmallActionButton>
             <SmallActionButton title={labels.home.refreshSubscription} onClick={onRefresh}>
               <RefreshIcon spinning={refreshing} />
             </SmallActionButton>
           </div>
         </div>
-        {visibleDescription && (
+        {description && (
           <div
             className="profile-summary-description mt-1.5 text-[12px] leading-relaxed text-[var(--color-text-faint)]"
-            title={visibleDescription}
+            title={description}
           >
-            {visibleDescription}
+            {description}
           </div>
         )}
         <div className="mt-2 h-1 rounded-full bg-[var(--color-glass-bg)]" />
         <div className="mt-2 text-[12px] font-semibold tabular-nums text-[var(--color-text-dim)]">
-          {formatBytes(used)}{total ? ` / ${formatBytes(total)}` : " / ∞"}
+          {formatBytes(used)}
+          {total ? ` / ${formatBytes(total)}` : " / ∞"}
         </div>
       </div>
     </div>
   );
 }
 
-function ServerSidePanel({
-  subs,
-  currentSub,
-  entries,
-  activeId,
-  pingByServer,
-  pingingServerIds,
-  onPickServer,
-  onSwitchSubscription,
-  labels,
-}: {
-  subs: Subscription[];
-  currentSub: Subscription | null;
-  entries: ServerEntry[];
-  activeId: string | null;
-  pingByServer: Record<string, number>;
-  pingingServerIds: ReadonlySet<string>;
-  onPickServer: (serverId: string) => void;
-  onSwitchSubscription: (url: string) => void;
-  labels: Messages;
-}) {
-  const [switcherOpen, setSwitcherOpen] = useState(false);
-  const switcherRef = useDismissable(switcherOpen, () => setSwitcherOpen(false));
-  const showSwitcher = subs.length > 1;
-  const currentName = currentSub?.name?.trim() || labels.common.subscription;
-
-  if (!entries.length) {
-    return (
-      <div className="server-side-panel flex flex-col">
-        <Link
-          to="/subscriptions"
-          className="interactive panel mx-3 mt-3 grid grid-cols-[28px_1fr_18px] items-center gap-2.5 px-3 py-2.5 text-left"
-        >
-          <div className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
-            <GlobeIcon />
-          </div>
-          <div className="min-w-0 text-[13px] font-medium text-[var(--color-text-dim)]">
-            {labels.common.serverNotSelected}
-          </div>
-          <ChevronDownIcon open={false} />
-        </Link>
-      </div>
-    );
-  }
-
-  return (
-    <div className="server-side-panel flex h-full flex-col">
-      {showSwitcher && (
-        <div ref={switcherRef} className="px-3 pt-3">
-          <button
-            onClick={() => setSwitcherOpen((v) => !v)}
-            className="interactive panel grid w-full grid-cols-[28px_1fr_18px] items-center gap-2.5 px-3 py-2.5 text-left"
-          >
-            <div className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
-              <GlobeIcon />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-faint)]">
-                {labels.common.subscription}
-              </div>
-              <div className="truncate text-[13px] font-semibold text-white">{currentName}</div>
-            </div>
-            <ChevronDownIcon open={switcherOpen} />
-          </button>
-          {switcherOpen && (
-            <div className="panel mt-2 max-h-[260px] overflow-auto py-1">
-              {subs.map((sub) => {
-                const name = sub.name?.trim() || sub.url;
-                const active = currentSub?.url === sub.url;
-                return (
-                  <button
-                    key={sub.url}
-                    onClick={() => {
-                      setSwitcherOpen(false);
-                      onSwitchSubscription(sub.url);
-                    }}
-                    className={[
-                      "grid w-full grid-cols-[24px_1fr_auto] items-center gap-2 px-3 py-2 text-left transition-all hover:bg-[var(--color-glass-bg)]",
-                      active ? "bg-[var(--color-glass-bg-strong)]" : "",
-                    ].join(" ")}
-                  >
-                    <div className="grid h-6 w-6 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
-                      <GlobeIcon />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="truncate text-[13px] font-semibold text-white">{name}</div>
-                      <div className="truncate text-[11px] text-[var(--color-text-faint)]">
-                        {sub.servers.length} {labels.common.servers}
-                      </div>
-                    </div>
-                    {active && (
-                      <span className="rounded-full bg-[var(--color-accent-active-bg)] px-2 py-0.5 text-[10px] font-bold text-[var(--color-accent-bright)]">
-                        ●
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="server-side-list mt-2 flex-1 overflow-y-auto px-2 pb-3">
-        {entries.map(({ server }) => {
-          const label = serverDisplayName(server.name);
-          const description = serverListDescription(
-            server,
-            entries.map(({ server }) => server),
-          );
-          const isActive = activeId === server.id;
-          return (
-            <button
-              key={server.id}
-              onClick={() => onPickServer(server.id)}
-              className={[
-                "server-side-item grid w-full grid-cols-[28px_1fr_auto] items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-all hover:bg-[var(--color-glass-bg)]",
-                isActive ? "bg-[var(--color-glass-bg-strong)]" : "",
-              ].join(" ")}
-            >
-              <div className="grid h-7 w-7 place-items-center rounded-md bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
-                <CountryFlag serverName={server.name} fallback={<GlobeIcon />} className="country-flag-sm" />
-              </div>
-              <div className="min-w-0">
-                <div className="truncate text-[13px] font-semibold text-white">{label}</div>
-                {description && (
-                  <div className="truncate text-[11px] text-[var(--color-text-faint)]">
-                    {description}
-                  </div>
-                )}
-              </div>
-              <PingBadge ping={pingByServer[server.id]} loading={pingingServerIds.has(server.id)} />
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+// ── PingBadge ─────────────────────────────────────────────────
 
 function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean }) {
   if (loading) {
@@ -571,25 +1075,15 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
 
 function pingTier(ping: number): { bg: string; fg: string; label: string } {
   if (ping < 100) {
-    return {
-      bg: "rgba(76, 217, 100, 0.16)",
-      fg: "#7be084",
-      label: "Хороший пинг",
-    };
+    return { bg: "rgba(76, 217, 100, 0.16)", fg: "#7be084", label: "Хороший пинг" };
   }
   if (ping < 300) {
-    return {
-      bg: "rgba(245, 192, 64, 0.16)",
-      fg: "#f5c040",
-      label: "Средний пинг",
-    };
+    return { bg: "rgba(245, 192, 64, 0.16)", fg: "#f5c040", label: "Средний пинг" };
   }
-  return {
-    bg: "rgba(239, 83, 80, 0.18)",
-    fg: "#ff8080",
-    label: "Высокий пинг",
-  };
+  return { bg: "rgba(239, 83, 80, 0.18)", fg: "#ff8080", label: "Высокий пинг" };
 }
+
+// ── SessionTrafficBlocks ──────────────────────────────────────
 
 function SessionTrafficBlocks({
   upload,
@@ -600,18 +1094,26 @@ function SessionTrafficBlocks({
 }) {
   const m = useMessages();
   return (
-    <div className="session-traffic mb-5 grid w-full max-w-[420px] grid-cols-2 gap-2">
+    <div className="session-traffic mb-5 grid w-full max-w-[420px] grid-cols-2 gap-3">
       <div className="session-traffic-card">
-        <div className="session-traffic-label">{m.home.upload}</div>
+        <div className="mb-1 flex items-center gap-2">
+          <UploadIcon />
+          <div className="session-traffic-label">{m.home.upload}</div>
+        </div>
         <div className="session-traffic-value">{formatBytes(upload)}</div>
       </div>
       <div className="session-traffic-card">
-        <div className="session-traffic-label">{m.home.downloaded}</div>
+        <div className="mb-1 flex items-center gap-2">
+          <DownloadIcon />
+          <div className="session-traffic-label">{m.home.downloaded}</div>
+        </div>
         <div className="session-traffic-value">{formatBytes(download)}</div>
       </div>
     </div>
   );
 }
+
+// ── Utilities ─────────────────────────────────────────────────
 
 function formatDuration(totalSeconds: number): string {
   const hours = Math.floor(totalSeconds / 3600);
@@ -619,6 +1121,11 @@ function formatDuration(totalSeconds: number): string {
   const seconds = totalSeconds % 60;
   const pad = (value: number) => value.toString().padStart(2, "0");
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
+function isAdminRestartError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes("tun") && normalized.includes("администратор");
 }
 
 function SmallActionButton({
@@ -640,6 +1147,64 @@ function SmallActionButton({
     </button>
   );
 }
+
+// ── StarIcon ──────────────────────────────────────────────────
+
+function StarIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4.5 w-4.5"
+      style={{ width: "18px", height: "18px" }}
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={filled ? "0" : "1.8"}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+    </svg>
+  );
+}
+
+// ── Protocol helpers ──────────────────────────────────────────
+
+function protoName(kind: string): string {
+  switch (kind) {
+    case "vless": return "VLESS";
+    case "vmess": return "VMess";
+    case "trojan": return "Trojan";
+    case "shadowsocks": return "SS";
+    default: return kind.toUpperCase();
+  }
+}
+
+// ── PingSortArrow ─────────────────────────────────────────────
+
+function PingSortArrow({ active, order }: { active: boolean; order: "asc" | "desc" }) {
+  return (
+    <svg
+      viewBox="0 0 10 14"
+      className={[
+        "h-3 w-2.5 shrink-0 transition-all duration-200",
+        active ? "opacity-100" : "opacity-40",
+        order === "desc" ? "rotate-180" : "",
+      ].join(" ")}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5 12V2" />
+      <path d="M1 6l4-4 4 4" />
+    </svg>
+  );
+}
+
+// ── Icons ─────────────────────────────────────────────────────
 
 function ShieldButtonIcon() {
   return (
@@ -682,7 +1247,15 @@ function PowerButtonIcon() {
 
 function ShieldAlertIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="h-10 w-10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      viewBox="0 0 24 24"
+      className="h-10 w-10"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
       <line x1="12" y1="8" x2="12" y2="12" />
       <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -690,14 +1263,18 @@ function ShieldAlertIcon() {
   );
 }
 
-function isAdminRestartError(message: string): boolean {
-  const normalized = message.toLowerCase();
-  return normalized.includes("tun") && normalized.includes("администратор");
-}
-
 function GlobeIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       <circle cx="12" cy="12" r="9" />
       <path d="M3 12h18" />
       <path d="M12 3a13.5 13.5 0 0 1 0 18" />
@@ -710,7 +1287,10 @@ function ChevronDownIcon({ open }: { open: boolean }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      className={["h-4 w-4 text-[var(--color-text-faint)] transition-transform", open ? "rotate-180" : ""].join(" ")}
+      className={[
+        "h-4 w-4 text-[var(--color-text-faint)] transition-transform",
+        open ? "rotate-180" : "",
+      ].join(" ")}
       fill="none"
       stroke="currentColor"
       strokeWidth="2"
@@ -725,7 +1305,15 @@ function ChevronDownIcon({ open }: { open: boolean }) {
 
 function RefreshIcon({ spinning }: { spinning: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" className={["h-4 w-4", spinning ? "animate-spin" : ""].join(" ")} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      viewBox="0 0 24 24"
+      className={["h-4 w-4", spinning ? "animate-spin" : ""].join(" ")}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M20 6v5h-5" />
       <path d="M4 18v-5h5" />
       <path d="M19 11a7 7 0 0 0-12-4l-3 3" />
@@ -736,7 +1324,15 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 
 function PingIcon({ spinning }: { spinning: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" className={["h-4 w-4", spinning ? "animate-pulse" : ""].join(" ")} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      viewBox="0 0 24 24"
+      className={["h-4 w-4", spinning ? "animate-pulse" : ""].join(" ")}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M4 20v-2" />
       <path d="M8 20v-5" />
       <path d="M12 20v-8" />
@@ -746,3 +1342,111 @@ function PingIcon({ spinning }: { spinning: boolean }) {
   );
 }
 
+function UploadIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4 text-[var(--color-accent-bright)]"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 19V5" />
+      <path d="m5 12 7-7 7 7" />
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4 text-[var(--color-accent-bright)]"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14" />
+      <path d="m19 12-7 7-7-7" />
+    </svg>
+  );
+}
+
+function ChevronUpSmIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-3 w-3"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m18 15-6-6-6 6" />
+    </svg>
+  );
+}
+
+function ChevronDownSmIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-3 w-3"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function ListIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <line x1="3" y1="6" x2="3.01" y2="6" />
+      <line x1="3" y1="12" x2="3.01" y2="12" />
+      <line x1="3" y1="18" x2="3.01" y2="18" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}

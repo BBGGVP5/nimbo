@@ -22,6 +22,8 @@ pub enum AppRoutingMode {
     Direct,
 }
 
+const DOMAIN_ENTRY_PREFIX: &str = "__domain__:";
+
 impl Routing {
     pub fn default_with_private_direct() -> Self {
         Self::with_app_rules(&[])
@@ -38,6 +40,20 @@ impl Routing {
         ];
 
         rules.extend(app_rules.iter().filter(|rule| rule.enabled).filter_map(|rule| {
+            let outbound_tag = match rule.mode {
+                AppRoutingMode::Proxy => TAG_PROXY.into(),
+                AppRoutingMode::Direct => TAG_DIRECT.into(),
+            };
+
+            if let Some(domain) = normalize_domain_matcher(&rule.process) {
+                return Some(RoutingRule {
+                    rule_type: "field".into(),
+                    domain: Some(vec![domain]),
+                    outbound_tag,
+                    ..Default::default()
+                });
+            }
+
             let process = normalize_process_matcher(&rule.process);
             if process.is_empty() {
                 return None;
@@ -45,10 +61,7 @@ impl Routing {
             Some(RoutingRule {
                 rule_type: "field".into(),
                 process: Some(vec![process]),
-                outbound_tag: match rule.mode {
-                    AppRoutingMode::Proxy => TAG_PROXY.into(),
-                    AppRoutingMode::Direct => TAG_DIRECT.into(),
-                },
+                outbound_tag,
                 ..Default::default()
             })
         }));
@@ -83,6 +96,18 @@ impl Routing {
 
 fn normalize_process_matcher(process: &str) -> String {
     process.trim().replace('\\', "/")
+}
+
+fn normalize_domain_matcher(target: &str) -> Option<String> {
+    let domain = target.trim().strip_prefix(DOMAIN_ENTRY_PREFIX)?.trim();
+    let domain = domain.trim_start_matches("http://").trim_start_matches("https://");
+    let domain = domain.split('/').next().unwrap_or(domain);
+    let domain = domain.trim_matches('.').to_ascii_lowercase();
+    if domain.is_empty() {
+        None
+    } else {
+        Some(format!("domain:{domain}"))
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

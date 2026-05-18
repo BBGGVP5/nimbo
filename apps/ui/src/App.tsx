@@ -7,7 +7,7 @@ import { Applications } from "./pages/Applications";
 import { Settings } from "./pages/Settings";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { useAppStore } from "./store";
-import { api, type AppPreferences, type AppUpdateInfo } from "./lib/api";
+import { api, type AppPreferences, type AppUpdateInfo, type ConflictingProcess } from "./lib/api";
 import { initNimboDeepLinks } from "./lib/deepLinks";
 import { fillTemplate, useMessages, type Messages } from "./lib/i18n";
 import nimboLogo from "./assets/nimbo.png";
@@ -30,6 +30,13 @@ export default function App() {
   const activeServerId = useAppStore((s) => s.activeServerId);
   const connectServer = useAppStore((s) => s.connectServer);
   const hydrate = useAppStore((s) => s.hydrate);
+  const conflictDialogOpen = useAppStore((s) => s.conflictDialogOpen);
+  const conflictingProcesses = useAppStore((s) => s.conflictingProcesses);
+  const conflictStopping = useAppStore((s) => s.conflictStopping);
+  const conflictStopError = useAppStore((s) => s.conflictStopError);
+  const scanConflictingProcesses = useAppStore((s) => s.scanConflictingProcesses);
+  const closeConflictDialog = useAppStore((s) => s.closeConflictDialog);
+  const stopConflictingProcesses = useAppStore((s) => s.stopConflictingProcesses);
   const launchedActions = useRef(false);
   const onboardingChecked = useRef(false);
   const sidebarWidth = useResizableSidebar();
@@ -56,14 +63,21 @@ export default function App() {
       void api.pingServers(serverIds).then(() => hydrate()).catch(() => undefined);
     }
 
-    if (
-      preferences.auto_connect_on_launch &&
-      status.state === "disconnected" &&
-      activeServerId
-    ) {
-      void connectServer(activeServerId).catch(() => undefined);
-    }
-  }, [activeServerId, connectServer, hydrate, preferences.auto_connect_on_launch, preferences.ping_on_launch, status, subscriptions]);
+    void (async () => {
+      const conflicts = status.connection_mode === "tun"
+        ? await scanConflictingProcesses()
+        : [];
+
+      if (
+        conflicts.length === 0 &&
+        preferences.auto_connect_on_launch &&
+        status.state === "disconnected" &&
+        activeServerId
+      ) {
+        await connectServer(activeServerId).catch(() => undefined);
+      }
+    })();
+  }, [activeServerId, connectServer, hydrate, preferences.auto_connect_on_launch, preferences.ping_on_launch, scanConflictingProcesses, status, subscriptions]);
 
   useEffect(() => {
     if (
@@ -151,6 +165,15 @@ export default function App() {
             setStartupUpdate(null);
           }}
           onClose={() => setStartupUpdate(null)}
+        />
+      )}
+      {conflictDialogOpen && (
+        <ConflictingSoftwareDialog
+          conflicts={conflictingProcesses}
+          busy={conflictStopping}
+          error={conflictStopError}
+          onClose={closeConflictDialog}
+          onStop={() => void stopConflictingProcesses().catch(() => undefined)}
         />
       )}
       <aside
@@ -274,6 +297,102 @@ function UpdateDialog({
         <button type="button" className="update-dialog-later" onClick={onClose}>
           {m.common.later}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function ConflictingSoftwareDialog({
+  conflicts,
+  busy,
+  error,
+  onClose,
+  onStop,
+}: {
+  conflicts: ConflictingProcess[];
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onStop: () => void;
+}) {
+  const m = useMessages();
+  const close = useCallback(() => {
+    if (!busy) onClose();
+  }, [busy, onClose]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close]);
+
+  return (
+    <div className="app-dialog-backdrop conflict-dialog-backdrop" role="presentation" onClick={close}>
+      <div
+        className="conflict-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="conflict-dialog-title"
+        aria-describedby="conflict-dialog-text"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="conflict-dialog-close"
+          aria-label={m.common.close}
+          disabled={busy}
+          onClick={close}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+
+        <div className="conflict-dialog-badge">TUN</div>
+        <h2 id="conflict-dialog-title" className="conflict-dialog-title">
+          {m.home.conflictTitle}
+        </h2>
+        <p id="conflict-dialog-text" className="conflict-dialog-text">
+          {m.home.conflictText}
+        </p>
+
+        <ul className="conflict-dialog-list">
+          {conflicts.map((process) => (
+            <li key={`${process.pid}-${process.process_name}`} className="conflict-dialog-process">
+              <span className="conflict-dialog-process-dot" aria-hidden="true" />
+              <span className="conflict-dialog-process-main">
+                <span className="conflict-dialog-process-name">
+                  {process.name} <span>{process.process_name}</span>
+                </span>
+                {process.path && <span className="conflict-dialog-process-path">{process.path}</span>}
+              </span>
+              <span className="conflict-dialog-process-pid">PID {process.pid}</span>
+            </li>
+          ))}
+        </ul>
+
+        <p className="conflict-dialog-note">{m.home.conflictAdvice}</p>
+        {error && (
+          <div className="conflict-dialog-error">
+            {error === "remaining_conflicts" ? m.home.conflictRemaining : error}
+          </div>
+        )}
+
+        <div className="conflict-dialog-actions">
+          <button type="button" className="settings-action" disabled={busy} onClick={close}>
+            {m.common.close}
+          </button>
+          <button
+            type="button"
+            className="settings-action settings-action-primary conflict-dialog-stop"
+            disabled={busy}
+            onClick={onStop}
+          >
+            {busy ? m.home.conflictStopping : m.home.conflictStop}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -476,7 +595,7 @@ function NavIcon({ name }: { name: string }) {
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
-    strokeWidth: "1.8",
+    strokeWidth: "1.6",
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     "aria-hidden": true,
@@ -508,7 +627,7 @@ function NavIcon({ name }: { name: string }) {
     );
   }
   return (
-    <svg {...common}>
+    <svg {...common} viewBox="-1.2 -1.2 26.4 26.4">
       <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
       <path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.04.04a2.1 2.1 0 0 1-2.98 2.98l-.04-.04a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.1 1.66V21a2.1 2.1 0 0 1-4.2 0v-.06A1.8 1.8 0 0 0 8.4 19.3a1.8 1.8 0 0 0-1.98.36l-.04.04a2.1 2.1 0 1 1-2.98-2.98l.04-.04A1.8 1.8 0 0 0 3.8 14.7 1.8 1.8 0 0 0 2.14 13H2a2.1 2.1 0 0 1 0-4.2h.06A1.8 1.8 0 0 0 3.7 7.7a1.8 1.8 0 0 0-.36-1.98L3.3 5.68A2.1 2.1 0 1 1 6.28 2.7l.04.04A1.8 1.8 0 0 0 8.3 3.1 1.8 1.8 0 0 0 10 1.44V1.4a2.1 2.1 0 0 1 4.2 0v.06a1.8 1.8 0 0 0 1.1 1.64 1.8 1.8 0 0 0 1.98-.36l.04-.04a2.1 2.1 0 1 1 2.98 2.98l-.04.04a1.8 1.8 0 0 0-.36 1.98 1.8 1.8 0 0 0 1.66 1.1H22a2.1 2.1 0 0 1 0 4.2h-.06A1.8 1.8 0 0 0 19.4 15Z" />
     </svg>

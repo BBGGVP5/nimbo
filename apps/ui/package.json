@@ -9,6 +9,7 @@
     "build:installer": "tauri build --bundles nsis",
     "build:installer:local": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/windows/build-local-installer.ps1",
     "build:installer:current": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/windows/build-local-installer.ps1 -Targets current",
+    "build:linux": "tauri build --bundles appimage,deb",
     "preview": "vite preview",
     "tauri": "tauri"
   },

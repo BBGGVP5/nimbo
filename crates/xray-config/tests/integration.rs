@@ -18,6 +18,15 @@ fn vless_reality_xhttp_full_config() {
     assert_eq!(v["inbounds"][0]["tag"], "socks-in");
     assert_eq!(v["inbounds"][0]["port"], 10808);
     assert_eq!(v["inbounds"][0]["protocol"], "socks");
+    assert_eq!(v["inbounds"][0]["sniffing"]["routeOnly"], false);
+    assert!(v["inbounds"][0]["sniffing"]["destOverride"]
+        .as_array()
+        .unwrap()
+        .contains(&"quic".into()));
+    assert!(v["inbounds"][0]["sniffing"]["destOverride"]
+        .as_array()
+        .unwrap()
+        .contains(&"fakedns".into()));
     assert_eq!(v["inbounds"][1]["tag"], "http-in");
     assert_eq!(v["inbounds"][1]["port"], 10809);
     assert_eq!(v["inbounds"][2]["tag"], "api");
@@ -152,6 +161,11 @@ fn app_routing_rules_are_emitted_before_default_rules() {
                 mode: AppRoutingMode::Direct,
                 enabled: true,
             },
+            AppRoutingRule {
+                process: "__domain__:www.youtube.com".into(),
+                mode: AppRoutingMode::Proxy,
+                enabled: true,
+            },
         ])
         .build();
     let v = serde_json::to_value(&config).unwrap();
@@ -161,4 +175,6 @@ fn app_routing_rules_are_emitted_before_default_rules() {
     assert_eq!(rules[1]["outboundTag"], "proxy");
     assert_eq!(rules[2]["process"][0], "curl");
     assert_eq!(rules[2]["outboundTag"], "direct");
+    assert_eq!(rules[3]["domain"][0], "domain:www.youtube.com");
+    assert_eq!(rules[3]["outboundTag"], "proxy");
 }

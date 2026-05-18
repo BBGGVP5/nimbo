@@ -148,6 +148,8 @@ export interface PersistedState {
 export type ThemeMode = "system" | "dark" | "light";
 export type AccentMode = "system" | "preset" | "custom";
 export type AppLanguage = "ru" | "en";
+export type LatencyProtocol = "tcp_connect";
+export type LatencyDisplayFormat = "ms" | "badge";
 
 export interface AppPreferences {
   launch_at_login: boolean;
@@ -161,6 +163,10 @@ export interface AppPreferences {
   accent_mode: AccentMode;
   accent_color: string;
   language: AppLanguage;
+  latency_protocol: LatencyProtocol;
+  latency_test_url: string;
+  latency_timeout_ms: number;
+  latency_display_format: LatencyDisplayFormat;
 }
 
 export type AppProxyMode = "proxy" | "direct";
@@ -177,6 +183,13 @@ export interface AppProxyRule {
 export interface InstalledApp {
   name: string;
   executable_path: string;
+}
+
+export interface ConflictingProcess {
+  name: string;
+  process_name: string;
+  pid: number;
+  path?: string | null;
 }
 
 export interface ProxySettingsPatch {
@@ -241,6 +254,10 @@ export const defaultAppPreferences: AppPreferences = {
   accent_mode: "preset",
   accent_color: "#7c5dfa",
   language: "ru",
+  latency_protocol: "tcp_connect",
+  latency_test_url: "https://www.gstatic.com/generate_204",
+  latency_timeout_ms: 5000,
+  latency_display_format: "ms",
 };
 
 function normalizePreferences(value: Partial<AppPreferences> | null | undefined): AppPreferences {
@@ -256,6 +273,20 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
   const accent = typeof value?.accent_color === "string" && /^#[0-9a-f]{6}$/i.test(value.accent_color)
     ? value.accent_color.toLowerCase()
     : defaultAppPreferences.accent_color;
+  const latencyProtocol = value?.latency_protocol === "tcp_connect"
+    ? value.latency_protocol
+    : defaultAppPreferences.latency_protocol;
+  const latencyTestUrl =
+    typeof value?.latency_test_url === "string" && /^https?:\/\//i.test(value.latency_test_url.trim())
+      ? value.latency_test_url.trim()
+      : defaultAppPreferences.latency_test_url;
+  const latencyTimeoutMs =
+    typeof value?.latency_timeout_ms === "number" && Number.isFinite(value.latency_timeout_ms)
+      ? Math.min(60000, Math.max(500, Math.round(value.latency_timeout_ms)))
+      : defaultAppPreferences.latency_timeout_ms;
+  const latencyDisplayFormat = value?.latency_display_format === "badge" || value?.latency_display_format === "ms"
+    ? value.latency_display_format
+    : defaultAppPreferences.latency_display_format;
 
   return {
     ...defaultAppPreferences,
@@ -271,6 +302,10 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     ping_on_launch: value?.ping_on_launch !== false,
     check_updates_on_launch: value?.check_updates_on_launch !== false,
     provider_theme: value?.provider_theme !== false,
+    latency_protocol: latencyProtocol,
+    latency_test_url: latencyTestUrl,
+    latency_timeout_ms: latencyTimeoutMs,
+    latency_display_format: latencyDisplayFormat,
   };
 }
 
@@ -448,7 +483,7 @@ function browserDeviceInfo(): DeviceInfo {
     os: "Windows",
     os_version: navigator.platform || "unknown",
     hostname: "browser-preview",
-    user_agent: "Nimbo/0.1.0/Windows",
+    user_agent: "Nimbo/0.1.0",
   };
   writeBrowserJson("nimbo.deviceInfo", device);
   return device;
@@ -489,6 +524,28 @@ function browserUpdateInfo(): AppUpdateInfo {
     asset: null,
     download_url: null,
   };
+}
+
+function browserConflictingProcesses(): ConflictingProcess[] {
+  const params = new URLSearchParams(window.location.search);
+  const dismissed = readBrowserJson<boolean>("nimbo.mockConflictsDismissed", false);
+  const mockConflict = params.has("mockConflict") || (readBrowserJson<boolean>("nimbo.mockConflict", false) && !dismissed);
+  if (!mockConflict) return [];
+
+  return [
+    {
+      name: "Cloudflare WARP",
+      process_name: "warp-svc.exe",
+      pid: 4820,
+      path: "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\warp-svc.exe",
+    },
+    {
+      name: "FlClash",
+      process_name: "FlClashCore.exe",
+      pid: 6144,
+      path: "C:\\Users\\User\\AppData\\Local\\FlClash\\FlClashCore.exe",
+    },
+  ];
 }
 
 const browserInstalledApps: InstalledApp[] = [
@@ -575,6 +632,22 @@ export const api = {
     isTauriRuntime()
       ? invoke<InstalledApp[]>("list_installed_apps")
       : Promise.resolve(browserInstalledApps),
+  listConflictingProcesses: () =>
+    isTauriRuntime()
+      ? invoke<ConflictingProcess[]>("list_conflicting_processes")
+      : Promise.resolve(browserConflictingProcesses()),
+  stopConflictingProcesses: (pids?: number[]) =>
+    isTauriRuntime()
+      ? invoke<ConflictingProcess[]>("stop_conflicting_processes", { pids: pids ?? null })
+      : (writeBrowserJson("nimbo.mockConflictsDismissed", true), Promise.resolve([])),
+  getAppIcon: (path: string): Promise<string | null> =>
+    isTauriRuntime()
+      ? invoke<string | null>("get_app_icon", { path })
+      : Promise.resolve(null),
+  pickAppExecutable: (): Promise<string | null> =>
+    isTauriRuntime()
+      ? invoke<string | null>("pick_app_executable")
+      : Promise.resolve(null),
   setAppProxyRules: (rules: AppProxyRule[]) =>
     isTauriRuntime()
       ? invoke<PersistedState>("set_app_proxy_rules", { rules })
@@ -847,8 +920,9 @@ export function serverCustomDescription(server: Server): string | null {
 
 export function serverListDescription(server: Server, servers: Server[]): string | null {
   const description = serverCustomDescription(server);
+  if (description) return description;
   void servers;
-  return description;
+  return serverEndpoint(server.protocol);
 }
 
 export function transportLabel(p: Protocol): string {
@@ -970,10 +1044,12 @@ export function serverCountryCode(name: string): string | null {
 
 export function serverDisplayName(name: string): string {
   return name
-    .replace(/(?:^|[\s[\](|·\-_])[A-Z]{2}(?=$|[\s[\](|·\-_\d:])/u, " ")
+
     .replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, "")
     .replace(/[\u{1F3F3}\u{1F3F4}]\uFE0F?/gu, "")
     .replace(/\s{2,}/g, " ")
+    .trim()
+    .replace(/^[A-Z]{2}(?=[\s·\-|]|$)/u, "")
     .replace(/^\s*[·\-|]\s*/u, "")
     .trim();
 }

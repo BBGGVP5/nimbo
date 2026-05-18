@@ -3,7 +3,11 @@ pub mod model;
 pub mod parser;
 pub mod userinfo;
 
-pub use fetcher::{FetchOptions, Fetched, FetchError, build_subscription, fetch_subscription};
+pub use fetcher::{
+    FetchOptions, Fetched, FetchError, HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS,
+    HAPP_COMPAT_OS_VERSION, build_subscription, extract_xray_templates_from_value,
+    fetch_subscription, happ_compatible_user_agent,
+};
 pub use model::{
     Network, Protocol, Security, Server, ShadowsocksConfig, StreamSettings, Subscription,
     TrojanConfig, VlessConfig, VmessConfig,

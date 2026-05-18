@@ -13,6 +13,14 @@ use crate::model::{Protocol, Server, Subscription, SubscriptionMeta};
 use crate::parser::{ParseError, parse_aggregate};
 use crate::userinfo::{SubscriptionInfo, parse_subscription_userinfo};
 
+pub const HAPP_COMPAT_USER_AGENT: &str = "Happ/2.0.0";
+pub const HAPP_COMPAT_DEVICE_OS: &str = "Android";
+pub const HAPP_COMPAT_OS_VERSION: &str = "14";
+pub const HAPP_COMPAT_DEVICE_MODEL: &str = "Nimbo";
+const DEFAULT_XRAY_TEMPLATE_KEY: &str = "default";
+const NIMBO_CLIENT_NAME: &str = "Nimbo";
+const NIMBO_CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Debug, Clone)]
 pub struct FetchOptions {
     pub timeout: Duration,
@@ -45,6 +53,17 @@ impl FetchOptions {
     }
 }
 
+pub fn happ_compatible_user_agent(app_user_agent: &str) -> String {
+    let app_user_agent = app_user_agent.trim();
+    if app_user_agent.is_empty() {
+        return HAPP_COMPAT_USER_AGENT.into();
+    }
+    if app_user_agent.to_ascii_lowercase().contains("happ") {
+        return app_user_agent.into();
+    }
+    format!("{HAPP_COMPAT_USER_AGENT} {app_user_agent}")
+}
+
 #[derive(Debug, Error)]
 pub enum FetchError {
     #[error("http: {0}")]
@@ -64,23 +83,34 @@ pub struct Fetched {
     pub description: Option<String>,
     pub support_url: Option<String>,
     pub website_url: Option<String>,
-    /// Полный xray-config template, извлечённый из тела подписки
-    /// (первый item массива XRAY_JSON или сам объект, если body — одиночный JSON-конфиг).
-    /// Используется как источник routing/dns/log при сборке runtime-конфига xray.
-    pub xray_template: Option<Value>,
+    /// Xray-config templates, извлечённые из тела подписки.
+    /// Ключ — xrayJsonTemplateUuid/uuid/id, если есть; иначе `default`.
+    pub xray_templates: HashMap<String, Value>,
 }
 
 pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetched, FetchError> {
     let mut headers = reqwest::header::HeaderMap::new();
+    let app_user_agent = opts.effective_user_agent();
 
     insert_header(&mut headers, "X-Hwid", &opts.device.hwid);
     insert_header(&mut headers, "X-Device-Os", &opts.device.os);
     insert_header(&mut headers, "X-Device-Os-Version", &opts.device.os_version);
+    insert_header(&mut headers, "X-Ver-Os", &opts.device.os_version);
     insert_header(&mut headers, "X-Device-Model", &opts.device.hostname);
+    insert_header(&mut headers, "X-Happ-Device-Os", HAPP_COMPAT_DEVICE_OS);
+    insert_header(&mut headers, "X-Happ-Device-Os-Version", HAPP_COMPAT_OS_VERSION);
+    insert_header(&mut headers, "X-Happ-Device-Model", HAPP_COMPAT_DEVICE_MODEL);
+    insert_header(&mut headers, "X-Nimbo-User-Agent", &app_user_agent);
+    insert_header(&mut headers, "X-Client-User-Agent", &app_user_agent);
+    insert_header(&mut headers, "X-Client-Name", NIMBO_CLIENT_NAME);
+    insert_header(&mut headers, "X-Client-Version", NIMBO_CLIENT_VERSION);
+    insert_header(&mut headers, "X-Nimbo-Device-Os", &opts.device.os);
+    insert_header(&mut headers, "X-Nimbo-Device-Os-Version", &opts.device.os_version);
+    insert_header(&mut headers, "X-Nimbo-Device-Model", &opts.device.hostname);
 
     let client = reqwest::Client::builder()
         .timeout(opts.timeout)
-        .user_agent(opts.effective_user_agent())
+        .user_agent(happ_compatible_user_agent(&app_user_agent))
         .default_headers(headers)
         .build()
         .map_err(|e| FetchError::Http(e.to_string()))?;
@@ -148,7 +178,7 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         );
     }
 
-    let xray_template = extract_xray_template_from_body(&body);
+    let xray_templates = extract_xray_templates_from_body(&body);
 
     Ok(Fetched {
         raw_body: body,
@@ -158,36 +188,116 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         description: remnawave.description.or(announce),
         support_url: remnawave.support_url.or(support_url),
         website_url: remnawave.website_url.or(website_url),
-        xray_template,
+        xray_templates,
     })
 }
 
-/// Если body — XRAY_JSON массив или одиночный объект с outbounds, возвращает первый
-/// item с полной структурой (routing/dns/log/outbounds), который можно использовать
-/// как template для построения runtime xray-config.
-fn extract_xray_template_from_body(body: &str) -> Option<Value> {
+/// Если body содержит XRAY_JSON config/template, возвращает все найденные шаблоны.
+/// Ключ — xrayJsonTemplateUuid/uuid/id, если он есть; иначе `default`.
+fn extract_xray_templates_from_body(body: &str) -> HashMap<String, Value> {
     let trimmed = body.trim();
     if !trimmed.starts_with('[') && !trimmed.starts_with('{') {
-        return None;
+        return HashMap::new();
     }
-    let parsed: Value = serde_json::from_str(trimmed).ok()?;
-    let candidate = match &parsed {
-        Value::Array(items) => items
-            .iter()
-            .find(|item| {
-                item.is_object() && item.get("outbounds").and_then(Value::as_array).is_some()
-            })
-            .cloned()?,
-        Value::Object(_) => {
-            if parsed.get("outbounds").and_then(Value::as_array).is_some() {
-                parsed
-            } else {
-                return None;
+    let Ok(parsed) = serde_json::from_str::<Value>(trimmed) else {
+        return HashMap::new();
+    };
+    extract_xray_templates_from_value(&parsed)
+}
+
+pub fn extract_xray_templates_from_value(value: &Value) -> HashMap<String, Value> {
+    let mut out = HashMap::new();
+    collect_xray_templates(value, &mut out);
+    out
+}
+
+fn collect_xray_templates(value: &Value, out: &mut HashMap<String, Value>) {
+    if is_xray_template(value) {
+        insert_xray_template(out, xray_template_key(value), value.clone());
+        return;
+    }
+
+    match value {
+        Value::Object(map) => {
+            let root = value
+                .get("response")
+                .or_else(|| value.get("data"))
+                .unwrap_or(value);
+            if !std::ptr::eq(root, value) {
+                collect_xray_templates(root, out);
+            }
+
+            for key in [
+                "templateJson",
+                "template_json",
+                "xrayJsonTemplate",
+                "xray_json_template",
+                "config",
+                "json",
+                "template",
+            ] {
+                if let Some(raw_template) = get_case_insensitive(value, key) {
+                    if let Some(template) = parse_template_value(raw_template) {
+                        insert_xray_template(
+                            out,
+                            xray_template_key(value).or_else(|| xray_template_key(&template)),
+                            template,
+                        );
+                    }
+                }
+            }
+
+            for nested in map.values() {
+                collect_xray_templates(nested, out);
             }
         }
-        _ => return None,
-    };
-    Some(candidate)
+        Value::Array(items) => {
+            for nested in items {
+                collect_xray_templates(nested, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn insert_xray_template(out: &mut HashMap<String, Value>, key: Option<String>, template: Value) {
+    let key = key.unwrap_or_else(|| DEFAULT_XRAY_TEMPLATE_KEY.into());
+    out.entry(key).or_insert(template);
+}
+
+fn is_xray_template(value: &Value) -> bool {
+    value
+        .get("outbounds")
+        .and_then(Value::as_array)
+        .is_some_and(|outbounds| !outbounds.is_empty())
+}
+
+fn parse_template_value(value: &Value) -> Option<Value> {
+    if is_xray_template(value) {
+        return Some(value.clone());
+    }
+    if let Some(text) = value.as_str() {
+        return serde_json::from_str::<Value>(text)
+            .ok()
+            .filter(is_xray_template);
+    }
+    None
+}
+
+fn xray_template_key(value: &Value) -> Option<String> {
+    host_local_string(
+        value,
+        &[
+            "xrayJsonTemplateUuid",
+            "xray_json_template_uuid",
+            "xray-json-template-uuid",
+            "templateUuid",
+            "template_uuid",
+            "uuid",
+            "id",
+        ],
+    )
+    .filter(|key| !key.eq_ignore_ascii_case("null"))
 }
 
 pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> Subscription {
@@ -199,7 +309,7 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
         description,
         support_url,
         website_url,
-        xray_template: _,
+        xray_templates: _,
     } = fetched;
     let resolved_name = sanitize_name(name).or_else(|| sanitize_name(suggested_name));
 
@@ -360,31 +470,31 @@ fn subscription_api_info_urls(subscription_url: &str) -> Vec<String> {
         let mut base = parsed;
         base.set_fragment(None);
 
-        base.set_path(&format!("/api/sub/{short_uuid}/info"));
-        urls.push(base.to_string());
-
-        base.set_path(&format!("/api/sub/{short_uuid}"));
-        urls.push(base.to_string());
-
-        base.set_path(&format!("/api/sub/{short_uuid}/json"));
-        urls.push(base.to_string());
-
-        base.set_path(&format!("/api/sub/{short_uuid}/happ"));
-        urls.push(base.to_string());
+        for suffix in [
+            "happ",
+            "info",
+            "",
+            "raw",
+            "xray-json",
+            "xray",
+            "json",
+            "nimbo",
+        ] {
+            let path = if suffix.is_empty() {
+                format!("/api/sub/{short_uuid}")
+            } else {
+                format!("/api/sub/{short_uuid}/{suffix}")
+            };
+            base.set_path(&path);
+            urls.push(base.to_string());
+        }
 
         let public_base = subscription_public_base_path(&segments, &short_uuid);
 
-        base.set_path(&format!("{public_base}/info"));
-        urls.push(base.to_string());
-
-        base.set_path(&format!("{public_base}/raw"));
-        urls.push(base.to_string());
-
-        base.set_path(&format!("{public_base}/json"));
-        urls.push(base.to_string());
-
-        base.set_path(&format!("{public_base}/happ"));
-        urls.push(base.to_string());
+        for suffix in ["happ", "info", "raw", "xray-json", "xray", "json", "nimbo"] {
+            base.set_path(&format!("{public_base}/{suffix}"));
+            urls.push(base.to_string());
+        }
     }
 
     let mut deduped = Vec::new();
@@ -1172,6 +1282,48 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn happ_compatible_user_agent_keeps_nimbo_identity() {
+        assert_eq!(
+            happ_compatible_user_agent("Nimbo/0.1.0"),
+            "Happ/2.0.0 Nimbo/0.1.0"
+        );
+    }
+
+    #[test]
+    fn happ_compatible_user_agent_does_not_duplicate_happ() {
+        assert_eq!(
+            happ_compatible_user_agent("Happ/2.0.0"),
+            "Happ/2.0.0"
+        );
+    }
+
+    #[test]
+    fn extracts_multiple_xray_templates_by_uuid() {
+        let json = json!({
+            "response": {
+                "templates": [
+                    {
+                        "uuid": "tpl-a",
+                        "templateJson": {
+                            "routing": { "rules": [] },
+                            "outbounds": [{ "tag": "proxy", "protocol": "freedom" }]
+                        }
+                    },
+                    {
+                        "xrayJsonTemplateUuid": "tpl-b",
+                        "outbounds": [{ "tag": "proxy", "protocol": "freedom" }]
+                    }
+                ]
+            }
+        });
+
+        let templates = extract_xray_templates_from_value(&json);
+
+        assert!(templates.contains_key("tpl-a"));
+        assert!(templates.contains_key("tpl-b"));
+    }
+
+    #[test]
     fn remnawave_remark_is_not_used_as_server_description() {
         let mut servers = parse_aggregate(
             "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?type=tcp&security=tls#Node-1",
@@ -1341,6 +1493,10 @@ mod tests {
             "https://example.com/api/sub/e37b73d0-ec4d-4b49-b4cd-86685d6703ee?token=abc",
         );
 
+        assert_eq!(
+            urls.first().map(String::as_str),
+            Some("https://example.com/api/sub/e37b73d0-ec4d-4b49-b4cd-86685d6703ee/happ?token=abc")
+        );
         assert!(urls.iter().any(|url| {
             url == "https://example.com/api/sub/e37b73d0-ec4d-4b49-b4cd-86685d6703ee/info?token=abc"
         }));
@@ -1356,6 +1512,10 @@ mod tests {
     fn remnawave_info_urls_support_short_public_paths() {
         let urls = subscription_api_info_urls("https://example.com/short-id?token=abc");
 
+        assert!(urls
+            .iter()
+            .position(|url| url == "https://example.com/short-id/happ?token=abc")
+            .is_some_and(|pos| pos < urls.len() - 1));
         assert!(urls
             .iter()
             .any(|url| url == "https://example.com/short-id/info?token=abc"));

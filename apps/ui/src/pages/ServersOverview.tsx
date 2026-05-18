@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { notifyError } from "../lib/notify";
 import { useAppStore } from "../store";
 import {
+  api,
   formatBytes,
   protocolLabel,
   serverListDescription,
@@ -17,7 +19,9 @@ export function ServersOverview() {
   const activeId = useAppStore((s) => s.activeServerId);
   const serverPings = useAppStore((s) => s.serverPings);
   const setActive = useAppStore((s) => s.setActiveServer);
+  const setServerPing = useAppStore((s) => s.setServerPing);
   const refresh = useAppStore((s) => s.refreshSubscription);
+  const [pingingServerIds, setPingingServerIds] = useState<Set<string>>(() => new Set());
   const serverCount = subs.reduce((sum, sub) => sum + sub.servers.length, 0);
 
   const onSelect = async (server: Server) => {
@@ -25,6 +29,26 @@ export function ServersOverview() {
       await setActive(activeId === server.id ? null : server.id);
     } catch (e) {
       notifyError(String(e));
+    }
+  };
+
+  const onPingServer = async (serverId: string) => {
+    setPingingServerIds((current) => {
+      const next = new Set(current);
+      next.add(serverId);
+      return next;
+    });
+    try {
+      const result = await api.pingServer(serverId);
+      if (result.latency_ms != null) setServerPing(result.server_id, result.latency_ms);
+    } catch (e) {
+      notifyError(String(e));
+    } finally {
+      setPingingServerIds((current) => {
+        const next = new Set(current);
+        next.delete(serverId);
+        return next;
+      });
     }
   };
 
@@ -62,7 +86,9 @@ export function ServersOverview() {
               sub={sub}
               activeId={activeId}
               serverPings={serverPings}
+              pingingServerIds={pingingServerIds}
               onSelect={onSelect}
+              onPingServer={onPingServer}
               onRefresh={() => refresh(sub.url)}
             />
           ))}
@@ -76,13 +102,17 @@ function SubscriptionServers({
   sub,
   activeId,
   serverPings,
+  pingingServerIds,
   onSelect,
+  onPingServer,
   onRefresh,
 }: {
   sub: Subscription;
   activeId: string | null;
   serverPings: Record<string, number>;
+  pingingServerIds: ReadonlySet<string>;
   onSelect: (server: Server) => void;
+  onPingServer: (serverId: string) => Promise<void>;
   onRefresh: () => void;
 }) {
   const m = useMessages();
@@ -139,7 +169,9 @@ function SubscriptionServers({
             servers={sub.servers}
             active={activeId === server.id}
             latency={serverPings[server.id]}
+            pinging={pingingServerIds.has(server.id)}
             onSelect={() => onSelect(server)}
+            onPing={() => onPingServer(server.id)}
           />
         ))}
       </div>
@@ -152,19 +184,33 @@ function ServerLine({
   servers,
   active,
   latency,
+  pinging,
   onSelect,
+  onPing,
 }: {
   server: Server;
   servers: Server[];
   active: boolean;
   latency?: number;
+  pinging: boolean;
   onSelect: () => void;
+  onPing: () => void;
 }) {
+  const m = useMessages();
   const description = serverListDescription(server, servers);
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.currentTarget !== event.target) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
       className={[
         "grid w-full grid-cols-[46px_1fr_auto] items-center gap-3 px-5 py-4 text-left transition-colors",
         active ? "bg-[var(--color-accent-active-bg)]" : "hover:bg-[var(--color-glass-bg)]",
@@ -176,7 +222,7 @@ function ServerLine({
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <div className="truncate text-lg font-black text-white">{server.name}</div>
-          <PingBadge ping={latency} />
+          <PingBadge ping={latency} loading={pinging} />
         </div>
         {description && (
           <div className="mt-1 truncate text-xs text-[var(--color-text-faint)]">
@@ -190,17 +236,60 @@ function ServerLine({
           </span>
         </div>
       </div>
-      <div className="w-1" />
-    </button>
+      <button
+        type="button"
+        title={m.home.pingServers}
+        aria-label={m.home.pingServers}
+        onClick={(event) => {
+          event.stopPropagation();
+          void onPing();
+        }}
+        disabled={pinging}
+        className={[
+          "grid h-8 w-8 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)] transition-all hover:bg-[var(--color-glass-bg-strong)] hover:text-white",
+          pinging ? "text-[var(--color-accent-bright)] opacity-70" : "",
+        ].join(" ")}
+      >
+        <SignalIcon pulse={pinging} />
+      </button>
+    </div>
   );
 }
 
-function PingBadge({ ping }: { ping?: number }) {
+function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean }) {
+  if (loading) {
+    return (
+      <span className="shrink-0 rounded-full bg-[var(--color-accent-active-bg)] px-2.5 py-1 text-xs font-black text-[var(--color-accent-bright)]">
+        ...
+      </span>
+    );
+  }
   if (ping == null) return null;
   return (
     <span className="shrink-0 rounded-full bg-[var(--color-accent-active-bg)] px-2.5 py-1 text-xs font-black text-[var(--color-accent-bright)]">
       {ping} ms
     </span>
+  );
+}
+
+function SignalIcon({ pulse = false }: { pulse?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={["h-4 w-4", pulse ? "animate-pulse" : ""].join(" ")}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 20v-2" />
+      <path d="M8 20v-5" />
+      <path d="M12 20v-8" />
+      <path d="M16 20v-11" />
+      <path d="M20 20V5" />
+    </svg>
   );
 }
 

@@ -4,6 +4,7 @@ import {
   defaultAppPreferences,
   type AppPreferences,
   type AppStatus,
+  type ConflictingProcess,
   type Subscription,
   type SubscriptionSettingsPatch,
 } from "./lib/api";
@@ -19,6 +20,10 @@ interface AppStoreState {
   disconnecting: boolean;
   importDialogOpen: boolean;
   importDialogSource: string;
+  conflictDialogOpen: boolean;
+  conflictingProcesses: ConflictingProcess[];
+  conflictStopping: boolean;
+  conflictStopError: string | null;
   loading: boolean;
   error: string | null;
   hydrate: () => Promise<void>;
@@ -31,6 +36,9 @@ interface AppStoreState {
   setActiveSubscription: (url: string | null) => Promise<void>;
   connectServer: (serverId: string) => Promise<void>;
   disconnectServer: () => Promise<void>;
+  scanConflictingProcesses: () => Promise<ConflictingProcess[]>;
+  closeConflictDialog: () => void;
+  stopConflictingProcesses: () => Promise<void>;
   setServerPing: (serverId: string, latency: number) => void;
   openImportDialog: (source?: string) => void;
   closeImportDialog: () => void;
@@ -48,6 +56,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   disconnecting: false,
   importDialogOpen: false,
   importDialogSource: "",
+  conflictDialogOpen: false,
+  conflictingProcesses: [],
+  conflictStopping: false,
+  conflictStopError: null,
   loading: false,
   error: null,
 
@@ -114,6 +126,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({
       subscriptions: persisted.subscriptions,
       activeServerId: persisted.active_server_id,
+      activeSubscriptionUrl: persisted.active_subscription_url ?? null,
       serverPings: persisted.server_pings ?? {},
     });
     await get().hydrate();
@@ -148,16 +161,74 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       set((s) => ({
         subscriptions: persisted.subscriptions,
         activeServerId: persisted.active_server_id,
+        activeSubscriptionUrl: persisted.active_subscription_url ?? null,
         serverPings: persisted.server_pings ?? {},
         connectingServerId: null,
         status: s.status
-          ? { ...s.status, state: "connected", active_server_id: persisted.active_server_id }
+          ? {
+              ...s.status,
+              state: "connected",
+              active_server_id: persisted.active_server_id,
+              active_subscription_url: persisted.active_subscription_url ?? null,
+            }
           : s.status,
       }));
       await get().hydrate();
       void api.refreshTrayMenu();
     } catch (e) {
       set({ connectingServerId: null, error: String(e) });
+      throw e;
+    }
+  },
+
+  scanConflictingProcesses: async () => {
+    const conflicts = await api.listConflictingProcesses().catch(() => []);
+    if (conflicts.length > 0) {
+      set({
+        conflictDialogOpen: true,
+        conflictingProcesses: conflicts,
+        conflictStopping: false,
+        conflictStopError: null,
+      });
+    }
+    return conflicts;
+  },
+
+  closeConflictDialog: () => {
+    set({
+      conflictDialogOpen: false,
+      conflictingProcesses: [],
+      conflictStopping: false,
+      conflictStopError: null,
+      connectingServerId: null,
+    });
+  },
+
+  stopConflictingProcesses: async () => {
+    const { conflictingProcesses } = get();
+    const pids = conflictingProcesses.map((process) => process.pid);
+    set({ conflictStopping: true, conflictStopError: null, error: null });
+
+    try {
+      const remaining = await api.stopConflictingProcesses(pids);
+      if (remaining.length > 0) {
+        set({
+          conflictStopping: false,
+          conflictingProcesses: remaining,
+          conflictStopError: "remaining_conflicts",
+        });
+        return;
+      }
+
+      set({
+        conflictDialogOpen: false,
+        conflictingProcesses: [],
+        conflictStopping: false,
+        conflictStopError: null,
+      });
+    } catch (e) {
+      const message = String(e);
+      set({ conflictStopping: false, conflictStopError: message, error: message });
       throw e;
     }
   },

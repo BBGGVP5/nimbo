@@ -55,6 +55,10 @@ pub struct AppPreferences {
     pub accent_mode: AccentMode,
     pub accent_color: String,
     pub language: Language,
+    pub latency_protocol: String,
+    pub latency_test_url: String,
+    pub latency_timeout_ms: u32,
+    pub latency_display_format: String,
 }
 
 impl Default for AppPreferences {
@@ -71,6 +75,10 @@ impl Default for AppPreferences {
             accent_mode: AccentMode::Preset,
             accent_color: "#7c5dfa".into(),
             language: Language::Ru,
+            latency_protocol: "tcp_connect".into(),
+            latency_test_url: "https://www.gstatic.com/generate_204".into(),
+            latency_timeout_ms: 5000,
+            latency_display_format: "ms".into(),
         }
     }
 }

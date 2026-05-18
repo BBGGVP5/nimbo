@@ -48,7 +48,7 @@ impl Inbound {
             stream_settings: None,
             sniffing: Some(json!({
                 "enabled": true,
-                "destOverride": ["http", "tls", "quic"],
+                "destOverride": ["http", "tls", "quic", "fakedns"],
                 "routeOnly": false
             })),
         }
@@ -64,7 +64,7 @@ impl Inbound {
             stream_settings: None,
             sniffing: Some(json!({
                 "enabled": true,
-                "destOverride": ["http", "tls", "quic"],
+                "destOverride": ["http", "tls", "quic", "fakedns"],
                 "routeOnly": false
             })),
         }

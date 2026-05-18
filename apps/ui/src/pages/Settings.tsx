@@ -1,21 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { api, formatBytes, type AppPreferences, type AppUpdateInfo, type ConnectionMode, type DeviceInfo } from "../lib/api";
+import {
+  api,
+  defaultAppPreferences,
+  formatBytes,
+  type AppPreferences,
+  type AppUpdateInfo,
+  type ConnectionMode,
+  type DeviceInfo,
+  type ProxySettingsPatch,
+} from "../lib/api";
 import { fillTemplate, useMessages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
 import { useAppStore } from "../store";
 import { showAppUpdateDialog } from "../App";
 
+const NIMBO_UA_FALLBACK = "Nimbo/0.1.0";
 const HAPP_UA = "Happ/2.0.0";
+const INCY_UA = "Incy/2.1.0";
 const APP_VERSION = "0.1.0";
 
-type UaMode = "default" | "happ" | "custom";
+type UaMode = "default" | "happ" | "incy" | "custom";
 type SettingsSection =
   | "general"
   | "appearance"
   | "connection"
   | "tunnel"
-  | "dns"
   | "lan"
   | "subscriptions"
   | "servers"
@@ -33,7 +43,6 @@ const sectionItems: Array<{
   { id: "appearance", labelKey: "appearance", icon: <PaletteIcon /> },
   { id: "connection", labelKey: "connection", icon: <PlugIcon /> },
   { id: "tunnel", labelKey: "tunnel", icon: <ShieldIcon /> },
-  { id: "dns", labelKey: "dns", icon: <GlobeIcon /> },
   { id: "lan", labelKey: "lan", icon: <HomeIcon /> },
   { id: "subscriptions", labelKey: "subscriptions", icon: <RefreshIcon /> },
   { id: "servers", labelKey: "servers", icon: <ListIcon /> },
@@ -47,7 +56,13 @@ function detectMode(override: string | null, defaultUa: string): UaMode {
   if (!override) return "default";
   if (override === defaultUa) return "default";
   if (override === HAPP_UA) return "happ";
+  if (override === INCY_UA) return "incy";
   return "custom";
+}
+
+function happCompatibleUserAgent(userAgent: string): string {
+  const trimmed = userAgent.trim() || NIMBO_UA_FALLBACK;
+  return trimmed.toLowerCase().includes("happ") ? trimmed : `${HAPP_UA} ${trimmed}`;
 }
 
 export function Settings() {
@@ -95,12 +110,16 @@ export function Settings() {
       .catch(() => setDevice(null));
   }, []);
 
+  const defaultUa = device?.user_agent ?? NIMBO_UA_FALLBACK;
   const effectiveUa =
     mode === "default"
-      ? (device?.user_agent ?? "Nimbo/0.1.0/Windows")
+      ? defaultUa
       : mode === "happ"
         ? HAPP_UA
-        : customUa.trim() || "Nimbo/0.1.0/Windows";
+        : mode === "incy"
+          ? INCY_UA
+          : customUa.trim() || defaultUa;
+  const subscriptionUa = happCompatibleUserAgent(effectiveUa);
 
   const onCopyHwid = async () => {
     if (!device) return;
@@ -135,6 +154,7 @@ export function Settings() {
     try {
       let value: string | null = null;
       if (next === "happ") value = HAPP_UA;
+      if (next === "incy") value = INCY_UA;
       if (next === "custom") value = (customValue ?? customUa).trim() || null;
       await api.setUserAgentOverride(value);
       setOverride(value);
@@ -222,6 +242,16 @@ export function Settings() {
     }
   };
 
+  const updateProxySettings = async (settings: ProxySettingsPatch) => {
+    try {
+      await api.setProxySettings(settings);
+      await hydrate();
+      notifyInfo(m.settings.saved);
+    } catch (e) {
+      notifyError(String(e));
+    }
+  };
+
   return (
     <div className="settings-page h-full overflow-auto">
       <h1 className="page-title">{m.settings.title}</h1>
@@ -263,20 +293,24 @@ export function Settings() {
               mode={connectionMode}
               socksPort={status?.socks_port ?? 10808}
               httpPort={status?.http_port ?? 10809}
+              socksUsername={status?.socks_username ?? "nimbo"}
+              socksPassword={status?.socks_password ?? "nmb-preview-password"}
+              requireSocksAuth={status?.require_socks_auth ?? false}
+              blockSocksUdp={status?.block_socks_udp ?? false}
               onMode={updateConnectionMode}
+              onProxySettings={updateProxySettings}
             />
           )}
           {section === "tunnel" && <TunnelSection />}
-          {section === "dns" && <DnsSection />}
           {section === "lan" && <LanSection />}
           {section === "subscriptions" && (
             <SubscriptionsSection
               mode={mode}
               customUa={customUa}
               override={override}
-              effectiveUa={effectiveUa}
+              effectiveUa={subscriptionUa}
               savingUa={savingUa}
-              deviceUa={device?.user_agent ?? "Nimbo/0.1.0/Windows"}
+              deviceUa={defaultUa}
               refreshingSubscriptions={refreshingSubscriptions}
               onMode={applyUa}
               onCustomUa={setCustomUa}
@@ -284,7 +318,12 @@ export function Settings() {
             />
           )}
           {section === "servers" && <ServersSection />}
-          {section === "latency" && <LatencySection />}
+          {section === "latency" && (
+            <LatencySection
+              preferences={preferences}
+              onChange={updatePreferences}
+            />
+          )}
           {section === "backup" && <BackupSection />}
           {section === "updates" && (
             <UpdatesSection
@@ -536,12 +575,22 @@ function ConnectionSection({
   mode,
   socksPort,
   httpPort,
+  socksUsername,
+  socksPassword,
+  requireSocksAuth,
+  blockSocksUdp,
   onMode,
+  onProxySettings,
 }: {
   mode: ConnectionMode;
   socksPort: number;
   httpPort: number;
+  socksUsername: string;
+  socksPassword: string;
+  requireSocksAuth: boolean;
+  blockSocksUdp: boolean;
   onMode: (mode: ConnectionMode) => Promise<void>;
+  onProxySettings: (settings: ProxySettingsPatch) => Promise<void>;
 }) {
   const m = useMessages();
   return (
@@ -574,10 +623,31 @@ function ConnectionSection({
       <SettingsCard>
         <ValueRow label="HTTP proxy" value={`127.0.0.1:${httpPort}`} mono />
         <ValueRow label="SOCKS5 proxy" value={`127.0.0.1:${socksPort}`} mono />
-        <ValueRow label={m.settings.socksUsername} value="-" description={m.settings.noAuthProxy} />
-        <ValueRow label={m.settings.socksPassword} value="-" />
-        <ToggleRow label={m.settings.requireSocksAuth} description={m.settings.requireSocksAuthDescription} />
-        <ToggleRow label={m.settings.blockSocksUdp} description={m.settings.blockSocksUdpDescription} />
+        <CopyValueRow
+          label={m.settings.socksUsername}
+          value={socksUsername}
+          fallback="nimbo"
+          mono
+        />
+        <CopyValueRow
+          label={m.settings.socksPassword}
+          value={socksPassword}
+          fallback="nmb-preview-password"
+          masked
+          mono
+        />
+        <ToggleRow
+          label={m.settings.requireSocksAuth}
+          description={m.settings.requireSocksAuthDescription}
+          enabled={requireSocksAuth}
+          onToggle={(require_socks_auth) => onProxySettings({ require_socks_auth })}
+        />
+        <ToggleRow
+          label={m.settings.blockSocksUdp}
+          description={m.settings.blockSocksUdpDescription}
+          enabled={blockSocksUdp}
+          onToggle={(block_socks_udp) => onProxySettings({ block_socks_udp })}
+        />
       </SettingsCard>
     </Section>
   );
@@ -594,23 +664,6 @@ function TunnelSection() {
         <ValueRow label="xUDP concurrency" value="-1" description="-1 — выкл, 0+ — включён" muted />
         <ValueRow label="xUDP UDP/443" value="Reject" muted />
         <ToggleRow label={m.settings.tlsFragmentation} description={m.settings.tlsFragmentationDescription} />
-      </SettingsCard>
-    </Section>
-  );
-}
-
-function DnsSection() {
-  const m = useMessages();
-  return (
-    <Section title="DNS">
-      <SettingsCard>
-        <ValueRow label={m.settings.remoteDns} value="https://1.1.1.1/dns-query" description={m.settings.remoteDnsDescription} />
-        <ValueRow label={m.settings.localDns} value="https://8.8.8.8/dns-query" description={m.settings.localDnsDescription} />
-        <ValueRow label={m.settings.tunDns} value="1.1.1.1,8.8.8.8" description={m.settings.tunDnsDescription} />
-        <ValueRow label={m.settings.queryStrategy} value="UseIP" />
-        <ToggleRow label="FakeDNS" description={m.settings.fakeDnsDescription} />
-        <ToggleRow label={m.settings.globalProxy} description={m.settings.globalProxyDescription} />
-        <ToggleRow label={m.settings.bypassPrivateIp} description={m.settings.bypassPrivateIpDescription} enabled />
       </SettingsCard>
     </Section>
   );
@@ -700,13 +753,14 @@ function SubscriptionsSection({
         </div>
         <UaOption selected={mode === "default"} disabled={savingUa} title="Default (Nimbo)" subtitle={deviceUa} onClick={() => onMode("default")} />
         <UaOption selected={mode === "happ"} disabled={savingUa} title={m.settings.happMask} subtitle={HAPP_UA} onClick={() => onMode("happ")} />
+        <UaOption selected={mode === "incy"} disabled={savingUa} title={m.settings.incyMask} subtitle={INCY_UA} onClick={() => onMode("incy")} />
         <UaOption selected={mode === "custom"} disabled={savingUa} title={m.settings.customUserAgent} subtitle={m.profiles.manualInput} onClick={() => onMode("custom", customUa)} />
         {mode === "custom" && (
           <div className="settings-row">
             <input
               value={customUa}
               onChange={(e) => onCustomUa(e.target.value)}
-              placeholder="MyClient/1.0/Windows"
+              placeholder={NIMBO_UA_FALLBACK}
               className="settings-input w-full"
             />
             <button
@@ -738,15 +792,83 @@ function ServersSection() {
   );
 }
 
-function LatencySection() {
+function LatencySection({
+  preferences,
+  onChange,
+}: {
+  preferences: AppPreferences;
+  onChange: (patch: Partial<AppPreferences>) => Promise<void>;
+}) {
   const m = useMessages();
+  const [testUrlDraft, setTestUrlDraft] = useState(preferences.latency_test_url);
+  const [timeoutDraft, setTimeoutDraft] = useState(String(preferences.latency_timeout_ms));
+
+  useEffect(() => {
+    setTestUrlDraft(preferences.latency_test_url);
+  }, [preferences.latency_test_url]);
+
+  useEffect(() => {
+    setTimeoutDraft(String(preferences.latency_timeout_ms));
+  }, [preferences.latency_timeout_ms]);
+
+  const saveTestUrl = () => {
+    const next = /^https?:\/\//i.test(testUrlDraft.trim())
+      ? testUrlDraft.trim()
+      : defaultAppPreferences.latency_test_url;
+    setTestUrlDraft(next);
+    if (next !== preferences.latency_test_url) {
+      void onChange({ latency_test_url: next });
+    }
+  };
+
+  const saveTimeout = () => {
+    const parsed = Number.parseInt(timeoutDraft, 10);
+    const next = Number.isFinite(parsed)
+      ? Math.min(60000, Math.max(500, parsed))
+      : defaultAppPreferences.latency_timeout_ms;
+    setTimeoutDraft(String(next));
+    if (next !== preferences.latency_timeout_ms) {
+      void onChange({ latency_timeout_ms: next });
+    }
+  };
+
   return (
     <Section title={m.settings.latency}>
       <SettingsCard>
-        <ValueRow label={m.settings.protocol} value="TCP connect" />
-        <ValueRow label={m.settings.testUrl} value="https://www.gstatic.com/generate_204" muted />
-        <ValueRow label={m.settings.timeoutMs} value="5000" />
-        <ValueRow label={m.settings.displayFormat} value="ms" />
+        <div className="flex items-center justify-between gap-3 py-2">
+          <span className="text-sm font-medium text-[var(--color-text)]">{m.settings.protocol}</span>
+          <div className="flex flex-col items-end gap-1">
+            <span className="rounded-full bg-[var(--color-accent-active-bg)] px-3 py-1 text-xs font-bold text-[var(--color-accent-bright)]">
+              {m.settings.latencyTcpConnect}
+            </span>
+            <span className="text-[10px] text-[var(--color-text-faint)]">
+              Другие протоколы пока не поддерживаются
+            </span>
+          </div>
+        </div>
+        <SettingsInputRow
+          label={m.settings.testUrl}
+          value={testUrlDraft}
+          inputMode="url"
+          onChange={setTestUrlDraft}
+          onCommit={saveTestUrl}
+        />
+        <SettingsInputRow
+          label={m.settings.timeoutMs}
+          value={timeoutDraft}
+          inputMode="numeric"
+          onChange={setTimeoutDraft}
+          onCommit={saveTimeout}
+        />
+        <SettingsChoiceRow
+          label={m.settings.displayFormat}
+          value={preferences.latency_display_format}
+          options={[
+            { value: "ms", label: m.settings.latencyMs },
+            { value: "badge", label: m.settings.latencyBadge },
+          ]}
+          onChange={(latency_display_format) => onChange({ latency_display_format })}
+        />
       </SettingsCard>
     </Section>
   );
@@ -1014,6 +1136,138 @@ function ValueRow({
         {description && <div className="settings-row-description">{description}</div>}
       </div>
       <span className={["settings-value", mono ? "font-mono" : ""].join(" ")}>{value}</span>
+    </div>
+  );
+}
+
+function CopyValueRow({
+  label,
+  value,
+  fallback,
+  masked = false,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  fallback: string;
+  masked?: boolean;
+  mono?: boolean;
+}) {
+  const m = useMessages();
+  const [copied, setCopied] = useState(false);
+  const cleanValue = value.trim() || fallback;
+  const displayValue = masked
+    ? "*".repeat(Math.min(18, Math.max(8, cleanValue.length)))
+    : cleanValue;
+
+  const copyValue = async () => {
+    try {
+      await api.writeClipboardText(cleanValue);
+      setCopied(true);
+      notifyInfo(m.settings.copiedValue);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (e) {
+      notifyError(String(e));
+    }
+  };
+
+  return (
+    <div className="settings-row">
+      <div className="min-w-0">
+        <div className="settings-row-title">{label}</div>
+      </div>
+      <div className="settings-value-actions">
+        <span className={["settings-code truncate", mono ? "font-mono" : ""].join(" ")}>{displayValue}</span>
+        <button
+          type="button"
+          onClick={copyValue}
+          className="settings-icon-button"
+          title={m.settings.copyValue}
+          aria-label={m.settings.copyValue}
+        >
+          {copied ? <CheckIcon /> : <ClipboardIcon />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SettingsChoiceRow<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => Promise<void>;
+}) {
+  return (
+    <div className="settings-row">
+      <div className="min-w-0">
+        <div className="settings-row-title">{label}</div>
+      </div>
+      <div
+        className={[
+          "settings-choice-control",
+          options.length === 1 ? "settings-choice-control-single" : "",
+        ].join(" ")}
+      >
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={value === option.value}
+            onClick={() => {
+              if (option.value !== value) void onChange(option.value);
+            }}
+            className={[
+              "settings-choice-button",
+              value === option.value ? "settings-choice-button-active" : "",
+            ].join(" ")}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SettingsInputRow({
+  label,
+  value,
+  inputMode,
+  onChange,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  inputMode: "url" | "numeric";
+  onChange: (value: string) => void;
+  onCommit: () => void;
+}) {
+  return (
+    <div className="settings-row">
+      <div className="min-w-0">
+        <div className="settings-row-title">{label}</div>
+      </div>
+      <input
+        value={value}
+        inputMode={inputMode}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onCommit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.currentTarget.blur();
+          }
+        }}
+        className={[
+          "settings-input settings-field-input",
+          inputMode === "numeric" ? "settings-field-input-numeric" : "",
+        ].join(" ")}
+      />
     </div>
   );
 }
