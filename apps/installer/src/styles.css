@@ -789,6 +789,9 @@ textarea::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.04);
   padding: 1px 6px;
   border-radius: 6px;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .done-actions {

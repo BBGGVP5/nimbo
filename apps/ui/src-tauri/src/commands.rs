@@ -39,6 +39,9 @@ const REMNAWAVE_API_TOKEN_ENV: &str = "REMNAWAVE_API_TOKEN";
 const REMNAWAVE_API_KEY_ENV: &str = "REMNAWAVE_API_KEY";
 const REMNAWAVE_PROFILE_UUIDS_ENV: &str = "REMNAWAVE_CONFIG_PROFILE_UUIDS";
 const NIMBO_REMNAWAVE_ENV_ENV: &str = "NIMBO_REMNAWAVE_ENV";
+const CONFLICT_STOP_ATTEMPTS: usize = 6;
+const CONFLICT_STOP_INITIAL_SETTLE_MS: u64 = 900;
+const CONFLICT_STOP_RETRY_SETTLE_MS: u64 = 650;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppStatus {
@@ -533,45 +536,128 @@ pub fn stop_conflicting_processes(
         Some(list) => list.into_iter().collect(),
         None => detected_pids.iter().copied().collect(),
     };
-    let safe_pids: Vec<u32> = requested
+    let mut safe_pids: Vec<u32> = requested
         .into_iter()
         .filter(|pid| detected_pids.contains(pid))
         .collect();
+    safe_pids.sort_unstable();
+    safe_pids.dedup();
 
     if safe_pids.is_empty() {
         return Ok(detect_conflicting_processes()?);
     }
+
+    let target_names = target_conflict_names(&detected, &safe_pids);
 
     #[cfg(windows)]
     {
         let helper = crate::helper::status(&app);
         if helper.running {
             // Route through the privileged helper — no UAC prompt, can kill SYSTEM processes.
-            let _ = crate::helper::kill_processes(&safe_pids);
-            std::thread::sleep(std::time::Duration::from_millis(700));
-            return detect_conflicting_processes();
+            let remaining = stop_conflicts_with_retries(&target_names, safe_pids.clone(), |pids| {
+                let _ = crate::helper::kill_processes(pids);
+                Ok(())
+            })?;
+            let remaining_pids = target_pids_from_conflicts(&remaining, &target_names);
+            if remaining_pids.is_empty() {
+                return Ok(remaining);
+            }
+            safe_pids = remaining_pids;
         }
     }
 
-    stop_conflicting_process_ids(&safe_pids)?;
-    std::thread::sleep(std::time::Duration::from_millis(850));
-    let mut remaining = detect_conflicting_processes()?;
+    let mut remaining =
+        stop_conflicts_with_retries(&target_names, safe_pids.clone(), stop_conflicting_process_ids)?;
 
     #[cfg(windows)]
     {
-        let remaining_pids: Vec<u32> = remaining
-            .iter()
-            .flat_map(|process| process.pids.iter().copied())
-            .filter(|pid| safe_pids.contains(pid))
-            .collect();
+        let remaining_pids = target_pids_from_conflicts(&remaining, &target_names);
         if !remaining_pids.is_empty() && !is_running_as_admin() {
-            stop_conflicting_process_ids_elevated(&remaining_pids)?;
-            std::thread::sleep(std::time::Duration::from_millis(1000));
-            remaining = detect_conflicting_processes()?;
+            remaining = stop_conflicts_with_retries(
+                &target_names,
+                remaining_pids,
+                stop_conflicting_process_ids_elevated,
+            )?;
         }
     }
 
     Ok(remaining)
+}
+
+fn stop_conflicts_with_retries<F>(
+    target_names: &HashSet<String>,
+    initial_pids: Vec<u32>,
+    mut stop: F,
+) -> Result<Vec<ConflictingProcess>, String>
+where
+    F: FnMut(&[u32]) -> Result<(), String>,
+{
+    let mut pids = initial_pids;
+    let mut remaining = detect_conflicting_processes()?;
+
+    for attempt in 0..CONFLICT_STOP_ATTEMPTS {
+        if pids.is_empty() {
+            break;
+        }
+
+        let stop_error = stop(&pids).err();
+        let wait_ms = if attempt == 0 {
+            CONFLICT_STOP_INITIAL_SETTLE_MS
+        } else {
+            CONFLICT_STOP_RETRY_SETTLE_MS
+        };
+        std::thread::sleep(std::time::Duration::from_millis(wait_ms));
+
+        remaining = detect_conflicting_processes()?;
+        pids = target_pids_from_conflicts(&remaining, target_names);
+        if let Some(error) = stop_error {
+            if pids.is_empty() {
+                break;
+            }
+            return Err(error);
+        }
+    }
+
+    Ok(remaining)
+}
+
+fn target_conflict_names(
+    detected: &[ConflictingProcess],
+    requested_pids: &[u32],
+) -> HashSet<String> {
+    let requested: HashSet<u32> = requested_pids.iter().copied().collect();
+    detected
+        .iter()
+        .filter(|process| {
+            conflict_process_pids(process)
+                .into_iter()
+                .any(|pid| requested.contains(&pid))
+        })
+        .map(|process| process.name.clone())
+        .collect()
+}
+
+fn target_pids_from_conflicts(
+    conflicts: &[ConflictingProcess],
+    target_names: &HashSet<String>,
+) -> Vec<u32> {
+    let mut pids = conflicts
+        .iter()
+        .filter(|process| target_names.contains(&process.name))
+        .flat_map(conflict_process_pids)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    pids.sort_unstable();
+    pids
+}
+
+fn conflict_process_pids(process: &ConflictingProcess) -> Vec<u32> {
+    if process.pids.is_empty() {
+        vec![process.pid]
+    } else {
+        process.pids.clone()
+    }
 }
 
 #[cfg(windows)]
