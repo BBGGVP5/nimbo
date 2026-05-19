@@ -14,13 +14,15 @@ use nimbo_ipc::{
 };
 use tracing::{debug, error, info, warn};
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_BROKEN_PIPE, ERROR_PIPE_CONNECTED, FALSE, HANDLE, INVALID_HANDLE_VALUE, TRUE,
+    CloseHandle, ERROR_BROKEN_PIPE, ERROR_PIPE_CONNECTED, FALSE, GENERIC_READ, GENERIC_WRITE,
+    HANDLE, INVALID_HANDLE_VALUE, TRUE,
 };
 use windows_sys::Win32::Security::{
     InitializeSecurityDescriptor, SetSecurityDescriptorDacl, ACL, PSECURITY_DESCRIPTOR,
     SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR,
 };
 use windows_sys::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
     PIPE_ACCESS_DUPLEX, ReadFile, WriteFile,
 };
 use windows_sys::Win32::System::Pipes::{
@@ -41,11 +43,53 @@ const SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
 static ACCEPTING_HANDLE: AtomicPtr<c_void> = AtomicPtr::new(ptr::null_mut());
 
 pub fn wake_pending_accept() {
-    let raw = ACCEPTING_HANDLE.swap(ptr::null_mut(), Ordering::SeqCst);
-    if !raw.is_null() && raw != INVALID_HANDLE_VALUE {
+    let raw = ACCEPTING_HANDLE.load(Ordering::SeqCst);
+    if raw.is_null() || raw == INVALID_HANDLE_VALUE {
+        return;
+    }
+
+    // Do not close the server handle from the service-control callback:
+    // synchronous ConnectNamedPipe may keep ControlService blocked until the
+    // SCM timeout. A short client-side connect completes the pending accept
+    // instead, letting the main service loop observe `shutdown` and exit.
+    let client = connect_wake_client();
+    if client != INVALID_HANDLE_VALUE {
         unsafe {
-            CloseHandle(raw);
+            CloseHandle(client);
         }
+    }
+}
+
+pub fn occupy_accept_briefly_for_stop() {
+    let client = connect_wake_client();
+    if client == INVALID_HANDLE_VALUE {
+        return;
+    }
+
+    let raw = client as isize;
+    let _ = std::thread::spawn(move || {
+        // Keep the old service out of ConnectNamedPipe while SCM delivers
+        // STOP. This avoids the legacy handler path that closed the server
+        // handle and could block ControlService until its timeout.
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        unsafe {
+            CloseHandle(raw as HANDLE);
+        }
+    });
+}
+
+fn connect_wake_client() -> HANDLE {
+    let wide = pipe_name_wide();
+    unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            ptr::null_mut(),
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            ptr::null_mut(),
+        )
     }
 }
 
@@ -280,4 +324,3 @@ impl SecurityDescriptor {
         (&mut *self.sd) as *mut SECURITY_DESCRIPTOR as PSECURITY_DESCRIPTOR
     }
 }
-

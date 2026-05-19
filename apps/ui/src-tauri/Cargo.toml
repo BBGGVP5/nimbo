@@ -11,6 +11,16 @@ description = "Nimbo UI (Tauri shell)"
 name = "nimbo_ui_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Enables the embedded asset protocol used at runtime in production. Tauri's
+# generate_context! macro flips into "dev" mode (and serves http://127.0.0.1:1420)
+# whenever this feature is NOT enabled, regardless of --release. `cargo tauri build`
+# enables it automatically; plain `cargo build --release` does not, so we must
+# pass `--features custom-protocol` when building this crate outside the Tauri CLI.
+# Do NOT make this a default feature — `cargo tauri dev` would then try to load
+# the embedded (non-existent) frontend instead of the Vite dev server.
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

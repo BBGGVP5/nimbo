@@ -237,6 +237,7 @@ fn install_service() -> Result<()> {
                     if status.current_state
                         != windows_service::service::ServiceState::Stopped
                     {
+                        pipe::occupy_accept_briefly_for_stop();
                         if let Err(stop_err) = existing.stop() {
                             warn!(error = %stop_err, "stop existing service");
                         } else {
@@ -324,6 +325,7 @@ fn uninstall_service() -> Result<()> {
 
     if let Ok(status) = service.query_status() {
         if status.current_state != ServiceState::Stopped {
+            pipe::occupy_accept_briefly_for_stop();
             if let Err(err) = service.stop() {
                 warn!(error = %err, "stop service before delete");
             } else {
@@ -374,6 +376,7 @@ fn pre_install_stop() -> Result<()> {
 
     if let Ok(status) = service.query_status() {
         if status.current_state != ServiceState::Stopped {
+            pipe::occupy_accept_briefly_for_stop();
             if let Err(err) = service.stop() {
                 warn!(error = %err, "stop service in pre-install");
             } else {

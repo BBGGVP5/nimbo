@@ -4,7 +4,9 @@ use std::io;
 
 use tracing::debug;
 use windows_sys::Win32::Foundation::CloseHandle;
-use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+use windows_sys::Win32::System::Threading::{
+    OpenProcess, PROCESS_TERMINATE, TerminateProcess, WaitForSingleObject,
+};
 
 pub fn kill_pids(pids: &[u32]) -> (Vec<u32>, Vec<(u32, String)>) {
     let mut killed = Vec::new();
@@ -33,11 +35,19 @@ fn terminate_one(pid: u32) -> Result<(), io::Error> {
         return Err(io::Error::last_os_error());
     }
     let result = unsafe { TerminateProcess(handle, 1) };
+    let error = if result == 0 {
+        Some(io::Error::last_os_error())
+    } else {
+        unsafe {
+            WaitForSingleObject(handle, 1500);
+        }
+        None
+    };
     unsafe {
         CloseHandle(handle);
     }
-    if result == 0 {
-        return Err(io::Error::last_os_error());
+    if let Some(error) = error {
+        return Err(error);
     }
     Ok(())
 }
