@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "apps/installer/src-tauri",
     "apps/service",
     "apps/ui/src-tauri",
     "crates/device",

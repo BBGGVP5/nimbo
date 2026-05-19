@@ -2075,6 +2075,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nimbo-installer"
+version = "0.1.0"
+dependencies = [
+ "dirs 5.0.1",
+ "rfd",
+ "serde",
+ "tauri",
+ "tauri-build",
+ "windows-sys 0.59.0",
+ "winreg",
+]
+
+[[package]]
 name = "nimbo-ipc"
 version = "0.1.0"
 dependencies = [
@@ -2104,12 +2117,14 @@ name = "nimbo-svc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs 5.0.1",
  "nimbo-ipc",
  "serde",
  "serde_json",
- "tokio",
  "tracing",
  "tracing-subscriber",
+ "windows-service",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2136,6 +2151,8 @@ dependencies = [
  "url",
  "uuid",
  "winapi",
+ "windows-service",
+ "windows-sys 0.59.0",
  "winreg",
  "zip",
 ]
@@ -2957,6 +2974,27 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
+]
+
+[[package]]
+name = "rfd"
+version = "0.15.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef2bee61e6cffa4635c72d7d81a84294e28f0930db0ddcb0f66d10244674ebed"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "js-sys",
+ "log",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "raw-window-handle",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4740,6 +4778,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 
 [[package]]
+name = "widestring"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72069c3113ab32ab29e5584db3c6ec55d416895e60715417b5b883a357c3e471"
+
+[[package]]
 name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4915,6 +4959,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5"
 dependencies = [
  "windows-link 0.2.1",
+]
+
+[[package]]
+name = "windows-service"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d24d6bcc7f734a4091ecf8d7a64c5f7d7066f45585c1861eba06449909609c8a"
+dependencies = [
+ "bitflags 2.11.1",
+ "widestring",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
