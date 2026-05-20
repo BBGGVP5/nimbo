@@ -53,6 +53,8 @@ type ResizeDirection =
   | "SouthWest"
   | "West";
 
+type InstallerPhase = "idle" | "installing" | "done" | "failed";
+
 const baseSteps: Step[] = [
   { id: "prepare", title: "Подготовка", detail: "Проверка окружения", state: "queued" },
   { id: "files", title: "Файлы", detail: "Nimbo.exe и компоненты", state: "queued" },
@@ -73,6 +75,15 @@ const resizeHandles: Array<{ direction: ResizeDirection; className: string }> = 
   { direction: "SouthWest", className: "resize-sw" },
 ];
 
+const previewProbe: InstallerProbe = {
+  default_install_dir: "C:\\Users\\User\\AppData\\Local\\Programs\\Nimbo",
+  product_version: "0.1.0",
+  product_arch: "Windows x64",
+  existing_install: false,
+  helper_installed: false,
+  helper_running: false,
+};
+
 function progressLabel(state: StepState): string {
   switch (state) {
     case "done":
@@ -83,6 +94,35 @@ function progressLabel(state: StepState): string {
       return "Ошибка";
     default:
       return "Ожидает";
+  }
+}
+
+function isMissingTauriBridge(error: unknown): boolean {
+  const message = String(error);
+  return (
+    message.includes("reading 'invoke'") ||
+    message.includes("__TAURI_INTERNALS__") ||
+    message.includes("Tauri API")
+  );
+}
+
+function formatInstallerError(error: unknown): string {
+  if (isMissingTauriBridge(error)) {
+    return "Установку можно запустить только из окна Nimbo Setup. В браузере доступен только предпросмотр интерфейса.";
+  }
+  return String(error);
+}
+
+function phaseLabel(phase: InstallerPhase): string {
+  switch (phase) {
+    case "installing":
+      return "Идет установка";
+    case "done":
+      return "Готово";
+    case "failed":
+      return "Нужно внимание";
+    default:
+      return "Готов к запуску";
   }
 }
 
@@ -118,7 +158,7 @@ function App() {
   const [steps, setSteps] = React.useState<Step[]>(baseSteps);
   const [progress, setProgress] = React.useState(0);
   const [displayedProgress, setDisplayedProgress] = React.useState(0);
-  const [phase, setPhase] = React.useState<"idle" | "installing" | "done" | "failed">("idle");
+  const [phase, setPhase] = React.useState<InstallerPhase>("idle");
   const [error, setError] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<InstallResult | null>(null);
   const versionLabel = probe?.product_version ? `Версия ${probe.product_version}` : "Версия";
@@ -128,6 +168,9 @@ function App() {
     steps.find((step) => step.state === "failed") ??
     [...steps].reverse().find((step) => step.state === "done") ??
     steps[0];
+  const currentStepIndex = Math.max(0, steps.findIndex((step) => step.id === currentStep.id));
+  const completedSteps = steps.filter((step) => step.state === "done").length;
+  const shellStyle = { "--progress": displayedProgress } as React.CSSProperties;
 
   React.useEffect(() => {
     let frame = 0;
@@ -153,7 +196,14 @@ function App() {
         setProbe(value);
         setInstallDir(value.default_install_dir);
       })
-      .catch((err) => setError(String(err)));
+      .catch((err) => {
+        if (isMissingTauriBridge(err)) {
+          setProbe(previewProbe);
+          setInstallDir(previewProbe.default_install_dir);
+          return;
+        }
+        setError(formatInstallerError(err));
+      });
 
     let unlisten: (() => void) | null = null;
     void listen<ProgressEvent>("installer_progress", (event) => {
@@ -197,7 +247,7 @@ function App() {
       setProgress(100);
       setPhase("done");
     } catch (err) {
-      setError(String(err));
+      setError(formatInstallerError(err));
       setPhase("failed");
     }
   };
@@ -218,7 +268,7 @@ function App() {
         setInstallDir(selected);
       }
     } catch (err) {
-      setError(`Не удалось открыть выбор папки: ${String(err)}`);
+      setError(`Не удалось открыть выбор папки: ${formatInstallerError(err)}`);
     }
   };
 
@@ -227,7 +277,10 @@ function App() {
   };
 
   return (
-    <main className="installer-shell" onMouseDown={startShellDrag}>
+    <main className={`installer-shell phase-${phase}`} style={shellStyle} onMouseDown={startShellDrag}>
+      <div className="ambient-grid" aria-hidden="true" />
+      <div className="ambient-sweep" aria-hidden="true" />
+
       {resizeHandles.map((handle) => (
         <div
           key={handle.direction}
@@ -268,6 +321,20 @@ function App() {
             <div className="progress-ring" style={{ "--progress": progress } as React.CSSProperties} />
           </div>
 
+          <div className="progress-subline">
+            {phaseLabel(phase)} · {completedSteps}/{steps.length}
+          </div>
+
+          <div className="rail-steps" aria-hidden="true">
+            {steps.map((step, index) => (
+              <span
+                key={step.id}
+                className={`rail-step rail-step-${step.state}${index === currentStepIndex ? " is-active" : ""}`}
+                style={{ "--step-index": index } as React.CSSProperties}
+              />
+            ))}
+          </div>
+
           <div
             key={currentStep.id + currentStep.state}
             className={`current-step is-${currentStep.state}`}
@@ -281,7 +348,7 @@ function App() {
         </div>
       </section>
 
-      <section className="install-panel">
+      <section className="install-panel" onMouseDown={startShellDrag}>
         <button className="window-close" type="button" onClick={close} aria-label="Закрыть">×</button>
 
         {phase === "done" ? (
@@ -306,7 +373,7 @@ function App() {
               Можно открыть Nimbo или закрыть этот установщик.
             </p>
             <div className="actions done-actions">
-              <button className="ghost-button" type="button" onClick={close}>
+              <button className="ghost-button close-action-button" type="button" onClick={close}>
                 Закрыть
               </button>
               <button className="primary-button success" type="button" onClick={openInstalled}>
@@ -401,22 +468,32 @@ function App() {
               </div>
               <div className="meter"><span style={{ width: `${progress}%` }} /></div>
               <div className="detail-lines">
-                {steps.map((step) => (
-                  <div key={step.id} className={`detail-line detail-${step.state}`}>
-                    <span>{step.title}</span>
-                    <small>{step.detail}</small>
-                  </div>
-                ))}
+                {steps.map((step, index) => {
+                  const isCurrent = index === currentStepIndex && phase !== "idle";
+                  return (
+                    <div
+                      key={step.id}
+                      className={`detail-line detail-${step.state}${isCurrent ? " is-current" : ""}`}
+                      style={{ "--step-index": index } as React.CSSProperties}
+                    >
+                      <div className="detail-line-top">
+                        <span>{step.title}</span>
+                        <b>{String(index + 1).padStart(2, "0")}</b>
+                      </div>
+                      <small>{step.detail}</small>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
             {error && <div className="error-box no-window-drag">{error}</div>}
 
             <div className="actions no-window-drag">
-              <button className="ghost-button" type="button" onClick={close} disabled={phase === "installing"}>
+              <button className="ghost-button close-action-button" type="button" onClick={close} disabled={phase === "installing"}>
                 Закрыть
               </button>
-              <button className="primary-button" type="button" onClick={install} disabled={phase === "installing" || !installDir.trim()}>
+              <button className={`primary-button${phase === "installing" ? " is-busy" : ""}`} type="button" onClick={install} disabled={phase === "installing" || !installDir.trim()}>
                 {phase === "installing" ? "Устанавливаем..." : probe?.existing_install ? "Установить обновление" : "Установить"}
               </button>
             </div>

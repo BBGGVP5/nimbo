@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 import {
   api,
   defaultAppPreferences,
@@ -256,6 +257,21 @@ export function Settings() {
     <div className="settings-page h-full overflow-auto">
       <h1 className="page-title">{m.settings.title}</h1>
 
+      <nav className="settings-tools-row" aria-label={m.app.settings}>
+        <Link to="/routing" className="settings-tools-item interactive">
+          <span className="settings-tools-icon"><RouteIcon /></span>
+          <span className="settings-tools-label">{m.app.routing}</span>
+        </Link>
+        <Link to="/statistics" className="settings-tools-item interactive">
+          <span className="settings-tools-icon"><StatsBarsIcon /></span>
+          <span className="settings-tools-label">{m.app.statistics}</span>
+        </Link>
+        <Link to="/tunnel-logs" className="settings-tools-item interactive">
+          <span className="settings-tools-icon"><LogsIcon /></span>
+          <span className="settings-tools-label">{m.app.tunnelLogs}</span>
+        </Link>
+      </nav>
+
       <div className="settings-layout">
         <aside className="settings-side liquid-card">
           {sectionItems.map((item) => (
@@ -405,6 +421,18 @@ function GeneralSection({
           label={m.settings.pingOnLaunch}
           enabled={preferences.ping_on_launch}
           onToggle={(ping_on_launch) => onChange({ ping_on_launch })}
+        />
+        <ToggleRow
+          label={m.settings.showSpeedChart}
+          description={m.settings.showSpeedChartDescription}
+          enabled={preferences.show_speed_chart}
+          onToggle={(show_speed_chart) => onChange({ show_speed_chart })}
+        />
+        <ToggleRow
+          label={m.settings.showMemoryUsage}
+          description={m.settings.showMemoryUsageDescription}
+          enabled={preferences.show_memory_usage}
+          onToggle={(show_memory_usage) => onChange({ show_memory_usage })}
         />
       </SettingsCard>
     </Section>
@@ -593,6 +621,31 @@ function ConnectionSection({
   onProxySettings: (settings: ProxySettingsPatch) => Promise<void>;
 }) {
   const m = useMessages();
+  const systemProxyOn = mode === "system_proxy" || mode === "both";
+  const tunOn = mode === "tun" || mode === "both";
+
+  const toggleSystemProxy = (next: boolean) => {
+    const nextMode: ConnectionMode = next
+      ? tunOn
+        ? "both"
+        : "system_proxy"
+      : tunOn
+        ? "tun"
+        : "tun";
+    void onMode(nextMode);
+  };
+
+  const toggleTun = (next: boolean) => {
+    const nextMode: ConnectionMode = next
+      ? systemProxyOn
+        ? "both"
+        : "tun"
+      : systemProxyOn
+        ? "system_proxy"
+        : "system_proxy";
+    void onMode(nextMode);
+  };
+
   return (
     <Section title={m.settings.connection}>
       <SettingsCard>
@@ -604,20 +657,18 @@ function ConnectionSection({
             </div>
           </div>
         </div>
-        <div className="settings-choice-grid">
-          <ModeOption
-            title="System Proxy"
-            subtitle={`HTTP 127.0.0.1:${httpPort} · SOCKS 127.0.0.1:${socksPort}`}
-            selected={mode === "system_proxy"}
-            onClick={() => onMode("system_proxy")}
-          />
-          <ModeOption
-            title="TUN"
-            subtitle={m.settings.tunSubtitle}
-            selected={mode === "tun"}
-            onClick={() => onMode("tun")}
-          />
-        </div>
+        <ToggleRow
+          label="System Proxy"
+          description={`HTTP 127.0.0.1:${httpPort} · SOCKS 127.0.0.1:${socksPort}`}
+          enabled={systemProxyOn}
+          onToggle={toggleSystemProxy}
+        />
+        <ToggleRow
+          label="TUN"
+          description={m.settings.tunSubtitle}
+          enabled={tunOn}
+          onToggle={toggleTun}
+        />
         <ToggleRow label="Kill switch" />
       </SettingsCard>
       <SettingsCard>
@@ -1399,6 +1450,15 @@ function TelegramIcon() {
 }
 function StarIcon() {
   return <Icon><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z" /></Icon>;
+}
+function RouteIcon() {
+  return <Icon><circle cx="6" cy="19" r="2.4" /><circle cx="18" cy="5" r="2.4" /><path d="M16.6 6.4 7.4 17.6" /><path d="M8 7h5a3 3 0 0 1 0 6h-2a3 3 0 0 0 0 6h5" /></Icon>;
+}
+function StatsBarsIcon() {
+  return <Icon><path d="M4 19V9" /><path d="M10 19V5" /><path d="M16 19v-7" /><path d="M3 21h18" /></Icon>;
+}
+function LogsIcon() {
+  return <Icon><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" /><path d="M14 3v4h4" /><path d="M9 12h7M9 16h5" /></Icon>;
 }
 
 function Icon({ children }: { children: ReactNode }) {

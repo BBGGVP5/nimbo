@@ -39,6 +39,103 @@ pub struct PersistedState {
     pub xray_templates: HashMap<String, serde_json::Value>,
     #[serde(default)]
     pub preferences: AppPreferences,
+    #[serde(default = "default_routing_profile_id")]
+    pub active_routing_profile: String,
+    #[serde(default)]
+    pub routing_profiles: Vec<RoutingProfile>,
+    #[serde(default)]
+    pub traffic_totals: TrafficTotals,
+}
+
+fn default_routing_profile_id() -> String {
+    "global".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingProfile {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub builtin: bool,
+    #[serde(default = "default_domain_strategy")]
+    pub domain_strategy: String,
+    #[serde(default = "default_rule_order")]
+    pub rule_order: String,
+    #[serde(default = "default_true")]
+    pub global_proxy: bool,
+    #[serde(default = "default_true")]
+    pub bypass_local_ip: bool,
+    #[serde(default)]
+    pub fake_dns: bool,
+    #[serde(default = "default_remote_dns_ip")]
+    pub remote_dns_ip: String,
+    #[serde(default = "default_local_dns_ip")]
+    pub local_dns_ip: String,
+    #[serde(default = "default_remote_dns_url")]
+    pub remote_dns_url: String,
+    #[serde(default)]
+    pub direct_domains: Vec<String>,
+    #[serde(default)]
+    pub direct_ips: Vec<String>,
+    #[serde(default)]
+    pub proxy_domains: Vec<String>,
+    #[serde(default)]
+    pub proxy_ips: Vec<String>,
+    #[serde(default)]
+    pub block_domains: Vec<String>,
+    #[serde(default)]
+    pub block_ips: Vec<String>,
+    #[serde(default)]
+    pub source_url: Option<String>,
+    #[serde(default = "default_update_interval_hours")]
+    pub update_interval_hours: u32,
+    #[serde(default)]
+    pub last_updated_at: Option<i64>,
+}
+
+fn default_domain_strategy() -> String {
+    "AsIs".into()
+}
+
+fn default_rule_order() -> String {
+    "block-proxy-direct".into()
+}
+
+fn default_remote_dns_ip() -> String {
+    "1.1.1.1".into()
+}
+
+fn default_local_dns_ip() -> String {
+    "8.8.8.8".into()
+}
+
+fn default_remote_dns_url() -> String {
+    "https://1.1.1.1/dns-query".into()
+}
+
+fn default_update_interval_hours() -> u32 {
+    24
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TrafficTotals {
+    #[serde(default)]
+    pub all_time_upload: u64,
+    #[serde(default)]
+    pub all_time_download: u64,
+    #[serde(default)]
+    pub monthly_upload: u64,
+    #[serde(default)]
+    pub monthly_download: u64,
+    /// "YYYY-MM" — month for which monthly_* counters are valid.
+    #[serde(default)]
+    pub monthly_period: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +156,14 @@ pub struct AppPreferences {
     pub latency_test_url: String,
     pub latency_timeout_ms: u32,
     pub latency_display_format: String,
+    #[serde(default = "default_show_speed_chart")]
+    pub show_speed_chart: bool,
+    #[serde(default)]
+    pub show_memory_usage: bool,
+}
+
+fn default_show_speed_chart() -> bool {
+    true
 }
 
 impl Default for AppPreferences {
@@ -79,6 +184,8 @@ impl Default for AppPreferences {
             latency_test_url: "https://www.gstatic.com/generate_204".into(),
             latency_timeout_ms: 5000,
             latency_display_format: "ms".into(),
+            show_speed_chart: true,
+            show_memory_usage: false,
         }
     }
 }
@@ -145,6 +252,17 @@ pub enum AppProxyMode {
 pub enum ConnectionMode {
     SystemProxy,
     Tun,
+    Both,
+}
+
+impl ConnectionMode {
+    pub fn uses_system_proxy(self) -> bool {
+        matches!(self, Self::SystemProxy | Self::Both)
+    }
+
+    pub fn uses_tun(self) -> bool {
+        matches!(self, Self::Tun | Self::Both)
+    }
 }
 
 impl Default for ConnectionMode {

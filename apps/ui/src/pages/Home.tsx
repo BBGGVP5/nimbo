@@ -20,6 +20,10 @@ import {
 
 type ServerEntry = { server: Server; sub: Subscription };
 type SortMode = "default" | "ping" | "protocol";
+type SpeedSample = { upload: number; download: number; at: number };
+
+const SPEED_HISTORY_LIMIT = 60;
+const MEMORY_HISTORY_LIMIT = 60;
 
 // ── Favorites persistence ────────────────────────────────────
 
@@ -149,6 +153,8 @@ export function Home() {
   const refreshSubscription = useAppStore((s) => s.refreshSubscription);
   const setServerPing = useAppStore((s) => s.setServerPing);
 
+  const preferences = useAppStore((s) => s.preferences);
+
   const [refreshingUrl, setRefreshingUrl] = useState<string | null>(null);
   const [pinging, setPinging] = useState(false);
   const [pingingServerIds, setPingingServerIds] = useState<Set<string>>(() => new Set());
@@ -156,6 +162,10 @@ export function Home() {
   const [connectedAt, setConnectedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [sessionTraffic, setSessionTraffic] = useState({ upload: 0, download: 0 });
+  const [speedSamples, setSpeedSamples] = useState<SpeedSample[]>([]);
+  const [memorySamples, setMemorySamples] = useState<number[]>([]);
+  const [currentMemoryBytes, setCurrentMemoryBytes] = useState(0);
+  const previousTrafficRef = useRef<{ upload: number; download: number; at: number } | null>(null);
 
   // Server list features
   const [sortMode, setSortMode] = useState<SortMode>("default");
@@ -164,6 +174,57 @@ export function Home() {
   const [showFavOnly, setShowFavOnly] = useState(false);
   const [compactSheetOpen, setCompactSheetOpen] = useState(false);
   const { favorites, toggle: toggleFavorite } = useFavorites();
+
+  const [widgetsCollapsed, setWidgetsCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("nimbo.homeWidgetsCollapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleWidgetsCollapsed = useCallback(() => {
+    setWidgetsCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("nimbo.homeWidgetsCollapsed", next ? "1" : "0");
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const [sidePanelCollapsed, setSidePanelCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("nimbo.sidePanelCollapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleSidePanelCollapsed = useCallback(() => {
+    setSidePanelCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("nimbo.sidePanelCollapsed", next ? "1" : "0");
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const [serverListCollapsed, setServerListCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("nimbo.serverListCollapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleServerListCollapsed = useCallback(() => {
+    setServerListCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("nimbo.serverListCollapsed", next ? "1" : "0");
+      } catch {}
+      return next;
+    });
+  }, []);
 
   const visibleSubs = useMemo(() => subs.filter(subscriptionVisibleOnHome), [subs]);
 
@@ -238,6 +299,10 @@ export function Home() {
       setConnectedAt(null);
       setElapsedSeconds(0);
       setSessionTraffic({ upload: 0, download: 0 });
+      setSpeedSamples([]);
+      setMemorySamples([]);
+      setCurrentMemoryBytes(0);
+      previousTrafficRef.current = null;
       return;
     }
     setConnectedAt((current) => current ?? Date.now());
@@ -258,18 +323,57 @@ export function Home() {
     const loadTraffic = async () => {
       try {
         const traffic = await api.getSessionTraffic();
-        if (!cancelled) setSessionTraffic(traffic);
+        if (cancelled) return;
+        setSessionTraffic(traffic);
+        const now = Date.now();
+        const prev = previousTrafficRef.current;
+        previousTrafficRef.current = { upload: traffic.upload, download: traffic.download, at: now };
+        if (prev) {
+          const elapsed = Math.max(0.001, (now - prev.at) / 1000);
+          const uploadDelta = Math.max(0, traffic.upload - prev.upload);
+          const downloadDelta = Math.max(0, traffic.download - prev.download);
+          const uploadBps = uploadDelta / elapsed;
+          const downloadBps = downloadDelta / elapsed;
+          setSpeedSamples((current) => {
+            const next = [...current, { upload: uploadBps, download: downloadBps, at: now }];
+            return next.length > SPEED_HISTORY_LIMIT ? next.slice(-SPEED_HISTORY_LIMIT) : next;
+          });
+        }
       } catch {
         if (!cancelled) setSessionTraffic((current) => current);
       }
     };
     void loadTraffic();
-    const timer = window.setInterval(() => void loadTraffic(), 2000);
+    const timer = window.setInterval(() => void loadTraffic(), 1000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
   }, [connected]);
+
+  useEffect(() => {
+    if (!connected || !preferences.show_memory_usage) return;
+    let cancelled = false;
+    const loadMemory = async () => {
+      try {
+        const usage = await api.getMemoryUsage();
+        if (cancelled) return;
+        setCurrentMemoryBytes(usage.bytes);
+        setMemorySamples((current) => {
+          const next = [...current, usage.bytes];
+          return next.length > MEMORY_HISTORY_LIMIT ? next.slice(-MEMORY_HISTORY_LIMIT) : next;
+        });
+      } catch {
+        /* ignore */
+      }
+    };
+    void loadMemory();
+    const timer = window.setInterval(() => void loadMemory(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [connected, preferences.show_memory_usage]);
 
   const onToggleServer = async (serverId: string) => {
     try {
@@ -389,11 +493,19 @@ export function Home() {
     onPingServer,
     onSwitchSubscription,
     onReorder,
+    listCollapsed: serverListCollapsed,
+    onToggleListCollapsed: toggleServerListCollapsed,
     labels: m,
   };
 
   return (
-    <div className="home-grid h-full">
+    <div
+      className={[
+        "home-grid h-full",
+        sidePanelCollapsed ? "home-grid-collapsed" : "",
+        !sidePanelCollapsed && serverListCollapsed && sortedEntries.length ? "home-grid-server-list-collapsed" : "",
+      ].join(" ")}
+    >
       <section className="home-center">
         <div className="home-top">
           <ProfileSummary
@@ -441,17 +553,58 @@ export function Home() {
 
         <div className="home-bottom">
           {connected && (
-            <SessionTrafficBlocks
-              upload={sessionTraffic.upload}
-              download={sessionTraffic.download}
-            />
+            <div className="home-bottom-stack">
+              <button
+                type="button"
+                onClick={toggleWidgetsCollapsed}
+                aria-expanded={!widgetsCollapsed}
+                className="home-widgets-toggle"
+              >
+                <span>{m.home.networkSpeed}</span>
+                <WidgetsChevron open={!widgetsCollapsed} />
+              </button>
+              {!widgetsCollapsed && (
+                <>
+                  {preferences.show_speed_chart && (
+                    <NetworkSpeedChart samples={speedSamples} labels={m} />
+                  )}
+                  <SessionTrafficBlocks
+                    upload={sessionTraffic.upload}
+                    download={sessionTraffic.download}
+                  />
+                  {preferences.show_memory_usage && (
+                    <MemoryUsageCard
+                      bytes={currentMemoryBytes}
+                      samples={memorySamples}
+                      labels={m}
+                    />
+                  )}
+                </>
+              )}
+            </div>
           )}
         </div>
       </section>
 
-      <aside className="home-right">
-        <ServerSidePanel {...sharedPanelProps} />
-      </aside>
+      {!sidePanelCollapsed && (
+        <aside className="home-right">
+          <ServerSidePanel
+            {...sharedPanelProps}
+            onCollapseSidePanel={toggleSidePanelCollapsed}
+          />
+        </aside>
+      )}
+      {sidePanelCollapsed && (
+        <button
+          type="button"
+          onClick={toggleSidePanelCollapsed}
+          className="home-side-expand"
+          title={m.home.changeServer}
+          aria-label={m.home.changeServer}
+        >
+          <ChevronLeftIcon />
+        </button>
+      )}
 
       {compactSheetOpen && (
         <CompactServerSheet
@@ -546,6 +699,9 @@ type PanelProps = {
   onPickServer: (serverId: string) => Promise<void>;
   onSwitchSubscription: (url: string) => Promise<void>;
   onReorder: (entries: ServerEntry[]) => void;
+  listCollapsed: boolean;
+  onToggleListCollapsed: () => void;
+  onCollapseSidePanel?: () => void;
   labels: Messages;
 };
 
@@ -610,6 +766,9 @@ function ServerSidePanel({
   onPickServer,
   onSwitchSubscription,
   onReorder,
+  listCollapsed,
+  onToggleListCollapsed,
+  onCollapseSidePanel,
   labels,
 }: PanelProps) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -653,9 +812,35 @@ function ServerSidePanel({
   }
 
   return (
-    <div className="server-side-panel flex h-full flex-col">
+    <div
+      className={["server-side-panel flex flex-col", listCollapsed ? "server-side-panel-collapsed" : "h-full"].join(" ")}
+    >
+      {/* Servers plaque + side-collapse button on the same row */}
+      <div className="server-plaque-row">
+        <button
+          type="button"
+          onClick={onToggleListCollapsed}
+          aria-expanded={!listCollapsed}
+          className="server-plaque"
+        >
+          <span className="server-plaque-label">{labels.common.servers}</span>
+          <span className="server-plaque-count">{entries.length}</span>
+          <ChevronDownIcon open={!listCollapsed} />
+        </button>
+        {onCollapseSidePanel && (
+          <button
+            type="button"
+            onClick={onCollapseSidePanel}
+            className="server-side-collapse"
+            title={labels.common.close}
+            aria-label={labels.common.close}
+          >
+            <ChevronRightIcon />
+          </button>
+        )}
+      </div>
       {/* Subscription switcher */}
-      {showSwitcher && (
+      {showSwitcher && !listCollapsed && (
         <div ref={switcherRef} className="px-3 pt-3">
           <button
             onClick={() => setSwitcherOpen((v) => !v)}
@@ -712,6 +897,7 @@ function ServerSidePanel({
       )}
 
       {/* Sort & favorites controls */}
+      {!listCollapsed && (
       <div className="px-3 pt-2 pb-1 space-y-1.5">
         <div className="flex items-center gap-1.5">
           <button
@@ -798,8 +984,10 @@ function ServerSidePanel({
           </div>
         )}
       </div>
+      )}
 
       {/* Server list */}
+      {!listCollapsed && (
       <div className="server-side-list mt-1 flex-1 overflow-y-auto px-2 pb-3">
         {entries.length === 0 ? (
           <div className="px-3 py-8 text-center text-[12px] text-[var(--color-text-faint)]">
@@ -902,6 +1090,7 @@ function ServerSidePanel({
           })
         )}
       </div>
+      )}
     </div>
   );
 }
@@ -1084,6 +1273,208 @@ function pingTier(ping: number): { bg: string; fg: string; label: string } {
 }
 
 // ── SessionTrafficBlocks ──────────────────────────────────────
+
+// ── NetworkSpeedChart ─────────────────────────────────────────
+
+function formatSpeed(bytesPerSecond: number): string {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "0 B/s";
+  const units = ["B/s", "KB/s", "MB/s", "GB/s"];
+  let v = bytesPerSecond;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  const precision = v >= 100 ? 0 : v >= 10 ? 1 : v >= 1 ? 2 : 2;
+  return `${v.toFixed(precision)} ${units[i]}`;
+}
+
+function NetworkSpeedChart({
+  samples,
+  labels,
+}: {
+  samples: SpeedSample[];
+  labels: Messages;
+}) {
+  const latest = samples[samples.length - 1];
+  const uploadBps = latest?.upload ?? 0;
+  const downloadBps = latest?.download ?? 0;
+
+  const width = 320;
+  const height = 110;
+  const padding = 4;
+  const allValues = samples.flatMap((s) => [s.upload, s.download]);
+  const peak = Math.max(1, ...allValues);
+  const points = Math.max(samples.length, 2);
+
+  const buildPath = (key: "upload" | "download") => {
+    if (samples.length < 2) {
+      const y = height - padding;
+      return `M ${padding} ${y} L ${width - padding} ${y}`;
+    }
+    const stepX = (width - padding * 2) / (points - 1);
+    return samples
+      .map((s, idx) => {
+        const x = padding + idx * stepX;
+        const normalized = s[key] / peak;
+        const y = height - padding - normalized * (height - padding * 2);
+        return `${idx === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+      })
+      .join(" ");
+  };
+
+  const buildArea = (key: "upload" | "download") => {
+    const linePath = buildPath(key);
+    return `${linePath} L ${width - padding} ${height - padding} L ${padding} ${height - padding} Z`;
+  };
+
+  return (
+    <div className="speed-chart-card">
+      <div className="speed-chart-header">
+        <div className="speed-chart-title">
+          <SpeedIcon />
+          <span>{labels.home.networkSpeed}</span>
+        </div>
+        <div className="speed-chart-values">
+          <span className="speed-chart-value-up">
+            <UploadIcon /> {formatSpeed(uploadBps)}
+          </span>
+          <span className="speed-chart-value-down">
+            <DownloadIcon /> {formatSpeed(downloadBps)}
+          </span>
+        </div>
+      </div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        className="speed-chart-svg"
+        aria-hidden="true"
+      >
+        <defs>
+          <linearGradient id="speed-chart-down-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-accent-bright)" stopOpacity="0.32" />
+            <stop offset="100%" stopColor="var(--color-accent-bright)" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="speed-chart-up-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#7be084" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="#7be084" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={buildArea("download")} fill="url(#speed-chart-down-fill)" />
+        <path
+          d={buildPath("download")}
+          fill="none"
+          stroke="var(--color-accent-bright)"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        <path d={buildArea("upload")} fill="url(#speed-chart-up-fill)" />
+        <path
+          d={buildPath("upload")}
+          fill="none"
+          stroke="#7be084"
+          strokeWidth="1.4"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          strokeDasharray="3 2"
+        />
+      </svg>
+    </div>
+  );
+}
+
+// ── MemoryUsageCard ───────────────────────────────────────────
+
+function MemoryUsageCard({
+  bytes,
+  samples,
+  labels,
+}: {
+  bytes: number;
+  samples: number[];
+  labels: Messages;
+}) {
+  const width = 320;
+  const height = 72;
+  const padding = 5;
+  const values = samples.length ? samples : [bytes];
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const range = Math.max(1, maxValue - minValue, maxValue * 0.08);
+
+  const buildPath = () => {
+    if (values.length < 2) {
+      const y = height - padding;
+      return `M ${padding} ${y} L ${width - padding} ${y}`;
+    }
+    const stepX = (width - padding * 2) / (values.length - 1);
+    return values
+      .map((value, idx) => {
+        const x = padding + idx * stepX;
+        const normalized = (value - minValue) / range;
+        const y = height - padding - normalized * (height - padding * 2);
+        return `${idx === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+      })
+      .join(" ");
+  };
+
+  const buildArea = () =>
+    `${buildPath()} L ${width - padding} ${height - padding} L ${padding} ${height - padding} Z`;
+
+  return (
+    <div className="memory-card">
+      <div className="memory-card-header">
+        <div className="memory-card-title">
+          <ChipIcon />
+          <span>{labels.home.memoryUsage}</span>
+        </div>
+        <span className="memory-card-value">{formatBytes(bytes)}</span>
+      </div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        className="memory-card-svg"
+        aria-hidden="true"
+      >
+        <defs>
+          <linearGradient id="memory-card-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-accent-bright)" stopOpacity="0.24" />
+            <stop offset="100%" stopColor="var(--color-accent-bright)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={buildArea()} fill="url(#memory-card-fill)" />
+        <path
+          d={buildPath()}
+          fill="none"
+          stroke="var(--color-accent-bright)"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      </svg>
+    </div>
+  );
+}
+
+function SpeedIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 14a4 4 0 1 0-4-4" />
+      <path d="m12 14 4-4" />
+      <path d="M20 12a8 8 0 1 0-13.66 5.66" />
+    </svg>
+  );
+}
+
+function ChipIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+      <path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" />
+    </svg>
+  );
+}
 
 function SessionTrafficBlocks({
   upload,
@@ -1289,6 +1680,60 @@ function ChevronDownIcon({ open }: { open: boolean }) {
       viewBox="0 0 24 24"
       className={[
         "h-4 w-4 text-[var(--color-text-faint)] transition-transform",
+        open ? "rotate-180" : "",
+      ].join(" ")}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function ChevronLeftIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m15 6-6 6 6 6" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m9 6 6 6-6 6" />
+    </svg>
+  );
+}
+
+function WidgetsChevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={[
+        "h-4 w-4 transition-transform",
         open ? "rotate-180" : "",
       ].join(" ")}
       fill="none"

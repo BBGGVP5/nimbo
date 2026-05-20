@@ -8,7 +8,19 @@ import {
   type HelperStatus,
   type Subscription,
   type SubscriptionSettingsPatch,
+  type TrafficStats,
 } from "./lib/api";
+
+export interface TrafficSpeed {
+  upload: number;
+  download: number;
+}
+
+export interface TrafficSample {
+  upload: number;
+  download: number;
+  at: number;
+}
 
 interface AppStoreState {
   status: AppStatus | null;
@@ -30,6 +42,15 @@ interface AppStoreState {
   helperError: string | null;
   loading: boolean;
   error: string | null;
+  trafficStats: TrafficStats | null;
+  trafficSpeed: TrafficSpeed;
+  trafficSample: TrafficSample | null;
+  sessionStartedAt: number | null;
+  setTrafficStats: (stats: TrafficStats) => void;
+  setTrafficSpeed: (speed: TrafficSpeed) => void;
+  setTrafficSample: (sample: TrafficSample | null) => void;
+  setSessionStartedAt: (at: number | null) => void;
+  resetTrafficSession: () => void;
   hydrate: () => Promise<void>;
   setPreferences: (preferences: AppPreferences) => Promise<AppPreferences>;
   addSubscription: (url: string, name?: string) => Promise<Subscription>;
@@ -72,6 +93,21 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   helperError: null,
   loading: false,
   error: null,
+  trafficStats: null,
+  trafficSpeed: { upload: 0, download: 0 },
+  trafficSample: null,
+  sessionStartedAt: null,
+
+  setTrafficStats: (stats) => set({ trafficStats: stats }),
+  setTrafficSpeed: (speed) => set({ trafficSpeed: speed }),
+  setTrafficSample: (sample) => set({ trafficSample: sample }),
+  setSessionStartedAt: (at) => set({ sessionStartedAt: at }),
+  resetTrafficSession: () =>
+    set({
+      trafficSpeed: { upload: 0, download: 0 },
+      trafficSample: null,
+      sessionStartedAt: null,
+    }),
 
   hydrate: async () => {
     set({ loading: true, error: null });
@@ -144,6 +180,13 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   setActiveServer: async (serverId) => {
+    const { status, activeServerId } = get();
+    if (status?.state === "connected") {
+      if (!serverId || serverId === activeServerId) return;
+      await get().connectServer(serverId);
+      return;
+    }
+
     const persisted = await api.setActiveServer(serverId);
     set({
       subscriptions: persisted.subscriptions,
@@ -193,15 +236,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   scanConflictingProcesses: async () => {
     const conflicts = await api.listConflictingProcesses().catch(() => []);
-    if (conflicts.length > 0) {
-      void get().refreshHelperStatus();
-      set({
-        conflictDialogOpen: true,
-        conflictingProcesses: conflicts,
-        conflictStopping: false,
-        conflictStopError: null,
-      });
+    if (conflicts.length === 0) {
+      return conflicts;
     }
+    void get().refreshHelperStatus();
+    set({
+      conflictDialogOpen: true,
+      conflictingProcesses: conflicts,
+      conflictStopping: false,
+      conflictStopError: null,
+    });
     return conflicts;
   },
 
@@ -268,10 +312,13 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
     try {
       const remaining = await api.stopConflictingProcesses(pids);
-      if (remaining.length > 0) {
+      const verifiedRemaining = remaining.length > 0
+        ? remaining
+        : await api.listConflictingProcesses().catch(() => remaining);
+      if (verifiedRemaining.length > 0) {
         set({
           conflictStopping: false,
-          conflictingProcesses: remaining,
+          conflictingProcesses: verifiedRemaining,
           conflictStopError: "remaining_conflicts",
         });
         return;
@@ -300,6 +347,9 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         serverPings: persisted.server_pings ?? {},
         connectingServerId: null,
         disconnecting: false,
+        trafficSpeed: { upload: 0, download: 0 },
+        trafficSample: null,
+        sessionStartedAt: null,
         status: s.status
           ? { ...s.status, state: "disconnected", active_server_id: persisted.active_server_id }
           : s.status,

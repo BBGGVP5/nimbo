@@ -1,6 +1,7 @@
 #![cfg(windows)]
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
+use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -25,6 +26,17 @@ pub fn run() -> Result<()> {
     info!(version = VERSION, "nimbo-svc starting");
 
     let mode = parse_mode(&args);
+    let _runtime_guard = match mode {
+        Mode::RunForeground | Mode::Service => match acquire_runtime_guard()? {
+            Some(guard) => Some(guard),
+            None => {
+                warn!("another nimbo-svc runtime is already active; exiting duplicate");
+                return Ok(());
+            }
+        },
+        Mode::Install | Mode::Uninstall | Mode::PreInstall => None,
+    };
+
     match mode {
         Mode::Install => maybe_elevate_then("--install", install_service),
         Mode::Uninstall => maybe_elevate_then("--uninstall", uninstall_service),
@@ -68,6 +80,45 @@ fn parse_mode(args: &[String]) -> Mode {
         }
     }
     Mode::Service
+}
+
+struct RuntimeGuard(windows_sys::Win32::Foundation::HANDLE);
+
+impl Drop for RuntimeGuard {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = windows_sys::Win32::Foundation::CloseHandle(self.0);
+        }
+    }
+}
+
+fn acquire_runtime_guard() -> Result<Option<RuntimeGuard>> {
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError,
+    };
+    use windows_sys::Win32::System::Threading::CreateMutexW;
+
+    let name: Vec<u16> = OsStr::new("Global\\Nimbo.Helper.Runtime")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let handle = unsafe { CreateMutexW(std::ptr::null(), 1, name.as_ptr()) };
+    if handle.is_null() {
+        if unsafe { GetLastError() } == ERROR_ACCESS_DENIED {
+            return Ok(None);
+        }
+        return Err(anyhow!(
+            "create helper runtime mutex: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        unsafe {
+            let _ = CloseHandle(handle);
+        }
+        return Ok(None);
+    }
+    Ok(Some(RuntimeGuard(handle)))
 }
 
 fn init_tracing(args: &[String]) {

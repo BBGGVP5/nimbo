@@ -384,9 +384,12 @@ fn connect_specific_server(app: &AppHandle, server_id: String) {
 }
 
 fn disconnect(app: &AppHandle) {
-    let state = app.state::<AppState>();
-    let _ = crate::commands::disconnect_server(state);
-    let _ = refresh_tray_menu(app);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let _ = crate::commands::disconnect_server(app.clone(), state).await;
+        let _ = refresh_tray_menu(&app);
+    });
 }
 
 fn compact_menu_label(name: &str) -> String {

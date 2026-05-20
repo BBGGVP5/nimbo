@@ -6,17 +6,84 @@ pub mod tray;
 pub mod updater;
 
 use crate::commands::{
-    add_subscription, connect_server, disconnect_server, get_device_info, get_preferences, get_session_traffic,
-    get_status, get_tun_status, get_user_agent_override, helper_status, inspect_subscription_headers, install_helper, install_tun,
-    get_app_icon, list_app_proxy_rules, list_conflicting_processes, list_installed_apps, list_subscriptions, pick_app_executable, ping_server, ping_servers, read_clipboard_text,
-    refresh_subscription, refresh_tray_menu, remove_subscription, reset_device_id, restart_as_admin,
-    set_active_server, set_active_subscription, set_app_proxy_rules, set_connection_mode, set_preferences,
-    set_proxy_settings, set_user_agent_override, stop_conflicting_processes, uninstall_helper, update_subscription_settings, write_clipboard_text,
+    add_subscription, clear_tunnel_logs, connect_server, delete_routing_profile,
+    disconnect_server, export_routing_profile, get_device_info, get_memory_usage,
+    get_preferences, get_routing_profile, get_session_traffic, get_status, get_traffic_stats,
+    get_tun_status, get_tunnel_logs, get_user_agent_override, helper_status,
+    import_routing_profile, inspect_subscription_headers, install_helper, install_tun,
+    get_app_icon, list_app_proxy_rules, list_conflicting_processes, list_installed_apps,
+    list_routing_profiles, list_subscriptions, open_routing_folder, pick_app_executable,
+    ping_server, ping_servers, read_clipboard_text, refresh_subscription, refresh_tray_menu,
+    remove_subscription, reset_builtin_routing_profiles, reset_device_id, reset_traffic_totals,
+    restart_as_admin, set_active_routing_profile, set_active_server, set_active_subscription,
+    set_app_proxy_rules, set_connection_mode, set_preferences, set_proxy_settings,
+    set_user_agent_override, stop_conflicting_processes, uninstall_helper,
+    update_routing_profile, update_subscription_settings, write_clipboard_text,
 };
 use crate::state::AppState;
 use crate::updater::{check_app_update, open_update_download};
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
+
+#[cfg(windows)]
+struct SingleInstanceGuard(windows_sys::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+unsafe impl Send for SingleInstanceGuard {}
+#[cfg(windows)]
+unsafe impl Sync for SingleInstanceGuard {}
+
+#[cfg(windows)]
+impl Drop for SingleInstanceGuard {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = windows_sys::Win32::Foundation::CloseHandle(self.0);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+struct SingleInstanceGuard;
+
+#[cfg(windows)]
+fn acquire_single_instance() -> Option<SingleInstanceGuard> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError,
+    };
+    use windows_sys::Win32::System::Threading::CreateMutexW;
+
+    let name: Vec<u16> = OsStr::new("Local\\Nimbo.Ui.Singleton")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let handle = unsafe { CreateMutexW(std::ptr::null(), 1, name.as_ptr()) };
+    if handle.is_null() {
+        if unsafe { GetLastError() } == ERROR_ACCESS_DENIED {
+            eprintln!("Nimbo is already running; exiting duplicate instance");
+            return None;
+        }
+        eprintln!(
+            "failed to create Nimbo single-instance mutex: {}",
+            std::io::Error::last_os_error()
+        );
+        return None;
+    }
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        unsafe {
+            let _ = CloseHandle(handle);
+        }
+        eprintln!("Nimbo is already running; exiting duplicate instance");
+        return None;
+    }
+    Some(SingleInstanceGuard(handle))
+}
+
+#[cfg(not(windows))]
+fn acquire_single_instance() -> Option<SingleInstanceGuard> {
+    Some(SingleInstanceGuard)
+}
 
 pub fn handle_cli_args() -> bool {
     if !std::env::args().any(|arg| arg == "--install-tun") {
@@ -32,11 +99,15 @@ pub fn handle_cli_args() -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let Some(single_instance_guard) = acquire_single_instance() else {
+        return;
+    };
     let app_state = AppState::load().expect("failed to load app state");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .manage(app_state)
+        .manage(single_instance_guard)
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let preferences = window.app_handle().state::<AppState>().snapshot().preferences;
@@ -76,6 +147,7 @@ pub fn run() {
             get_status,
             get_preferences,
             get_session_traffic,
+            get_memory_usage,
             get_device_info,
             reset_device_id,
             read_clipboard_text,
@@ -113,6 +185,19 @@ pub fn run() {
             helper_status,
             install_helper,
             uninstall_helper,
+            list_routing_profiles,
+            set_active_routing_profile,
+            get_routing_profile,
+            update_routing_profile,
+            delete_routing_profile,
+            export_routing_profile,
+            import_routing_profile,
+            reset_builtin_routing_profiles,
+            open_routing_folder,
+            get_traffic_stats,
+            reset_traffic_totals,
+            get_tunnel_logs,
+            clear_tunnel_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

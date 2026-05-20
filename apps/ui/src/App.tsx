@@ -4,6 +4,9 @@ import { Home } from "./pages/Home";
 import { Subscriptions } from "./pages/Subscriptions";
 import { Servers } from "./pages/Servers";
 import { Applications } from "./pages/Applications";
+import { Routing } from "./pages/Routing";
+import { Statistics } from "./pages/Statistics";
+import { TunnelLogs } from "./pages/TunnelLogs";
 import { Settings } from "./pages/Settings";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { useAppStore } from "./store";
@@ -17,10 +20,13 @@ const APP_UPDATE_DIALOG_EVENT = "nimbo:show-update-dialog";
 type AppUpdateDialogEvent = CustomEvent<AppUpdateInfo>;
 
 const navItems = [
-  { to: "/", key: "home", icon: "bolt", end: true },
-  { to: "/subscriptions", key: "profiles", icon: "globe", end: false },
-  { to: "/apps", key: "apps", icon: "phone", end: false },
-  { to: "/settings", key: "settings", icon: "settings", end: false },
+  { to: "/", key: "home", icon: "bolt", end: true, compactHide: false },
+  { to: "/subscriptions", key: "profiles", icon: "globe", end: false, compactHide: false },
+  { to: "/routing", key: "routing", icon: "route", end: false, compactHide: true },
+  { to: "/apps", key: "apps", icon: "phone", end: false, compactHide: false },
+  { to: "/statistics", key: "statistics", icon: "stats", end: false, compactHide: true },
+  { to: "/tunnel-logs", key: "tunnelLogs", icon: "logs", end: false, compactHide: true },
+  { to: "/settings", key: "settings", icon: "settings", end: false, compactHide: false },
 ];
 
 export default function App() {
@@ -68,9 +74,9 @@ export default function App() {
     }
 
     void (async () => {
-      const conflicts = status.connection_mode === "tun"
-        ? await scanConflictingProcesses()
-        : [];
+      const usesTun =
+        status.connection_mode === "tun" || status.connection_mode === "both";
+      const conflicts = usesTun ? await scanConflictingProcesses() : [];
 
       if (
         conflicts.length === 0 &&
@@ -203,9 +209,11 @@ export default function App() {
                 key={item.to}
                 to={item.to}
                 end={item.end}
+                data-compact-hide={item.compactHide ? "true" : undefined}
                 className={({ isActive }) =>
                   [
                     "app-nav-link block px-4 py-3 my-0.5 rounded-xl text-sm transition-all",
+                    item.compactHide ? "app-nav-link-secondary" : "",
                     isActive
                       ? "border-[var(--color-border-strong)] bg-[rgba(255,255,255,0.055)] text-[var(--color-text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_18px_var(--color-glow-accent)]"
                       : "text-[var(--color-text-dim)] hover:border-[var(--color-border)] hover:text-[var(--color-text)] hover:bg-[rgba(255,255,255,0.035)]",
@@ -238,7 +246,10 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/subscriptions" element={<Subscriptions />} />
           <Route path="/subscriptions/:url" element={<Servers />} />
+          <Route path="/routing" element={<Routing />} />
           <Route path="/apps" element={<Applications />} />
+          <Route path="/statistics" element={<Statistics />} />
+          <Route path="/tunnel-logs" element={<TunnelLogs />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
@@ -437,7 +448,10 @@ function ConflictingSoftwareDialog({
 function navLabel(labels: Messages["app"], key: string, short: boolean): string {
   if (key === "home") return labels.home;
   if (key === "profiles") return labels.profiles;
+  if (key === "routing") return short ? labels.routingShort : labels.routing;
   if (key === "apps") return short ? labels.appsShort : labels.apps;
+  if (key === "statistics") return short ? labels.statisticsShort : labels.statistics;
+  if (key === "tunnelLogs") return short ? labels.tunnelLogsShort : labels.tunnelLogs;
   return labels.settings;
 }
 
@@ -531,23 +545,39 @@ function rgbToHex(r: number, g: number, b: number): string {
 }
 
 const SIDEBAR_WIDTH_KEY = "nimbo.sidebarWidth";
-const SIDEBAR_WIDTH_DEFAULT = 200;
-const SIDEBAR_WIDTH_MIN = 160;
+const SIDEBAR_WIDTH_MIGRATION_KEY = "nimbo.sidebarWidth.v2";
+const SIDEBAR_WIDTH_DEFAULT = 232;
+const SIDEBAR_WIDTH_MIN = 188;
 const SIDEBAR_WIDTH_MAX = 340;
 
 function useResizableSidebar() {
   const [width, setWidth] = useState<number>(() => {
     if (typeof window === "undefined") return SIDEBAR_WIDTH_DEFAULT;
-    const stored = Number.parseInt(window.localStorage.getItem(SIDEBAR_WIDTH_KEY) ?? "", 10);
-    if (Number.isFinite(stored) && stored >= SIDEBAR_WIDTH_MIN && stored <= SIDEBAR_WIDTH_MAX) {
-      return stored;
+    try {
+      const stored = Number.parseInt(window.localStorage.getItem(SIDEBAR_WIDTH_KEY) ?? "", 10);
+      const migrated = window.localStorage.getItem(SIDEBAR_WIDTH_MIGRATION_KEY) === "1";
+      if (!migrated) {
+        window.localStorage.setItem(SIDEBAR_WIDTH_MIGRATION_KEY, "1");
+        if (!Number.isFinite(stored) || stored < SIDEBAR_WIDTH_DEFAULT) {
+          return SIDEBAR_WIDTH_DEFAULT;
+        }
+      }
+      if (Number.isFinite(stored) && stored >= SIDEBAR_WIDTH_MIN && stored <= SIDEBAR_WIDTH_MAX) {
+        return stored;
+      }
+    } catch {
+      return SIDEBAR_WIDTH_DEFAULT;
     }
     return SIDEBAR_WIDTH_DEFAULT;
   });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+    } catch {
+      /* ignore */
+    }
   }, [width]);
 
   const onResizeStart = useCallback((event: React.MouseEvent) => {
@@ -659,6 +689,35 @@ function NavIcon({ name }: { name: string }) {
       <svg {...common}>
         <rect x="7" y="3" width="10" height="18" rx="2.2" />
         <path d="M11 17h2" />
+      </svg>
+    );
+  }
+  if (name === "route") {
+    return (
+      <svg {...common}>
+        <circle cx="6" cy="19" r="2.4" />
+        <circle cx="18" cy="5" r="2.4" />
+        <path d="M16.6 6.4 7.4 17.6" />
+        <path d="M8 7h5a3 3 0 0 1 0 6h-2a3 3 0 0 0 0 6h5" />
+      </svg>
+    );
+  }
+  if (name === "stats") {
+    return (
+      <svg {...common}>
+        <path d="M4 19V9" />
+        <path d="M10 19V5" />
+        <path d="M16 19v-7" />
+        <path d="M3 21h18" />
+      </svg>
+    );
+  }
+  if (name === "logs") {
+    return (
+      <svg {...common}>
+        <path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
+        <path d="M14 3v4h4" />
+        <path d="M9 12h7M9 16h5" />
       </svg>
     );
   }

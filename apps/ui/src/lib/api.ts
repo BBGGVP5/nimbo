@@ -167,10 +167,12 @@ export interface AppPreferences {
   latency_test_url: string;
   latency_timeout_ms: number;
   latency_display_format: LatencyDisplayFormat;
+  show_speed_chart: boolean;
+  show_memory_usage: boolean;
 }
 
 export type AppProxyMode = "proxy" | "direct";
-export type ConnectionMode = "system_proxy" | "tun";
+export type ConnectionMode = "system_proxy" | "tun" | "both";
 
 export interface AppProxyRule {
   id: string;
@@ -217,6 +219,74 @@ export interface ServerPing {
 export interface SessionTraffic {
   upload: number;
   download: number;
+}
+
+export interface MemoryUsage {
+  bytes: number;
+}
+
+export interface RoutingProfileSummary {
+  id: string;
+  name: string;
+  description: string;
+  builtin: boolean;
+  rules_count: number;
+  action: string;
+  strategy: string;
+}
+
+export interface RoutingProfile {
+  id: string;
+  name: string;
+  description: string;
+  builtin: boolean;
+  domain_strategy: string;
+  rule_order: string;
+  global_proxy: boolean;
+  bypass_local_ip: boolean;
+  fake_dns: boolean;
+  remote_dns_ip: string;
+  local_dns_ip: string;
+  remote_dns_url: string;
+  direct_domains: string[];
+  direct_ips: string[];
+  proxy_domains: string[];
+  proxy_ips: string[];
+  block_domains: string[];
+  block_ips: string[];
+  source_url: string | null;
+  update_interval_hours: number;
+  last_updated_at: number | null;
+}
+
+export interface RoutingProfileList {
+  profiles: RoutingProfileSummary[];
+  active: string;
+}
+
+export interface TrafficStats {
+  session_upload: number;
+  session_download: number;
+  all_time_upload: number;
+  all_time_download: number;
+  monthly_upload: number;
+  monthly_download: number;
+  monthly_period: string;
+}
+
+export interface TrafficTotals {
+  all_time_upload: number;
+  all_time_download: number;
+  monthly_upload: number;
+  monthly_download: number;
+  monthly_period: string;
+}
+
+export interface TunnelLogEntry {
+  source: "xray" | "tun2socks" | string;
+  level: "info" | "warn" | "error" | "debug" | string;
+  timestamp: string | null;
+  message: string;
 }
 
 export interface TunInstallStatus {
@@ -267,6 +337,8 @@ export const defaultAppPreferences: AppPreferences = {
   latency_test_url: "https://www.gstatic.com/generate_204",
   latency_timeout_ms: 5000,
   latency_display_format: "ms",
+  show_speed_chart: true,
+  show_memory_usage: false,
 };
 
 function normalizePreferences(value: Partial<AppPreferences> | null | undefined): AppPreferences {
@@ -315,6 +387,8 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     latency_test_url: latencyTestUrl,
     latency_timeout_ms: latencyTimeoutMs,
     latency_display_format: latencyDisplayFormat,
+    show_speed_chart: value?.show_speed_chart !== false,
+    show_memory_usage: Boolean(value?.show_memory_usage),
   };
 }
 
@@ -559,6 +633,136 @@ function browserConflictingProcesses(): ConflictingProcess[] {
   ];
 }
 
+function currentBrowserMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function browserRoutingProfiles(): RoutingProfileList {
+  const stored = readBrowserJson<string | null>("nimbo.activeRoutingProfile", null);
+  const overrides = readBrowserJson<Record<string, RoutingProfile>>("nimbo.routingProfileDetails", {});
+  const seeds: Array<Omit<RoutingProfileSummary, "rules_count"> & { rules_count?: number }> = [
+    { id: "global", name: "Глобальный", description: "Весь трафик через VPN", builtin: true, rules_count: 1, action: "block-proxy-direct", strategy: "AsIs" },
+    { id: "bypass_lan", name: "Обход LAN", description: "Локальные адреса напрямую", builtin: true, rules_count: 7, action: "block-proxy-direct", strategy: "AsIs" },
+    { id: "china_direct", name: "Китай", description: "Китайские сайты напрямую", builtin: true, rules_count: 8, action: "block-proxy-direct", strategy: "IPIfNonMatch" },
+    { id: "russia_direct", name: "Россия", description: "Российские ресурсы напрямую", builtin: true, rules_count: 30, action: "block-proxy-direct", strategy: "IPIfNonMatch" },
+    { id: "roscomvpn", name: "RoscomVPN", description: "Заблокированные в РФ ресурсы — через VPN, остальное напрямую", builtin: true, rules_count: 200, action: "block-direct-proxy", strategy: "IPIfNonMatch" },
+  ];
+  const builtinIds = new Set(seeds.map((s) => s.id));
+  const customSummaries: RoutingProfileSummary[] = Object.values(overrides)
+    .filter((p) => !builtinIds.has(p.id))
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      builtin: false,
+      rules_count: p.direct_domains.length + p.direct_ips.length + p.proxy_domains.length + p.proxy_ips.length + p.block_domains.length + p.block_ips.length,
+      action: p.rule_order,
+      strategy: p.domain_strategy,
+    }));
+  return {
+    profiles: [
+      ...seeds.map((seed) => {
+        const override = overrides[seed.id];
+        if (override) {
+          return {
+            id: override.id,
+            name: override.name,
+            description: override.description,
+            builtin: true,
+            rules_count: override.direct_domains.length + override.direct_ips.length + override.proxy_domains.length + override.proxy_ips.length + override.block_domains.length + override.block_ips.length,
+            action: override.rule_order,
+            strategy: override.domain_strategy,
+          } satisfies RoutingProfileSummary;
+        }
+        return seed as RoutingProfileSummary;
+      }),
+      ...customSummaries,
+    ],
+    active: stored ?? "global",
+  };
+}
+
+function browserRoutingProfileDetail(id: string): RoutingProfile {
+  const overrides = readBrowserJson<Record<string, RoutingProfile>>("nimbo.routingProfileDetails", {});
+  if (overrides[id]) return overrides[id];
+  const defaults: Record<string, Partial<RoutingProfile>> = {
+    global: { name: "Глобальный", description: "Весь трафик через VPN", domain_strategy: "AsIs", rule_order: "block-proxy-direct", global_proxy: true, bypass_local_ip: true, fake_dns: false, block_domains: ["geosite:category-ads"] },
+    bypass_lan: { name: "Обход LAN", description: "Локальные адреса напрямую", domain_strategy: "AsIs", rule_order: "block-proxy-direct", global_proxy: true, bypass_local_ip: true, direct_ips: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"], block_domains: ["geosite:category-ads"] },
+    china_direct: { name: "Китай", description: "Китайские сайты напрямую", domain_strategy: "IPIfNonMatch", rule_order: "block-proxy-direct", direct_domains: ["geosite:cn"], direct_ips: ["geoip:cn"], block_domains: ["geosite:category-ads-all"] },
+    russia_direct: { name: "Россия", description: "Российские ресурсы напрямую", domain_strategy: "IPIfNonMatch", rule_order: "block-proxy-direct", direct_domains: ["domain:ru", "domain:yandex.ru"], direct_ips: ["geoip:ru"], block_domains: ["geosite:category-ads-all"] },
+    roscomvpn: { name: "RoscomVPN", description: "Заблокированные в РФ ресурсы — через VPN, остальное напрямую", domain_strategy: "IPIfNonMatch", rule_order: "block-direct-proxy", proxy_domains: ["domain:openai.com", "domain:chatgpt.com", "domain:claude.ai"], direct_ips: ["geoip:ru"], block_domains: ["geosite:category-ads-all"], source_url: "https://raw.githubusercontent.com/hydraponique/roscomvpn-routing/main/profile.json" },
+  };
+  const seed = defaults[id] ?? {};
+  return {
+    id,
+    name: seed.name ?? id,
+    description: seed.description ?? "",
+    builtin: id in defaults,
+    domain_strategy: seed.domain_strategy ?? "AsIs",
+    rule_order: seed.rule_order ?? "block-proxy-direct",
+    global_proxy: seed.global_proxy ?? true,
+    bypass_local_ip: seed.bypass_local_ip ?? true,
+    fake_dns: seed.fake_dns ?? false,
+    remote_dns_ip: seed.remote_dns_ip ?? "1.1.1.1",
+    local_dns_ip: seed.local_dns_ip ?? "8.8.8.8",
+    remote_dns_url: seed.remote_dns_url ?? "https://1.1.1.1/dns-query",
+    direct_domains: seed.direct_domains ?? [],
+    direct_ips: seed.direct_ips ?? [],
+    proxy_domains: seed.proxy_domains ?? [],
+    proxy_ips: seed.proxy_ips ?? [],
+    block_domains: seed.block_domains ?? [],
+    block_ips: seed.block_ips ?? [],
+    source_url: seed.source_url ?? null,
+    update_interval_hours: seed.update_interval_hours ?? 24,
+    last_updated_at: seed.last_updated_at ?? null,
+  };
+}
+
+function browserTrafficStats(): TrafficStats {
+  const totals = readBrowserJson<TrafficTotals>("nimbo.trafficTotals", {
+    all_time_upload: 0,
+    all_time_download: 0,
+    monthly_upload: 0,
+    monthly_download: 0,
+    monthly_period: currentBrowserMonth(),
+  });
+  const session = readBrowserJson<SessionTraffic>("nimbo.sessionTraffic", { upload: 0, download: 0 });
+  const month = currentBrowserMonth();
+  const valid = totals.monthly_period === month;
+  return {
+    session_upload: session.upload,
+    session_download: session.download,
+    all_time_upload: totals.all_time_upload + session.upload,
+    all_time_download: totals.all_time_download + session.download,
+    monthly_upload: (valid ? totals.monthly_upload : 0) + session.upload,
+    monthly_download: (valid ? totals.monthly_download : 0) + session.download,
+    monthly_period: month,
+  };
+}
+
+function browserTunnelLogs(limit: number): TunnelLogEntry[] {
+  const stored = readBrowserJson<TunnelLogEntry[]>("nimbo.tunnelLogs", []);
+  if (stored.length) return stored.slice(-limit);
+  const sample: TunnelLogEntry[] = [];
+  const now = new Date();
+  for (let i = 0; i < Math.min(limit, 12); i++) {
+    const ts = new Date(now.getTime() - (12 - i) * 4000);
+    sample.push({
+      source: i % 2 === 0 ? "xray" : "tun2socks",
+      level: i === 4 || i === 9 ? "warn" : "info",
+      timestamp: ts.toISOString().replace("T", " ").slice(0, 19).replace(/-/g, "/"),
+      message:
+        i === 4
+          ? "[Warning] app/proxyman/inbound: connection ends > ..."
+          : i === 9
+            ? "[Warning] app/observatory/burst: error ping https://www.gstatic.com/generate_204"
+            : "[Info] core: tunnel established",
+    });
+  }
+  return sample;
+}
+
 const browserInstalledApps: InstalledApp[] = [
   { name: "Google Chrome", executable_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" },
   { name: "Telegram", executable_path: "C:\\Users\\User\\AppData\\Roaming\\Telegram Desktop\\Telegram.exe" },
@@ -612,6 +816,105 @@ export const api = {
     isTauriRuntime()
       ? invoke<SessionTraffic>("get_session_traffic")
       : Promise.resolve(readBrowserJson<SessionTraffic>("nimbo.sessionTraffic", { upload: 0, download: 0 })),
+  getMemoryUsage: () =>
+    isTauriRuntime()
+      ? invoke<MemoryUsage>("get_memory_usage")
+      : Promise.resolve((() => {
+          const base = 220 * 1024 * 1024;
+          const jitter = Math.floor(Math.random() * 30 * 1024 * 1024);
+          return { bytes: base + jitter } satisfies MemoryUsage;
+        })()),
+  listRoutingProfiles: () =>
+    isTauriRuntime()
+      ? invoke<RoutingProfileList>("list_routing_profiles")
+      : Promise.resolve(browserRoutingProfiles()),
+  setActiveRoutingProfile: (profileId: string) =>
+    isTauriRuntime()
+      ? invoke<RoutingProfileList>("set_active_routing_profile", { profileId })
+      : Promise.resolve((() => {
+          writeBrowserJson("nimbo.activeRoutingProfile", profileId);
+          return { ...browserRoutingProfiles(), active: profileId };
+        })()),
+  getRoutingProfile: (profileId: string) =>
+    isTauriRuntime()
+      ? invoke<RoutingProfile>("get_routing_profile", { profileId })
+      : Promise.resolve(browserRoutingProfileDetail(profileId)),
+  updateRoutingProfile: (profile: RoutingProfile) =>
+    isTauriRuntime()
+      ? invoke<RoutingProfile>("update_routing_profile", { profile })
+      : Promise.resolve((() => {
+          const map = readBrowserJson<Record<string, RoutingProfile>>("nimbo.routingProfileDetails", {});
+          map[profile.id] = profile;
+          writeBrowserJson("nimbo.routingProfileDetails", map);
+          return profile;
+        })()),
+  deleteRoutingProfile: (profileId: string) =>
+    isTauriRuntime()
+      ? invoke<RoutingProfileList>("delete_routing_profile", { profileId })
+      : Promise.resolve((() => {
+          const map = readBrowserJson<Record<string, RoutingProfile>>("nimbo.routingProfileDetails", {});
+          delete map[profileId];
+          writeBrowserJson("nimbo.routingProfileDetails", map);
+          return browserRoutingProfiles();
+        })()),
+  exportRoutingProfile: (profileId: string) =>
+    isTauriRuntime()
+      ? invoke<string>("export_routing_profile", { profileId })
+      : Promise.resolve(JSON.stringify(browserRoutingProfileDetail(profileId), null, 2)),
+  importRoutingProfile: (payload: string) =>
+    isTauriRuntime()
+      ? invoke<RoutingProfile>("import_routing_profile", { payload })
+      : Promise.resolve((() => {
+          const trimmed = payload.trim();
+          let json = trimmed;
+          if (!trimmed.startsWith("{")) {
+            json = atob(trimmed.replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/"));
+          }
+          const parsed = JSON.parse(json) as RoutingProfile;
+          if (!parsed.id) parsed.id = `custom-${Date.now().toString(36)}`;
+          parsed.builtin = false;
+          const map = readBrowserJson<Record<string, RoutingProfile>>("nimbo.routingProfileDetails", {});
+          map[parsed.id] = parsed;
+          writeBrowserJson("nimbo.routingProfileDetails", map);
+          return parsed;
+        })()),
+  resetBuiltinRoutingProfiles: () =>
+    isTauriRuntime()
+      ? invoke<RoutingProfileList>("reset_builtin_routing_profiles")
+      : Promise.resolve((() => {
+          writeBrowserJson("nimbo.routingProfileDetails", {});
+          return browserRoutingProfiles();
+        })()),
+  openRoutingFolder: () =>
+    isTauriRuntime()
+      ? invoke<void>("open_routing_folder")
+      : Promise.resolve(),
+  getTrafficStats: () =>
+    isTauriRuntime()
+      ? invoke<TrafficStats>("get_traffic_stats")
+      : Promise.resolve(browserTrafficStats()),
+  resetTrafficTotals: () =>
+    isTauriRuntime()
+      ? invoke<TrafficTotals>("reset_traffic_totals")
+      : Promise.resolve((() => {
+          const totals: TrafficTotals = {
+            all_time_upload: 0,
+            all_time_download: 0,
+            monthly_upload: 0,
+            monthly_download: 0,
+            monthly_period: currentBrowserMonth(),
+          };
+          writeBrowserJson("nimbo.trafficTotals", totals);
+          return totals;
+        })()),
+  getTunnelLogs: (limit?: number) =>
+    isTauriRuntime()
+      ? invoke<TunnelLogEntry[]>("get_tunnel_logs", { limit: limit ?? null })
+      : Promise.resolve(browserTunnelLogs(limit ?? 50)),
+  clearTunnelLogs: () =>
+    isTauriRuntime()
+      ? invoke<void>("clear_tunnel_logs")
+      : Promise.resolve(writeBrowserJson<TunnelLogEntry[]>("nimbo.tunnelLogs", [])),
   getDeviceInfo: () =>
     isTauriRuntime()
       ? invoke<DeviceInfo>("get_device_info")

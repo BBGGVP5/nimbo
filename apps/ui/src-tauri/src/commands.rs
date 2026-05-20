@@ -24,7 +24,7 @@ use nimbo_xray_config::{
 
 use crate::state::{
     AppPreferences, AppProxyMode, AppProxyRule, AppState, ConnectionMode, PersistedState,
-    SystemProxySnapshot, TunRuntimeSnapshot,
+    RoutingProfile, SystemProxySnapshot, TrafficTotals, TunRuntimeSnapshot,
 };
 
 const TUN_INTERFACE_NAME: &str = "wintun";
@@ -147,6 +147,262 @@ pub struct ServerPing {
 pub struct SessionTraffic {
     pub upload: u64,
     pub download: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct MemoryUsage {
+    /// Total resident memory of the Nimbo app + xray + tun2socks, in bytes.
+    pub bytes: u64,
+}
+
+pub fn builtin_routing_profiles() -> Vec<RoutingProfile> {
+    vec![
+        RoutingProfile {
+            id: "global".into(),
+            name: "Глобальный".into(),
+            description: "Весь трафик через VPN".into(),
+            builtin: true,
+            domain_strategy: "AsIs".into(),
+            rule_order: "block-proxy-direct".into(),
+            global_proxy: true,
+            bypass_local_ip: true,
+            fake_dns: false,
+            remote_dns_ip: "1.1.1.1".into(),
+            local_dns_ip: "8.8.8.8".into(),
+            remote_dns_url: "https://1.1.1.1/dns-query".into(),
+            direct_domains: vec![],
+            direct_ips: vec![],
+            proxy_domains: vec![],
+            proxy_ips: vec![],
+            block_domains: vec!["geosite:category-ads".into()],
+            block_ips: vec![],
+            source_url: None,
+            update_interval_hours: 24,
+            last_updated_at: None,
+        },
+        RoutingProfile {
+            id: "bypass_lan".into(),
+            name: "Обход LAN".into(),
+            description: "Локальные адреса напрямую".into(),
+            builtin: true,
+            domain_strategy: "AsIs".into(),
+            rule_order: "block-proxy-direct".into(),
+            global_proxy: true,
+            bypass_local_ip: true,
+            fake_dns: false,
+            remote_dns_ip: "1.1.1.1".into(),
+            local_dns_ip: "8.8.8.8".into(),
+            remote_dns_url: "https://1.1.1.1/dns-query".into(),
+            direct_domains: vec![],
+            direct_ips: vec![
+                "10.0.0.0/8".into(),
+                "172.16.0.0/12".into(),
+                "192.168.0.0/16".into(),
+                "127.0.0.0/8".into(),
+                "fc00::/7".into(),
+                "fe80::/10".into(),
+                "::1/128".into(),
+            ],
+            proxy_domains: vec![],
+            proxy_ips: vec![],
+            block_domains: vec!["geosite:category-ads".into()],
+            block_ips: vec![],
+            source_url: None,
+            update_interval_hours: 24,
+            last_updated_at: None,
+        },
+        RoutingProfile {
+            id: "china_direct".into(),
+            name: "Китай".into(),
+            description: "Китайские сайты напрямую".into(),
+            builtin: true,
+            domain_strategy: "IPIfNonMatch".into(),
+            rule_order: "block-proxy-direct".into(),
+            global_proxy: true,
+            bypass_local_ip: true,
+            fake_dns: false,
+            remote_dns_ip: "1.1.1.1".into(),
+            local_dns_ip: "223.5.5.5".into(),
+            remote_dns_url: "https://1.1.1.1/dns-query".into(),
+            direct_domains: vec![
+                "geosite:cn".into(),
+                "geosite:apple-cn".into(),
+                "geosite:google-cn".into(),
+                "geosite:microsoft@cn".into(),
+            ],
+            direct_ips: vec![
+                "geoip:cn".into(),
+                "geoip:private".into(),
+                "223.5.5.5/32".into(),
+                "119.29.29.29/32".into(),
+            ],
+            proxy_domains: vec![],
+            proxy_ips: vec![],
+            block_domains: vec!["geosite:category-ads-all".into()],
+            block_ips: vec![],
+            source_url: None,
+            update_interval_hours: 24,
+            last_updated_at: None,
+        },
+        RoutingProfile {
+            id: "russia_direct".into(),
+            name: "Россия".into(),
+            description: "Российские ресурсы напрямую".into(),
+            builtin: true,
+            domain_strategy: "IPIfNonMatch".into(),
+            rule_order: "block-proxy-direct".into(),
+            global_proxy: true,
+            bypass_local_ip: true,
+            fake_dns: false,
+            remote_dns_ip: "1.1.1.1".into(),
+            local_dns_ip: "77.88.8.8".into(),
+            remote_dns_url: "https://1.1.1.1/dns-query".into(),
+            direct_domains: vec![
+                "domain:ru".into(),
+                "domain:su".into(),
+                "domain:yandex.ru".into(),
+                "domain:mail.ru".into(),
+                "domain:vk.com".into(),
+                "domain:vk.ru".into(),
+                "domain:ok.ru".into(),
+                "domain:sberbank.ru".into(),
+                "domain:gosuslugi.ru".into(),
+                "domain:tinkoff.ru".into(),
+                "domain:rt.com".into(),
+                "domain:wildberries.ru".into(),
+                "domain:ozon.ru".into(),
+                "domain:avito.ru".into(),
+                "domain:hh.ru".into(),
+                "domain:2gis.ru".into(),
+                "domain:rutube.ru".into(),
+                "domain:dzen.ru".into(),
+                "domain:kinopoisk.ru".into(),
+                "domain:ivi.ru".into(),
+                "domain:kion.ru".into(),
+                "domain:wink.ru".into(),
+                "domain:rbc.ru".into(),
+                "domain:lenta.ru".into(),
+                "domain:tass.ru".into(),
+                "domain:ria.ru".into(),
+                "domain:1tv.ru".into(),
+                "domain:vesti.ru".into(),
+                "domain:meduza.io".into(),
+                "domain:tinkoff.com".into(),
+            ],
+            direct_ips: vec!["geoip:ru".into(), "geoip:private".into()],
+            proxy_domains: vec![],
+            proxy_ips: vec![],
+            block_domains: vec!["geosite:category-ads-all".into()],
+            block_ips: vec![],
+            source_url: None,
+            update_interval_hours: 24,
+            last_updated_at: None,
+        },
+        RoutingProfile {
+            id: "roscomvpn".into(),
+            name: "RoscomVPN".into(),
+            description: "Заблокированные в РФ ресурсы — через VPN, остальное напрямую".into(),
+            builtin: true,
+            domain_strategy: "IPIfNonMatch".into(),
+            rule_order: "block-direct-proxy".into(),
+            global_proxy: false,
+            bypass_local_ip: true,
+            fake_dns: false,
+            remote_dns_ip: "1.1.1.1".into(),
+            local_dns_ip: "77.88.8.8".into(),
+            remote_dns_url: "https://1.1.1.1/dns-query".into(),
+            direct_domains: vec!["domain:ru".into(), "geoip:ru".into()],
+            direct_ips: vec!["geoip:ru".into(), "geoip:private".into()],
+            proxy_domains: vec![
+                "domain:openai.com".into(),
+                "domain:chatgpt.com".into(),
+                "domain:anthropic.com".into(),
+                "domain:claude.ai".into(),
+                "domain:notion.so".into(),
+                "domain:linkedin.com".into(),
+                "domain:tradingview.com".into(),
+                "domain:patreon.com".into(),
+                "domain:onlyfans.com".into(),
+                "domain:medium.com".into(),
+                "domain:soundcloud.com".into(),
+                "domain:spotify.com".into(),
+                "domain:bbc.com".into(),
+                "domain:dw.com".into(),
+                "domain:bandcamp.com".into(),
+                "domain:itch.io".into(),
+                "domain:speedtest.net".into(),
+                "domain:fast.com".into(),
+                "domain:figma.com".into(),
+                "domain:behance.net".into(),
+                "domain:dribbble.com".into(),
+                "domain:proton.me".into(),
+                "domain:protonmail.com".into(),
+                "domain:tutanota.com".into(),
+                "domain:cloudflare.com".into(),
+                "domain:cloudflareclient.com".into(),
+            ],
+            proxy_ips: vec![],
+            block_domains: vec!["geosite:category-ads-all".into()],
+            block_ips: vec![],
+            source_url: Some(
+                "https://raw.githubusercontent.com/hydraponique/roscomvpn-routing/main/profile.json"
+                    .into(),
+            ),
+            update_interval_hours: 24,
+            last_updated_at: None,
+        },
+    ]
+}
+
+fn ensure_routing_profiles(snapshot: &mut PersistedState) {
+    if snapshot.routing_profiles.is_empty() {
+        snapshot.routing_profiles = builtin_routing_profiles();
+        return;
+    }
+    for builtin in builtin_routing_profiles() {
+        if let Some(existing) = snapshot
+            .routing_profiles
+            .iter_mut()
+            .find(|profile| profile.id == builtin.id && profile.builtin)
+        {
+            if existing.name == "RosKomVPN" {
+                existing.name = builtin.name.clone();
+            }
+            if existing.id == "roscomvpn" {
+                existing.source_url = builtin.source_url.clone();
+            }
+        } else {
+            snapshot.routing_profiles.push(builtin);
+        }
+    }
+}
+
+fn count_rules(profile: &RoutingProfile) -> u32 {
+    (profile.direct_domains.len()
+        + profile.direct_ips.len()
+        + profile.proxy_domains.len()
+        + profile.proxy_ips.len()
+        + profile.block_domains.len()
+        + profile.block_ips.len()) as u32
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TrafficStats {
+    pub session_upload: u64,
+    pub session_download: u64,
+    pub all_time_upload: u64,
+    pub all_time_download: u64,
+    pub monthly_upload: u64,
+    pub monthly_download: u64,
+    pub monthly_period: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TunnelLogEntry {
+    pub source: String,
+    pub level: String,
+    pub timestamp: Option<String>,
+    pub message: String,
 }
 
 #[tauri::command]
@@ -718,7 +974,6 @@ const CONFLICTING_PROCESS_NAMES: &[&str] = &[
     "Cloudflare WARP",
     "CloudflareWARP",
     "warp",
-    "warp-svc",
     "winws",
     "zapret",
     "FlClash",
@@ -765,7 +1020,6 @@ const CONFLICTING_PROCESS_NAMES: &[&str] = &[
 
 const CONFLICTING_PROCESS_PARTIAL_KEYS: &[&str] = &[
     "cloudflarewarp",
-    "warpsvc",
     "zapret",
     "winws",
     "flclash",
@@ -1025,9 +1279,21 @@ fn stop_conflicting_process_ids_elevated(pids: &[u32]) -> Result<(), String> {
 }
 
 #[cfg(windows)]
+fn is_ignored_conflicting_process(process: &PowershellProcess) -> bool {
+    let name_key = compact_process_identity(&process.process_name);
+
+    // Cloudflare keeps this background service resident and often restarts it
+    // with a new PID. The service alone is not a reliable active-TUN signal.
+    name_key == "warpsvc"
+}
+
+#[cfg(windows)]
 fn is_conflicting_process(process: &PowershellProcess) -> bool {
     let name_key = compact_process_identity(&process.process_name);
     if name_key.is_empty() {
+        return false;
+    }
+    if is_ignored_conflicting_process(process) {
         return false;
     }
 
@@ -1634,6 +1900,573 @@ fn persist_ping_results(state: &State<'_, AppState>, results: &[ServerPing]) -> 
 }
 
 #[tauri::command]
+pub fn get_memory_usage(state: State<'_, AppState>) -> MemoryUsage {
+    let mut pids: Vec<u32> = Vec::new();
+    state.runtime(|runtime| {
+        if let Some(child) = runtime.xray.as_ref() {
+            pids.push(child.id());
+        }
+        if let Some(child) = runtime.tun2socks.as_ref() {
+            pids.push(child.id());
+        }
+    });
+    let mut total: u64 = current_process_memory();
+    for pid in pids {
+        total = total.saturating_add(process_memory_by_pid(pid));
+    }
+    MemoryUsage { bytes: total }
+}
+
+#[cfg(windows)]
+fn current_process_memory() -> u64 {
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    unsafe {
+        let handle = GetCurrentProcess();
+        let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+        let size = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        if GetProcessMemoryInfo(handle, &mut counters, size) != 0 {
+            counters.WorkingSetSize as u64
+        } else {
+            0
+        }
+    }
+}
+
+#[cfg(windows)]
+fn process_memory_by_pid(pid: u32) -> u64 {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
+    };
+
+    unsafe {
+        let handle = OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+            0,
+            pid,
+        );
+        if handle.is_null() {
+            return 0;
+        }
+        let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+        let size = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        let ok = GetProcessMemoryInfo(handle, &mut counters, size);
+        CloseHandle(handle);
+        if ok != 0 {
+            counters.WorkingSetSize as u64
+        } else {
+            0
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn current_process_memory() -> u64 {
+    0
+}
+
+#[cfg(not(windows))]
+fn process_memory_by_pid(_pid: u32) -> u64 {
+    0
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RoutingProfileSummary {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub builtin: bool,
+    pub rules_count: u32,
+    pub action: String,
+    pub strategy: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RoutingProfileList {
+    pub profiles: Vec<RoutingProfileSummary>,
+    pub active: String,
+}
+
+fn summarize_profile(profile: &RoutingProfile) -> RoutingProfileSummary {
+    RoutingProfileSummary {
+        id: profile.id.clone(),
+        name: profile.name.clone(),
+        description: profile.description.clone(),
+        builtin: profile.builtin,
+        rules_count: count_rules(profile),
+        action: profile.rule_order.clone(),
+        strategy: profile.domain_strategy.clone(),
+    }
+}
+
+fn snapshot_with_profiles(state: &State<'_, AppState>) -> PersistedState {
+    let mut snapshot = state.snapshot();
+    let needs_seed = snapshot.routing_profiles.is_empty();
+    if needs_seed {
+        ensure_routing_profiles(&mut snapshot);
+        let seeded = snapshot.routing_profiles.clone();
+        let _ = state.mutate(|s| {
+            if s.routing_profiles.is_empty() {
+                s.routing_profiles = seeded;
+            }
+        });
+    }
+    snapshot
+}
+
+fn build_routing_list(snapshot: &PersistedState) -> RoutingProfileList {
+    let profiles: Vec<RoutingProfileSummary> = snapshot
+        .routing_profiles
+        .iter()
+        .map(summarize_profile)
+        .collect();
+    let mut active = snapshot.active_routing_profile.clone();
+    if !profiles.iter().any(|p| p.id == active) {
+        active = profiles
+            .first()
+            .map(|p| p.id.clone())
+            .unwrap_or_else(|| "global".into());
+    }
+    RoutingProfileList { profiles, active }
+}
+
+#[tauri::command]
+pub fn list_routing_profiles(state: State<'_, AppState>) -> RoutingProfileList {
+    let snapshot = snapshot_with_profiles(&state);
+    build_routing_list(&snapshot)
+}
+
+#[tauri::command]
+pub fn set_active_routing_profile(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<RoutingProfileList, String> {
+    let snapshot = snapshot_with_profiles(&state);
+    let trimmed = profile_id.trim().to_string();
+    if !snapshot.routing_profiles.iter().any(|p| p.id == trimmed) {
+        return Err(format!("Профиль маршрутизации не найден: {trimmed}"));
+    }
+    state
+        .mutate(|s| s.active_routing_profile = trimmed.clone())
+        .map_err(|e| format!("Не удалось сохранить активный профиль: {e}"))?;
+    Ok(build_routing_list(&snapshot_with_profiles(&state)))
+}
+
+#[tauri::command]
+pub fn get_routing_profile(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<RoutingProfile, String> {
+    let snapshot = snapshot_with_profiles(&state);
+    snapshot
+        .routing_profiles
+        .into_iter()
+        .find(|p| p.id == profile_id)
+        .ok_or_else(|| format!("Профиль не найден: {profile_id}"))
+}
+
+#[tauri::command]
+pub fn update_routing_profile(
+    state: State<'_, AppState>,
+    profile: RoutingProfile,
+) -> Result<RoutingProfile, String> {
+    let trimmed_id = profile.id.trim().to_string();
+    if trimmed_id.is_empty() {
+        return Err("Профиль должен иметь идентификатор".into());
+    }
+    state
+        .mutate(|s| {
+            ensure_routing_profiles(s);
+            let mut next = profile.clone();
+            next.id = trimmed_id.clone();
+            next.name = next.name.trim().to_string();
+            if next.name.is_empty() {
+                next.name = next.id.clone();
+            }
+            if let Some(idx) = s.routing_profiles.iter().position(|p| p.id == trimmed_id) {
+                let existing_builtin = s.routing_profiles[idx].builtin;
+                next.builtin = existing_builtin || next.builtin;
+                s.routing_profiles[idx] = next;
+            } else {
+                s.routing_profiles.push(next);
+            }
+        })
+        .map_err(|e| format!("Не удалось сохранить профиль: {e}"))?;
+    let snapshot = state.snapshot();
+    snapshot
+        .routing_profiles
+        .into_iter()
+        .find(|p| p.id == trimmed_id)
+        .ok_or_else(|| "Профиль не найден после сохранения".into())
+}
+
+#[tauri::command]
+pub fn delete_routing_profile(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<RoutingProfileList, String> {
+    let snapshot = snapshot_with_profiles(&state);
+    let Some(target) = snapshot.routing_profiles.iter().find(|p| p.id == profile_id) else {
+        return Err(format!("Профиль не найден: {profile_id}"));
+    };
+    if target.builtin {
+        return Err("Встроенный профиль можно только сбросить, не удалить.".into());
+    }
+    state
+        .mutate(|s| {
+            s.routing_profiles.retain(|p| p.id != profile_id);
+            if s.active_routing_profile == profile_id {
+                s.active_routing_profile = s
+                    .routing_profiles
+                    .first()
+                    .map(|p| p.id.clone())
+                    .unwrap_or_else(|| "global".into());
+            }
+        })
+        .map_err(|e| format!("Не удалось удалить профиль: {e}"))?;
+    Ok(build_routing_list(&state.snapshot()))
+}
+
+#[tauri::command]
+pub fn export_routing_profile(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<String, String> {
+    let profile = get_routing_profile(state, profile_id)?;
+    serde_json::to_string_pretty(&profile)
+        .map_err(|e| format!("Не удалось сериализовать профиль: {e}"))
+}
+
+#[tauri::command]
+pub fn import_routing_profile(
+    state: State<'_, AppState>,
+    payload: String,
+) -> Result<RoutingProfile, String> {
+    let trimmed = payload.trim();
+    if trimmed.is_empty() {
+        return Err("Пустые данные импорта".into());
+    }
+    let json = if trimmed.starts_with('{') {
+        trimmed.to_string()
+    } else {
+        let cleaned: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
+        let bytes = decode_base64(&cleaned)
+            .ok_or_else(|| "Не удалось декодировать base64. Ожидается JSON или base64.".to_string())?;
+        String::from_utf8(bytes).map_err(|_| "base64 декодирован, но это не текст UTF-8".to_string())?
+    };
+    let parsed: RoutingProfile =
+        serde_json::from_str(&json).map_err(|e| format!("Не удалось разобрать JSON профиля: {e}"))?;
+
+    let mut next = parsed;
+    next.id = next.id.trim().to_string();
+    if next.id.is_empty() {
+        next.id = format!("custom-{}", uuid::Uuid::new_v4().simple());
+    }
+    next.builtin = false;
+
+    let saved_id = next.id.clone();
+    state
+        .mutate(|s| {
+            ensure_routing_profiles(s);
+            if let Some(idx) = s.routing_profiles.iter().position(|p| p.id == next.id) {
+                if s.routing_profiles[idx].builtin {
+                    next.id = format!("custom-{}", uuid::Uuid::new_v4().simple());
+                }
+            }
+            if let Some(idx) = s.routing_profiles.iter().position(|p| p.id == next.id) {
+                s.routing_profiles[idx] = next.clone();
+            } else {
+                s.routing_profiles.push(next.clone());
+            }
+        })
+        .map_err(|e| format!("Не удалось сохранить импортированный профиль: {e}"))?;
+
+    state
+        .snapshot()
+        .routing_profiles
+        .into_iter()
+        .find(|p| p.id == saved_id || p.id.starts_with("custom-"))
+        .ok_or_else(|| "Профиль импортирован, но не найден".into())
+}
+
+#[tauri::command]
+pub fn reset_builtin_routing_profiles(
+    state: State<'_, AppState>,
+) -> Result<RoutingProfileList, String> {
+    state
+        .mutate(|s| {
+            let defaults = builtin_routing_profiles();
+            let builtin_ids: HashSet<String> = defaults.iter().map(|p| p.id.clone()).collect();
+            s.routing_profiles.retain(|p| !builtin_ids.contains(&p.id));
+            for profile in defaults {
+                s.routing_profiles.insert(0, profile);
+            }
+        })
+        .map_err(|e| format!("Не удалось сбросить профили: {e}"))?;
+    Ok(build_routing_list(&state.snapshot()))
+}
+
+#[tauri::command]
+pub fn open_routing_folder() -> Result<(), String> {
+    let dir = nimbo_data_dir()
+        .map_err(|e| format!("Не удалось получить путь к данным: {e}"))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Не удалось создать папку: {e}"))?;
+
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("explorer.exe");
+        command.arg(&dir);
+        command
+            .spawn()
+            .map_err(|e| format!("Не удалось открыть проводник: {e}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = Command::new("open").arg(&dir).spawn();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = Command::new("xdg-open").arg(&dir).spawn();
+    }
+    Ok(())
+}
+
+fn decode_base64(input: &str) -> Option<Vec<u8>> {
+    const TABLE: &[u8; 256] = &{
+        let mut t = [255u8; 256];
+        let chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut i = 0;
+        while i < chars.len() {
+            t[chars[i] as usize] = i as u8;
+            i += 1;
+        }
+        t[b'-' as usize] = 62;
+        t[b'_' as usize] = 63;
+        t
+    };
+    let bytes: Vec<u8> = input.bytes().filter(|b| *b != b'=').collect();
+    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+    let mut buf: u32 = 0;
+    let mut bits: u32 = 0;
+    for b in bytes {
+        let v = TABLE[b as usize];
+        if v == 255 {
+            return None;
+        }
+        buf = (buf << 6) | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buf >> bits) as u8);
+            buf &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
+}
+
+fn current_month_period() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let days = now / 86_400;
+    let (year, month) = days_to_year_month(days);
+    format!("{:04}-{:02}", year, month)
+}
+
+fn days_to_year_month(mut days: i64) -> (i32, u32) {
+    let mut year: i32 = 1970;
+    loop {
+        let in_year = if is_leap_year(year) { 366 } else { 365 };
+        if days >= in_year {
+            days -= in_year;
+            year += 1;
+        } else {
+            break;
+        }
+    }
+    let months_in_year = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    let mut month: u32 = 1;
+    for &m in &months_in_year {
+        if days < m as i64 {
+            break;
+        }
+        days -= m as i64;
+        month += 1;
+    }
+    (year, month)
+}
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+#[tauri::command]
+pub async fn get_traffic_stats(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<TrafficStats, String> {
+    let snapshot = state.snapshot();
+    let mut totals = snapshot.traffic_totals.clone();
+    let current = current_month_period();
+    if totals.monthly_period != current {
+        totals.monthly_period = current.clone();
+        totals.monthly_upload = 0;
+        totals.monthly_download = 0;
+    }
+
+    let session = if snapshot.connected {
+        let xray_running = state.runtime(|runtime| runtime.xray.is_some());
+        if xray_running {
+            match ensure_xray_binary(&app).await {
+                Ok(xray_path) => {
+                    query_xray_session_traffic(xray_path, ProxyPorts::default())
+                        .await
+                        .unwrap_or_default()
+                }
+                Err(_) => SessionTraffic::default(),
+            }
+        } else {
+            SessionTraffic::default()
+        }
+    } else {
+        SessionTraffic::default()
+    };
+
+    Ok(TrafficStats {
+        session_upload: session.upload,
+        session_download: session.download,
+        all_time_upload: totals.all_time_upload.saturating_add(session.upload),
+        all_time_download: totals.all_time_download.saturating_add(session.download),
+        monthly_upload: totals.monthly_upload.saturating_add(session.upload),
+        monthly_download: totals.monthly_download.saturating_add(session.download),
+        monthly_period: current,
+    })
+}
+
+#[tauri::command]
+pub fn reset_traffic_totals(state: State<'_, AppState>) -> Result<TrafficTotals, String> {
+    state
+        .mutate(|s| {
+            s.traffic_totals = TrafficTotals {
+                all_time_upload: 0,
+                all_time_download: 0,
+                monthly_upload: 0,
+                monthly_download: 0,
+                monthly_period: current_month_period(),
+            };
+        })
+        .map_err(|e| format!("Не удалось сбросить счетчики: {e}"))?;
+    Ok(state.snapshot().traffic_totals)
+}
+
+fn read_log_tail(path: &Path, max_lines: usize) -> Vec<String> {
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let lines: Vec<&str> = contents.lines().collect();
+    let start = lines.len().saturating_sub(max_lines);
+    lines[start..].iter().map(|s| s.to_string()).collect()
+}
+
+fn parse_log_line(source: &str, raw: &str) -> Option<TunnelLogEntry> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut timestamp: Option<String> = None;
+    let mut rest = trimmed.to_string();
+    let bytes = trimmed.as_bytes();
+    if bytes.len() >= 19
+        && bytes[4] == b'/'
+        && bytes[7] == b'/'
+        && bytes[10] == b' '
+        && bytes[13] == b':'
+        && bytes[16] == b':'
+    {
+        timestamp = Some(trimmed[..19].to_string());
+        let after = trimmed[19..].trim_start_matches(|c: char| c == ' ' || c == '.');
+        let dot_offset = trimmed[19..].find(' ').unwrap_or(0);
+        let after_full = if dot_offset > 0 {
+            trimmed[19 + dot_offset..].trim_start()
+        } else {
+            after
+        };
+        rest = after_full.to_string();
+    }
+
+    let lower = rest.to_lowercase();
+    let level = if lower.contains("[error]") || lower.contains(" error") {
+        "error"
+    } else if lower.contains("[warning]") || lower.contains("[warn]") {
+        "warn"
+    } else if lower.contains("[debug]") {
+        "debug"
+    } else {
+        "info"
+    };
+
+    Some(TunnelLogEntry {
+        source: source.into(),
+        level: level.into(),
+        timestamp,
+        message: rest,
+    })
+}
+
+#[tauri::command]
+pub fn get_tunnel_logs(limit: Option<usize>) -> Result<Vec<TunnelLogEntry>, String> {
+    let max_lines = limit.unwrap_or(500).min(5000);
+    let mut entries: Vec<TunnelLogEntry> = Vec::new();
+    if let Ok(dir) = nimbo_data_dir() {
+        let runtime = dir.join("runtime");
+        for (source, file) in [("xray", "xray.log"), ("tun2socks", "tun2socks.log")] {
+            let path = runtime.join(file);
+            for raw in read_log_tail(&path, max_lines) {
+                if let Some(entry) = parse_log_line(source, &raw) {
+                    entries.push(entry);
+                }
+            }
+        }
+    }
+    if entries.len() > max_lines {
+        let start = entries.len() - max_lines;
+        entries = entries.split_off(start);
+    }
+    Ok(entries)
+}
+
+#[tauri::command]
+pub fn clear_tunnel_logs() -> Result<(), String> {
+    let dir = nimbo_data_dir()
+        .map_err(|e| format!("Не удалось получить папку логов: {e}"))?
+        .join("runtime");
+    for file in ["xray.log", "tun2socks.log"] {
+        let path = dir.join(file);
+        if path.exists() {
+            if let Err(e) = std::fs::write(&path, b"") {
+                return Err(format!("Не удалось очистить {}: {e}", file));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_session_traffic(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1954,6 +2787,26 @@ pub async fn connect_server(
             }
             connect_tun(&app, &state, server, &snap, status).await?;
         }
+        ConnectionMode::Both => {
+            let status = ensure_tun_dependencies(&app).await.map_err(|e| {
+                format!(
+                    "TUN не установлен: {e}. Установи TUN в настройках и перезапусти Nimbo от имени администратора."
+                )
+            })?;
+            if !status.installed {
+                return Err(format!(
+                    "{} Установи TUN в настройках и перезапусти Nimbo от имени администратора.",
+                    status.message
+                ));
+            }
+            if !is_running_as_admin() {
+                return Err(
+                    "TUN установлен, но для подключения нужен запуск от имени администратора. Перезапусти Nimbo от имени администратора и подключись снова."
+                        .into(),
+                );
+            }
+            connect_both(&app, &state, server, &snap, status).await?;
+        }
     }
 
     state
@@ -1967,10 +2820,48 @@ pub async fn connect_server(
 }
 
 #[tauri::command]
-pub fn disconnect_server(state: State<'_, AppState>) -> Result<PersistedState, String> {
+pub async fn disconnect_server(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<PersistedState, String> {
+    let snapshot = state.snapshot();
+    let final_session = if snapshot.connected {
+        let xray_running = state.runtime(|runtime| runtime.xray.is_some());
+        if xray_running {
+            match ensure_xray_binary(&app).await {
+                Ok(xray_path) => {
+                    query_xray_session_traffic(xray_path, ProxyPorts::default())
+                        .await
+                        .unwrap_or_default()
+                }
+                Err(_) => SessionTraffic::default(),
+            }
+        } else {
+            SessionTraffic::default()
+        }
+    } else {
+        SessionTraffic::default()
+    };
+
     stop_runtime(&state)?;
+    let current_period = current_month_period();
     state
-        .mutate(|s| s.connected = false)
+        .mutate(|s| {
+            s.connected = false;
+            if s.traffic_totals.monthly_period != current_period {
+                s.traffic_totals.monthly_period = current_period.clone();
+                s.traffic_totals.monthly_upload = 0;
+                s.traffic_totals.monthly_download = 0;
+            }
+            s.traffic_totals.all_time_upload =
+                s.traffic_totals.all_time_upload.saturating_add(final_session.upload);
+            s.traffic_totals.all_time_download =
+                s.traffic_totals.all_time_download.saturating_add(final_session.download);
+            s.traffic_totals.monthly_upload =
+                s.traffic_totals.monthly_upload.saturating_add(final_session.upload);
+            s.traffic_totals.monthly_download =
+                s.traffic_totals.monthly_download.saturating_add(final_session.download);
+        })
         .map_err(|e| format!("Не удалось отключиться: {e}"))?;
     Ok(state.snapshot())
 }
@@ -2767,6 +3658,30 @@ async fn connect_system_proxy(
         runtime.system_proxy_snapshot = proxy_snapshot;
     });
 
+    Ok(())
+}
+
+async fn connect_both(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    server: Server,
+    snapshot: &PersistedState,
+    status: TunInstallStatus,
+) -> Result<(), String> {
+    connect_tun(app, state, server, snapshot, status).await?;
+
+    let ports = ProxyPorts::default();
+    match apply_system_proxy(ports) {
+        Ok(proxy_snapshot) => {
+            state.runtime(|runtime| {
+                runtime.system_proxy_snapshot = proxy_snapshot;
+            });
+        }
+        Err(error) => {
+            stop_runtime(state)?;
+            return Err(error);
+        }
+    }
     Ok(())
 }
 
