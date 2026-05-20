@@ -224,13 +224,13 @@ Remnawave-панель решает что отдать в подписке по
 ```
 
 Что важно:
-- `user-agent contains "nimbo"` — наш UA по умолчанию `Nimbo/0.1.0 (Windows; …)`, сматчится
+- `user-agent contains "nimbo"` — наш UA по умолчанию `Nimbo/0.1.0`, сматчится
 - `x-hwid` regex — обязательный валидный UUID. Левый клиент без HWID попадёт во Fallback → BLOCK. Это hardenит панель: маскироваться под Nimbo одним UA не получится.
-- Все клиенты Nimbo автоматически шлют `X-Hwid`, `X-Device-Os`, `X-Device-Os-Version`, `X-Device-Model`. HWID = `MachineGuid` из реестра Windows, кешируется в `%APPDATA%\Nimbo\hwid.txt`.
+- Все клиенты Nimbo автоматически шлют `X-Hwid`, `X-Device-Os`, `X-Device-Os-Version`, `X-Ver-Os`, `X-Device-Model`. HWID = `MachineGuid` из реестра Windows, кешируется в `%APPDATA%\Nimbo\hwid.txt`.
 
 ### Маскировка для legacy-конфигов
 
-Если у клиента нет правила для Nimbo (например, чужая подписка), в `Settings → User-Agent` есть пресет «Маскировка под Happ» — клиент будет слать `Happ/2.0.0` и попадёт в Happ-правило. HWID-заголовки идут в любом случае.
+Если у клиента нет правила для Nimbo (например, чужая подписка), в `Settings → User-Agent` есть пресеты «Маскировка под Happ» и «Маскировка под Incy». HWID-заголовки идут в любом случае.
 
 ## Code-signing — отдельной задачей
 

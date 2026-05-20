@@ -1,0 +1,66 @@
+name: Build Linux
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            patchelf
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/ui/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/ui
+        run: npm ci
+
+      - name: Build Tauri app (Linux)
+        working-directory: apps/ui
+        run: npm run build:linux
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbo-linux-appimage
+          path: target/release/bundle/appimage/*.AppImage
+          if-no-files-found: warn
+
+      - name: Upload deb package
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbo-linux-deb
+          path: target/release/bundle/deb/*.deb
+          if-no-files-found: warn
