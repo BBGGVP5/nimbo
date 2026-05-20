@@ -33,3 +33,7 @@ apps/ui/src-tauri/target/
 
 # UI design references (not for repo)
 ui-template/
+
+# Internal — not for repo
+CHANGELOG_NIMBO.md
+.github/workflows/
