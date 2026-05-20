@@ -19,6 +19,7 @@ interface InstallerProbe {
   default_install_dir: string;
   product_version: string;
   product_arch: string;
+  platform: "windows" | "linux" | string;
   existing_install: boolean;
   helper_installed: boolean;
   helper_running: boolean;
@@ -55,14 +56,26 @@ type ResizeDirection =
 
 type InstallerPhase = "idle" | "installing" | "done" | "failed";
 
-const baseSteps: Step[] = [
+function createSteps(platform: string | undefined): Step[] {
+  if (platform === "linux") {
+    return [
+      { id: "prepare", title: "Подготовка", detail: "Проверка окружения", state: "queued" },
+      { id: "files", title: "Файлы", detail: "Nimbo и ресурсы", state: "queued" },
+      { id: "integrate", title: "Интеграция", detail: "desktop entry и nimbo://", state: "queued" },
+      { id: "shortcuts", title: "Ярлыки", detail: "Меню приложений и рабочий стол", state: "queued" },
+      { id: "registry", title: "Финиш", detail: "Проверка установки", state: "queued" },
+    ];
+  }
+
+  return [
   { id: "prepare", title: "Подготовка", detail: "Проверка окружения", state: "queued" },
   { id: "files", title: "Файлы", detail: "Nimbo.exe и компоненты", state: "queued" },
   { id: "tun", title: "TUN", detail: "Сетевые зависимости", state: "queued" },
   { id: "service", title: "Хелпер", detail: "Системный сервис", state: "queued" },
   { id: "shortcuts", title: "Ярлыки", detail: "Меню Пуск и рабочий стол", state: "queued" },
   { id: "registry", title: "Система", detail: "Удаление и протокол nimbo://", state: "queued" },
-];
+  ];
+}
 
 const resizeHandles: Array<{ direction: ResizeDirection; className: string }> = [
   { direction: "North", className: "resize-n" },
@@ -79,6 +92,7 @@ const previewProbe: InstallerProbe = {
   default_install_dir: "C:\\Users\\User\\AppData\\Local\\Programs\\Nimbo",
   product_version: "0.1.0",
   product_arch: "Windows x64",
+  platform: "windows",
   existing_install: false,
   helper_installed: false,
   helper_running: false,
@@ -155,7 +169,7 @@ function App() {
   const [desktopShortcut, setDesktopShortcut] = React.useState(true);
   const [startMenuShortcut, setStartMenuShortcut] = React.useState(true);
   const [launchAfterInstall, setLaunchAfterInstall] = React.useState(true);
-  const [steps, setSteps] = React.useState<Step[]>(baseSteps);
+  const [steps, setSteps] = React.useState<Step[]>(() => createSteps("windows"));
   const [progress, setProgress] = React.useState(0);
   const [displayedProgress, setDisplayedProgress] = React.useState(0);
   const [phase, setPhase] = React.useState<InstallerPhase>("idle");
@@ -163,6 +177,8 @@ function App() {
   const [result, setResult] = React.useState<InstallResult | null>(null);
   const versionLabel = probe?.product_version ? `Версия ${probe.product_version}` : "Версия";
   const archLabel = probe?.product_arch ?? "Windows";
+  const isLinux = probe?.platform === "linux";
+  const stepsTemplate = React.useMemo(() => createSteps(probe?.platform), [probe?.platform]);
   const currentStep =
     steps.find((step) => step.state === "running") ??
     steps.find((step) => step.state === "failed") ??
@@ -195,11 +211,13 @@ function App() {
       .then((value) => {
         setProbe(value);
         setInstallDir(value.default_install_dir);
+        setSteps(createSteps(value.platform));
       })
       .catch((err) => {
         if (isMissingTauriBridge(err)) {
           setProbe(previewProbe);
           setInstallDir(previewProbe.default_install_dir);
+          setSteps(createSteps(previewProbe.platform));
           return;
         }
         setError(formatInstallerError(err));
@@ -233,7 +251,7 @@ function App() {
     setError(null);
     setResult(null);
     setProgress(0);
-    setSteps(baseSteps);
+    setSteps(stepsTemplate);
     try {
       const value = await invoke<InstallResult>("install_nimbo", {
         options: {
@@ -395,7 +413,9 @@ function App() {
               <p>
                 {probe?.existing_install
                   ? "Обновим Nimbo до последней версии. Ваши подписки и настройки останутся на месте — нужно только подтвердить установку."
-                  : "Установим Nimbo за минуту. Подготовим приложение, сетевые компоненты и ярлыки — после этого можно сразу подключаться."}
+                  : isLinux
+                    ? "Установим Nimbo за минуту. Подготовим приложение, desktop entry, nimbo:// и ярлыки — после этого можно сразу открывать клиент."
+                    : "Установим Nimbo за минуту. Подготовим приложение, сетевые компоненты и ярлыки — после этого можно сразу подключаться."}
               </p>
             </div>
 
@@ -423,8 +443,16 @@ function App() {
                 />
               </div>
               <div className="status-tile compact">
-                <span className="status-kicker">Хелпер</span>
-                <strong>{probe?.helper_running ? "Запущен" : probe?.helper_installed ? "Установлен" : "Будет установлен"}</strong>
+                <span className="status-kicker">{isLinux ? "Интеграция" : "Хелпер"}</span>
+                <strong>
+                  {isLinux
+                    ? "Будет настроена"
+                    : probe?.helper_running
+                      ? "Запущен"
+                      : probe?.helper_installed
+                        ? "Установлен"
+                        : "Будет установлен"}
+                </strong>
               </div>
             </div>
 
@@ -437,7 +465,7 @@ function App() {
                   onChange={(event) => setStartMenuShortcut(event.target.checked)}
                 />
                 <span />
-                Меню Пуск
+                {isLinux ? "Меню приложений" : "Меню Пуск"}
               </label>
               <label className="toggle">
                 <input

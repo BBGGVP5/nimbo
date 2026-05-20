@@ -9,7 +9,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $scriptDir "..\..")
 $uiDir = Join-Path $repoRoot "apps\ui"
 $installerDir = Join-Path $repoRoot "apps\installer"
-$outDir = Join-Path $repoRoot "target\release\bundle\custom"
+$outDir = Join-Path $repoRoot "target\release\bundle\custom\windows"
 $installerConfig = Get-Content -Raw -LiteralPath (Join-Path $installerDir "src-tauri\tauri.conf.json") | ConvertFrom-Json
 $version = $installerConfig.version
 

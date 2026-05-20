@@ -7,7 +7,9 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
     "tauri": "tauri",
-    "build:custom": "powershell -NoProfile -ExecutionPolicy Bypass -File build-custom-installer.ps1"
+    "build:custom": "powershell -NoProfile -ExecutionPolicy Bypass -File build-custom-installer.ps1",
+    "build:custom:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File build-custom-installer.ps1",
+    "build:custom:linux": "bash ./build-custom-linux-installer.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
