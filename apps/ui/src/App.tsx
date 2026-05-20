@@ -463,20 +463,22 @@ function applyVisualPreferences(preferences: AppPreferences) {
     const resolvedTheme = preferences.theme_mode === "system"
       ? (media.matches ? "light" : "dark")
       : preferences.theme_mode;
+    const isLightTheme = resolvedTheme === "light";
+    const isBlackTheme = resolvedTheme === "black";
     document.documentElement.lang = preferences.language;
     document.body.dataset.theme = resolvedTheme;
 
     const accent = preferences.accent_mode === "system"
       ? readSystemAccentColor()
       : preferences.accent_color;
-    const bright = mixHex(accent, resolvedTheme === "light" ? "#ffffff" : "#d9d2ff", 0.32);
+    const bright = mixHex(accent, isLightTheme ? "#ffffff" : isBlackTheme ? "#f2f1ff" : "#d9d2ff", isBlackTheme ? 0.26 : 0.32);
     const soft = mixHex(accent, "#ffffff", 0.58);
-    const glow = hexToRgba(accent, resolvedTheme === "light" ? 0.22 : 0.28);
-    const activeBg = hexToRgba(accent, resolvedTheme === "light" ? 0.12 : 0.16);
-    const panel = hexToRgba(accent, resolvedTheme === "light" ? 0.08 : 0.10);
-    const bgAura1 = hexToRgba(accent, resolvedTheme === "light" ? 0.15 : 0.20);
-    const bgAura2 = hexToRgba(bright, resolvedTheme === "light" ? 0.10 : 0.12);
-    const bgAura3 = hexToRgba(soft, resolvedTheme === "light" ? 0.09 : 0.13);
+    const glow = hexToRgba(accent, isLightTheme ? 0.22 : isBlackTheme ? 0.22 : 0.28);
+    const activeBg = hexToRgba(accent, isLightTheme ? 0.12 : isBlackTheme ? 0.14 : 0.16);
+    const panel = hexToRgba(accent, isLightTheme ? 0.08 : isBlackTheme ? 0.07 : 0.10);
+    const bgAura1 = hexToRgba(accent, isLightTheme ? 0.15 : isBlackTheme ? 0.09 : 0.20);
+    const bgAura2 = hexToRgba(bright, isLightTheme ? 0.10 : isBlackTheme ? 0.06 : 0.12);
+    const bgAura3 = hexToRgba(soft, isLightTheme ? 0.09 : isBlackTheme ? 0.07 : 0.13);
     const root = document.documentElement;
     root.style.setProperty("--color-accent", accent);
     root.style.setProperty("--color-accent-bright", bright);

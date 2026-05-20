@@ -145,7 +145,7 @@ export interface PersistedState {
   preferences?: AppPreferences;
 }
 
-export type ThemeMode = "system" | "dark" | "light";
+export type ThemeMode = "system" | "dark" | "black" | "light";
 export type AccentMode = "system" | "preset" | "custom";
 export type AppLanguage = "ru" | "en";
 export type LatencyProtocol = "tcp_connect";
@@ -342,7 +342,11 @@ export const defaultAppPreferences: AppPreferences = {
 };
 
 function normalizePreferences(value: Partial<AppPreferences> | null | undefined): AppPreferences {
-  const theme = value?.theme_mode === "dark" || value?.theme_mode === "light" || value?.theme_mode === "system"
+  const theme =
+    value?.theme_mode === "dark" ||
+    value?.theme_mode === "black" ||
+    value?.theme_mode === "light" ||
+    value?.theme_mode === "system"
     ? value.theme_mode
     : defaultAppPreferences.theme_mode;
   const accentMode = value?.accent_mode === "system" || value?.accent_mode === "preset" || value?.accent_mode === "custom"

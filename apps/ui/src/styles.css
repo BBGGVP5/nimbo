@@ -103,6 +103,49 @@ body[data-theme="light"]::after {
     radial-gradient(42% 36% at 74% 68%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 78%);
 }
 
+body[data-theme="black"] {
+  color-scheme: dark;
+  --color-bg: #000000;
+  --color-surface: #050507;
+  --color-card: #07070b;
+  --color-border: color-mix(in srgb, var(--color-accent) 12%, rgba(255, 255, 255, 0.055));
+  --color-border-strong: color-mix(in srgb, var(--color-accent) 20%, rgba(255, 255, 255, 0.105));
+  --color-text: #f7f7fb;
+  --color-text-dim: rgba(247, 247, 251, 0.72);
+  --color-text-faint: rgba(247, 247, 251, 0.48);
+  --color-accent-active-bg: color-mix(in srgb, var(--color-accent) 13%, transparent);
+  --color-accent-panel: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  --color-bg-aura-1: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  --color-bg-aura-2: color-mix(in srgb, var(--color-accent-bright) 7%, transparent);
+  --color-bg-aura-3: color-mix(in srgb, var(--color-accent-soft) 6%, transparent);
+  --color-glass-bg: color-mix(in srgb, var(--color-accent) 6%, rgba(255, 255, 255, 0.022));
+  --color-glass-bg-strong: color-mix(in srgb, var(--color-accent) 10%, rgba(255, 255, 255, 0.04));
+  --color-glow-accent: color-mix(in srgb, var(--color-accent) 24%, transparent);
+  --color-material-bg: color-mix(in srgb, var(--color-accent) 6%, rgba(2, 2, 5, 0.58));
+  --color-material-bg-strong: color-mix(in srgb, var(--color-accent) 9%, rgba(5, 5, 9, 0.68));
+  --color-material-glaze: color-mix(in srgb, var(--color-accent) 5%, rgba(255, 255, 255, 0.024));
+  --color-material-glaze-strong: color-mix(in srgb, var(--color-accent) 8%, rgba(255, 255, 255, 0.042));
+  --color-material-shadow: rgba(0, 0, 0, 0.42);
+  --color-material-inset: rgba(255, 255, 255, 0.038);
+  --color-settings-divider: color-mix(in srgb, var(--color-accent) 10%, rgba(255, 255, 255, 0.045));
+}
+
+body[data-theme="black"]::before {
+  opacity: 0.78;
+  background:
+    radial-gradient(28% 22% at 20% 18%, var(--color-bg-aura-1), transparent 76%),
+    radial-gradient(26% 22% at 86% 12%, var(--color-bg-aura-2), transparent 78%),
+    radial-gradient(36% 28% at 52% 98%, var(--color-bg-aura-3), transparent 80%);
+}
+
+body[data-theme="black"]::after {
+  opacity: 0.22;
+  background:
+    linear-gradient(115deg, transparent 0 44%, color-mix(in srgb, var(--color-accent) 5%, transparent) 49%, transparent 54%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.026) 0 1px, transparent 1px 64px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 64px);
+}
+
 body[data-theme="light"] .panel,
 body[data-theme="light"] .glass,
 body[data-theme="light"] .liquid-card,
@@ -2270,7 +2313,7 @@ body[data-theme="light"] .update-dialog-backdrop {
 
 .settings-segment {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
   gap: 12px;
 }
 

@@ -195,6 +195,7 @@ impl Default for AppPreferences {
 pub enum ThemeMode {
     System,
     Dark,
+    Black,
     Light,
 }
 

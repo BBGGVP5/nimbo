@@ -505,6 +505,12 @@ function AppearanceSection({
             onClick={() => onChange({ theme_mode: "dark" })}
           />
           <ModeOption
+            title={m.settings.blackTheme}
+            subtitle={m.settings.blackThemeSubtitle}
+            selected={preferences.theme_mode === "black"}
+            onClick={() => onChange({ theme_mode: "black" })}
+          />
+          <ModeOption
             title={m.settings.lightTheme}
             subtitle={m.settings.lightThemeSubtitle}
             selected={preferences.theme_mode === "light"}
