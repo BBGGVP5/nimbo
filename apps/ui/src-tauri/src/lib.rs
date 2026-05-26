@@ -7,22 +7,23 @@ pub mod updater;
 
 use crate::commands::{
     add_subscription, clear_tunnel_logs, connect_server, delete_routing_profile,
-    disconnect_server, export_routing_profile, get_device_info, get_memory_usage,
-    get_preferences, get_routing_profile, get_session_traffic, get_status, get_traffic_stats,
-    get_tun_status, get_tunnel_logs, get_user_agent_override, helper_status,
-    import_routing_profile, inspect_subscription_headers, install_helper, install_tun,
-    get_app_icon, list_app_proxy_rules, list_conflicting_processes, list_installed_apps,
-    list_routing_profiles, list_subscriptions, open_routing_folder, pick_app_executable,
-    ping_server, ping_servers, read_clipboard_text, refresh_subscription, refresh_tray_menu,
-    remove_subscription, reset_builtin_routing_profiles, reset_device_id, reset_traffic_totals,
-    restart_as_admin, set_active_routing_profile, set_active_server, set_active_subscription,
-    set_app_proxy_rules, set_connection_mode, set_preferences, set_proxy_settings,
-    set_user_agent_override, stop_conflicting_processes, uninstall_helper,
-    update_routing_profile, update_subscription_settings, write_clipboard_text,
+    disconnect_server, export_app_backup, export_app_proxy_rules_file, export_routing_profile,
+    get_app_icon, get_device_info, get_memory_usage, get_preferences, get_routing_profile,
+    get_session_traffic, get_status, get_traffic_stats, get_tun_status, get_tunnel_logs,
+    get_user_agent_override, helper_status, import_app_backup, import_routing_profile,
+    inspect_subscription_headers, install_helper, install_tun, list_active_connections,
+    list_app_proxy_rules, list_conflicting_processes, list_installed_apps, list_routing_profiles,
+    list_subscription_app_proxy_rules, list_subscriptions, open_routing_folder,
+    pick_app_executable, ping_server, ping_servers, read_clipboard_text, refresh_subscription,
+    refresh_tray_menu, remove_subscription, reapply_runtime_config, reset_builtin_routing_profiles,
+    reset_device_id, reset_traffic_totals, restart_as_admin, set_active_routing_profile,
+    set_active_server, set_active_subscription, set_app_proxy_rules, set_connection_mode,
+    set_preferences, set_proxy_settings, set_user_agent_override, stop_conflicting_processes,
+    uninstall_helper, update_routing_profile, update_subscription_settings, write_clipboard_text,
 };
 use crate::state::AppState;
 use crate::updater::{check_app_update, open_update_download};
-use tauri::{Manager, WindowEvent};
+use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 #[cfg(windows)]
@@ -97,8 +98,50 @@ pub fn handle_cli_args() -> bool {
     true
 }
 
+#[cfg(windows)]
+fn wait_for_parent_relaunch() {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg != "--wait-for-parent" {
+            continue;
+        }
+
+        let Some(pid) = args.next().and_then(|value| value.parse::<u32>().ok()) else {
+            return;
+        };
+
+        wait_for_process_exit(pid);
+        return;
+    }
+}
+
+#[cfg(windows)]
+fn wait_for_process_exit(pid: u32) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject};
+
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    const WAIT_TIMEOUT_MS: u32 = 15_000;
+
+    let handle = unsafe { OpenProcess(SYNCHRONIZE, 0, pid) };
+    if handle.is_null() {
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        return;
+    }
+
+    unsafe {
+        WaitForSingleObject(handle, WAIT_TIMEOUT_MS);
+        let _ = CloseHandle(handle);
+    }
+}
+
+#[cfg(not(windows))]
+fn wait_for_parent_relaunch() {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    wait_for_parent_relaunch();
+
     let Some(single_instance_guard) = acquire_single_instance() else {
         return;
     };
@@ -124,6 +167,7 @@ pub fn run() {
             }
 
             tray::setup_tray(app.handle())?;
+            crate::commands::cleanup_disconnected_runtime_on_startup(app.handle());
 
             if app.state::<AppState>().snapshot().preferences.start_minimized {
                 if let Some(window) = app.get_webview_window("main") {
@@ -146,6 +190,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_status,
             get_preferences,
+            export_app_backup,
+            import_app_backup,
             get_session_traffic,
             get_memory_usage,
             get_device_info,
@@ -155,12 +201,16 @@ pub fn run() {
             get_user_agent_override,
             set_user_agent_override,
             list_app_proxy_rules,
+            list_subscription_app_proxy_rules,
+            list_active_connections,
             list_conflicting_processes,
             list_installed_apps,
             get_app_icon,
             pick_app_executable,
+            export_app_proxy_rules_file,
             stop_conflicting_processes,
             set_app_proxy_rules,
+            reapply_runtime_config,
             set_connection_mode,
             set_preferences,
             get_tun_status,
@@ -199,6 +249,15 @@ pub fn run() {
             get_tunnel_logs,
             clear_tunnel_logs,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| match event {
+            RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+                crate::commands::cleanup_runtime_for_exit(app_handle);
+            }
+            RunEvent::Resumed => {
+                crate::commands::reconnect_runtime_after_resume(app_handle);
+            }
+            _ => {}
+        });
 }

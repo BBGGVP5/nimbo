@@ -5,9 +5,11 @@ use std::io::Cursor;
 use std::net::{IpAddr, Ipv4Addr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
+use tokio::process::Command as TokioCommand;
 
 use nimbo_device::{DeviceInfo, device_info, reset_cache};
 use nimbo_ipc::PROTOCOL_VERSION;
@@ -19,7 +21,7 @@ use nimbo_subscription::{
 };
 use nimbo_xray_config::{
     AppRoutingMode as XrayAppRoutingMode, AppRoutingRule as XrayAppRoutingRule, ConfigBuilder,
-    ProxyPorts,
+    ProxyPorts, RoutingProfileRules as XrayRoutingProfileRules,
 };
 
 use crate::state::{
@@ -29,7 +31,7 @@ use crate::state::{
 
 const TUN_INTERFACE_NAME: &str = "wintun";
 const TUN_ADDRESS: &str = "198.18.0.1";
-const TUN_NETMASK: &str = "255.255.255.0";
+const TUN_GATEWAY_CIDR: &str = "198.18.0.1/24";
 const TUN_DNS_PRIMARY: &str = "1.1.1.1";
 const TUN_DNS_SECONDARY: &str = "8.8.8.8";
 const DEFAULT_XRAY_TEMPLATE_KEY: &str = "default";
@@ -42,6 +44,7 @@ const NIMBO_REMNAWAVE_ENV_ENV: &str = "NIMBO_REMNAWAVE_ENV";
 const CONFLICT_STOP_ATTEMPTS: usize = 6;
 const CONFLICT_STOP_INITIAL_SETTLE_MS: u64 = 900;
 const CONFLICT_STOP_RETRY_SETTLE_MS: u64 = 650;
+static RESUME_RECONNECT_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppStatus {
@@ -153,6 +156,34 @@ pub struct SessionTraffic {
 pub struct MemoryUsage {
     /// Total resident memory of the Nimbo app + xray + tun2socks, in bytes.
     pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActiveConnectionRoute {
+    Proxy,
+    Direct,
+    Block,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ActiveConnection {
+    pub id: String,
+    pub protocol: String,
+    pub state: String,
+    pub source: String,
+    pub destination: String,
+    pub remote_address: String,
+    pub remote_port: u16,
+    pub process: String,
+    pub process_path: Option<String>,
+    pub pid: u32,
+    pub route: ActiveConnectionRoute,
+    pub rule: String,
+    pub server_id: Option<String>,
+    pub server_name: Option<String>,
+    pub server_protocol: Option<String>,
 }
 
 pub fn builtin_routing_profiles() -> Vec<RoutingProfile> {
@@ -480,17 +511,90 @@ pub fn set_preferences(
     mut preferences: AppPreferences,
 ) -> Result<AppPreferences, String> {
     preferences.accent_color = normalize_accent_color(&preferences.accent_color);
+    preferences.ui_style = normalize_ui_style(&preferences.ui_style);
     preferences.latency_protocol = normalize_latency_protocol(&preferences.latency_protocol);
     preferences.latency_test_url = normalize_latency_test_url(&preferences.latency_test_url);
     preferences.latency_timeout_ms = normalize_latency_timeout_ms(preferences.latency_timeout_ms);
     preferences.latency_display_format =
         normalize_latency_display_format(&preferences.latency_display_format);
+    preferences.app_routing_mode = normalize_app_routing_mode(&preferences.app_routing_mode);
+    preferences.tunnel_mux_concurrency = preferences.tunnel_mux_concurrency.clamp(1, 1024);
+    preferences.tunnel_xudp_concurrency = preferences.tunnel_xudp_concurrency.clamp(-1, 1024);
+    preferences.tunnel_xudp_udp443 =
+        normalize_xudp_udp443_mode(&preferences.tunnel_xudp_udp443);
+    preferences.lan_tcp_idle_timeout_sec = preferences.lan_tcp_idle_timeout_sec.clamp(5, 3600);
+    preferences.lan_max_tcp_connections = preferences.lan_max_tcp_connections.clamp(1, 100_000);
+    preferences.lan_max_udp_connections = preferences.lan_max_udp_connections.clamp(1, 100_000);
+    preferences.lan_preferred_ip_family =
+        normalize_preferred_ip_family(&preferences.lan_preferred_ip_family);
+    preferences.subscriptions_update_interval_hours =
+        preferences.subscriptions_update_interval_hours.clamp(1, 168);
+    preferences.subscriptions_expiration_threshold_days =
+        preferences.subscriptions_expiration_threshold_days.clamp(1, 365);
+    preferences.servers_sorting = normalize_server_sorting(&preferences.servers_sorting);
+    preferences.servers_connect_button =
+        normalize_connect_button_style(&preferences.servers_connect_button);
+    preferences.servers_ui_scale = preferences.servers_ui_scale.clamp(80, 125);
     set_launch_at_login(&app, preferences.launch_at_login)?;
     state
         .mutate(|s| s.preferences = preferences.clone())
         .map_err(|e| format!("Не удалось сохранить настройки приложения: {e}"))?;
     crate::tray::refresh_tray_menu(&app).map_err(|e| format!("Не удалось обновить меню трея: {e}"))?;
     Ok(preferences)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AppBackup {
+    schema: String,
+    app: String,
+    exported_at: u64,
+    state: PersistedState,
+}
+
+#[tauri::command]
+pub fn export_app_backup(state: State<'_, AppState>) -> Result<String, String> {
+    let mut snapshot = state.snapshot();
+    snapshot.connected = false;
+    snapshot.pending_system_proxy_snapshot = None;
+    snapshot.pending_tun_snapshot = None;
+    let exported_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+    let backup = AppBackup {
+        schema: "nimbo-backup-v1".into(),
+        app: "Nimbo".into(),
+        exported_at,
+        state: snapshot,
+    };
+    serde_json::to_string_pretty(&backup)
+        .map_err(|e| format!("Не удалось собрать резервную копию: {e}"))
+}
+
+#[tauri::command]
+pub fn import_app_backup(
+    state: State<'_, AppState>,
+    payload: String,
+) -> Result<PersistedState, String> {
+    let raw: serde_json::Value = serde_json::from_str(payload.trim())
+        .map_err(|e| format!("Не удалось прочитать JSON резервной копии: {e}"))?;
+    let state_value = raw
+        .get("state")
+        .cloned()
+        .unwrap_or(raw);
+    let mut imported: PersistedState = serde_json::from_value(state_value)
+        .map_err(|e| format!("Не удалось применить резервную копию: {e}"))?;
+    imported.normalize_runtime_defaults();
+    imported.connected = false;
+    imported.pending_system_proxy_snapshot = None;
+    imported.pending_tun_snapshot = None;
+
+    state
+        .mutate(|snapshot| {
+            *snapshot = imported.clone();
+        })
+        .map_err(|e| format!("Не удалось сохранить резервную копию: {e}"))?;
+    Ok(state.snapshot())
 }
 
 #[tauri::command]
@@ -600,6 +704,7 @@ pub async fn add_subscription(
             description: None,
             support_url: None,
             website_url: None,
+            app_proxy_rules: Vec::new(),
             xray_templates,
         }
     };
@@ -769,17 +874,43 @@ pub fn list_app_proxy_rules(state: State<'_, AppState>) -> Vec<AppProxyRule> {
 }
 
 #[tauri::command]
+pub fn list_subscription_app_proxy_rules(state: State<'_, AppState>) -> Vec<AppProxyRule> {
+    let snap = state.snapshot();
+    subscription_app_proxy_rules_for_display(&snap)
+}
+
+#[tauri::command]
 pub fn list_installed_apps() -> Vec<InstalledApp> {
     platform_installed_apps()
 }
 
 #[tauri::command]
-pub fn list_conflicting_processes() -> Result<Vec<ConflictingProcess>, String> {
-    detect_conflicting_processes()
+pub async fn list_conflicting_processes() -> Result<Vec<ConflictingProcess>, String> {
+    tokio::task::spawn_blocking(detect_conflicting_processes)
+        .await
+        .map_err(|e| format!("Не удалось дождаться проверки конфликтующих процессов: {e}"))?
 }
 
 #[tauri::command]
-pub fn stop_conflicting_processes(
+pub async fn stop_conflicting_processes(
+    #[cfg(windows)] app: AppHandle,
+    pids: Option<Vec<u32>>,
+) -> Result<Vec<ConflictingProcess>, String> {
+    tokio::task::spawn_blocking(move || {
+        #[cfg(windows)]
+        {
+            stop_conflicting_processes_blocking(app, pids)
+        }
+        #[cfg(not(windows))]
+        {
+            stop_conflicting_processes_blocking(pids)
+        }
+    })
+    .await
+    .map_err(|e| format!("Не удалось дождаться выгрузки конфликтующих процессов: {e}"))?
+}
+
+fn stop_conflicting_processes_blocking(
     #[cfg(windows)] app: AppHandle,
     pids: Option<Vec<u32>>,
 ) -> Result<Vec<ConflictingProcess>, String> {
@@ -970,6 +1101,25 @@ pub fn pick_app_executable() -> Result<Option<String>, String> {
     platform_pick_app_executable()
 }
 
+#[tauri::command]
+pub fn export_app_proxy_rules_file(
+    contents: String,
+    file_name: String,
+) -> Result<Option<String>, String> {
+    let file_name = sanitize_export_file_name(&file_name);
+    let Some(path) = platform_pick_app_rules_export_path(&file_name)? else {
+        return Ok(None);
+    };
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Не удалось создать папку экспорта: {e}"))?;
+    }
+    std::fs::write(&path, contents.as_bytes())
+        .map_err(|e| format!("Не удалось сохранить файл правил приложений: {e}"))?;
+    Ok(Some(path_to_string(path)))
+}
+
 const CONFLICTING_PROCESS_NAMES: &[&str] = &[
     "Cloudflare WARP",
     "CloudflareWARP",
@@ -1056,47 +1206,39 @@ struct PowershellProcess {
 
 #[cfg(windows)]
 fn detect_conflicting_processes() -> Result<Vec<ConflictingProcess>, String> {
-    let script = format!(
-        r#"
+    let script = r#"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
-$items = @()
-try {{
-  foreach ($p in Get-CimInstance Win32_Process -ErrorAction Stop) {{
-    if ($null -eq $p.ProcessId -or [string]::IsNullOrWhiteSpace($p.Name)) {{
+$items = try {
+  foreach ($p in Get-Process -ErrorAction Stop) {
+    if ($null -eq $p.Id -or [string]::IsNullOrWhiteSpace($p.ProcessName)) {
       continue
-    }}
-    $processName = [System.IO.Path]::GetFileNameWithoutExtension($p.Name)
-    $items += [PSCustomObject]@{{
-      ProcessName = $processName
-      Id = [uint32]$p.ProcessId
-      Path = $p.ExecutablePath
-      CommandLine = $p.CommandLine
-    }}
-  }}
-}} catch {{
-  foreach ($p in Get-Process -ErrorAction SilentlyContinue) {{
+    }
     $path = $null
-    try {{ $path = $p.Path }} catch {{}}
-    $items += [PSCustomObject]@{{
+    try { $path = $p.Path } catch {}
+    [PSCustomObject]@{
       ProcessName = $p.ProcessName
-      Id = $p.Id
+      Id = [uint32]$p.Id
       Path = $path
       CommandLine = $null
-    }}
-  }}
-}}
-[Console]::Out.Write((ConvertTo-Json -InputObject $items -Compress -Depth 3))
-"#
-    );
+    }
+  }
+} catch {
+  @()
+}
+[Console]::Out.Write((ConvertTo-Json -InputObject @($items) -Compress -Depth 3))
+"#;
 
-    let output = hidden_output_command("powershell")
+    let mut command = hidden_output_command("powershell");
+    command
         .arg("-NoProfile")
         .arg("-ExecutionPolicy")
         .arg("Bypass")
         .arg("-Command")
         .arg(script)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command_output_with_timeout(command, std::time::Duration::from_secs(4))
         .map_err(|e| format!("Не удалось проверить конфликтующие процессы: {e}"))?;
 
     if !output.status.success() {
@@ -1224,13 +1366,16 @@ exit 0
 "#
     );
 
-    let output = hidden_output_command("powershell")
+    let mut command = hidden_output_command("powershell");
+    command
         .arg("-NoProfile")
         .arg("-ExecutionPolicy")
         .arg("Bypass")
         .arg("-Command")
         .arg(script)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command_output_with_timeout(command, std::time::Duration::from_secs(4))
         .map_err(|e| format!("Не удалось выгрузить конфликтующие процессы: {e}"))?;
 
     if !output.status.success() {
@@ -1653,6 +1798,84 @@ fn platform_pick_app_executable() -> Result<Option<String>, String> {
     Ok(None)
 }
 
+fn sanitize_export_file_name(file_name: &str) -> String {
+    let mut cleaned = file_name
+        .trim()
+        .chars()
+        .map(|ch| {
+            if ch.is_control()
+                || matches!(
+                    ch,
+                    '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+                )
+            {
+                '_'
+            } else {
+                ch
+            }
+        })
+        .collect::<String>();
+
+    cleaned = cleaned.trim_matches(&[' ', '.'][..]).to_string();
+    if cleaned.is_empty() {
+        cleaned = "nimbo-app-rules.json".into();
+    }
+    if !cleaned.to_ascii_lowercase().ends_with(".json") {
+        cleaned.push_str(".json");
+    }
+    cleaned
+}
+
+#[cfg(windows)]
+fn platform_pick_app_rules_export_path(default_file_name: &str) -> Result<Option<PathBuf>, String> {
+    let default_file_name = default_file_name.replace('\'', "''");
+    let script = r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.SaveFileDialog
+$dialog.Title = 'Экспорт правил приложений'
+$dialog.Filter = 'JSON (*.json)|*.json|Все файлы (*.*)|*.*'
+$dialog.DefaultExt = 'json'
+$dialog.AddExtension = $true
+$dialog.OverwritePrompt = $true
+$dialog.FileName = '__NIMBO_DEFAULT_FILE_NAME__'
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::Out.Write($dialog.FileName)
+}
+"#
+    .replace("__NIMBO_DEFAULT_FILE_NAME__", &default_file_name);
+
+    let output = hidden_output_command("powershell")
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-STA")
+        .arg("-Command")
+        .arg(script)
+        .output()
+        .map_err(|e| format!("Не удалось открыть экспорт правил приложений: {e}"))?;
+
+    if !output.status.success() {
+        return Err("Не удалось открыть экспорт правил приложений".into());
+    }
+
+    let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(if selected.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(selected))
+    })
+}
+
+#[cfg(not(windows))]
+fn platform_pick_app_rules_export_path(default_file_name: &str) -> Result<Option<PathBuf>, String> {
+    let dir = nimbo_data_dir()?.join("exports");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Не удалось создать папку экспорта: {e}"))?;
+    Ok(Some(dir.join(default_file_name)))
+}
+
 fn normalize_icon_rgba(rgba: &[u8], width: usize, height: usize) -> Vec<u8> {
     const ALPHA_THRESHOLD: u8 = 8;
     const PADDING: usize = 4;
@@ -1760,6 +1983,22 @@ fn simple_base64(data: &[u8]) -> String {
 }
 
 #[tauri::command]
+pub async fn reapply_runtime_config(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let snapshot = state.snapshot();
+    if !snapshot.connected {
+        return Ok(false);
+    }
+    let Some(server_id) = snapshot.active_server_id.clone() else {
+        return Ok(false);
+    };
+    connect_server(app, state, server_id).await?;
+    Ok(true)
+}
+
+#[tauri::command]
 pub fn set_app_proxy_rules(
     state: State<'_, AppState>,
     rules: Vec<AppProxyRule>,
@@ -1780,8 +2019,23 @@ pub fn set_app_proxy_rules(
         })
         .collect::<Vec<_>>();
 
+    let mut seen = HashMap::<String, usize>::new();
+    let mut deduped: Vec<AppProxyRule> = Vec::with_capacity(cleaned.len());
+    for rule in cleaned {
+        let key = canonical_app_rule_key(&rule.executable_path);
+        if key.is_empty() {
+            continue;
+        }
+        if let Some(&index) = seen.get(&key) {
+            deduped[index] = rule;
+        } else {
+            seen.insert(key, deduped.len());
+            deduped.push(rule);
+        }
+    }
+
     state
-        .mutate(|s| s.app_proxy_rules = cleaned)
+        .mutate(|s| s.app_proxy_rules = deduped)
         .map_err(|e| format!("Не удалось сохранить правила приложений: {e}"))?;
     Ok(state.snapshot())
 }
@@ -1840,6 +2094,7 @@ pub fn set_proxy_settings(
             if let Some(block) = settings.block_socks_udp {
                 s.block_socks_udp = block;
             }
+            s.normalize_runtime_defaults();
         })
         .map_err(|e| format!("Не удалось сохранить настройки прокси: {e}"))?;
     Ok(state.snapshot())
@@ -1854,8 +2109,10 @@ pub async fn ping_server(
     let Some(server) = find_server(&snap, &server_id) else {
         return Err("Сервер не найден в подписках".into());
     };
+    let protocol = normalize_latency_protocol(&snap.preferences.latency_protocol);
+    let test_url = normalize_latency_test_url(&snap.preferences.latency_test_url);
     let timeout_ms = normalize_latency_timeout_ms(snap.preferences.latency_timeout_ms);
-    let result = tcp_ping_server(&server, timeout_ms).await;
+    let result = latency_ping_server(&server, timeout_ms, &protocol, &test_url).await;
     persist_ping_results(&state, std::slice::from_ref(&result))?;
     Ok(result)
 }
@@ -1865,21 +2122,32 @@ pub async fn ping_servers(
     state: State<'_, AppState>,
     server_ids: Vec<String>,
 ) -> Result<Vec<ServerPing>, String> {
+    const PING_CONCURRENCY: usize = 6;
+
     let snap = state.snapshot();
+    let protocol = normalize_latency_protocol(&snap.preferences.latency_protocol);
+    let test_url = normalize_latency_test_url(&snap.preferences.latency_test_url);
     let timeout_ms = normalize_latency_timeout_ms(snap.preferences.latency_timeout_ms);
-    let mut handles = Vec::with_capacity(server_ids.len());
-    for server_id in server_ids {
-        if let Some(server) = find_server(&snap, &server_id) {
+    let servers = server_ids
+        .into_iter()
+        .filter_map(|server_id| find_server(&snap, &server_id))
+        .collect::<Vec<_>>();
+
+    let mut out = Vec::with_capacity(servers.len());
+    for chunk in servers.chunks(PING_CONCURRENCY) {
+        let mut handles = Vec::with_capacity(chunk.len());
+        for server in chunk.iter().cloned() {
+            let protocol = protocol.clone();
+            let test_url = test_url.clone();
             handles.push(tokio::spawn(async move {
-                tcp_ping_server(&server, timeout_ms).await
+                latency_ping_server(&server, timeout_ms, &protocol, &test_url).await
             }));
         }
-    }
 
-    let mut out = Vec::with_capacity(handles.len());
-    for handle in handles {
-        if let Ok(result) = handle.await {
-            out.push(result);
+        for handle in handles {
+            if let Ok(result) = handle.await {
+                out.push(result);
+            }
         }
     }
     persist_ping_results(&state, &out)?;
@@ -1975,6 +2243,570 @@ fn current_process_memory() -> u64 {
 #[cfg(not(windows))]
 fn process_memory_by_pid(_pid: u32) -> u64 {
     0
+}
+
+#[cfg(windows)]
+#[derive(Debug, Deserialize)]
+struct PowershellTcpConnection {
+    #[serde(rename = "Protocol")]
+    protocol: String,
+    #[serde(rename = "State")]
+    state: String,
+    #[serde(rename = "LocalAddress")]
+    local_address: String,
+    #[serde(rename = "LocalPort")]
+    local_port: u16,
+    #[serde(rename = "RemoteAddress")]
+    remote_address: String,
+    #[serde(rename = "RemotePort")]
+    remote_port: u16,
+    #[serde(rename = "Pid")]
+    pid: u32,
+    #[serde(rename = "ProcessName")]
+    process_name: Option<String>,
+    #[serde(rename = "Path")]
+    path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ActiveConnectionDecision {
+    route: ActiveConnectionRoute,
+    rule: String,
+    server_id: Option<String>,
+    server_name: Option<String>,
+    server_protocol: Option<String>,
+}
+
+#[tauri::command]
+pub async fn list_active_connections(
+    state: State<'_, AppState>,
+) -> Result<Vec<ActiveConnection>, String> {
+    let snapshot = state.snapshot();
+    if !snapshot.connected {
+        return Ok(Vec::new());
+    }
+    let active_server = snapshot
+        .active_server_id
+        .as_deref()
+        .and_then(|server_id| find_server(&snapshot, server_id));
+    let tunnel_server_ips = state.runtime(|runtime| {
+        runtime
+            .tun_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.bypass_ips.clone())
+            .unwrap_or_default()
+    });
+
+    tokio::task::spawn_blocking(move || {
+        platform_active_connections(&snapshot, active_server.as_ref(), &tunnel_server_ips)
+    })
+    .await
+    .map_err(|e| format!("Не удалось дождаться списка соединений: {e}"))?
+}
+
+#[cfg(windows)]
+fn platform_active_connections(
+    snapshot: &PersistedState,
+    active_server: Option<&Server>,
+    tunnel_server_ips: &[String],
+) -> Result<Vec<ActiveConnection>, String> {
+    let script = r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+$processCache = @{}
+function Get-ProcessMeta([uint32]$processId) {
+  if (-not $processCache.ContainsKey($processId)) {
+    $name = ""
+    $path = $null
+    try {
+      $p = Get-Process -Id $processId -ErrorAction Stop
+      $name = $p.ProcessName
+      if (-not [string]::IsNullOrWhiteSpace($name) -and -not $name.ToLowerInvariant().EndsWith(".exe")) {
+        $name = "$name.exe"
+      }
+      try { $path = $p.Path } catch {}
+    } catch {}
+    $processCache[$processId] = [PSCustomObject]@{ Name = $name; Path = $path }
+  }
+  return $processCache[$processId]
+}
+
+$connections = @(
+  Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue |
+    Where-Object {
+      $null -ne $_.RemotePort -and
+      [uint32]$_.RemotePort -ne 0 -and
+      -not [string]::IsNullOrWhiteSpace($_.RemoteAddress) -and
+      @("0.0.0.0", "::", "*") -notcontains [string]$_.RemoteAddress
+    }
+)
+$pids = @($connections | ForEach-Object { [uint32]$_.OwningProcess } | Sort-Object -Unique)
+foreach ($pid in $pids) {
+  [void](Get-ProcessMeta $pid)
+}
+
+$items = foreach ($c in $connections) {
+  if ($null -eq $c.RemotePort -or [uint32]$c.RemotePort -eq 0) { continue }
+  if ([string]::IsNullOrWhiteSpace($c.RemoteAddress)) { continue }
+  if (@("0.0.0.0", "::", "*") -contains [string]$c.RemoteAddress) { continue }
+  $state = $c.State.ToString()
+  $meta = Get-ProcessMeta ([uint32]$c.OwningProcess)
+  [PSCustomObject]@{
+    Protocol = "tcp"
+    State = $state
+    LocalAddress = [string]$c.LocalAddress
+    LocalPort = [uint32]$c.LocalPort
+    RemoteAddress = [string]$c.RemoteAddress
+    RemotePort = [uint32]$c.RemotePort
+    Pid = [uint32]$c.OwningProcess
+    ProcessName = $meta.Name
+    Path = $meta.Path
+  }
+}
+[Console]::Out.Write((ConvertTo-Json -InputObject @($items) -Compress -Depth 4))
+"#;
+
+    let mut command = hidden_output_command("powershell");
+    command
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-Command")
+        .arg(script)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command_output_with_timeout(command, std::time::Duration::from_secs(6))
+        .map_err(|e| format!("Не удалось получить активные соединения: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Не удалось получить активные соединения: {}",
+            output.status
+        ));
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    let json: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("Не удалось прочитать список соединений: {e}"))?;
+    let raw = match json {
+        serde_json::Value::Array(items) => items
+            .into_iter()
+            .filter_map(|value| serde_json::from_value::<PowershellTcpConnection>(value).ok())
+            .collect::<Vec<_>>(),
+        serde_json::Value::Object(_) => serde_json::from_value::<PowershellTcpConnection>(json)
+            .map(|item| vec![item])
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+
+    let ports = ProxyPorts::default();
+    let profile_rules = xray_routing_profile_rules(snapshot, &[]);
+
+    let mut out = Vec::new();
+    for item in raw {
+        let process = item
+            .process_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(process_exe_name)
+            .unwrap_or_else(|| {
+                if item.pid == 4 {
+                    "System".into()
+                } else {
+                    "Unknown process".into()
+                }
+            });
+        let process_path = item.path.as_ref().and_then(|path| {
+            let trimmed = path.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        });
+        if should_hide_internal_connection(
+            &process,
+            &item.local_address,
+            &item.remote_address,
+            item.remote_port,
+            ports,
+        ) {
+            continue;
+        }
+
+        let decision = classify_active_connection(
+            snapshot,
+            active_server,
+            tunnel_server_ips,
+            &[],
+            &profile_rules,
+            &process,
+            process_path.as_deref(),
+            &item.remote_address,
+            item.remote_port,
+            ports,
+        );
+
+        out.push(ActiveConnection {
+            id: format!(
+                "{}:{}-{}:{}-{}",
+                item.local_address, item.local_port, item.remote_address, item.remote_port, item.pid
+            ),
+            protocol: item.protocol.to_ascii_uppercase(),
+            state: item.state,
+            source: format!("{}:{}", item.local_address, item.local_port),
+            destination: format!("{}:{}", item.remote_address, item.remote_port),
+            remote_address: item.remote_address,
+            remote_port: item.remote_port,
+            process,
+            process_path,
+            pid: item.pid,
+            route: decision.route,
+            rule: decision.rule,
+            server_id: decision.server_id,
+            server_name: decision.server_name,
+            server_protocol: decision.server_protocol,
+        });
+    }
+
+    out.sort_by(|a, b| {
+        route_sort_weight(a.route)
+            .cmp(&route_sort_weight(b.route))
+            .then_with(|| a.process.cmp(&b.process))
+            .then_with(|| a.destination.cmp(&b.destination))
+    });
+    Ok(out)
+}
+
+#[cfg(not(windows))]
+fn platform_active_connections(
+    _snapshot: &PersistedState,
+    _active_server: Option<&Server>,
+    _tunnel_server_ips: &[String],
+) -> Result<Vec<ActiveConnection>, String> {
+    Ok(Vec::new())
+}
+
+fn classify_active_connection(
+    snapshot: &PersistedState,
+    active_server: Option<&Server>,
+    tunnel_server_ips: &[String],
+    app_rules: &[AppProxyRule],
+    profile_rules: &XrayRoutingProfileRules,
+    process: &str,
+    process_path: Option<&str>,
+    remote_address: &str,
+    remote_port: u16,
+    ports: ProxyPorts,
+) -> ActiveConnectionDecision {
+    if let Some(rule) = matching_app_proxy_rule(app_rules, process, process_path) {
+        return match rule.mode {
+            AppProxyMode::Proxy => proxy_connection_decision(active_server, "process rule"),
+            AppProxyMode::Direct => ActiveConnectionDecision {
+                route: ActiveConnectionRoute::Direct,
+                rule: "process rule".into(),
+                server_id: None,
+                server_name: None,
+                server_protocol: None,
+            },
+        };
+    }
+
+    if snapshot.connected {
+        if is_local_proxy_endpoint(remote_address, remote_port, ports) {
+            return proxy_connection_decision(active_server, "system proxy");
+        }
+        if matches_active_server_endpoint(active_server, tunnel_server_ips, remote_address, remote_port)
+        {
+            return proxy_connection_decision(active_server, "xray outbound");
+        }
+    }
+
+    if let Ok(ip) = remote_address.parse::<IpAddr>() {
+        if let Some((route, rule)) = matching_profile_ip_rule(profile_rules, &ip) {
+            return match route {
+                ActiveConnectionRoute::Proxy => proxy_connection_decision(active_server, rule),
+                ActiveConnectionRoute::Direct => ActiveConnectionDecision {
+                    route,
+                    rule: rule.into(),
+                    server_id: None,
+                    server_name: None,
+                    server_protocol: None,
+                },
+                ActiveConnectionRoute::Block => ActiveConnectionDecision {
+                    route,
+                    rule: rule.into(),
+                    server_id: None,
+                    server_name: None,
+                    server_protocol: None,
+                },
+                ActiveConnectionRoute::Unknown => unknown_connection_decision("ip rule"),
+            };
+        }
+    }
+
+    if profile_rules.global_proxy && snapshot.connected {
+        proxy_connection_decision(active_server, "fallback")
+    } else if !profile_rules.global_proxy {
+        ActiveConnectionDecision {
+            route: ActiveConnectionRoute::Direct,
+            rule: "fallback".into(),
+            server_id: None,
+            server_name: None,
+            server_protocol: None,
+        }
+    } else {
+        unknown_connection_decision("not connected")
+    }
+}
+
+fn proxy_connection_decision(
+    active_server: Option<&Server>,
+    rule: impl Into<String>,
+) -> ActiveConnectionDecision {
+    ActiveConnectionDecision {
+        route: ActiveConnectionRoute::Proxy,
+        rule: rule.into(),
+        server_id: active_server.map(|server| server.id.clone()),
+        server_name: active_server.map(|server| server.name.clone()),
+        server_protocol: active_server.map(server_protocol_label),
+    }
+}
+
+fn unknown_connection_decision(rule: impl Into<String>) -> ActiveConnectionDecision {
+    ActiveConnectionDecision {
+        route: ActiveConnectionRoute::Unknown,
+        rule: rule.into(),
+        server_id: None,
+        server_name: None,
+        server_protocol: None,
+    }
+}
+
+fn route_sort_weight(route: ActiveConnectionRoute) -> u8 {
+    match route {
+        ActiveConnectionRoute::Proxy => 0,
+        ActiveConnectionRoute::Direct => 1,
+        ActiveConnectionRoute::Block => 2,
+        ActiveConnectionRoute::Unknown => 3,
+    }
+}
+
+fn should_hide_internal_connection(
+    process: &str,
+    local_address: &str,
+    remote_address: &str,
+    remote_port: u16,
+    ports: ProxyPorts,
+) -> bool {
+    if matches!(
+        normalized_process_name(process).as_str(),
+        "nimbo" | "nimbo-ui" | "xray" | "tun2socks"
+    ) {
+        return true;
+    }
+
+    let remote_is_loopback = remote_address
+        .parse::<IpAddr>()
+        .is_ok_and(|ip| ip.is_loopback());
+    if !remote_is_loopback || is_local_proxy_endpoint(remote_address, remote_port, ports) {
+        return false;
+    }
+
+    local_address
+        .parse::<IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(true)
+}
+
+fn is_local_proxy_endpoint(remote_address: &str, remote_port: u16, ports: ProxyPorts) -> bool {
+    matches!(remote_port, port if port == ports.socks || port == ports.http)
+        && remote_address
+            .parse::<IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+fn matches_active_server_endpoint(
+    active_server: Option<&Server>,
+    tunnel_server_ips: &[String],
+    remote_address: &str,
+    remote_port: u16,
+) -> bool {
+    let Some(server) = active_server else {
+        return false;
+    };
+    let (host, port) = server_endpoint(server);
+    if remote_port != port {
+        return false;
+    }
+    if remote_address.eq_ignore_ascii_case(&host) {
+        return true;
+    }
+    tunnel_server_ips
+        .iter()
+        .any(|ip| ip.eq_ignore_ascii_case(remote_address))
+}
+
+fn matching_app_proxy_rule<'a>(
+    rules: &'a [AppProxyRule],
+    process: &str,
+    process_path: Option<&str>,
+) -> Option<&'a AppProxyRule> {
+    let process_file = normalize_process_file(process);
+    let process_stem = process_file.trim_end_matches(".exe").to_string();
+    let normalized_path = process_path.map(normalize_process_key);
+    let process_path_file = process_path.map(normalize_process_file);
+    let process_path_stem = process_path_file
+        .as_deref()
+        .map(|file| file.trim_end_matches(".exe").to_string());
+
+    rules.iter().find(|rule| {
+        if !rule.enabled {
+            return false;
+        }
+        let rule_key = normalize_process_key(&rule.executable_path);
+        if normalized_path.as_deref() == Some(rule_key.as_str()) {
+            return true;
+        }
+        let rule_file = normalize_process_file(&rule.executable_path);
+        let rule_stem = rule_file.trim_end_matches(".exe");
+        rule_key == process_file
+            || rule_file == process_file
+            || (!rule_stem.is_empty() && rule_stem == process_stem)
+            || process_path_file.as_deref() == Some(rule_file.as_str())
+            || (!rule_stem.is_empty() && process_path_stem.as_deref() == Some(rule_stem))
+    })
+}
+
+fn normalize_process_key(value: &str) -> String {
+    value.trim().replace('\\', "/").to_ascii_lowercase()
+}
+
+fn normalize_process_file(value: &str) -> String {
+    normalize_process_key(value)
+        .split('/')
+        .next_back()
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+fn matching_profile_ip_rule(
+    profile: &XrayRoutingProfileRules,
+    ip: &IpAddr,
+) -> Option<(ActiveConnectionRoute, &'static str)> {
+    for action in routing_action_order(&profile.rule_order) {
+        let (items, route) = match action {
+            "block" => (&profile.block_ips, ActiveConnectionRoute::Block),
+            "proxy" => (&profile.proxy_ips, ActiveConnectionRoute::Proxy),
+            "direct" => (&profile.direct_ips, ActiveConnectionRoute::Direct),
+            _ => continue,
+        };
+        if items.iter().any(|rule| ip_rule_matches(ip, rule)) {
+            return Some((route, "ip rule"));
+        }
+    }
+
+    if profile.bypass_local_ip && is_private_or_local_ip(ip) {
+        return Some((ActiveConnectionRoute::Direct, "private ip"));
+    }
+
+    None
+}
+
+fn routing_action_order(rule_order: &str) -> Vec<&'static str> {
+    let mut out = Vec::new();
+    for token in rule_order.split('-') {
+        match token.trim().to_ascii_lowercase().as_str() {
+            "block" if !out.contains(&"block") => out.push("block"),
+            "proxy" if !out.contains(&"proxy") => out.push("proxy"),
+            "direct" if !out.contains(&"direct") => out.push("direct"),
+            _ => {}
+        }
+    }
+    for fallback in ["block", "proxy", "direct"] {
+        if !out.contains(&fallback) {
+            out.push(fallback);
+        }
+    }
+    out
+}
+
+fn ip_rule_matches(ip: &IpAddr, rule: &str) -> bool {
+    let rule = rule.trim();
+    if rule.is_empty() {
+        return false;
+    }
+    if rule.eq_ignore_ascii_case("geoip:private") {
+        return is_private_or_local_ip(ip);
+    }
+    if let Ok(candidate) = rule.parse::<IpAddr>() {
+        return &candidate == ip;
+    }
+    if rule.contains('/') {
+        return ip_matches_cidr(ip, rule);
+    }
+    false
+}
+
+fn ip_matches_cidr(ip: &IpAddr, cidr: &str) -> bool {
+    let Some((base, prefix)) = cidr.split_once('/') else {
+        return false;
+    };
+    let Ok(prefix) = prefix.trim().parse::<u8>() else {
+        return false;
+    };
+    let Ok(base) = base.trim().parse::<IpAddr>() else {
+        return false;
+    };
+    match (ip, base) {
+        (IpAddr::V4(ip), IpAddr::V4(base)) if prefix <= 32 => {
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u32::MAX << (32 - prefix)
+            };
+            u32::from(*ip) & mask == u32::from(base) & mask
+        }
+        (IpAddr::V6(ip), IpAddr::V6(base)) if prefix <= 128 => {
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u128::MAX << (128 - prefix)
+            };
+            u128::from(*ip) & mask == u128::from(base) & mask
+        }
+        _ => false,
+    }
+}
+
+fn is_private_or_local_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_broadcast()
+                || ip.octets()[0] == 0
+        }
+        IpAddr::V6(ip) => {
+            let first = ip.segments()[0];
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || (first & 0xfe00) == 0xfc00
+                || (first & 0xffc0) == 0xfe80
+        }
+    }
+}
+
+fn server_protocol_label(server: &Server) -> String {
+    match &server.protocol {
+        nimbo_subscription::Protocol::Vless(_) => "VLESS",
+        nimbo_subscription::Protocol::Vmess(_) => "VMess",
+        nimbo_subscription::Protocol::Trojan(_) => "Trojan",
+        nimbo_subscription::Protocol::Shadowsocks(_) => "Shadowsocks",
+        nimbo_subscription::Protocol::Hysteria2(_) => "Hysteria2",
+    }
+    .into()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3461,6 +4293,15 @@ fn server_connection_identity(server: &Server) -> String {
             config.method.trim().to_ascii_lowercase(),
             config.password
         ),
+        nimbo_subscription::Protocol::Hysteria2(config) => format!(
+            "hysteria2:{}:{}:{}:{}:{:?}:{}",
+            config.address.trim().to_ascii_lowercase(),
+            config.port,
+            config.password,
+            config.sni.as_deref().unwrap_or_default(),
+            config.alpn,
+            config.insecure
+        ),
     }
 }
 
@@ -3616,12 +4457,102 @@ async fn tcp_ping_server(server: &Server, timeout_ms: u32) -> ServerPing {
     }
 }
 
+async fn latency_ping_server(
+    server: &Server,
+    timeout_ms: u32,
+    protocol: &str,
+    test_url: &str,
+) -> ServerPing {
+    match protocol {
+        "icmp" => icmp_ping_server(server, timeout_ms).await,
+        "http_head" => http_ping_url(server, timeout_ms, test_url).await,
+        _ => tcp_ping_server(server, timeout_ms).await,
+    }
+}
+
+async fn icmp_ping_server(server: &Server, timeout_ms: u32) -> ServerPing {
+    let (host, _) = server_endpoint(server);
+    let start = std::time::Instant::now();
+    let mut command = TokioCommand::new("ping");
+    if cfg!(windows) {
+        command.args(["-n", "1", "-w", &timeout_ms.to_string(), &host]);
+    } else {
+        let timeout_seconds = ((timeout_ms as f64) / 1000.0).ceil().max(1.0) as u64;
+        command.args(["-c", "1", "-W", &timeout_seconds.to_string(), &host]);
+    }
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_millis(timeout_ms as u64 + 1000),
+        command.output(),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(output)) if output.status.success() => ServerPing {
+            server_id: server.id.clone(),
+            latency_ms: Some(start.elapsed().as_millis().min(u64::MAX as u128) as u64),
+            error: None,
+        },
+        Ok(Ok(output)) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            ServerPing {
+                server_id: server.id.clone(),
+                latency_ms: None,
+                error: Some(if stderr.is_empty() { stdout } else { stderr }),
+            }
+        }
+        Ok(Err(error)) => ServerPing {
+            server_id: server.id.clone(),
+            latency_ms: None,
+            error: Some(error.to_string()),
+        },
+        Err(_) => ServerPing {
+            server_id: server.id.clone(),
+            latency_ms: None,
+            error: Some("timeout".into()),
+        },
+    }
+}
+
+async fn http_ping_url(server: &Server, timeout_ms: u32, test_url: &str) -> ServerPing {
+    let start = std::time::Instant::now();
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(timeout_ms as u64))
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            return ServerPing {
+                server_id: server.id.clone(),
+                latency_ms: None,
+                error: Some(error.to_string()),
+            };
+        }
+    };
+
+    match client.head(test_url).send().await {
+        Ok(_) => ServerPing {
+            server_id: server.id.clone(),
+            latency_ms: Some(start.elapsed().as_millis().min(u64::MAX as u128) as u64),
+            error: None,
+        },
+        Err(error) => ServerPing {
+            server_id: server.id.clone(),
+            latency_ms: None,
+            error: Some(error.to_string()),
+        },
+    }
+}
+
 fn server_endpoint(server: &Server) -> (String, u16) {
     match &server.protocol {
         nimbo_subscription::Protocol::Vless(config) => (config.address.clone(), config.port),
         nimbo_subscription::Protocol::Vmess(config) => (config.address.clone(), config.port),
         nimbo_subscription::Protocol::Trojan(config) => (config.address.clone(), config.port),
         nimbo_subscription::Protocol::Shadowsocks(config) => (config.address.clone(), config.port),
+        nimbo_subscription::Protocol::Hysteria2(config) => (config.address.clone(), config.port),
     }
 }
 
@@ -3652,6 +4583,14 @@ async fn connect_system_proxy(
             return Err(error);
         }
     };
+    if let Err(error) = state.mutate(|s| {
+        s.pending_system_proxy_snapshot = proxy_snapshot.clone();
+    }) {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = restore_system_proxy(proxy_snapshot);
+        return Err(format!("Не удалось сохранить снимок системного proxy: {error}"));
+    }
 
     state.runtime(|runtime| {
         runtime.xray = Some(child);
@@ -3673,6 +4612,13 @@ async fn connect_both(
     let ports = ProxyPorts::default();
     match apply_system_proxy(ports) {
         Ok(proxy_snapshot) => {
+            if let Err(error) = state.mutate(|s| {
+                s.pending_system_proxy_snapshot = proxy_snapshot.clone();
+            }) {
+                let _ = restore_system_proxy(proxy_snapshot);
+                stop_runtime(state)?;
+                return Err(format!("Не удалось сохранить снимок системного proxy: {error}"));
+            }
             state.runtime(|runtime| {
                 runtime.system_proxy_snapshot = proxy_snapshot;
             });
@@ -3703,9 +4649,10 @@ async fn connect_tun(
     if let Some(ip) = physical_ipv4.as_deref() {
         patch_freedom_outbounds_send_through(&mut config, ip);
     }
+    add_native_tun_inbound(&mut config);
     let config_path = write_xray_config(&config)?;
     let xray_path = ensure_xray_binary(app).await?;
-    let tun_files = prepare_tun_runtime_files(app)?;
+    prepare_tun_runtime_files(app)?;
     let bypass_ips = resolve_server_ipv4s(&server).await;
     if bypass_ips.is_empty() {
         let (host, _) = server_endpoint(&server);
@@ -3720,14 +4667,6 @@ async fn connect_tun(
         let _ = xray.wait();
         return Err(error);
     }
-    let mut tun2socks = match spawn_tun2socks(&tun_files.tun2socks_path, ports, snapshot) {
-        Ok(child) => child,
-        Err(error) => {
-            let _ = xray.kill();
-            let _ = xray.wait();
-            return Err(error);
-        }
-    };
 
     let tun_snapshot = TunRuntimeSnapshot {
         bypass_ips,
@@ -3735,29 +4674,28 @@ async fn connect_tun(
         interface_index: default_route.as_ref().map(|route| route.interface_index),
     };
 
-    if let Err(error) = configure_tun_interface(&tun_snapshot) {
-        let _ = tun2socks.kill();
-        let _ = tun2socks.wait();
+    if let Err(error) = wait_for_native_tun_interface() {
         let _ = xray.kill();
         let _ = xray.wait();
         let _ = cleanup_tun(Some(tun_snapshot));
         return Err(error);
     }
+    if let Err(error) = state.mutate(|s| s.pending_tun_snapshot = Some(tun_snapshot.clone())) {
+        let _ = xray.kill();
+        let _ = xray.wait();
+        let _ = cleanup_tun(Some(tun_snapshot));
+        return Err(format!("Не удалось сохранить снимок TUN: {error}"));
+    }
 
     state.runtime(|runtime| {
         runtime.xray = Some(xray);
-        runtime.tun2socks = Some(tun2socks);
         runtime.tun_snapshot = Some(tun_snapshot);
     });
 
     Ok(())
 }
 
-struct TunRuntimeFiles {
-    tun2socks_path: PathBuf,
-}
-
-fn prepare_tun_runtime_files(app: &AppHandle) -> Result<TunRuntimeFiles, String> {
+fn prepare_tun_runtime_files(app: &AppHandle) -> Result<(), String> {
     let bin_dir = nimbo_data_dir()?.join("bin");
     std::fs::create_dir_all(&bin_dir)
         .map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
@@ -3772,99 +4710,7 @@ fn prepare_tun_runtime_files(app: &AppHandle) -> Result<TunRuntimeFiles, String>
     copy_tun_file(&tun2socks_source, &tun2socks_path)?;
     copy_tun_file(&wintun_source, &wintun_path)?;
 
-    Ok(TunRuntimeFiles { tun2socks_path })
-}
-
-fn spawn_tun2socks(
-    tun2socks_path: &Path,
-    ports: ProxyPorts,
-    snapshot: &PersistedState,
-) -> Result<std::process::Child, String> {
-    let proxy = socks_proxy_url(ports, snapshot);
-    let log_path = nimbo_data_dir()?.join("runtime").join("tun2socks.log");
-    if let Some(parent) = log_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Не удалось создать папку логов TUN: {e}"))?;
-    }
-    let stdout = File::create(&log_path)
-        .map_err(|e| format!("Не удалось создать лог tun2socks: {e}"))?;
-    let stderr = stdout
-        .try_clone()
-        .map_err(|e| format!("Не удалось открыть лог tun2socks: {e}"))?;
-    let mut command = Command::new(tun2socks_path);
-    // MTU 1500 — standard Ethernet MTU. Jumbo frames (9000) cause fragmentation
-    // and PMTU discovery failures on real network paths, especially over
-    // Reality+Vision which doesn't reliably propagate ICMP Fragmentation Needed.
-    // Happ and similar clients use 1500 (or 1420 for extra headroom).
-    command
-        .arg("-device")
-        .arg(TUN_INTERFACE_NAME)
-        .arg("-proxy")
-        .arg(proxy)
-        .arg("-mtu")
-        .arg("1500")
-        .arg("-loglevel")
-        .arg("warn")
-        .current_dir(tun2socks_path.parent().unwrap_or_else(|| Path::new(".")))
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr));
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("Не удалось запустить tun2socks: {e}"))?;
-    std::thread::sleep(std::time::Duration::from_millis(900));
-    if let Ok(Some(status)) = child.try_wait() {
-        let log = std::fs::read_to_string(&log_path)
-            .unwrap_or_default()
-            .lines()
-            .rev()
-            .take(8)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<Vec<_>>()
-            .join("\n");
-        let detail = if log.trim().is_empty() {
-            status.to_string()
-        } else {
-            format!("{status}\n{log}")
-        };
-        return Err(format!("tun2socks завершился сразу после запуска: {detail}"));
-    }
-    Ok(child)
-}
-
-fn socks_proxy_url(ports: ProxyPorts, snapshot: &PersistedState) -> String {
-    if snapshot.require_socks_auth {
-        format!(
-            "socks5://{}:{}@127.0.0.1:{}",
-            percent_encode_url_part(&snapshot.socks_username),
-            percent_encode_url_part(&snapshot.socks_password),
-            ports.socks
-        )
-    } else {
-        format!("socks5://127.0.0.1:{}", ports.socks)
-    }
-}
-
-fn percent_encode_url_part(value: &str) -> String {
-    let mut encoded = String::new();
-    for byte in value.bytes() {
-        let keep = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
-        if keep {
-            encoded.push(byte as char);
-        } else {
-            encoded.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    encoded
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -3961,6 +4807,82 @@ fn patch_freedom_outbounds_send_through(config: &mut serde_json::Value, send_thr
             serde_json::Value::String(send_through.to_string()),
         );
     }
+}
+
+fn add_native_tun_inbound(config: &mut serde_json::Value) {
+    let Some(inbounds) = config
+        .get_mut("inbounds")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    if inbounds
+        .iter()
+        .any(|inbound| inbound.get("tag").and_then(serde_json::Value::as_str) == Some("tun-in"))
+    {
+        return;
+    }
+
+    inbounds.insert(
+        0,
+        serde_json::json!({
+            "tag": "tun-in",
+            "protocol": "tun",
+            "settings": {
+                "name": TUN_INTERFACE_NAME,
+                "mtu": 1500,
+                "gateway": [TUN_GATEWAY_CIDR],
+                "dns": [TUN_DNS_PRIMARY, TUN_DNS_SECONDARY],
+                "userLevel": 0,
+                "autoSystemRoutingTable": ["0.0.0.0/1", "128.0.0.0/1"],
+                "autoOutboundsInterface": "auto"
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": ["http", "tls", "quic", "fakedns"],
+                "routeOnly": false
+            }
+        }),
+    );
+}
+
+#[cfg(windows)]
+fn wait_for_native_tun_interface() -> Result<(), String> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if native_tun_interface_exists() {
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(format!(
+                "Xray не поднял TUN-интерфейс {TUN_INTERFACE_NAME}.{}",
+                recent_xray_log_suffix()
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(160));
+    }
+}
+
+#[cfg(windows)]
+fn native_tun_interface_exists() -> bool {
+    let escaped = TUN_INTERFACE_NAME.replace('\'', "''");
+    let script = format!(
+        "if (Get-NetAdapter -Name '{escaped}' -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}"
+    );
+    hidden_command("powershell")
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-Command")
+        .arg(script)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(windows))]
+fn wait_for_native_tun_interface() -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(not(windows))]
@@ -4075,9 +4997,11 @@ fn build_runtime_xray_config(
     snapshot: &PersistedState,
     ports: ProxyPorts,
 ) -> Result<serde_json::Value, String> {
+    let app_rules = combined_app_proxy_rules(snapshot, server);
     let mut builder = ConfigBuilder::new(ports)
         .server(server)
-        .app_routing_rules(xray_app_rules(&snapshot.app_proxy_rules))
+        .app_routing_rules(xray_app_rules(&app_rules))
+        .profile_routing_rules(xray_routing_profile_rules(snapshot, &app_rules))
         .block_socks_udp(snapshot.block_socks_udp);
     if snapshot.require_socks_auth {
         builder = builder.socks_auth(&snapshot.socks_username, &snapshot.socks_password);
@@ -4099,11 +5023,95 @@ fn build_runtime_xray_config(
         .unwrap_or(DEFAULT_XRAY_TEMPLATE_KEY);
     let template = select_xray_template(snapshot, subscription_url, server, template_key);
 
-    let Some(template) = template else {
-        return Ok(base_value);
+    let mut config = if let Some(template) = template {
+        apply_xray_template(template.clone(), base_value, server)?
+    } else {
+        base_value
     };
 
-    apply_xray_template(template.clone(), base_value, server)
+    apply_runtime_preferences(&mut config, &snapshot.preferences);
+    Ok(config)
+}
+
+fn apply_runtime_preferences(config: &mut serde_json::Value, preferences: &AppPreferences) {
+    apply_inbound_preferences(config, preferences);
+    apply_mux_preferences(config, preferences);
+}
+
+fn apply_inbound_preferences(config: &mut serde_json::Value, preferences: &AppPreferences) {
+    let Some(inbounds) = config
+        .get_mut("inbounds")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+
+    for inbound in inbounds {
+        let protocol = inbound
+            .get("protocol")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        if protocol != "socks" && protocol != "http" {
+            continue;
+        }
+
+        inbound["listen"] = serde_json::Value::String(
+            if preferences.lan_allow_connections {
+                "0.0.0.0"
+            } else {
+                "127.0.0.1"
+            }
+            .into(),
+        );
+
+        if preferences.tunnel_sniffing {
+            inbound["sniffing"] = serde_json::json!({
+                "enabled": true,
+                "destOverride": ["http", "tls", "quic", "fakedns"],
+                "routeOnly": false
+            });
+        } else if let Some(object) = inbound.as_object_mut() {
+            object.remove("sniffing");
+        }
+    }
+}
+
+fn apply_mux_preferences(config: &mut serde_json::Value, preferences: &AppPreferences) {
+    let Some(outbounds) = config
+        .get_mut("outbounds")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+
+    let target_index = outbounds
+        .iter()
+        .position(|outbound| {
+            outbound
+                .get("tag")
+                .and_then(serde_json::Value::as_str)
+                == Some(XRAY_PROXY_TAG)
+        })
+        .or_else(|| {
+            outbounds.iter().position(|outbound| {
+                let protocol = outbound
+                    .get("protocol")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                protocol != "freedom" && protocol != "blackhole"
+            })
+        });
+
+    let Some(index) = target_index else {
+        return;
+    };
+
+    outbounds[index]["mux"] = serde_json::json!({
+        "enabled": preferences.tunnel_mux_enabled,
+        "concurrency": preferences.tunnel_mux_concurrency,
+        "xudpConcurrency": preferences.tunnel_xudp_concurrency,
+        "xudpProxyUDP443": preferences.tunnel_xudp_udp443.as_str()
+    });
 }
 
 fn select_xray_template<'a>(
@@ -4391,6 +5399,9 @@ fn sanitize_template_routing_rules(rules: &mut Vec<serde_json::Value>) {
         let Some(rule) = rule.as_object_mut() else {
             return false;
         };
+        if is_template_catch_all_rule(rule) {
+            return false;
+        }
         if rule.get("balancerTag").and_then(serde_json::Value::as_str).is_some() {
             return true;
         }
@@ -4403,6 +5414,42 @@ fn sanitize_template_routing_rules(rules: &mut Vec<serde_json::Value>) {
         };
         !outbound_tag.trim().is_empty()
     });
+}
+
+fn is_template_catch_all_rule(rule: &serde_json::Map<String, serde_json::Value>) -> bool {
+    let has_target = rule.get("outboundTag").and_then(serde_json::Value::as_str).is_some()
+        || rule.get("balancerTag").and_then(serde_json::Value::as_str).is_some();
+    if !has_target {
+        return false;
+    }
+
+    ![
+        "attrs",
+        "domain",
+        "inboundTag",
+        "ip",
+        "port",
+        "process",
+        "protocol",
+        "source",
+        "sourcePort",
+        "user",
+    ]
+    .iter()
+    .any(|key| {
+        rule.get(*key)
+            .is_some_and(|value| !value_is_empty_matcher(value))
+    })
+}
+
+fn value_is_empty_matcher(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => true,
+        serde_json::Value::String(value) => value.trim().is_empty(),
+        serde_json::Value::Array(values) => values.is_empty(),
+        serde_json::Value::Object(values) => values.is_empty(),
+        _ => false,
+    }
 }
 
 fn normalize_xray_routing_rules(rules: &mut [serde_json::Value]) {
@@ -4502,7 +5549,7 @@ fn xray_app_rules(rules: &[AppProxyRule]) -> Vec<XrayAppRoutingRule> {
     rules
         .iter()
         .map(|rule| XrayAppRoutingRule {
-            process: rule.executable_path.clone(),
+            process: xray_app_rule_target(&rule.executable_path),
             enabled: rule.enabled,
             mode: match rule.mode {
                 AppProxyMode::Proxy => XrayAppRoutingMode::Proxy,
@@ -4510,6 +5557,247 @@ fn xray_app_rules(rules: &[AppProxyRule]) -> Vec<XrayAppRoutingRule> {
             },
         })
         .collect()
+}
+
+fn xray_app_rule_target(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.starts_with(APP_DOMAIN_ENTRY_PREFIX) {
+        return trimmed.to_string();
+    }
+    canonical_app_rule_key(trimmed)
+}
+
+fn combined_app_proxy_rules(snapshot: &PersistedState, server: &Server) -> Vec<AppProxyRule> {
+    let provider = provider_app_proxy_rules(snapshot, server);
+    let local = snapshot.app_proxy_rules.clone();
+
+    // Local rules can refer to the same process via different paths
+    // (e.g. "opera.exe" vs full install path). Group them by canonical key
+    // so any disabled override wins — runtime process matching is basename-based.
+    let mut local_by_key: HashMap<String, AppProxyRule> = HashMap::new();
+    for rule in &local {
+        let key = canonical_app_rule_key(&rule.executable_path);
+        if key.is_empty() {
+            continue;
+        }
+        local_by_key
+            .entry(key)
+            .and_modify(|existing| {
+                if existing.enabled && !rule.enabled {
+                    *existing = rule.clone();
+                }
+            })
+            .or_insert_with(|| rule.clone());
+    }
+
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+
+    // Subscription provides the default rule. A local disabled rule turns that
+    // header rule off; a local enabled rule is an explicit user override.
+    for mut rule in provider {
+        let key = canonical_app_rule_key(&rule.executable_path);
+        if key.is_empty() || !seen.insert(key.clone()) {
+            continue;
+        }
+        if let Some(local_rule) = local_by_key.get(&key) {
+            rule.enabled = local_rule.enabled;
+            if local_rule.enabled {
+                rule.name = local_rule.name.clone();
+                rule.executable_path = local_rule.executable_path.clone();
+                rule.mode = local_rule.mode;
+            }
+        }
+        out.push(rule);
+    }
+
+    // Local-only rules (not mentioned in subscription) keep both their mode and enabled.
+    for rule in local {
+        let key = canonical_app_rule_key(&rule.executable_path);
+        if key.is_empty() || !seen.insert(key) {
+            continue;
+        }
+        out.push(rule);
+    }
+
+    out
+}
+
+fn canonical_app_rule_key(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if let Some(rest) = trimmed.strip_prefix(APP_DOMAIN_ENTRY_PREFIX) {
+        return format!("{APP_DOMAIN_ENTRY_PREFIX}{}", rest.trim().to_ascii_lowercase());
+    }
+    let normalized = trimmed.replace('\\', "/").to_ascii_lowercase();
+    normalized
+        .rsplit('/')
+        .next()
+        .unwrap_or(&normalized)
+        .trim()
+        .to_string()
+}
+
+fn provider_app_proxy_rules(snapshot: &PersistedState, server: &Server) -> Vec<AppProxyRule> {
+    let subscription = snapshot
+        .active_subscription_url
+        .as_deref()
+        .and_then(|url| snapshot.subscriptions.iter().find(|sub| sub.url == url))
+        .or_else(|| {
+            snapshot
+                .subscriptions
+                .iter()
+                .find(|sub| sub.servers.iter().any(|candidate| candidate.id == server.id))
+        });
+
+    subscription_app_proxy_rules_from(subscription)
+}
+
+fn subscription_app_proxy_rules_for_display(snapshot: &PersistedState) -> Vec<AppProxyRule> {
+    let subscription = snapshot
+        .active_subscription_url
+        .as_deref()
+        .and_then(|url| snapshot.subscriptions.iter().find(|sub| sub.url == url))
+        .or_else(|| {
+            snapshot.active_server_id.as_deref().and_then(|server_id| {
+                snapshot
+                    .subscriptions
+                    .iter()
+                    .find(|sub| sub.servers.iter().any(|candidate| candidate.id == server_id))
+            })
+        })
+        .or_else(|| snapshot.subscriptions.first());
+
+    subscription_app_proxy_rules_from(subscription)
+}
+
+fn subscription_app_proxy_rules_from(
+    subscription: Option<&nimbo_subscription::Subscription>,
+) -> Vec<AppProxyRule> {
+    let Some(subscription) = subscription else {
+        return Vec::new();
+    };
+
+    subscription
+        .meta
+        .app_proxy_rules
+        .iter()
+        .map(|rule| AppProxyRule {
+            id: rule.id.clone(),
+            name: rule.name.clone(),
+            executable_path: normalize_app_executable_path(&rule.executable_path),
+            mode: match rule.mode {
+                nimbo_subscription::SubscriptionAppProxyMode::Direct => AppProxyMode::Direct,
+                nimbo_subscription::SubscriptionAppProxyMode::Proxy => AppProxyMode::Proxy,
+            },
+            enabled: rule.enabled,
+        })
+        .collect()
+}
+
+const APP_DOMAIN_ENTRY_PREFIX: &str = "__domain__:";
+
+fn normalize_app_executable_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed.starts_with(APP_DOMAIN_ENTRY_PREFIX) {
+        return trimmed.to_string();
+    }
+    match detect_domain_target(trimmed) {
+        Some(domain) => format!("{APP_DOMAIN_ENTRY_PREFIX}{domain}"),
+        None => trimmed.to_string(),
+    }
+}
+
+fn detect_domain_target(target: &str) -> Option<String> {
+    let value = target.trim();
+    if value.is_empty() || value.contains('\\') {
+        return None;
+    }
+    let bytes = value.as_bytes();
+    if bytes.len() >= 3
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+        && bytes[0].is_ascii_alphabetic()
+    {
+        return None;
+    }
+    let lower = value.to_ascii_lowercase();
+    let head = lower.split(['?', '#']).next().unwrap_or(&lower);
+    for ext in [".exe", ".bat", ".msi", ".cmd", ".lnk"] {
+        if head.ends_with(ext) {
+            return None;
+        }
+    }
+
+    let candidate = if value.contains("://") {
+        value.to_string()
+    } else {
+        format!("https://{value}")
+    };
+    let url = url::Url::parse(&candidate).ok()?;
+    if url.scheme() != "http" && url.scheme() != "https" {
+        return None;
+    }
+    let host = url.host_str()?.to_ascii_lowercase();
+    let host = host.trim_end_matches('.');
+    if host.contains('.') {
+        Some(host.to_string())
+    } else {
+        None
+    }
+}
+
+fn xray_routing_profile_rules(
+    snapshot: &PersistedState,
+    _app_proxy_rules: &[AppProxyRule],
+) -> XrayRoutingProfileRules {
+    let profile = snapshot
+        .routing_profiles
+        .iter()
+        .find(|profile| profile.id == snapshot.active_routing_profile)
+        .cloned()
+        .or_else(|| {
+            builtin_routing_profiles()
+                .into_iter()
+                .find(|profile| profile.id == snapshot.active_routing_profile)
+        })
+        .or_else(|| {
+            builtin_routing_profiles()
+                .into_iter()
+                .find(|profile| profile.id == "global")
+        });
+
+    let Some(profile) = profile else {
+        return XrayRoutingProfileRules {
+            domain_strategy: "IPIfNonMatch".into(),
+            global_proxy: true,
+            bypass_local_ip: true,
+            rule_order: "block-proxy-direct".into(),
+            ..Default::default()
+        };
+    };
+
+    // Fallback (the route used when no app/domain/IP rule matches) is whatever
+    // the active routing profile says — we no longer auto-flip it based on
+    // whether the enabled app rules happen to be all-direct or all-proxy.
+    // That heuristic was confusing: setting one app to "via VPN" silently
+    // turned the rest of the traffic to direct, which surprised users who
+    // expected the profile (e.g. "Глобальный" with global_proxy=true) to keep
+    // routing everything else through the tunnel.
+    XrayRoutingProfileRules {
+        domain_strategy: profile.domain_strategy,
+        global_proxy: profile.global_proxy,
+        bypass_local_ip: profile.bypass_local_ip,
+        rule_order: profile.rule_order,
+        direct_domains: profile.direct_domains,
+        direct_ips: profile.direct_ips,
+        proxy_domains: profile.proxy_domains,
+        proxy_ips: profile.proxy_ips,
+        block_domains: profile.block_domains,
+        block_ips: profile.block_ips,
+    }
 }
 
 fn write_xray_config(config: &serde_json::Value) -> Result<PathBuf, String> {
@@ -4724,6 +6012,7 @@ fn recent_xray_log_suffix() -> String {
 }
 
 fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
+    let pending = state.snapshot();
     let (tun_snapshot, proxy_snapshot) = state.runtime(|runtime| {
         if let Some(mut child) = runtime.tun2socks.take() {
             let _ = child.kill();
@@ -4738,141 +6027,75 @@ fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
             runtime.system_proxy_snapshot.take(),
         )
     });
-    let tun_result = cleanup_tun(tun_snapshot);
+    let proxy_snapshot = proxy_snapshot.or_else(|| {
+        pending
+            .pending_system_proxy_snapshot
+            .filter(|_| current_system_proxy_is_exact_nimbo().unwrap_or(false))
+    });
+    let tun_result = cleanup_tun(tun_snapshot.or(pending.pending_tun_snapshot));
     let proxy_result = restore_system_proxy(proxy_snapshot);
     tun_result?;
     proxy_result?;
+    state
+        .mutate(|s| {
+            s.pending_tun_snapshot = None;
+            s.pending_system_proxy_snapshot = None;
+        })
+        .map_err(|e| format!("Не удалось сбросить runtime-снимок: {e}"))?;
     Ok(())
 }
 
-#[cfg(windows)]
-fn configure_tun_interface(snapshot: &TunRuntimeSnapshot) -> Result<(), String> {
-    retry_tun_command(|| {
-        run_hidden(
-            "netsh",
-            &[
-                "interface".into(),
-                "ip".into(),
-                "set".into(),
-                "address".into(),
-                format!("name={TUN_INTERFACE_NAME}"),
-                "static".into(),
-                TUN_ADDRESS.into(),
-                TUN_NETMASK.into(),
-            ],
-        )
-    })
-    .map_err(|e| format!("Не удалось настроить адрес TUN-адаптера: {e}"))?;
-
-    let _ = run_hidden(
-        "netsh",
-        &[
-            "interface".into(),
-            "ipv4".into(),
-            "set".into(),
-            "interface".into(),
-            TUN_INTERFACE_NAME.into(),
-            "metric=1".into(),
-        ],
-    );
-    let _ = run_hidden(
-        "netsh",
-        &[
-            "interface".into(),
-            "ip".into(),
-            "set".into(),
-            "dns".into(),
-            format!("name={TUN_INTERFACE_NAME}"),
-            "static".into(),
-            TUN_DNS_PRIMARY.into(),
-            "primary".into(),
-        ],
-    );
-    let _ = run_hidden(
-        "netsh",
-        &[
-            "interface".into(),
-            "ip".into(),
-            "add".into(),
-            "dns".into(),
-            format!("name={TUN_INTERFACE_NAME}"),
-            TUN_DNS_SECONDARY.into(),
-            "index=2".into(),
-        ],
-    );
-    let _ = flush_dns_cache();
-
-    add_server_bypass_routes(snapshot)?;
-    add_tun_route("0.0.0.0/1")?;
-    add_tun_route("128.0.0.0/1")?;
-    Ok(())
-}
-
-#[cfg(not(windows))]
-fn configure_tun_interface(_snapshot: &TunRuntimeSnapshot) -> Result<(), String> {
-    Err("TUN сейчас реализован только для Windows.".into())
-}
-
-#[cfg(windows)]
-fn retry_tun_command<F>(mut command: F) -> Result<(), String>
-where
-    F: FnMut() -> Result<(), String>,
-{
-    let mut last_error = None;
-    for _ in 0..12 {
-        match command() {
-            Ok(()) => return Ok(()),
-            Err(error) => {
-                last_error = Some(error);
-                std::thread::sleep(std::time::Duration::from_millis(350));
-            }
-        }
+pub fn cleanup_disconnected_runtime_on_startup(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if state.snapshot().connected {
+        return;
     }
-    Err(last_error.unwrap_or_else(|| "команда не выполнилась".into()))
+    if let Err(error) = stop_runtime(&state) {
+        tracing::warn!(?error, "failed to clean stale runtime on startup");
+    }
+    if let Err(error) = cleanup_stale_nimbo_system_proxy() {
+        tracing::warn!(?error, "failed to clean stale Nimbo system proxy on startup");
+    }
+    if let Err(error) = kill_orphan_nimbo_core_processes() {
+        tracing::warn!(?error, "failed to stop orphaned Nimbo core processes on startup");
+    }
 }
 
-#[cfg(windows)]
-fn add_server_bypass_routes(snapshot: &TunRuntimeSnapshot) -> Result<(), String> {
-    let (Some(gateway), Some(interface_index)) = (&snapshot.gateway, snapshot.interface_index)
-    else {
-        return Ok(());
+pub fn cleanup_runtime_for_exit(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if let Err(error) = stop_runtime(&state) {
+        tracing::warn!(?error, "failed to clean runtime during app exit");
+    }
+    if let Err(error) = state.mutate(|s| s.connected = false) {
+        tracing::warn!(?error, "failed to persist disconnected state during app exit");
+    }
+}
+
+pub fn reconnect_runtime_after_resume(app: &AppHandle) {
+    let snapshot = app.state::<AppState>().snapshot();
+    if !snapshot.connected {
+        return;
+    }
+    let Some(server_id) = snapshot.active_server_id.clone() else {
+        return;
     };
-    for ip in &snapshot.bypass_ips {
-        run_hidden(
-            "route",
-            &[
-                "ADD".into(),
-                ip.clone(),
-                "MASK".into(),
-                "255.255.255.255".into(),
-                gateway.clone(),
-                "METRIC".into(),
-                "1".into(),
-                "IF".into(),
-                interface_index.to_string(),
-            ],
-        )?;
+    if RESUME_RECONNECT_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+        return;
     }
-    Ok(())
-}
 
-#[cfg(windows)]
-fn add_tun_route(prefix: &str) -> Result<(), String> {
-    run_hidden(
-        "netsh",
-        &[
-            "interface".into(),
-            "ipv4".into(),
-            "add".into(),
-            "route".into(),
-            format!("prefix={prefix}"),
-            format!("interface={TUN_INTERFACE_NAME}"),
-            format!("nexthop={TUN_ADDRESS}"),
-            "metric=1".into(),
-            "store=active".into(),
-        ],
-    )
-    .map_err(|e| format!("Не удалось добавить маршрут {prefix}: {e}"))
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        let state = app_handle.state::<AppState>();
+        let result = connect_server(app_handle.clone(), state, server_id).await;
+        if let Err(error) = result {
+            tracing::warn!(?error, "failed to reconnect runtime after resume");
+            let state = app_handle.state::<AppState>();
+            let _ = state.mutate(|s| s.connected = false);
+        }
+        let _ = crate::tray::refresh_tray_menu(&app_handle);
+        RESUME_RECONNECT_IN_FLIGHT.store(false, Ordering::SeqCst);
+    });
 }
 
 #[cfg(windows)]
@@ -5300,20 +6523,165 @@ fn relaunch_as_admin() -> Result<(), String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("Не удалось найти путь Nimbo: {e}"))?;
     let escaped = exe.to_string_lossy().replace('\'', "''");
-    hidden_command("powershell")
+    let parent_pid = std::process::id();
+    let status = hidden_command("powershell")
         .arg("-NoProfile")
         .arg("-ExecutionPolicy")
         .arg("Bypass")
         .arg("-Command")
-        .arg(format!("Start-Process -FilePath '{escaped}' -Verb RunAs"))
+        .arg(format!(
+            "$ErrorActionPreference='Stop'; try {{ Start-Process -FilePath '{escaped}' -ArgumentList @('--wait-for-parent','{parent_pid}') -Verb RunAs; exit 0 }} catch {{ exit 1223 }}"
+        ))
         .status()
         .map_err(|e| format!("Не удалось перезапустить от имени администратора: {e}"))?;
+    if !status.success() {
+        return Err("Перезапуск от имени администратора отменён или не удался.".into());
+    }
     Ok(())
 }
 
 #[cfg(not(windows))]
 fn relaunch_as_admin() -> Result<(), String> {
     Err("Перезапуск от имени администратора доступен только на Windows.".into())
+}
+
+#[cfg(windows)]
+fn current_system_proxy_is_exact_nimbo() -> Result<bool, String> {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+    let key = hkcu
+        .open_subkey_with_flags(path, KEY_READ)
+        .map_err(|e| format!("Не удалось открыть настройки proxy Windows: {e}"))?;
+    let proxy_enable: Option<u32> = key.get_value("ProxyEnable").ok();
+    if proxy_enable != Some(1) {
+        return Ok(false);
+    }
+    Ok(key
+        .get_value::<String, _>("ProxyServer")
+        .ok()
+        .as_deref()
+        .is_some_and(|value| is_exact_nimbo_system_proxy(value, ProxyPorts::default())))
+}
+
+#[cfg(not(windows))]
+fn current_system_proxy_is_exact_nimbo() -> Result<bool, String> {
+    Ok(false)
+}
+
+#[cfg(windows)]
+fn cleanup_stale_nimbo_system_proxy() -> Result<(), String> {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+    let key = hkcu
+        .open_subkey_with_flags(path, KEY_READ | KEY_WRITE)
+        .map_err(|e| format!("Не удалось открыть настройки proxy Windows: {e}"))?;
+
+    let proxy_enable: Option<u32> = key.get_value("ProxyEnable").ok();
+    if proxy_enable != Some(1) {
+        return Ok(());
+    }
+
+    let proxy_server = key.get_value::<String, _>("ProxyServer").ok();
+    if !proxy_server
+        .as_deref()
+        .is_some_and(|value| is_exact_nimbo_system_proxy(value, ProxyPorts::default()))
+    {
+        return Ok(());
+    }
+
+    key.set_value("ProxyEnable", &0u32)
+        .map_err(|e| format!("Не удалось выключить залипший системный proxy Nimbo: {e}"))?;
+    let _ = hidden_command("netsh")
+        .arg("winhttp")
+        .arg("reset")
+        .arg("proxy")
+        .status();
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn cleanup_stale_nimbo_system_proxy() -> Result<(), String> {
+    Ok(())
+}
+
+fn is_exact_nimbo_system_proxy(proxy_server: &str, ports: ProxyPorts) -> bool {
+    let compact = proxy_server
+        .split_whitespace()
+        .collect::<String>()
+        .to_ascii_lowercase();
+    let expected = [
+        format!("http=127.0.0.1:{}", ports.http),
+        format!("https=127.0.0.1:{}", ports.http),
+        format!("socks=127.0.0.1:{}", ports.socks),
+    ];
+    compact.split(';').collect::<HashSet<_>>()
+        == expected
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>()
+}
+
+#[cfg(windows)]
+fn kill_orphan_nimbo_core_processes() -> Result<(), String> {
+    let data_dir = path_to_string(nimbo_data_dir()?);
+    let config_path = path_to_string(nimbo_data_dir()?.join("runtime").join("xray-config.json"));
+    let data_dir = data_dir.replace('\'', "''");
+    let config_path = config_path.replace('\'', "''");
+    let script = format!(
+        r#"
+$ErrorActionPreference = 'SilentlyContinue'
+$dataDir = '{data_dir}'
+$configPath = '{config_path}'
+$processes = Get-CimInstance Win32_Process -Filter "Name = 'xray.exe' OR Name = 'tun2socks.exe'"
+foreach ($p in @($processes)) {{
+  $name = [string]$p.Name
+  $path = [string]$p.ExecutablePath
+  $cmd = [string]$p.CommandLine
+  $owned = $false
+  if ($name -ieq 'xray.exe' -and $cmd -and $cmd.IndexOf($configPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {{
+    $owned = $true
+  }}
+  if ($name -ieq 'tun2socks.exe' -and $path -and $path.StartsWith($dataDir, [System.StringComparison]::OrdinalIgnoreCase)) {{
+    $owned = $true
+  }}
+  if ($owned) {{
+    Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction SilentlyContinue
+  }}
+}}
+exit 0
+"#
+    );
+
+    let mut command = hidden_output_command("powershell");
+    command
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-Command")
+        .arg(script)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command_output_with_timeout(command, std::time::Duration::from_secs(4))
+        .map_err(|e| format!("Не удалось проверить залипшие процессы Nimbo: {e}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Проверка залипших процессов Nimbo завершилась с кодом {}",
+            output.status
+        ))
+    }
+}
+
+#[cfg(not(windows))]
+fn kill_orphan_nimbo_core_processes() -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -5415,9 +6783,16 @@ fn normalize_accent_color(value: &str) -> String {
     }
 }
 
+fn normalize_ui_style(value: &str) -> String {
+    match value.trim() {
+        "nebula" | "material_you" => value.trim().into(),
+        _ => "nebula".into(),
+    }
+}
+
 fn normalize_latency_protocol(value: &str) -> String {
     match value.trim() {
-        "tcp_connect" => "tcp_connect".into(),
+        "tcp_connect" | "icmp" | "http_head" => value.trim().into(),
         _ => "tcp_connect".into(),
     }
 }
@@ -5439,6 +6814,41 @@ fn normalize_latency_display_format(value: &str) -> String {
     match value.trim() {
         "ms" | "badge" => value.trim().into(),
         _ => "ms".into(),
+    }
+}
+
+fn normalize_app_routing_mode(value: &str) -> String {
+    match value.trim() {
+        "proxy" => "proxy".into(),
+        _ => "direct".into(),
+    }
+}
+
+fn normalize_xudp_udp443_mode(value: &str) -> String {
+    match value.trim() {
+        "allow" | "skip" | "reject" => value.trim().into(),
+        _ => "reject".into(),
+    }
+}
+
+fn normalize_preferred_ip_family(value: &str) -> String {
+    match value.trim() {
+        "auto" | "ipv4" | "ipv6" => value.trim().into(),
+        _ => "auto".into(),
+    }
+}
+
+fn normalize_server_sorting(value: &str) -> String {
+    match value.trim() {
+        "provider" | "name" | "ping" | "protocol" => value.trim().into(),
+        _ => "provider".into(),
+    }
+}
+
+fn normalize_connect_button_style(value: &str) -> String {
+    match value.trim() {
+        "classic" | "compact" => value.trim().into(),
+        _ => "classic".into(),
     }
 }
 
@@ -5557,6 +6967,246 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn test_server() -> Server {
+        Server {
+            id: "server-1".into(),
+            name: "Server 1".into(),
+            server_description: None,
+            host_uuid: None,
+            xray_json_template_uuid: None,
+            protocol: nimbo_subscription::Protocol::Vless(nimbo_subscription::VlessConfig {
+                address: "example.com".into(),
+                port: 443,
+                uuid: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".into(),
+                flow: None,
+                encryption: "none".into(),
+                stream: nimbo_subscription::StreamSettings::default(),
+            }),
+        }
+    }
+
+    fn snapshot_with_provider_app_rule(
+        server: Server,
+        rule: nimbo_subscription::SubscriptionAppProxyRule,
+    ) -> PersistedState {
+        let mut snapshot = PersistedState::default();
+        snapshot.active_subscription_url = Some("https://example.com/sub".into());
+        snapshot.subscriptions.push(nimbo_subscription::Subscription {
+            url: "https://example.com/sub".into(),
+            name: Some("Test".into()),
+            meta: nimbo_subscription::SubscriptionMeta {
+                app_proxy_rules: vec![rule],
+                ..Default::default()
+            },
+            servers: vec![server],
+            info: None,
+            fetched_at: 0,
+        });
+        snapshot
+    }
+
+    #[test]
+    fn active_connection_process_rule_wins_over_local_proxy_endpoint() {
+        let mut snapshot = PersistedState::default();
+        snapshot.connected = true;
+        let app_rules = vec![AppProxyRule {
+            id: "opera-direct".into(),
+            name: "Opera".into(),
+            executable_path: "opera.exe".into(),
+            mode: AppProxyMode::Direct,
+            enabled: true,
+        }];
+
+        let decision = classify_active_connection(
+            &snapshot,
+            None,
+            &[],
+            &app_rules,
+            &XrayRoutingProfileRules::default(),
+            "opera.exe",
+            None,
+            "127.0.0.1",
+            ProxyPorts::default().socks,
+            ProxyPorts::default(),
+        );
+
+        assert!(matches!(decision.route, ActiveConnectionRoute::Direct));
+        assert_eq!(decision.rule, "process rule");
+
+        let decision_from_path = classify_active_connection(
+            &snapshot,
+            None,
+            &[],
+            &app_rules,
+            &XrayRoutingProfileRules::default(),
+            "Unknown process",
+            Some(r"C:\Users\User\AppData\Local\Programs\Opera\opera.exe"),
+            "127.0.0.1",
+            ProxyPorts::default().socks,
+            ProxyPorts::default(),
+        );
+
+        assert!(matches!(decision_from_path.route, ActiveConnectionRoute::Direct));
+        assert_eq!(decision_from_path.rule, "process rule");
+    }
+
+    #[test]
+    fn active_connections_hide_local_loopback_noise_but_keep_proxy_clients() {
+        let ports = ProxyPorts::default();
+
+        assert!(should_hide_internal_connection(
+            "opera.exe",
+            "127.0.0.1",
+            "127.0.0.1",
+            13000,
+            ports,
+        ));
+        assert!(!should_hide_internal_connection(
+            "opera.exe",
+            "127.0.0.1",
+            "127.0.0.1",
+            ports.socks,
+            ports,
+        ));
+        assert!(should_hide_internal_connection(
+            "xray.exe",
+            "192.168.1.20",
+            "1.1.1.1",
+            443,
+            ports,
+        ));
+    }
+
+    #[test]
+    fn exact_nimbo_system_proxy_matches_only_own_full_proxy_string() {
+        let ports = ProxyPorts::default();
+
+        assert!(is_exact_nimbo_system_proxy(
+            "http=127.0.0.1:10809;https=127.0.0.1:10809;socks=127.0.0.1:10808",
+            ports,
+        ));
+        assert!(is_exact_nimbo_system_proxy(
+            " socks=127.0.0.1:10808 ; http=127.0.0.1:10809 ; https=127.0.0.1:10809 ",
+            ports,
+        ));
+        assert!(!is_exact_nimbo_system_proxy("127.0.0.1:10809", ports));
+        assert!(!is_exact_nimbo_system_proxy(
+            "http=127.0.0.1:7890;https=127.0.0.1:7890;socks=127.0.0.1:7890",
+            ports,
+        ));
+    }
+
+    #[test]
+    fn xray_app_rules_emit_process_name_for_paths() {
+        let rules = xray_app_rules(&[AppProxyRule {
+            id: "opera-proxy".into(),
+            name: "Opera".into(),
+            executable_path: r"C:\Users\User\AppData\Local\Programs\Opera\opera.exe".into(),
+            mode: AppProxyMode::Proxy,
+            enabled: true,
+        }]);
+
+        assert_eq!(rules[0].process, "opera.exe");
+        assert_eq!(rules[0].mode, XrayAppRoutingMode::Proxy);
+        assert!(rules[0].enabled);
+    }
+
+    #[test]
+    fn provider_app_rule_can_be_disabled_locally() {
+        let server = test_server();
+        let mut snapshot = snapshot_with_provider_app_rule(
+            server.clone(),
+            nimbo_subscription::SubscriptionAppProxyRule {
+                id: "provider-opera".into(),
+                name: "Opera".into(),
+                executable_path: "opera.exe".into(),
+                mode: nimbo_subscription::SubscriptionAppProxyMode::Direct,
+                enabled: true,
+                source: Some("process-direct".into()),
+            },
+        );
+        snapshot.app_proxy_rules.push(AppProxyRule {
+            id: "local-opera".into(),
+            name: "Opera".into(),
+            executable_path: r"C:\Program Files\Opera\opera.exe".into(),
+            mode: AppProxyMode::Proxy,
+            enabled: false,
+        });
+
+        let rules = combined_app_proxy_rules(&snapshot, &server);
+
+        assert_eq!(rules.len(), 1);
+        assert!(!rules[0].enabled);
+        assert_eq!(rules[0].mode, AppProxyMode::Direct);
+    }
+
+    #[test]
+    fn local_enabled_app_rule_overrides_provider_mode() {
+        let server = test_server();
+        let mut snapshot = snapshot_with_provider_app_rule(
+            server.clone(),
+            nimbo_subscription::SubscriptionAppProxyRule {
+                id: "provider-opera".into(),
+                name: "Opera".into(),
+                executable_path: "opera.exe".into(),
+                mode: nimbo_subscription::SubscriptionAppProxyMode::Direct,
+                enabled: true,
+                source: Some("process-direct".into()),
+            },
+        );
+        snapshot.app_proxy_rules.push(AppProxyRule {
+            id: "local-opera".into(),
+            name: "Opera override".into(),
+            executable_path: r"C:\Program Files\Opera\opera.exe".into(),
+            mode: AppProxyMode::Proxy,
+            enabled: true,
+        });
+
+        let rules = combined_app_proxy_rules(&snapshot, &server);
+
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].enabled);
+        assert_eq!(rules[0].mode, AppProxyMode::Proxy);
+        assert_eq!(rules[0].name, "Opera override");
+    }
+
+    #[test]
+    fn runtime_config_local_proxy_override_emits_proxy_process_rule() {
+        let server = test_server();
+        let mut snapshot = snapshot_with_provider_app_rule(
+            server.clone(),
+            nimbo_subscription::SubscriptionAppProxyRule {
+                id: "provider-opera".into(),
+                name: "Opera".into(),
+                executable_path: "opera.exe".into(),
+                mode: nimbo_subscription::SubscriptionAppProxyMode::Direct,
+                enabled: true,
+                source: Some("process-direct".into()),
+            },
+        );
+        snapshot.app_proxy_rules.push(AppProxyRule {
+            id: "local-opera".into(),
+            name: "Opera override".into(),
+            executable_path: r"C:\Program Files\Opera\opera.exe".into(),
+            mode: AppProxyMode::Proxy,
+            enabled: true,
+        });
+
+        let config = build_runtime_xray_config(&server, &snapshot, ProxyPorts::default()).unwrap();
+        let rules = config["routing"]["rules"].as_array().unwrap();
+        let process_rule = rules
+            .iter()
+            .find(|rule| {
+                rule.get("process")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|items| items.iter().any(|item| item == "opera.exe"))
+            })
+            .expect("missing opera process rule");
+
+        assert_eq!(process_rule["outboundTag"], "proxy");
+        assert_eq!(rules.last().unwrap()["outboundTag"], "proxy");
+    }
+
     #[test]
     fn merge_template_routing_keeps_template_rules_before_proxy_fallback() {
         let mut routing_value = json!({
@@ -5591,6 +7241,104 @@ mod tests {
         assert_eq!(rules[1]["outboundTag"], "direct");
         assert_eq!(rules[1]["type"], "field");
         assert_eq!(rules[2]["outboundTag"], "proxy");
+    }
+
+    #[test]
+    fn merge_template_routing_drops_template_direct_fallback() {
+        let mut routing_value = json!({
+            "rules": [
+                {
+                    "network": "tcp,udp",
+                    "outboundTag": "direct"
+                },
+                {
+                    "domain": ["domain:direct.example"],
+                    "outboundTag": "direct"
+                }
+            ]
+        });
+        let base_config = json!({
+            "routing": {
+                "rules": [
+                    {
+                        "type": "field",
+                        "network": "tcp,udp",
+                        "outboundTag": "proxy"
+                    }
+                ]
+            }
+        });
+
+        merge_template_routing(routing_value.as_object_mut().unwrap(), &base_config);
+
+        let rules = routing_value["rules"].as_array().unwrap();
+        assert!(rules.iter().any(|rule| {
+            rule.get("domain")
+                .and_then(serde_json::Value::as_array)
+                .map(|domains| domains.iter().any(|domain| domain == "domain:direct.example"))
+                .unwrap_or(false)
+        }));
+        assert!(!rules.iter().any(|rule| {
+            rule.get("outboundTag") == Some(&json!("direct"))
+                && rule.get("network").and_then(serde_json::Value::as_str) == Some("tcp,udp")
+        }));
+        assert_eq!(rules.last().unwrap()["outboundTag"], "proxy");
+    }
+
+    #[test]
+    fn merge_template_routing_drops_template_balancer_fallback() {
+        let mut routing_value = json!({
+            "balancers": [
+                {
+                    "tag": "BALANCER-BACKUP",
+                    "selector": ["backup"],
+                    "fallbackTag": "direct"
+                }
+            ],
+            "rules": [
+                {
+                    "network": "tcp,udp",
+                    "balancerTag": "BALANCER-BACKUP"
+                },
+                {
+                    "domain": ["domain:direct.example"],
+                    "balancerTag": "BALANCER-BACKUP"
+                }
+            ]
+        });
+        let base_config = json!({
+            "routing": {
+                "rules": [
+                    {
+                        "type": "field",
+                        "process": ["opera.exe"],
+                        "outboundTag": "proxy"
+                    },
+                    {
+                        "type": "field",
+                        "network": "tcp,udp",
+                        "outboundTag": "proxy"
+                    }
+                ]
+            }
+        });
+
+        merge_template_routing(routing_value.as_object_mut().unwrap(), &base_config);
+
+        let rules = routing_value["rules"].as_array().unwrap();
+        assert_eq!(rules[0]["process"][0], "opera.exe");
+        assert!(!rules.iter().any(|rule| {
+            rule.get("balancerTag") == Some(&json!("BALANCER-BACKUP"))
+                && rule.get("network").and_then(serde_json::Value::as_str) == Some("tcp,udp")
+        }));
+        assert!(rules.iter().any(|rule| {
+            rule.get("balancerTag") == Some(&json!("BALANCER-BACKUP"))
+                && rule
+                    .get("domain")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some()
+        }));
+        assert_eq!(rules.last().unwrap()["outboundTag"], "proxy");
     }
 
     #[test]
@@ -5677,7 +7425,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_config_preserves_remnawave_proxy_pool_and_balancer_rules() {
+    fn runtime_config_preserves_remnawave_proxy_pool_and_removes_balancer_fallback() {
         let server = Server {
             id: "server-1".into(),
             name: "Server 1".into(),
@@ -5741,7 +7489,11 @@ mod tests {
                 .map(|domains| domains.iter().any(|domain| domain == "domain:example.org"))
                 .unwrap_or(false)
         }));
-        assert!(rules.iter().any(|rule| rule.get("balancerTag") == Some(&json!("BALANCER"))));
+        assert!(!rules.iter().any(|rule| {
+            rule.get("balancerTag") == Some(&json!("BALANCER"))
+                && rule.get("network").and_then(serde_json::Value::as_str) == Some("tcp,udp")
+        }));
+        assert_eq!(rules.last().unwrap()["outboundTag"], "proxy");
     }
 
     #[test]

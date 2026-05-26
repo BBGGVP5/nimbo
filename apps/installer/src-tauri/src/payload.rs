@@ -1,10 +1,40 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
+
+/// Mode flag set once during process bootstrap and read by the UI to decide
+/// whether to render the install screen or the uninstall screen. We use a
+/// plain atomic instead of Tauri `State<>` so a no-Tauri code path (e.g. the
+/// legacy `--uninstall --silent` CLI) can still query it without standing up
+/// the runtime.
+static INSTALLER_MODE: AtomicU8 = AtomicU8::new(0);
+
+// Mode value used when the atomic equals `MODE_UNINSTALL`. The default
+// install mode is encoded as 0 (the atomic's initial value), so no separate
+// constant is needed for it.
+const MODE_UNINSTALL: u8 = 1;
+
+pub fn set_uninstall_mode() {
+    INSTALLER_MODE.store(MODE_UNINSTALL, Ordering::Relaxed);
+}
+
+pub fn is_uninstall_mode() -> bool {
+    INSTALLER_MODE.load(Ordering::Relaxed) == MODE_UNINSTALL
+}
+
+#[tauri::command]
+pub fn get_installer_mode() -> &'static str {
+    if is_uninstall_mode() {
+        "uninstall"
+    } else {
+        "install"
+    }
+}
 
 const PRODUCT_NAME: &str = "Nimbo";
 const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -115,11 +145,71 @@ pub struct InstallResult {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct UninstallerProbe {
+    install_dir: String,
+    product_version: String,
+    product_arch: String,
+    platform: String,
+    helper_installed: bool,
+    helper_running: bool,
+    user_data_dir: String,
+    user_data_present: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UninstallOptions {
+    /// If true, also wipe `%APPDATA%\Nimbo` (subscriptions, runtime, hwid).
+    /// `bin/` (tun2socks/wintun) is always removed regardless.
+    remove_user_data: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UninstallResult {
+    install_dir: String,
+    removed_user_data: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct ProgressEvent {
     step: &'static str,
     state: &'static str,
     progress: u8,
     detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct AppTheme {
+    ui_style: Option<String>,
+    theme_mode: Option<String>,
+    accent_mode: Option<String>,
+    accent_color: Option<String>,
+}
+
+#[tauri::command]
+pub fn read_app_theme() -> AppTheme {
+    let Some(base) = dirs::data_dir() else {
+        return AppTheme::default();
+    };
+    let path = base.join("Nimbo").join("subscriptions.json");
+    let Ok(bytes) = fs::read(&path) else {
+        return AppTheme::default();
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return AppTheme::default();
+    };
+    let prefs = value.get("preferences");
+    let pick = |key: &str| -> Option<String> {
+        prefs
+            .and_then(|p| p.get(key))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    };
+    AppTheme {
+        ui_style: pick("ui_style"),
+        theme_mode: pick("theme_mode"),
+        accent_mode: pick("accent_mode"),
+        accent_color: pick("accent_color"),
+    }
 }
 
 #[tauri::command]
@@ -204,9 +294,8 @@ fn install_blocking_windows(app: AppHandle, options: InstallOptions) -> Result<I
         return Err("Папка установки не выбрана.".into());
     }
 
-    emit(&app, "prepare", "running", 6, "Закрываем запущенный Nimbo");
-    taskkill_image(APP_EXE);
-    taskkill_image("nimbo-ui.exe");
+    emit(&app, "prepare", "running", 6, "Отключаем Nimbo и останавливаем хелпер");
+    prepare_windows_upgrade(&install_dir)?;
     fs::create_dir_all(&install_dir).map_err(|e| format!("Не удалось создать папку установки: {e}"))?;
     emit(&app, "prepare", "done", 12, "Окружение готово");
 
@@ -220,10 +309,11 @@ fn install_blocking_windows(app: AppHandle, options: InstallOptions) -> Result<I
     emit(&app, "tun", "running", 44, "Копируем TUN-компоненты");
     let tun_dir = roaming_nimbo_bin_dir()?;
     fs::create_dir_all(&tun_dir).map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
-    write_payload(&tun_dir.join("tun2socks.exe"), TUN2SOCKS_BYTES)?;
-    write_payload(&tun_dir.join("wintun.dll"), WINTUN_BYTES)?;
+    replace_payload(&tun_dir.join("tun2socks.exe"), TUN2SOCKS_BYTES)?;
+    replace_payload(&tun_dir.join("wintun.dll"), WINTUN_BYTES)?;
     run_status(&install_dir.join(APP_EXE), &["--install-tun"])
         .map_err(|e| format!("TUN-компоненты не установились: {e}"))?;
+    cleanup_old_tun_binaries(&tun_dir);
     emit(&app, "tun", "done", 56, "TUN готов");
 
     emit(&app, "service", "running", 64, "Регистрируем helper-сервис");
@@ -310,24 +400,71 @@ fn install_blocking_linux(app: AppHandle, options: InstallOptions) -> Result<Ins
 }
 
 pub fn uninstall_from_cli() -> Result<(), String> {
-    let install_dir = std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(Path::to_path_buf))
-        .unwrap_or(default_install_dir()?);
+    // CLI / silent flow used by the registry "UninstallString" entry and by
+    // older scripts. We never remove user data here — that's an explicit
+    // opt-in available from the UI flow.
+    perform_uninstall(None, UninstallOptions { remove_user_data: false }).map(|_| ())
+}
 
+#[tauri::command]
+pub fn probe_uninstallation() -> Result<UninstallerProbe, String> {
+    let install_dir = current_install_dir()?;
+    let user_data_dir = user_data_root()?;
+    let (helper_installed, helper_running) = helper_state();
+    Ok(UninstallerProbe {
+        install_dir: install_dir.to_string_lossy().to_string(),
+        product_version: PRODUCT_VERSION.to_string(),
+        product_arch: PRODUCT_ARCH.to_string(),
+        platform: PRODUCT_PLATFORM.to_string(),
+        helper_installed,
+        helper_running,
+        user_data_present: user_data_present(&user_data_dir),
+        user_data_dir: user_data_dir.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn uninstall_nimbo(
+    app: AppHandle,
+    options: UninstallOptions,
+) -> Result<UninstallResult, String> {
+    tauri::async_runtime::spawn_blocking(move || perform_uninstall(Some(app), options))
+        .await
+        .map_err(|e| format!("uninstaller task failed: {e}"))?
+}
+
+fn perform_uninstall(
+    app: Option<AppHandle>,
+    options: UninstallOptions,
+) -> Result<UninstallResult, String> {
+    let install_dir = current_install_dir()?;
+    let user_data_dir = user_data_root()?;
+
+    uemit(app.as_ref(), "prepare", "running", 8, "Останавливаем Nimbo");
+    #[cfg(windows)]
+    stop_nimbo_runtime_processes();
+    #[cfg(not(windows))]
     taskkill_image(APP_EXE);
     let helper = install_dir.join(HELPER_EXE);
     if helper.exists() {
         let _ = run_status(&helper, &["--uninstall"]);
     }
     std::thread::sleep(Duration::from_millis(600));
+    uemit(app.as_ref(), "prepare", "done", 20, "Процессы остановлены");
 
+    uemit(app.as_ref(), "shortcuts", "running", 32, "Убираем ярлыки");
     delete_shortcuts();
+    uemit(app.as_ref(), "shortcuts", "done", 44, "Ярлыки удалены");
+
+    uemit(app.as_ref(), "registry", "running", 54, "Чистим системные записи");
     delete_registry();
+    uemit(app.as_ref(), "registry", "done", 64, "Системные записи удалены");
+
+    uemit(app.as_ref(), "files", "running", 72, "Удаляем файлы Nimbo");
     let tun_dir = roaming_nimbo_bin_dir()?;
     let _ = fs::remove_file(tun_dir.join("tun2socks.exe"));
     let _ = fs::remove_file(tun_dir.join("wintun.dll"));
-    let _ = fs::remove_dir(tun_dir);
+    let _ = fs::remove_dir(&tun_dir);
 
     #[cfg(windows)]
     for name in [APP_EXE, HELPER_EXE, "icon.ico", "nimbo-svc.exe.old", "Nimbo.exe.old"] {
@@ -337,8 +474,100 @@ pub fn uninstall_from_cli() -> Result<(), String> {
     for name in [APP_EXE, UNINSTALL_EXE, "icon.png", "nimbo.exe.old"] {
         let _ = fs::remove_file(install_dir.join(name));
     }
+    uemit(app.as_ref(), "files", "done", 84, "Файлы удалены");
+
+    let removed_user_data = if options.remove_user_data {
+        uemit(
+            app.as_ref(),
+            "user_data",
+            "running",
+            92,
+            "Удаляем подписки и настройки",
+        );
+        wipe_user_data(&user_data_dir);
+        uemit(
+            app.as_ref(),
+            "user_data",
+            "done",
+            96,
+            "Пользовательские данные удалены",
+        );
+        true
+    } else {
+        uemit(
+            app.as_ref(),
+            "user_data",
+            "done",
+            96,
+            "Пользовательские данные сохранены",
+        );
+        false
+    };
+
     schedule_self_cleanup(&install_dir);
-    Ok(())
+    uemit(app.as_ref(), "finish", "done", 100, "Nimbo удалён");
+
+    Ok(UninstallResult {
+        install_dir: install_dir.to_string_lossy().to_string(),
+        removed_user_data,
+    })
+}
+
+fn current_install_dir() -> Result<PathBuf, String> {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            return Ok(parent.to_path_buf());
+        }
+    }
+    default_install_dir()
+}
+
+fn user_data_root() -> Result<PathBuf, String> {
+    dirs::data_dir()
+        .map(|base| base.join(PRODUCT_NAME))
+        .ok_or_else(|| "Не удалось определить AppData.".to_string())
+}
+
+fn user_data_present(root: &Path) -> bool {
+    // Treat "user data" as anything beyond the `bin/` folder (which holds
+    // TUN binaries we always remove). If `subscriptions.json`, `runtime/`,
+    // or `hwid.txt` exist, there's something to wipe.
+    if !root.exists() {
+        return false;
+    }
+    for name in ["subscriptions.json", "runtime", "hwid.txt"] {
+        if root.join(name).exists() {
+            return true;
+        }
+    }
+    false
+}
+
+fn wipe_user_data(root: &Path) {
+    if !root.exists() {
+        return;
+    }
+    let _ = fs::remove_file(root.join("subscriptions.json"));
+    let _ = fs::remove_file(root.join("hwid.txt"));
+    let _ = fs::remove_dir_all(root.join("runtime"));
+    // `bin/` is removed by the file-step (TUN binaries). If empty now, drop
+    // the whole Nimbo data folder too.
+    let _ = fs::remove_dir(root.join("bin"));
+    let _ = fs::remove_dir(root);
+}
+
+fn uemit(app: Option<&AppHandle>, step: &'static str, state: &'static str, progress: u8, detail: &str) {
+    if let Some(app) = app {
+        let _ = app.emit(
+            "uninstaller_progress",
+            ProgressEvent {
+                step,
+                state,
+                progress,
+                detail: detail.to_string(),
+            },
+        );
+    }
 }
 
 fn dialog_start_dir(current_dir: &str) -> Result<PathBuf, String> {
@@ -446,14 +675,10 @@ fn roaming_nimbo_bin_dir() -> Result<PathBuf, String> {
 
 fn replace_payload(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if path.exists() {
-        let old = path.with_extension("exe.old");
-        let _ = fs::remove_file(&old);
-        if fs::rename(path, &old).is_err() {
-            std::thread::sleep(Duration::from_millis(500));
-            let _ = fs::remove_file(&old);
-            fs::rename(path, &old)
-                .map_err(|e| format!("Не удалось заменить {}: {e}", path.display()))?;
-        }
+        let old = old_payload_path(path);
+        let _ = remove_file_with_retries(&old);
+        rename_with_retries(path, &old)
+            .map_err(|e| format!("Не удалось заменить {}: {e}", path.display()))?;
     }
     write_payload(path, bytes)
 }
@@ -463,7 +688,46 @@ fn write_payload(path: &Path, bytes: &[u8]) -> Result<(), String> {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Не удалось создать {}: {e}", parent.display()))?;
     }
-    fs::write(path, bytes).map_err(|e| format!("Не удалось записать {}: {e}", path.display()))
+    retry_io(|| fs::write(path, bytes))
+        .map_err(|e| format!("Не удалось записать {}: {e}", path.display()))
+}
+
+fn old_payload_path(path: &Path) -> PathBuf {
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return path.with_extension("old");
+    };
+    path.with_file_name(format!("{file_name}.old"))
+}
+
+fn rename_with_retries(from: &Path, to: &Path) -> std::io::Result<()> {
+    retry_io(|| fs::rename(from, to))
+}
+
+fn remove_file_with_retries(path: &Path) -> std::io::Result<()> {
+    retry_io(|| match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
+    })
+}
+
+fn retry_io<F>(mut action: F) -> std::io::Result<()>
+where
+    F: FnMut() -> std::io::Result<()>,
+{
+    let mut delay = Duration::from_millis(180);
+    let mut last_error = None;
+    for _ in 0..8 {
+        match action() {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                last_error = Some(err);
+                std::thread::sleep(delay);
+                delay = (delay + Duration::from_millis(180)).min(Duration::from_millis(900));
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| std::io::Error::last_os_error()))
 }
 
 fn copy_self_uninstaller(install_dir: &Path) -> Result<(), String> {
@@ -513,6 +777,65 @@ fn hidden_command<P: AsRef<Path>>(program: P) -> Command {
         command.creation_flags(0x08000000);
     }
     command
+}
+
+#[cfg(windows)]
+fn prepare_windows_upgrade(install_dir: &Path) -> Result<(), String> {
+    stop_nimbo_runtime_processes();
+    stop_helper_for_upgrade(install_dir)?;
+    std::thread::sleep(Duration::from_millis(700));
+    Ok(())
+}
+
+#[cfg(windows)]
+fn stop_nimbo_runtime_processes() {
+    for image in [APP_EXE, "nimbo-ui.exe", "tun2socks.exe", "xray.exe"] {
+        taskkill_image(image);
+    }
+}
+
+#[cfg(windows)]
+fn stop_helper_for_upgrade(install_dir: &Path) -> Result<(), String> {
+    let (installed, running) = helper_state();
+    if !installed {
+        return Ok(());
+    }
+
+    if running {
+        let helper = install_dir.join(HELPER_EXE);
+        let stopped_by_helper = helper.exists() && run_status(&helper, &["--pre-install"]).is_ok();
+        if !stopped_by_helper {
+            stop_service_with_sc();
+        }
+    }
+
+    wait_for_helper_stopped(Duration::from_secs(7));
+    let (_, still_running) = helper_state();
+    if still_running {
+        return Err(
+            "Не удалось остановить helper-сервис Nimbo. Закройте подключение и подтвердите запуск установщика от имени администратора."
+                .into(),
+        );
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn stop_service_with_sc() {
+    let _ = hidden_command("sc.exe").args(["stop", SERVICE_NAME]).status();
+}
+
+#[cfg(windows)]
+fn wait_for_helper_stopped(timeout: Duration) {
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        let (_, running) = helper_state();
+        if !running {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
 }
 
 #[cfg(windows)]
@@ -736,6 +1059,12 @@ fn helper_state() -> (bool, bool) {
 fn cleanup_old_binaries(install_dir: &Path) {
     for name in ["nimbo-svc.exe.old", "Nimbo.exe.old"] {
         let _ = fs::remove_file(install_dir.join(name));
+    }
+}
+
+fn cleanup_old_tun_binaries(tun_dir: &Path) {
+    for name in ["tun2socks.exe.old", "wintun.dll.old", "wintun.exe.old"] {
+        let _ = fs::remove_file(tun_dir.join(name));
     }
 }
 

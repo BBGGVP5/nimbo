@@ -1,8 +1,8 @@
 use serde_json::Value;
 
 use crate::model::{
-    Network, Protocol, Security, Server, ShadowsocksConfig, StreamSettings, TrojanConfig,
-    VlessConfig, VmessConfig,
+    Hysteria2Config, Network, Protocol, Security, Server, ShadowsocksConfig, StreamSettings,
+    TrojanConfig, VlessConfig, VmessConfig,
 };
 use crate::parser::{ParseError, fingerprint};
 
@@ -57,21 +57,46 @@ fn collect_servers_from_item(item: &Value, out: &mut Vec<Server>) {
         ],
     );
 
+    let explicit_balancer_prefixes = explicit_balancer_prefixes(item);
+    let implicit_balancer_base = if explicit_balancer_prefixes.is_empty() {
+        implicit_balancer_base(outbounds)
+    } else {
+        None
+    };
+
     let proxy_count = outbounds
         .iter()
         .filter(|outbound| is_proxy_outbound(outbound))
         .count();
     let mut proxy_index = 0usize;
     let mut seen_ids = std::collections::HashSet::new();
+    let mut emitted_balancer_groups = std::collections::HashSet::new();
     for outbound in outbounds {
         if !is_proxy_outbound(outbound) {
             continue;
         }
         proxy_index += 1;
+        let tag = outbound_tag(outbound);
+        let balancer_group = tag.as_deref().and_then(|t| {
+            match_balancer_group(t, &explicit_balancer_prefixes, implicit_balancer_base.as_deref())
+        });
+        // Balancer participants share one logical destination — keep only the
+        // first one we see and skip the rest, so the autobalancer appears as a
+        // single server entry instead of one per "proxy-N" outbound.
+        if let Some(group) = &balancer_group {
+            if !emitted_balancer_groups.insert(group.clone()) {
+                continue;
+            }
+        }
         // Secondary outbounds without their own display name are internal proxy
-        // chains (e.g. "proxy-2", "proxy-3" inside an auto-balancer config).
-        // Skip them to avoid exposing internal routing entries as user-visible servers.
-        if proxy_count > 1 && proxy_index > 1 && display_name(outbound).is_none() {
+        // chains. Skip them to avoid exposing internal routing entries as
+        // user-visible servers.
+        if balancer_group.is_none()
+            && proxy_count > 1
+            && proxy_index > 1
+            && display_name(outbound).is_none()
+            && tag.is_none()
+        {
             continue;
         }
         let item_index = out.len();
@@ -101,10 +126,10 @@ fn collect_servers_from_item(item: &Value, out: &mut Vec<Server>) {
 
             let resolved_name = display_name(outbound)
                 .or_else(|| {
-                    if proxy_count <= 1 || proxy_index == 1 {
+                    if balancer_group.is_some() || proxy_count <= 1 || proxy_index == 1 {
                         name.clone()
                     } else {
-                        outbound_tag(outbound).map(|tag| {
+                        tag.clone().map(|tag| {
                             name.as_ref()
                                 .map(|name| format!("{name} · {tag}"))
                                 .unwrap_or(tag)
@@ -136,6 +161,86 @@ fn collect_servers_from_item(item: &Value, out: &mut Vec<Server>) {
 
 fn display_name(value: &Value) -> Option<String> {
     metadata_string(value, &["remarks", "remark", "ps", "name", "title"])
+}
+
+fn explicit_balancer_prefixes(item: &Value) -> Vec<String> {
+    let Some(balancers) = item
+        .get("routing")
+        .and_then(|routing| routing.get("balancers"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let mut prefixes: Vec<String> = Vec::new();
+    for balancer in balancers {
+        let Some(selectors) = balancer.get("selector").and_then(Value::as_array) else {
+            continue;
+        };
+        for selector in selectors {
+            if let Some(raw) = selector.as_str() {
+                let trimmed = raw.trim();
+                if !trimmed.is_empty() && !prefixes.iter().any(|existing| existing == trimmed) {
+                    prefixes.push(trimmed.to_string());
+                }
+            }
+        }
+    }
+    prefixes
+}
+
+fn implicit_balancer_base(outbounds: &[Value]) -> Option<String> {
+    let proxy_outbounds: Vec<&Value> = outbounds.iter().filter(|o| is_proxy_outbound(o)).collect();
+    if proxy_outbounds.len() < 2 {
+        return None;
+    }
+    let tags: Vec<String> = proxy_outbounds.iter().filter_map(|o| outbound_tag(o)).collect();
+    if tags.len() != proxy_outbounds.len() {
+        return None;
+    }
+
+    let base = tags.first()?.split('-').next()?.to_string();
+    if base.is_empty() {
+        return None;
+    }
+
+    let suffix_prefix = format!("{base}-");
+    let mut has_numeric_suffix = false;
+    for tag in &tags {
+        if tag == &base {
+            continue;
+        }
+        match tag.strip_prefix(&suffix_prefix) {
+            Some(suffix) if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) => {
+                has_numeric_suffix = true;
+            }
+            _ => return None,
+        }
+    }
+
+    has_numeric_suffix.then_some(base)
+}
+
+fn match_balancer_group(
+    tag: &str,
+    explicit_prefixes: &[String],
+    implicit_base: Option<&str>,
+) -> Option<String> {
+    for prefix in explicit_prefixes {
+        if tag.starts_with(prefix.as_str()) {
+            return Some(prefix.clone());
+        }
+    }
+    if let Some(base) = implicit_base {
+        if tag == base {
+            return Some(base.to_string());
+        }
+        if let Some(suffix) = tag.strip_prefix(&format!("{base}-")) {
+            if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
+                return Some(base.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn outbound_tag(value: &Value) -> Option<String> {
@@ -206,7 +311,7 @@ fn is_proxy_outbound(outbound: &Value) -> bool {
             .unwrap_or("")
             .to_ascii_lowercase()
             .as_str(),
-        "vless" | "vmess" | "trojan" | "shadowsocks"
+        "vless" | "vmess" | "trojan" | "shadowsocks" | "hysteria" | "hysteria2"
     )
 }
 
@@ -220,6 +325,7 @@ fn parse_outbound(outbound: &Value, item_index: usize) -> Option<Server> {
         "vmess" => parse_vmess(settings, stream_settings)?,
         "trojan" => parse_trojan(settings, stream_settings)?,
         "shadowsocks" => parse_shadowsocks(settings)?,
+        "hysteria" | "hysteria2" => parse_hysteria2(settings, stream_settings)?,
         _ => return None,
     };
 
@@ -277,6 +383,10 @@ fn protocol_identity(protocol: &Protocol) -> String {
         Protocol::Shadowsocks(config) => format!(
             "shadowsocks:{}:{}:{}:{}",
             config.address, config.port, config.method, config.password
+        ),
+        Protocol::Hysteria2(config) => format!(
+            "hysteria2:{}:{}:{}:{}:{:?}:{}",
+            config.address, config.port, config.password, config.sni.as_deref().unwrap_or_default(), config.alpn, config.insecure
         ),
     }
 }
@@ -388,6 +498,55 @@ fn parse_shadowsocks(settings: &Value) -> Option<(Protocol, String, u16)> {
             port,
             method,
             password,
+        }),
+        address,
+        port,
+    ))
+}
+
+fn parse_hysteria2(
+    settings: &Value,
+    stream_settings: Option<&Value>,
+) -> Option<(Protocol, String, u16)> {
+    let address = settings.get("address")?.as_str()?.to_string();
+    let port = port_from_value(settings.get("port")?)?;
+    let hysteria = stream_settings.and_then(|stream| stream.get("hysteriaSettings"));
+    let tls = stream_settings.and_then(|stream| stream.get("tlsSettings"));
+    let password = hysteria
+        .and_then(|value| value.get("auth"))
+        .and_then(Value::as_str)
+        .or_else(|| settings.get("password").and_then(Value::as_str))
+        .unwrap_or_default()
+        .to_string();
+    let sni = tls
+        .and_then(|value| value.get("serverName"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let alpn = tls
+        .and_then(|value| value.get("alpn"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .filter(|items| !items.is_empty());
+    let insecure = tls
+        .and_then(|value| value.get("allowInsecure"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    Some((
+        Protocol::Hysteria2(Hysteria2Config {
+            address: address.clone(),
+            port,
+            password,
+            sni,
+            alpn,
+            insecure,
+            obfs: None,
+            obfs_password: None,
         }),
         address,
         port,
@@ -668,7 +827,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_multiple_proxy_outbounds_from_one_config() {
+    fn collapses_autobalancer_proxy_outbounds_into_one_server() {
         let body = r#"{
             "remarks": "Bundle",
             "outbounds": [
@@ -699,9 +858,96 @@ mod tests {
 
         let servers = parse(body).unwrap();
 
-        assert_eq!(servers.len(), 2);
+        assert_eq!(servers.len(), 1);
         assert_eq!(servers[0].name, "Bundle");
-        assert_eq!(servers[1].name, "Bundle · proxy-2");
+    }
+
+    #[test]
+    fn collapses_explicit_balancer_participants_into_one_server() {
+        let body = r#"{
+            "remarks": "Автобалансер EU",
+            "outbounds": [
+                {
+                    "tag": "proxy",
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [{
+                            "address": "a.example.com",
+                            "port": 443,
+                            "users": [{ "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }]
+                        }]
+                    }
+                },
+                {
+                    "tag": "proxy-2",
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [{
+                            "address": "b.example.com",
+                            "port": 443,
+                            "users": [{ "id": "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee" }]
+                        }]
+                    }
+                },
+                {
+                    "tag": "proxy-3",
+                    "protocol": "shadowsocks",
+                    "settings": {
+                        "servers": [{
+                            "address": "ss.example.com",
+                            "port": 8388,
+                            "method": "chacha20-ietf-poly1305",
+                            "password": "p"
+                        }]
+                    }
+                }
+            ],
+            "routing": {
+                "balancers": [
+                    { "tag": "balancer", "selector": ["proxy"] }
+                ]
+            }
+        }"#;
+
+        let servers = parse(body).unwrap();
+
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "Автобалансер EU");
+    }
+
+    #[test]
+    fn keeps_distinct_outbounds_when_tags_do_not_match_balancer_pattern() {
+        let body = r#"{
+            "remarks": "Mixed",
+            "outbounds": [
+                {
+                    "tag": "proxy-eu",
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [{
+                            "address": "a.example.com",
+                            "port": 443,
+                            "users": [{ "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }]
+                        }]
+                    }
+                },
+                {
+                    "tag": "proxy-us",
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [{
+                            "address": "b.example.com",
+                            "port": 443,
+                            "users": [{ "id": "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee" }]
+                        }]
+                    }
+                }
+            ]
+        }"#;
+
+        let servers = parse(body).unwrap();
+
+        assert_eq!(servers.len(), 2);
     }
 
     #[test]

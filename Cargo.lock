@@ -2063,7 +2063,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nimbo-device"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "dirs 5.0.1",
  "serde",
@@ -2076,11 +2076,12 @@ dependencies = [
 
 [[package]]
 name = "nimbo-installer"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "dirs 5.0.1",
  "rfd",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "windows-sys 0.59.0",
@@ -2089,7 +2090,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-ipc"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2098,7 +2099,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-subscription"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "nimbo-device",
@@ -2114,7 +2115,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-svc"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -2129,7 +2130,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-ui"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2159,7 +2160,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-xray-config"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "nimbo-subscription",

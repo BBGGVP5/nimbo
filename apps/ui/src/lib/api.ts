@@ -64,7 +64,8 @@ export type Protocol =
   | { kind: "vless"; address: string; port: number; uuid: string; flow?: string | null; encryption: string; stream: StreamSettings }
   | { kind: "vmess"; address: string; port: number; uuid: string; alter_id: number; security: string; stream: StreamSettings }
   | { kind: "trojan"; address: string; port: number; password: string; stream: StreamSettings }
-  | { kind: "shadowsocks"; address: string; port: number; method: string; password: string };
+  | { kind: "shadowsocks"; address: string; port: number; method: string; password: string }
+  | { kind: "hysteria2"; address: string; port: number; password: string; sni?: string | null; alpn?: string[] | null; insecure: boolean; obfs?: string | null; obfs_password?: string | null };
 
 export interface Server {
   id: string;
@@ -90,6 +91,7 @@ export interface SubscriptionMeta {
   website_url?: string | null;
   show_on_home?: boolean | null;
   update_interval_minutes?: number | null;
+  app_proxy_rules?: AppProxyRule[];
 }
 
 export interface Subscription {
@@ -147,9 +149,15 @@ export interface PersistedState {
 
 export type ThemeMode = "system" | "dark" | "black" | "light";
 export type AccentMode = "system" | "preset" | "custom";
+export type UiStyle = "nebula" | "material_you";
 export type AppLanguage = "ru" | "en";
-export type LatencyProtocol = "tcp_connect";
+export type LatencyProtocol = "tcp_connect" | "icmp" | "http_head";
 export type LatencyDisplayFormat = "ms" | "badge";
+export type XudpUdp443Mode = "reject" | "allow" | "skip";
+export type PreferredIpFamily = "auto" | "ipv4" | "ipv6";
+export type ServerSorting = "provider" | "name" | "ping" | "protocol";
+export type ConnectButtonStyle = "classic" | "compact";
+export type AppRoutingMode = "direct" | "proxy";
 
 export interface AppPreferences {
   launch_at_login: boolean;
@@ -159,6 +167,7 @@ export interface AppPreferences {
   ping_on_launch: boolean;
   check_updates_on_launch: boolean;
   provider_theme: boolean;
+  ui_style: UiStyle;
   theme_mode: ThemeMode;
   accent_mode: AccentMode;
   accent_color: string;
@@ -167,8 +176,34 @@ export interface AppPreferences {
   latency_test_url: string;
   latency_timeout_ms: number;
   latency_display_format: LatencyDisplayFormat;
+  app_routing_mode: AppRoutingMode;
   show_speed_chart: boolean;
   show_memory_usage: boolean;
+  connection_kill_switch: boolean;
+  tunnel_sniffing: boolean;
+  tunnel_mux_enabled: boolean;
+  tunnel_mux_concurrency: number;
+  tunnel_xudp_concurrency: number;
+  tunnel_xudp_udp443: XudpUdp443Mode;
+  tunnel_tls_fragmentation: boolean;
+  lan_allow_connections: boolean;
+  lan_allow_tethering: boolean;
+  lan_proxy_enabled: boolean;
+  lan_tcp_idle_timeout_sec: number;
+  lan_max_tcp_connections: number;
+  lan_max_udp_connections: number;
+  lan_preferred_ip_family: PreferredIpFamily;
+  subscriptions_auto_update: boolean;
+  subscriptions_update_interval_hours: number;
+  subscriptions_notify_expiration: boolean;
+  subscriptions_expiration_threshold_days: number;
+  subscriptions_notify_updates: boolean;
+  subscriptions_update_on_launch: boolean;
+  subscriptions_ping_after_update: boolean;
+  servers_sorting: ServerSorting;
+  servers_connect_button: ConnectButtonStyle;
+  servers_ui_scale: number;
+  servers_proxy_only_button: boolean;
 }
 
 export type AppProxyMode = "proxy" | "direct";
@@ -219,6 +254,26 @@ export interface ServerPing {
 export interface SessionTraffic {
   upload: number;
   download: number;
+}
+
+export type ActiveConnectionRoute = "proxy" | "direct" | "block" | "unknown";
+
+export interface ActiveConnection {
+  id: string;
+  protocol: string;
+  state: string;
+  source: string;
+  destination: string;
+  remote_address: string;
+  remote_port: number;
+  process: string;
+  process_path?: string | null;
+  pid: number;
+  route: ActiveConnectionRoute;
+  rule: string;
+  server_id?: string | null;
+  server_name?: string | null;
+  server_protocol?: string | null;
 }
 
 export interface MemoryUsage {
@@ -320,6 +375,13 @@ export interface AppUpdateInfo {
 }
 
 const BROWSER_PERSISTED_STATE_KEY = "nimbo.persistedState";
+const DEFAULT_SOCKS_USERNAME = "nimbo";
+const DEFAULT_SOCKS_PASSWORD = "nmb-preview-password";
+
+function nonEmptyString(value: string | null | undefined, fallback: string): string {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : fallback;
+}
 
 export const defaultAppPreferences: AppPreferences = {
   launch_at_login: false,
@@ -329,6 +391,7 @@ export const defaultAppPreferences: AppPreferences = {
   ping_on_launch: true,
   check_updates_on_launch: true,
   provider_theme: true,
+  ui_style: "nebula",
   theme_mode: "system",
   accent_mode: "preset",
   accent_color: "#7c5dfa",
@@ -337,8 +400,34 @@ export const defaultAppPreferences: AppPreferences = {
   latency_test_url: "https://www.gstatic.com/generate_204",
   latency_timeout_ms: 5000,
   latency_display_format: "ms",
+  app_routing_mode: "direct",
   show_speed_chart: true,
   show_memory_usage: false,
+  connection_kill_switch: false,
+  tunnel_sniffing: true,
+  tunnel_mux_enabled: false,
+  tunnel_mux_concurrency: 8,
+  tunnel_xudp_concurrency: -1,
+  tunnel_xudp_udp443: "reject",
+  tunnel_tls_fragmentation: false,
+  lan_allow_connections: true,
+  lan_allow_tethering: false,
+  lan_proxy_enabled: false,
+  lan_tcp_idle_timeout_sec: 60,
+  lan_max_tcp_connections: 256,
+  lan_max_udp_connections: 128,
+  lan_preferred_ip_family: "auto",
+  subscriptions_auto_update: true,
+  subscriptions_update_interval_hours: 6,
+  subscriptions_notify_expiration: true,
+  subscriptions_expiration_threshold_days: 3,
+  subscriptions_notify_updates: true,
+  subscriptions_update_on_launch: false,
+  subscriptions_ping_after_update: false,
+  servers_sorting: "provider",
+  servers_connect_button: "classic",
+  servers_ui_scale: 100,
+  servers_proxy_only_button: false,
 };
 
 function normalizePreferences(value: Partial<AppPreferences> | null | undefined): AppPreferences {
@@ -352,15 +441,21 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
   const accentMode = value?.accent_mode === "system" || value?.accent_mode === "preset" || value?.accent_mode === "custom"
     ? value.accent_mode
     : defaultAppPreferences.accent_mode;
+  const uiStyle = value?.ui_style === "material_you" || value?.ui_style === "nebula"
+    ? value.ui_style
+    : defaultAppPreferences.ui_style;
   const language = value?.language === "en" || value?.language === "ru"
     ? value.language
     : defaultAppPreferences.language;
   const accent = typeof value?.accent_color === "string" && /^#[0-9a-f]{6}$/i.test(value.accent_color)
     ? value.accent_color.toLowerCase()
     : defaultAppPreferences.accent_color;
-  const latencyProtocol = value?.latency_protocol === "tcp_connect"
-    ? value.latency_protocol
-    : defaultAppPreferences.latency_protocol;
+  const latencyProtocol =
+    value?.latency_protocol === "tcp_connect" ||
+    value?.latency_protocol === "icmp" ||
+    value?.latency_protocol === "http_head"
+      ? value.latency_protocol
+      : defaultAppPreferences.latency_protocol;
   const latencyTestUrl =
     typeof value?.latency_test_url === "string" && /^https?:\/\//i.test(value.latency_test_url.trim())
       ? value.latency_test_url.trim()
@@ -372,6 +467,43 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
   const latencyDisplayFormat = value?.latency_display_format === "badge" || value?.latency_display_format === "ms"
     ? value.latency_display_format
     : defaultAppPreferences.latency_display_format;
+  const appRoutingMode = value?.app_routing_mode === "proxy" ? "proxy" : defaultAppPreferences.app_routing_mode;
+  const xudpUdp443 =
+    value?.tunnel_xudp_udp443 === "allow" ||
+    value?.tunnel_xudp_udp443 === "skip" ||
+    value?.tunnel_xudp_udp443 === "reject"
+      ? value.tunnel_xudp_udp443
+      : defaultAppPreferences.tunnel_xudp_udp443;
+  const preferredIpFamily =
+    value?.lan_preferred_ip_family === "ipv4" ||
+    value?.lan_preferred_ip_family === "ipv6" ||
+    value?.lan_preferred_ip_family === "auto"
+      ? value.lan_preferred_ip_family
+      : defaultAppPreferences.lan_preferred_ip_family;
+  const serversSorting =
+    value?.servers_sorting === "name" ||
+    value?.servers_sorting === "ping" ||
+    value?.servers_sorting === "protocol" ||
+    value?.servers_sorting === "provider"
+      ? value.servers_sorting
+      : defaultAppPreferences.servers_sorting;
+  const connectButton =
+    value?.servers_connect_button === "compact" || value?.servers_connect_button === "classic"
+      ? value.servers_connect_button
+      : defaultAppPreferences.servers_connect_button;
+
+  const clampNumber = (
+    raw: unknown,
+    fallback: number,
+    min: number,
+    max: number,
+    round = true,
+  ) => {
+    const numeric = typeof raw === "number" ? raw : Number(raw);
+    if (!Number.isFinite(numeric)) return fallback;
+    const normalized = round ? Math.round(numeric) : numeric;
+    return Math.min(max, Math.max(min, normalized));
+  };
 
   return {
     ...defaultAppPreferences,
@@ -387,12 +519,39 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     ping_on_launch: value?.ping_on_launch !== false,
     check_updates_on_launch: value?.check_updates_on_launch !== false,
     provider_theme: value?.provider_theme !== false,
+    ui_style: uiStyle,
     latency_protocol: latencyProtocol,
     latency_test_url: latencyTestUrl,
     latency_timeout_ms: latencyTimeoutMs,
     latency_display_format: latencyDisplayFormat,
+    app_routing_mode: appRoutingMode,
     show_speed_chart: value?.show_speed_chart !== false,
     show_memory_usage: Boolean(value?.show_memory_usage),
+    connection_kill_switch: Boolean(value?.connection_kill_switch),
+    tunnel_sniffing: value?.tunnel_sniffing !== false,
+    tunnel_mux_enabled: Boolean(value?.tunnel_mux_enabled),
+    tunnel_mux_concurrency: clampNumber(value?.tunnel_mux_concurrency, defaultAppPreferences.tunnel_mux_concurrency, 1, 1024),
+    tunnel_xudp_concurrency: clampNumber(value?.tunnel_xudp_concurrency, defaultAppPreferences.tunnel_xudp_concurrency, -1, 1024),
+    tunnel_xudp_udp443: xudpUdp443,
+    tunnel_tls_fragmentation: Boolean(value?.tunnel_tls_fragmentation),
+    lan_allow_connections: value?.lan_allow_connections !== false,
+    lan_allow_tethering: Boolean(value?.lan_allow_tethering),
+    lan_proxy_enabled: Boolean(value?.lan_proxy_enabled),
+    lan_tcp_idle_timeout_sec: clampNumber(value?.lan_tcp_idle_timeout_sec, defaultAppPreferences.lan_tcp_idle_timeout_sec, 5, 3600),
+    lan_max_tcp_connections: clampNumber(value?.lan_max_tcp_connections, defaultAppPreferences.lan_max_tcp_connections, 1, 100000),
+    lan_max_udp_connections: clampNumber(value?.lan_max_udp_connections, defaultAppPreferences.lan_max_udp_connections, 1, 100000),
+    lan_preferred_ip_family: preferredIpFamily,
+    subscriptions_auto_update: value?.subscriptions_auto_update !== false,
+    subscriptions_update_interval_hours: clampNumber(value?.subscriptions_update_interval_hours, defaultAppPreferences.subscriptions_update_interval_hours, 1, 168),
+    subscriptions_notify_expiration: value?.subscriptions_notify_expiration !== false,
+    subscriptions_expiration_threshold_days: clampNumber(value?.subscriptions_expiration_threshold_days, defaultAppPreferences.subscriptions_expiration_threshold_days, 1, 365),
+    subscriptions_notify_updates: value?.subscriptions_notify_updates !== false,
+    subscriptions_update_on_launch: Boolean(value?.subscriptions_update_on_launch),
+    subscriptions_ping_after_update: Boolean(value?.subscriptions_ping_after_update),
+    servers_sorting: serversSorting,
+    servers_connect_button: connectButton,
+    servers_ui_scale: clampNumber(value?.servers_ui_scale, defaultAppPreferences.servers_ui_scale, 80, 125),
+    servers_proxy_only_button: Boolean(value?.servers_proxy_only_button),
   };
 }
 
@@ -429,8 +588,8 @@ function browserPersistedState(): PersistedState {
     app_proxy_rules: Array.isArray(stored?.app_proxy_rules) ? stored.app_proxy_rules : [],
     connected: Boolean(stored?.connected),
     connection_mode: stored?.connection_mode ?? "tun",
-    socks_username: stored?.socks_username ?? "nimbo",
-    socks_password: stored?.socks_password ?? "nmb-preview-password",
+    socks_username: nonEmptyString(stored?.socks_username, DEFAULT_SOCKS_USERNAME),
+    socks_password: nonEmptyString(stored?.socks_password, DEFAULT_SOCKS_PASSWORD),
     require_socks_auth: Boolean(stored?.require_socks_auth),
     block_socks_udp: Boolean(stored?.block_socks_udp),
     server_pings: stored?.server_pings && typeof stored.server_pings === "object" ? stored.server_pings : {},
@@ -444,7 +603,7 @@ function writeBrowserPersistedState(state: PersistedState): PersistedState {
 }
 
 function isSingleProxyLink(value: string): boolean {
-  return /^(vless|vmess|trojan|ss):\/\//i.test(value.trim());
+  return /^(vless|vmess|trojan|ss|hysteria2|hy2):\/\//i.test(value.trim());
 }
 
 function fallbackServerFromProxyLink(value: string): Server {
@@ -461,6 +620,31 @@ function fallbackServerFromProxyLink(value: string): Server {
     const uuid = q.get("id") || crypto.randomUUID();
     const network = (q.get("type") as Network | null) || "tcp";
     const security = (q.get("security") as Security | null) || "tls";
+
+    if (u.protocol === "hysteria2:" || u.protocol === "hy2:") {
+      return {
+        id: crypto.randomUUID(),
+        name: hashName || "Hysteria2",
+        server_description: queryValue(q, ["serverDescription", "server_description", "server-description"]),
+        host_uuid: queryValue(q, ["hostUuid", "host_uuid", "host-uuid"]),
+        xray_json_template_uuid: queryValue(q, [
+          "xrayJsonTemplateUuid",
+          "xray_json_template_uuid",
+          "xray-json-template-uuid",
+        ]),
+        protocol: {
+          kind: "hysteria2",
+          address,
+          port,
+          password: q.get("auth") || decodeURIComponent(u.username || ""),
+          sni: q.get("sni") || q.get("peer"),
+          alpn: q.get("alpn")?.split(",").map((item) => item.trim()).filter(Boolean) || null,
+          insecure: q.get("insecure") === "1" || q.get("insecure") === "true",
+          obfs: q.get("obfs"),
+          obfs_password: q.get("obfs-password") || q.get("obfs_password"),
+        },
+      };
+    }
 
     return {
       id: crypto.randomUUID(),
@@ -767,6 +951,69 @@ function browserTunnelLogs(limit: number): TunnelLogEntry[] {
   return sample;
 }
 
+function browserActiveConnections(): ActiveConnection[] {
+  const current = browserPersistedState();
+  const activeServer = current.subscriptions
+    .flatMap((sub) => sub.servers)
+    .find((server) => server.id === current.active_server_id);
+  const serverName = activeServer?.name ?? "Demo Server";
+  const serverId = activeServer?.id ?? "demo-server";
+  const protocol = activeServer ? protocolLabel(activeServer.protocol) : "VLESS";
+  return [
+    {
+      id: "demo-telegram",
+      protocol: "TCP",
+      state: "Established",
+      source: "127.0.0.1:12709",
+      destination: "149.154.167.41:443",
+      remote_address: "149.154.167.41",
+      remote_port: 443,
+      process: "Telegram.exe",
+      process_path: "C:\\Users\\User\\AppData\\Roaming\\Telegram Desktop\\Telegram.exe",
+      pid: 4920,
+      route: "proxy",
+      rule: "fallback",
+      server_id: serverId,
+      server_name: serverName,
+      server_protocol: protocol,
+    },
+    {
+      id: "demo-browser",
+      protocol: "TCP",
+      state: "Established",
+      source: "127.0.0.1:15343",
+      destination: "142.251.36.67:443",
+      remote_address: "142.251.36.67",
+      remote_port: 443,
+      process: "firefox.exe",
+      process_path: "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+      pid: 7612,
+      route: "direct",
+      rule: "process rule",
+      server_id: null,
+      server_name: null,
+      server_protocol: null,
+    },
+    {
+      id: "demo-xray",
+      protocol: "TCP",
+      state: "Established",
+      source: "192.168.1.40:55210",
+      destination: "203.0.113.10:443",
+      remote_address: "203.0.113.10",
+      remote_port: 443,
+      process: "xray.exe",
+      process_path: "C:\\Users\\User\\AppData\\Roaming\\Nimbo\\bin\\xray.exe",
+      pid: 8844,
+      route: "proxy",
+      rule: "xray outbound",
+      server_id: serverId,
+      server_name: serverName,
+      server_protocol: protocol,
+    },
+  ];
+}
+
 const browserInstalledApps: InstalledApp[] = [
   { name: "Google Chrome", executable_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" },
   { name: "Telegram", executable_path: "C:\\Users\\User\\AppData\\Roaming\\Telegram Desktop\\Telegram.exe" },
@@ -774,6 +1021,22 @@ const browserInstalledApps: InstalledApp[] = [
   { name: "Discord", executable_path: "C:\\Users\\User\\AppData\\Local\\Discord\\app.exe" },
   { name: "Android Studio", executable_path: "C:\\Program Files\\Android\\Android Studio\\bin\\studio64.exe" },
 ];
+
+function downloadBrowserTextFile(fileName: string, contents: string): string | null {
+  if (typeof document === "undefined") return null;
+
+  const blob = new Blob([contents], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return fileName;
+}
 
 export const api = {
   getPreferences: () =>
@@ -788,6 +1051,29 @@ export const api = {
           const normalized = normalizePreferences(preferences);
           writeBrowserPersistedState({ ...current, preferences: normalized });
           return normalized;
+        })()),
+  exportAppBackup: () =>
+    isTauriRuntime()
+      ? invoke<string>("export_app_backup")
+      : Promise.resolve(JSON.stringify({
+          schema: "nimbo-backup-v1",
+          app: "Nimbo",
+          exported_at: new Date().toISOString(),
+          state: { ...browserPersistedState(), connected: false },
+        }, null, 2)),
+  importAppBackup: (payload: string) =>
+    isTauriRuntime()
+      ? invoke<PersistedState>("import_app_backup", { payload })
+      : Promise.resolve((() => {
+          const parsed = JSON.parse(payload) as { state?: PersistedState } | PersistedState;
+          const next = ("state" in parsed && parsed.state ? parsed.state : parsed) as PersistedState;
+          const normalized: PersistedState = {
+            ...browserPersistedState(),
+            ...next,
+            connected: false,
+            preferences: normalizePreferences(next.preferences),
+          };
+          return writeBrowserPersistedState(normalized);
         })()),
   refreshTrayMenu: () =>
     isTauriRuntime()
@@ -809,8 +1095,8 @@ export const api = {
             connection_mode: state.connection_mode ?? "tun",
             socks_port: 10808,
             http_port: 10809,
-            socks_username: state.socks_username ?? "nimbo",
-            socks_password: state.socks_password ?? "nmb-preview-password",
+            socks_username: nonEmptyString(state.socks_username, DEFAULT_SOCKS_USERNAME),
+            socks_password: nonEmptyString(state.socks_password, DEFAULT_SOCKS_PASSWORD),
             require_socks_auth: Boolean(state.require_socks_auth),
             block_socks_udp: Boolean(state.block_socks_udp),
             server_pings: state.server_pings ?? {},
@@ -820,6 +1106,10 @@ export const api = {
     isTauriRuntime()
       ? invoke<SessionTraffic>("get_session_traffic")
       : Promise.resolve(readBrowserJson<SessionTraffic>("nimbo.sessionTraffic", { upload: 0, download: 0 })),
+  listActiveConnections: () =>
+    isTauriRuntime()
+      ? invoke<ActiveConnection[]>("list_active_connections")
+      : Promise.resolve(browserActiveConnections()),
   getMemoryUsage: () =>
     isTauriRuntime()
       ? invoke<MemoryUsage>("get_memory_usage")
@@ -946,6 +1236,14 @@ export const api = {
     isTauriRuntime()
       ? invoke<AppProxyRule[]>("list_app_proxy_rules")
       : Promise.resolve(readBrowserJson<AppProxyRule[]>("nimbo.appProxyRules", [])),
+  listSubscriptionAppProxyRules: () =>
+    isTauriRuntime()
+      ? invoke<AppProxyRule[]>("list_subscription_app_proxy_rules")
+      : Promise.resolve([] as AppProxyRule[]),
+  reapplyRuntimeConfig: () =>
+    isTauriRuntime()
+      ? invoke<boolean>("reapply_runtime_config")
+      : Promise.resolve(false),
   listInstalledApps: () =>
     isTauriRuntime()
       ? invoke<InstalledApp[]>("list_installed_apps")
@@ -984,6 +1282,10 @@ export const api = {
     isTauriRuntime()
       ? invoke<string | null>("pick_app_executable")
       : Promise.resolve(null),
+  exportAppProxyRulesFile: (contents: string, fileName: string): Promise<string | null> =>
+    isTauriRuntime()
+      ? invoke<string | null>("export_app_proxy_rules_file", { contents, fileName })
+      : Promise.resolve(downloadBrowserTextFile(fileName, contents)),
   setAppProxyRules: (rules: AppProxyRule[]) =>
     isTauriRuntime()
       ? invoke<PersistedState>("set_app_proxy_rules", { rules })
@@ -1043,8 +1345,8 @@ export const api = {
           const current = browserPersistedState();
           return writeBrowserPersistedState({
             ...current,
-            socks_username: settings.socks_username?.trim() || current.socks_username || "nimbo",
-            socks_password: settings.socks_password?.trim() || current.socks_password || "nmb-preview-password",
+            socks_username: nonEmptyString(settings.socks_username, current.socks_username || DEFAULT_SOCKS_USERNAME),
+            socks_password: nonEmptyString(settings.socks_password, current.socks_password || DEFAULT_SOCKS_PASSWORD),
             require_socks_auth: settings.require_socks_auth ?? current.require_socks_auth ?? false,
             block_socks_udp: settings.block_socks_udp ?? current.block_socks_udp ?? false,
           });
@@ -1177,7 +1479,8 @@ export const api = {
       ? invoke<ServerPing>("ping_server", { serverId })
       : Promise.resolve((() => {
           const current = browserPersistedState();
-          const ping = 42;
+          const protocol = current.preferences?.latency_protocol ?? defaultAppPreferences.latency_protocol;
+          const ping = protocol === "icmp" ? 28 : protocol === "http_head" ? 54 : 42;
           writeBrowserPersistedState({
             ...current,
             server_pings: { ...current.server_pings, [serverId]: ping },
@@ -1189,9 +1492,11 @@ export const api = {
       ? invoke<ServerPing[]>("ping_servers", { serverIds })
       : Promise.resolve((() => {
           const current = browserPersistedState();
+          const protocol = current.preferences?.latency_protocol ?? defaultAppPreferences.latency_protocol;
+          const base = protocol === "icmp" ? 28 : protocol === "http_head" ? 54 : 38;
           const nextPings = { ...current.server_pings };
           const result = serverIds.map((serverId, index) => {
-            const latency = 38 + index * 7;
+            const latency = base + index * 7;
             nextPings[serverId] = latency;
             return {
               server_id: serverId,
@@ -1235,6 +1540,8 @@ export function protocolLabel(p: Protocol): string {
       return "Trojan";
     case "shadowsocks":
       return "Shadowsocks";
+    case "hysteria2":
+      return "Hysteria2";
   }
 }
 
@@ -1244,6 +1551,7 @@ export function serverEndpoint(p: Protocol): string {
     case "vmess":
     case "trojan":
     case "shadowsocks":
+    case "hysteria2":
       return `${p.address}:${p.port}`;
   }
 }
@@ -1263,6 +1571,7 @@ export function serverListDescription(server: Server, servers: Server[]): string
 
 export function transportLabel(p: Protocol): string {
   if (p.kind === "shadowsocks") return p.method;
+  if (p.kind === "hysteria2") return [p.sni ? "TLS" : "QUIC", p.alpn?.join(", ")].filter(Boolean).join(" · ");
   const stream = p.stream;
   const sec = stream.security === "none" ? "" : stream.security.toUpperCase();
   const net = stream.network.replace("_", "-").toUpperCase();
@@ -1368,7 +1677,7 @@ export function serverCountryCode(name: string): string | null {
     }
   }
 
-  const isoMatch = name.match(/(?:^|[\s[\](|·\-_])([A-Z]{2})(?=$|[\s[\](|·\-_\d:])/);
+  const isoMatch = name.match(/^[^\p{L}]*([A-Z]{2})(?=$|[\s[\](|·\-_\d:])/u);
   if (isoMatch) return isoMatch[1];
 
   for (const [pattern, iso] of COUNTRY_KEYWORDS) {

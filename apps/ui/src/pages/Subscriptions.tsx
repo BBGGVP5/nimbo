@@ -112,12 +112,25 @@ export function Subscriptions() {
         </div>
       </div>
 
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder={m.profiles.searchServers}
-        className="dark-input mb-8 px-5 py-4 text-lg"
-      />
+      <div className="relative mb-8">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={m.profiles.searchServers}
+          className="dark-input px-5 py-4 pr-12 text-lg"
+        />
+        {query && (
+          <button
+            type="button"
+            aria-label={m.tunnelLogs.clear}
+            title={m.tunnelLogs.clear}
+            onClick={() => setQuery("")}
+            className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-[var(--color-text-faint)] transition-colors hover:bg-[var(--color-glass-bg)] hover:text-white"
+          >
+            <XIcon />
+          </button>
+        )}
+      </div>
 
       {subs.length === 0 ? (
         <EmptyProfiles onAdd={() => openImportDialog()} />
@@ -1240,8 +1253,38 @@ function PlusIcon() {
   );
 }
 
+function XIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
 function AdminRestartDialog({ onClose }: { onClose: () => void }) {
   const m = useMessages();
+  const [restarting, setRestarting] = useState(false);
+
+  const restart = async () => {
+    if (restarting) return;
+    setRestarting(true);
+    try {
+      await api.restartAsAdmin();
+    } catch (e) {
+      setRestarting(false);
+      notifyError(String(e));
+    }
+  };
+
   return (
     <ModalPortal>
       <div className="app-dialog-backdrop" role="presentation" onClick={onClose}>
@@ -1263,7 +1306,8 @@ function AdminRestartDialog({ onClose }: { onClose: () => void }) {
           </p>
           <div className="grid grid-cols-1 gap-3">
             <button
-              onClick={onClose}
+              onClick={() => void restart()}
+              disabled={restarting}
               className="primary-button interactive rounded-2xl py-4 text-lg font-bold"
             >
               {m.common.ok}

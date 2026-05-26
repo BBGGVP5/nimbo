@@ -1,4 +1,4 @@
-export type NotificationTone = "info" | "error";
+export type NotificationTone = "info" | "success" | "warning" | "error";
 
 export type AppNotification = {
   id: string;
@@ -22,6 +22,14 @@ export function notify(message: string, tone: NotificationTone = "info"): void {
 
 export function notifyInfo(message: string): void {
   notify(message, "info");
+}
+
+export function notifySuccess(message: string): void {
+  notify(message, "success");
+}
+
+export function notifyWarning(message: string): void {
+  notify(message, "warning");
 }
 
 export function notifyError(message: string): void {

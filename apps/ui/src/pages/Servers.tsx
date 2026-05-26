@@ -249,10 +249,8 @@ function ServerRow({
         }
       }}
       className={[
-        "server-detail-row grid w-full grid-cols-[50px_minmax(0,1fr)_auto_32px] items-center gap-3 px-5 py-3.5 text-left transition-all hover:bg-[var(--color-glass-bg)]",
-        active
-          ? "border-l-2 border-[var(--color-accent)] bg-[var(--color-accent-active-bg)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_16%,transparent)]"
-          : "border-l-2 border-transparent",
+        "server-detail-row relative grid w-full grid-cols-[50px_minmax(0,1fr)_auto_32px] items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--color-text)_4%,transparent)]",
+        active ? "server-detail-row-active" : "",
       ].join(" ")}
     >
       <div className="grid h-10 w-10 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-lg text-[var(--color-text-faint)]">
@@ -270,14 +268,10 @@ function ServerRow({
         )}
       </div>
       <div className="server-detail-row-badges flex items-center gap-1.5">
-        <span className="tag-pill px-2 py-1 text-[10px]">{proto}</span>
-        <span className="rounded-full bg-[var(--color-glass-bg-strong)] px-2 py-1 text-[10px] font-bold text-[var(--color-accent-bright)]">
-          {transport}
-        </span>
+        <span className="server-row-pill server-row-pill-proto">{proto}</span>
+        <span className="server-row-pill server-row-pill-transport">{transport}</span>
         {active && (
-          <span className="rounded-full bg-[var(--color-accent-active-bg)] px-2 py-1 text-[10px] font-semibold text-[var(--color-accent-bright)]">
-            {m.common.selected}
-          </span>
+          <span className="server-row-pill server-row-pill-selected">{m.common.selected}</span>
         )}
       </div>
       <button

@@ -11,19 +11,27 @@ import {
   api,
   formatBytes,
   formatExpire,
+  protocolLabel,
+  serverEndpoint,
   serverDisplayName,
   serverListDescription,
   subscriptionVisibleOnHome,
+  transportLabel,
   type Server,
   type Subscription,
 } from "../lib/api";
 
 type ServerEntry = { server: Server; sub: Subscription };
-type SortMode = "default" | "ping" | "protocol";
+type SortMode = "default" | "name" | "ping" | "protocol";
 type SpeedSample = { upload: number; download: number; at: number };
 
 const SPEED_HISTORY_LIMIT = 60;
 const MEMORY_HISTORY_LIMIT = 60;
+
+function preferenceSortMode(value: string): SortMode {
+  if (value === "name" || value === "ping" || value === "protocol") return value;
+  return "default";
+}
 
 // ── Favorites persistence ────────────────────────────────────
 
@@ -101,6 +109,11 @@ function sortEntries(
       a.server.protocol.kind.localeCompare(b.server.protocol.kind),
     );
   }
+  if (mode === "name") {
+    return [...entries].sort((a, b) =>
+      serverDisplayName(a.server.name).localeCompare(serverDisplayName(b.server.name), undefined, { sensitivity: "base" }),
+    );
+  }
   if (order.length) {
     const idx = new Map(order.map((id, i) => [id, i]));
     return [...entries].sort(
@@ -168,12 +181,16 @@ export function Home() {
   const previousTrafficRef = useRef<{ upload: number; download: number; at: number } | null>(null);
 
   // Server list features
-  const [sortMode, setSortMode] = useState<SortMode>("default");
+  const [sortMode, setSortMode] = useState<SortMode>(() => preferenceSortMode(preferences.servers_sorting));
   const [pingOrder, setPingOrder] = useState<"asc" | "desc">("asc");
   const [protocolFilter, setProtocolFilter] = useState<string | null>(null);
   const [showFavOnly, setShowFavOnly] = useState(false);
   const [compactSheetOpen, setCompactSheetOpen] = useState(false);
   const { favorites, toggle: toggleFavorite } = useFavorites();
+
+  useEffect(() => {
+    setSortMode(preferenceSortMode(preferences.servers_sorting));
+  }, [preferences.servers_sorting]);
 
   const [widgetsCollapsed, setWidgetsCollapsed] = useState(() => {
     try {
@@ -521,6 +538,7 @@ export function Home() {
             connected={connected}
             connecting={connecting}
             disconnecting={disconnecting}
+            compact={preferences.servers_connect_button === "compact"}
             onClick={onToggleConnection}
             labels={m}
           />
@@ -541,6 +559,14 @@ export function Home() {
                   ? `${m.home.connected} ${formatDuration(elapsedSeconds)}`
                   : m.home.pressToConnect}
           </div>
+
+          <ActiveServerInfo
+            entry={fallbackEntry}
+            connected={connected}
+            ping={fallbackEntry ? serverPings[fallbackEntry.server.id] : undefined}
+            onNavigate={onNavigateToProfile}
+            labels={m}
+          />
 
           <CompactServerBar
             entry={fallbackEntry}
@@ -615,6 +641,69 @@ export function Home() {
 
       {adminDialogOpen && <AdminRestartDialog onClose={() => setAdminDialogOpen(false)} />}
     </div>
+  );
+}
+
+// ── ActiveServerInfo ──────────────────────────────────────────
+
+function ActiveServerInfo({
+  entry,
+  connected,
+  ping,
+  onNavigate,
+  labels,
+}: {
+  entry: ServerEntry | null;
+  connected: boolean;
+  ping?: number;
+  onNavigate: () => void;
+  labels: Messages;
+}) {
+  if (!entry) return null;
+  const name = serverDisplayName(entry.server.name);
+  const subscriptionName = entry.sub.name?.trim() || labels.common.subscription;
+  const endpoint = serverEndpoint(entry.server.protocol);
+  const protocol = protocolLabel(entry.server.protocol);
+  const transport = transportLabel(entry.server.protocol);
+
+  return (
+    <button
+      type="button"
+      onClick={onNavigate}
+      className={[
+        "active-server-card",
+        connected ? "active-server-card-connected" : "",
+      ].join(" ")}
+      title={name}
+    >
+      <span className="active-server-flag">
+        <CountryFlag
+          serverName={entry.server.name}
+          fallback={<GlobeIcon />}
+          className="country-flag-sm"
+        />
+      </span>
+      <span className="active-server-main">
+        <span className="active-server-label">
+          {connected ? labels.home.activeServer : labels.home.selectedServer}
+        </span>
+        <span className="active-server-name">{name}</span>
+        <span className="active-server-meta">
+          {subscriptionName} · {protocol} · {transport || endpoint}
+        </span>
+      </span>
+      {ping != null && (
+        <span
+          className="active-server-ping"
+          style={(() => {
+            const tier = pingTier(ping);
+            return { background: tier.bg, color: tier.fg };
+          })()}
+        >
+          {ping} ms
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -913,7 +1002,7 @@ function ServerSidePanel({
             <StarIcon filled={showFavOnly} />
           </button>
           <div className="flex flex-1 items-center gap-0.5 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[rgba(255,255,255,0.04)] p-0.5">
-            {(["default", "ping", "protocol"] as SortMode[]).map((mode) => {
+            {(["default", "name", "ping", "protocol"] as SortMode[]).map((mode) => {
               const active = sortMode === mode;
               const isPing = mode === "ping";
               return (
@@ -939,9 +1028,11 @@ function ServerSidePanel({
                   <span className="truncate">
                     {mode === "default"
                       ? labels.home.sortDefault
-                      : mode === "ping"
-                        ? labels.home.sortPing
-                        : labels.home.sortProtocol}
+                      : mode === "name"
+                        ? labels.home.sortName
+                        : mode === "ping"
+                          ? labels.home.sortPing
+                          : labels.home.sortProtocol}
                   </span>
                   {isPing && <PingSortArrow active={active} order={pingOrder} />}
                 </button>
@@ -1007,8 +1098,8 @@ function ServerSidePanel({
               <div
                 key={server.id}
                 className={[
-                  "group relative flex items-center rounded-lg transition-all",
-                  isActive ? "bg-[var(--color-glass-bg-strong)]" : "hover:bg-[var(--color-glass-bg)]",
+                  "server-side-entry group relative flex items-center rounded-lg transition-all",
+                  isActive ? "server-side-entry-active" : "hover:bg-[var(--color-glass-bg)]",
                 ].join(" ")}
               >
                 {isReorderable && (
@@ -1035,7 +1126,7 @@ function ServerSidePanel({
                 )}
                 <button
                   onClick={() => void onPickServer(server.id)}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 py-3 pl-2.5 pr-1 text-left"
+                  className="server-side-main flex min-w-0 flex-1 items-center gap-2.5 py-3 pl-2.5 pr-1 text-left"
                 >
                   <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
                     <CountryFlag
@@ -1045,15 +1136,15 @@ function ServerSidePanel({
                     />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[14px] font-semibold text-white">{label}</div>
+                    <div className="server-side-name text-[14px] font-semibold text-white">{label}</div>
                     {description && (
-                      <div className="truncate text-[12px] text-[var(--color-text-faint)]">
+                      <div className="server-side-description text-[12px] text-[var(--color-text-faint)]">
                         {description}
                       </div>
                     )}
                   </div>
                 </button>
-                <div className="flex shrink-0 items-center gap-1 pr-2">
+                <div className="server-side-actions flex shrink-0 items-center gap-1 pr-2">
                   <PingBadge
                     ping={pingByServer[server.id]}
                     loading={pingingServerIds.has(server.id)}
@@ -1062,9 +1153,9 @@ function ServerSidePanel({
                     onClick={() => onToggleFavorite(server.id)}
                     title={isFav ? "Убрать из избранных" : "В избранное"}
                     className={[
-                      "grid h-7 w-7 shrink-0 place-items-center rounded-md transition-all",
+                      "server-side-action-button grid h-7 w-7 shrink-0 place-items-center rounded-md transition-all",
                       isFav
-                        ? "text-[var(--color-accent-bright)] opacity-100"
+                        ? "server-side-action-pinned text-[var(--color-accent-bright)] opacity-100"
                         : "text-[var(--color-text-faint)] opacity-0 group-hover:opacity-60",
                     ].join(" ")}
                   >
@@ -1076,9 +1167,9 @@ function ServerSidePanel({
                     aria-label={labels.home.pingServers}
                     disabled={pingingServerIds.has(server.id)}
                     className={[
-                      "grid h-7 w-7 shrink-0 place-items-center rounded-md transition-all",
+                      "server-side-action-button grid h-7 w-7 shrink-0 place-items-center rounded-md transition-all",
                       pingingServerIds.has(server.id)
-                        ? "text-[var(--color-accent-bright)] opacity-100"
+                        ? "server-side-action-pinned text-[var(--color-accent-bright)] opacity-100"
                         : "text-[var(--color-text-faint)] opacity-0 group-hover:opacity-70 hover:bg-[var(--color-glass-bg-strong)] hover:text-white",
                     ].join(" ")}
                   >
@@ -1101,12 +1192,14 @@ function ConnectionButton({
   connected,
   connecting,
   disconnecting,
+  compact,
   onClick,
   labels,
 }: {
   connected: boolean;
   connecting: boolean;
   disconnecting: boolean;
+  compact: boolean;
   onClick: () => void;
   labels: Messages;
 }) {
@@ -1128,6 +1221,7 @@ function ConnectionButton({
         connected ? "connection-button-connected" : "",
         connecting ? "connection-button-connecting" : "",
         disconnecting ? "connection-button-disconnecting" : "",
+        compact ? "connection-button-compact" : "",
       ].join(" ")}
     >
       <span className="connection-button-halo" />
@@ -1149,6 +1243,19 @@ function ConnectionButton({
 
 function AdminRestartDialog({ onClose }: { onClose: () => void }) {
   const m = useMessages();
+  const [restarting, setRestarting] = useState(false);
+
+  const restart = async () => {
+    if (restarting) return;
+    setRestarting(true);
+    try {
+      await api.restartAsAdmin();
+    } catch (e) {
+      setRestarting(false);
+      notifyError(String(e));
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center p-5"
@@ -1174,7 +1281,8 @@ function AdminRestartDialog({ onClose }: { onClose: () => void }) {
         </p>
         <div className="grid grid-cols-1 gap-2">
           <button
-            onClick={onClose}
+            onClick={() => void restart()}
+            disabled={restarting}
             className="primary-button interactive rounded-xl py-3 text-base font-bold"
           >
             {m.common.ok}
@@ -1244,7 +1352,7 @@ function ProfileSummary({
 function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean }) {
   if (loading) {
     return (
-      <span className="shrink-0 rounded-full bg-[var(--color-accent-active-bg)] px-2 py-1 text-[11px] font-semibold tabular-nums text-[var(--color-accent-bright)]">
+      <span className="server-side-ping-badge shrink-0 rounded-full bg-[var(--color-accent-active-bg)] px-2 py-1 text-[11px] font-semibold tabular-nums text-[var(--color-accent-bright)]">
         ...
       </span>
     );
@@ -1253,7 +1361,7 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
   const tier = pingTier(ping);
   return (
     <span
-      className="shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold tabular-nums"
+      className="server-side-ping-badge shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold tabular-nums"
       style={{ background: tier.bg, color: tier.fg }}
       title={tier.label}
     >
@@ -1567,6 +1675,7 @@ function protoName(kind: string): string {
     case "vmess": return "VMess";
     case "trojan": return "Trojan";
     case "shadowsocks": return "SS";
+    case "hysteria2": return "HY2";
     default: return kind.toUpperCase();
   }
 }

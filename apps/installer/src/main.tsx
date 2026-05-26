@@ -25,6 +25,17 @@ interface InstallerProbe {
   helper_running: boolean;
 }
 
+interface UninstallerProbe {
+  install_dir: string;
+  product_version: string;
+  product_arch: string;
+  platform: "windows" | "linux" | string;
+  helper_installed: boolean;
+  helper_running: boolean;
+  user_data_dir: string;
+  user_data_present: boolean;
+}
+
 interface InstallOptions {
   install_dir: string;
   start_menu_shortcut: boolean;
@@ -37,11 +48,63 @@ interface InstallResult {
   app_exe: string;
 }
 
+interface UninstallOptions {
+  remove_user_data: boolean;
+}
+
+interface UninstallResult {
+  install_dir: string;
+  removed_user_data: boolean;
+}
+
 interface ProgressEvent {
   step: string;
   state: StepState;
   progress: number;
   detail: string;
+}
+
+interface AppTheme {
+  ui_style?: string | null;
+  theme_mode?: string | null;
+  accent_mode?: string | null;
+  accent_color?: string | null;
+}
+
+type InstallerMode = "install" | "uninstall";
+
+function resolveThemeMode(mode: string | null | undefined): "light" | "dark" | "black" {
+  if (mode === "light" || mode === "dark" || mode === "black") return mode;
+  if (mode === "system") {
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches) {
+      return "light";
+    }
+    return "dark";
+  }
+  return "dark";
+}
+
+function themeSignature(theme: AppTheme | null | undefined): string {
+  if (!theme) return "null";
+  return [
+    theme.ui_style ?? "",
+    theme.theme_mode ?? "",
+    theme.accent_mode ?? "",
+    theme.accent_color ?? "",
+  ].join("|");
+}
+
+function applyAppTheme(theme: AppTheme | null | undefined) {
+  const root = document.body;
+  if (!root) return;
+  const mode = resolveThemeMode(theme?.theme_mode);
+  root.dataset.theme = mode;
+  const uiStyle = theme?.ui_style === "material_you" ? "material_you" : "nebula";
+  root.dataset.uiStyle = uiStyle;
+  const accent = typeof theme?.accent_color === "string" && /^#[0-9a-f]{6}$/i.test(theme.accent_color)
+    ? theme.accent_color
+    : "#7c5dfa";
+  root.style.setProperty("--accent", accent);
 }
 
 type ResizeDirection =
@@ -55,6 +118,7 @@ type ResizeDirection =
   | "West";
 
 type InstallerPhase = "idle" | "installing" | "done" | "failed";
+type UninstallerPhase = "idle" | "uninstalling" | "done" | "failed";
 
 function createSteps(platform: string | undefined): Step[] {
   if (platform === "linux") {
@@ -68,12 +132,23 @@ function createSteps(platform: string | undefined): Step[] {
   }
 
   return [
-  { id: "prepare", title: "Подготовка", detail: "Проверка окружения", state: "queued" },
-  { id: "files", title: "Файлы", detail: "Nimbo.exe и компоненты", state: "queued" },
-  { id: "tun", title: "TUN", detail: "Сетевые зависимости", state: "queued" },
-  { id: "service", title: "Хелпер", detail: "Системный сервис", state: "queued" },
-  { id: "shortcuts", title: "Ярлыки", detail: "Меню Пуск и рабочий стол", state: "queued" },
-  { id: "registry", title: "Система", detail: "Удаление и протокол nimbo://", state: "queued" },
+    { id: "prepare", title: "Подготовка", detail: "Проверка окружения", state: "queued" },
+    { id: "files", title: "Файлы", detail: "Nimbo.exe и компоненты", state: "queued" },
+    { id: "tun", title: "TUN", detail: "Сетевые зависимости", state: "queued" },
+    { id: "service", title: "Хелпер", detail: "Системный сервис", state: "queued" },
+    { id: "shortcuts", title: "Ярлыки", detail: "Меню Пуск и рабочий стол", state: "queued" },
+    { id: "registry", title: "Система", detail: "Удаление и протокол nimbo://", state: "queued" },
+  ];
+}
+
+function createUninstallSteps(): Step[] {
+  return [
+    { id: "prepare", title: "Подготовка", detail: "Останавливаем процессы и хелпер", state: "queued" },
+    { id: "shortcuts", title: "Ярлыки", detail: "Меню Пуск и рабочий стол", state: "queued" },
+    { id: "registry", title: "Система", detail: "Записи реестра и nimbo://", state: "queued" },
+    { id: "files", title: "Файлы", detail: "Nimbo.exe, хелпер, TUN-компоненты", state: "queued" },
+    { id: "user_data", title: "Данные", detail: "Подписки и настройки", state: "queued" },
+    { id: "finish", title: "Финиш", detail: "Удаление папки установки", state: "queued" },
   ];
 }
 
@@ -90,12 +165,23 @@ const resizeHandles: Array<{ direction: ResizeDirection; className: string }> = 
 
 const previewProbe: InstallerProbe = {
   default_install_dir: "C:\\Users\\User\\AppData\\Local\\Programs\\Nimbo",
-  product_version: "0.1.0",
+  product_version: "1.0.0",
   product_arch: "Windows x64",
   platform: "windows",
   existing_install: false,
   helper_installed: false,
   helper_running: false,
+};
+
+const previewUninstallProbe: UninstallerProbe = {
+  install_dir: "C:\\Users\\User\\AppData\\Local\\Programs\\Nimbo",
+  product_version: "1.0.0",
+  product_arch: "Windows x64",
+  platform: "windows",
+  helper_installed: true,
+  helper_running: true,
+  user_data_dir: "C:\\Users\\User\\AppData\\Roaming\\Nimbo",
+  user_data_present: true,
 };
 
 function progressLabel(state: StepState): string {
@@ -111,6 +197,39 @@ function progressLabel(state: StepState): string {
   }
 }
 
+function StepIcon({ state }: { state: StepState }) {
+  return (
+    <span className={`step-icon step-icon-${state}`} aria-hidden="true">
+      {state === "done" ? (
+        <svg viewBox="0 0 20 20" width="14" height="14">
+          <path
+            d="M5 10.5 L8.6 14 L15 6.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : state === "failed" ? (
+        <svg viewBox="0 0 20 20" width="14" height="14">
+          <path
+            d="M6 6 L14 14 M14 6 L6 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+          />
+        </svg>
+      ) : state === "running" ? (
+        <span className="step-icon-spinner" />
+      ) : (
+        <span className="step-icon-dot" />
+      )}
+    </span>
+  );
+}
+
 function isMissingTauriBridge(error: unknown): boolean {
   const message = String(error);
   return (
@@ -122,12 +241,12 @@ function isMissingTauriBridge(error: unknown): boolean {
 
 function formatInstallerError(error: unknown): string {
   if (isMissingTauriBridge(error)) {
-    return "Установку можно запустить только из окна Nimbo Setup. В браузере доступен только предпросмотр интерфейса.";
+    return "Запустите файл из окна Nimbo Setup. В браузере доступен только предпросмотр интерфейса.";
   }
   return String(error);
 }
 
-function phaseLabel(phase: InstallerPhase): string {
+function installerPhaseLabel(phase: InstallerPhase): string {
   switch (phase) {
     case "installing":
       return "Идет установка";
@@ -137,6 +256,19 @@ function phaseLabel(phase: InstallerPhase): string {
       return "Нужно внимание";
     default:
       return "Готов к запуску";
+  }
+}
+
+function uninstallerPhaseLabel(phase: UninstallerPhase): string {
+  switch (phase) {
+    case "uninstalling":
+      return "Идет удаление";
+    case "done":
+      return "Готово";
+    case "failed":
+      return "Нужно внимание";
+    default:
+      return "Готов к удалению";
   }
 }
 
@@ -163,35 +295,60 @@ function startResizeDragging(direction: ResizeDirection, event: React.MouseEvent
   void getCurrentWindow().startResizeDragging(direction);
 }
 
-function App() {
-  const [probe, setProbe] = React.useState<InstallerProbe | null>(null);
-  const [installDir, setInstallDir] = React.useState("");
-  const [desktopShortcut, setDesktopShortcut] = React.useState(true);
-  const [startMenuShortcut, setStartMenuShortcut] = React.useState(true);
-  const [launchAfterInstall, setLaunchAfterInstall] = React.useState(true);
-  const [steps, setSteps] = React.useState<Step[]>(() => createSteps("windows"));
-  const [progress, setProgress] = React.useState(0);
-  const [displayedProgress, setDisplayedProgress] = React.useState(0);
-  const [phase, setPhase] = React.useState<InstallerPhase>("idle");
-  const [error, setError] = React.useState<string | null>(null);
-  const [result, setResult] = React.useState<InstallResult | null>(null);
-  const versionLabel = probe?.product_version ? `Версия ${probe.product_version}` : "Версия";
-  const archLabel = probe?.product_arch ?? "Windows";
-  const isLinux = probe?.platform === "linux";
-  const stepsTemplate = React.useMemo(() => createSteps(probe?.platform), [probe?.platform]);
-  const currentStep =
-    steps.find((step) => step.state === "running") ??
-    steps.find((step) => step.state === "failed") ??
-    [...steps].reverse().find((step) => step.state === "done") ??
-    steps[0];
-  const currentStepIndex = Math.max(0, steps.findIndex((step) => step.id === currentStep.id));
-  const completedSteps = steps.filter((step) => step.state === "done").length;
-  const shellStyle = { "--progress": displayedProgress } as React.CSSProperties;
+// Theme polling shared between install + uninstall views.
+function useAppThemeSync() {
+  React.useEffect(() => {
+    applyAppTheme(null);
+    let cancelled = false;
+    let lastSignature = themeSignature(null);
+    let mediaListener: ((event: MediaQueryListEvent) => void) | null = null;
+    let mediaQuery: MediaQueryList | null = null;
+    let lastTheme: AppTheme | null = null;
 
+    const sync = async () => {
+      try {
+        const value = await invoke<AppTheme>("read_app_theme");
+        if (cancelled) return;
+        const sig = themeSignature(value);
+        if (sig !== lastSignature) {
+          lastSignature = sig;
+          lastTheme = value;
+          applyAppTheme(value);
+        }
+      } catch {
+        // ignore (file may not exist yet or Tauri bridge unavailable in browser preview)
+      }
+    };
+
+    void sync();
+    const interval = window.setInterval(sync, 1000);
+
+    if (typeof window !== "undefined" && window.matchMedia) {
+      mediaQuery = window.matchMedia("(prefers-color-scheme: light)");
+      mediaListener = () => {
+        if (lastTheme?.theme_mode === "system") {
+          applyAppTheme(lastTheme);
+        }
+      };
+      mediaQuery.addEventListener?.("change", mediaListener);
+    }
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      if (mediaQuery && mediaListener) {
+        mediaQuery.removeEventListener?.("change", mediaListener);
+      }
+    };
+  }, []);
+}
+
+function useAnimatedProgress(progress: number): number {
+  const [displayed, setDisplayed] = React.useState(0);
   React.useEffect(() => {
     let frame = 0;
     let start: number | null = null;
-    const initial = displayedProgress;
+    const initial = displayed;
     const target = progress;
     if (initial === target) return;
     const duration = 600;
@@ -199,12 +356,142 @@ function App() {
       if (start === null) start = timestamp;
       const t = Math.min(1, (timestamp - start) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
-      setDisplayedProgress(Math.round(initial + (target - initial) * eased));
+      setDisplayed(Math.round(initial + (target - initial) * eased));
       if (t < 1) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [progress]);
+  return displayed;
+}
+
+function Shell({
+  phaseClass,
+  phaseSubline,
+  steps,
+  currentStep,
+  currentStepIndex,
+  progress,
+  displayedProgress,
+  brandCaption,
+  isDone,
+  children,
+}: {
+  phaseClass: string;
+  phaseSubline: string;
+  steps: Step[];
+  currentStep: Step;
+  currentStepIndex: number;
+  progress: number;
+  displayedProgress: number;
+  brandCaption: string;
+  isDone: boolean;
+  children: React.ReactNode;
+}) {
+  const shellStyle = { "--progress": displayedProgress } as React.CSSProperties;
+  const completedSteps = steps.filter((step) => step.state === "done").length;
+
+  return (
+    <main className={`installer-shell ${phaseClass}`} style={shellStyle} onMouseDown={startShellDrag}>
+      <div className="ambient-glow" aria-hidden="true" />
+
+      {resizeHandles.map((handle) => (
+        <div
+          key={handle.direction}
+          className={`resize-handle ${handle.className}`}
+          data-resize-handle
+          onMouseDown={(event) => startResizeDragging(handle.direction, event)}
+        />
+      ))}
+
+      <section className="side-rail" onMouseDown={startWindowDrag}>
+        <div className="brand">
+          <img src={nimboLogo} alt="" className="brand-logo" />
+          <div className="brand-text">
+            <div className="brand-title">Nimbo</div>
+            <div className="brand-caption">{brandCaption}</div>
+          </div>
+        </div>
+
+        <div className="rail-center">
+          <div
+            className={`progress-orbit${isDone ? " is-done" : ""}`}
+            aria-hidden="true"
+          >
+            {isDone ? (
+              <svg className="progress-check" viewBox="0 0 64 64" width="56" height="56">
+                <path
+                  d="M19 33 L28 42 L46 23"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              <div className="progress-number">{displayedProgress}<span>%</span></div>
+            )}
+            <div className="progress-ring" style={{ "--progress": progress } as React.CSSProperties} />
+          </div>
+
+          <div className="progress-subline">
+            <span>{phaseSubline}</span>
+            <em>{completedSteps}/{steps.length}</em>
+          </div>
+
+          <div
+            key={currentStep.id + currentStep.state}
+            className={`current-step is-${currentStep.state}`}
+          >
+            <div className="current-step-dot" />
+            <div className="current-step-body">
+              <div className="current-step-title">{currentStep.title}</div>
+              <div className="current-step-state">{progressLabel(currentStep.state)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rail-foot" aria-hidden="true">
+          {steps.map((step, index) => (
+            <span
+              key={step.id}
+              className={`rail-step rail-step-${step.state}${index === currentStepIndex ? " is-active" : ""}`}
+              style={{ "--step-index": index } as React.CSSProperties}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section className="install-panel" onMouseDown={startShellDrag}>
+        {children}
+      </section>
+    </main>
+  );
+}
+
+function InstallApp() {
+  const [probe, setProbe] = React.useState<InstallerProbe | null>(null);
+  const [installDir, setInstallDir] = React.useState("");
+  const [desktopShortcut, setDesktopShortcut] = React.useState(true);
+  const [startMenuShortcut, setStartMenuShortcut] = React.useState(true);
+  const [launchAfterInstall, setLaunchAfterInstall] = React.useState(true);
+  const [steps, setSteps] = React.useState<Step[]>(() => createSteps("windows"));
+  const [progress, setProgress] = React.useState(0);
+  const [phase, setPhase] = React.useState<InstallerPhase>("idle");
+  const [error, setError] = React.useState<string | null>(null);
+  const [result, setResult] = React.useState<InstallResult | null>(null);
+  const versionLabel = probe?.product_version ? `v${probe.product_version}` : "v—";
+  const archLabel = probe?.product_arch ?? "Windows";
+  const isLinux = probe?.platform === "linux";
+  const stepsTemplate = React.useMemo(() => createSteps(probe?.platform), [probe?.platform]);
+  const displayedProgress = useAnimatedProgress(progress);
+  const currentStep =
+    steps.find((step) => step.state === "running") ??
+    steps.find((step) => step.state === "failed") ??
+    [...steps].reverse().find((step) => step.state === "done") ??
+    steps[0];
+  const currentStepIndex = Math.max(0, steps.findIndex((step) => step.id === currentStep.id));
 
   React.useEffect(() => {
     void invoke<InstallerProbe>("probe_installation")
@@ -295,241 +582,425 @@ function App() {
   };
 
   return (
-    <main className={`installer-shell phase-${phase}`} style={shellStyle} onMouseDown={startShellDrag}>
-      <div className="ambient-grid" aria-hidden="true" />
-      <div className="ambient-sweep" aria-hidden="true" />
+    <Shell
+      phaseClass={`phase-${phase}`}
+      phaseSubline={installerPhaseLabel(phase)}
+      steps={steps}
+      currentStep={currentStep}
+      currentStepIndex={currentStepIndex}
+      progress={progress}
+      displayedProgress={displayedProgress}
+      brandCaption="Установщик"
+      isDone={phase === "done"}
+    >
+      <button className="window-close" type="button" onClick={close} aria-label="Закрыть">×</button>
 
-      {resizeHandles.map((handle) => (
-        <div
-          key={handle.direction}
-          className={`resize-handle ${handle.className}`}
-          data-resize-handle
-          onMouseDown={(event) => startResizeDragging(handle.direction, event)}
-        />
-      ))}
-
-      <section className="side-rail" onMouseDown={startWindowDrag}>
-        <div className="brand">
-          <img src={nimboLogo} alt="" className="brand-logo" />
-          <div>
-            <div className="brand-title">Nimbo</div>
-            <div className="brand-caption">Установщик</div>
-          </div>
-        </div>
-
-        <div className="rail-center">
-          <div
-            className={`progress-orbit${phase === "done" ? " is-done" : ""}`}
-            aria-hidden="true"
-          >
-            {phase === "done" ? (
-              <svg className="progress-check" viewBox="0 0 64 64" width="68" height="68">
-                <path
-                  d="M18 33 L28 44 L47 22"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            ) : (
-              <div className="progress-number">{displayedProgress}%</div>
-            )}
-            <div className="progress-ring" style={{ "--progress": progress } as React.CSSProperties} />
-          </div>
-
-          <div className="progress-subline">
-            {phaseLabel(phase)} · {completedSteps}/{steps.length}
-          </div>
-
-          <div className="rail-steps" aria-hidden="true">
-            {steps.map((step, index) => (
-              <span
-                key={step.id}
-                className={`rail-step rail-step-${step.state}${index === currentStepIndex ? " is-active" : ""}`}
-                style={{ "--step-index": index } as React.CSSProperties}
+      {phase === "done" ? (
+        <div className="done-screen no-window-drag">
+          <div className="done-art" aria-hidden="true">
+            <svg viewBox="0 0 64 64" width="56" height="56">
+              <path
+                d="M20 33 L29 42 L45 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="done-check"
               />
-            ))}
+            </svg>
           </div>
-
-          <div
-            key={currentStep.id + currentStep.state}
-            className={`current-step is-${currentStep.state}`}
-          >
-            <div className="current-step-head">
-              <span className="current-step-dot" />
-              <div className="current-step-title">{currentStep.title}</div>
-            </div>
-            <div className="current-step-state">{progressLabel(currentStep.state)}</div>
+          <h1>Nimbo установлен</h1>
+          <p>
+            Папка установки — <span className="done-path">{result?.install_dir || installDir}</span>.
+          </p>
+          <div className="actions done-actions">
+            <button className="ghost-button close-action-button" type="button" onClick={close}>
+              Закрыть
+            </button>
+            <button className="primary-button success" type="button" onClick={openInstalled}>
+              Открыть Nimbo
+            </button>
           </div>
         </div>
-      </section>
-
-      <section className="install-panel" onMouseDown={startShellDrag}>
-        <button className="window-close" type="button" onClick={close} aria-label="Закрыть">×</button>
-
-        {phase === "done" ? (
-          <div className="done-screen no-window-drag">
-            <div className="done-art" aria-hidden="true">
-              <svg viewBox="0 0 64 64" width="64" height="64">
-                <circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" strokeWidth="3" opacity="0.25" />
-                <path
-                  d="M20 33 L29 42 L45 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="done-check"
-                />
-              </svg>
+      ) : (
+        <>
+          <div className="hero" onMouseDown={startWindowDrag}>
+            <div className="hero-meta">
+              <span>{probe?.existing_install ? "Обновление" : "Установка"}</span>
+              <i />
+              <span>{archLabel}</span>
+              <i />
+              <span>{versionLabel}</span>
             </div>
-            <h1>Nimbo установлен</h1>
+            <h1 className="hero-title">
+              {probe?.existing_install ? "Обновление Nimbo" : "Установка Nimbo"}
+            </h1>
             <p>
-              Всё готово. Папка установки — <span className="done-path">{result?.install_dir || installDir}</span>.
-              Можно открыть Nimbo или закрыть этот установщик.
+              {probe?.existing_install
+                ? "Подписки и настройки сохранятся — подтвердите установку, чтобы получить последнюю версию."
+                : isLinux
+                  ? "Подготовим приложение, desktop entry и протокол nimbo://. Займёт меньше минуты."
+                  : "Подготовим приложение, сетевые компоненты и ярлыки. Займёт меньше минуты."}
             </p>
-            <div className="actions done-actions">
-              <button className="ghost-button close-action-button" type="button" onClick={close}>
-                Закрыть
-              </button>
-              <button className="primary-button success" type="button" onClick={openInstalled}>
-                Открыть Nimbo
+          </div>
+
+          <div className="path-row no-window-drag">
+            <div className="path-row-label">
+              <span className="status-kicker">Папка установки</span>
+              <span className="path-row-helper">
+                {isLinux
+                  ? "Интеграция: будет настроена"
+                  : probe?.helper_running
+                    ? "Хелпер: запущен"
+                    : probe?.helper_installed
+                      ? "Хелпер: установлен"
+                      : "Хелпер: будет установлен"}
+              </span>
+            </div>
+            <div className="path-row-field">
+              <textarea
+                value={installDir}
+                disabled={phase === "installing"}
+                onChange={(event) => setInstallDir(event.target.value.replace(/[\r\n]+/g, ""))}
+                aria-label="Папка установки"
+                spellCheck={false}
+                rows={1}
+                wrap="off"
+              />
+              <button
+                className="folder-button"
+                type="button"
+                onClick={chooseInstallDir}
+                disabled={phase === "installing"}
+              >
+                Выбрать
               </button>
             </div>
           </div>
-        ) : (
-          <>
-            <div className="hero" onMouseDown={startWindowDrag}>
-              <div className="hero-badges">
-                <span className="mode-pill">{archLabel}</span>
-                <span className="version-pill">{versionLabel}</span>
-              </div>
-              <h1 className="hero-title">
-                {probe?.existing_install ? "Обновление " : "Установка "}
-                <span className="hero-title-accent">Nimbo</span>
-              </h1>
-              <p>
-                {probe?.existing_install
-                  ? "Обновим Nimbo до последней версии. Ваши подписки и настройки останутся на месте — нужно только подтвердить установку."
-                  : isLinux
-                    ? "Установим Nimbo за минуту. Подготовим приложение, desktop entry, nimbo:// и ярлыки — после этого можно сразу открывать клиент."
-                    : "Установим Nimbo за минуту. Подготовим приложение, сетевые компоненты и ярлыки — после этого можно сразу подключаться."}
-              </p>
-            </div>
 
-            <div className="status-grid no-window-drag">
-              <div className="status-tile path-tile">
-                <div className="status-title-row">
-                  <span className="status-kicker">Папка установки</span>
-                  <button
-                    className="folder-button"
-                    type="button"
-                    onClick={chooseInstallDir}
-                    disabled={phase === "installing"}
+          <div className="option-row no-window-drag">
+            <label className="toggle">
+              <span className="toggle-text">{isLinux ? "Меню приложений" : "Меню Пуск"}</span>
+              <input
+                type="checkbox"
+                checked={startMenuShortcut}
+                disabled={phase === "installing"}
+                onChange={(event) => setStartMenuShortcut(event.target.checked)}
+              />
+              <span className="toggle-switch" />
+            </label>
+            <label className="toggle">
+              <span className="toggle-text">Рабочий стол</span>
+              <input
+                type="checkbox"
+                checked={desktopShortcut}
+                disabled={phase === "installing"}
+                onChange={(event) => setDesktopShortcut(event.target.checked)}
+              />
+              <span className="toggle-switch" />
+            </label>
+            <label className="toggle">
+              <span className="toggle-text">Открыть после установки</span>
+              <input
+                type="checkbox"
+                checked={launchAfterInstall}
+                disabled={phase === "installing"}
+                onChange={(event) => setLaunchAfterInstall(event.target.checked)}
+              />
+              <span className="toggle-switch" />
+            </label>
+          </div>
+
+          <div className="detail-card no-window-drag">
+            <div className="detail-head">
+              <span>{phase === "failed" ? "Нужно внимание" : "Ход установки"}</span>
+              <b>{displayedProgress}%</b>
+            </div>
+            <div className="meter"><span style={{ width: `${progress}%` }} /></div>
+            <div className="detail-lines">
+              {steps.map((step, index) => {
+                const isCurrent = index === currentStepIndex && phase !== "idle";
+                return (
+                  <div
+                    key={step.id}
+                    className={`detail-line detail-${step.state}${isCurrent ? " is-current" : ""}`}
+                    style={{ "--step-index": index } as React.CSSProperties}
                   >
-                    Выбрать
-                  </button>
-                </div>
-                <textarea
-                  value={installDir}
-                  disabled={phase === "installing"}
-                  onChange={(event) => setInstallDir(event.target.value.replace(/[\r\n]+/g, ""))}
-                  aria-label="Папка установки"
-                  spellCheck={false}
-                  rows={1}
-                  wrap="off"
-                />
-              </div>
-              <div className="status-tile compact">
-                <span className="status-kicker">{isLinux ? "Интеграция" : "Хелпер"}</span>
-                <strong>
-                  {isLinux
-                    ? "Будет настроена"
-                    : probe?.helper_running
-                      ? "Запущен"
-                      : probe?.helper_installed
-                        ? "Установлен"
-                        : "Будет установлен"}
-                </strong>
-              </div>
-            </div>
-
-            <div className="option-row no-window-drag">
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={startMenuShortcut}
-                  disabled={phase === "installing"}
-                  onChange={(event) => setStartMenuShortcut(event.target.checked)}
-                />
-                <span />
-                {isLinux ? "Меню приложений" : "Меню Пуск"}
-              </label>
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={desktopShortcut}
-                  disabled={phase === "installing"}
-                  onChange={(event) => setDesktopShortcut(event.target.checked)}
-                />
-                <span />
-                Рабочий стол
-              </label>
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={launchAfterInstall}
-                  disabled={phase === "installing"}
-                  onChange={(event) => setLaunchAfterInstall(event.target.checked)}
-                />
-                <span />
-                Открыть после установки
-              </label>
-            </div>
-
-            <div className="detail-card no-window-drag">
-              <div className="detail-head">
-                <span>{phase === "failed" ? "Нужно внимание" : "Ход установки"}</span>
-                <b>{displayedProgress}%</b>
-              </div>
-              <div className="meter"><span style={{ width: `${progress}%` }} /></div>
-              <div className="detail-lines">
-                {steps.map((step, index) => {
-                  const isCurrent = index === currentStepIndex && phase !== "idle";
-                  return (
-                    <div
-                      key={step.id}
-                      className={`detail-line detail-${step.state}${isCurrent ? " is-current" : ""}`}
-                      style={{ "--step-index": index } as React.CSSProperties}
-                    >
-                      <div className="detail-line-top">
-                        <span>{step.title}</span>
-                        <b>{String(index + 1).padStart(2, "0")}</b>
-                      </div>
+                    <StepIcon state={step.state} />
+                    <div className="detail-line-text">
+                      <span>{step.title}</span>
                       <small>{step.detail}</small>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
+          </div>
 
-            {error && <div className="error-box no-window-drag">{error}</div>}
+          {error && <div className="error-box no-window-drag">{error}</div>}
 
-            <div className="actions no-window-drag">
-              <button className="ghost-button close-action-button" type="button" onClick={close} disabled={phase === "installing"}>
-                Закрыть
-              </button>
-              <button className={`primary-button${phase === "installing" ? " is-busy" : ""}`} type="button" onClick={install} disabled={phase === "installing" || !installDir.trim()}>
-                {phase === "installing" ? "Устанавливаем..." : probe?.existing_install ? "Установить обновление" : "Установить"}
-              </button>
-            </div>
-          </>
-        )}
-      </section>
-    </main>
+          <div className="actions no-window-drag">
+            <button className="ghost-button close-action-button" type="button" onClick={close} disabled={phase === "installing"}>
+              Закрыть
+            </button>
+            <button className={`primary-button${phase === "installing" ? " is-busy" : ""}`} type="button" onClick={install} disabled={phase === "installing" || !installDir.trim()}>
+              {phase === "installing" ? "Устанавливаем…" : probe?.existing_install ? "Установить обновление" : "Установить"}
+            </button>
+          </div>
+        </>
+      )}
+    </Shell>
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
+function UninstallApp() {
+  const [probe, setProbe] = React.useState<UninstallerProbe | null>(null);
+  const [removeUserData, setRemoveUserData] = React.useState(false);
+  const [steps, setSteps] = React.useState<Step[]>(() => createUninstallSteps());
+  const [progress, setProgress] = React.useState(0);
+  const [phase, setPhase] = React.useState<UninstallerPhase>("idle");
+  const [error, setError] = React.useState<string | null>(null);
+  const [result, setResult] = React.useState<UninstallResult | null>(null);
+  const versionLabel = probe?.product_version ? `v${probe.product_version}` : "v—";
+  const archLabel = probe?.product_arch ?? "Windows";
+  const displayedProgress = useAnimatedProgress(progress);
+  const currentStep =
+    steps.find((step) => step.state === "running") ??
+    steps.find((step) => step.state === "failed") ??
+    [...steps].reverse().find((step) => step.state === "done") ??
+    steps[0];
+  const currentStepIndex = Math.max(0, steps.findIndex((step) => step.id === currentStep.id));
+
+  React.useEffect(() => {
+    void invoke<UninstallerProbe>("probe_uninstallation")
+      .then((value) => setProbe(value))
+      .catch((err) => {
+        if (isMissingTauriBridge(err)) {
+          setProbe(previewUninstallProbe);
+          return;
+        }
+        setError(formatInstallerError(err));
+      });
+
+    let unlisten: (() => void) | null = null;
+    void listen<ProgressEvent>("uninstaller_progress", (event) => {
+      const update = event.payload;
+      setProgress(Math.max(0, Math.min(100, Math.round(update.progress))));
+      setSteps((current) =>
+        current.map((step) =>
+          step.id === update.step
+            ? { ...step, state: update.state, detail: update.detail || step.detail }
+            : step,
+        ),
+      );
+      if (update.state === "failed") {
+        setPhase("failed");
+        setError(update.detail);
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  const uninstall = async () => {
+    setPhase("uninstalling");
+    setError(null);
+    setResult(null);
+    setProgress(0);
+    setSteps(createUninstallSteps());
+    try {
+      const value = await invoke<UninstallResult>("uninstall_nimbo", {
+        options: { remove_user_data: removeUserData } satisfies UninstallOptions,
+      });
+      setResult(value);
+      setProgress(100);
+      setPhase("done");
+    } catch (err) {
+      setError(formatInstallerError(err));
+      setPhase("failed");
+    }
+  };
+
+  const close = () => {
+    void getCurrentWindow().close();
+  };
+
+  const userDataDisabled = probe ? !probe.user_data_present : false;
+
+  return (
+    <Shell
+      phaseClass={`phase-${phase}`}
+      phaseSubline={uninstallerPhaseLabel(phase)}
+      steps={steps}
+      currentStep={currentStep}
+      currentStepIndex={currentStepIndex}
+      progress={progress}
+      displayedProgress={displayedProgress}
+      brandCaption="Удаление"
+      isDone={phase === "done"}
+    >
+      <button className="window-close" type="button" onClick={close} aria-label="Закрыть">×</button>
+
+      {phase === "done" ? (
+        <div className="done-screen no-window-drag">
+          <div className="done-art" aria-hidden="true">
+            <svg viewBox="0 0 64 64" width="56" height="56">
+              <path
+                d="M20 33 L29 42 L45 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="done-check"
+              />
+            </svg>
+          </div>
+          <h1>Nimbo удалён</h1>
+          <p>
+            {result?.removed_user_data
+              ? "Папка установки и пользовательские данные удалены."
+              : (
+                <>
+                  Подписки и настройки остались в{" "}
+                  <span className="done-path">{probe?.user_data_dir}</span>.
+                </>
+              )}
+          </p>
+          <div className="actions done-actions">
+            <button className="primary-button success" type="button" onClick={close}>
+              Закрыть
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="hero" onMouseDown={startWindowDrag}>
+            <div className="hero-meta">
+              <span>Удаление</span>
+              <i />
+              <span>{archLabel}</span>
+              <i />
+              <span>{versionLabel}</span>
+            </div>
+            <h1 className="hero-title">Удаление Nimbo</h1>
+            <p>
+              Остановим хелпер, удалим ярлыки и файлы. Подписки и настройки можно сохранить или
+              удалить ниже.
+            </p>
+          </div>
+
+          <div className="path-row no-window-drag">
+            <div className="path-row-label">
+              <span className="status-kicker">Папка установки</span>
+              <span className="path-row-helper">
+                {probe?.helper_running
+                  ? "Хелпер: запущен"
+                  : probe?.helper_installed
+                    ? "Хелпер: установлен"
+                    : "Хелпер: не установлен"}
+              </span>
+            </div>
+            <div className="path-row-field">
+              <textarea
+                value={probe?.install_dir ?? ""}
+                disabled
+                aria-label="Папка установки"
+                spellCheck={false}
+                rows={1}
+                wrap="off"
+              />
+            </div>
+          </div>
+
+          <div className="option-row option-row-single no-window-drag">
+            <label
+              className="toggle"
+              title={
+                userDataDisabled
+                  ? "В AppData нет сохранённых данных Nimbo"
+                  : `Удалить ${probe?.user_data_dir ?? "AppData\\Nimbo"}`
+              }
+            >
+              <span className="toggle-text">Удалить подписки и настройки</span>
+              <input
+                type="checkbox"
+                checked={removeUserData}
+                disabled={phase === "uninstalling" || userDataDisabled}
+                onChange={(event) => setRemoveUserData(event.target.checked)}
+              />
+              <span className="toggle-switch" />
+            </label>
+          </div>
+
+          <div className="detail-card no-window-drag">
+            <div className="detail-head">
+              <span>{phase === "failed" ? "Нужно внимание" : "Ход удаления"}</span>
+              <b>{displayedProgress}%</b>
+            </div>
+            <div className="meter"><span style={{ width: `${progress}%` }} /></div>
+            <div className="detail-lines">
+              {steps.map((step, index) => {
+                const isCurrent = index === currentStepIndex && phase !== "idle";
+                return (
+                  <div
+                    key={step.id}
+                    className={`detail-line detail-${step.state}${isCurrent ? " is-current" : ""}`}
+                    style={{ "--step-index": index } as React.CSSProperties}
+                  >
+                    <StepIcon state={step.state} />
+                    <div className="detail-line-text">
+                      <span>{step.title}</span>
+                      <small>{step.detail}</small>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {error && <div className="error-box no-window-drag">{error}</div>}
+
+          <div className="actions no-window-drag">
+            <button className="ghost-button close-action-button" type="button" onClick={close} disabled={phase === "uninstalling"}>
+              Отмена
+            </button>
+            <button
+              className={`primary-button danger${phase === "uninstalling" ? " is-busy" : ""}`}
+              type="button"
+              onClick={uninstall}
+              disabled={phase === "uninstalling"}
+            >
+              {phase === "uninstalling" ? "Удаляем…" : "Удалить Nimbo"}
+            </button>
+          </div>
+        </>
+      )}
+    </Shell>
+  );
+}
+
+function Root() {
+  const [mode, setMode] = React.useState<InstallerMode | null>(null);
+  useAppThemeSync();
+
+  React.useEffect(() => {
+    void invoke<InstallerMode>("get_installer_mode")
+      .then((value) => setMode(value === "uninstall" ? "uninstall" : "install"))
+      .catch(() => {
+        // Tauri bridge missing (browser preview) — default to install.
+        setMode("install");
+      });
+  }, []);
+
+  if (mode === null) {
+    return null;
+  }
+  return mode === "uninstall" ? <UninstallApp /> : <InstallApp />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")!).render(<Root />);

@@ -63,9 +63,34 @@ fn acquire_single_instance() -> Option<SingleInstanceGuard> {
 }
 
 fn main() {
-    if std::env::args().any(|arg| arg == "--uninstall") {
+    // We're in uninstall mode if either the binary is named like
+    // `Uninstall.exe` (the copy we drop into the install dir) or the caller
+    // passed `--uninstall` (used by the registry "UninstallString" entry from
+    // the Windows "Программы и компоненты" panel). In both cases we want to
+    // show a proper uninstaller UI rather than silently wiping things — old
+    // behaviour was confusing: double-clicking Uninstall.exe just opened the
+    // regular installer in "Обновление" mode.
+    let args: Vec<String> = std::env::args().collect();
+    let invoked_as_uninstaller = std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase())
+        })
+        .is_some_and(|name| name.starts_with("uninstall"));
+    let uninstall_arg = args.iter().any(|arg| arg == "--uninstall");
+    // Headless escape hatch: `--uninstall --silent` keeps the old silent
+    // behaviour for scripts that integrated against it.
+    let silent_flag = args.iter().any(|arg| arg == "--silent");
+
+    if (invoked_as_uninstaller || uninstall_arg) && silent_flag {
         let _ = payload::uninstall_from_cli();
         return;
+    }
+
+    let uninstall_mode = invoked_as_uninstaller || uninstall_arg;
+    if uninstall_mode {
+        payload::set_uninstall_mode();
     }
 
     let Some(single_instance_guard) = acquire_single_instance() else {
@@ -76,9 +101,13 @@ fn main() {
         .manage(single_instance_guard)
         .invoke_handler(tauri::generate_handler![
             payload::probe_installation,
+            payload::probe_uninstallation,
             payload::choose_install_dir,
             payload::install_nimbo,
+            payload::uninstall_nimbo,
             payload::open_nimbo,
+            payload::read_app_theme,
+            payload::get_installer_mode,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Nimbo Setup");

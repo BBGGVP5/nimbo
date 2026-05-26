@@ -4,7 +4,7 @@ use nimbo_subscription::Server;
 
 use crate::inbound::Inbound;
 use crate::outbound::{Outbound, server_to_outbound, outbound_direct, outbound_block};
-use crate::routing::{AppRoutingRule, Routing};
+use crate::routing::{AppRoutingRule, Routing, RoutingProfileRules};
 
 pub const TAG_PROXY: &str = "proxy";
 pub const TAG_DIRECT: &str = "direct";
@@ -135,6 +135,7 @@ pub struct ConfigBuilder {
     ports: ProxyPorts,
     proxy_outbound: Option<Outbound>,
     app_routing_rules: Vec<AppRoutingRule>,
+    profile_routing_rules: Option<RoutingProfileRules>,
     log_level: String,
     socks_account: Option<(String, String)>,
     block_socks_udp: bool,
@@ -146,6 +147,7 @@ impl ConfigBuilder {
             ports,
             proxy_outbound: None,
             app_routing_rules: Vec::new(),
+            profile_routing_rules: None,
             log_level: "warning".into(),
             socks_account: None,
             block_socks_udp: false,
@@ -167,6 +169,11 @@ impl ConfigBuilder {
         self
     }
 
+    pub fn profile_routing_rules(mut self, rules: RoutingProfileRules) -> Self {
+        self.profile_routing_rules = Some(rules);
+        self
+    }
+
     pub fn socks_auth(mut self, username: impl Into<String>, password: impl Into<String>) -> Self {
         self.socks_account = Some((username.into(), password.into()));
         self
@@ -182,6 +189,7 @@ impl ConfigBuilder {
             ports,
             proxy_outbound,
             app_routing_rules,
+            profile_routing_rules,
             log_level,
             socks_account,
             block_socks_udp,
@@ -214,7 +222,7 @@ impl ConfigBuilder {
             dns: DnsConfig::default(),
             inbounds,
             outbounds,
-            routing: Routing::with_app_rules(&app_routing_rules),
+            routing: Routing::with_rules(&app_routing_rules, profile_routing_rules.as_ref()),
             api: ApiConfig::default(),
             policy: Policy::default(),
             stats: Stats::default(),

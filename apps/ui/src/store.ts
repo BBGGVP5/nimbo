@@ -61,6 +61,7 @@ interface AppStoreState {
   setActiveSubscription: (url: string | null) => Promise<void>;
   connectServer: (serverId: string) => Promise<void>;
   disconnectServer: () => Promise<void>;
+  openConflictDialog: (conflicts: ConflictingProcess[]) => void;
   scanConflictingProcesses: () => Promise<ConflictingProcess[]>;
   closeConflictDialog: () => void;
   stopConflictingProcesses: () => Promise<void>;
@@ -239,6 +240,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     if (conflicts.length === 0) {
       return conflicts;
     }
+    get().openConflictDialog(conflicts);
+    return conflicts;
+  },
+
+  openConflictDialog: (conflicts) => {
+    if (conflicts.length === 0) return;
     void get().refreshHelperStatus();
     set({
       conflictDialogOpen: true,
@@ -246,7 +253,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       conflictStopping: false,
       conflictStopError: null,
     });
-    return conflicts;
   },
 
   refreshHelperStatus: async () => {

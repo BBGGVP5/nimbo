@@ -9,7 +9,7 @@ pub mod transport;
 pub use config::{ConfigBuilder, ProxyPorts, XrayConfig, build_config, build_config_with_ports};
 pub use inbound::Inbound;
 pub use outbound::{Outbound, server_to_outbound};
-pub use routing::{AppRoutingMode, AppRoutingRule};
+pub use routing::{AppRoutingMode, AppRoutingRule, RoutingProfileRules};
 
 #[derive(Debug, Error)]
 pub enum BuildError {

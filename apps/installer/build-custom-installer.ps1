@@ -37,6 +37,84 @@ function Get-ArchSuffix([string]$TargetTriple) {
   }
 }
 
+function Get-MsvcArchFolder([string]$TargetTriple) {
+  switch ($TargetTriple) {
+    "x86_64-pc-windows-msvc" { return "x64" }
+    "i686-pc-windows-msvc" { return "x86" }
+    "aarch64-pc-windows-msvc" { return "arm64" }
+    default { return $null }
+  }
+}
+
+# Cache: triple -> $true if both Rust target + MSVC linker are available.
+$script:toolchainCache = @{}
+
+function Test-RustTargetInstalled([string]$TargetTriple) {
+  $installed = & rustup target list --installed 2>$null
+  if ($LASTEXITCODE -ne 0) { return $true }  # rustup unavailable; let cargo decide
+  foreach ($line in $installed) {
+    if ($line.Trim() -eq $TargetTriple) { return $true }
+  }
+  return $false
+}
+
+function Test-MsvcLinkerAvailable([string]$TargetTriple) {
+  $arch = Get-MsvcArchFolder $TargetTriple
+  if (-not $arch) { return $true }
+
+  $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+  if (-not (Test-Path -LiteralPath $vswhere)) {
+    # No vswhere -> can't probe; assume yes and let the build fail with a real error.
+    return $true
+  }
+
+  $vsRoot = & $vswhere -latest -products * -property installationPath 2>$null
+  if (-not $vsRoot) { return $true }
+
+  $msvcRoot = Join-Path $vsRoot "VC\Tools\MSVC"
+  if (-not (Test-Path -LiteralPath $msvcRoot)) { return $true }
+
+  $versions = Get-ChildItem -LiteralPath $msvcRoot -Directory -ErrorAction SilentlyContinue |
+    Sort-Object Name -Descending
+  foreach ($ver in $versions) {
+    $candidate = Join-Path $ver.FullName "bin\Hostx64\$arch\link.exe"
+    if (Test-Path -LiteralPath $candidate) { return $true }
+    $candidateX86 = Join-Path $ver.FullName "bin\Hostx86\$arch\link.exe"
+    if (Test-Path -LiteralPath $candidateX86) { return $true }
+  }
+  return $false
+}
+
+function Test-TargetSupported([string]$TargetTriple) {
+  if ($script:toolchainCache.ContainsKey($TargetTriple)) {
+    return $script:toolchainCache[$TargetTriple]
+  }
+
+  $rustOk = Test-RustTargetInstalled $TargetTriple
+  if (-not $rustOk) {
+    Write-Warning "Skipping $TargetTriple — Rust target not installed. Run: rustup target add $TargetTriple"
+    $script:toolchainCache[$TargetTriple] = $false
+    return $false
+  }
+
+  $linkerOk = Test-MsvcLinkerAvailable $TargetTriple
+  if (-not $linkerOk) {
+    $arch = Get-MsvcArchFolder $TargetTriple
+    Write-Warning "Skipping $TargetTriple — MSVC linker for $arch not found. Install it via the Visual Studio Installer (Individual components -> MSVC v143 - VS 2022 C++ $arch build tools)."
+    $script:toolchainCache[$TargetTriple] = $false
+    return $false
+  }
+
+  $script:toolchainCache[$TargetTriple] = $true
+  return $true
+}
+
+# Filter out unsupported targets up front so we don't waste time / produce confusing errors.
+$Target = @($Target | Where-Object { Test-TargetSupported $_ })
+if ($Target.Count -eq 0) {
+  throw "No supported build targets available. Install the missing Rust targets / MSVC components and retry."
+}
+
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 Push-Location $uiDir

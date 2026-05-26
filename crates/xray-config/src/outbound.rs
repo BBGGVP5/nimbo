@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use nimbo_subscription::{
-    Protocol, Server, ShadowsocksConfig, TrojanConfig, VlessConfig, VmessConfig,
+    Hysteria2Config, Protocol, Server, ShadowsocksConfig, TrojanConfig, VlessConfig, VmessConfig,
 };
 
 use crate::transport::build_stream_settings;
@@ -22,6 +22,7 @@ pub fn server_to_outbound(server: &Server, tag: &str) -> Outbound {
         Protocol::Vmess(cfg) => vmess_outbound(tag, cfg),
         Protocol::Trojan(cfg) => trojan_outbound(tag, cfg),
         Protocol::Shadowsocks(cfg) => shadowsocks_outbound(tag, cfg),
+        Protocol::Hysteria2(cfg) => hysteria2_outbound(tag, cfg),
     }
 }
 
@@ -123,5 +124,46 @@ fn shadowsocks_outbound(tag: &str, cfg: &ShadowsocksConfig) -> Outbound {
         protocol: "shadowsocks".into(),
         settings,
         stream_settings: None,
+    }
+}
+
+fn hysteria2_outbound(tag: &str, cfg: &Hysteria2Config) -> Outbound {
+    let settings = json!({
+        "version": 2,
+        "address": cfg.address,
+        "port": cfg.port
+    });
+
+    let mut tls = serde_json::Map::new();
+    if let Some(sni) = &cfg.sni {
+        tls.insert("serverName".into(), Value::String(sni.clone()));
+    }
+    if let Some(alpn) = &cfg.alpn {
+        if !alpn.is_empty() {
+            tls.insert(
+                "alpn".into(),
+                Value::Array(alpn.iter().cloned().map(Value::String).collect()),
+            );
+        }
+    }
+    if cfg.insecure {
+        tls.insert("allowInsecure".into(), Value::Bool(true));
+    }
+
+    let mut hysteria = serde_json::Map::new();
+    hysteria.insert("version".into(), Value::Number(2.into()));
+    hysteria.insert("auth".into(), Value::String(cfg.password.clone()));
+
+    let mut stream = serde_json::Map::new();
+    stream.insert("network".into(), Value::String("hysteria".into()));
+    stream.insert("security".into(), Value::String("tls".into()));
+    stream.insert("hysteriaSettings".into(), Value::Object(hysteria));
+    stream.insert("tlsSettings".into(), Value::Object(tls));
+
+    Outbound {
+        tag: tag.into(),
+        protocol: "hysteria".into(),
+        settings,
+        stream_settings: Some(Value::Object(stream)),
     }
 }

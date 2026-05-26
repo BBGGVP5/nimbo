@@ -20,6 +20,25 @@ pub struct SubscriptionMeta {
     pub website_url: Option<String>,
     pub show_on_home: Option<bool>,
     pub update_interval_minutes: Option<u32>,
+    #[serde(default)]
+    pub app_proxy_rules: Vec<SubscriptionAppProxyRule>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SubscriptionAppProxyRule {
+    pub id: String,
+    pub name: String,
+    pub executable_path: String,
+    pub mode: SubscriptionAppProxyMode,
+    pub enabled: bool,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SubscriptionAppProxyMode {
+    Direct,
+    Proxy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +61,7 @@ pub enum Protocol {
     Vmess(VmessConfig),
     Trojan(TrojanConfig),
     Shadowsocks(ShadowsocksConfig),
+    Hysteria2(Hysteria2Config),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +101,18 @@ pub struct ShadowsocksConfig {
     pub port: u16,
     pub method: String,
     pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Hysteria2Config {
+    pub address: String,
+    pub port: u16,
+    pub password: String,
+    pub sni: Option<String>,
+    pub alpn: Option<Vec<String>>,
+    pub insecure: bool,
+    pub obfs: Option<String>,
+    pub obfs_password: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

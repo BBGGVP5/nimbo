@@ -1,5 +1,7 @@
 use crate::model::Server;
-use crate::parser::{ParseError, b64_decode_str, shadowsocks, trojan, vless, vmess, xray_json};
+use crate::parser::{
+    ParseError, b64_decode_str, hysteria2, shadowsocks, trojan, vless, vmess, xray_json,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
@@ -104,6 +106,8 @@ pub fn parse_single(line: &str) -> Result<Server, ParseError> {
         trojan::parse(line)
     } else if line.starts_with("ss://") {
         shadowsocks::parse(line)
+    } else if line.starts_with("hysteria2://") || line.starts_with("hy2://") {
+        hysteria2::parse(line)
     } else {
         Err(ParseError::UnsupportedScheme(
             line.split("://").next().unwrap_or("").to_string(),
@@ -146,6 +150,7 @@ mod tests {
         "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@ex.com:443?type=tcp&security=tls#srv";
     const TROJAN_LINE: &str = "trojan://pwd@h.tld:443?security=tls&sni=h.tld#trojan-srv";
     const SS_LINE: &str = "ss://aes-256-gcm:p@h.tld:8388#ss-srv";
+    const HY2_LINE: &str = "hysteria2://secret@hy.tld:443?sni=cdn.hy.tld#hy2-srv";
 
     #[test]
     fn detects_plain_list() {
@@ -174,9 +179,9 @@ mod tests {
 
     #[test]
     fn parses_plain_list_aggregate() {
-        let body = format!("{VLESS_LINE}\n{TROJAN_LINE}\n{SS_LINE}\n");
+        let body = format!("{VLESS_LINE}\n{TROJAN_LINE}\n{SS_LINE}\n{HY2_LINE}\n");
         let servers = parse_aggregate(&body).unwrap();
-        assert_eq!(servers.len(), 3);
+        assert_eq!(servers.len(), 4);
     }
 
     #[test]

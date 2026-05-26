@@ -3,13 +3,16 @@ use std::time::Duration;
 
 use base64::Engine;
 use percent_encoding::percent_decode_str;
-use serde_json::Value;
+use serde_json::{Value, json};
 use thiserror::Error;
 
 use nimbo_device::{DeviceInfo, device_info};
 
 use crate::USER_AGENT;
-use crate::model::{Protocol, Server, Subscription, SubscriptionMeta};
+use crate::model::{
+    Protocol, Server, Subscription, SubscriptionAppProxyMode, SubscriptionAppProxyRule,
+    SubscriptionMeta,
+};
 use crate::parser::{ParseError, parse_aggregate};
 use crate::userinfo::{SubscriptionInfo, parse_subscription_userinfo};
 
@@ -83,6 +86,7 @@ pub struct Fetched {
     pub description: Option<String>,
     pub support_url: Option<String>,
     pub website_url: Option<String>,
+    pub app_proxy_rules: Vec<SubscriptionAppProxyRule>,
     /// Xray-config templates, извлечённые из тела подписки.
     /// Ключ — xrayJsonTemplateUuid/uuid/id, если есть; иначе `default`.
     pub xray_templates: HashMap<String, Value>,
@@ -148,6 +152,7 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         "web-page-url",
         "x-web-page-url",
     ]);
+    let provider_app_proxy_rules = extract_provider_app_proxy_rules(&client, resp.headers()).await;
     let suggested_name = extract_subscription_name(resp.headers(), url);
 
     let body = resp
@@ -188,6 +193,7 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         description: remnawave.description.or(announce),
         support_url: remnawave.support_url.or(support_url),
         website_url: remnawave.website_url.or(website_url),
+        app_proxy_rules: provider_app_proxy_rules,
         xray_templates,
     })
 }
@@ -303,15 +309,17 @@ fn xray_template_key(value: &Value) -> Option<String> {
 pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> Subscription {
     let Fetched {
         raw_body: _,
-        servers,
+        mut servers,
         info,
         suggested_name,
         description,
         support_url,
         website_url,
+        app_proxy_rules,
         xray_templates: _,
     } = fetched;
     let resolved_name = sanitize_name(name).or_else(|| sanitize_name(suggested_name));
+    dedupe_subscription_servers(&mut servers);
 
     Subscription {
         url: url.to_string(),
@@ -322,11 +330,246 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
             website_url: sanitize_name(website_url),
             show_on_home: Some(true),
             update_interval_minutes: None,
+            app_proxy_rules,
         },
         servers,
         info,
         fetched_at: now_unix(),
     }
+}
+
+pub fn dedupe_subscription_servers(servers: &mut Vec<Server>) -> HashMap<String, String> {
+    let mut deduped: Vec<Server> = Vec::with_capacity(servers.len());
+    let mut first_by_key: HashMap<String, usize> = HashMap::new();
+    let mut aliases = HashMap::new();
+
+    for server in servers.drain(..) {
+        let keys = server_dedupe_keys(&server);
+        if let Some(kept_index) = keys.iter().find_map(|key| first_by_key.get(key).copied()) {
+            let kept_id = deduped[kept_index].id.clone();
+            if server.id != kept_id {
+                aliases.insert(server.id.clone(), kept_id);
+            }
+            merge_duplicate_server_metadata(&mut deduped[kept_index], server);
+            continue;
+        }
+
+        for key in keys {
+            first_by_key.insert(key, deduped.len());
+        }
+        deduped.push(server);
+    }
+
+    *servers = deduped;
+    aliases
+}
+
+fn merge_duplicate_server_metadata(kept: &mut Server, duplicate: Server) {
+    if kept.name.trim().is_empty() && !duplicate.name.trim().is_empty() {
+        kept.name = duplicate.name;
+    }
+    if kept.server_description.is_none() {
+        kept.server_description = duplicate.server_description;
+    }
+    if kept.host_uuid.is_none() {
+        kept.host_uuid = duplicate.host_uuid;
+    }
+    if kept.xray_json_template_uuid.is_none() {
+        kept.xray_json_template_uuid = duplicate.xray_json_template_uuid;
+    }
+}
+
+fn server_dedupe_keys(server: &Server) -> Vec<String> {
+    let mut keys = vec![format!("config:{}", server_config_key(server))];
+    if let Some(logical_key) = server_logical_key(server) {
+        keys.push(format!("logical:{logical_key}"));
+    }
+    keys
+}
+
+fn server_config_key(server: &Server) -> String {
+    let protocol = match &server.protocol {
+        Protocol::Vless(config) => json!([
+            "vless",
+            lower_key(&config.address),
+            config.port,
+            lower_key(&config.uuid),
+            lower_option_key(config.flow.as_deref()),
+            lower_key(&config.encryption),
+            stream_config_key(&config.stream),
+        ]),
+        Protocol::Vmess(config) => json!([
+            "vmess",
+            lower_key(&config.address),
+            config.port,
+            lower_key(&config.uuid),
+            config.alter_id,
+            lower_key(&config.security),
+            stream_config_key(&config.stream),
+        ]),
+        Protocol::Trojan(config) => json!([
+            "trojan",
+            lower_key(&config.address),
+            config.port,
+            exact_key(&config.password),
+            stream_config_key(&config.stream),
+        ]),
+        Protocol::Shadowsocks(config) => json!([
+            "shadowsocks",
+            lower_key(&config.address),
+            config.port,
+            lower_key(&config.method),
+            exact_key(&config.password),
+        ]),
+        Protocol::Hysteria2(config) => json!([
+            "hysteria2",
+            lower_key(&config.address),
+            config.port,
+            exact_key(&config.password),
+            lower_option_key(config.sni.as_deref()),
+            lower_vec_key(config.alpn.as_deref()),
+            config.insecure,
+            lower_option_key(config.obfs.as_deref()),
+            exact_option_key(config.obfs_password.as_deref()),
+        ]),
+    };
+
+    serde_json::to_string(&json!([
+        display_name_key(&server.name),
+        lower_option_key(server.xray_json_template_uuid.as_deref()),
+        protocol,
+    ]))
+    .unwrap_or_default()
+}
+
+fn server_logical_key(server: &Server) -> Option<String> {
+    let protocol = match &server.protocol {
+        Protocol::Vless(config) => {
+            if config.uuid.trim().is_empty() {
+                return None;
+            }
+            json!([
+                "vless",
+                lower_key(&config.uuid),
+                lower_option_key(config.flow.as_deref()),
+                lower_key(&config.encryption),
+                stream_logical_key(&config.stream),
+            ])
+        }
+        Protocol::Vmess(config) => {
+            if config.uuid.trim().is_empty() {
+                return None;
+            }
+            json!([
+                "vmess",
+                lower_key(&config.uuid),
+                config.alter_id,
+                lower_key(&config.security),
+                stream_logical_key(&config.stream),
+            ])
+        }
+        Protocol::Trojan(config) => {
+            if config.password.trim().is_empty() {
+                return None;
+            }
+            json!([
+                "trojan",
+                exact_key(&config.password),
+                stream_logical_key(&config.stream),
+            ])
+        }
+        Protocol::Shadowsocks(config) => {
+            if config.password.trim().is_empty() {
+                return None;
+            }
+            json!([
+                "shadowsocks",
+                lower_key(&config.method),
+                exact_key(&config.password),
+            ])
+        }
+        Protocol::Hysteria2(config) => {
+            if config.password.trim().is_empty() {
+                return None;
+            }
+            json!([
+                "hysteria2",
+                exact_key(&config.password),
+                lower_vec_key(config.alpn.as_deref()),
+                config.insecure,
+                lower_option_key(config.obfs.as_deref()),
+                exact_option_key(config.obfs_password.as_deref()),
+            ])
+        }
+    };
+
+    Some(
+        serde_json::to_string(&json!([
+            display_name_key(&server.name),
+            lower_option_key(server.xray_json_template_uuid.as_deref()),
+            protocol,
+        ]))
+        .unwrap_or_default(),
+    )
+}
+
+fn stream_config_key(stream: &crate::model::StreamSettings) -> Value {
+    json!([
+        format!("{:?}", stream.network).to_ascii_lowercase(),
+        format!("{:?}", stream.security).to_ascii_lowercase(),
+        lower_option_key(stream.host.as_deref()),
+        exact_option_key(stream.path.as_deref()),
+        lower_option_key(stream.sni.as_deref()),
+        lower_option_key(stream.fingerprint.as_deref()),
+        lower_vec_key(stream.alpn.as_deref()),
+        exact_option_key(stream.public_key.as_deref()),
+        lower_option_key(stream.short_id.as_deref()),
+        exact_option_key(stream.spider_x.as_deref()),
+        lower_option_key(stream.mode.as_deref()),
+        exact_option_key(stream.extra.as_deref()),
+        lower_option_key(stream.header_type.as_deref()),
+        exact_option_key(stream.service_name.as_deref()),
+    ])
+}
+
+fn stream_logical_key(stream: &crate::model::StreamSettings) -> Value {
+    json!([
+        format!("{:?}", stream.network).to_ascii_lowercase(),
+        format!("{:?}", stream.security).to_ascii_lowercase(),
+        lower_option_key(stream.fingerprint.as_deref()),
+        lower_vec_key(stream.alpn.as_deref()),
+        lower_option_key(stream.mode.as_deref()),
+        lower_option_key(stream.header_type.as_deref()),
+        exact_option_key(stream.service_name.as_deref()),
+    ])
+}
+
+fn lower_key(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
+fn exact_key(value: &str) -> String {
+    value.trim().to_string()
+}
+
+fn lower_option_key(value: Option<&str>) -> String {
+    value.map(lower_key).unwrap_or_default()
+}
+
+fn exact_option_key(value: Option<&str>) -> String {
+    value.map(exact_key).unwrap_or_default()
+}
+
+fn display_name_key(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+fn lower_vec_key(values: Option<&[String]>) -> Vec<String> {
+    values
+        .unwrap_or_default()
+        .iter()
+        .map(|value| lower_key(value))
+        .collect()
 }
 
 fn extract_subscription_name(headers: &reqwest::header::HeaderMap, url: &str) -> Option<String> {
@@ -869,6 +1112,7 @@ fn server_identity(server: &Server) -> (&str, u16, Option<&str>) {
         Protocol::Vmess(cfg) => (&cfg.address, cfg.port, Some(cfg.uuid.as_str())),
         Protocol::Trojan(cfg) => (&cfg.address, cfg.port, None),
         Protocol::Shadowsocks(cfg) => (&cfg.address, cfg.port, None),
+        Protocol::Hysteria2(cfg) => (&cfg.address, cfg.port, None),
     }
 }
 
@@ -1136,6 +1380,505 @@ fn extract_header_url(headers: &reqwest::header::HeaderMap, keys: &[&str]) -> Op
     }
 }
 
+async fn extract_provider_app_proxy_rules(
+    client: &reqwest::Client,
+    headers: &reqwest::header::HeaderMap,
+) -> Vec<SubscriptionAppProxyRule> {
+    const DIRECT_HEADERS: &[&str] = &[
+        "process-direct",
+        "process-direct-list",
+        "process-bypass",
+        "app-direct",
+        "apps-direct",
+        "nimbo-process-direct",
+        "x-nimbo-process-direct",
+        "x-process-direct",
+        "x-app-direct",
+    ];
+    const PROXY_HEADERS: &[&str] = &[
+        "process-proxy",
+        "process-proxy-list",
+        "app-proxy",
+        "apps-proxy",
+        "nimbo-process-proxy",
+        "x-nimbo-process-proxy",
+        "x-process-proxy",
+        "x-app-proxy",
+    ];
+    const RULE_HEADERS: &[&str] = &[
+        "process-rules",
+        "app-rules",
+        "apps-rules",
+        "nimbo-process-rules",
+        "x-nimbo-process-rules",
+        "x-process-rules",
+        "x-app-rules",
+    ];
+
+    let mut rules = Vec::new();
+    for raw in header_values(headers, DIRECT_HEADERS) {
+        rules.extend(
+            parse_provider_app_rule_value(
+                client,
+                &raw,
+                Some(SubscriptionAppProxyMode::Direct),
+                "process-direct",
+            )
+            .await,
+        );
+    }
+    for raw in header_values(headers, PROXY_HEADERS) {
+        rules.extend(
+            parse_provider_app_rule_value(
+                client,
+                &raw,
+                Some(SubscriptionAppProxyMode::Proxy),
+                "process-proxy",
+            )
+            .await,
+        );
+    }
+    for raw in header_values(headers, RULE_HEADERS) {
+        rules.extend(parse_provider_app_rule_value(client, &raw, None, "process-rules").await);
+    }
+    if let Some(announce) = extract_announce_header(headers) {
+        rules.extend(parse_announce_app_rule_values(client, &announce).await);
+    }
+    for raw in inline_app_rule_header_values(headers) {
+        rules.extend(parse_provider_app_rule_value(client, &raw, None, "header:inline").await);
+    }
+
+    dedupe_app_proxy_rules(rules)
+}
+
+fn header_values(headers: &reqwest::header::HeaderMap, keys: &[&str]) -> Vec<String> {
+    let mut values = Vec::new();
+    for key in keys {
+        for raw in headers.get_all(*key) {
+            if let Ok(value) = raw.to_str() {
+                if let Some(text) = parse_header_value(value) {
+                    values.push(text);
+                }
+            }
+        }
+    }
+    values
+}
+
+fn inline_app_rule_header_values(headers: &reqwest::header::HeaderMap) -> Vec<String> {
+    let mut values = Vec::new();
+    for (_, raw) in headers {
+        let Ok(value) = raw.to_str() else {
+            continue;
+        };
+        let Some(text) = parse_header_value(value) else {
+            continue;
+        };
+        let lower = text.to_ascii_lowercase();
+        if lower.contains("process-direct")
+            || lower.contains("process-proxy")
+            || lower.contains("process-rules")
+            || lower.contains("app-direct")
+            || lower.contains("app-proxy")
+            || lower.contains("app-rules")
+        {
+            values.push(text);
+        }
+    }
+    values
+}
+
+async fn parse_provider_app_rule_value(
+    client: &reqwest::Client,
+    value: &str,
+    default_mode: Option<SubscriptionAppProxyMode>,
+    source: &str,
+) -> Vec<SubscriptionAppProxyRule> {
+    if is_http_url(value) {
+        let Ok(response) = client.get(value).send().await else {
+            return Vec::new();
+        };
+        let Ok(response) = response.error_for_status() else {
+            return Vec::new();
+        };
+        let Ok(body) = response.text().await else {
+            return Vec::new();
+        };
+        return parse_provider_app_rule_payload(&body, default_mode, value);
+    }
+
+    parse_provider_app_rule_payload(value, default_mode, source)
+}
+
+async fn parse_announce_app_rule_values(
+    client: &reqwest::Client,
+    announce: &str,
+) -> Vec<SubscriptionAppProxyRule> {
+    let mut rules = Vec::new();
+    for line in announce.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(value) = split_announce_rule_value(trimmed, "process-direct")
+            .or_else(|| split_announce_rule_value(trimmed, "app-direct"))
+        {
+            rules.extend(
+                parse_provider_app_rule_value(
+                    client,
+                    value,
+                    Some(SubscriptionAppProxyMode::Direct),
+                    "announce:process-direct",
+                )
+                .await,
+            );
+        } else if let Some(value) = split_announce_rule_value(trimmed, "process-proxy")
+            .or_else(|| split_announce_rule_value(trimmed, "app-proxy"))
+        {
+            rules.extend(
+                parse_provider_app_rule_value(
+                    client,
+                    value,
+                    Some(SubscriptionAppProxyMode::Proxy),
+                    "announce:process-proxy",
+                )
+                .await,
+            );
+        } else if let Some(value) = split_announce_rule_value(trimmed, "process-rules")
+            .or_else(|| split_announce_rule_value(trimmed, "app-rules"))
+        {
+            rules.extend(parse_provider_app_rule_value(client, value, None, "announce:process-rules").await);
+        } else if is_likely_app_rule_url(trimmed) {
+            rules.extend(
+                parse_provider_app_rule_value(
+                    client,
+                    trimmed,
+                    Some(SubscriptionAppProxyMode::Direct),
+                    "announce:url",
+                )
+                .await,
+            );
+        }
+    }
+    rules
+}
+
+fn split_announce_rule_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    if let Some((left, right)) = line.split_once([':', '=']) {
+        return (normalize_json_key(left) == normalize_json_key(key))
+            .then(|| right.trim())
+            .filter(|value| !value.is_empty());
+    }
+
+    let mut parts = line.splitn(2, char::is_whitespace);
+    let left = parts.next()?;
+    let right = parts.next()?;
+    (normalize_json_key(left) == normalize_json_key(key))
+        .then(|| right.trim())
+        .filter(|value| !value.is_empty())
+}
+
+fn is_likely_app_rule_url(value: &str) -> bool {
+    let Ok(url) = url::Url::parse(value) else {
+        return false;
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return false;
+    }
+    let path = url.path().to_ascii_lowercase();
+    path.ends_with(".txt")
+        || path.ends_with(".json")
+        || path.ends_with(".yaml")
+        || path.ends_with(".yml")
+        || path.contains("process")
+        || path.contains("app")
+}
+
+fn is_http_url(value: &str) -> bool {
+    url::Url::parse(value)
+        .ok()
+        .is_some_and(|url| matches!(url.scheme(), "http" | "https"))
+}
+
+fn parse_provider_app_rule_payload(
+    payload: &str,
+    default_mode: Option<SubscriptionAppProxyMode>,
+    source: &str,
+) -> Vec<SubscriptionAppProxyRule> {
+    let trimmed = payload.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        let mut rules = Vec::new();
+        collect_json_app_rules(&value, default_mode, source, &mut rules);
+        if !rules.is_empty() {
+            return rules;
+        }
+    }
+
+    parse_text_app_rules(trimmed, default_mode, source)
+}
+
+fn collect_json_app_rules(
+    value: &Value,
+    default_mode: Option<SubscriptionAppProxyMode>,
+    source: &str,
+    out: &mut Vec<SubscriptionAppProxyRule>,
+) {
+    match value {
+        Value::String(text) => {
+            out.extend(parse_text_app_rules(text, default_mode, source));
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_json_app_rules(item, default_mode, source, out);
+            }
+        }
+        Value::Object(map) => {
+            let object_mode = json_object_mode(value).or(default_mode);
+            for (key, nested) in map {
+                let key_mode = mode_from_key(key).or(object_mode);
+                if is_app_rule_key(key) {
+                    add_json_targets(nested, key_mode, source, out);
+                } else if normalize_json_key(key) == "rules" {
+                    collect_json_app_rules(nested, key_mode, source, out);
+                } else {
+                    collect_json_app_rules(nested, key_mode, source, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn add_json_targets(
+    value: &Value,
+    mode: Option<SubscriptionAppProxyMode>,
+    source: &str,
+    out: &mut Vec<SubscriptionAppProxyRule>,
+) {
+    match value {
+        Value::String(text) => {
+            out.extend(parse_text_app_rules(text, mode, source));
+        }
+        Value::Array(items) => {
+            for item in items {
+                add_json_targets(item, mode, source, out);
+            }
+        }
+        Value::Object(_) => collect_json_app_rules(value, mode, source, out),
+        _ => {}
+    }
+}
+
+fn is_app_rule_key(key: &str) -> bool {
+    matches!(
+        normalize_json_key(key).as_str(),
+        "appnames"
+            | "apps"
+            | "processes"
+            | "processnames"
+            | "processdirect"
+            | "processproxy"
+            | "directapps"
+            | "proxyapps"
+    )
+}
+
+fn mode_from_key(key: &str) -> Option<SubscriptionAppProxyMode> {
+    let key = normalize_json_key(key);
+    if key.contains("direct") || key.contains("bypass") {
+        Some(SubscriptionAppProxyMode::Direct)
+    } else if key.contains("proxy") || key.contains("vpn") {
+        Some(SubscriptionAppProxyMode::Proxy)
+    } else {
+        None
+    }
+}
+
+fn json_object_mode(value: &Value) -> Option<SubscriptionAppProxyMode> {
+    for key in ["mode", "action", "outbound", "outboundTag", "policy"] {
+        if let Some(text) = get_case_insensitive(value, key).and_then(Value::as_str) {
+            if let Some(mode) = app_mode_from_text(text) {
+                return Some(mode);
+            }
+        }
+    }
+    None
+}
+
+fn parse_text_app_rules(
+    payload: &str,
+    default_mode: Option<SubscriptionAppProxyMode>,
+    source: &str,
+) -> Vec<SubscriptionAppProxyRule> {
+    let mut rules = Vec::new();
+    for line in payload.lines() {
+        let line = clean_rule_line(line);
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if let Some(value) = split_announce_rule_value(&line, "process-direct")
+            .or_else(|| split_announce_rule_value(&line, "app-direct"))
+        {
+            rules.extend(parse_text_app_rules(
+                value,
+                Some(SubscriptionAppProxyMode::Direct),
+                source,
+            ));
+            continue;
+        }
+        if let Some(value) = split_announce_rule_value(&line, "process-proxy")
+            .or_else(|| split_announce_rule_value(&line, "app-proxy"))
+        {
+            rules.extend(parse_text_app_rules(
+                value,
+                Some(SubscriptionAppProxyMode::Proxy),
+                source,
+            ));
+            continue;
+        }
+        if let Some(value) = split_announce_rule_value(&line, "process-rules")
+            .or_else(|| split_announce_rule_value(&line, "app-rules"))
+        {
+            rules.extend(parse_text_app_rules(value, default_mode, source));
+            continue;
+        }
+
+        if line.to_ascii_uppercase().contains("PROCESS-NAME") {
+            if let Some(rule) = parse_mihomo_process_rule(&line, default_mode, source) {
+                rules.push(rule);
+            }
+            continue;
+        }
+
+        for target in line
+            .split([',', ';'])
+            .map(clean_rule_line)
+            .filter(|item| !item.is_empty())
+        {
+            if app_mode_from_text(&target).is_some() {
+                continue;
+            }
+            if let Some(rule) = make_app_proxy_rule(&target, default_mode.unwrap_or(SubscriptionAppProxyMode::Direct), source) {
+                rules.push(rule);
+            }
+        }
+    }
+    rules
+}
+
+fn parse_mihomo_process_rule(
+    line: &str,
+    default_mode: Option<SubscriptionAppProxyMode>,
+    source: &str,
+) -> Option<SubscriptionAppProxyRule> {
+    let parts = line
+        .split(',')
+        .map(clean_rule_line)
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<_>>();
+    if parts.len() < 2 || !parts[0].eq_ignore_ascii_case("PROCESS-NAME") {
+        return None;
+    }
+    let mode = parts
+        .iter()
+        .skip(2)
+        .find_map(|item| app_mode_from_text(item))
+        .or(default_mode)
+        .unwrap_or(SubscriptionAppProxyMode::Direct);
+    make_app_proxy_rule(&parts[1], mode, source)
+}
+
+fn app_mode_from_text(value: &str) -> Option<SubscriptionAppProxyMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "direct" | "bypass" | "bypasslan" | "bypass_lan" => Some(SubscriptionAppProxyMode::Direct),
+        "proxy" | "vpn" | "proxied" => Some(SubscriptionAppProxyMode::Proxy),
+        _ => None,
+    }
+}
+
+fn make_app_proxy_rule(
+    target: &str,
+    mode: SubscriptionAppProxyMode,
+    source: &str,
+) -> Option<SubscriptionAppProxyRule> {
+    let executable_path = clean_rule_line(target);
+    if executable_path.is_empty() {
+        return None;
+    }
+    let id = format!(
+        "provider-{}-{}",
+        match mode {
+            SubscriptionAppProxyMode::Direct => "direct",
+            SubscriptionAppProxyMode::Proxy => "proxy",
+        },
+        stable_text_id(&executable_path)
+    );
+    Some(SubscriptionAppProxyRule {
+        id,
+        name: executable_name(&executable_path),
+        executable_path,
+        mode,
+        enabled: true,
+        source: Some(source.to_string()),
+    })
+}
+
+fn clean_rule_line(value: &str) -> String {
+    value
+        .trim()
+        .trim_start_matches('-')
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim_matches('[')
+        .trim_matches(']')
+        .trim()
+        .to_string()
+}
+
+fn executable_name(value: &str) -> String {
+    value
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(value)
+        .trim_end_matches(".exe")
+        .trim()
+        .to_string()
+}
+
+fn stable_text_id(value: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.trim().to_ascii_lowercase().hash(&mut hasher);
+    format!("{:x}", hasher.finish())
+}
+
+fn dedupe_app_proxy_rules(
+    rules: Vec<SubscriptionAppProxyRule>,
+) -> Vec<SubscriptionAppProxyRule> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for rule in rules {
+        let key = format!(
+            "{}:{}",
+            match rule.mode {
+                SubscriptionAppProxyMode::Direct => "direct",
+                SubscriptionAppProxyMode::Proxy => "proxy",
+            },
+            rule.executable_path.trim().to_ascii_lowercase().replace('\\', "/")
+        );
+        if seen.insert(key) {
+            out.push(rule);
+        }
+    }
+    out
+}
+
 fn parse_header_value(value: &str) -> Option<String> {
     let raw = value.trim().trim_matches('"');
     if raw.is_empty() {
@@ -1324,6 +2067,119 @@ mod tests {
     }
 
     #[test]
+    fn build_subscription_keeps_same_config_with_different_names() {
+        let servers = parse_aggregate(
+            "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?type=tcp&security=reality&pbk=pub&sid=01#EU%20A\n\
+             vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?type=tcp&security=reality&pbk=pub&sid=01#EU%20B",
+        )
+        .unwrap();
+
+        let subscription = build_subscription("inline", fetched_with_servers(servers), None);
+
+        assert_eq!(subscription.servers.len(), 2);
+        assert_eq!(subscription.servers[0].name, "EU A");
+        assert_eq!(subscription.servers[1].name, "EU B");
+    }
+
+    #[test]
+    fn build_subscription_removes_same_name_and_same_config_duplicate() {
+        let servers = parse_aggregate(
+            "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?type=tcp&security=tls#EU\n\
+             vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?security=tls&type=tcp#EU",
+        )
+        .unwrap();
+
+        let subscription = build_subscription("inline", fetched_with_servers(servers), None);
+
+        assert_eq!(subscription.servers.len(), 1);
+        assert_eq!(subscription.servers[0].name, "EU");
+    }
+
+    #[test]
+    fn build_subscription_removes_same_logical_vless_behind_different_entrypoints() {
+        let servers = parse_aggregate(
+            "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@edge-a.example.com:443?type=tcp&security=reality&flow=xtls-rprx-vision&fp=chrome&pbk=pub&sid=01&sni=edge-a.example.com#Autobalancer\n\
+             vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@edge-b.example.com:1443?type=tcp&security=reality&flow=xtls-rprx-vision&fp=chrome&pbk=pub&sid=01&sni=edge-b.example.com#Autobalancer",
+        )
+        .unwrap();
+
+        let subscription = build_subscription("inline", fetched_with_servers(servers), None);
+
+        assert_eq!(subscription.servers.len(), 1);
+        assert_eq!(subscription.servers[0].name, "Autobalancer");
+    }
+
+    #[test]
+    fn build_subscription_removes_same_named_reality_entries_with_different_keys() {
+        let servers = parse_aggregate(
+            "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@edge-a.example.com:443?type=tcp&security=reality&flow=xtls-rprx-vision&fp=chrome&pbk=pub-a&sid=01&sni=edge-a.example.com#Autobalancer%20%232\n\
+             vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@edge-b.example.com:3443?type=tcp&security=reality&flow=xtls-rprx-vision&fp=chrome&pbk=pub-b&sid=02&sni=example.org#Autobalancer%20%232",
+        )
+        .unwrap();
+
+        let subscription = build_subscription("inline", fetched_with_servers(servers), None);
+
+        assert_eq!(subscription.servers.len(), 1);
+        assert_eq!(subscription.servers[0].name, "Autobalancer #2");
+    }
+
+    #[test]
+    fn build_subscription_keeps_same_name_with_different_transport() {
+        let servers = parse_aggregate(
+            "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@edge-a.example.com:443?type=tcp&security=reality&flow=xtls-rprx-vision&fp=chrome&pbk=pub&sid=01#Autobalancer\n\
+             vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@edge-b.example.com:443?type=ws&security=tls&path=%2Fchats%2F&fp=chrome#Autobalancer",
+        )
+        .unwrap();
+
+        let subscription = build_subscription("inline", fetched_with_servers(servers), None);
+
+        assert_eq!(subscription.servers.len(), 2);
+    }
+
+    #[test]
+    fn build_subscription_removes_same_logical_shadowsocks_behind_different_entrypoints() {
+        let servers = parse_aggregate(
+            "ss://aes-256-gcm:secret-pass@edge-a.example.com:8388#Shadow\n\
+             ss://aes-256-gcm:secret-pass@edge-b.example.com:8388#Shadow",
+        )
+        .unwrap();
+
+        let subscription = build_subscription("inline", fetched_with_servers(servers), None);
+
+        assert_eq!(subscription.servers.len(), 1);
+        assert_eq!(subscription.servers[0].name, "Shadow");
+    }
+
+    #[test]
+    fn build_subscription_keeps_same_name_with_different_config() {
+        let servers = parse_aggregate(
+            "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@a.example.com:443?type=tcp&security=tls#EU\n\
+             vless://bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee@b.example.com:443?type=tcp&security=tls#EU",
+        )
+        .unwrap();
+
+        let subscription = build_subscription("inline", fetched_with_servers(servers), None);
+
+        assert_eq!(subscription.servers.len(), 2);
+    }
+
+    #[test]
+    fn dedupe_subscription_servers_reports_removed_server_alias() {
+        let mut servers = parse_aggregate(
+            "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?type=tcp&security=tls#Node\n\
+             vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?security=tls&type=tcp#Node",
+        )
+        .unwrap();
+        let removed_id = servers[1].id.clone();
+        let kept_id = servers[0].id.clone();
+
+        let aliases = dedupe_subscription_servers(&mut servers);
+
+        assert_eq!(servers.len(), 1);
+        assert_eq!(aliases.get(&removed_id), Some(&kept_id));
+    }
+
+    #[test]
     fn remnawave_remark_is_not_used_as_server_description() {
         let mut servers = parse_aggregate(
             "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?type=tcp&security=tls#Node-1",
@@ -1485,6 +2341,89 @@ mod tests {
             servers[0].server_description.as_deref(),
             Some("Описание с meta.hostUuid")
         );
+    }
+
+    #[test]
+    fn parses_provider_app_rules_from_plain_header_value() {
+        let rules = parse_provider_app_rule_payload(
+            "firefox.exe, chrome.exe\nPROCESS-NAME,steam.exe,DIRECT",
+            Some(SubscriptionAppProxyMode::Direct),
+            "process-direct",
+        );
+
+        assert_eq!(rules.len(), 3);
+        assert!(rules.iter().all(|rule| rule.mode == SubscriptionAppProxyMode::Direct));
+        assert!(rules.iter().any(|rule| rule.executable_path == "steam.exe"));
+    }
+
+    #[test]
+    fn parses_inline_process_direct_header_syntax() {
+        let rules = parse_provider_app_rule_payload(
+            "process-direct opera.exe\nprocess-proxy only-vpn.exe",
+            None,
+            "announce",
+        );
+
+        assert!(rules.iter().any(|rule| {
+            rule.executable_path == "opera.exe" && rule.mode == SubscriptionAppProxyMode::Direct
+        }));
+        assert!(rules.iter().any(|rule| {
+            rule.executable_path == "only-vpn.exe" && rule.mode == SubscriptionAppProxyMode::Proxy
+        }));
+    }
+
+    #[test]
+    fn finds_inline_process_rules_in_unknown_headers() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "x-provider-note",
+            reqwest::header::HeaderValue::from_static("process-direct opera.exe"),
+        );
+
+        let values = inline_app_rule_header_values(&headers);
+
+        assert_eq!(values, vec!["process-direct opera.exe"]);
+    }
+
+    #[test]
+    fn parses_provider_app_rules_from_json_payload() {
+        let payload = r#"{
+            "proxies": [
+                { "appNames": ["discord.exe", "C:\\Games\\Launcher"] },
+                { "mode": "proxy", "appNames": ["only-vpn.exe"] }
+            ],
+            "processProxy": ["proxy-tool.exe"]
+        }"#;
+
+        let rules = parse_provider_app_rule_payload(
+            payload,
+            Some(SubscriptionAppProxyMode::Direct),
+            "https://example.com/apps.json",
+        );
+
+        assert!(rules.iter().any(|rule| {
+            rule.executable_path == "discord.exe" && rule.mode == SubscriptionAppProxyMode::Direct
+        }));
+        assert!(rules.iter().any(|rule| {
+            rule.executable_path == "only-vpn.exe" && rule.mode == SubscriptionAppProxyMode::Proxy
+        }));
+        assert!(rules.iter().any(|rule| {
+            rule.executable_path == "proxy-tool.exe" && rule.mode == SubscriptionAppProxyMode::Proxy
+        }));
+    }
+
+    fn fetched_with_servers(servers: Vec<Server>) -> Fetched {
+        Fetched {
+            raw_body: String::new(),
+            servers,
+            info: None,
+            suggested_name: None,
+            description: None,
+            support_url: None,
+            website_url: None,
+            app_proxy_rules: Vec::new(),
+            xray_templates: HashMap::new(),
+        }
     }
 
     #[test]

@@ -4,6 +4,7 @@ import { Home } from "./pages/Home";
 import { Subscriptions } from "./pages/Subscriptions";
 import { Servers } from "./pages/Servers";
 import { Applications } from "./pages/Applications";
+import { Connections } from "./pages/Connections";
 import { Routing } from "./pages/Routing";
 import { Statistics } from "./pages/Statistics";
 import { TunnelLogs } from "./pages/TunnelLogs";
@@ -24,6 +25,7 @@ const navItems = [
   { to: "/subscriptions", key: "profiles", icon: "globe", end: false, compactHide: false },
   { to: "/routing", key: "routing", icon: "route", end: false, compactHide: true },
   { to: "/apps", key: "apps", icon: "phone", end: false, compactHide: false },
+  { to: "/connections", key: "connections", icon: "connections", end: false, compactHide: true },
   { to: "/statistics", key: "statistics", icon: "stats", end: false, compactHide: true },
   { to: "/tunnel-logs", key: "tunnelLogs", icon: "logs", end: false, compactHide: true },
   { to: "/settings", key: "settings", icon: "settings", end: false, compactHide: false },
@@ -36,6 +38,7 @@ export default function App() {
   const activeServerId = useAppStore((s) => s.activeServerId);
   const connectServer = useAppStore((s) => s.connectServer);
   const hydrate = useAppStore((s) => s.hydrate);
+  const refreshSubscription = useAppStore((s) => s.refreshSubscription);
   const conflictDialogOpen = useAppStore((s) => s.conflictDialogOpen);
   const conflictingProcesses = useAppStore((s) => s.conflictingProcesses);
   const conflictStopping = useAppStore((s) => s.conflictStopping);
@@ -55,6 +58,8 @@ export default function App() {
   const updateStartupScheduled = useRef(false);
   const updateRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const checkUpdatesOnLaunch = useRef(preferences.check_updates_on_launch);
+  const lastAwakeTick = useRef(Date.now());
+  const resumeReconnectInFlight = useRef(false);
   const [startupUpdate, setStartupUpdate] = useState<AppUpdateInfo | null>(null);
   const m = useMessages();
 
@@ -73,10 +78,30 @@ export default function App() {
       void api.pingServers(serverIds).then(() => hydrate()).catch(() => undefined);
     }
 
+    if (preferences.subscriptions_update_on_launch) {
+      const remoteSubscriptions = subscriptions.filter((sub) => /^https?:\/\//i.test(sub.url));
+      void Promise.allSettled(remoteSubscriptions.map((sub) => refreshSubscription(sub.url)))
+        .then(async () => {
+          if (!preferences.subscriptions_ping_after_update) return;
+          const refreshedIds = useAppStore
+            .getState()
+            .subscriptions
+            .flatMap((sub) => sub.servers.map((server) => server.id));
+          if (refreshedIds.length) {
+            await api.pingServers(refreshedIds).catch(() => undefined);
+            await hydrate();
+          }
+        })
+        .catch(() => undefined);
+    }
+
     void (async () => {
-      const usesTun =
-        status.connection_mode === "tun" || status.connection_mode === "both";
-      const conflicts = usesTun ? await scanConflictingProcesses() : [];
+      const conflicts = await scanConflictingProcesses().catch(() => []);
+      if (conflicts.length === 0) {
+        window.setTimeout(() => {
+          void scanConflictingProcesses().catch(() => []);
+        }, 1500);
+      }
 
       if (
         conflicts.length === 0 &&
@@ -87,7 +112,51 @@ export default function App() {
         await connectServer(activeServerId).catch(() => undefined);
       }
     })();
-  }, [activeServerId, connectServer, hydrate, preferences.auto_connect_on_launch, preferences.ping_on_launch, scanConflictingProcesses, status, subscriptions]);
+  }, [activeServerId, connectServer, hydrate, preferences.auto_connect_on_launch, preferences.ping_on_launch, preferences.subscriptions_ping_after_update, preferences.subscriptions_update_on_launch, refreshSubscription, scanConflictingProcesses, status, subscriptions]);
+
+  useEffect(() => {
+    if (!preferences.subscriptions_auto_update) return;
+    const intervalMs = preferences.subscriptions_update_interval_hours * 60 * 60 * 1000;
+    const timer = window.setInterval(() => {
+      const remoteSubscriptions = useAppStore
+        .getState()
+        .subscriptions
+        .filter((sub) => /^https?:\/\//i.test(sub.url));
+      void Promise.allSettled(remoteSubscriptions.map((sub) => refreshSubscription(sub.url)))
+        .then(async () => {
+          if (!preferences.subscriptions_ping_after_update) return;
+          const serverIds = useAppStore
+            .getState()
+            .subscriptions
+            .flatMap((sub) => sub.servers.map((server) => server.id));
+          if (serverIds.length) {
+            await api.pingServers(serverIds).catch(() => undefined);
+            await hydrate();
+          }
+        })
+        .catch(() => undefined);
+    }, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [hydrate, preferences.subscriptions_auto_update, preferences.subscriptions_ping_after_update, preferences.subscriptions_update_interval_hours, refreshSubscription]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      const gap = now - lastAwakeTick.current;
+      lastAwakeTick.current = now;
+      if (gap < 30000 || resumeReconnectInFlight.current) return;
+
+      const state = useAppStore.getState();
+      if (state.status?.state !== "connected" || !state.activeServerId) return;
+      resumeReconnectInFlight.current = true;
+      void state.connectServer(state.activeServerId)
+        .catch(() => state.hydrate())
+        .finally(() => {
+          resumeReconnectInFlight.current = false;
+        });
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (
@@ -198,7 +267,7 @@ export default function App() {
           <div className="app-brand px-5 pt-5 pb-4">
             <div className="app-brand-lockup">
               <img src={nimboLogo} alt="" className="app-brand-logo" aria-hidden="true" />
-              <div className="text-lg font-semibold tracking-tight bg-gradient-to-r from-[var(--color-accent-bright)] to-[var(--color-status-connected)] bg-clip-text text-transparent">
+              <div className="text-[15px] font-semibold tracking-tight text-[var(--color-text)]">
                 Nimbo
               </div>
             </div>
@@ -212,11 +281,11 @@ export default function App() {
                 data-compact-hide={item.compactHide ? "true" : undefined}
                 className={({ isActive }) =>
                   [
-                    "app-nav-link block px-4 py-3 my-0.5 rounded-xl text-sm transition-all",
+                    "app-nav-link block px-3 py-2.5 my-0.5 rounded-lg text-[13px] transition-colors",
                     item.compactHide ? "app-nav-link-secondary" : "",
                     isActive
-                      ? "border-[var(--color-border-strong)] bg-[rgba(255,255,255,0.055)] text-[var(--color-text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_18px_var(--color-glow-accent)]"
-                      : "text-[var(--color-text-dim)] hover:border-[var(--color-border)] hover:text-[var(--color-text)] hover:bg-[rgba(255,255,255,0.035)]",
+                      ? "app-nav-link-active text-[var(--color-text)]"
+                      : "text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:bg-[color-mix(in_srgb,var(--color-text)_4%,transparent)]",
                   ].join(" ")
                 }
               >
@@ -227,7 +296,7 @@ export default function App() {
             ))}
           </nav>
           <div className="app-build px-5 py-4 text-[10px] text-[var(--color-text-faint)] font-mono uppercase tracking-wider">
-            v0.1.0
+            v1.0.0
           </div>
         </div>
       </aside>
@@ -248,6 +317,7 @@ export default function App() {
           <Route path="/subscriptions/:url" element={<Servers />} />
           <Route path="/routing" element={<Routing />} />
           <Route path="/apps" element={<Applications />} />
+          <Route path="/connections" element={<Connections />} />
           <Route path="/statistics" element={<Statistics />} />
           <Route path="/tunnel-logs" element={<TunnelLogs />} />
           <Route path="/settings" element={<Settings />} />
@@ -450,6 +520,7 @@ function navLabel(labels: Messages["app"], key: string, short: boolean): string 
   if (key === "profiles") return labels.profiles;
   if (key === "routing") return short ? labels.routingShort : labels.routing;
   if (key === "apps") return short ? labels.appsShort : labels.apps;
+  if (key === "connections") return short ? labels.connectionsShort : labels.connections;
   if (key === "statistics") return short ? labels.statisticsShort : labels.statistics;
   if (key === "tunnelLogs") return short ? labels.tunnelLogsShort : labels.tunnelLogs;
   return labels.settings;
@@ -467,6 +538,7 @@ function applyVisualPreferences(preferences: AppPreferences) {
     const isBlackTheme = resolvedTheme === "black";
     document.documentElement.lang = preferences.language;
     document.body.dataset.theme = resolvedTheme;
+    document.body.dataset.uiStyle = preferences.ui_style;
 
     const accent = preferences.accent_mode === "system"
       ? readSystemAccentColor()
@@ -491,6 +563,8 @@ function applyVisualPreferences(preferences: AppPreferences) {
     root.style.setProperty("--color-bg-aura-1", bgAura1);
     root.style.setProperty("--color-bg-aura-2", bgAura2);
     root.style.setProperty("--color-bg-aura-3", bgAura3);
+    root.style.setProperty("--app-ui-scale", String(preferences.servers_ui_scale / 100));
+    document.body.style.setProperty("zoom", String(preferences.servers_ui_scale / 100));
   };
 
   apply();
@@ -701,6 +775,16 @@ function NavIcon({ name }: { name: string }) {
         <circle cx="18" cy="5" r="2.4" />
         <path d="M16.6 6.4 7.4 17.6" />
         <path d="M8 7h5a3 3 0 0 1 0 6h-2a3 3 0 0 0 0 6h5" />
+      </svg>
+    );
+  }
+  if (name === "connections") {
+    return (
+      <svg {...common}>
+        <path d="M4 7h16M4 12h16M4 17h16" />
+        <circle cx="8" cy="7" r="1.5" />
+        <circle cx="14" cy="12" r="1.5" />
+        <circle cx="10" cy="17" r="1.5" />
       </svg>
     );
   }

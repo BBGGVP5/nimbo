@@ -20,6 +20,13 @@ const NIMBO_UA_FALLBACK = "Nimbo/0.1.0";
 const HAPP_UA = "Happ/2.0.0";
 const INCY_UA = "Incy/2.1.0";
 const APP_VERSION = "0.1.0";
+const SOCKS_USERNAME_FALLBACK = "nimbo";
+const SOCKS_PASSWORD_FALLBACK = "nmb-preview-password";
+
+function withFallback(value: string | null | undefined, fallback: string): string {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : fallback;
+}
 
 type UaMode = "default" | "happ" | "incy" | "custom";
 type SettingsSection =
@@ -84,7 +91,6 @@ export function Settings() {
   const [refreshingSubscriptions, setRefreshingSubscriptions] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
-  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   const connectionMode = status?.connection_mode ?? "tun";
 
   const updatePreferences = async (patch: Partial<AppPreferences>) => {
@@ -129,21 +135,6 @@ export function Settings() {
       setCopied(true);
       notifyInfo(m.settings.hwidCopied);
       setTimeout(() => setCopied(false), 1500);
-    } catch (e) {
-      notifyError(String(e));
-    }
-  };
-
-  const onResetHwid = async () => {
-    setConfirmResetOpen(true);
-  };
-
-  const confirmResetHwid = async () => {
-    try {
-      const next = await api.resetDeviceId();
-      setDevice(next);
-      notifyInfo(m.settings.hwidReset);
-      setConfirmResetOpen(false);
     } catch (e) {
       notifyError(String(e));
     }
@@ -262,6 +253,10 @@ export function Settings() {
           <span className="settings-tools-icon"><RouteIcon /></span>
           <span className="settings-tools-label">{m.app.routing}</span>
         </Link>
+        <Link to="/connections" className="settings-tools-item interactive">
+          <span className="settings-tools-icon"><ConnectionsIcon /></span>
+          <span className="settings-tools-label">{m.app.connections}</span>
+        </Link>
         <Link to="/statistics" className="settings-tools-item interactive">
           <span className="settings-tools-icon"><StatsBarsIcon /></span>
           <span className="settings-tools-label">{m.app.statistics}</span>
@@ -309,18 +304,31 @@ export function Settings() {
               mode={connectionMode}
               socksPort={status?.socks_port ?? 10808}
               httpPort={status?.http_port ?? 10809}
-              socksUsername={status?.socks_username ?? "nimbo"}
-              socksPassword={status?.socks_password ?? "nmb-preview-password"}
+              socksUsername={withFallback(status?.socks_username, SOCKS_USERNAME_FALLBACK)}
+              socksPassword={withFallback(status?.socks_password, SOCKS_PASSWORD_FALLBACK)}
               requireSocksAuth={status?.require_socks_auth ?? false}
               blockSocksUdp={status?.block_socks_udp ?? false}
+              killSwitch={preferences.connection_kill_switch}
               onMode={updateConnectionMode}
               onProxySettings={updateProxySettings}
+              onPreferences={updatePreferences}
             />
           )}
-          {section === "tunnel" && <TunnelSection />}
-          {section === "lan" && <LanSection />}
+          {section === "tunnel" && (
+            <TunnelSection
+              preferences={preferences}
+              onChange={updatePreferences}
+            />
+          )}
+          {section === "lan" && (
+            <LanSection
+              preferences={preferences}
+              onChange={updatePreferences}
+            />
+          )}
           {section === "subscriptions" && (
             <SubscriptionsSection
+              preferences={preferences}
               mode={mode}
               customUa={customUa}
               override={override}
@@ -328,19 +336,25 @@ export function Settings() {
               savingUa={savingUa}
               deviceUa={defaultUa}
               refreshingSubscriptions={refreshingSubscriptions}
+              onChange={updatePreferences}
               onMode={applyUa}
               onCustomUa={setCustomUa}
               onRefreshSubscriptions={refreshRemoteSubscriptions}
             />
           )}
-          {section === "servers" && <ServersSection />}
+          {section === "servers" && (
+            <ServersSection
+              preferences={preferences}
+              onChange={updatePreferences}
+            />
+          )}
           {section === "latency" && (
             <LatencySection
               preferences={preferences}
               onChange={updatePreferences}
             />
           )}
-          {section === "backup" && <BackupSection />}
+          {section === "backup" && <BackupSection onImported={hydrate} />}
           {section === "updates" && (
             <UpdatesSection
               preferences={preferences}
@@ -356,20 +370,10 @@ export function Settings() {
               device={device}
               copied={copied}
               onCopyHwid={onCopyHwid}
-              onResetHwid={onResetHwid}
             />
           )}
         </main>
       </div>
-      {confirmResetOpen && (
-        <SettingsConfirmDialog
-          title={m.settings.resetHwidTitle}
-          description={m.settings.resetHwidDescription}
-          confirmLabel={m.settings.reset}
-          onConfirm={confirmResetHwid}
-          onClose={() => setConfirmResetOpen(false)}
-        />
-      )}
     </div>
   );
 }
@@ -485,6 +489,27 @@ function AppearanceSection({
   return (
     <Section title={m.settings.appearance}>
       <SettingsCard>
+        <div className="settings-row settings-row-block">
+          <div>
+            <div className="settings-row-title">{m.settings.interfaceStyle}</div>
+            <div className="settings-row-description">{m.settings.interfaceStyleDescription}</div>
+          </div>
+        </div>
+        <div className="settings-segment px-6 pb-4">
+          <ModeOption
+            title={m.settings.nebulaStyle}
+            subtitle={m.settings.nebulaStyleSubtitle}
+            selected={preferences.ui_style === "nebula"}
+            onClick={() => onChange({ ui_style: "nebula" })}
+          />
+          <ModeOption
+            title={m.settings.materialYouStyle}
+            subtitle={m.settings.materialYouStyleSubtitle}
+            selected={preferences.ui_style === "material_you"}
+            onClick={() => onChange({ ui_style: "material_you" })}
+          />
+        </div>
+
         <div className="settings-row settings-row-block">
           <div>
             <div className="settings-row-title">{m.settings.theme}</div>
@@ -613,8 +638,10 @@ function ConnectionSection({
   socksPassword,
   requireSocksAuth,
   blockSocksUdp,
+  killSwitch,
   onMode,
   onProxySettings,
+  onPreferences,
 }: {
   mode: ConnectionMode;
   socksPort: number;
@@ -623,12 +650,26 @@ function ConnectionSection({
   socksPassword: string;
   requireSocksAuth: boolean;
   blockSocksUdp: boolean;
+  killSwitch: boolean;
   onMode: (mode: ConnectionMode) => Promise<void>;
   onProxySettings: (settings: ProxySettingsPatch) => Promise<void>;
+  onPreferences: (patch: Partial<AppPreferences>) => Promise<void>;
 }) {
   const m = useMessages();
+  const [socksUsernameDraft, setSocksUsernameDraft] = useState(socksUsername);
+  const [socksPasswordDraft, setSocksPasswordDraft] = useState(socksPassword);
   const systemProxyOn = mode === "system_proxy" || mode === "both";
   const tunOn = mode === "tun" || mode === "both";
+  const httpProxy = `127.0.0.1:${httpPort}`;
+  const socksProxy = `127.0.0.1:${socksPort}`;
+
+  useEffect(() => {
+    setSocksUsernameDraft(socksUsername);
+  }, [socksUsername]);
+
+  useEffect(() => {
+    setSocksPasswordDraft(socksPassword);
+  }, [socksPassword]);
 
   const toggleSystemProxy = (next: boolean) => {
     const nextMode: ConnectionMode = next
@@ -665,7 +706,7 @@ function ConnectionSection({
         </div>
         <ToggleRow
           label="System Proxy"
-          description={`HTTP 127.0.0.1:${httpPort} · SOCKS 127.0.0.1:${socksPort}`}
+          description={`HTTP ${httpProxy} · SOCKS ${socksProxy}`}
           enabled={systemProxyOn}
           onToggle={toggleSystemProxy}
         />
@@ -675,23 +716,41 @@ function ConnectionSection({
           enabled={tunOn}
           onToggle={toggleTun}
         />
-        <ToggleRow label="Kill switch" />
+        <ToggleRow
+          label="Kill switch"
+          enabled={killSwitch}
+          onToggle={(connection_kill_switch) => onPreferences({ connection_kill_switch })}
+        />
       </SettingsCard>
       <SettingsCard>
-        <ValueRow label="HTTP proxy" value={`127.0.0.1:${httpPort}`} mono />
-        <ValueRow label="SOCKS5 proxy" value={`127.0.0.1:${socksPort}`} mono />
-        <CopyValueRow
+        <ValueRow label="HTTP proxy" value={httpProxy} copyValue={httpProxy} mono />
+        <ValueRow label="SOCKS5 proxy" value={socksProxy} copyValue={socksProxy} mono />
+        <SettingsInputRow
           label={m.settings.socksUsername}
-          value={socksUsername}
-          fallback="nimbo"
-          mono
+          value={socksUsernameDraft}
+          copyValue={socksUsernameDraft}
+          compact
+          inputMode="text"
+          onChange={setSocksUsernameDraft}
+          onCommit={() => {
+            const next = socksUsernameDraft.trim() || SOCKS_USERNAME_FALLBACK;
+            setSocksUsernameDraft(next);
+            if (next !== socksUsername) void onProxySettings({ socks_username: next });
+          }}
         />
-        <CopyValueRow
+        <SettingsInputRow
           label={m.settings.socksPassword}
-          value={socksPassword}
-          fallback="nmb-preview-password"
-          masked
-          mono
+          value={socksPasswordDraft}
+          copyValue={socksPasswordDraft}
+          compact
+          inputMode="text"
+          type="password"
+          onChange={setSocksPasswordDraft}
+          onCommit={() => {
+            const next = socksPasswordDraft.trim() || SOCKS_PASSWORD_FALLBACK;
+            setSocksPasswordDraft(next);
+            if (next !== socksPassword) void onProxySettings({ socks_password: next });
+          }}
         />
         <ToggleRow
           label={m.settings.requireSocksAuth}
@@ -710,42 +769,134 @@ function ConnectionSection({
   );
 }
 
-function TunnelSection() {
+function TunnelSection({
+  preferences,
+  onChange,
+}: {
+  preferences: AppPreferences;
+  onChange: (patch: Partial<AppPreferences>) => Promise<void>;
+}) {
   const m = useMessages();
   return (
     <Section title={m.settings.tunnel}>
       <SettingsCard>
-        <ToggleRow label={m.settings.sniffing} description={m.settings.sniffingDescription} enabled />
-        <ToggleRow label="Mux" description={m.settings.muxDescription} />
-        <ValueRow label="Mux concurrency" value="8" muted />
-        <ValueRow label="xUDP concurrency" value="-1" description="-1 — выкл, 0+ — включён" muted />
-        <ValueRow label="xUDP UDP/443" value="Reject" muted />
-        <ToggleRow label={m.settings.tlsFragmentation} description={m.settings.tlsFragmentationDescription} />
+        <ToggleRow
+          label={m.settings.sniffing}
+          description={m.settings.sniffingDescription}
+          enabled={preferences.tunnel_sniffing}
+          onToggle={(tunnel_sniffing) => onChange({ tunnel_sniffing })}
+        />
+        <ToggleRow
+          label="Mux"
+          description={m.settings.muxDescription}
+          enabled={preferences.tunnel_mux_enabled}
+          onToggle={(tunnel_mux_enabled) => onChange({ tunnel_mux_enabled })}
+        />
+        <NumberPreferenceRow
+          label="Mux concurrency"
+          value={preferences.tunnel_mux_concurrency}
+          min={1}
+          max={1024}
+          onCommit={(tunnel_mux_concurrency) => onChange({ tunnel_mux_concurrency })}
+        />
+        <NumberPreferenceRow
+          label="xUDP concurrency"
+          description="-1 — выкл, 0+ — включён"
+          value={preferences.tunnel_xudp_concurrency}
+          min={-1}
+          max={1024}
+          onCommit={(tunnel_xudp_concurrency) => onChange({ tunnel_xudp_concurrency })}
+        />
+        <SettingsChoiceRow
+          label="xUDP UDP/443"
+          value={preferences.tunnel_xudp_udp443}
+          options={[
+            { value: "reject", label: "Reject" },
+            { value: "allow", label: "Allow" },
+            { value: "skip", label: "Skip" },
+          ]}
+          onChange={(tunnel_xudp_udp443) => onChange({ tunnel_xudp_udp443 })}
+        />
+        <ToggleRow
+          label={m.settings.tlsFragmentation}
+          description={m.settings.tlsFragmentationDescription}
+          enabled={preferences.tunnel_tls_fragmentation}
+          onToggle={(tunnel_tls_fragmentation) => onChange({ tunnel_tls_fragmentation })}
+        />
       </SettingsCard>
     </Section>
   );
 }
 
-function LanSection() {
+function LanSection({
+  preferences,
+  onChange,
+}: {
+  preferences: AppPreferences;
+  onChange: (patch: Partial<AppPreferences>) => Promise<void>;
+}) {
   const m = useMessages();
   return (
     <Section title={m.settings.lan}>
       <SettingsCard>
-        <ToggleRow label={m.settings.allowLan} description={m.settings.allowLanDescription} enabled />
-        <ToggleRow label={m.settings.allowTethering} description={m.settings.allowTetheringDescription} />
-        <ToggleRow label={m.settings.lanProxy} description={m.settings.lanProxyDescription} />
+        <ToggleRow
+          label={m.settings.allowLan}
+          description={m.settings.allowLanDescription}
+          enabled={preferences.lan_allow_connections}
+          onToggle={(lan_allow_connections) => onChange({ lan_allow_connections })}
+        />
+        <ToggleRow
+          label={m.settings.allowTethering}
+          description={m.settings.allowTetheringDescription}
+          enabled={preferences.lan_allow_tethering}
+          onToggle={(lan_allow_tethering) => onChange({ lan_allow_tethering })}
+        />
+        <ToggleRow
+          label={m.settings.lanProxy}
+          description={m.settings.lanProxyDescription}
+          enabled={preferences.lan_proxy_enabled}
+          onToggle={(lan_proxy_enabled) => onChange({ lan_proxy_enabled })}
+        />
       </SettingsCard>
       <SettingsCard>
-        <ValueRow label={m.settings.tcpIdleTimeout} value="60" />
-        <ValueRow label={m.settings.maxTcp} value="256" />
-        <ValueRow label={m.settings.maxUdp} value="128" />
-        <ValueRow label={m.settings.preferredIpFamily} value={m.profiles.auto} />
+        <NumberPreferenceRow
+          label={m.settings.tcpIdleTimeout}
+          value={preferences.lan_tcp_idle_timeout_sec}
+          min={5}
+          max={3600}
+          onCommit={(lan_tcp_idle_timeout_sec) => onChange({ lan_tcp_idle_timeout_sec })}
+        />
+        <NumberPreferenceRow
+          label={m.settings.maxTcp}
+          value={preferences.lan_max_tcp_connections}
+          min={1}
+          max={100000}
+          onCommit={(lan_max_tcp_connections) => onChange({ lan_max_tcp_connections })}
+        />
+        <NumberPreferenceRow
+          label={m.settings.maxUdp}
+          value={preferences.lan_max_udp_connections}
+          min={1}
+          max={100000}
+          onCommit={(lan_max_udp_connections) => onChange({ lan_max_udp_connections })}
+        />
+        <SettingsChoiceRow
+          label={m.settings.preferredIpFamily}
+          value={preferences.lan_preferred_ip_family}
+          options={[
+            { value: "auto", label: m.profiles.auto },
+            { value: "ipv4", label: "IPv4" },
+            { value: "ipv6", label: "IPv6" },
+          ]}
+          onChange={(lan_preferred_ip_family) => onChange({ lan_preferred_ip_family })}
+        />
       </SettingsCard>
     </Section>
   );
 }
 
 function SubscriptionsSection({
+  preferences,
   mode,
   customUa,
   override,
@@ -753,10 +904,12 @@ function SubscriptionsSection({
   savingUa,
   deviceUa,
   refreshingSubscriptions,
+  onChange,
   onMode,
   onCustomUa,
   onRefreshSubscriptions,
 }: {
+  preferences: AppPreferences;
   mode: UaMode;
   customUa: string;
   override: string | null;
@@ -764,6 +917,7 @@ function SubscriptionsSection({
   savingUa: boolean;
   deviceUa: string;
   refreshingSubscriptions: boolean;
+  onChange: (patch: Partial<AppPreferences>) => Promise<void>;
   onMode: (mode: UaMode, custom?: string) => Promise<void>;
   onCustomUa: (value: string) => void;
   onRefreshSubscriptions: () => Promise<void>;
@@ -772,13 +926,47 @@ function SubscriptionsSection({
   return (
     <Section title={m.settings.subscriptions}>
       <SettingsCard>
-        <ToggleRow label={m.settings.autoUpdateSubscriptions} enabled />
-        <ValueRow label={m.settings.updateInterval} value="6 h" />
-        <ToggleRow label={m.settings.notifyExpiration} enabled />
-        <ValueRow label={m.settings.daysLeftThreshold} value="3 d" />
-        <ToggleRow label={m.settings.notifySubscriptionUpdate} enabled />
-        <ToggleRow label={m.settings.updateOnLaunch} />
-        <ToggleRow label={m.settings.pingAfterUpdate} />
+        <ToggleRow
+          label={m.settings.autoUpdateSubscriptions}
+          enabled={preferences.subscriptions_auto_update}
+          onToggle={(subscriptions_auto_update) => onChange({ subscriptions_auto_update })}
+        />
+        <NumberPreferenceRow
+          label={m.settings.updateInterval}
+          value={preferences.subscriptions_update_interval_hours}
+          min={1}
+          max={168}
+          suffix="h"
+          onCommit={(subscriptions_update_interval_hours) => onChange({ subscriptions_update_interval_hours })}
+        />
+        <ToggleRow
+          label={m.settings.notifyExpiration}
+          enabled={preferences.subscriptions_notify_expiration}
+          onToggle={(subscriptions_notify_expiration) => onChange({ subscriptions_notify_expiration })}
+        />
+        <NumberPreferenceRow
+          label={m.settings.daysLeftThreshold}
+          value={preferences.subscriptions_expiration_threshold_days}
+          min={1}
+          max={365}
+          suffix="d"
+          onCommit={(subscriptions_expiration_threshold_days) => onChange({ subscriptions_expiration_threshold_days })}
+        />
+        <ToggleRow
+          label={m.settings.notifySubscriptionUpdate}
+          enabled={preferences.subscriptions_notify_updates}
+          onToggle={(subscriptions_notify_updates) => onChange({ subscriptions_notify_updates })}
+        />
+        <ToggleRow
+          label={m.settings.updateOnLaunch}
+          enabled={preferences.subscriptions_update_on_launch}
+          onToggle={(subscriptions_update_on_launch) => onChange({ subscriptions_update_on_launch })}
+        />
+        <ToggleRow
+          label={m.settings.pingAfterUpdate}
+          enabled={preferences.subscriptions_ping_after_update}
+          onToggle={(subscriptions_ping_after_update) => onChange({ subscriptions_ping_after_update })}
+        />
       </SettingsCard>
 
       <SettingsCard>
@@ -835,15 +1023,50 @@ function SubscriptionsSection({
   );
 }
 
-function ServersSection() {
+function ServersSection({
+  preferences,
+  onChange,
+}: {
+  preferences: AppPreferences;
+  onChange: (patch: Partial<AppPreferences>) => Promise<void>;
+}) {
   const m = useMessages();
   return (
     <Section title={m.settings.servers}>
       <SettingsCard>
-        <ValueRow label={m.settings.serverSorting} value={m.profiles.provider} />
-        <ValueRow label={m.settings.connectButton} value={m.profiles.classic} />
-        <ValueRow label={m.settings.uiScale} value="100%" />
-        <ToggleRow label='Кнопка "proxy-only"' />
+        <SettingsChoiceRow
+          label={m.settings.serverSorting}
+          value={preferences.servers_sorting}
+          options={[
+            { value: "provider", label: m.settings.serverSortProvider },
+            { value: "name", label: m.home.sortName },
+            { value: "ping", label: m.home.sortPing.replace(" ↑", "") },
+            { value: "protocol", label: m.home.sortProtocol },
+          ]}
+          onChange={(servers_sorting) => onChange({ servers_sorting })}
+        />
+        <SettingsChoiceRow
+          label={m.settings.connectButton}
+          value={preferences.servers_connect_button}
+          options={[
+            { value: "classic", label: m.profiles.classic },
+            { value: "compact", label: m.settings.compact },
+          ]}
+          onChange={(servers_connect_button) => onChange({ servers_connect_button })}
+        />
+        <NumberPreferenceRow
+          label={m.settings.uiScale}
+          value={preferences.servers_ui_scale}
+          min={80}
+          max={125}
+          suffix="%"
+          onCommit={(servers_ui_scale) => onChange({ servers_ui_scale })}
+        />
+        <ToggleRow
+          label={m.settings.proxyOnlyButton}
+          enabled={preferences.servers_proxy_only_button}
+          onToggle={(servers_proxy_only_button) => onChange({ servers_proxy_only_button })}
+        />
       </SettingsCard>
     </Section>
   );
@@ -892,24 +1115,26 @@ function LatencySection({
   return (
     <Section title={m.settings.latency}>
       <SettingsCard>
-        <div className="flex items-center justify-between gap-3 py-2">
-          <span className="text-sm font-medium text-[var(--color-text)]">{m.settings.protocol}</span>
-          <div className="flex flex-col items-end gap-1">
-            <span className="rounded-full bg-[var(--color-accent-active-bg)] px-3 py-1 text-xs font-bold text-[var(--color-accent-bright)]">
-              {m.settings.latencyTcpConnect}
-            </span>
-            <span className="text-[10px] text-[var(--color-text-faint)]">
-              Другие протоколы пока не поддерживаются
-            </span>
-          </div>
-        </div>
-        <SettingsInputRow
-          label={m.settings.testUrl}
-          value={testUrlDraft}
-          inputMode="url"
-          onChange={setTestUrlDraft}
-          onCommit={saveTestUrl}
+        <SettingsChoiceRow
+          label={m.settings.protocol}
+          description={m.settings.latencyProtocolDescription}
+          value={preferences.latency_protocol}
+          options={[
+            { value: "tcp_connect", label: m.settings.latencyTcpConnect },
+            { value: "icmp", label: m.settings.latencyIcmp },
+            { value: "http_head", label: m.settings.latencyHttpHead },
+          ]}
+          onChange={(latency_protocol) => onChange({ latency_protocol })}
         />
+        {preferences.latency_protocol === "http_head" && (
+          <SettingsInputRow
+            label={m.settings.testUrl}
+            value={testUrlDraft}
+            inputMode="url"
+            onChange={setTestUrlDraft}
+            onCommit={saveTestUrl}
+          />
+        )}
         <SettingsInputRow
           label={m.settings.timeoutMs}
           value={timeoutDraft}
@@ -931,24 +1156,75 @@ function LatencySection({
   );
 }
 
-function BackupSection() {
+function BackupSection({ onImported }: { onImported: () => Promise<void> }) {
   const m = useMessages();
+  const [password, setPassword] = useState("");
+  const [payload, setPayload] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const exportBackup = async () => {
+    setBusy(true);
+    try {
+      const backup = await api.exportAppBackup();
+      setPayload(backup);
+      await api.writeClipboardText(backup);
+      notifyInfo(m.settings.backupExported);
+    } catch (e) {
+      notifyError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const importBackup = async () => {
+    setBusy(true);
+    try {
+      const source = payload.trim() || (await api.readClipboardText()).trim();
+      if (!source) throw new Error(m.settings.backupEmpty);
+      await api.importAppBackup(source);
+      await onImported();
+      notifyInfo(m.settings.backupImported);
+    } catch (e) {
+      notifyError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Section title={m.settings.backup}>
-      <SettingsCard>
-        <div className="settings-row settings-row-block">
+      <SettingsCard className="settings-backup-card">
+        <div className="settings-row settings-row-block settings-backup-intro">
           <div>
             <div className="settings-row-title">{m.settings.export}</div>
             <div className="settings-row-description">{m.settings.exportDescription}</div>
+            <div className="settings-row-description">{m.settings.backupHint}</div>
           </div>
         </div>
-        <div className="settings-row settings-row-muted">
-          {m.settings.backupHint}
+        <SettingsInputRow
+          label={m.settings.passwordOptional}
+          value={password}
+          inputMode="text"
+          type="password"
+          placeholder={m.settings.passwordEmpty}
+          onChange={setPassword}
+          onCommit={() => undefined}
+        />
+        <div className="settings-row settings-backup-payload-row">
+          <textarea
+            value={payload}
+            onChange={(e) => setPayload(e.target.value)}
+            placeholder={m.settings.backupPayloadPlaceholder}
+            className="settings-input settings-textarea"
+          />
         </div>
-        <ValueRow label={m.settings.passwordOptional} value={m.settings.passwordEmpty} muted />
-        <div className="settings-row justify-end gap-3">
-          <button className="settings-action">{m.settings.exportAction}</button>
-          <button className="settings-action">{m.settings.importAction}</button>
+        <div className="settings-row settings-backup-actions">
+          <button disabled={busy} onClick={() => void exportBackup()} className="settings-action">
+            {m.settings.exportAction}
+          </button>
+          <button disabled={busy} onClick={() => void importBackup()} className="settings-action">
+            {m.settings.importAction}
+          </button>
         </div>
       </SettingsCard>
     </Section>
@@ -1029,12 +1305,10 @@ function AboutSection({
   device,
   copied,
   onCopyHwid,
-  onResetHwid,
 }: {
   device: DeviceInfo | null;
   copied: boolean;
   onCopyHwid: () => void;
-  onResetHwid: () => void;
 }) {
   const m = useMessages();
   return (
@@ -1049,9 +1323,6 @@ function AboutSection({
             <span className="settings-code truncate">{device?.hwid ?? "—"}</span>
             <button onClick={onCopyHwid} disabled={!device} className="settings-icon-button" title={m.settings.copyHwid}>
               {copied ? <CheckIcon /> : <ClipboardIcon />}
-            </button>
-            <button onClick={onResetHwid} disabled={!device} className="settings-icon-button" title={m.settings.resetHwid}>
-              <RefreshIcon />
             </button>
           </div>
         </div>
@@ -1080,45 +1351,6 @@ function AboutSection({
   );
 }
 
-function SettingsConfirmDialog({
-  title,
-  description,
-  confirmLabel,
-  onConfirm,
-  onClose,
-}: {
-  title: string;
-  description: string;
-  confirmLabel: string;
-  onConfirm: () => void;
-  onClose: () => void;
-}) {
-  const m = useMessages();
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center p-5"
-      style={{ background: "rgba(0,0,0,0.58)", backdropFilter: "blur(9px)" }}
-      onClick={onClose}
-    >
-      <div className="panel w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-2 text-xl font-bold text-white">{title}</div>
-        <div className="mb-5 text-sm leading-relaxed text-[var(--color-text-dim)]">{description}</div>
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={onClose}
-            className="interactive rounded-xl border border-[var(--color-border)] px-4 py-3 text-sm font-semibold text-[var(--color-text-dim)]"
-          >
-            {m.common.cancel}
-          </button>
-          <button onClick={onConfirm} className="primary-button interactive rounded-xl px-4 py-3 text-sm font-bold">
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function Section({
   title,
   children,
@@ -1136,8 +1368,8 @@ function Section({
   );
 }
 
-function SettingsCard({ children }: { children: ReactNode }) {
-  return <div className="settings-card">{children}</div>;
+function SettingsCard({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={["settings-card", className].filter(Boolean).join(" ")}>{children}</div>;
 }
 
 function ToggleRow({
@@ -1179,12 +1411,14 @@ function ValueRow({
   description,
   muted = false,
   mono = false,
+  copyValue,
 }: {
   label: string;
   value: string;
   description?: string;
   muted?: boolean;
   mono?: boolean;
+  copyValue?: string;
 }) {
   return (
     <div className={["settings-row", muted ? "settings-row-muted" : ""].join(" ")}>
@@ -1192,58 +1426,9 @@ function ValueRow({
         <div className="settings-row-title">{label}</div>
         {description && <div className="settings-row-description">{description}</div>}
       </div>
-      <span className={["settings-value", mono ? "font-mono" : ""].join(" ")}>{value}</span>
-    </div>
-  );
-}
-
-function CopyValueRow({
-  label,
-  value,
-  fallback,
-  masked = false,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  fallback: string;
-  masked?: boolean;
-  mono?: boolean;
-}) {
-  const m = useMessages();
-  const [copied, setCopied] = useState(false);
-  const cleanValue = value.trim() || fallback;
-  const displayValue = masked
-    ? "*".repeat(Math.min(18, Math.max(8, cleanValue.length)))
-    : cleanValue;
-
-  const copyValue = async () => {
-    try {
-      await api.writeClipboardText(cleanValue);
-      setCopied(true);
-      notifyInfo(m.settings.copiedValue);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (e) {
-      notifyError(String(e));
-    }
-  };
-
-  return (
-    <div className="settings-row">
-      <div className="min-w-0">
-        <div className="settings-row-title">{label}</div>
-      </div>
       <div className="settings-value-actions">
-        <span className={["settings-code truncate", mono ? "font-mono" : ""].join(" ")}>{displayValue}</span>
-        <button
-          type="button"
-          onClick={copyValue}
-          className="settings-icon-button"
-          title={m.settings.copyValue}
-          aria-label={m.settings.copyValue}
-        >
-          {copied ? <CheckIcon /> : <ClipboardIcon />}
-        </button>
+        <span className={["settings-value", mono ? "font-mono" : ""].join(" ")}>{value}</span>
+        {copyValue !== undefined && <CopyButton value={copyValue} />}
       </div>
     </div>
   );
@@ -1251,11 +1436,13 @@ function CopyValueRow({
 
 function SettingsChoiceRow<T extends string>({
   label,
+  description,
   value,
   options,
   onChange,
 }: {
   label: string;
+  description?: string;
   value: T;
   options: Array<{ value: T; label: string }>;
   onChange: (value: T) => Promise<void>;
@@ -1264,11 +1451,13 @@ function SettingsChoiceRow<T extends string>({
     <div className="settings-row">
       <div className="min-w-0">
         <div className="settings-row-title">{label}</div>
+        {description && <div className="settings-row-description">{description}</div>}
       </div>
       <div
         className={[
           "settings-choice-control",
           options.length === 1 ? "settings-choice-control-single" : "",
+          options.length >= 4 ? "settings-choice-control-wide" : "",
         ].join(" ")}
       >
         {options.map((option) => (
@@ -1292,16 +1481,81 @@ function SettingsChoiceRow<T extends string>({
   );
 }
 
+function NumberPreferenceRow({
+  label,
+  description,
+  value,
+  min,
+  max,
+  suffix,
+  onCommit,
+}: {
+  label: string;
+  description?: string;
+  value: number;
+  min: number;
+  max: number;
+  suffix?: string;
+  onCommit: (value: number) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const parsed = Number.parseInt(draft, 10);
+    const next = Number.isFinite(parsed)
+      ? Math.min(max, Math.max(min, parsed))
+      : value;
+    setDraft(String(next));
+    if (next !== value) void onCommit(next);
+  };
+
+  return (
+    <div className="settings-row">
+      <div className="min-w-0">
+        <div className="settings-row-title">{label}</div>
+        {description && <div className="settings-row-description">{description}</div>}
+      </div>
+      <div className="settings-value-actions">
+        <input
+          value={draft}
+          inputMode="numeric"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.currentTarget.blur();
+            }
+          }}
+          className="settings-input settings-field-input settings-field-input-numeric"
+        />
+        {suffix && <span className="settings-value">{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
 function SettingsInputRow({
   label,
   value,
   inputMode,
+  type = "text",
+  placeholder,
+  compact = false,
+  copyValue,
   onChange,
   onCommit,
 }: {
   label: string;
   value: string;
-  inputMode: "url" | "numeric";
+  inputMode: "text" | "url" | "numeric";
+  type?: "text" | "password";
+  placeholder?: string;
+  compact?: boolean;
+  copyValue?: string;
   onChange: (value: string) => void;
   onCommit: () => void;
 }) {
@@ -1310,22 +1564,64 @@ function SettingsInputRow({
       <div className="min-w-0">
         <div className="settings-row-title">{label}</div>
       </div>
-      <input
-        value={value}
-        inputMode={inputMode}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={onCommit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.currentTarget.blur();
-          }
-        }}
+      <div
         className={[
-          "settings-input settings-field-input",
-          inputMode === "numeric" ? "settings-field-input-numeric" : "",
+          "settings-value-actions settings-input-actions",
+          compact ? "settings-input-actions-compact" : "",
+          inputMode === "numeric" ? "settings-input-actions-numeric" : "",
         ].join(" ")}
-      />
+      >
+        <input
+          type={type}
+          value={value}
+          inputMode={inputMode}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onCommit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.currentTarget.blur();
+            }
+          }}
+          className={[
+            "settings-input settings-field-input",
+            inputMode === "numeric" ? "settings-field-input-numeric" : "",
+          ].join(" ")}
+        />
+        {copyValue !== undefined && <CopyButton value={copyValue} />}
+      </div>
     </div>
+  );
+}
+
+function CopyButton({ value }: { value: string }) {
+  const m = useMessages();
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    const text = value.trim();
+    if (!text) return;
+    try {
+      await api.writeClipboardText(text);
+      setCopied(true);
+      notifyInfo(m.settings.copiedValue);
+      window.setTimeout(() => setCopied(false), 1300);
+    } catch (e) {
+      notifyError(String(e));
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void copy()}
+      disabled={!value.trim()}
+      className="settings-icon-button settings-copy-button"
+      title={m.settings.copyValue}
+      aria-label={m.settings.copyValue}
+    >
+      {copied ? <CheckIcon /> : <ClipboardIcon />}
+    </button>
   );
 }
 
@@ -1465,6 +1761,9 @@ function StatsBarsIcon() {
 }
 function LogsIcon() {
   return <Icon><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" /><path d="M14 3v4h4" /><path d="M9 12h7M9 16h5" /></Icon>;
+}
+function ConnectionsIcon() {
+  return <Icon><path d="M4 7h16M4 12h16M4 17h16" /><circle cx="8" cy="7" r="1.5" /><circle cx="14" cy="12" r="1.5" /><circle cx="10" cy="17" r="1.5" /></Icon>;
 }
 
 function Icon({ children }: { children: ReactNode }) {
