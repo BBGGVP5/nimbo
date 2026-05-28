@@ -3553,6 +3553,10 @@ body[data-theme="light"] .app-nav-link-active {
     border-color: rgba(255, 255, 255, 0.16);
   }
 
+  .app-nav-link-active::before {
+    display: none;
+  }
+
   .app-nav-short {
     display: block;
   }
