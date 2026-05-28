@@ -24,7 +24,6 @@
   <a href="#-что-такое-nimbo">Обзор</a> ·
   <a href="#-возможности">Возможности</a> ·
   <a href="#-скачать">Скачать</a> ·
-  <a href="#-сборка">Сборка</a> ·
   <a href="#-архитектура">Архитектура</a>
 </p>
 
@@ -38,7 +37,7 @@
 
 Nimbo — аккуратный VPN-клиент для xray-совместимых подписок на Windows и Android. Он работает с Remnawave, Marzban, 3x-ui и любыми панелями, которые отдают стандартные ссылки `vless://`, `vmess://`, `trojan://`, `ss://` или `hysteria2://`.
 
-Приложение импортирует URL подписки, показывает доступные серверы, измеряет задержку, собирает runtime-конфиг для xray и подключает трафик через системный прокси, TUN-режим или оба режима сразу.
+Приложение импортирует URL подписки, показывает доступные серверы, измеряет задержку, генерирует runtime-конфиг для xray и подключает трафик через системный прокси, TUN-режим или оба режима сразу.
 
 ---
 
@@ -104,62 +103,17 @@ Nimbo — аккуратный VPN-клиент для xray-совместимы
 | Платформа | Статус |
 |---|---|
 | **Windows 10/11** | Основная платформа. NSIS/custom installer, helper-сервис и поддержка TUN. |
-| **Linux** | Экспериментальная сборка AppImage/deb/custom installer. |
+| **Linux** | Экспериментальная поддержка AppImage/deb/custom installer. |
 | **Android** | Поддерживаемый мобильный клиент. |
 
 ---
 
 ## 📦 Скачать
 
-Последнюю сборку можно скачать на странице [Releases](../../releases).
+Последнюю версию можно скачать на странице [Releases](../../releases).
 
 > Установщик пока не подписан. Windows SmartScreen может показать предупреждение.
-> Нажмите **Подробнее** → **Выполнить в любом случае**, если доверяете сборке.
-
----
-
-## 🛠 Сборка
-
-### Требования
-
-| Инструмент | Версия | Для чего нужен |
-|---|---:|---|
-| [Rust](https://rustup.rs/) | 1.80+ | Workspace crates и Tauri-бэкенд |
-| [Node.js](https://nodejs.org/) | 20+ | React/Vite фронтенд |
-| [Tauri CLI](https://v2.tauri.app/start/prerequisites/) | 2.x | Сборка десктопного приложения |
-
-В большинстве современных установок Windows 10/11 WebView2 уже есть в системе. Если его нет, установите WebView2 Runtime от Microsoft.
-
-Пакеты для Linux:
-
-```bash
-sudo apt install libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev build-essential patchelf
-```
-
-### Разработка
-
-```bash
-git clone https://github.com/BBGGVP5/nimbo.git
-cd nimbo/apps/ui
-npm install
-npm run dev
-```
-
-### Сборка десктопной версии
-
-```bash
-cd apps/ui
-npm run build
-npm run build:installer
-```
-
-Готовый установщик появится в `target/release/bundle/`.
-
-### Helper-сервис
-
-```bash
-cargo build --release -p nimbo-svc
-```
+> Нажмите **Подробнее** → **Выполнить в любом случае**, если доверяете релизу.
 
 ---
 
@@ -193,7 +147,7 @@ nimbo/
 │   ├── device/         # Генерация HWID
 │   ├── ipc/            # Общие типы IPC-протокола
 │   ├── subscription/   # Загрузка и парсинг подписок
-│   └── xray-config/    # Сборка xray JSON-конфига
+│   └── xray-config/    # Генерация xray JSON-конфига
 ├── CHANGELOG_NIMBO.md
 ├── Cargo.toml
 └── README.md

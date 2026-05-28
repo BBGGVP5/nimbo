@@ -24,7 +24,6 @@
   <a href="#-what-is-nimbo">Overview</a> ·
   <a href="#-features">Features</a> ·
   <a href="#-download">Download</a> ·
-  <a href="#-build-from-source">Build</a> ·
   <a href="#-architecture">Architecture</a>
 </p>
 
@@ -38,7 +37,7 @@
 
 Nimbo is a clean VPN client for xray-compatible subscriptions on Windows and Android. It works with Remnawave, Marzban, 3x-ui, and any panel that returns standard `vless://`, `vmess://`, `trojan://`, `ss://`, or `hysteria2://` links.
 
-The app imports a subscription URL, shows available servers, measures latency, builds the xray runtime config, and routes traffic through system proxy, TUN mode, or both.
+The app imports a subscription URL, shows available servers, measures latency, generates the xray runtime config, and routes traffic through system proxy, TUN mode, or both.
 
 ---
 
@@ -111,55 +110,10 @@ The app imports a subscription URL, shows available servers, measures latency, b
 
 ## 📦 Download
 
-Download the latest build from [Releases](../../releases).
+Download the latest release from [Releases](../../releases).
 
 > The installer is not code-signed yet. Windows SmartScreen may show a warning.
-> Click **More info** → **Run anyway** if you trust the build.
-
----
-
-## 🛠 Build From Source
-
-### Requirements
-
-| Tool | Version | Purpose |
-|---|---:|---|
-| [Rust](https://rustup.rs/) | 1.80+ | Workspace crates and Tauri backend |
-| [Node.js](https://nodejs.org/) | 20+ | React/Vite frontend |
-| [Tauri CLI](https://v2.tauri.app/start/prerequisites/) | 2.x | Desktop app bundling |
-
-Windows 10/11 already includes WebView2 on most modern installs. If not, install the WebView2 Runtime from Microsoft.
-
-Linux packages:
-
-```bash
-sudo apt install libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev build-essential patchelf
-```
-
-### Development
-
-```bash
-git clone https://github.com/BBGGVP5/nimbo.git
-cd nimbo/apps/ui
-npm install
-npm run dev
-```
-
-### Desktop Build
-
-```bash
-cd apps/ui
-npm run build
-npm run build:installer
-```
-
-The generated installer is placed under `target/release/bundle/`.
-
-### Helper Service
-
-```bash
-cargo build --release -p nimbo-svc
-```
+> Click **More info** → **Run anyway** if you trust the release.
 
 ---
 
@@ -193,7 +147,7 @@ nimbo/
 │   ├── device/         # HWID generation
 │   ├── ipc/            # Shared IPC protocol types
 │   ├── subscription/   # Subscription fetcher and parser
-│   └── xray-config/    # xray JSON config builder
+│   └── xray-config/    # xray JSON config generation
 ├── CHANGELOG_NIMBO.md
 ├── Cargo.toml
 └── README.md
