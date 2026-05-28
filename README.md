@@ -1,182 +1,166 @@
 <p align="center">
-  <h1 align="center">Nimbo</h1>
-  <p align="center">
-    Быстрый и легковесный VPN-клиент для xray-подписок
-    <br />
-    Fast, lightweight VPN client for xray-based subscriptions
-    <br /><br />
-    Tauri 2 &bull; React 19 &bull; Rust
-  </p>
+  <img src="./nimbo.png" width="96" alt="Nimbo logo" />
+</p>
+
+<h1 align="center">Nimbo</h1>
+
+<p align="center">
+  Fast, lightweight VPN client for xray subscriptions.
+  <br />
+  Быстрый и легковесный VPN-клиент для xray-подписок.
 </p>
 
 <p align="center">
-  <a href="#-возможности--features">Возможности</a> &bull;
-  <a href="#-скачать--download">Скачать</a> &bull;
-  <a href="#%EF%B8%8F-сборка--building-from-source">Сборка</a> &bull;
-  <a href="#-структура--project-structure">Структура</a> &bull;
-  <a href="#-лицензия--license">Лицензия</a>
+  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24c8db?style=for-the-badge&logo=tauri&logoColor=white" />
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-61dafb?style=for-the-badge&logo=react&logoColor=111827" />
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-native-f97316?style=for-the-badge&logo=rust&logoColor=white" />
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078d4?style=for-the-badge&logo=windows11&logoColor=white" />
+  <img alt="Android" src="https://img.shields.io/badge/Android-supported-3ddc84?style=for-the-badge&logo=android&logoColor=white" />
+</p>
+
+<p align="center">
+  <a href="#-what-is-nimbo--что-такое-nimbo">Overview</a> ·
+  <a href="#-features--возможности">Features</a> ·
+  <a href="#-download--скачать">Download</a> ·
+  <a href="#-build-from-source--сборка">Build</a> ·
+  <a href="#-architecture--архитектура">Architecture</a>
+</p>
+
+<p align="center">
+  <img src="./nimbo-poster.png" alt="Nimbo poster" />
 </p>
 
 ---
 
-## Что такое Nimbo? / What is Nimbo?
+## ✨ What Is Nimbo / Что такое Nimbo
 
-<details open>
-<summary>🇷🇺 Русский</summary>
+Nimbo is a clean VPN client for xray-compatible subscriptions on Windows and Android: Remnawave, Marzban, 3x-ui and any panel that returns standard `vless://`, `vmess://`, `trojan://`, `ss://` or `hysteria2://` links.
 
-Nimbo — десктопный VPN-клиент для подписок на базе xray (Remnawave, Marzban, 3x-ui и другие). Импортируйте URL подписки, выберите сервер, подключитесь — Nimbo сделает остальное.
+Nimbo imports a subscription URL, shows available servers, measures latency, builds the xray runtime config and connects through system proxy, TUN mode or both.
 
-- **Легковесный** — установщик ~12 МБ, использует системный WebView вместо Chromium
-- **Нативная производительность** — бэкенд на Rust + ядро xray-core
-- **Без повторных UAC** — сервис устанавливается один раз, работает в фоне
-- **Split tunneling** — маршрутизация отдельных приложений через VPN или в обход
-
-</details>
-
-<details>
-<summary>🇬🇧 English</summary>
-
-Nimbo is a desktop VPN client that connects to xray-compatible subscription services (Remnawave, Marzban, 3x-ui, and others). Import your subscription URL, pick a server, and connect — Nimbo handles the rest.
-
-- **Tiny footprint** — ~12 MB installer, uses system WebView instead of bundling Chromium
-- **Native performance** — Rust backend + xray-core under the hood
-- **No repeated UAC prompts** — helper service installs once, runs in background
-- **Split tunneling** — route specific apps through VPN or bypass it
-
-</details>
+Nimbo — аккуратный VPN-клиент для xray-совместимых подписок на Windows и Android: Remnawave, Marzban, 3x-ui и любых панелей со стандартными ссылками `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`.
 
 ---
 
-## Возможности / Features
+## 💎 Why Nimbo / Почему Nimbo
 
-### Протоколы / Protocols
-- VLESS (Reality, XHTTP, WebSocket, gRPC, HTTP/2, TCP)
-- VMess (WebSocket, gRPC, TCP, HTTP Upgrade)
-- Trojan (TLS, WebSocket, gRPC)
+| Focus | Details |
+|---|---|
+| **Small footprint** | Tauri 2 uses the system WebView instead of bundling Chromium. |
+| **Native core** | Rust backend, xray-core integration and a helper service for privileged network operations. |
+| **One-time elevation** | The helper service is installed once, so connecting does not require repeated UAC prompts. |
+| **Provider-friendly** | Subscription metadata, server descriptions, User-Agent presets and `nimbo://` deep links. |
+| **Practical routing** | TUN, proxy, combined mode, split tunneling and custom routing profiles. |
+
+---
+
+## 🚀 Features / Возможности
+
+### Protocols
+
+- VLESS: Reality, XHTTP, WebSocket, gRPC, HTTP/2, TCP
+- VMess: WebSocket, gRPC, TCP, HTTP Upgrade
+- Trojan: TLS, WebSocket, gRPC
 - Shadowsocks
 - Hysteria2
 
-### Режимы подключения / Connection modes
-- Системный прокси / System proxy (SOCKS5 / HTTP)
-- TUN-режим / TUN mode (весь системный трафик / captures all system traffic)
-- Комбинированный / Combined (proxy + TUN)
+### Connection Modes
 
-<details open>
-<summary>🇷🇺 Подробнее</summary>
+- System proxy: SOCKS5 / HTTP
+- TUN mode: full-system traffic capture
+- Combined mode: proxy + TUN
 
-**Управление подписками**
-- Автоимпорт по URL с отображением информации (трафик, срок действия)
-- Автообновление по настраиваемому интервалу
-- Маскировка User-Agent (пресеты Happ, Incy) для совместимости с разными панелями
-- Deep link поддержка (`nimbo://import?url=...`)
+### Subscription Management
 
-**Сеть**
-- Правила проксирования по приложениям (split tunneling)
-- Пользовательские правила маршрутизации (домен, IP, geosite, geoip)
-- Тест задержки (TCP ping ко всем серверам)
-- Мониторинг активных соединений
-- Статистика трафика (за сессию и суммарная)
-- Защита от DNS-утечек
-- Настройки доступа к локальной сети
+- URL import with traffic and expiration metadata
+- Auto-refresh by interval
+- User-Agent presets for Happ/Incy compatibility
+- Deep link import: `nimbo://import?url=...`
+- Remnawave metadata support, including server descriptions
 
-**Интерфейс**
-- 4 темы: Системная, Тёмная, True Black (OLED), Светлая
-- Кастомизация акцентных цветов от провайдера
-- Русский и английский языки
-- Системный трей с быстрым подключением/отключением
-- Просмотр логов туннеля
-- Описания серверов и брендинг от подписки
+### Network Tools
 
-</details>
-
-<details>
-<summary>🇬🇧 All features</summary>
-
-**Subscription management**
-- Auto-import from URL with subscription info display (traffic, expiry)
-- Auto-refresh on configurable interval
-- User-Agent masking presets (Happ, Incy) for compatibility with various panels
-- Deep link support (`nimbo://import?url=...`)
-
-**Networking**
-- Per-application proxy rules (split tunneling)
-- Custom routing rules (domain, IP, geosite, geoip)
-- Latency testing (TCP ping to all servers)
-- Active connection monitoring
-- Traffic statistics (upload/download per session and total)
+- TCP latency testing for all servers
+- Active connection monitor
+- Session and total traffic statistics
 - DNS leak protection
-- LAN access settings
+- LAN access controls
+- Per-app split tunneling rules
+- Custom routing profiles: domain, IP, `geosite`, `geoip`
 
-**Interface**
-- 4 themes: System, Dark, True Black (OLED), Light
-- Provider-customizable accent colors
+### Interface
+
 - Russian and English languages
-- System tray with quick connect/disconnect
-- Tunnel logs viewer
-- Subscription-provided server descriptions and branding
-
-</details>
-
-### Платформы / Platforms
-- **Windows 10/11** — основная платформа (MSI/NSIS установщик)
-- **Linux** — AppImage, .deb (экспериментально)
+- Dark, Light, System and True Black/OLED themes
+- Provider or custom accent color
+- System tray quick actions
+- Tunnel log viewer
+- Compact responsive layout for desktop and mobile screens
 
 ---
 
-## Скачать / Download
+## 🖥 Platforms / Платформы
 
-### Windows
-Скачайте последний `.exe` установщик со страницы [Releases](../../releases).
-
-Download the latest `.exe` installer from the [Releases](../../releases) page.
-
-> **Примечание / Note:** Установщик пока не подписан. Windows SmartScreen может показать предупреждение — нажмите «Подробнее» → «Выполнить в любом случае».
->
-> The installer is not code-signed yet. SmartScreen may show a warning — click "More info" → "Run anyway".
-
-### Linux
-Скачайте `.AppImage` или `.deb` со страницы [Releases](../../releases).
+| Platform | Status |
+|---|---|
+| **Windows 10/11** | Main target. NSIS/custom installer, helper service, TUN support. |
+| **Linux** | Experimental AppImage/deb/custom installer flow. |
+| **Android** | Supported mobile client experience. |
 
 ---
 
-## Сборка / Building from source
+## 📦 Download / Скачать
 
-### Зависимости / Prerequisites
+Download the latest build from [Releases](../../releases).
 
-| Инструмент / Tool | Версия / Version | Назначение / Purpose |
-|---|---|---|
-| [Rust](https://rustup.rs/) | 1.80+ | Бэкенд и крейты / Backend and crates |
-| [Node.js](https://nodejs.org/) | 20+ | Сборка фронтенда / Frontend build |
-| [Tauri CLI](https://v2.tauri.app/start/prerequisites/) | 2.x | Сборщик приложения / App bundler |
+Скачайте последнюю сборку на странице [Releases](../../releases).
 
-**Windows:** WebView2 runtime (предустановлен в Windows 10 1803+ и Windows 11).
+> The installer is not code-signed yet. Windows SmartScreen may show a warning.
+> Click **More info** → **Run anyway** if you trust the build.
 
-**Linux:**
+> Установщик пока не подписан. Windows SmartScreen может показать предупреждение.
+> Нажмите **Подробнее** → **Выполнить в любом случае**, если доверяете сборке.
+
+---
+
+## 🛠 Build From Source / Сборка
+
+### Prerequisites
+
+| Tool | Version | Purpose |
+|---|---:|---|
+| [Rust](https://rustup.rs/) | 1.80+ | Workspace crates and Tauri backend |
+| [Node.js](https://nodejs.org/) | 20+ | React/Vite frontend |
+| [Tauri CLI](https://v2.tauri.app/start/prerequisites/) | 2.x | Desktop app bundling |
+
+Windows 10/11 already includes WebView2 on most modern installs. If not, install the WebView2 Runtime from Microsoft.
+
+Linux packages:
+
 ```bash
 sudo apt install libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev build-essential patchelf
 ```
 
-### Сборка / Build
+### Development
 
 ```bash
-# Клонировать / Clone
 git clone https://github.com/BBGGVP5/nimbo.git
-cd nimbo
-
-# Установить зависимости фронтенда / Install frontend dependencies
-cd apps/ui
+cd nimbo/apps/ui
 npm install
-
-# Режим разработки (hot-reload) / Development mode
-npx tauri dev
-
-# Продакшн-сборка (создаёт установщик) / Production build
-npx tauri build
+npm run dev
 ```
 
-Собранный установщик будет в `target/release/bundle/`.
+### Desktop Build
 
-### Сборка сервиса / Build the helper service (Windows)
+```bash
+cd apps/ui
+npm run build
+npm run build:installer
+```
+
+The generated installer is placed under `target/release/bundle/`.
+
+### Helper Service
 
 ```bash
 cargo build --release -p nimbo-svc
@@ -184,121 +168,88 @@ cargo build --release -p nimbo-svc
 
 ---
 
-## Структура / Project structure
+## 🧭 Architecture / Архитектура
 
+```text
+Nimbo UI
+Tauri 2 + React + WebView2
+Window, tray, settings, subscriptions
+        |
+        | named pipe / JSON IPC
+        v
+Nimbo Service
+Rust, SYSTEM on Windows
+xray-core, TUN adapter, routing table, DNS protection
 ```
+
+The UI runs as a regular user. The helper service handles privileged operations: TUN adapter setup, route changes, DNS configuration, xray runtime control and conflicting VPN process cleanup.
+
+UI запускается от обычного пользователя. Сервис работает с повышенными правами и берёт на себя TUN-адаптер, маршруты, DNS, xray runtime и очистку конфликтующих VPN-процессов.
+
+---
+
+## 📁 Project Structure / Структура
+
+```text
 nimbo/
 ├── apps/
-│   ├── ui/                     # Основное приложение / Main app — Tauri 2 + React 19 + Tailwind v4
-│   │   ├── src/                # React-фронтенд / React frontend (pages, store, i18n)
-│   │   └── src-tauri/          # Tauri Rust бэкенд / Tauri Rust backend (commands, state, tray)
-│   ├── service/                # Вспомогательный сервис / Helper service (Rust, SYSTEM on Windows)
-│   └── installer/              # Кастомный установщик / Custom installer (Tauri-based)
+│   ├── ui/             # Tauri 2 + React frontend and Tauri backend
+│   ├── service/        # Rust helper service
+│   └── installer/      # Custom installer
 ├── crates/
-│   ├── device/                 # Генерация HWID / Hardware ID generation
-│   ├── ipc/                    # IPC-протокол UI ↔ сервис / IPC protocol
-│   ├── subscription/           # Парсер подписок / Subscription fetcher & parser
-│   └── xray-config/            # Билдер конфигов xray / xray JSON config builder
-├── Cargo.toml                  # Корень workspace / Workspace root
+│   ├── device/         # HWID generation
+│   ├── ipc/            # Shared IPC protocol types
+│   ├── subscription/   # Subscription fetcher and parser
+│   └── xray-config/    # xray JSON config builder
+├── CHANGELOG_NIMBO.md
+├── Cargo.toml
 └── README.md
 ```
 
-### Крейты / Crates
+---
 
-| Крейт / Crate | Описание / Description |
-|---|---|
-| `nimbo-subscription` | Загрузка подписок, определение формата (base64, xray JSON, список ссылок), парсинг протоколов в типизированные структуры `Server` |
-| `nimbo-xray-config` | Генерация JSON-конфигов xray-core из распарсенных серверов — inbounds, outbounds, routing, DNS |
-| `nimbo-ipc` | Общие типы IPC-сообщений для обмена между UI и сервисом через named pipe |
-| `nimbo-device` | Кроссплатформенная генерация аппаратного отпечатка (HWID) |
+## 🔌 Subscription Compatibility / Совместимость
 
-### Архитектура / Architecture
+Nimbo works with any panel that provides xray-compatible subscriptions:
 
-```
-┌─ Nimbo UI (user-mode) ──────────────┐
-│  Tauri 2 + React + WebView2         │
-│  Окно, трей, настройки               │
-└──────────┬───────────────────────────┘
-           │ named pipe (JSON)
-┌──────────▼───────────────────────────┐
-│  Nimbo Service (SYSTEM)              │
-│  • управление xray-core              │
-│  • TUN-адаптер (wintun)              │
-│  • таблица маршрутизации             │
-│  • защита от DNS-утечек              │
-└──────────────────────────────────────┘
+- **Remnawave**: metadata, descriptions and xray templates
+- **Marzban**: base64 subscription links
+- **3x-ui**: xray JSON and base64 formats
+- **Generic panels**: standard proxy URLs
+
+Default User-Agent:
+
+```text
+Nimbo/<version>
 ```
 
-UI запускается от обычного пользователя. Сервис работает с повышенными привилегиями и управляет операциями, требующими прав администратора (TUN-адаптер, таблица маршрутизации, завершение конфликтующих VPN-процессов). UAC запрашивается **один раз** при установке.
-
-The UI runs as a regular user. The helper service runs with elevated privileges and handles operations that require admin access. UAC is shown **once** during installation, not on every connect.
+For legacy subscriptions, use the Happ/Incy User-Agent presets in settings.
 
 ---
 
-## Совместимость / Subscription compatibility
+## 🗺 Roadmap / Планы
 
-<details open>
-<summary>🇷🇺 Русский</summary>
-
-Nimbo работает с любым сервисом, предоставляющим xray-совместимые подписки:
-
-- **Remnawave** — полная поддержка включая описания серверов и метаданные
-- **Marzban** — base64-кодированные ссылки подписок
-- **3x-ui** — форматы xray JSON и base64
-- **Любая панель**, отдающая стандартные ссылки `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`
-
-Клиент отправляет `Nimbo/<version>` в качестве User-Agent по умолчанию. Если панель ожидает другой UA — используйте пресеты маскировки в настройках.
-
-</details>
-
-<details>
-<summary>🇬🇧 English</summary>
-
-Nimbo works with any service that provides xray-compatible subscriptions:
-
-- **Remnawave** — full support including server descriptions and metadata
-- **Marzban** — base64-encoded subscription links
-- **3x-ui** — xray JSON and base64 formats
-- **Any panel** that outputs standard `vless://`, `vmess://`, `trojan://`, `ss://`, or `hysteria2://` links
-
-The client sends `Nimbo/<version>` as User-Agent by default. If your panel expects a specific UA, use the masking presets in Settings.
-
-</details>
+- Android UX polish
+- QR-code subscription import
+- Platform kill switch hardening
+- More split tunneling presets
+- Multi-profile workflows
+- Signed installer and auto-update hardening
 
 ---
 
-## Участие в разработке / Contributing
+## 🤝 Contributing / Участие
 
-<details open>
-<summary>🇷🇺 Русский</summary>
-
-Мы рады вкладу в проект! Пожалуйста, сначала создайте Issue для обсуждения предлагаемых изменений.
-
-1. Сделайте форк репозитория
-2. Создайте ветку (`git checkout -b feature/my-feature`)
-3. Зафиксируйте изменения
-4. Отправьте ветку (`git push origin feature/my-feature`)
-5. Откройте Pull Request
-
-</details>
-
-<details>
-<summary>🇬🇧 English</summary>
-
-Contributions are welcome! Please open an issue first to discuss what you'd like to change.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/my-feature`)
-3. Commit your changes
-4. Push to the branch (`git push origin feature/my-feature`)
-5. Open a Pull Request
-
-</details>
+1. Open an issue to discuss the change.
+2. Create a feature branch.
+3. Make focused commits.
+4. Run checks before opening a pull request.
+5. Open a PR with a clear description and screenshots for UI changes.
 
 ---
 
-## Лицензия / License
+## 📄 License / Лицензия
 
-Проект распространяется под лицензией **GNU Affero General Public License v3.0** — см. файл [LICENSE](LICENSE).
+Proprietary. All rights reserved unless a separate license file states otherwise.
 
-This project is licensed under the **GNU Affero General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
+Проприетарный проект. Все права защищены, если отдельный файл лицензии не говорит иначе.
