@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
+import uiPackage from "../../package.json";
 
 export type ConnectionState =
   | "disconnected"
@@ -377,6 +379,7 @@ export interface AppUpdateInfo {
 const BROWSER_PERSISTED_STATE_KEY = "nimbo.persistedState";
 const DEFAULT_SOCKS_USERNAME = "nimbo";
 const DEFAULT_SOCKS_PASSWORD = "nmb-preview-password";
+export const APP_VERSION = typeof uiPackage.version === "string" ? uiPackage.version : "1.0.0";
 
 function nonEmptyString(value: string | null | undefined, fallback: string): string {
   const trimmed = value?.trim();
@@ -754,7 +757,7 @@ function browserDeviceInfo(): DeviceInfo {
     os: "Windows",
     os_version: navigator.platform || "unknown",
     hostname: "browser-preview",
-    user_agent: "Nimbo/0.1.0",
+    user_agent: `Nimbo/${APP_VERSION}`,
   };
   writeBrowserJson("nimbo.deviceInfo", device);
   return device;
@@ -766,7 +769,7 @@ function browserUpdateInfo(): AppUpdateInfo {
   if (mockUpdate) {
     return {
       available: true,
-      current_version: "0.1.0",
+      current_version: APP_VERSION,
       latest_version: "3.0.33",
       release_name: "3.0.33",
       release_notes: "Демо обновления для браузерного предпросмотра.",
@@ -785,9 +788,9 @@ function browserUpdateInfo(): AppUpdateInfo {
 
   return {
     available: false,
-    current_version: "0.1.0",
-    latest_version: "0.1.0",
-    release_name: "0.1.0",
+    current_version: APP_VERSION,
+    latest_version: APP_VERSION,
+    release_name: APP_VERSION,
     release_notes: null,
     release_url: "https://github.com/BBGGVP5/nimbo/releases",
     published_at: null,
@@ -848,9 +851,8 @@ function browserRoutingProfiles(): RoutingProfileList {
       action: p.rule_order,
       strategy: p.domain_strategy,
     }));
-  return {
-    profiles: [
-      ...seeds.map((seed) => {
+  const profiles = [
+    ...seeds.map((seed) => {
         const override = overrides[seed.id];
         if (override) {
           return {
@@ -865,10 +867,10 @@ function browserRoutingProfiles(): RoutingProfileList {
         }
         return seed as RoutingProfileSummary;
       }),
-      ...customSummaries,
-    ],
-    active: stored ?? "global",
-  };
+    ...customSummaries,
+  ];
+  const active = stored && profiles.some((profile) => profile.id === stored) ? stored : "global";
+  return { profiles, active };
 }
 
 function browserRoutingProfileDetail(id: string): RoutingProfile {
@@ -1039,6 +1041,10 @@ function downloadBrowserTextFile(fileName: string, contents: string): string | n
 }
 
 export const api = {
+  getAppVersion: () =>
+    isTauriRuntime()
+      ? getVersion().catch(() => APP_VERSION)
+      : Promise.resolve(APP_VERSION),
   getPreferences: () =>
     isTauriRuntime()
       ? invoke<AppPreferences>("get_preferences")
@@ -1149,6 +1155,9 @@ export const api = {
           const map = readBrowserJson<Record<string, RoutingProfile>>("nimbo.routingProfileDetails", {});
           delete map[profileId];
           writeBrowserJson("nimbo.routingProfileDetails", map);
+          if (readBrowserJson<string | null>("nimbo.activeRoutingProfile", null) === profileId) {
+            writeBrowserJson("nimbo.activeRoutingProfile", "global");
+          }
           return browserRoutingProfiles();
         })()),
   exportRoutingProfile: (profileId: string) =>

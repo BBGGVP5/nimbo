@@ -386,11 +386,22 @@ pub fn builtin_routing_profiles() -> Vec<RoutingProfile> {
 }
 
 fn ensure_routing_profiles(snapshot: &mut PersistedState) {
+    let deleted: HashSet<String> = snapshot
+        .deleted_builtin_profiles
+        .iter()
+        .cloned()
+        .collect();
     if snapshot.routing_profiles.is_empty() {
-        snapshot.routing_profiles = builtin_routing_profiles();
+        snapshot.routing_profiles = builtin_routing_profiles()
+            .into_iter()
+            .filter(|profile| !deleted.contains(&profile.id))
+            .collect();
         return;
     }
     for builtin in builtin_routing_profiles() {
+        if deleted.contains(&builtin.id) {
+            continue;
+        }
         if let Some(existing) = snapshot
             .routing_profiles
             .iter_mut()
@@ -2948,12 +2959,13 @@ pub fn delete_routing_profile(
     let Some(target) = snapshot.routing_profiles.iter().find(|p| p.id == profile_id) else {
         return Err(format!("Профиль не найден: {profile_id}"));
     };
-    if target.builtin {
-        return Err("Встроенный профиль можно только сбросить, не удалить.".into());
-    }
+    let was_builtin = target.builtin;
     state
         .mutate(|s| {
             s.routing_profiles.retain(|p| p.id != profile_id);
+            if was_builtin && !s.deleted_builtin_profiles.contains(&profile_id) {
+                s.deleted_builtin_profiles.push(profile_id.clone());
+            }
             if s.active_routing_profile == profile_id {
                 s.active_routing_profile = s
                     .routing_profiles
@@ -3034,6 +3046,7 @@ pub fn reset_builtin_routing_profiles(
 ) -> Result<RoutingProfileList, String> {
     state
         .mutate(|s| {
+            s.deleted_builtin_profiles.clear();
             let defaults = builtin_routing_profiles();
             let builtin_ids: HashSet<String> = defaults.iter().map(|p| p.id.clone()).collect();
             s.routing_profiles.retain(|p| !builtin_ids.contains(&p.id));

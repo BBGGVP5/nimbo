@@ -44,6 +44,8 @@ pub struct PersistedState {
     #[serde(default)]
     pub routing_profiles: Vec<RoutingProfile>,
     #[serde(default)]
+    pub deleted_builtin_profiles: Vec<String>,
+    #[serde(default)]
     pub traffic_totals: TrafficTotals,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_system_proxy_snapshot: Option<SystemProxySnapshot>,
