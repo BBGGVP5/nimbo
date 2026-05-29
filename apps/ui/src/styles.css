@@ -89,7 +89,9 @@ body[data-theme="light"] {
 
 body[data-theme="light"]::before {
   background:
-    radial-gradient(40% 32% at 8% 0%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 72%);
+    radial-gradient(42% 34% at 16% 14%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 72%),
+    radial-gradient(40% 34% at 82% 22%, color-mix(in srgb, var(--color-accent) 8%, transparent), transparent 74%),
+    radial-gradient(44% 38% at 72% 86%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent 74%);
   opacity: 0.6;
 }
 
@@ -127,7 +129,9 @@ body[data-theme="black"] {
 body[data-theme="black"]::before {
   opacity: 0.5;
   background:
-    radial-gradient(36% 28% at 8% 0%, var(--color-bg-aura-1), transparent 72%);
+    radial-gradient(40% 34% at 18% 16%, var(--color-bg-aura-1), transparent 72%),
+    radial-gradient(38% 34% at 80% 26%, color-mix(in srgb, var(--color-accent) 6%, transparent), transparent 74%),
+    radial-gradient(44% 40% at 70% 86%, color-mix(in srgb, var(--color-accent) 5%, transparent), transparent 76%);
 }
 
 body[data-theme="black"]::after {
@@ -165,21 +169,23 @@ body[data-theme="light"] .settings-input {
 body::before {
   content: "";
   position: fixed;
-  inset: -8%;
+  inset: -12%;
   background:
-    radial-gradient(38% 30% at 6% 8%, var(--color-bg-aura-1), transparent 72%),
-    radial-gradient(26% 22% at 92% 88%, color-mix(in srgb, var(--color-accent) 5%, transparent), transparent 76%);
+    radial-gradient(40% 34% at 16% 18%, var(--color-bg-aura-1), transparent 70%),
+    radial-gradient(38% 32% at 84% 24%, var(--color-bg-aura-2), transparent 72%),
+    radial-gradient(46% 40% at 72% 82%, var(--color-bg-aura-3), transparent 74%),
+    radial-gradient(40% 36% at 26% 88%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent 74%);
   background-repeat: no-repeat;
   pointer-events: none;
   z-index: 0;
   will-change: transform;
-  animation: nimbo-bg-drift 56s ease-in-out infinite alternate;
+  animation: nimbo-bg-drift 60s ease-in-out infinite alternate;
 }
 
 @keyframes nimbo-bg-drift {
-  0%   { transform: translate3d(0, 0, 0); }
-  50%  { transform: translate3d(1.4%, -1%, 0); }
-  100% { transform: translate3d(-1%, 1.2%, 0); }
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(2.6%, -2.2%, 0) scale(1.03); }
+  100% { transform: translate3d(-2.2%, 2.6%, 0) scale(1.02); }
 }
 
 body::after {
@@ -664,6 +670,132 @@ body[data-theme="light"] .connection-button-core {
   border-color: var(--color-border);
   border-top-color: var(--color-text);
   animation-direction: reverse;
+}
+
+/* ── Compact connection toggle ─────────────────────────────── */
+.connection-toggle {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 740px;
+  margin: 8px auto 0;
+  padding: 12px 18px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 22%, var(--color-border));
+  background: var(--color-surface);
+  color: var(--color-text-dim);
+  cursor: pointer;
+  outline: none;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    border-color 200ms ease,
+    background 200ms ease,
+    color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.connection-toggle:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-accent) 38%, var(--color-border));
+  color: var(--color-text);
+}
+
+.connection-toggle:focus-visible {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.connection-toggle:disabled {
+  cursor: wait;
+}
+
+.connection-toggle-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 64px;
+  height: 34px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 26%, var(--color-border));
+  transition: background 220ms ease, border-color 220ms ease;
+}
+
+.connection-toggle-thumb {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transform: translateY(-50%);
+  transition:
+    transform 240ms cubic-bezier(.2, .8, .2, 1),
+    background 220ms ease,
+    color 220ms ease;
+}
+
+.connection-toggle-thumb .connection-button-icon {
+  width: 60%;
+  height: 60%;
+}
+
+.connection-toggle-thumb .connection-button-loader {
+  width: 56%;
+  border-width: 2.5px;
+}
+
+.connection-toggle-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: clamp(16px, 1.3vw, 20px);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-toggle-connecting,
+.connection-toggle-disconnecting {
+  color: var(--color-text);
+}
+
+.connection-toggle-connecting .connection-toggle-switch,
+.connection-toggle-disconnecting .connection-toggle-switch {
+  border-color: color-mix(in srgb, var(--color-accent) 36%, var(--color-border));
+}
+
+.connection-toggle-connecting .connection-toggle-thumb,
+.connection-toggle-disconnecting .connection-toggle-thumb {
+  transform: translate(15px, -50%);
+}
+
+.connection-toggle-connected {
+  color: var(--color-status-connected);
+  border-color: color-mix(in srgb, var(--color-status-connected) 45%, transparent);
+  background: color-mix(in srgb, var(--color-status-connected) 9%, var(--color-surface));
+}
+
+.connection-toggle-connected:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-status-connected) 60%, transparent);
+}
+
+.connection-toggle-connected .connection-toggle-switch {
+  background: var(--color-status-connected);
+  border-color: transparent;
+}
+
+.connection-toggle-connected .connection-toggle-thumb {
+  transform: translate(30px, -50%);
+  background: #fff;
+  color: var(--color-status-connected);
 }
 
 .home-grid {
@@ -2933,8 +3065,10 @@ body[data-theme="light"] .settings-input {
 .settings-choice-button {
   min-width: 0;
   height: 32px;
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border-radius: 8px;
   padding: 0 10px;
   color: var(--color-text-dim);
@@ -2943,9 +3077,23 @@ body[data-theme="light"] .settings-input {
   letter-spacing: -0.01em;
   line-height: 1.1;
   overflow: hidden;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.settings-choice-label {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.settings-choice-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  opacity: 0.9;
 }
 
 .settings-choice-button:hover {
@@ -3749,13 +3897,16 @@ body[data-theme="light"] .app-nav-link-active {
     flex-wrap: wrap;
   }
 
-  .app-nav-text,
-  .app-nav-short {
+  .app-nav-text {
     display: none !important;
   }
 
+  .app-nav-short {
+    display: block;
+  }
+
   .app-nav-link {
-    font-size: 0;
+    font-size: 10px;
     padding: 8px 4px;
   }
 
@@ -5049,4 +5200,14 @@ body[data-ui-style="material_you"] .conflict-dialog-backdrop {
   background: color-mix(in srgb, var(--md-surface-dim) 68%, transparent);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+/* Material You uses filled pills for active state — drop the accent edge strips */
+body[data-ui-style="material_you"] .app-nav-link-active::before,
+body[data-ui-style="material_you"] .settings-side-item-active::before {
+  display: none;
+}
+
+body[data-ui-style="material_you"] .server-side-entry-active {
+  box-shadow: none;
 }

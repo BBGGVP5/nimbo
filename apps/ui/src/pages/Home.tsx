@@ -515,6 +515,15 @@ export function Home() {
     labels: m,
   };
 
+  const isCompactButton = preferences.servers_connect_button === "compact";
+  const connectionStatusLabel = disconnecting
+    ? m.home.disconnecting
+    : connecting
+      ? m.home.connecting
+      : connected
+        ? `${m.home.connected} ${formatDuration(elapsedSeconds)}`
+        : m.home.pressToConnect;
+
   return (
     <div
       className={[
@@ -538,27 +547,24 @@ export function Home() {
             connected={connected}
             connecting={connecting}
             disconnecting={disconnecting}
-            compact={preferences.servers_connect_button === "compact"}
+            compact={isCompactButton}
+            statusLabel={connectionStatusLabel}
             onClick={onToggleConnection}
             labels={m}
           />
 
-          <div
-            className={[
-              "connection-status mt-5",
-              connected ? "connection-status-connected" : "",
-              connecting ? "connection-status-connecting" : "",
-              disconnecting ? "connection-status-disconnecting" : "",
-            ].join(" ")}
-          >
-            {disconnecting
-              ? m.home.disconnecting
-              : connecting
-                ? m.home.connecting
-                : connected
-                  ? `${m.home.connected} ${formatDuration(elapsedSeconds)}`
-                  : m.home.pressToConnect}
-          </div>
+          {!isCompactButton && (
+            <div
+              className={[
+                "connection-status mt-5",
+                connected ? "connection-status-connected" : "",
+                connecting ? "connection-status-connecting" : "",
+                disconnecting ? "connection-status-disconnecting" : "",
+              ].join(" ")}
+            >
+              {connectionStatusLabel}
+            </div>
+          )}
 
           <ActiveServerInfo
             entry={fallbackEntry}
@@ -1193,6 +1199,7 @@ function ConnectionButton({
   connecting,
   disconnecting,
   compact,
+  statusLabel,
   onClick,
   labels,
 }: {
@@ -1200,6 +1207,7 @@ function ConnectionButton({
   connecting: boolean;
   disconnecting: boolean;
   compact: boolean;
+  statusLabel: string;
   onClick: () => void;
   labels: Messages;
 }) {
@@ -1209,6 +1217,37 @@ function ConnectionButton({
     : connected
       ? labels.home.disconnect
       : labels.home.connect;
+
+  const stateIcon = busy ? (
+    <span className="connection-button-loader" />
+  ) : connected ? (
+    <ShieldButtonIcon />
+  ) : (
+    <PowerButtonIcon />
+  );
+
+  if (compact) {
+    return (
+      <button
+        onClick={onClick}
+        disabled={busy}
+        title={title}
+        aria-label={title}
+        aria-pressed={connected}
+        className={[
+          "connection-toggle",
+          connected ? "connection-toggle-connected" : "",
+          connecting ? "connection-toggle-connecting" : "",
+          disconnecting ? "connection-toggle-disconnecting" : "",
+        ].join(" ")}
+      >
+        <span className="connection-toggle-switch">
+          <span className="connection-toggle-thumb">{stateIcon}</span>
+        </span>
+        <span className="connection-toggle-label">{statusLabel}</span>
+      </button>
+    );
+  }
 
   return (
     <button
@@ -1226,15 +1265,7 @@ function ConnectionButton({
     >
       <span className="connection-button-halo" />
       <span className="connection-button-ring" />
-      <span className="connection-button-core">
-        {busy ? (
-          <span className="connection-button-loader" />
-        ) : connected ? (
-          <ShieldButtonIcon />
-        ) : (
-          <PowerButtonIcon />
-        )}
-      </span>
+      <span className="connection-button-core">{stateIcon}</span>
     </button>
   );
 }

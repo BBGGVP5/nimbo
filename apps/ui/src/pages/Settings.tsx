@@ -1049,8 +1049,8 @@ function ServersSection({
           label={m.settings.connectButton}
           value={preferences.servers_connect_button}
           options={[
-            { value: "classic", label: m.profiles.classic },
-            { value: "compact", label: m.settings.compact },
+            { value: "classic", label: m.profiles.classic, icon: <ClassicButtonIcon /> },
+            { value: "compact", label: m.settings.compact, icon: <CompactButtonIcon /> },
           ]}
           onChange={(servers_connect_button) => onChange({ servers_connect_button })}
         />
@@ -1444,7 +1444,7 @@ function SettingsChoiceRow<T extends string>({
   label: string;
   description?: string;
   value: T;
-  options: Array<{ value: T; label: string }>;
+  options: Array<{ value: T; label: string; icon?: ReactNode }>;
   onChange: (value: T) => Promise<void>;
 }) {
   return (
@@ -1473,7 +1473,12 @@ function SettingsChoiceRow<T extends string>({
               value === option.value ? "settings-choice-button-active" : "",
             ].join(" ")}
           >
-            {option.label}
+            {option.icon && (
+              <span className="settings-choice-icon" aria-hidden="true">
+                {option.icon}
+              </span>
+            )}
+            <span className="settings-choice-label">{option.label}</span>
           </button>
         ))}
       </div>
@@ -1764,6 +1769,12 @@ function LogsIcon() {
 }
 function ConnectionsIcon() {
   return <Icon><path d="M4 7h16M4 12h16M4 17h16" /><circle cx="8" cy="7" r="1.5" /><circle cx="14" cy="12" r="1.5" /><circle cx="10" cy="17" r="1.5" /></Icon>;
+}
+function ClassicButtonIcon() {
+  return <Icon><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none" /></Icon>;
+}
+function CompactButtonIcon() {
+  return <Icon><rect x="3" y="8" width="18" height="8" rx="4" /><circle cx="16" cy="12" r="2.4" fill="currentColor" stroke="none" /></Icon>;
 }
 
 function Icon({ children }: { children: ReactNode }) {
