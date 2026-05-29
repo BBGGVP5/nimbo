@@ -25,12 +25,14 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 const WINDOW_SIZE_STORAGE_KEY = "nimbo.windowSize";
 const WINDOW_SIZE_MIN_WIDTH = 320;
 const WINDOW_SIZE_MIN_HEIGHT = 520;
-const WINDOW_SIZE_SAVE_DELAY_MS = 250;
+const WINDOW_SIZE_SAVE_DELAY_MS = 200;
 
 interface StoredWindowSize {
   width: number;
   height: number;
 }
+
+let lastWindowSize: StoredWindowSize | null = null;
 
 function setupWindowSizeMemory() {
   if (!isTauriRuntime()) return;
@@ -43,6 +45,7 @@ async function setupTauriWindowSizeMemory() {
   const storedSize = readStoredWindowSize();
 
   if (storedSize) {
+    lastWindowSize = storedSize;
     await appWindow.setSize(new LogicalSize(storedSize.width, storedSize.height)).catch(() => undefined);
   }
 
@@ -53,12 +56,23 @@ async function setupTauriWindowSizeMemory() {
     }
 
     saveTimer = window.setTimeout(() => {
-      void saveCurrentWindowSize(appWindow).catch(() => undefined);
+      void captureWindowSize(appWindow).catch(() => undefined);
     }, WINDOW_SIZE_SAVE_DELAY_MS);
+  });
+
+  // The debounced resize handler can be cut off before the process exits
+  // (close to tray, quit from tray). Persist the latest size at those moments too.
+  await appWindow.onCloseRequested(() => {
+    persistLastWindowSize();
+    void captureWindowSize(appWindow).catch(() => undefined);
+  });
+
+  window.addEventListener("beforeunload", () => {
+    persistLastWindowSize();
   });
 }
 
-async function saveCurrentWindowSize(appWindow: TauriWindow) {
+async function captureWindowSize(appWindow: TauriWindow) {
   const [isMinimized, isMaximized, isFullscreen] = await Promise.all([
     appWindow.isMinimized(),
     appWindow.isMaximized(),
@@ -76,8 +90,15 @@ async function saveCurrentWindowSize(appWindow: TauriWindow) {
 
   if (!normalizedSize) return;
 
+  lastWindowSize = normalizedSize;
+  persistLastWindowSize();
+}
+
+function persistLastWindowSize() {
+  if (!lastWindowSize) return;
+
   try {
-    window.localStorage.setItem(WINDOW_SIZE_STORAGE_KEY, JSON.stringify(normalizedSize));
+    window.localStorage.setItem(WINDOW_SIZE_STORAGE_KEY, JSON.stringify(lastWindowSize));
   } catch {
     // Ignore storage failures; window sizing should never block app startup.
   }
