@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { api, type RoutingProfile, type RoutingProfileSummary } from "../lib/api";
 import { fillTemplate, useMessages, type Messages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
+import { BackButton } from "../components/BackButton";
 
 type RoutingEditorMode = "create" | "edit";
 
@@ -134,6 +135,7 @@ export function Routing() {
 
   return (
     <div className="routing-page h-full overflow-auto">
+      <BackButton />
       <div className="routing-header">
         <div className="routing-header-left">
           <h1 className="page-title">{m.routing.title}</h1>

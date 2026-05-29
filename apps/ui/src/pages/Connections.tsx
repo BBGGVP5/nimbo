@@ -10,6 +10,7 @@ import {
 import { CountryFlag } from "../components/CountryFlag";
 import { useMessages, type Messages } from "../lib/i18n";
 import { useAppStore } from "../store";
+import { BackButton } from "../components/BackButton";
 
 type FirewallAction = "block" | "direct" | "proxy";
 type RuleKind = "domain" | "ip";
@@ -165,6 +166,7 @@ export function Connections() {
 
   return (
     <div className="page-view connections-page">
+      <BackButton />
       <div className="connections-header">
         <div>
           <h1 className="page-title">{m.connectionsPage.title}</h1>

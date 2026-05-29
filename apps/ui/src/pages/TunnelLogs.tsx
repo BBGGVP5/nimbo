@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type TunnelLogEntry } from "../lib/api";
 import { useMessages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
+import { BackButton } from "../components/BackButton";
 
 type LevelFilter = "all" | "info" | "warn" | "error" | "debug";
 type LogLevel = Exclude<LevelFilter, "all">;
@@ -76,6 +77,7 @@ export function TunnelLogs() {
 
   return (
     <div className="tunnel-logs-page h-full flex flex-col overflow-hidden">
+      <BackButton />
       <div className="tunnel-logs-header">
         <div className="tunnel-logs-title-block">
           <h1 className="page-title">{m.tunnelLogs.title}</h1>

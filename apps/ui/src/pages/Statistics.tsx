@@ -4,6 +4,7 @@ import { api, formatBytes } from "../lib/api";
 import { useMessages } from "../lib/i18n";
 import { useAppStore } from "../store";
 import { notifyError, notifyInfo } from "../lib/notify";
+import { BackButton } from "../components/BackButton";
 
 export function Statistics() {
   const m = useMessages();
@@ -76,6 +77,7 @@ export function Statistics() {
 
   return (
     <div className="statistics-page h-full overflow-auto">
+      <BackButton />
       <div className="statistics-header">
         <h1 className="page-title">{m.statistics.title}</h1>
         <button
