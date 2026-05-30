@@ -59,10 +59,10 @@ export function NotificationCenter() {
           data-tone={item.tone}
           className="notification-toast pointer-events-auto flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-3 text-[13px] font-medium tracking-[-0.01em] text-[var(--color-text)] shadow-[0_12px_30px_rgba(0,0,0,0.35)]"
         >
-          <span className={["mt-0.5 grid h-5 w-5 shrink-0 place-items-center", toneIconColor(item.tone)].join(" ")}>
+          <span className={["grid h-5 w-5 shrink-0 place-items-center", toneIconColor(item.tone)].join(" ")}>
             <NotificationIcon tone={item.tone} />
           </span>
-          <span className="flex-1 leading-snug">{item.message}</span>
+          <span className="flex-1 leading-5">{item.message}</span>
         </div>
       ))}
     </div>

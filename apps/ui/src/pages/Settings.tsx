@@ -1316,7 +1316,7 @@ function AboutSection({
       <SettingsCard>
         <ValueRow label={m.settings.version} value={APP_VERSION} />
         <ValueRow label={m.settings.engine} value="Rust + React + Tauri" />
-        <ValueRow label={m.settings.developer} value="Danila" />
+        <ValueRow label={m.settings.developer} value="BBGGVP5" />
         <div className="settings-row">
           <div className="settings-row-title">HWID</div>
           <div className="flex min-w-0 items-center gap-2">

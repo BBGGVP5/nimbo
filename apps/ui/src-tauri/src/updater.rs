@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
-const DEFAULT_RELEASE_API_URL: &str = "https://api.github.com/repos/BBGGVP5/nimbo/releases/latest";
+const DEFAULT_RELEASE_API_URL: &str = "https://api.github.com/repos/Case211/nimbo-app/releases/latest";
 const LOCAL_HTTP_PROXY: &str = "http://127.0.0.1:10809";
 const GITHUB_API_DOMAIN: &str = "api.github.com";
 const GITHUB_API_IPS: &[&str] = &[

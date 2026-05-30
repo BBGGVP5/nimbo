@@ -3,7 +3,7 @@ SetCompressor /SOLID lzma
 
 !define PRODUCT_NAME "Nimbo"
 !define PRODUCT_VERSION "0.1.0"
-!define PRODUCT_PUBLISHER "Danila"
+!define PRODUCT_PUBLISHER "BBGGVP5"
 !define PRODUCT_EXE "Nimbo.exe"
 !define APP_ID "Nimbo"
 !define ROOT_DIR "${__FILEDIR__}\..\..\..\.."

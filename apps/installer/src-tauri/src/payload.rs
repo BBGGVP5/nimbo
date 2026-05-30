@@ -986,7 +986,7 @@ fn write_registry(install_dir: &Path) -> Result<(), String> {
         .map_err(|e| format!("Не удалось записать uninstall-запись: {e}"))?;
     uninstall.set_value("DisplayName", &PRODUCT_NAME).map_err(reg_err)?;
     uninstall.set_value("DisplayVersion", &PRODUCT_VERSION).map_err(reg_err)?;
-    uninstall.set_value("Publisher", &"Danila").map_err(reg_err)?;
+    uninstall.set_value("Publisher", &"BBGGVP5").map_err(reg_err)?;
     uninstall
         .set_value("DisplayIcon", &install_dir.join(APP_EXE).to_string_lossy().to_string())
         .map_err(reg_err)?;
