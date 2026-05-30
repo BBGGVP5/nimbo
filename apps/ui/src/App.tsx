@@ -11,7 +11,8 @@ import { TunnelLogs } from "./pages/TunnelLogs";
 import { Settings } from "./pages/Settings";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { useAppStore } from "./store";
-import { api, type AppPreferences, type AppUpdateInfo, type ConflictingProcess, type HelperStatus } from "./lib/api";
+import { api, isTauriRuntime, type AppPreferences, type AppUpdateInfo, type ConflictingProcess, type HelperStatus } from "./lib/api";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initNimboDeepLinks } from "./lib/deepLinks";
 import { fillTemplate, useMessages, type Messages } from "./lib/i18n";
 import nimboLogo from "./assets/nimbo.png";
@@ -225,6 +226,23 @@ export default function App() {
     window.addEventListener(APP_UPDATE_DIALOG_EVENT, onShowUpdateDialog);
     return () => window.removeEventListener(APP_UPDATE_DIALOG_EVENT, onShowUpdateDialog);
   }, []);
+
+  // Show window only when store hydration is complete and React is fully ready
+  useEffect(() => {
+    if (status && isTauriRuntime()) {
+      if (!preferences.start_minimized) {
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            void getCurrentWindow().show()
+              .then(() => {
+                void getCurrentWindow().setFocus().catch(() => undefined);
+              })
+              .catch(() => undefined);
+          }, 60); // 60ms delay allows the browser to perform a solid first paint/layout
+        });
+      }
+    }
+  }, [status, preferences.start_minimized]);
 
   return (
     <div className="app-shell flex h-full">

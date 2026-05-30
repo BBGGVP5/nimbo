@@ -157,6 +157,10 @@ pub fn run() {
                 if preferences.minimize_to_tray {
                     api.prevent_close();
                     let _ = window.hide();
+                } else {
+                    // Hide the window immediately for a perceptually instant close,
+                    // letting background event loop clean up proxies and routes gracefully
+                    let _ = window.hide();
                 }
             }
         })
