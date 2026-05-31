@@ -12,7 +12,6 @@ import {
   formatBytes,
   formatExpire,
   protocolLabel,
-  serverEndpoint,
   serverDisplayName,
   serverListDescription,
   subscriptionVisibleOnHome,
@@ -673,7 +672,6 @@ function ActiveServerInfo({
   if (!entry) return null;
   const name = serverDisplayName(entry.server.name);
   const subscriptionName = entry.sub.name?.trim() || labels.common.subscription;
-  const endpoint = serverEndpoint(entry.server.protocol);
   const protocol = protocolLabel(entry.server.protocol);
   const transport = transportLabel(entry.server.protocol);
 
@@ -700,7 +698,7 @@ function ActiveServerInfo({
         </span>
         <span className="active-server-name">{name}</span>
         <span className="active-server-meta">
-          {subscriptionName} · {protocol} · {transport || endpoint}
+          {subscriptionName} · {protocol} · {transport || "JSON"}
         </span>
       </span>
       {ping != null && (

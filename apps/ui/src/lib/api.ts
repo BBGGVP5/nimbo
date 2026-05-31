@@ -1579,7 +1579,7 @@ export function serverListDescription(server: Server, servers: Server[]): string
   const description = serverCustomDescription(server);
   if (description) return description;
   void servers;
-  return serverEndpoint(server.protocol);
+  return serverProtocolPlaceholder(server.protocol);
 }
 
 export function transportLabel(p: Protocol): string {
@@ -1589,6 +1589,15 @@ export function transportLabel(p: Protocol): string {
   const sec = stream.security === "none" ? "" : stream.security.toUpperCase();
   const net = stream.network.replace("_", "-").toUpperCase();
   return [net, sec].filter(Boolean).join(" · ");
+}
+
+export function serverProtocolPlaceholder(p: Protocol): string {
+  const details = transportLabel(p)
+    .split(" · ")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part.replace(/_/g, "-").toUpperCase());
+  return `${[protocolLabel(p).toUpperCase(), ...details].join(" / ")} | JSON`;
 }
 
 /** Converts a two-letter ISO 3166-1 alpha-2 country code to its flag emoji */

@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Nimbo Setup",
-        "width": 2040,
-        "height": 1272,
+        "width": 1080,
+        "height": 680,
         "minWidth": 780,
         "minHeight": 520,
         "resizable": true,

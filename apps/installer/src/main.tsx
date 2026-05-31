@@ -118,6 +118,11 @@ type ResizeDirection =
   | "SouthWest"
   | "West";
 
+const DEFAULT_WINDOW_WIDTH = 1080;
+const DEFAULT_WINDOW_HEIGHT = 680;
+const MIN_RESTORED_WINDOW_WIDTH = 780;
+const MIN_RESTORED_WINDOW_HEIGHT = 520;
+
 type InstallerPhase = "idle" | "installing" | "done" | "failed";
 type UninstallerPhase = "idle" | "uninstalling" | "done" | "failed";
 
@@ -1003,6 +1008,9 @@ function Root() {
   }, []);
 
   React.useEffect(() => {
+    const preventContextMenu = (event: MouseEvent) => event.preventDefault();
+    document.addEventListener("contextmenu", preventContextMenu);
+
     // 1. Restore window size if saved
     const savedWidth = localStorage.getItem("nimbo.setup.windowWidth");
     const savedHeight = localStorage.getItem("nimbo.setup.windowHeight");
@@ -1010,7 +1018,9 @@ function Root() {
       const w = parseInt(savedWidth, 10);
       const h = parseInt(savedHeight, 10);
       if (!isNaN(w) && !isNaN(h)) {
-        void getCurrentWindow().setSize(new PhysicalSize(w, h)).catch(() => undefined);
+        const width = Math.min(Math.max(w, MIN_RESTORED_WINDOW_WIDTH), DEFAULT_WINDOW_WIDTH);
+        const height = Math.min(Math.max(h, MIN_RESTORED_WINDOW_HEIGHT), DEFAULT_WINDOW_HEIGHT);
+        void getCurrentWindow().setSize(new PhysicalSize(width, height)).catch(() => undefined);
       }
     }
 
@@ -1036,6 +1046,7 @@ function Root() {
     void setupResizeListener();
 
     return () => {
+      document.removeEventListener("contextmenu", preventContextMenu);
       if (unlisten) unlisten();
     };
   }, []);
