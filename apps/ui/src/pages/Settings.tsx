@@ -732,22 +732,25 @@ function ConnectionSection({
           description={`HTTP ${httpProxy} · SOCKS ${socksProxy}`}
           enabled={systemProxyOn}
           onToggle={toggleSystemProxy}
+          icon={<GlobeIcon />}
         />
         <ToggleRow
           label="TUN"
           description={m.settings.tunSubtitle}
           enabled={tunOn}
           onToggle={toggleTun}
+          icon={<ShieldIcon />}
         />
         <ToggleRow
           label="Kill switch"
           enabled={killSwitch}
           onToggle={(connection_kill_switch) => onPreferences({ connection_kill_switch })}
+          icon={<ZapIcon />}
         />
       </SettingsCard>
       <SettingsCard>
-        <ValueRow label="HTTP proxy" value={httpProxy} copyValue={httpProxy} mono />
-        <ValueRow label="SOCKS5 proxy" value={socksProxy} copyValue={socksProxy} mono />
+        <ValueRow label="HTTP proxy" value={httpProxy} copyValue={httpProxy} mono icon={<PlugIcon />} />
+        <ValueRow label="SOCKS5 proxy" value={socksProxy} copyValue={socksProxy} mono icon={<PlugIcon />} />
         <SettingsInputRow
           label={m.settings.socksUsername}
           value={socksUsernameDraft}
@@ -760,6 +763,7 @@ function ConnectionSection({
             setSocksUsernameDraft(next);
             if (next !== socksUsername) void onProxySettings({ socks_username: next });
           }}
+          icon={<UserIcon />}
         />
         <SettingsInputRow
           label={m.settings.socksPassword}
@@ -774,18 +778,21 @@ function ConnectionSection({
             setSocksPasswordDraft(next);
             if (next !== socksPassword) void onProxySettings({ socks_password: next });
           }}
+          icon={<LockIcon />}
         />
         <ToggleRow
           label={m.settings.requireSocksAuth}
           description={m.settings.requireSocksAuthDescription}
           enabled={requireSocksAuth}
           onToggle={(require_socks_auth) => onProxySettings({ require_socks_auth })}
+          icon={<ShieldIcon />}
         />
         <ToggleRow
           label={m.settings.blockSocksUdp}
           description={m.settings.blockSocksUdpDescription}
           enabled={blockSocksUdp}
           onToggle={(block_socks_udp) => onProxySettings({ block_socks_udp })}
+          icon={<ShieldIcon />}
         />
       </SettingsCard>
     </Section>
@@ -808,12 +815,14 @@ function TunnelSection({
           description={m.settings.sniffingDescription}
           enabled={preferences.tunnel_sniffing}
           onToggle={(tunnel_sniffing) => onChange({ tunnel_sniffing })}
+          icon={<ShieldIcon />}
         />
         <ToggleRow
           label="Mux"
           description={m.settings.muxDescription}
           enabled={preferences.tunnel_mux_enabled}
           onToggle={(tunnel_mux_enabled) => onChange({ tunnel_mux_enabled })}
+          icon={<ConnectionsIcon />}
         />
         <NumberPreferenceRow
           label="Mux concurrency"
@@ -821,6 +830,7 @@ function TunnelSection({
           min={1}
           max={1024}
           onCommit={(tunnel_mux_concurrency) => onChange({ tunnel_mux_concurrency })}
+          icon={<SlidersIcon />}
         />
         <NumberPreferenceRow
           label="xUDP concurrency"
@@ -829,6 +839,7 @@ function TunnelSection({
           min={-1}
           max={1024}
           onCommit={(tunnel_xudp_concurrency) => onChange({ tunnel_xudp_concurrency })}
+          icon={<SlidersIcon />}
         />
         <SettingsChoiceRow
           label="xUDP UDP/443"
@@ -839,12 +850,14 @@ function TunnelSection({
             { value: "skip", label: "Skip" },
           ]}
           onChange={(tunnel_xudp_udp443) => onChange({ tunnel_xudp_udp443 })}
+          icon={<SignalIcon />}
         />
         <ToggleRow
           label={m.settings.tlsFragmentation}
           description={m.settings.tlsFragmentationDescription}
           enabled={preferences.tunnel_tls_fragmentation}
           onToggle={(tunnel_tls_fragmentation) => onChange({ tunnel_tls_fragmentation })}
+          icon={<ListIcon />}
         />
       </SettingsCard>
     </Section>
@@ -867,18 +880,21 @@ function LanSection({
           description={m.settings.allowLanDescription}
           enabled={preferences.lan_allow_connections}
           onToggle={(lan_allow_connections) => onChange({ lan_allow_connections })}
+          icon={<HomeIcon />}
         />
         <ToggleRow
           label={m.settings.allowTethering}
           description={m.settings.allowTetheringDescription}
           enabled={preferences.lan_allow_tethering}
           onToggle={(lan_allow_tethering) => onChange({ lan_allow_tethering })}
+          icon={<ConnectionsIcon />}
         />
         <ToggleRow
           label={m.settings.lanProxy}
           description={m.settings.lanProxyDescription}
           enabled={preferences.lan_proxy_enabled}
           onToggle={(lan_proxy_enabled) => onChange({ lan_proxy_enabled })}
+          icon={<GlobeIcon />}
         />
       </SettingsCard>
       <SettingsCard>
@@ -888,6 +904,7 @@ function LanSection({
           min={5}
           max={3600}
           onCommit={(lan_tcp_idle_timeout_sec) => onChange({ lan_tcp_idle_timeout_sec })}
+          icon={<SlidersIcon />}
         />
         <NumberPreferenceRow
           label={m.settings.maxTcp}
@@ -895,6 +912,7 @@ function LanSection({
           min={1}
           max={100000}
           onCommit={(lan_max_tcp_connections) => onChange({ lan_max_tcp_connections })}
+          icon={<SlidersIcon />}
         />
         <NumberPreferenceRow
           label={m.settings.maxUdp}
@@ -902,6 +920,7 @@ function LanSection({
           min={1}
           max={100000}
           onCommit={(lan_max_udp_connections) => onChange({ lan_max_udp_connections })}
+          icon={<SlidersIcon />}
         />
         <SettingsChoiceRow
           label={m.settings.preferredIpFamily}
@@ -912,6 +931,7 @@ function LanSection({
             { value: "ipv6", label: "IPv6" },
           ]}
           onChange={(lan_preferred_ip_family) => onChange({ lan_preferred_ip_family })}
+          icon={<SignalIcon />}
         />
       </SettingsCard>
     </Section>
@@ -955,6 +975,7 @@ function SubscriptionsSection({
           label={m.settings.autoUpdateSubscriptions}
           enabled={preferences.subscriptions_auto_update}
           onToggle={(subscriptions_auto_update) => onChange({ subscriptions_auto_update })}
+          icon={<RefreshIcon />}
         />
         <NumberPreferenceRow
           label={m.settings.updateInterval}
@@ -963,11 +984,13 @@ function SubscriptionsSection({
           max={168}
           suffix="h"
           onCommit={(subscriptions_update_interval_hours) => onChange({ subscriptions_update_interval_hours })}
+          icon={<SlidersIcon />}
         />
         <ToggleRow
           label={m.settings.notifyExpiration}
           enabled={preferences.subscriptions_notify_expiration}
           onToggle={(subscriptions_notify_expiration) => onChange({ subscriptions_notify_expiration })}
+          icon={<InfoIcon />}
         />
         <NumberPreferenceRow
           label={m.settings.daysLeftThreshold}
@@ -976,21 +999,25 @@ function SubscriptionsSection({
           max={365}
           suffix="d"
           onCommit={(subscriptions_expiration_threshold_days) => onChange({ subscriptions_expiration_threshold_days })}
+          icon={<SlidersIcon />}
         />
         <ToggleRow
           label={m.settings.notifySubscriptionUpdate}
           enabled={preferences.subscriptions_notify_updates}
           onToggle={(subscriptions_notify_updates) => onChange({ subscriptions_notify_updates })}
+          icon={<InfoIcon />}
         />
         <ToggleRow
           label={m.settings.updateOnLaunch}
           enabled={preferences.subscriptions_update_on_launch}
           onToggle={(subscriptions_update_on_launch) => onChange({ subscriptions_update_on_launch })}
+          icon={<PowerIcon />}
         />
         <ToggleRow
           label={m.settings.pingAfterUpdate}
           enabled={preferences.subscriptions_ping_after_update}
           onToggle={(subscriptions_ping_after_update) => onChange({ subscriptions_ping_after_update })}
+          icon={<SignalIcon />}
         />
       </SettingsCard>
 
@@ -1069,6 +1096,7 @@ function ServersSection({
             { value: "protocol", label: m.home.sortProtocol },
           ]}
           onChange={(servers_sorting) => onChange({ servers_sorting })}
+          icon={<ListIcon />}
         />
         <SettingsChoiceRow
           label={m.settings.connectButton}
@@ -1078,6 +1106,7 @@ function ServersSection({
             { value: "compact", label: m.settings.compact, icon: <CompactButtonIcon /> },
           ]}
           onChange={(servers_connect_button) => onChange({ servers_connect_button })}
+          icon={<SlidersIcon />}
         />
         <NumberPreferenceRow
           label={m.settings.uiScale}
@@ -1086,11 +1115,13 @@ function ServersSection({
           max={125}
           suffix="%"
           onCommit={(servers_ui_scale) => onChange({ servers_ui_scale })}
+          icon={<SlidersIcon />}
         />
         <ToggleRow
           label={m.settings.proxyOnlyButton}
           enabled={preferences.servers_proxy_only_button}
           onToggle={(servers_proxy_only_button) => onChange({ servers_proxy_only_button })}
+          icon={<ZapIcon />}
         />
       </SettingsCard>
     </Section>
@@ -1150,6 +1181,7 @@ function LatencySection({
             { value: "http_head", label: m.settings.latencyHttpHead },
           ]}
           onChange={(latency_protocol) => onChange({ latency_protocol })}
+          icon={<SignalIcon />}
         />
         {preferences.latency_protocol === "http_head" && (
           <SettingsInputRow
@@ -1158,6 +1190,7 @@ function LatencySection({
             inputMode="url"
             onChange={setTestUrlDraft}
             onCommit={saveTestUrl}
+            icon={<GlobeIcon />}
           />
         )}
         <SettingsInputRow
@@ -1166,6 +1199,7 @@ function LatencySection({
           inputMode="numeric"
           onChange={setTimeoutDraft}
           onCommit={saveTimeout}
+          icon={<SlidersIcon />}
         />
         <SettingsChoiceRow
           label={m.settings.displayFormat}
@@ -1175,6 +1209,7 @@ function LatencySection({
             { value: "badge", label: m.settings.latencyBadge },
           ]}
           onChange={(latency_display_format) => onChange({ latency_display_format })}
+          icon={<InfoIcon />}
         />
       </SettingsCard>
     </Section>
@@ -1304,11 +1339,12 @@ function UpdatesSection({
           description={m.settings.checkUpdatesOnLaunchDescription}
           enabled={preferences.check_updates_on_launch}
           onToggle={(check_updates_on_launch) => onChange({ check_updates_on_launch })}
+          icon={<DownloadIcon />}
         />
-        <ValueRow label={m.settings.version} value={versionValue} />
-        <ValueRow label={m.settings.systemTarget} value={updateInfo?.target ?? "—"} />
-        <ValueRow label={m.settings.latestVersion} value={updateInfo?.latest_version ?? "—"} />
-        <ValueRow label={m.settings.releaseAsset} value={assetValue} mono={Boolean(updateInfo?.asset)} />
+        <ValueRow label={m.settings.version} value={versionValue} icon={<InfoIcon />} />
+        <ValueRow label={m.settings.systemTarget} value={updateInfo?.target ?? "—"} icon={<InfoIcon />} />
+        <ValueRow label={m.settings.latestVersion} value={updateInfo?.latest_version ?? "—"} icon={<InfoIcon />} />
+        <ValueRow label={m.settings.releaseAsset} value={assetValue} mono={Boolean(updateInfo?.asset)} icon={<InfoIcon />} />
         {updateInfo && (
           <div className="settings-row justify-end gap-3">
             <a className="settings-action" href={updateInfo.release_url} target="_blank" rel="noreferrer">
@@ -1847,6 +1883,12 @@ function ActivityIcon() {
 }
 function CpuIcon() {
   return <Icon><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" /><line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" /><line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="15" x2="23" y2="15" /><line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="15" x2="4" y2="15" /></Icon>;
+}
+function UserIcon() {
+  return <Icon><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></Icon>;
+}
+function LockIcon() {
+  return <Icon><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></Icon>;
 }
 
 function Icon({ children }: { children: ReactNode }) {
