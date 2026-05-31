@@ -18,12 +18,14 @@
   <img alt="Rust" src="https://img.shields.io/badge/Rust-native-f97316?style=for-the-badge&logo=rust&logoColor=white" />
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078d4?style=for-the-badge&logo=windows11&logoColor=white" />
   <img alt="Android" src="https://img.shields.io/badge/Android-supported-3ddc84?style=for-the-badge&logo=android&logoColor=white" />
+  <img alt="Open Source" src="https://img.shields.io/badge/Open%20Source-open-8b5cf6?style=for-the-badge&logo=github&logoColor=white" />
 </p>
 
 <p align="center">
   <a href="#-what-is-nimbo">Overview</a> ·
   <a href="#-features">Features</a> ·
   <a href="#-download">Download</a> ·
+  <a href="#-open-source">Open Source</a> ·
   <a href="#-architecture">Architecture</a>
 </p>
 
@@ -46,10 +48,22 @@ The app imports a subscription URL, shows available servers, measures latency, g
 | Focus | Details |
 |---|---|
 | **Small footprint** | Tauri 2 uses the system WebView instead of bundling Chromium. |
+| **Open source** | Transparent codebase: inspect it, audit it, build it yourself, and improve it through PRs. |
 | **Native core** | Rust backend, xray-core integration, and a helper service for privileged network operations. |
 | **One-time elevation** | The helper service is installed once, so connecting does not require repeated UAC prompts. |
 | **Provider-friendly** | Subscription metadata, server descriptions, User-Agent presets, and `nimbo://` deep links. |
 | **Practical routing** | TUN, proxy, combined mode, split tunneling, and custom routing profiles. |
+
+---
+
+## 🔓 Open Source
+
+Nimbo is developed as an open-source project. You can inspect the code, audit it, build it yourself, and adapt it to your own workflows.
+
+- **Transparency**: connection logic, helper-service behavior, xray config generation, and network operations are visible.
+- **Security through audit**: users and providers can verify how the client handles subscriptions, DNS, routes, and local settings.
+- **Build control**: build the client from source, review dependencies, and pin the version you want to run.
+- **Community contribution**: bug reports, pull requests, and ideas around routing, UI, protocols, and platforms help the project move faster.
 
 ---
 
@@ -197,4 +211,4 @@ For legacy subscriptions, use the Happ/Incy User-Agent presets in settings.
 
 ## 📄 License
 
-Proprietary. All rights reserved unless a separate license file states otherwise.
+Nimbo is open source. Usage, modification, and redistribution terms are defined by the repository license.
