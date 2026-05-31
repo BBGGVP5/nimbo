@@ -11,7 +11,7 @@ import { TunnelLogs } from "./pages/TunnelLogs";
 import { Settings } from "./pages/Settings";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { useAppStore } from "./store";
-import { api, isTauriRuntime, type AppPreferences, type AppUpdateInfo, type ConflictingProcess, type HelperStatus } from "./lib/api";
+import { api, type AppPreferences, type AppUpdateInfo, type ConflictingProcess, type HelperStatus } from "./lib/api";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initNimboDeepLinks } from "./lib/deepLinks";
 import { fillTemplate, useMessages, type Messages } from "./lib/i18n";
@@ -35,6 +35,7 @@ const navItems = [
 export default function App() {
   const preferences = useAppStore((s) => s.preferences);
   const status = useAppStore((s) => s.status);
+  const error = useAppStore((s) => s.error);
   const subscriptions = useAppStore((s) => s.subscriptions);
   const activeServerId = useAppStore((s) => s.activeServerId);
   const connectServer = useAppStore((s) => s.connectServer);
@@ -227,22 +228,28 @@ export default function App() {
     return () => window.removeEventListener(APP_UPDATE_DIALOG_EVENT, onShowUpdateDialog);
   }, []);
 
-  // Show window only when store hydration is complete and React is fully ready
+  // Show window when store hydration finishes (either successfully or with an error)
   useEffect(() => {
-    if (status && isTauriRuntime()) {
+    const hydrationCompleted = status !== null || error !== null;
+    if (hydrationCompleted) {
       if (!preferences.start_minimized) {
         requestAnimationFrame(() => {
           setTimeout(() => {
-            void getCurrentWindow().show()
-              .then(() => {
-                void getCurrentWindow().setFocus().catch(() => undefined);
-              })
-              .catch(() => undefined);
-          }, 60); // 60ms delay allows the browser to perform a solid first paint/layout
+            try {
+              const win = getCurrentWindow();
+              void win.show()
+                .then(() => {
+                  void win.setFocus().catch(() => undefined);
+                })
+                .catch(() => undefined);
+            } catch (e) {
+              console.warn("Tauri getCurrentWindow().show() failed (probably not in Tauri):", e);
+            }
+          }, 80); // 80ms is extremely smooth and safe
         });
       }
     }
-  }, [status, preferences.start_minimized]);
+  }, [status, error, preferences.start_minimized]);
 
   return (
     <div className="app-shell flex h-full">

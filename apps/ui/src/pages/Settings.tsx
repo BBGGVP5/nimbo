@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   api,
+  APP_VERSION,
   defaultAppPreferences,
   formatBytes,
   type AppPreferences,
@@ -16,10 +17,9 @@ import { notifyError, notifyInfo } from "../lib/notify";
 import { useAppStore } from "../store";
 import { showAppUpdateDialog } from "../App";
 
-const NIMBO_UA_FALLBACK = "Nimbo/0.1.0";
+const NIMBO_UA_FALLBACK = `Nimbo/${APP_VERSION}`;
 const HAPP_UA = "Happ/2.0.0";
 const INCY_UA = "Incy/2.1.0";
-const APP_VERSION = "0.1.0";
 const SOCKS_USERNAME_FALLBACK = "nimbo";
 const SOCKS_PASSWORD_FALLBACK = "nmb-preview-password";
 
@@ -91,6 +91,7 @@ export function Settings() {
   const [refreshingSubscriptions, setRefreshingSubscriptions] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
+  const [appVersion, setAppVersion] = useState(APP_VERSION);
   const connectionMode = status?.connection_mode ?? "tun";
 
   const updatePreferences = async (patch: Partial<AppPreferences>) => {
@@ -101,6 +102,18 @@ export function Settings() {
       notifyError(String(e));
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getAppVersion()
+      .then((version) => {
+        if (!cancelled) setAppVersion(version);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -335,6 +348,7 @@ export function Settings() {
               effectiveUa={subscriptionUa}
               savingUa={savingUa}
               deviceUa={defaultUa}
+              appVersion={appVersion}
               refreshingSubscriptions={refreshingSubscriptions}
               onChange={updatePreferences}
               onMode={applyUa}
@@ -359,6 +373,7 @@ export function Settings() {
             <UpdatesSection
               preferences={preferences}
               updateInfo={updateInfo}
+              appVersion={appVersion}
               checking={checkingUpdates}
               onChange={updatePreferences}
               onCheck={checkForUpdates}
@@ -368,6 +383,7 @@ export function Settings() {
           {section === "about" && (
             <AboutSection
               device={device}
+              appVersion={appVersion}
               copied={copied}
               onCopyHwid={onCopyHwid}
             />
@@ -403,40 +419,47 @@ function GeneralSection({
           description={m.settings.launchAtLoginDescription}
           enabled={preferences.launch_at_login}
           onToggle={(launch_at_login) => onChange({ launch_at_login })}
+          icon={<PowerIcon />}
         />
         <ToggleRow
           label={m.settings.autoConnect}
           description={m.settings.autoConnectDescription}
           enabled={preferences.auto_connect_on_launch}
           onToggle={(auto_connect_on_launch) => onChange({ auto_connect_on_launch })}
+          icon={<ZapIcon />}
         />
         <ToggleRow
           label={m.settings.startMinimized}
           enabled={preferences.start_minimized}
           onToggle={(start_minimized) => onChange({ start_minimized })}
+          icon={<MinimizeIcon />}
         />
         <ToggleRow
           label={m.settings.minimizeToTray}
           description={m.settings.minimizeToTrayDescription}
           enabled={preferences.minimize_to_tray}
           onToggle={(minimize_to_tray) => onChange({ minimize_to_tray })}
+          icon={<TrayIcon />}
         />
         <ToggleRow
           label={m.settings.pingOnLaunch}
           enabled={preferences.ping_on_launch}
           onToggle={(ping_on_launch) => onChange({ ping_on_launch })}
+          icon={<SignalIcon />}
         />
         <ToggleRow
           label={m.settings.showSpeedChart}
           description={m.settings.showSpeedChartDescription}
           enabled={preferences.show_speed_chart}
           onToggle={(show_speed_chart) => onChange({ show_speed_chart })}
+          icon={<ActivityIcon />}
         />
         <ToggleRow
           label={m.settings.showMemoryUsage}
           description={m.settings.showMemoryUsageDescription}
           enabled={preferences.show_memory_usage}
           onToggle={(show_memory_usage) => onChange({ show_memory_usage })}
+          icon={<CpuIcon />}
         />
       </SettingsCard>
     </Section>
@@ -903,6 +926,7 @@ function SubscriptionsSection({
   effectiveUa,
   savingUa,
   deviceUa,
+  appVersion,
   refreshingSubscriptions,
   onChange,
   onMode,
@@ -916,6 +940,7 @@ function SubscriptionsSection({
   effectiveUa: string;
   savingUa: boolean;
   deviceUa: string;
+  appVersion: string;
   refreshingSubscriptions: boolean;
   onChange: (patch: Partial<AppPreferences>) => Promise<void>;
   onMode: (mode: UaMode, custom?: string) => Promise<void>;
@@ -992,7 +1017,7 @@ function SubscriptionsSection({
           <div>
             <div className="settings-row-title">User-Agent</div>
             <div className="settings-row-description">
-              {m.settings.uaDefaultFormat}
+              {fillTemplate(m.settings.uaDefaultFormat, { version: appVersion })}
             </div>
           </div>
         </div>
@@ -1234,6 +1259,7 @@ function BackupSection({ onImported }: { onImported: () => Promise<void> }) {
 function UpdatesSection({
   preferences,
   updateInfo,
+  appVersion,
   checking,
   onChange,
   onCheck,
@@ -1241,6 +1267,7 @@ function UpdatesSection({
 }: {
   preferences: AppPreferences;
   updateInfo: AppUpdateInfo | null;
+  appVersion: string;
   checking: boolean;
   onChange: (patch: Partial<AppPreferences>) => Promise<void>;
   onCheck: () => Promise<void>;
@@ -1249,7 +1276,7 @@ function UpdatesSection({
   const m = useMessages();
   const versionValue = updateInfo
     ? `${updateInfo.current_version} -> ${updateInfo.latest_version}`
-    : APP_VERSION;
+    : appVersion;
   const assetValue = updateInfo?.asset
     ? `${updateInfo.asset.name}${updateInfo.asset.size ? ` · ${formatBytes(updateInfo.asset.size)}` : ""}`
     : updateInfo?.available
@@ -1303,10 +1330,12 @@ function UpdatesSection({
 
 function AboutSection({
   device,
+  appVersion,
   copied,
   onCopyHwid,
 }: {
   device: DeviceInfo | null;
+  appVersion: string;
   copied: boolean;
   onCopyHwid: () => void;
 }) {
@@ -1314,7 +1343,7 @@ function AboutSection({
   return (
     <Section title={m.settings.about}>
       <SettingsCard>
-        <ValueRow label={m.settings.version} value={APP_VERSION} />
+        <ValueRow label={m.settings.version} value={appVersion} />
         <ValueRow label={m.settings.engine} value="Rust + React + Tauri" />
         <ValueRow label={m.settings.developer} value="BBGGVP5" />
         <div className="settings-row">
@@ -1377,17 +1406,22 @@ function ToggleRow({
   description,
   enabled = false,
   onToggle,
+  icon,
 }: {
   label: string;
   description?: string;
   enabled?: boolean;
   onToggle?: (enabled: boolean) => void;
+  icon?: ReactNode;
 }) {
   return (
     <div className="settings-row">
-      <div>
-        <div className="settings-row-title">{label}</div>
-        {description && <div className="settings-row-description">{description}</div>}
+      <div className="settings-row-label-container">
+        {icon && <span className="settings-row-icon">{icon}</span>}
+        <div>
+          <div className="settings-row-title">{label}</div>
+          {description && <div className="settings-row-description">{description}</div>}
+        </div>
       </div>
       <button
         type="button"
@@ -1412,6 +1446,7 @@ function ValueRow({
   muted = false,
   mono = false,
   copyValue,
+  icon,
 }: {
   label: string;
   value: string;
@@ -1419,12 +1454,16 @@ function ValueRow({
   muted?: boolean;
   mono?: boolean;
   copyValue?: string;
+  icon?: ReactNode;
 }) {
   return (
     <div className={["settings-row", muted ? "settings-row-muted" : ""].join(" ")}>
-      <div className="min-w-0">
-        <div className="settings-row-title">{label}</div>
-        {description && <div className="settings-row-description">{description}</div>}
+      <div className="settings-row-label-container">
+        {icon && <span className="settings-row-icon">{icon}</span>}
+        <div className="min-w-0">
+          <div className="settings-row-title">{label}</div>
+          {description && <div className="settings-row-description">{description}</div>}
+        </div>
       </div>
       <div className="settings-value-actions">
         <span className={["settings-value", mono ? "font-mono" : ""].join(" ")}>{value}</span>
@@ -1440,18 +1479,23 @@ function SettingsChoiceRow<T extends string>({
   value,
   options,
   onChange,
+  icon,
 }: {
   label: string;
   description?: string;
   value: T;
   options: Array<{ value: T; label: string; icon?: ReactNode }>;
   onChange: (value: T) => Promise<void>;
+  icon?: ReactNode;
 }) {
   return (
     <div className="settings-row">
-      <div className="min-w-0">
-        <div className="settings-row-title">{label}</div>
-        {description && <div className="settings-row-description">{description}</div>}
+      <div className="settings-row-label-container">
+        {icon && <span className="settings-row-icon">{icon}</span>}
+        <div className="min-w-0">
+          <div className="settings-row-title">{label}</div>
+          {description && <div className="settings-row-description">{description}</div>}
+        </div>
       </div>
       <div
         className={[
@@ -1494,6 +1538,7 @@ function NumberPreferenceRow({
   max,
   suffix,
   onCommit,
+  icon,
 }: {
   label: string;
   description?: string;
@@ -1502,6 +1547,7 @@ function NumberPreferenceRow({
   max: number;
   suffix?: string;
   onCommit: (value: number) => Promise<void>;
+  icon?: ReactNode;
 }) {
   const [draft, setDraft] = useState(String(value));
 
@@ -1520,9 +1566,12 @@ function NumberPreferenceRow({
 
   return (
     <div className="settings-row">
-      <div className="min-w-0">
-        <div className="settings-row-title">{label}</div>
-        {description && <div className="settings-row-description">{description}</div>}
+      <div className="settings-row-label-container">
+        {icon && <span className="settings-row-icon">{icon}</span>}
+        <div className="min-w-0">
+          <div className="settings-row-title">{label}</div>
+          {description && <div className="settings-row-description">{description}</div>}
+        </div>
       </div>
       <div className="settings-value-actions">
         <input
@@ -1553,6 +1602,7 @@ function SettingsInputRow({
   copyValue,
   onChange,
   onCommit,
+  icon,
 }: {
   label: string;
   value: string;
@@ -1563,11 +1613,15 @@ function SettingsInputRow({
   copyValue?: string;
   onChange: (value: string) => void;
   onCommit: () => void;
+  icon?: ReactNode;
 }) {
   return (
     <div className="settings-row">
-      <div className="min-w-0">
-        <div className="settings-row-title">{label}</div>
+      <div className="settings-row-label-container">
+        {icon && <span className="settings-row-icon">{icon}</span>}
+        <div className="min-w-0">
+          <div className="settings-row-title">{label}</div>
+        </div>
       </div>
       <div
         className={[
@@ -1775,6 +1829,24 @@ function ClassicButtonIcon() {
 }
 function CompactButtonIcon() {
   return <Icon><rect x="3" y="8" width="18" height="8" rx="4" /><circle cx="16" cy="12" r="2.4" fill="currentColor" stroke="none" /></Icon>;
+}
+function PowerIcon() {
+  return <Icon><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Icon>;
+}
+function ZapIcon() {
+  return <Icon><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></Icon>;
+}
+function MinimizeIcon() {
+  return <Icon><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7" /></Icon>;
+}
+function TrayIcon() {
+  return <Icon><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></Icon>;
+}
+function ActivityIcon() {
+  return <Icon><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></Icon>;
+}
+function CpuIcon() {
+  return <Icon><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" /><line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" /><line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="15" x2="23" y2="15" /><line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="15" x2="4" y2="15" /></Icon>;
 }
 
 function Icon({ children }: { children: ReactNode }) {
