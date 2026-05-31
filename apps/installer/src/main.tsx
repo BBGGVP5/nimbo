@@ -184,12 +184,12 @@ const previewUninstallProbe: UninstallerProbe = {
   user_data_present: true,
 };
 
-function progressLabel(state: StepState): string {
+function progressLabel(state: StepState, runningLabel: string): string {
   switch (state) {
     case "done":
       return "Готово";
     case "running":
-      return "Идет";
+      return runningLabel;
     case "failed":
       return "Ошибка";
     default:
@@ -249,7 +249,7 @@ function formatInstallerError(error: unknown): string {
 function installerPhaseLabel(phase: InstallerPhase): string {
   switch (phase) {
     case "installing":
-      return "Идет установка";
+      return "Установка Nimbo";
     case "done":
       return "Готово";
     case "failed":
@@ -262,7 +262,7 @@ function installerPhaseLabel(phase: InstallerPhase): string {
 function uninstallerPhaseLabel(phase: UninstallerPhase): string {
   switch (phase) {
     case "uninstalling":
-      return "Идет удаление";
+      return "Удаление Nimbo";
     case "done":
       return "Готово";
     case "failed":
@@ -374,6 +374,7 @@ function Shell({
   progress,
   displayedProgress,
   brandCaption,
+  runningStepLabel,
   isDone,
   children,
 }: {
@@ -385,6 +386,7 @@ function Shell({
   progress: number;
   displayedProgress: number;
   brandCaption: string;
+  runningStepLabel: string;
   isDone: boolean;
   children: React.ReactNode;
 }) {
@@ -447,7 +449,7 @@ function Shell({
             <div className="current-step-dot" />
             <div className="current-step-body">
               <div className="current-step-title">{currentStep.title}</div>
-              <div className="current-step-state">{progressLabel(currentStep.state)}</div>
+              <div className="current-step-state">{progressLabel(currentStep.state, runningStepLabel)}</div>
             </div>
           </div>
         </div>
@@ -591,6 +593,7 @@ function InstallApp() {
       progress={progress}
       displayedProgress={displayedProgress}
       brandCaption="Установщик"
+      runningStepLabel="Установка"
       isDone={phase === "done"}
     >
       <button className="window-close" type="button" onClick={close} aria-label="Закрыть">×</button>
@@ -841,6 +844,7 @@ function UninstallApp() {
       progress={progress}
       displayedProgress={displayedProgress}
       brandCaption="Удаление"
+      runningStepLabel="Удаление"
       isDone={phase === "done"}
     >
       <button className="window-close" type="button" onClick={close} aria-label="Закрыть">×</button>

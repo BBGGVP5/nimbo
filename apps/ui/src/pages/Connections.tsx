@@ -198,8 +198,8 @@ export function Connections() {
 
       {tab === "live" ? (
         <section className="connections-section">
-          <div className="connections-section-header">
-            <div>
+          <div className="connections-section-header connections-live-section-header">
+            <div className="connections-section-title">
               <h2>{m.connectionsPage.liveTitle}</h2>
               <p>
                 {filteredConnections.length} {m.connectionsPage.connectionCount}
@@ -279,7 +279,7 @@ export function Connections() {
       ) : (
         <section className="connections-section">
           <div className="connections-section-header">
-            <div>
+            <div className="connections-section-title">
               <h2>{m.connectionsPage.rulesTitle}</h2>
               <p>{rules.length} {m.connectionsPage.ruleCount}</p>
             </div>

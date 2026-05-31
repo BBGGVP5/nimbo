@@ -4011,7 +4011,24 @@ body[data-theme="light"] .app-nav-link-active {
 
   .app-nav-link {
     font-size: 10px;
-    padding: 8px 4px;
+    padding: 7px 4px;
+  }
+
+  .app-nav-link[aria-current="page"] {
+    gap: 4px;
+  }
+
+  .app-nav-link[aria-current="page"] .app-nav-short {
+    display: block !important;
+    max-height: 16px;
+    min-height: 12px;
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    color: var(--color-text);
+    font-size: 10px;
+    font-weight: 720;
+    line-height: 1;
+    text-align: center;
   }
 
   .app-nav-icon {

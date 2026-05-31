@@ -1,258 +1,250 @@
-# Nimbo
+<p align="center">
+  <img src="./nimbo.png" width="96" alt="Nimbo logo" />
+</p>
 
-Windows VPN-клиент для Remnawave-подписок. Аналог Happ, ориентированный на персональное использование.
+<h1 align="center">Nimbo</h1>
 
-> Status: planning. Код ещё не написан. План ниже.
+<p align="center">
+  Fast, lightweight VPN client for xray subscriptions.
+  <br />
+  Быстрый и легковесный VPN-клиент для xray-подписок.
+</p>
 
----
+<p align="center">
+  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24c8db?style=for-the-badge&logo=tauri&logoColor=white" />
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-61dafb?style=for-the-badge&logo=react&logoColor=111827" />
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-native-f97316?style=for-the-badge&logo=rust&logoColor=white" />
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078d4?style=for-the-badge&logo=windows11&logoColor=white" />
+</p>
 
-## Что делает
-
-1. Импортирует подписку по URL (`https://sub.domain.com/...`).
-2. Парсит конфиги из подписки (VLESS Reality, VLESS XHTTP, VMess, Trojan, Shadowsocks).
-3. Поднимает локальный VPN-туннель через TUN-адаптер.
-4. Маршрутизирует весь системный трафик через выбранный сервер.
-5. Показывает список серверов с пингом, статусом, остатком трафика.
-6. Автообновляет подписку.
-
-## Стек и архитектура
-
-### Технологии
-- **UI**: Tauri 2 + React + TypeScript + Tailwind. Бинарь ~10-15 MB через WebView2.
-- **Service**: Rust (`windows-service` крейт). Отдельный бинарь `nimbo-svc.exe`, работает как Windows Service от SYSTEM.
-- **Ядро**: `xray-core` (`xray.exe`) — нативная совместимость с Remnawave subscription templates.
-- **TUN**: `tun2socks.exe` (hev-socks5-tunnel) + `wintun.dll` (Cloudflare WireGuard build).
-- **IPC**: named pipe `\\.\pipe\nimbo-svc` между UI и сервисом.
-- **Установщик**: WiX MSI (через `tauri-bundler`).
-
-### Почему такой стек
-- Tauri вместо Electron — бинарь в 10× меньше, нативный WebView2 (Edge уже стоит в Win10/11).
-- Rust для сервиса — один тулчейн на весь проект (Cargo workspace), `windows-service` хорошо ложится, async-IO через `tokio`.
-- xray-core вместо sing-box — Remnawave subscription templates по умолчанию заточены под xray (особенно XHTTP-transport), работают без сюрпризов. Hysteria2/TUIC если когда-то понадобятся — отдельным процессом sing-box рядом.
-
-### Service-mode архитектура
-```
-+- Nimbo UI (user-mode) -----------+
-|  Tauri + React + WebView2        |
-|  Окно, tray-иконка, настройки    |
-+--------+-------------------------+
-         | named pipe
-         | команды: connect/disconnect/status/import-subscription
-+--------v-------------------------+
-|  Nimbo Service (SYSTEM)          |
-|  - управляет xray.exe            |
-|  - управляет tun2socks.exe       |
-|  - поднимает wintun adapter      |
-|  - правит таблицу маршрутизации  |
-|  - DNS leak protection           |
-+----------------------------------+
-```
-
-Зачем сервис: TUN-адаптер на винде требует SYSTEM-прав. Без сервиса каждый запуск UI будет дёргать UAC. С сервисом — UAC спрашивается **один раз** при установке, дальше UI запускается обычным юзером и шлёт команды сервису по pipe. Так работают WireGuard for Windows, OpenVPN GUI, NekoRay, Happ.
-
-## Структура репо
-
-```
-nimbo-app/
-├─ apps/
-│  ├─ ui/                  # Tauri + React (Nimbo.exe)
-│  │  ├─ src/              # React/TS
-│  │  └─ src-tauri/        # Tauri Rust backend
-│  └─ service/             # Rust Windows Service (nimbo-svc.exe)
-├─ crates/
-│  ├─ ipc/                 # общий протокол UI ↔ Service (serde)
-│  ├─ subscription/        # парсер подписок
-│  ├─ xray-config/         # билдер xray JSON
-│  └─ core-runner/         # обёртка над xray.exe + tun2socks.exe
-├─ resources/
-│  ├─ xray/xray.exe
-│  ├─ tun2socks/tun2socks.exe
-│  └─ wintun/wintun.dll
-├─ installer/
-│  └─ wix/                 # WiX MSI definitions
-├─ Cargo.toml              # workspace root
-└─ README.md
-```
+<p align="center">
+  <a href="#-what-is-nimbo--что-такое-nimbo">Overview</a> ·
+  <a href="#-features--возможности">Features</a> ·
+  <a href="#-download--скачать">Download</a> ·
+  <a href="#-build-from-source--сборка">Build</a> ·
+  <a href="#-architecture--архитектура">Architecture</a>
+</p>
 
 ---
 
-## План MVP
+## ✨ What Is Nimbo / Что такое Nimbo
 
-### Этап 1 — Скелет workspace
-- Создать Cargo workspace в корне (`Cargo.toml` с `[workspace]`)
-- Поднять Tauri 2 проект в `apps/ui` (Vite + React + TS + Tailwind)
-- Создать пустой `apps/service` бинарь
-- Создать `crates/ipc` с базовыми serde-структурами команд
-- Тёмная тема, базовая навигация (Home / Subscriptions / Settings)
-- Smoke-test: `cargo build --workspace` и `pnpm tauri dev` запускаются
+Nimbo is a Windows-first VPN client for xray-compatible subscriptions: Remnawave, Marzban, 3x-ui and any panel that returns standard `vless://`, `vmess://`, `trojan://`, `ss://` or `hysteria2://` links.
 
-### Этап 2 — Парсер подписок (`crates/subscription`)
-- HTTP-клиент (`reqwest`) с тайм-аутом 15 сек, custom user-agent
-- Детектор формата ответа:
-  - base64-encoded list (плейн → расшифровать → построчный список ссылок)
-  - plain text список ссылок
-  - xray JSON (распознавание по `outbounds` ключу)
-  - sing-box JSON (по `outbounds[].type`)
-  - Clash YAML (по `proxies:` ключу)
-- Парсеры URL-схем:
-  - `vless://uuid@host:port?type=xhttp&security=reality&pbk=...&fp=...&sni=...&sid=...&flow=...#name`
-  - `vmess://base64({v,ps,add,port,id,aid,scy,net,type,host,path,tls,sni,...})`
-  - `trojan://password@host:port?security=tls&sni=...&type=...#name`
-  - `ss://method:password@host:port#name` + base64-варианты
-- Парсинг заголовка `subscription-userinfo: upload=...; download=...; total=...; expire=...`
-- Хранение подписки: `apps/service/data/subscriptions.json` (зашифровать AES-GCM ключом из DPAPI)
-- Тесты на реальных образцах с Remnawave (положить в `crates/subscription/tests/fixtures/`)
+Nimbo imports a subscription URL, shows available servers, measures latency, builds the xray runtime config and connects through system proxy, TUN mode or both.
 
-### Этап 3 — Билдер xray-конфига (`crates/xray-config`)
-- Скелет конфига: `log`, `dns` (1.1.1.1 + 8.8.8.8 через прокси), `inbounds` (SOCKS5 на 127.0.0.1:10808), `outbounds`, `routing`
-- Конвертеры: `Server → xray Outbound` для каждого протокола
-- Маршрутизация: `direct` для приватных сетей (10/8, 192.168/16, 172.16/12), `proxy` для остального
-- Опционально: rules для CN/RU geosite (на потом)
-- Валидация конфига через `xray.exe -test -c config.json`
-
-### Этап 4 — Service skeleton (`apps/service`)
-- `windows-service` крейт: install/uninstall команды (`nimbo-svc.exe install`)
-- Регистрация автозапуска (StartType=AutoStart)
-- Named pipe сервер `\\.\pipe\nimbo-svc`, JSON-протокол поверх
-- Команды: `Ping`, `GetStatus`, `Connect(serverId)`, `Disconnect`, `ReloadConfig`, `Shutdown`
-- Логирование в `%PROGRAMDATA%\Nimbo\logs\service.log` (ротация по 10 MB × 5 файлов)
-
-### Этап 5 — Core runner (`crates/core-runner`)
-- Запуск `xray.exe -c config.json` как child process
-- Перехват stdout/stderr → лог-файл
-- Health-check: HTTP GET `http://127.0.0.1:10809/stats` (xray API) каждые 5 сек
-- Авторестарт при падении (с экспоненциальным backoff, max 3 попытки)
-- Graceful shutdown: SIGTERM-эквивалент через `TerminateProcess` + cleanup
-
-### Этап 6 — TUN-интеграция
-- `tun2socks.exe -device wintun -proxy socks5://127.0.0.1:10808 -tcp-rcv-buf-size 4194304 -loglevel warning`
-- Поднятие wintun adapter (имя `Nimbo`)
-- Добавление маршрутов: `0.0.0.0/1` и `128.0.0.0/1` через TUN (вместо `0.0.0.0/0` чтобы не пересекаться с дефолтным)
-- Сохранение оригинального default gateway для restore при отключении
-- DNS: установить только на TUN (через `netsh interface ipv4 set dns Nimbo static 1.1.1.1`)
-- При отключении: удалить маршруты, восстановить DNS, опустить wintun
-
-### Этап 7 — UI (минимальный)
-- Экран «Подписки»: добавить URL → парсинг → сохранение, список подписок
-- Экран «Серверы»: список из активной подписки, ping-кнопка, переключатель активного
-- Главный экран: статус подключения, кнопка Connect/Disconnect, текущий сервер, базовая статистика (uptime, скорость up/down)
-- Tauri commands → IPC к сервису через named pipe
-
-### Этап 8 — Ping-тестер
-- Реальный TCP-ping (connect к host:port с тайм-аутом) или HTTP-ping через xray API
-- Параллельный пинг до 10 серверов одновременно
-- Сортировка списка по пингу (опция)
-- Авто-выбор лучшего сервера (опция в настройках)
-
-### Этап 9 — Tray + автозапуск UI
-- Tauri tray plugin: иконка в трее, контекстное меню (Show/Hide/Connect/Disconnect/Quit)
-- Закрытие крестиком → minimize-to-tray (опция)
-- Автозапуск UI с виндой (registry `HKCU\...\Run` или Startup folder)
-- Hotkeys: глобальные шорткаты на toggle (опция)
-
-### Этап 10 — Авто-обновление подписки
-- WorkManager-эквивалент в сервисе: `tokio::time::interval` на 6/12/24 часа (настраивается)
-- При обновлении: тянем URL, парсим, диффим со старым списком, обновляем
-- Уведомления в трее при существенных изменениях (новые серверы / удалённые)
-- Force-update кнопка в UI
-
-### Этап 11 — Установщик MSI (WiX)
-- WiX 4 проект в `installer/wix/`
-- Компоненты: `Nimbo.exe`, `nimbo-svc.exe`, `xray.exe`, `tun2socks.exe`, `wintun.dll`, ярлыки в Start Menu / Desktop
-- При установке: регистрация и запуск сервиса (UAC-пром)
-- При удалении: остановка сервиса, удаление, очистка `%PROGRAMDATA%\Nimbo\` (опционально через диалог)
-- Подпись пока пропускаем (см. секцию Code-signing ниже)
-
-### Этап 12 — Auto-update приложения
-- Tauri updater plugin
-- Сервер обновлений: GitHub Releases (приватный репо → API token в приложении или прокси через свой сервер)
-- Проверка раз в сутки + кнопка «проверить сейчас»
-- Дельта-обновления при возможности
+Nimbo — Windows-first VPN-клиент для xray-совместимых подписок: Remnawave, Marzban, 3x-ui и любых панелей со стандартными ссылками `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`.
 
 ---
 
-## Подводные камни (известные заранее)
+## 💎 Why Nimbo / Почему Nimbo
 
-- **wintun.dll**: только Cloudflare-сборка (текущая 0.14.x), не GPL-форк. Кладётся рядом с `tun2socks.exe`.
-- **DNS leak**: обязательно устанавливать DNS только на TUN-адаптер. Если оставить системный DNS на Ethernet — винда будет резолвить через провайдера.
-- **Route metrics**: использовать `0.0.0.0/1` + `128.0.0.0/1` (две половины) вместо `0.0.0.0/0`. Иначе при дисконнекте не получится корректно восстановить дефолтный маршрут.
-- **IPv6**: если у юзера IPv6 — будет утечка мимо TUN. Решения: (1) отключать IPv6 на интерфейсах при коннекте, (2) добавлять `::/1` + `8000::/1` маршруты на TUN.
-- **Kill-switch**: при падении xray трафик пойдёт в обход. Реализуется через WFP-фильтры (Windows Filtering Platform). Опционально на пост-MVP.
-- **SmartScreen**: без code-signing будет «Windows protected your PC» при первом запуске установщика. Юзеры обходят через `More info → Run anyway`.
-- **Антивирусы**: Defender может ругаться на `wintun.dll` и `tun2socks.exe` — добавляем в исключения через установщик (опционально).
-- **Code page**: вывод `xray.exe` на винде с русской локалью может приходить в CP866. Парсить с явным `WINDOWS-1251` / `UTF-8` детектом, не предполагать UTF-8.
-- **xray gRPC API**: на 127.0.0.1:10809 без auth. Биндить только на loopback, иначе любой локальный процесс может стрить статистику и перенастраивать ядро.
-- **Concurrent pipes**: named pipe сервер должен поддерживать несколько UI-инстансов (tray + main window). Использовать `tokio::net::windows::named_pipe::NamedPipeServer` с reconnect-loop.
+| Focus | Details |
+|---|---|
+| **Small footprint** | Tauri 2 uses the system WebView instead of bundling Chromium. |
+| **Native core** | Rust backend, xray-core integration and a helper service for privileged network operations. |
+| **One-time elevation** | The helper service is installed once, so connecting does not require repeated UAC prompts. |
+| **Provider-friendly** | Subscription metadata, server descriptions, User-Agent presets and `nimbo://` deep links. |
+| **Practical routing** | TUN, proxy, combined mode, split tunneling and custom routing profiles. |
 
 ---
 
-## Релизный процесс (на будущее)
+## 🚀 Features / Возможности
 
-1. Версия в `Cargo.toml` (workspace) и `apps/ui/package.json` синхронно
-2. Тесты: `cargo test --workspace` + `pnpm test` в `apps/ui`
-3. Build release: `pnpm tauri build` (генерит MSI)
-4. Тег без префикса `v`: `0.1.0`, `0.2.0`
-5. GitHub Release (приватный) с MSI-артефактом
-6. Auto-update подхватывает из releases.json
+### Protocols
 
-## Интеграция с Remnawave: правило подписки
+- VLESS: Reality, XHTTP, WebSocket, gRPC, HTTP/2, TCP
+- VMess: WebSocket, gRPC, TCP, HTTP Upgrade
+- Trojan: TLS, WebSocket, gRPC
+- Shadowsocks
+- Hysteria2
 
-Remnawave-панель решает что отдать в подписке по правилам user-agent. Чтобы Nimbo получал `XRAY_BASE64` (наш базовый формат), добавь в `Subscription Settings → Response Rules` правило **перед Fallback**:
+### Connection Modes
 
-```json
-{
-  "name": "Nimbo",
-  "description": "Nimbo Windows VPN client",
-  "enabled": true,
-  "operator": "AND",
-  "conditions": [
-    {
-      "headerName": "user-agent",
-      "operator": "CONTAINS",
-      "value": "nimbo",
-      "caseSensitive": false
-    },
-    {
-      "headerName": "x-hwid",
-      "operator": "REGEX",
-      "value": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-      "caseSensitive": false
-    }
-  ],
-  "responseType": "XRAY_BASE64"
-}
+- System proxy: SOCKS5 / HTTP
+- TUN mode: full-system traffic capture
+- Combined mode: proxy + TUN
+
+### Subscription Management
+
+- URL import with traffic and expiration metadata
+- Auto-refresh by interval
+- User-Agent presets for Happ/Incy compatibility
+- Deep link import: `nimbo://import?url=...`
+- Remnawave metadata support, including server descriptions
+
+### Network Tools
+
+- TCP latency testing for all servers
+- Active connection monitor
+- Session and total traffic statistics
+- DNS leak protection
+- LAN access controls
+- Per-app split tunneling rules
+- Custom routing profiles: domain, IP, `geosite`, `geoip`
+
+### Interface
+
+- Russian and English languages
+- Dark, Light, System and True Black/OLED themes
+- Provider or custom accent color
+- System tray quick actions
+- Tunnel log viewer
+- Compact responsive layout for mobile-sized previews
+
+---
+
+## 🖥 Platforms / Платформы
+
+| Platform | Status |
+|---|---|
+| **Windows 10/11** | Main target. NSIS/custom installer, helper service, TUN support. |
+| **Linux** | Experimental AppImage/deb/custom installer flow. |
+| **Android** | Planned/mobile preview. The current codebase is desktop-first. |
+
+---
+
+## 📦 Download / Скачать
+
+Download the latest Windows installer from [Releases](../../releases).
+
+Скачайте последний Windows-установщик на странице [Releases](../../releases).
+
+> The installer is not code-signed yet. Windows SmartScreen may show a warning.
+> Click **More info** → **Run anyway** if you trust the build.
+
+> Установщик пока не подписан. Windows SmartScreen может показать предупреждение.
+> Нажмите **Подробнее** → **Выполнить в любом случае**, если доверяете сборке.
+
+---
+
+## 🛠 Build From Source / Сборка
+
+### Prerequisites
+
+| Tool | Version | Purpose |
+|---|---:|---|
+| [Rust](https://rustup.rs/) | 1.80+ | Workspace crates and Tauri backend |
+| [Node.js](https://nodejs.org/) | 20+ | React/Vite frontend |
+| [Tauri CLI](https://v2.tauri.app/start/prerequisites/) | 2.x | Desktop app bundling |
+
+Windows 10/11 already includes WebView2 on most modern installs. If not, install the WebView2 Runtime from Microsoft.
+
+Linux packages:
+
+```bash
+sudo apt install libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev build-essential patchelf
 ```
 
-Что важно:
-- `user-agent contains "nimbo"` — наш UA по умолчанию `Nimbo/0.1.0`, сматчится
-- `x-hwid` regex — обязательный валидный UUID. Левый клиент без HWID попадёт во Fallback → BLOCK. Это hardenит панель: маскироваться под Nimbo одним UA не получится.
-- Все клиенты Nimbo автоматически шлют `X-Hwid`, `X-Device-Os`, `X-Device-Os-Version`, `X-Ver-Os`, `X-Device-Model`. HWID = `MachineGuid` из реестра Windows, кешируется в `%APPDATA%\Nimbo\hwid.txt`.
+### Development
 
-### Маскировка для legacy-конфигов
+```bash
+git clone https://github.com/Case211/nimbo-app.git
+cd nimbo/apps/ui
+npm install
+npm run dev
+```
 
-Если у клиента нет правила для Nimbo (например, чужая подписка), в `Settings → User-Agent` есть пресеты «Маскировка под Happ» и «Маскировка под Incy». HWID-заголовки идут в любом случае.
+### Desktop Build
 
-## Code-signing — отдельной задачей
+```bash
+cd apps/ui
+npm run build
+npm run build:installer
+```
 
-- **Старт**: без подписи. SmartScreen-варнинг при первой установке, юзеры обходят `More info → Run anyway`.
-- **Дальше**: Sectigo Standard Code Signing (~$200/год) на физика. HSM-токен или облачный HSM. В CI шаг `signtool sign /tr http://timestamp.sectigo.com /td sha256 /fd sha256 /a Nimbo.msi`. Репутация набирается 1-3 месяца.
-- **EV (опционально)**: если регистрировать ИП/ООО под проект — мгновенная репутация, ~$300-500/год.
+The generated installer is placed under `target/release/bundle/`.
 
----
+### Helper Service
 
-## TODO post-MVP
-
-- iOS / Android клиенты (Tauri Mobile или нативные)
-- Split-tunneling per-app (через WFP application filter)
-- Kill-switch (WFP block-all-except-tun)
-- Профили (несколько подписок одновременно с переключением)
-- Subscription через QR-код
-- Импорт ZIP-бэкапа конфигурации
-- Темы / кастомизация UI
-- Telemetry (opt-in, в свой ClickHouse)
+```bash
+cargo build --release -p nimbo-svc
+```
 
 ---
 
-## Лицензирование
+## 🧭 Architecture / Архитектура
 
-Приватный проект. Все права защищены.
+```text
+Nimbo UI
+Tauri 2 + React + WebView2
+Window, tray, settings, subscriptions
+        |
+        | named pipe / JSON IPC
+        v
+Nimbo Service
+Rust, SYSTEM on Windows
+xray-core, TUN adapter, routing table, DNS protection
+```
+
+The UI runs as a regular user. The helper service handles privileged operations: TUN adapter setup, route changes, DNS configuration, xray runtime control and conflicting VPN process cleanup.
+
+UI запускается от обычного пользователя. Сервис работает с повышенными правами и берёт на себя TUN-адаптер, маршруты, DNS, xray runtime и очистку конфликтующих VPN-процессов.
+
+---
+
+## 📁 Project Structure / Структура
+
+```text
+nimbo/
+├── apps/
+│   ├── ui/             # Tauri 2 + React frontend and Tauri backend
+│   ├── service/        # Rust helper service
+│   └── installer/      # Custom installer
+├── crates/
+│   ├── device/         # HWID generation
+│   ├── ipc/            # Shared IPC protocol types
+│   ├── subscription/   # Subscription fetcher and parser
+│   └── xray-config/    # xray JSON config builder
+├── CHANGELOG_NIMBO.md
+├── Cargo.toml
+└── README.md
+```
+
+---
+
+## 🔌 Subscription Compatibility / Совместимость
+
+Nimbo works with any panel that provides xray-compatible subscriptions:
+
+- **Remnawave**: metadata, descriptions and xray templates
+- **Marzban**: base64 subscription links
+- **3x-ui**: xray JSON and base64 formats
+- **Generic panels**: standard proxy URLs
+
+Default User-Agent:
+
+```text
+Nimbo/<version>
+```
+
+For legacy subscriptions, use the Happ/Incy User-Agent presets in settings.
+
+---
+
+## 🗺 Roadmap / Планы
+
+- Android client or mobile shell
+- QR-code subscription import
+- Kill switch through Windows Filtering Platform
+- More split tunneling presets
+- Multi-profile workflows
+- Signed installer and auto-update hardening
+
+---
+
+## 🤝 Contributing / Участие
+
+1. Open an issue to discuss the change.
+2. Create a feature branch.
+3. Make focused commits.
+4. Run checks before opening a pull request.
+5. Open a PR with a clear description and screenshots for UI changes.
+
+---
+
+## 📄 License / Лицензия
+
+Proprietary. All rights reserved unless a separate license file states otherwise.
+
+Проприетарный проект. Все права защищены, если отдельный файл лицензии не говорит иначе.
