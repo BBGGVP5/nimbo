@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { PhysicalSize } from "@tauri-apps/api/dpi";
+import { LogicalSize, PhysicalSize } from "@tauri-apps/api/dpi";
 import nimboLogo from "../../ui/src/assets/nimbo.png";
 import "./styles.css";
 
@@ -1012,15 +1012,15 @@ function Root() {
     document.addEventListener("contextmenu", preventContextMenu);
 
     // 1. Restore window size if saved
-    const savedWidth = localStorage.getItem("nimbo.setup.windowWidth");
-    const savedHeight = localStorage.getItem("nimbo.setup.windowHeight");
+    const savedWidth = localStorage.getItem("nimbo.setup.windowWidthLogical");
+    const savedHeight = localStorage.getItem("nimbo.setup.windowHeightLogical");
     if (savedWidth && savedHeight) {
       const w = parseInt(savedWidth, 10);
       const h = parseInt(savedHeight, 10);
       if (!isNaN(w) && !isNaN(h)) {
-        const width = Math.min(Math.max(w, MIN_RESTORED_WINDOW_WIDTH), DEFAULT_WINDOW_WIDTH);
-        const height = Math.min(Math.max(h, MIN_RESTORED_WINDOW_HEIGHT), DEFAULT_WINDOW_HEIGHT);
-        void getCurrentWindow().setSize(new PhysicalSize(width, height)).catch(() => undefined);
+        const width = Math.max(w, MIN_RESTORED_WINDOW_WIDTH);
+        const height = Math.max(h, MIN_RESTORED_WINDOW_HEIGHT);
+        void getCurrentWindow().setSize(new LogicalSize(width, height)).catch(() => undefined);
       }
     }
 
@@ -1031,11 +1031,13 @@ function Root() {
         const appWindow = getCurrentWindow();
         const unsub = await appWindow.onResized(async () => {
           const size = await appWindow.innerSize();
+          const scaleFactor = await appWindow.scaleFactor();
+          const logicalSize = size.toLogical(scaleFactor);
           const isMaximized = await appWindow.isMaximized();
           const isMinimized = await appWindow.isMinimized();
-          if (!isMaximized && !isMinimized && size.width > 200 && size.height > 200) {
-            localStorage.setItem("nimbo.setup.windowWidth", size.width.toString());
-            localStorage.setItem("nimbo.setup.windowHeight", size.height.toString());
+          if (!isMaximized && !isMinimized && logicalSize.width > 200 && logicalSize.height > 200) {
+            localStorage.setItem("nimbo.setup.windowWidthLogical", logicalSize.width.toString());
+            localStorage.setItem("nimbo.setup.windowHeightLogical", logicalSize.height.toString());
           }
         });
         unlisten = unsub;
