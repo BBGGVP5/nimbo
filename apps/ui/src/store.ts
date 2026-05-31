@@ -31,6 +31,7 @@ interface AppStoreState {
   serverPings: Record<string, number>;
   connectingServerId: string | null;
   disconnecting: boolean;
+  switchingServerId: string | null;
   importDialogOpen: boolean;
   importDialogSource: string;
   conflictDialogOpen: boolean;
@@ -83,6 +84,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   serverPings: {},
   connectingServerId: null,
   disconnecting: false,
+  switchingServerId: null,
   importDialogOpen: false,
   importDialogSource: "",
   conflictDialogOpen: false,
@@ -184,7 +186,18 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const { status, activeServerId } = get();
     if (status?.state === "connected") {
       if (!serverId || serverId === activeServerId) return;
-      await get().connectServer(serverId);
+      set({ switchingServerId: serverId, disconnecting: true, error: null });
+      try {
+        await api.disconnectServer();
+        get().resetTrafficSession();
+        // Wait 800ms for the OS to release sockets and ports
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        set({ switchingServerId: null });
+        await get().connectServer(serverId);
+      } catch (e) {
+        set({ switchingServerId: null, disconnecting: false, error: String(e) });
+        throw e;
+      }
       return;
     }
 

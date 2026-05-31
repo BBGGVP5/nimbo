@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { PhysicalSize } from "@tauri-apps/api/dpi";
 import nimboLogo from "../../ui/src/assets/nimbo.png";
 import "./styles.css";
 
@@ -999,6 +1000,44 @@ function Root() {
         // Tauri bridge missing (browser preview) — default to install.
         setMode("install");
       });
+  }, []);
+
+  React.useEffect(() => {
+    // 1. Restore window size if saved
+    const savedWidth = localStorage.getItem("nimbo.setup.windowWidth");
+    const savedHeight = localStorage.getItem("nimbo.setup.windowHeight");
+    if (savedWidth && savedHeight) {
+      const w = parseInt(savedWidth, 10);
+      const h = parseInt(savedHeight, 10);
+      if (!isNaN(w) && !isNaN(h)) {
+        void getCurrentWindow().setSize(new PhysicalSize(w, h)).catch(() => undefined);
+      }
+    }
+
+    // 2. Listen to resize to save size
+    let unlisten: (() => void) | null = null;
+    const setupResizeListener = async () => {
+      try {
+        const appWindow = getCurrentWindow();
+        const unsub = await appWindow.onResized(async () => {
+          const size = await appWindow.innerSize();
+          const isMaximized = await appWindow.isMaximized();
+          const isMinimized = await appWindow.isMinimized();
+          if (!isMaximized && !isMinimized && size.width > 200 && size.height > 200) {
+            localStorage.setItem("nimbo.setup.windowWidth", size.width.toString());
+            localStorage.setItem("nimbo.setup.windowHeight", size.height.toString());
+          }
+        });
+        unlisten = unsub;
+      } catch (err) {
+        console.error("Failed to setup resize listener", err);
+      }
+    };
+    void setupResizeListener();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, []);
 
   if (mode === null) {

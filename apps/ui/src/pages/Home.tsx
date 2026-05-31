@@ -158,6 +158,7 @@ export function Home() {
   const status = useAppStore((s) => s.status);
   const serverPings = useAppStore((s) => s.serverPings);
   const connectingServerId = useAppStore((s) => s.connectingServerId);
+  const switchingServerId = useAppStore((s) => s.switchingServerId);
   const disconnecting = useAppStore((s) => s.disconnecting);
   const setActive = useAppStore((s) => s.setActiveServer);
   const setActiveSubscription = useAppStore((s) => s.setActiveSubscription);
@@ -298,18 +299,20 @@ export function Home() {
   );
 
   const activeEntry = useMemo(() => {
-    if (!activeId) return null;
-    const inCurrent = baseEntries.find((item) => item.server.id === activeId);
+    const targetId = connectingServerId || switchingServerId || activeId;
+    if (!targetId) return null;
+    const inCurrent = baseEntries.find((item) => item.server.id === targetId);
     if (inCurrent) return inCurrent;
     for (const sub of visibleSubs) {
-      const server = sub.servers.find((s) => s.id === activeId);
+      const server = sub.servers.find((s) => s.id === targetId);
       if (server) return { server, sub };
     }
     return null;
-  }, [activeId, baseEntries, visibleSubs]);
+  }, [activeId, connectingServerId, switchingServerId, baseEntries, visibleSubs]);
   const fallbackEntry = activeEntry ?? baseEntries[0] ?? null;
   const connected = status?.state === "connected";
   const connecting = Boolean(connectingServerId);
+  const switching = Boolean(switchingServerId);
 
   useEffect(() => {
     if (!connected) {
@@ -516,13 +519,15 @@ export function Home() {
   };
 
   const isCompactButton = preferences.servers_connect_button === "compact";
-  const connectionStatusLabel = disconnecting
-    ? m.home.disconnecting
-    : connecting
-      ? m.home.connecting
-      : connected
-        ? `${m.home.connected} ${formatDuration(elapsedSeconds)}`
-        : m.home.pressToConnect;
+  const connectionStatusLabel = switching
+    ? (m.home.switching || "Переключение...")
+    : disconnecting
+      ? m.home.disconnecting
+      : connecting
+        ? m.home.connecting
+        : connected
+          ? `${m.home.connected} ${formatDuration(elapsedSeconds)}`
+          : m.home.pressToConnect;
 
   return (
     <div
@@ -545,7 +550,7 @@ export function Home() {
         <div className="home-middle">
           <ConnectionButton
             connected={connected}
-            connecting={connecting}
+            connecting={connecting || switching}
             disconnecting={disconnecting}
             compact={isCompactButton}
             statusLabel={connectionStatusLabel}
@@ -558,7 +563,7 @@ export function Home() {
               className={[
                 "connection-status mt-5",
                 connected ? "connection-status-connected" : "",
-                connecting ? "connection-status-connecting" : "",
+                (connecting || switching) ? "connection-status-connecting" : "",
                 disconnecting ? "connection-status-disconnecting" : "",
               ].join(" ")}
             >

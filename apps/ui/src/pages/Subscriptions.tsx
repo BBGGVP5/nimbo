@@ -24,6 +24,7 @@ export function Subscriptions() {
   const activeId = useAppStore((s) => s.activeServerId);
   const serverPings = useAppStore((s) => s.serverPings);
   const connectingServerId = useAppStore((s) => s.connectingServerId);
+  const switchingServerId = useAppStore((s) => s.switchingServerId);
   const setActive = useAppStore((s) => s.setActiveServer);
   const refreshSubscription = useAppStore((s) => s.refreshSubscription);
   const updateSubscriptionSettings = useAppStore((s) => s.updateSubscriptionSettings);
@@ -142,7 +143,7 @@ export function Subscriptions() {
               sub={sub}
               activeId={activeId}
               serverPings={serverPings}
-              connectingId={connectingServerId}
+              connectingId={connectingServerId || switchingServerId}
               onSelect={onSelect}
               onRefresh={() => refreshSubscription(sub.url)}
               onUpdate={(settings) => updateSubscriptionSettings(sub.url, settings)}
