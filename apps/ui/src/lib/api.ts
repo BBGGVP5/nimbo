@@ -1041,6 +1041,10 @@ function downloadBrowserTextFile(fileName: string, contents: string): string | n
 }
 
 export const api = {
+  appReady: () =>
+    isTauriRuntime()
+      ? invoke<void>("app_ready")
+      : Promise.resolve(),
   getAppVersion: () =>
     isTauriRuntime()
       ? getVersion().catch(() => APP_VERSION)

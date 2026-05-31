@@ -478,6 +478,19 @@ pub fn write_clipboard_text(text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn app_ready(app: tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let preferences = state.snapshot().preferences;
+    if !preferences.start_minimized {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+    }
+}
+
+#[tauri::command]
 pub fn get_status(state: State<'_, AppState>) -> AppStatus {
     let snapshot = state.snapshot();
     let server_count: usize = snapshot.subscriptions.iter().map(|s| s.servers.len()).sum();

@@ -68,6 +68,11 @@ export default function App() {
   useEffect(() => applyVisualPreferences(preferences), [preferences]);
 
   useEffect(() => {
+    // Notify the backend that the React frontend has mounted and is ready
+    void api.appReady().catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
     checkUpdatesOnLaunch.current = preferences.check_updates_on_launch;
   }, [preferences.check_updates_on_launch]);
 

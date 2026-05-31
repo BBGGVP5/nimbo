@@ -6,7 +6,7 @@ pub mod tray;
 pub mod updater;
 
 use crate::commands::{
-    add_subscription, clear_tunnel_logs, connect_server, delete_routing_profile,
+    add_subscription, app_ready, clear_tunnel_logs, connect_server, delete_routing_profile,
     disconnect_server, export_app_backup, export_app_proxy_rules_file, export_routing_profile,
     get_app_icon, get_device_info, get_memory_usage, get_preferences, get_routing_profile,
     get_session_traffic, get_status, get_traffic_stats, get_tun_status, get_tunnel_logs,
@@ -192,6 +192,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            app_ready,
             get_status,
             get_preferences,
             export_app_backup,
