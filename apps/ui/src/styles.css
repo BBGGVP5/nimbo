@@ -3909,14 +3909,14 @@ body[data-theme="light"] .app-nav-link-active {
   }
 
   .app-sidebar > .glass {
-    border-radius: 0;
+    border-radius: var(--ui-radius-xl);
     min-height: 0;
     height: 100%;
-    background: transparent;
-    border: 0;
-    box-shadow: none;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+    background: var(--ui-panel-bg-strong);
+    border: 1px solid var(--color-border);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    backdrop-filter: var(--ui-backdrop-filter);
+    -webkit-backdrop-filter: var(--ui-backdrop-filter);
   }
 
   .app-brand,

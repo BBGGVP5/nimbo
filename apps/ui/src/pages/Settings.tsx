@@ -566,10 +566,26 @@ function AppearanceSection({
     visualDraft.interface_rounding !== defaultAppPreferences.interface_rounding;
 
   const resetAllVisuals = () => {
-    saveVisualPreference("interface_panel_brightness", defaultAppPreferences.interface_panel_brightness, true);
-    saveVisualPreference("interface_transparency", defaultAppPreferences.interface_transparency, true);
-    saveVisualPreference("interface_blur", defaultAppPreferences.interface_blur, true);
-    saveVisualPreference("interface_rounding", defaultAppPreferences.interface_rounding, true);
+    // 1. Update React visual draft immediately so UI reflects reset instantly
+    setVisualDraft({
+      interface_panel_brightness: defaultAppPreferences.interface_panel_brightness,
+      interface_transparency: defaultAppPreferences.interface_transparency,
+      interface_blur: defaultAppPreferences.interface_blur,
+      interface_rounding: defaultAppPreferences.interface_rounding,
+    });
+
+    // 2. Clear all scheduled saving timers
+    Object.values(visualTimers.current).forEach((timer) => {
+      if (timer) clearTimeout(timer);
+    });
+
+    // 3. Perform a single unified API save call
+    void onChange({
+      interface_panel_brightness: defaultAppPreferences.interface_panel_brightness,
+      interface_transparency: defaultAppPreferences.interface_transparency,
+      interface_blur: defaultAppPreferences.interface_blur,
+      interface_rounding: defaultAppPreferences.interface_rounding,
+    });
   };
 
   return (
