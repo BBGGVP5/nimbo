@@ -3895,6 +3895,10 @@ body[data-theme="light"] .app-nav-link-active {
   }
 
   .app-sidebar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
     width: 100% !important;
     height: 84px;
     padding: 8px 10px 10px;
@@ -3902,6 +3906,7 @@ body[data-theme="light"] .app-nav-link-active {
     background: transparent;
     border: 0;
     box-shadow: none;
+    pointer-events: none;
   }
 
   .app-sidebar-resizer {
@@ -3917,6 +3922,7 @@ body[data-theme="light"] .app-nav-link-active {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
     backdrop-filter: var(--ui-backdrop-filter);
     -webkit-backdrop-filter: var(--ui-backdrop-filter);
+    pointer-events: auto;
   }
 
   .app-brand,
@@ -4005,7 +4011,7 @@ body[data-theme="light"] .app-nav-link-active {
   }
 
   .app-main {
-    padding: 12px 12px 0;
+    padding: 12px 12px 88px;
     min-height: 0;
   }
 
@@ -4300,7 +4306,7 @@ body[data-theme="light"] .app-nav-link-active {
   }
 
   .app-main {
-    padding: 10px 10px 0;
+    padding: 10px 10px 84px;
   }
 
   .page-title {
