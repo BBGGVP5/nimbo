@@ -4098,6 +4098,15 @@ body[data-theme="light"] .app-nav-link-active {
     gap: 16px;
   }
 
+  .settings-page,
+  .routing-page,
+  .statistics-page,
+  .server-detail-page,
+  .server-detail-scroll {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
   .settings-page {
     --settings-offset: 0px;
     width: 100%;
