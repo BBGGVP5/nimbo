@@ -1319,3 +1319,21 @@ body[data-ui-style="material_you"] .done-art {
 body[data-ui-style="material_you"] .done-path {
   background: var(--md-surface-high);
 }
+
+.install-size-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: 0;
+  vertical-align: middle;
+}
+

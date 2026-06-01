@@ -656,7 +656,10 @@ function InstallApp() {
 
           <div className="path-row no-window-drag">
             <div className="path-row-label">
-              <span className="status-kicker">Папка установки</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span className="status-kicker">Папка установки</span>
+                <span className="install-size-pill">27.1 МБ</span>
+              </div>
               <span className="path-row-helper">
                 {isLinux
                   ? "Интеграция: будет настроена"

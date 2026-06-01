@@ -51,6 +51,9 @@ VIAddVersionKey "ProductVersion" "${PRODUCT_VERSION}"
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "StrFunc.nsh"
+!include "FileFunc.nsh"
+
+!insertmacro GetSize
 
 ; StrFunc.nsh requires explicit declaration of each helper before use.
 ${StrStr}
@@ -144,6 +147,12 @@ Section "!Nimbo" SEC_APP
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}" "NoRepair" 1
+
+  ; Dynamically calculate the actual size of the installed folders (in KB)
+  ${GetSize} "$INSTDIR" "/S=0K /G=1" $2 $3 $4
+  ${GetSize} "$APPDATA\Nimbo" "/S=0K /G=1" $5 $3 $4
+  IntOp $2 $2 + $5
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}" "EstimatedSize" $2
 
   WriteRegStr HKCU "Software\Classes\nimbo" "" "URL:Nimbo Protocol"
   WriteRegStr HKCU "Software\Classes\nimbo" "URL Protocol" ""

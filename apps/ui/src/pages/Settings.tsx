@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   api,
@@ -22,6 +22,13 @@ const HAPP_UA = "Happ/2.0.0";
 const INCY_UA = "Incy/2.1.0";
 const SOCKS_USERNAME_FALLBACK = "nimbo";
 const SOCKS_PASSWORD_FALLBACK = "nmb-preview-password";
+const VISUAL_PREFERENCE_SAVE_DELAY = 260;
+
+type VisualPreferenceKey =
+  | "interface_panel_brightness"
+  | "interface_transparency"
+  | "interface_blur"
+  | "interface_rounding";
 
 function withFallback(value: string | null | undefined, fallback: string): string {
   const trimmed = value?.trim();
@@ -96,7 +103,8 @@ export function Settings() {
 
   const updatePreferences = async (patch: Partial<AppPreferences>) => {
     try {
-      await setPreferences({ ...preferences, ...patch });
+      const latestPreferences = useAppStore.getState().preferences;
+      await setPreferences({ ...latestPreferences, ...patch });
       notifyInfo(m.settings.saved);
     } catch (e) {
       notifyError(String(e));
@@ -476,6 +484,13 @@ function AppearanceSection({
   const m = useMessages();
   const [customAccentDraft, setCustomAccentDraft] = useState(preferences.accent_color);
   const customAccentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [visualDraft, setVisualDraft] = useState({
+    interface_panel_brightness: preferences.interface_panel_brightness,
+    interface_transparency: preferences.interface_transparency,
+    interface_blur: preferences.interface_blur,
+    interface_rounding: preferences.interface_rounding,
+  });
+  const visualTimers = useRef<Partial<Record<VisualPreferenceKey, ReturnType<typeof setTimeout>>>>({});
 
   useEffect(() => {
     if (preferences.accent_mode !== "custom") {
@@ -484,8 +499,25 @@ function AppearanceSection({
   }, [preferences.accent_color, preferences.accent_mode]);
 
   useEffect(() => {
+    setVisualDraft({
+      interface_panel_brightness: preferences.interface_panel_brightness,
+      interface_transparency: preferences.interface_transparency,
+      interface_blur: preferences.interface_blur,
+      interface_rounding: preferences.interface_rounding,
+    });
+  }, [
+    preferences.interface_panel_brightness,
+    preferences.interface_transparency,
+    preferences.interface_blur,
+    preferences.interface_rounding,
+  ]);
+
+  useEffect(() => {
     return () => {
       if (customAccentTimer.current) clearTimeout(customAccentTimer.current);
+      Object.values(visualTimers.current).forEach((timer) => {
+        if (timer) clearTimeout(timer);
+      });
     };
   }, []);
 
@@ -507,6 +539,37 @@ function AppearanceSection({
     }
 
     customAccentTimer.current = setTimeout(commit, 280);
+  };
+
+  const saveVisualPreference = (key: VisualPreferenceKey, value: number, immediate = false) => {
+    setVisualDraft((current) => ({ ...current, [key]: value }));
+    const timer = visualTimers.current[key];
+    if (timer) clearTimeout(timer);
+
+    const commit = () => {
+      if (preferences[key] === value) return;
+      void onChange({ [key]: value } as Partial<AppPreferences>);
+    };
+
+    if (immediate) {
+      commit();
+      return;
+    }
+
+    visualTimers.current[key] = setTimeout(commit, VISUAL_PREFERENCE_SAVE_DELAY);
+  };
+
+  const hasGlobalChanges =
+    visualDraft.interface_panel_brightness !== defaultAppPreferences.interface_panel_brightness ||
+    visualDraft.interface_transparency !== defaultAppPreferences.interface_transparency ||
+    visualDraft.interface_blur !== defaultAppPreferences.interface_blur ||
+    visualDraft.interface_rounding !== defaultAppPreferences.interface_rounding;
+
+  const resetAllVisuals = () => {
+    saveVisualPreference("interface_panel_brightness", defaultAppPreferences.interface_panel_brightness, true);
+    saveVisualPreference("interface_transparency", defaultAppPreferences.interface_transparency, true);
+    saveVisualPreference("interface_blur", defaultAppPreferences.interface_blur, true);
+    saveVisualPreference("interface_rounding", defaultAppPreferences.interface_rounding, true);
   };
 
   return (
@@ -532,6 +595,78 @@ function AppearanceSection({
             onClick={() => onChange({ ui_style: "material_you" })}
           />
         </div>
+
+        <div className="settings-row settings-row-block appearance-details-heading">
+          <div>
+            <div className="settings-row-title">{m.settings.styleDetails}</div>
+            <div className="settings-row-description">{m.settings.styleDetailsDescription}</div>
+          </div>
+          {hasGlobalChanges && (
+            <button
+              onClick={resetAllVisuals}
+              className="settings-reset-all-btn"
+              title={m.settings.resetAll}
+            >
+              <RotateCcwIcon />
+              <span>{m.settings.resetAll}</span>
+            </button>
+          )}
+        </div>
+        <div className="appearance-slider-stack">
+          <VisualSliderRow
+            label={m.settings.panelBrightness}
+            description={m.settings.panelBrightnessDescription}
+            value={visualDraft.interface_panel_brightness}
+            min={60}
+            max={140}
+            step={5}
+            formatValue={(value) => `${value}%`}
+            onChange={(value) => saveVisualPreference("interface_panel_brightness", value)}
+            onCommit={(value) => saveVisualPreference("interface_panel_brightness", value, true)}
+            defaultValue={defaultAppPreferences.interface_panel_brightness}
+            onReset={() => saveVisualPreference("interface_panel_brightness", defaultAppPreferences.interface_panel_brightness, true)}
+          />
+          <VisualSliderRow
+            label={m.settings.elementTransparency}
+            description={m.settings.elementTransparencyDescription}
+            value={visualDraft.interface_transparency}
+            min={0}
+            max={80}
+            step={5}
+            formatValue={(value) => `${value}%`}
+            onChange={(value) => saveVisualPreference("interface_transparency", value)}
+            onCommit={(value) => saveVisualPreference("interface_transparency", value, true)}
+            defaultValue={defaultAppPreferences.interface_transparency}
+            onReset={() => saveVisualPreference("interface_transparency", defaultAppPreferences.interface_transparency, true)}
+          />
+          <VisualSliderRow
+            label={m.settings.blurRadius}
+            description={m.settings.blurRadiusDescription}
+            value={visualDraft.interface_blur}
+            min={0}
+            max={48}
+            step={1}
+            formatValue={(value) => `${value} px`}
+            onChange={(value) => saveVisualPreference("interface_blur", value)}
+            onCommit={(value) => saveVisualPreference("interface_blur", value, true)}
+            defaultValue={defaultAppPreferences.interface_blur}
+            onReset={() => saveVisualPreference("interface_blur", defaultAppPreferences.interface_blur, true)}
+          />
+          <VisualSliderRow
+            label={m.settings.elementRounding}
+            description={m.settings.elementRoundingDescription}
+            value={visualDraft.interface_rounding}
+            min={50}
+            max={180}
+            step={5}
+            formatValue={(value) => `${(value / 100).toFixed(2)}x`}
+            onChange={(value) => saveVisualPreference("interface_rounding", value)}
+            onCommit={(value) => saveVisualPreference("interface_rounding", value, true)}
+            defaultValue={defaultAppPreferences.interface_rounding}
+            onReset={() => saveVisualPreference("interface_rounding", defaultAppPreferences.interface_rounding, true)}
+          />
+        </div>
+
 
         <div className="settings-row settings-row-block">
           <div>
@@ -1566,6 +1701,82 @@ function SettingsChoiceRow<T extends string>({
   );
 }
 
+function VisualSliderRow({
+  label,
+  description,
+  value,
+  min,
+  max,
+  step,
+  formatValue,
+  onChange,
+  onCommit,
+  defaultValue,
+  onReset,
+}: {
+  label: string;
+  description?: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  formatValue: (value: number) => string;
+  onChange: (value: number) => void;
+  onCommit: (value: number) => void;
+  defaultValue?: number;
+  onReset?: () => void;
+}) {
+  const m = useMessages();
+  const progress = max > min ? ((value - min) / (max - min)) * 100 : 0;
+  const formattedValue = formatValue(value);
+  const commitFromInput = (input: HTMLInputElement) => onCommit(Number(input.value));
+  const hasChanges = defaultValue !== undefined && value !== defaultValue;
+
+  return (
+    <div className="appearance-slider-row">
+      <div className="appearance-slider-copy">
+        <div className="settings-row-title">{label}</div>
+        {description && <div className="settings-row-description">{description}</div>}
+      </div>
+      <div
+        className="appearance-slider-control"
+        style={{ "--appearance-slider-progress": `${Math.min(100, Math.max(0, progress))}%` } as CSSProperties}
+      >
+        <input
+          className="appearance-slider-input"
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          aria-label={label}
+          aria-valuetext={formattedValue}
+          onChange={(event) => onChange(Number(event.currentTarget.value))}
+          onBlur={(event) => commitFromInput(event.currentTarget)}
+          onPointerUp={(event) => commitFromInput(event.currentTarget)}
+          onKeyUp={(event) => {
+            if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)) {
+              commitFromInput(event.currentTarget);
+            }
+          }}
+        />
+      </div>
+      <div className="appearance-slider-value">
+        <span>{formattedValue}</span>
+        {hasChanges && onReset && (
+          <button
+            onClick={onReset}
+            className="appearance-slider-reset"
+            title={m.settings.resetValue}
+          >
+            <RotateCcwIcon />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function NumberPreferenceRow({
   label,
   description,
@@ -1889,6 +2100,14 @@ function UserIcon() {
 }
 function LockIcon() {
   return <Icon><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></Icon>;
+}
+function RotateCcwIcon() {
+  return (
+    <Icon>
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+    </Icon>
+  );
 }
 
 function Icon({ children }: { children: ReactNode }) {
