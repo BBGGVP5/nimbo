@@ -33,13 +33,16 @@ export interface BackgroundPreset {
 }
 
 export const BACKGROUND_PRESETS: BackgroundPreset[] = [
-  { id: "none", label: "Стандарт", animated: true },
+  { id: "none", label: "Стандарт", animated: false },
   { id: "aurora", label: "Aurora", animated: true },
   { id: "nebula", label: "Nebula", animated: true },
   { id: "sunset", label: "Sunset", animated: true },
   { id: "ocean", label: "Ocean", animated: true },
   { id: "emerald", label: "Emerald", animated: true },
-  { id: "mesh", label: "Mesh", animated: false },
+  { id: "mesh", label: "Mesh", animated: true },
+  { id: "cyberpunk", label: "Cyberpunk", animated: true },
+  { id: "deepspace", label: "Deep Space", animated: true },
+  { id: "fire", label: "Fire", animated: true },
   { id: "grid", label: "Grid", animated: true },
   { id: "mono", label: "Mono", animated: false },
 ];
