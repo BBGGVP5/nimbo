@@ -43,6 +43,10 @@ export const BACKGROUND_PRESETS: BackgroundPreset[] = [
   { id: "cyberpunk", label: "Cyberpunk", animated: true },
   { id: "deepspace", label: "Deep Space", animated: true },
   { id: "fire", label: "Fire", animated: true },
+  { id: "lava", label: "Lava", animated: true },
+  { id: "neon", label: "Neon", animated: true },
+  { id: "nordic", label: "Nordic", animated: true },
+  { id: "blossom", label: "Blossom", animated: true },
   { id: "grid", label: "Grid", animated: true },
   { id: "mono", label: "Mono", animated: false },
 ];

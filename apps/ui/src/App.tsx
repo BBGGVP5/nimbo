@@ -606,6 +606,43 @@ function applyVisualPreferences(preferences: AppPreferences) {
     const bgAura2 = hexToRgba(bright, isLightTheme ? 0.10 : isBlackTheme ? 0.06 : 0.12);
     const bgAura3 = hexToRgba(soft, isLightTheme ? 0.09 : isBlackTheme ? 0.07 : 0.13);
     const root = document.documentElement;
+    const clampVisual = (value: unknown, fallback: number, min: number, max: number) => {
+      const numeric = typeof value === "number" ? value : Number(value);
+      if (!Number.isFinite(numeric)) return fallback;
+      return Math.min(max, Math.max(min, Math.round(numeric)));
+    };
+    const panelBrightness = clampVisual(preferences.interface_panel_brightness, 100, 60, 140);
+    const transparency = clampVisual(preferences.interface_transparency, 0, 0, 80);
+    const blur = clampVisual(preferences.interface_blur, 25, 0, 48);
+    const rounding = clampVisual(preferences.interface_rounding, 100, 50, 180) / 100;
+    const brightnessDelta = panelBrightness - 100;
+    const overlayStrength = Math.min(1, Math.abs(brightnessDelta) / 40) * (brightnessDelta > 0 ? 0.18 : 0.22);
+    const panelOverlay = brightnessDelta === 0
+      ? "rgba(255, 255, 255, 0)"
+      : brightnessDelta > 0
+        ? `rgba(255, 255, 255, ${overlayStrength.toFixed(3)})`
+        : `rgba(0, 0, 0, ${overlayStrength.toFixed(3)})`;
+    const scaledRadius = (base: number) => `${Math.max(2, Math.round(base * rounding))}px`;
+
+    root.style.setProperty("--ui-panel-alpha-percent", `${100 - transparency}%`);
+    root.style.setProperty("--ui-control-alpha-percent", `${Math.max(20, 100 - Math.round(transparency * 0.84))}%`);
+    root.style.setProperty("--ui-panel-overlay", panelOverlay);
+    root.style.setProperty("--ui-blur", `${blur}px`);
+    root.style.setProperty("--ui-backdrop-filter", `blur(${blur}px) saturate(145%)`);
+    root.style.setProperty("--ui-backdrop-filter-soft", `blur(${Math.round(blur * 0.65)}px) saturate(130%)`);
+    root.style.setProperty("--ui-radius-xs", scaledRadius(4));
+    root.style.setProperty("--ui-radius-sm", scaledRadius(8));
+    root.style.setProperty("--ui-radius-md", scaledRadius(10));
+    root.style.setProperty("--ui-radius-lg", scaledRadius(14));
+    root.style.setProperty("--ui-radius-xl", scaledRadius(16));
+    root.style.setProperty("--ui-radius-2xl", scaledRadius(22));
+    root.style.setProperty("--ui-radius-3xl", scaledRadius(30));
+    root.style.setProperty("--radius-sm", scaledRadius(4));
+    root.style.setProperty("--radius-md", scaledRadius(6));
+    root.style.setProperty("--radius-lg", scaledRadius(8));
+    root.style.setProperty("--radius-xl", scaledRadius(12));
+    root.style.setProperty("--radius-2xl", scaledRadius(16));
+    root.style.setProperty("--radius-3xl", scaledRadius(24));
     root.style.setProperty("--color-accent", accent);
     root.style.setProperty("--color-accent-bright", bright);
     root.style.setProperty("--color-accent-soft", soft);
@@ -793,6 +830,22 @@ function AppBackground({ appearance }: { appearance: AppearanceState }) {
 
   const isCustom = appearance.background === "custom";
   const isPreset = !isCustom;
+  const blobPresets = [
+    "aurora",
+    "nebula",
+    "sunset",
+    "ocean",
+    "emerald",
+    "mesh",
+    "cyberpunk",
+    "deepspace",
+    "fire",
+    "lava",
+    "neon",
+    "nordic",
+    "blossom",
+  ];
+  const hasBlobs = isPreset && blobPresets.includes(appearance.background);
 
   const layer = (
     <div
@@ -805,6 +858,14 @@ function AppBackground({ appearance }: { appearance: AppearanceState }) {
         } as React.CSSProperties
       }
     >
+      {hasBlobs && (
+        <div className="app-background-blobs">
+          <div className="app-bg-blob app-bg-blob-1" />
+          <div className="app-bg-blob app-bg-blob-2" />
+          <div className="app-bg-blob app-bg-blob-3" />
+          <div className="app-bg-blob app-bg-blob-4" />
+        </div>
+      )}
       {isCustom && objectUrl && appearance.customType === "video" && (
         <video
           className="app-background-media"
