@@ -5665,6 +5665,51 @@ body[data-ui-style="material_you"][data-theme="black"] .settings-accent-card {
   background: color-mix(in srgb, var(--theme-preview-accent) 32%, rgba(255, 255, 255, 0.14));
 }
 
+/* Update interface style previews under light, black, and Material You themes */
+body[data-theme="light"] .settings-interface-preview {
+  background: linear-gradient(160deg, #f5f6fa, #e9ebf2);
+  box-shadow: inset 0 0 0 1px rgba(28, 24, 48, 0.08);
+}
+
+body[data-theme="light"] .settings-interface-preview-line {
+  background: rgba(28, 24, 48, 0.14);
+}
+
+body[data-theme="light"] .settings-interface-card-nebula .settings-interface-preview-panel {
+  background: rgba(255, 255, 255, 0.5);
+  border-color: rgba(28, 24, 48, 0.08);
+}
+
+body[data-theme="light"] .settings-interface-card-material_you .settings-interface-preview-panel {
+  background: color-mix(in srgb, var(--theme-preview-accent) 12%, #ffffff);
+}
+
+body[data-theme="light"] .settings-interface-card-material_you .settings-interface-preview-line {
+  background: color-mix(in srgb, var(--theme-preview-accent) 26%, rgba(28, 24, 48, 0.1));
+}
+
+body[data-theme="black"] .settings-interface-preview {
+  background: linear-gradient(160deg, #0d0e14, #050608);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+body[data-theme="black"] .settings-interface-preview-line {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+body[data-theme="black"] .settings-interface-card-nebula .settings-interface-preview-panel {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+body[data-theme="black"] .settings-interface-card-material_you .settings-interface-preview-panel {
+  background: color-mix(in srgb, var(--theme-preview-accent) 14%, #0a0b12);
+}
+
+body[data-theme="black"] .settings-interface-card-material_you .settings-interface-preview-line {
+  background: color-mix(in srgb, var(--theme-preview-accent) 26%, rgba(255, 255, 255, 0.1));
+}
+
 /* Gradient / custom accent swatch cards */
 .settings-accent-swatch {
   display: block;
@@ -6124,6 +6169,55 @@ body[data-ui-style="material_you"][data-theme="black"] .settings-accent-card {
   background-image:
     radial-gradient(70% 60% at 50% 0%, color-mix(in srgb, var(--color-accent) 24%, transparent), transparent 72%),
     linear-gradient(180deg, #0a0b12, #050609);
+}
+
+/* Update background choice thumbnails under light and black themes */
+body[data-theme="light"] .settings-background-thumb {
+  background-color: #f5f6fa;
+}
+
+body[data-theme="light"] .settings-background-thumb-none {
+  background-image:
+    radial-gradient(70% 60% at 30% 20%, color-mix(in srgb, var(--color-accent) 15%, transparent), transparent 70%),
+    linear-gradient(160deg, #f5f6fa, #e9ebf2);
+}
+
+body[data-theme="light"] .settings-background-thumb-mono {
+  background-image:
+    radial-gradient(70% 60% at 50% 0%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 72%),
+    linear-gradient(180deg, #f5f6fa, #e9ebf2);
+}
+
+body[data-theme="light"] .settings-background-thumb-grid {
+  background-color: #f5f6fa;
+  background-image:
+    radial-gradient(60% 60% at 50% 30%, color-mix(in srgb, var(--color-accent) 15%, transparent), transparent 72%),
+    repeating-linear-gradient(90deg, rgba(28, 24, 48, 0.05) 0 1px, transparent 1px 14px),
+    repeating-linear-gradient(0deg, rgba(28, 24, 48, 0.05) 0 1px, transparent 1px 14px);
+}
+
+body[data-theme="black"] .settings-background-thumb {
+  background-color: #04050a;
+}
+
+body[data-theme="black"] .settings-background-thumb-none {
+  background-image:
+    radial-gradient(70% 60% at 30% 20%, color-mix(in srgb, var(--color-accent) 26%, transparent), transparent 70%),
+    linear-gradient(160deg, #07080d, #04050a);
+}
+
+body[data-theme="black"] .settings-background-thumb-mono {
+  background-image:
+    radial-gradient(70% 60% at 50% 0%, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 72%),
+    linear-gradient(180deg, #07080d, #04050a);
+}
+
+body[data-theme="black"] .settings-background-thumb-grid {
+  background-color: #050608;
+  background-image:
+    radial-gradient(60% 60% at 50% 30%, color-mix(in srgb, var(--color-accent) 26%, transparent), transparent 72%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 14px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 14px);
 }
 
 /* Provider theme preview */
