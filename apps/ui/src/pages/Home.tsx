@@ -89,6 +89,15 @@ function validateServerOrder(stored: string[], currentIds: string[], subUrl: str
   return stored;
 }
 
+function subscriptionSiteUrl(source: string): string | null {
+  try {
+    const u = new URL(source);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return null;
+  }
+}
+
 function sortEntries(
   entries: ServerEntry[],
   mode: SortMode,
@@ -146,6 +155,60 @@ function useDismissable(open: boolean, onClose: () => void) {
   return ref;
 }
 
+// ── Resizable Servers Panel Hook ─────────────────────────────
+
+const SERVERS_PANEL_WIDTH_KEY = "nimbo.serversPanelWidth";
+const SERVERS_PANEL_WIDTH_DEFAULT = 360;
+const SERVERS_PANEL_WIDTH_MIN = 300;
+const SERVERS_PANEL_WIDTH_MAX = 600;
+
+function useResizableServersPanel() {
+  const [width, setWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return SERVERS_PANEL_WIDTH_DEFAULT;
+    try {
+      const stored = Number.parseInt(window.localStorage.getItem(SERVERS_PANEL_WIDTH_KEY) ?? "", 10);
+      if (Number.isFinite(stored) && stored >= SERVERS_PANEL_WIDTH_MIN && stored <= SERVERS_PANEL_WIDTH_MAX) {
+        return stored;
+      }
+    } catch {
+      return SERVERS_PANEL_WIDTH_DEFAULT;
+    }
+    return SERVERS_PANEL_WIDTH_DEFAULT;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(SERVERS_PANEL_WIDTH_KEY, String(width));
+    } catch {}
+  }, [width]);
+
+  const onResizeStart = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = (event.currentTarget.nextElementSibling as HTMLElement | null)?.getBoundingClientRect().width ?? width;
+    const onMove = (e: MouseEvent) => {
+      const delta = e.clientX - startX;
+      const next = Math.min(SERVERS_PANEL_WIDTH_MAX, Math.max(SERVERS_PANEL_WIDTH_MIN, startWidth - delta));
+      setWidth(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [width]);
+
+  const reset = useCallback(() => setWidth(SERVERS_PANEL_WIDTH_DEFAULT), []);
+
+  return { width, onResizeStart, reset };
+}
+
 // ── Home ─────────────────────────────────────────────────────
 
 export function Home() {
@@ -187,6 +250,7 @@ export function Home() {
   const [showFavOnly, setShowFavOnly] = useState(false);
   const [compactSheetOpen, setCompactSheetOpen] = useState(false);
   const { favorites, toggle: toggleFavorite } = useFavorites();
+  const serversPanelWidth = useResizableServersPanel();
 
   useEffect(() => {
     setSortMode(preferenceSortMode(preferences.servers_sorting));
@@ -623,12 +687,26 @@ export function Home() {
       </section>
 
       {!sidePanelCollapsed && (
-        <aside className="home-right">
-          <ServerSidePanel
-            {...sharedPanelProps}
-            onCollapseSidePanel={toggleSidePanelCollapsed}
-          />
-        </aside>
+        <>
+          {!serverListCollapsed && (
+            <div
+              className="home-right-resizer"
+              onMouseDown={serversPanelWidth.onResizeStart}
+              onDoubleClick={serversPanelWidth.reset}
+            />
+          )}
+          <aside
+            className="home-right"
+            style={{
+              "--servers-panel-width": `${serversPanelWidth.width}px`,
+            } as React.CSSProperties}
+          >
+            <ServerSidePanel
+              {...sharedPanelProps}
+              onCollapseSidePanel={toggleSidePanelCollapsed}
+            />
+          </aside>
+        </>
       )}
       {sidePanelCollapsed && (
         <button
@@ -1346,6 +1424,8 @@ function ProfileSummary({
   const total = sub.info?.total ?? null;
   const expires = formatExpire(sub.info?.expire);
   const description = sub.meta?.description?.trim() || "";
+  const supportUrl = sub.meta?.support_url?.trim() || "";
+  const siteUrl = sub.meta?.website_url?.trim() || subscriptionSiteUrl(sub.url);
 
   return (
     <div className="home-stack w-full max-w-[740px] space-y-2">
@@ -1369,6 +1449,32 @@ function ProfileSummary({
             title={description}
           >
             {description}
+          </div>
+        )}
+        {(supportUrl || siteUrl) && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {supportUrl && (
+              <a
+                href={supportUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="interactive inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-[var(--color-accent)] bg-[var(--color-accent-panel)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--color-accent-bright)]"
+              >
+                <SupportIcon />
+                {labels.common.support}
+              </a>
+            )}
+            {siteUrl && (
+              <a
+                href={siteUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="interactive inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-accent-panel)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--color-accent-bright)]"
+              >
+                <GlobeIcon />
+                {labels.common.site}
+              </a>
+            )}
           </div>
         )}
         <div className="mt-2 h-1 rounded-full bg-[var(--color-glass-bg)]" />
@@ -1813,6 +1919,23 @@ function GlobeIcon() {
       <path d="M3 12h18" />
       <path d="M12 3a13.5 13.5 0 0 1 0 18" />
       <path d="M12 3a13.5 13.5 0 0 0 0 18" />
+    </svg>
+  );
+}
+
+function SupportIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 12a9 9 0 0 1-9 9 8.9 8.9 0 0 1-4.2-1L3 21l1.2-4.1A9 9 0 1 1 21 12Z" />
     </svg>
   );
 }

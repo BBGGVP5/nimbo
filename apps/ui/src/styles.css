@@ -1351,8 +1351,8 @@ body[data-theme="light"] .connection-button-core {
 
 .home-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 28vw);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto var(--servers-panel-width, 360px);
+  gap: 4px;
   width: 100%;
   height: 100%;
   position: relative;
@@ -1402,13 +1402,42 @@ body[data-theme="light"] .connection-button-core {
 }
 
 .home-right {
-  width: min(440px, 28vw);
-  min-width: 360px;
+  width: var(--servers-panel-width, 360px);
+  min-width: 300px;
+  max-width: 600px;
   min-height: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
   position: relative;
+}
+
+.home-right-resizer {
+  width: 10px;
+  margin: 0 4px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, transparent 0 6%, color-mix(in srgb, var(--color-material-glaze-strong) 70%, transparent) 18%, color-mix(in srgb, var(--color-accent-bright) 34%, transparent) 50%, color-mix(in srgb, var(--color-material-glaze) 70%, transparent) 82%, transparent 94%);
+  opacity: 0.52;
+  transition: background 160ms ease, opacity 160ms ease, box-shadow 160ms ease;
+  align-self: stretch;
+  z-index: 10;
+}
+
+.home-right-resizer:hover,
+.home-right-resizer:active {
+  opacity: 1;
+  background:
+    linear-gradient(180deg, transparent 0 4%, color-mix(in srgb, var(--color-accent-bright) 28%, transparent) 18%, color-mix(in srgb, var(--color-accent-bright) 64%, transparent) 50%, color-mix(in srgb, var(--color-accent-bright) 28%, transparent) 82%, transparent 96%);
+  box-shadow: 0 0 22px var(--color-glow-accent);
+}
+
+@media (max-width: 900px) {
+  .home-right-resizer {
+    display: none;
+  }
 }
 
 .home-grid-collapsed {
