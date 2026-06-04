@@ -5425,6 +5425,43 @@ body[data-theme="light"] .settings-input {
   color: var(--accent-card-color);
 }
 
+/* Update mockup previews for accent/preset cards to match the current theme context */
+body[data-theme="light"] .settings-accent-card {
+  --theme-preview-bg: #f5f6fa;
+  --theme-preview-surface: #ffffff;
+  --theme-preview-muted: #eceef3;
+  --theme-preview-rail: #f9fafc;
+}
+
+body[data-theme="black"] .settings-accent-card {
+  --theme-preview-bg: #050608;
+  --theme-preview-surface: #0d0e14;
+  --theme-preview-muted: #14151c;
+  --theme-preview-rail: #050608;
+}
+
+/* Material You style overrides for accent/preset preview mockups */
+body[data-ui-style="material_you"] .settings-accent-card {
+  --theme-preview-bg: color-mix(in srgb, var(--theme-preview-accent) 8%, #141218);
+  --theme-preview-surface: color-mix(in srgb, var(--theme-preview-accent) 11%, #24202a);
+  --theme-preview-muted: color-mix(in srgb, var(--theme-preview-accent) 8%, #1d1a22);
+  --theme-preview-rail: color-mix(in srgb, var(--theme-preview-accent) 15%, #2d2934);
+}
+
+body[data-ui-style="material_you"][data-theme="light"] .settings-accent-card {
+  --theme-preview-bg: color-mix(in srgb, var(--theme-preview-accent) 6%, #f1edf4);
+  --theme-preview-surface: color-mix(in srgb, var(--theme-preview-accent) 7%, #f7f1fa);
+  --theme-preview-muted: color-mix(in srgb, var(--theme-preview-accent) 5%, #fff8ff);
+  --theme-preview-rail: color-mix(in srgb, var(--theme-preview-accent) 10%, #eee8f2);
+}
+
+body[data-ui-style="material_you"][data-theme="black"] .settings-accent-card {
+  --theme-preview-bg: #050408;
+  --theme-preview-surface: color-mix(in srgb, var(--theme-preview-accent) 7%, #111018);
+  --theme-preview-muted: color-mix(in srgb, var(--theme-preview-accent) 5%, #0b0910);
+  --theme-preview-rail: color-mix(in srgb, var(--theme-preview-accent) 10%, #191720);
+}
+
 .settings-accent-card-custom {
   position: relative;
 }
