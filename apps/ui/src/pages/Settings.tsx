@@ -2527,10 +2527,8 @@ function BackgroundChooser({ appearance }: { appearance: AppearanceState }) {
           >
             <span className={["settings-background-thumb", `settings-background-thumb-${preset.id}`].join(" ")} aria-hidden="true">
               {preset.animated && preset.id !== "none" && (
-                <span className="settings-background-anim-indicator">
-                  <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor">
-                    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-                  </svg>
+                <span className="settings-background-anim-badge">
+                  <AnimIcon />
                 </span>
               )}
             </span>
@@ -2824,6 +2822,15 @@ function RotateCcwIcon() {
 }
 function ChevronDownIcon() {
   return <Icon><path d="m6 9 6 6 6-6" /></Icon>;
+}
+
+function AnimIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21.5 2v6h-6" />
+      <path d="M21.34 15.57a10 10 0 1 1-.57-8.38l.73-.73" />
+    </svg>
+  );
 }
 
 function Icon({ children }: { children: ReactNode }) {

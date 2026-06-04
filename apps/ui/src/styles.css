@@ -227,7 +227,7 @@ body::after {
 /* ── Custom / preset app background layer ─────────────────────── */
 .app-background {
   position: fixed;
-  inset: -6%;
+  inset: 0;
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
@@ -260,57 +260,68 @@ body.has-app-bg::before {
 .app-background[data-preset] {
   background-color: #06070d;
   background-repeat: no-repeat;
-  background-size: 200% 200%;
 }
 
 .app-background[data-preset="aurora"] {
+  background-size: 60% 60%, 70% 70%, 80% 80%;
+  background-position: 15% 20%, 85% 25%, 55% 85%;
   background-image:
-    radial-gradient(46% 42% at 18% 22%, color-mix(in srgb, var(--color-accent) 60%, transparent), transparent 70%),
-    radial-gradient(50% 46% at 82% 28%, rgba(64, 160, 255, 0.5), transparent 72%),
-    radial-gradient(58% 52% at 60% 88%, rgba(124, 93, 250, 0.45), transparent 72%);
+    radial-gradient(circle at center, color-mix(in srgb, var(--color-accent) 60%, transparent), transparent 100%),
+    radial-gradient(circle at center, rgba(64, 160, 255, 0.5), transparent 100%),
+    radial-gradient(circle at center, rgba(124, 93, 250, 0.45), transparent 100%);
   animation: app-bg-aurora 28s ease-in-out infinite alternate;
 }
 
 .app-background[data-preset="nebula"] {
+  background-size: 60% 60%, 75% 75%, 90% 90%;
+  background-position: 25% 25%, 75% 30%, 50% 85%;
   background-image:
-    radial-gradient(48% 44% at 22% 24%, rgba(168, 85, 247, 0.55), transparent 70%),
-    radial-gradient(52% 48% at 80% 30%, rgba(236, 72, 153, 0.45), transparent 72%),
-    radial-gradient(60% 54% at 55% 90%, rgba(79, 70, 229, 0.5), transparent 72%);
-  animation: app-bg-nebula 32s ease-in-out infinite alternate;
+    radial-gradient(circle at center, rgba(168, 85, 247, 0.55), transparent 100%),
+    radial-gradient(circle at center, rgba(236, 72, 153, 0.45), transparent 100%),
+    radial-gradient(circle at center, rgba(79, 70, 229, 0.5), transparent 100%);
+  animation: app-bg-nebula-breath 40s ease-in-out infinite alternate, app-bg-rotate 180s linear infinite;
+  transform-origin: center center;
 }
 
 .app-background[data-preset="sunset"] {
+  background-size: 60% 60%, 70% 70%, 80% 80%;
+  background-position: 20% 15%, 82% 34%, 58% 92%;
   background-image:
-    radial-gradient(48% 44% at 20% 20%, rgba(251, 146, 60, 0.55), transparent 70%),
-    radial-gradient(54% 50% at 82% 34%, rgba(244, 63, 94, 0.45), transparent 72%),
-    radial-gradient(60% 56% at 58% 92%, rgba(168, 85, 247, 0.4), transparent 72%);
+    radial-gradient(circle at center, rgba(251, 146, 60, 0.55), transparent 100%),
+    radial-gradient(circle at center, rgba(244, 63, 94, 0.45), transparent 100%),
+    radial-gradient(circle at center, rgba(168, 85, 247, 0.4), transparent 100%);
   animation: app-bg-sunset 24s ease-in-out infinite alternate;
 }
 
 .app-background[data-preset="ocean"] {
+  background-size: 60% 60%, 70% 70%, 80% 80%;
+  background-position: 18% 22%, 82% 30%, 56% 90%;
   background-image:
-    radial-gradient(48% 44% at 18% 22%, rgba(34, 211, 238, 0.5), transparent 70%),
-    radial-gradient(52% 48% at 82% 30%, rgba(59, 130, 246, 0.48), transparent 72%),
-    radial-gradient(60% 56% at 56% 90%, rgba(14, 165, 233, 0.42), transparent 72%);
+    radial-gradient(circle at center, rgba(34, 211, 238, 0.5), transparent 100%),
+    radial-gradient(circle at center, rgba(59, 130, 246, 0.48), transparent 100%),
+    radial-gradient(circle at center, rgba(14, 165, 233, 0.42), transparent 100%);
   animation: app-bg-ocean 26s ease-in-out infinite alternate;
 }
 
 .app-background[data-preset="emerald"] {
+  background-size: 60% 60%, 70% 70%, 80% 80%;
+  background-position: 20% 24%, 80% 32%, 58% 90%;
   background-image:
-    radial-gradient(48% 44% at 20% 24%, rgba(16, 185, 129, 0.5), transparent 70%),
-    radial-gradient(52% 48% at 80% 32%, rgba(34, 197, 94, 0.45), transparent 72%),
-    radial-gradient(60% 56% at 58% 90%, rgba(20, 184, 166, 0.42), transparent 72%);
+    radial-gradient(circle at center, rgba(16, 185, 129, 0.5), transparent 100%),
+    radial-gradient(circle at center, rgba(34, 197, 94, 0.45), transparent 100%),
+    radial-gradient(circle at center, rgba(20, 184, 166, 0.42), transparent 100%);
   animation: app-bg-emerald 30s ease-in-out infinite alternate;
 }
 
 .app-background[data-preset="mesh"] {
-  background-size: cover;
-  animation: none;
+  background-size: 60% 60%, 60% 60%, 70% 70%, 70% 70%;
+  background-position: 12% 16%, 88% 18%, 84% 84%, 16% 88%;
   background-image:
-    radial-gradient(40% 40% at 12% 16%, color-mix(in srgb, var(--color-accent) 42%, transparent), transparent 68%),
-    radial-gradient(38% 38% at 88% 18%, rgba(64, 160, 255, 0.34), transparent 70%),
-    radial-gradient(44% 44% at 84% 84%, rgba(236, 72, 153, 0.3), transparent 70%),
-    radial-gradient(46% 46% at 16% 88%, rgba(34, 197, 94, 0.28), transparent 70%);
+    radial-gradient(circle at center, color-mix(in srgb, var(--color-accent) 42%, transparent), transparent 100%),
+    radial-gradient(circle at center, rgba(64, 160, 255, 0.34), transparent 100%),
+    radial-gradient(circle at center, rgba(236, 72, 153, 0.3), transparent 100%),
+    radial-gradient(circle at center, rgba(34, 197, 94, 0.28), transparent 100%);
+  animation: app-bg-mesh 32s ease-in-out infinite alternate;
 }
 
 .app-background[data-preset="grid"] {
@@ -331,39 +342,103 @@ body.has-app-bg::before {
     linear-gradient(180deg, #0a0b12, #050609);
 }
 
-@keyframes app-bg-aurora {
-  0% { background-position: 0% 0%; transform: scale(1) translate3d(0, 0, 0); }
-  50% { background-position: 50% 100%; transform: scale(1.04) translate3d(1%, -1%, 0); }
-  100% { background-position: 100% 50%; transform: scale(1.02) translate3d(-1%, 1%, 0); }
-}
-
-@keyframes app-bg-nebula {
-  0% { background-position: 10% 90%; transform: scale(1.02) rotate(0deg); }
-  50% { background-position: 90% 10%; transform: scale(1.06) rotate(1.5deg); }
-  100% { background-position: 50% 50%; transform: scale(1.02) rotate(-1.5deg); }
-}
-
-@keyframes app-bg-sunset {
-  0% { background-position: 90% 90%; transform: scale(1.05); }
-  50% { background-position: 10% 10%; transform: scale(1); }
-  100% { background-position: 50% 90%; transform: scale(1.05); }
-}
-
-@keyframes app-bg-ocean {
-  0% { background-position: 0% 50%; transform: scale(1) translate3d(-1.5%, 0, 0); }
-  50% { background-position: 100% 50%; transform: scale(1.04) translate3d(1.5%, 0, 0); }
-  100% { background-position: 50% 0%; transform: scale(1.02) translate3d(0, -1%, 0); }
-}
-
-@keyframes app-bg-emerald {
-  0% { background-position: 100% 100%; transform: scale(1.03) translate3d(0, 1.5%, 0); }
-  50% { background-position: 0% 0%; transform: scale(1) translate3d(0, -1.5%, 0); }
-  100% { background-position: 50% 50%; transform: scale(1.03) translate3d(0, 0, 0); }
+@keyframes app-bg-flow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
 }
 
 @keyframes app-bg-grid {
   0% { background-position: 50% 30%, 0 0, 0 0; }
   100% { background-position: 50% 30%, 460px 0, 0 460px; }
+}
+
+@keyframes app-bg-rotate {
+  0% { transform: scale(1.4) rotate(0deg); }
+  100% { transform: scale(1.4) rotate(360deg); }
+}
+
+@keyframes app-bg-aurora {
+  0% {
+    background-position: 15% 20%, 85% 25%, 55% 85%;
+    background-size: 60% 60%, 70% 70%, 80% 80%;
+  }
+  50% {
+    background-position: 35% 30%, 65% 15%, 45% 70%;
+    background-size: 70% 50%, 60% 80%, 75% 75%;
+  }
+  100% {
+    background-position: 10% 15%, 90% 35%, 65% 90%;
+    background-size: 50% 65%, 80% 60%, 65% 80%;
+  }
+}
+
+@keyframes app-bg-nebula-breath {
+  0% { background-position: 25% 25%, 75% 30%, 50% 85%; }
+  50% { background-position: 40% 35%, 60% 15%, 55% 70%; }
+  100% { background-position: 15% 15%, 85% 45%, 45% 90%; }
+}
+
+@keyframes app-bg-sunset {
+  0% {
+    background-position: 20% 15%, 82% 34%, 58% 92%;
+    background-size: 60% 60%, 70% 70%, 80% 80%;
+  }
+  50% {
+    background-position: 35% 30%, 65% 20%, 45% 75%;
+    background-size: 80% 65%, 60% 75%, 75% 85%;
+  }
+  100% {
+    background-position: 10% 25%, 85% 40%, 65% 85%;
+    background-size: 60% 60%, 70% 70%, 80% 80%;
+  }
+}
+
+@keyframes app-bg-ocean {
+  0% {
+    background-position: 18% 22%, 82% 30%, 56% 90%;
+    background-size: 60% 60%, 70% 70%, 80% 80%;
+  }
+  50% {
+    background-position: 5% 15%, 95% 45%, 40% 75%;
+    background-size: 65% 55%, 75% 65%, 75% 85%;
+  }
+  100% {
+    background-position: 30% 30%, 70% 15%, 65% 95%;
+    background-size: 60% 60%, 70% 70%, 80% 80%;
+  }
+}
+
+@keyframes app-bg-emerald {
+  0% {
+    background-size: 60% 60%, 70% 70%, 80% 80%;
+    background-position: 20% 24%, 80% 32%, 58% 90%;
+  }
+  50% {
+    background-size: 80% 80%, 50% 50%, 90% 90%;
+    background-position: 35% 15%, 65% 45%, 45% 75%;
+  }
+  100% {
+    background-size: 60% 60%, 70% 70%, 80% 80%;
+    background-position: 10% 35%, 90% 20%, 70% 95%;
+  }
+}
+
+@keyframes app-bg-mesh {
+  0% {
+    background-position: 12% 16%, 88% 18%, 84% 84%, 16% 88%;
+  }
+  25% {
+    background-position: 88% 16%, 84% 84%, 16% 88%, 12% 18%;
+  }
+  50% {
+    background-position: 84% 84%, 16% 88%, 12% 16%, 88% 18%;
+  }
+  75% {
+    background-position: 16% 88%, 12% 16%, 88% 18%, 84% 84%;
+  }
+  100% {
+    background-position: 12% 16%, 88% 18%, 84% 84%, 16% 88%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4519,7 +4594,7 @@ body[data-theme="light"] .settings-input {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
-  padding: 0 24px 20px;
+  padding: 10px 24px 20px;
 }
 
 .settings-theme-card {
@@ -4673,7 +4748,7 @@ body[data-theme="light"] .settings-input {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
-  padding: 0 24px 20px;
+  padding: 10px 24px 20px;
 }
 
 .settings-connect-style-card {
@@ -4825,6 +4900,10 @@ body[data-theme="light"] .settings-input {
 .appearance-collapse-inner {
   min-height: 0;
   overflow: hidden;
+}
+
+.appearance-collapse-body.is-open .appearance-collapse-inner {
+  overflow: visible;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -5007,7 +5086,7 @@ body[data-theme="light"] .settings-input {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
   gap: 12px;
-  padding: 0 24px 18px;
+  padding: 10px 24px 18px;
 }
 
 .settings-accent-card {
@@ -5017,34 +5096,7 @@ body[data-theme="light"] .settings-input {
 }
 
 .settings-accent-card .settings-theme-preview {
-  min-height: 50px;
-  height: 50px;
-}
-
-.settings-accent-card .settings-theme-preview-rail {
-  padding: 6px 5px;
-  gap: 6px;
-}
-
-.settings-accent-card .settings-theme-preview-rail span:first-child {
-  height: 6px;
-}
-
-.settings-accent-card .settings-theme-preview-canvas {
-  padding: 6px 6px 6px 0;
-  gap: 6px;
-}
-
-.settings-accent-card .settings-theme-preview-top {
-  height: 22px;
-}
-
-.settings-accent-card .settings-theme-preview-row {
-  gap: 5px;
-}
-
-.settings-accent-card .settings-theme-preview-row span {
-  height: 10px;
+  min-height: 58px;
 }
 
 .settings-accent-card-active {
@@ -5082,7 +5134,7 @@ body[data-theme="light"] .settings-input {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  padding: 0 24px 16px;
+  padding: 10px 24px 16px;
 }
 
 .settings-language-card {
@@ -5192,7 +5244,7 @@ body[data-theme="light"] .settings-input {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
-  padding: 0 24px 18px;
+  padding: 10px 24px 18px;
 }
 
 .settings-interface-card {
@@ -5280,7 +5332,7 @@ body[data-theme="light"] .settings-input {
 .settings-accent-split {
   position: relative;
   display: flex;
-  min-height: 50px;
+  min-height: 58px;
   overflow: hidden;
   border-radius: calc(var(--ui-radius-md) + 2px);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2);
@@ -5300,7 +5352,7 @@ body[data-theme="light"] .settings-input {
   flex: 1 1 auto;
   border-radius: 0;
   box-shadow: none;
-  min-height: 50px;
+  min-height: 58px;
   border: none;
 }
 
@@ -5487,7 +5539,7 @@ body[data-theme="light"] .settings-input {
 .settings-background-block {
   display: grid;
   gap: 12px;
-  padding: 0 24px 18px;
+  padding: 10px 24px 18px;
 }
 
 .settings-background-grid {
@@ -5526,22 +5578,30 @@ body[data-theme="light"] .settings-input {
   background-position: center;
 }
 
-.settings-background-anim-indicator {
+.settings-background-anim-badge {
   position: absolute;
   top: 6px;
   right: 6px;
-  width: 18px;
-  height: 18px;
   display: grid;
   place-items: center;
+  width: 18px;
+  height: 18px;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.48);
-  color: #fff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-  opacity: 0.85;
-  transition: opacity 150ms ease;
+  background: rgba(10, 11, 18, 0.68);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #ffda6a;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+  padding: 3px;
+  transition: transform 160ms ease;
+}
+
+.settings-background-card:hover .settings-background-anim-badge {
+  transform: scale(1.1);
+}
+
+.settings-background-card:hover .settings-background-anim-badge svg {
+  transform: rotate(360deg);
+  transition: transform 850ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .settings-background-label {
@@ -5937,7 +5997,7 @@ body[data-theme="light"] .settings-input {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  padding: 0 24px 16px;
+  padding: 10px 24px 16px;
 }
 
 .settings-mode-option {
