@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useCallback, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { CountryFlag } from "../components/CountryFlag";
-import { notifyError } from "../lib/notify";
+import { notifyError, notifyInfo } from "../lib/notify";
 import { useAppStore } from "../store";
 import {
   api,
@@ -9,11 +10,99 @@ import {
   formatExpire,
   protocolLabel,
   serverDisplayName,
-  serverListDescription,
+  serverCustomDescription,
   transportLabel,
   type Server,
 } from "../lib/api";
 import { useMessages } from "../lib/i18n";
+
+const FAVORITES_KEY = "nimbo.favorites";
+function readFavoriteServers(): Set<string> {
+  try {
+    const raw = localStorage.getItem(FAVORITES_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+function writeFavoriteServers(value: Set<string>) {
+  try {
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify([...value]));
+  } catch {
+    /* ignore */
+  }
+}
+function useFavoriteServers() {
+  const [favorites, setFavorites] = useState<Set<string>>(readFavoriteServers);
+  const toggle = (serverId: string) => {
+    setFavorites((previous) => {
+      const next = new Set(previous);
+      if (next.has(serverId)) {
+        next.delete(serverId);
+      } else {
+        next.add(serverId);
+      }
+      writeFavoriteServers(next);
+      return next;
+    });
+  };
+  return { favorites, toggle };
+}
+
+const SERVER_OVERRIDES_KEY = "nimbo.serverOverrides";
+type ServerUiOverrides = Record<string, { name?: string; hidden?: boolean }>;
+function readServerUiOverrides(): ServerUiOverrides {
+  try {
+    const raw = localStorage.getItem(SERVER_OVERRIDES_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+function writeServerUiOverrides(value: ServerUiOverrides) {
+  try {
+    localStorage.setItem(SERVER_OVERRIDES_KEY, JSON.stringify(value));
+  } catch {}
+}
+function useServerUiOverrides() {
+  const [overrides, setOverrides] = useState<ServerUiOverrides>(readServerUiOverrides);
+  const commit = useCallback((producer: (current: ServerUiOverrides) => ServerUiOverrides) => {
+    setOverrides((current) => {
+      const next = producer(current);
+      writeServerUiOverrides(next);
+      return next;
+    });
+  }, []);
+  const renameServer = useCallback((serverId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    commit((current) => ({
+      ...current,
+      [serverId]: {
+        ...(current[serverId] ?? {}),
+        name: trimmed,
+      },
+    }));
+  }, [commit]);
+  const hideServer = useCallback((serverId: string) => {
+    commit((current) => ({
+      ...current,
+      [serverId]: {
+        ...(current[serverId] ?? {}),
+        hidden: true,
+      },
+    }));
+  }, [commit]);
+  return { overrides, renameServer, hideServer };
+}
+
+function serverDisplayLabel(server: Server, overrides: ServerUiOverrides): string {
+  const customName = overrides[server.id]?.name?.trim();
+  return customName || serverDisplayName(server.name);
+}
 
 export function Servers() {
   const m = useMessages();
@@ -25,6 +114,8 @@ export function Servers() {
   const setActive = useAppStore((s) => s.setActiveServer);
   const setServerPing = useAppStore((s) => s.setServerPing);
   const [pingingServerIds, setPingingServerIds] = useState<Set<string>>(() => new Set());
+  const { favorites, toggle: toggleFavorite } = useFavoriteServers();
+  const { overrides: serverOverrides, renameServer, hideServer } = useServerUiOverrides();
 
   const decoded = url ? decodeURIComponent(url) : "";
   const sub = subs.find((s) => s.url === decoded);
@@ -173,18 +264,24 @@ export function Servers() {
           {/* Server list */}
           <div className="server-detail-list panel overflow-hidden">
             <div className="divide-y divide-[var(--color-border)] bg-[rgba(255,255,255,0.018)]">
-              {deduplicateById(sub.servers).map((server) => (
-                <ServerRow
-                  key={server.id}
-                  server={server}
-                  servers={sub.servers}
-                  active={activeId === server.id}
-                  ping={serverPings[server.id]}
-                  pinging={pingingServerIds.has(server.id)}
-                  onSelect={() => onSelect(server)}
-                  onPing={() => onPingServer(server.id)}
-                />
-              ))}
+              {deduplicateById(sub.servers)
+                .filter((server) => !serverOverrides[server.id]?.hidden)
+                .map((server) => (
+                  <ServerRow
+                    key={server.id}
+                    server={server}
+                    active={activeId === server.id}
+                    ping={serverPings[server.id]}
+                    pinging={pingingServerIds.has(server.id)}
+                    displayName={serverDisplayLabel(server, serverOverrides)}
+                    favorite={favorites.has(server.id)}
+                    onSelect={() => onSelect(server)}
+                    onPing={() => onPingServer(server.id)}
+                    onToggleFavorite={() => toggleFavorite(server.id)}
+                    onRename={(name) => renameServer(server.id, name)}
+                    onHide={() => hideServer(server.id)}
+                  />
+                ))}
             </div>
           </div>
         </div>
@@ -215,26 +312,38 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 
 function ServerRow({
   server,
-  servers,
   active,
   ping,
   pinging,
+  displayName,
+  favorite,
   onSelect,
   onPing,
+  onToggleFavorite,
+  onRename,
+  onHide,
 }: {
   server: Server;
-  servers: Server[];
   active: boolean;
   ping?: number;
   pinging: boolean;
+  displayName: string;
+  favorite: boolean;
   onSelect: () => void;
   onPing: () => void;
+  onToggleFavorite: () => void;
+  onRename: (name: string) => void;
+  onHide: () => void;
 }) {
   const m = useMessages();
-  const label = serverDisplayName(server.name);
-  const description = serverListDescription(server, servers);
+  const label = displayName;
+  const description = serverCustomDescription(server);
   const proto = protocolLabel(server.protocol);
   const transport = networkBadge(server.protocol);
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [confirmHideOpen, setConfirmHideOpen] = useState(false);
 
   return (
     <div
@@ -259,11 +368,15 @@ function ServerRow({
           fallback={<GlobeIcon />}
           className="country-flag-server"
         />
+        {favorite && (
+          <span className="server-favorite-mark" aria-hidden="true">
+            <HeartIcon filled />
+          </span>
+        )}
       </div>
       <div className="server-profile-main">
         <div className="server-profile-title-line">
           <div className="server-profile-title">{label}</div>
-          <PingBadge ping={ping} loading={pinging} />
         </div>
         {description && (
           <div className="server-detail-row-description">
@@ -271,31 +384,116 @@ function ServerRow({
           </div>
         )}
       </div>
-      <div className="server-profile-actions server-detail-profile-actions">
+      <div className="server-profile-actions server-detail-profile-actions" data-no-toggle>
         <span className="server-row-pill server-row-pill-proto">{proto}</span>
         <span className="server-row-pill server-row-pill-transport">{transport}</span>
         {active && (
           <span className="server-row-pill server-row-pill-selected">{m.common.selected}</span>
         )}
+        <PingBadge ping={ping} loading={pinging} />
         <button
           type="button"
-          title={m.home.pingServers}
-          aria-label={m.home.pingServers}
+          title={favorite ? m.profiles.unfavoriteServer : m.profiles.favoriteServer}
+          aria-label={favorite ? m.profiles.unfavoriteServer : m.profiles.favoriteServer}
+          aria-pressed={favorite}
           onClick={(event) => {
             event.stopPropagation();
-            void onPing();
+            onToggleFavorite();
           }}
-          disabled={pinging}
           className={[
-            "server-row-icon-button server-row-dots-button",
-            pinging ? "text-[var(--color-accent-bright)] opacity-80" : "",
+            "server-row-icon-button",
+            favorite ? "server-row-icon-button-active" : "",
           ].join(" ")}
         >
-          <SignalIcon pulse={pinging} />
+          <HeartIcon filled={favorite} />
         </button>
+        <div className="server-row-menu-wrap">
+          <button
+            type="button"
+            title={m.profiles.serverMenu}
+            aria-label={m.profiles.serverMenu}
+            aria-expanded={menuOpen}
+            onClick={(event) => {
+              event.stopPropagation();
+              setMenuOpen((value) => !value);
+            }}
+            className="server-row-icon-button server-row-dots-button"
+          >
+            <DotsIcon />
+          </button>
+          {menuOpen && (
+            <div
+              className="server-row-menu"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  void onPing();
+                }}
+              >
+                <SignalIcon pulse={pinging} small />
+                {m.profiles.testLatency}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setRenameOpen(true);
+                }}
+              >
+                <EditIcon />
+                {m.profiles.renameServer}
+              </button>
+              <button
+                type="button"
+                className="server-row-menu-danger"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setConfirmHideOpen(true);
+                }}
+              >
+                <TrashIcon />
+                {m.profiles.deleteServer}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
+
+      {renameOpen && (
+        <RenameServerDialog
+          initialName={label}
+          onSave={(name) => {
+            onRename(name);
+            notifyInfo(m.profiles.serverRenamed);
+            setRenameOpen(false);
+          }}
+          onClose={() => setRenameOpen(false)}
+        />
+      )}
+
+      {confirmHideOpen && (
+        <ConfirmDialog
+          title={m.profiles.deleteServerTitle}
+          description={fillTemplate(m.profiles.deleteServerDescription, { name: label })}
+          confirmLabel={m.profiles.delete}
+          danger
+          onConfirm={() => {
+            onHide();
+            notifyInfo(m.profiles.serverHidden);
+            setConfirmHideOpen(false);
+          }}
+          onClose={() => setConfirmHideOpen(false)}
+        />
+      )}
     </div>
   );
+}
+
+function fillTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (_, key) => values[key] ?? `{${key}}`);
 }
 
 function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean }) {
@@ -328,6 +526,124 @@ function networkBadge(protocol: Server["protocol"]): string {
   if (protocol.kind === "shadowsocks") return "SHADOWSOCKS";
   const value = transportLabel(protocol).replace(" · ", " • ").trim();
   return value ? value.toUpperCase() : "JSON";
+}
+
+function RenameServerDialog({
+  initialName,
+  onSave,
+  onClose,
+}: {
+  initialName: string;
+  onSave: (name: string) => void;
+  onClose: () => void;
+}) {
+  const m = useMessages();
+  const [name, setName] = useState(initialName);
+  const canSave = name.trim().length > 0;
+
+  return (
+    <ModalPortal>
+      <div className="app-dialog-backdrop" role="presentation" onClick={onClose}>
+        <div
+          className="panel server-rename-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="rename-server-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div id="rename-server-title" className="mb-2 text-xl font-bold text-white">
+            {m.profiles.renameServer}
+          </div>
+          <div className="mb-4 text-sm text-[var(--color-text-faint)]">
+            {m.profiles.renameServerDescription}
+          </div>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="dark-input px-4 py-3 text-base"
+            autoFocus
+          />
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="interactive rounded-xl border border-[var(--color-border)] px-4 py-3 text-sm font-semibold text-[var(--color-text-dim)]"
+            >
+              {m.common.cancel}
+            </button>
+            <button
+              type="button"
+              disabled={!canSave}
+              onClick={() => canSave && onSave(name)}
+              className="primary-button interactive rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-50"
+            >
+              {m.common.save}
+            </button>
+          </div>
+        </div>
+      </div>
+    </ModalPortal>
+  );
+}
+
+function ConfirmDialog({
+  title,
+  description,
+  confirmLabel,
+  danger = false,
+  busy = false,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  danger?: boolean;
+  busy?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const m = useMessages();
+  return (
+    <ModalPortal>
+      <div
+        className="fixed inset-0 z-50 grid place-items-center p-5"
+        style={{ background: "rgba(0,0,0,0.58)", backdropFilter: "blur(9px)" }}
+        onClick={onClose}
+      >
+        <div
+          className="panel w-full max-w-md bg-[rgba(26,26,46,0.96)] p-5 shadow-[0_28px_90px_rgba(0,0,0,0.46)]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="mb-2 text-xl font-bold text-white">{title}</div>
+          <div className="mb-5 text-sm leading-relaxed text-[var(--color-text-dim)]">{description}</div>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={onClose}
+              disabled={busy}
+              className="interactive rounded-xl border border-[var(--color-border)] px-4 py-3 text-sm font-semibold text-[var(--color-text-dim)] disabled:opacity-50"
+            >
+              {m.common.cancel}
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={busy}
+              className={[
+                "interactive rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-50",
+                danger ? "bg-[var(--color-status-error)] text-white hover:bg-[var(--color-status-error-hover)]" : "primary-button",
+              ].join(" ")}
+            >
+              {confirmLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    </ModalPortal>
+  );
+}
+
+function ModalPortal({ children }: { children: ReactNode }) {
+  return createPortal(children, document.body);
 }
 
 // ── Icons ─────────────────────────────────────────────────────
@@ -403,11 +719,11 @@ function SupportIcon() {
   );
 }
 
-function SignalIcon({ pulse = false }: { pulse?: boolean }) {
+function SignalIcon({ pulse = false, small = false }: { pulse?: boolean; small?: boolean }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      className={["h-4 w-4", pulse ? "animate-pulse" : ""].join(" ")}
+      className={[small ? "h-4 w-4" : "h-5 w-5", pulse ? "animate-pulse" : ""].join(" ")}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"
@@ -420,6 +736,63 @@ function SignalIcon({ pulse = false }: { pulse?: boolean }) {
       <path d="M12 20v-8" />
       <path d="M16 20v-11" />
       <path d="M20 20V5" />
+    </svg>
+  );
+}
+
+function DotsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
+      <circle cx="5" cy="12" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="19" cy="12" r="1.8" />
+    </svg>
+  );
+}
+
+function HeartIcon({ filled = false }: { filled?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={filled ? "0" : "1.9"}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M20.8 4.6a5.2 5.2 0 0 0-7.4 0L12 6l-1.4-1.4a5.2 5.2 0 1 0-7.4 7.4L12 20.8 20.8 12a5.2 5.2 0 0 0 0-7.4Z" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M6 6l1 15h10l1-15" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5Z" />
     </svg>
   );
 }
