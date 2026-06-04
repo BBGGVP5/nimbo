@@ -918,8 +918,6 @@ function AppearanceSection({
           label={m.settings.providerTheme}
           description={m.settings.providerThemeDescription}
           enabled={preferences.provider_theme}
-          onLabel={m.settings.providerThemeOn}
-          offLabel={m.settings.providerThemeOff}
           onToggle={(provider_theme) => onChange({ provider_theme })}
         />
       </SettingsCard>
@@ -2201,9 +2199,25 @@ function AccentPreviewOption({
 }
 
 function AccentSplitPreview({ colors }: { colors: string[] }) {
+  const accentColor = colors[0] ?? "#7c5dfa";
   return (
     <span className="settings-accent-split" aria-hidden="true">
-      <span className="settings-accent-split-preview" style={{ backgroundImage: accentGradientCss(colors) }} />
+      <span
+        className="settings-accent-split-preview settings-theme-preview"
+        style={{ "--theme-preview-accent": accentColor } as CSSProperties}
+      >
+        <span className="settings-theme-preview-rail">
+          <span />
+          <span />
+        </span>
+        <span className="settings-theme-preview-canvas">
+          <span className="settings-theme-preview-top" />
+          <span className="settings-theme-preview-row">
+            <span />
+            <span />
+          </span>
+        </span>
+      </span>
       <span className="settings-accent-split-colors">
         {colors.map((color, index) => (
           <span key={index} style={{ background: color }} />
@@ -2586,40 +2600,15 @@ function BackgroundChooser({ appearance }: { appearance: AppearanceState }) {
   );
 }
 
-function ProviderPreviewArt({ variant }: { variant: "default" | "branded" }) {
-  const style = variant === "branded"
-    ? ({ "--theme-preview-accent": "#21c08a" } as CSSProperties)
-    : undefined;
-  return (
-    <span className="settings-theme-preview settings-provider-preview-art" style={style} aria-hidden="true">
-      <span className="settings-theme-preview-rail">
-        <span />
-        <span />
-      </span>
-      <span className="settings-theme-preview-canvas">
-        <span className="settings-theme-preview-top" />
-        <span className="settings-theme-preview-row">
-          <span />
-          <span />
-        </span>
-      </span>
-    </span>
-  );
-}
-
 function ProviderThemeRow({
   label,
   description,
   enabled,
-  onLabel,
-  offLabel,
   onToggle,
 }: {
   label: string;
   description: string;
   enabled: boolean;
-  onLabel: string;
-  offLabel: string;
   onToggle: (enabled: boolean) => void;
 }) {
   return (
@@ -2638,24 +2627,6 @@ function ProviderThemeRow({
           className={["settings-toggle", enabled ? "settings-toggle-on" : ""].join(" ")}
         >
           <span />
-        </button>
-      </div>
-      <div className="settings-provider-preview">
-        <button
-          type="button"
-          className={["settings-provider-preview-card", !enabled ? "is-active" : ""].join(" ")}
-          onClick={() => onToggle(false)}
-        >
-          <ProviderPreviewArt variant="default" />
-          <span className="settings-provider-preview-label">{offLabel}</span>
-        </button>
-        <button
-          type="button"
-          className={["settings-provider-preview-card", enabled ? "is-active" : ""].join(" ")}
-          onClick={() => onToggle(true)}
-        >
-          <ProviderPreviewArt variant="branded" />
-          <span className="settings-provider-preview-label">{onLabel}</span>
         </button>
       </div>
     </div>

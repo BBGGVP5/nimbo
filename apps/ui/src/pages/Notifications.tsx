@@ -6,7 +6,7 @@ import {
   clearNotificationHistory,
   getLastSeen,
   markNotificationsSeen,
-  notifyInfo,
+  notify,
   removeNotification,
   useNotificationHistory,
 } from "../lib/notify";
@@ -24,7 +24,7 @@ export function Notifications() {
 
   const onClearAll = () => {
     clearNotificationHistory();
-    notifyInfo(m.notifications.cleared);
+    notify(m.notifications.cleared, "info", false);
   };
 
   return (

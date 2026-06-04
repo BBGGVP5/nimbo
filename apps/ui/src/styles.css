@@ -5168,22 +5168,22 @@ body[data-theme="light"] .settings-input {
 }
 
 .settings-interface-preview-panel {
-  width: 76%;
+  width: 70%;
   display: grid;
-  gap: 6px;
-  padding: 12px;
-  border-radius: 12px;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 8px;
 }
 
 .settings-interface-preview-pill {
   width: 40%;
-  height: 8px;
+  height: 5px;
   border-radius: 999px;
   background: var(--theme-preview-accent);
 }
 
 .settings-interface-preview-line {
-  height: 8px;
+  height: 5px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.16);
 }
@@ -5201,7 +5201,7 @@ body[data-theme="light"] .settings-input {
 
 .settings-interface-card-material_you .settings-interface-preview-panel {
   background: color-mix(in srgb, var(--theme-preview-accent) 16%, #15161d);
-  border-radius: 16px;
+  border-radius: 10px;
 }
 
 .settings-interface-card-material_you .settings-interface-preview-line {
@@ -5229,6 +5229,14 @@ body[data-theme="light"] .settings-input {
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.1),
     0 8px 18px rgba(0, 0, 0, 0.2);
+}
+
+.settings-accent-split .settings-theme-preview {
+  flex: 1 1 auto;
+  border-radius: 0;
+  box-shadow: none;
+  min-height: 58px;
+  border: none;
 }
 
 .settings-accent-split-preview {

@@ -40,15 +40,17 @@ function persistHistory() {
   }
 }
 
-export function notify(message: string, tone: NotificationTone = "info"): void {
+export function notify(message: string, tone: NotificationTone = "info", addToHistory = true): void {
   const notification: AppNotification = {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     tone,
     message,
     createdAt: Date.now(),
   };
-  history = [notification, ...history].slice(0, HISTORY_LIMIT);
-  persistHistory();
+  if (addToHistory) {
+    history = [notification, ...history].slice(0, HISTORY_LIMIT);
+    persistHistory();
+  }
   window.dispatchEvent(
     new CustomEvent<AppNotification>(EVENT_NAME, {
       detail: notification,
