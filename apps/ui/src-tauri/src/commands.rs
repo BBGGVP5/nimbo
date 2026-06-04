@@ -536,6 +536,10 @@ pub fn set_preferences(
 ) -> Result<AppPreferences, String> {
     preferences.accent_color = normalize_accent_color(&preferences.accent_color);
     preferences.ui_style = normalize_ui_style(&preferences.ui_style);
+    preferences.interface_panel_brightness = preferences.interface_panel_brightness.clamp(60, 140);
+    preferences.interface_transparency = preferences.interface_transparency.clamp(0, 80);
+    preferences.interface_blur = preferences.interface_blur.clamp(0, 48);
+    preferences.interface_rounding = preferences.interface_rounding.clamp(50, 180);
     preferences.latency_protocol = normalize_latency_protocol(&preferences.latency_protocol);
     preferences.latency_test_url = normalize_latency_test_url(&preferences.latency_test_url);
     preferences.latency_timeout_ms = normalize_latency_timeout_ms(preferences.latency_timeout_ms);

@@ -195,6 +195,14 @@ pub struct AppPreferences {
     pub provider_theme: bool,
     #[serde(default = "default_ui_style")]
     pub ui_style: String,
+    #[serde(default = "default_interface_panel_brightness")]
+    pub interface_panel_brightness: u32,
+    #[serde(default)]
+    pub interface_transparency: u32,
+    #[serde(default = "default_interface_blur")]
+    pub interface_blur: u32,
+    #[serde(default = "default_interface_rounding")]
+    pub interface_rounding: u32,
     pub theme_mode: ThemeMode,
     pub accent_mode: AccentMode,
     pub accent_color: String,
@@ -269,6 +277,18 @@ fn default_ui_style() -> String {
     "nebula".into()
 }
 
+fn default_interface_panel_brightness() -> u32 {
+    100
+}
+
+fn default_interface_blur() -> u32 {
+    25
+}
+
+fn default_interface_rounding() -> u32 {
+    100
+}
+
 fn default_tunnel_mux_concurrency() -> u32 {
     8
 }
@@ -332,6 +352,10 @@ impl Default for AppPreferences {
             check_updates_on_launch: true,
             provider_theme: true,
             ui_style: default_ui_style(),
+            interface_panel_brightness: default_interface_panel_brightness(),
+            interface_transparency: 0,
+            interface_blur: default_interface_blur(),
+            interface_rounding: default_interface_rounding(),
             theme_mode: ThemeMode::System,
             accent_mode: AccentMode::Preset,
             accent_color: "#7c5dfa".into(),

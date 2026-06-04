@@ -599,6 +599,9 @@ export function Home() {
         sidePanelCollapsed ? "home-grid-collapsed" : "",
         !sidePanelCollapsed && serverListCollapsed && sortedEntries.length ? "home-grid-server-list-collapsed" : "",
       ].join(" ")}
+      style={{
+        "--servers-panel-width": `${serversPanelWidth.width}px`,
+      } as React.CSSProperties}
     >
       <section className="home-center">
         <div className="home-top">
@@ -697,9 +700,6 @@ export function Home() {
           )}
           <aside
             className="home-right"
-            style={{
-              "--servers-panel-width": `${serversPanelWidth.width}px`,
-            } as React.CSSProperties}
           >
             <ServerSidePanel
               {...sharedPanelProps}

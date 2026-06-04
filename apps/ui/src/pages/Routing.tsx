@@ -24,6 +24,8 @@ export function Routing() {
   const [refreshing, setRefreshing] = useState(false);
   const [editorProfile, setEditorProfile] = useState<RoutingProfile | null>(null);
   const [editorMode, setEditorMode] = useState<RoutingEditorMode>("edit");
+  const [deleteTarget, setDeleteTarget] = useState<RoutingProfileSummary | null>(null);
+  const [deletingTarget, setDeletingTarget] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -115,21 +117,31 @@ export function Routing() {
     }
   };
 
-  const onDuplicateProfile = async (profile: RoutingProfileSummary) => {
+  const onPasteProfile = async () => {
     try {
-      const original = await api.getRoutingProfile(profile.id);
-      const copy: RoutingProfile = {
-        ...original,
-        id: makeCopyProfileId(original.id || profile.id),
-        name: makeCopyProfileName(original.name || profile.name, profiles, m.routing.copySuffix),
-        builtin: false,
-        last_updated_at: null,
-      };
-      await api.updateRoutingProfile(copy);
+      const payload = (await api.readClipboardText()).trim();
+      if (!payload) {
+        throw new Error(m.routing.pasteEmpty);
+      }
+      const imported = await api.importRoutingProfile(payload);
       await load();
-      notifyInfo(m.routing.profileDuplicated.replace("{name}", copy.name));
+      notifyInfo(fillTemplate(m.routing.profileImported, { name: imported.name || imported.id }));
     } catch (e) {
       notifyError(String(e));
+    }
+  };
+
+  const confirmDeleteTarget = async () => {
+    if (!deleteTarget) return;
+    setDeletingTarget(true);
+    try {
+      const detail = await api.getRoutingProfile(deleteTarget.id);
+      await onDeleteProfile(detail);
+      setDeleteTarget(null);
+    } catch (e) {
+      notifyError(String(e));
+    } finally {
+      setDeletingTarget(false);
     }
   };
 
@@ -174,10 +186,10 @@ export function Routing() {
             active={profile.id === activeId}
             labels={m}
             onActivate={() => void onPick(profile)}
+            onPaste={() => void onPasteProfile()}
             onCopy={() => void onCopyProfile(profile)}
-            onDuplicate={() => void onDuplicateProfile(profile)}
             onEdit={() => void onEditProfile(profile)}
-            onDelete={() => void onDeleteProfileFromCard(profile, onDeleteProfile, m)}
+            onDelete={() => setDeleteTarget(profile)}
           />
         ))}
       </div>
@@ -192,6 +204,18 @@ export function Routing() {
           onClose={() => setEditorProfile(null)}
         />
       )}
+
+      {deleteTarget && (
+        <RoutingDeleteDialog
+          profile={deleteTarget}
+          labels={m}
+          deleting={deletingTarget}
+          onCancel={() => {
+            if (!deletingTarget) setDeleteTarget(null);
+          }}
+          onConfirm={() => void confirmDeleteTarget()}
+        />
+      )}
     </div>
   );
 }
@@ -201,8 +225,8 @@ function RoutingCard({
   active,
   labels,
   onActivate,
+  onPaste,
   onCopy,
-  onDuplicate,
   onEdit,
   onDelete,
 }: {
@@ -210,8 +234,8 @@ function RoutingCard({
   active: boolean;
   labels: Messages;
   onActivate: () => void;
+  onPaste: () => void;
   onCopy: () => void;
-  onDuplicate: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -255,6 +279,18 @@ function RoutingCard({
         <button
           type="button"
           className="routing-card-icon-btn"
+          aria-label={labels.routing.paste}
+          title={labels.routing.paste}
+          onClick={(e) => {
+            e.stopPropagation();
+            onPaste();
+          }}
+        >
+          <PasteIcon />
+        </button>
+        <button
+          type="button"
+          className="routing-card-icon-btn"
           aria-label={labels.routing.copy}
           title={labels.routing.copy}
           onClick={(e) => {
@@ -262,19 +298,7 @@ function RoutingCard({
             onCopy();
           }}
         >
-          <ClipboardIcon />
-        </button>
-        <button
-          type="button"
-          className="routing-card-icon-btn"
-          aria-label={labels.routing.duplicate}
-          title={labels.routing.duplicate}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDuplicate();
-          }}
-        >
-          <DuplicateIcon />
+          <CopyIcon />
         </button>
         <button
           type="button"
@@ -689,20 +713,64 @@ function ListField({
   );
 }
 
-async function onDeleteProfileFromCard(
-  profile: RoutingProfileSummary,
-  onDelete: (profile: RoutingProfile) => Promise<void>,
-  labels: Messages,
-) {
-  try {
-    if (!window.confirm(fillTemplate(labels.routing.deleteConfirm, { name: profile.name }))) {
-      return;
-    }
-    const detail = await api.getRoutingProfile(profile.id);
-    await onDelete(detail);
-  } catch (e) {
-    notifyError(String(e));
-  }
+function RoutingDeleteDialog({
+  profile,
+  labels,
+  deleting,
+  onCancel,
+  onConfirm,
+}: {
+  profile: RoutingProfileSummary;
+  labels: Messages;
+  deleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="routing-delete-backdrop" role="presentation" onClick={onCancel}>
+      <div
+        className="routing-delete-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="routing-delete-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="routing-delete-icon" aria-hidden="true">
+          <TrashIcon />
+        </div>
+        <div className="routing-delete-content">
+          <h2 id="routing-delete-title" className="routing-delete-title">
+            {labels.routing.deleteTitle}
+          </h2>
+          <p className="routing-delete-description">
+            {fillTemplate(labels.routing.deleteDescription, { name: profile.name })}
+          </p>
+          <div className="routing-delete-profile">
+            <span>{profile.name}</span>
+            <small>{profile.rules_count} {labels.routing.rulesLabel}</small>
+          </div>
+        </div>
+        <div className="routing-delete-actions">
+          <button
+            type="button"
+            className="routing-editor-secondary"
+            disabled={deleting}
+            onClick={onCancel}
+          >
+            {labels.common.cancel}
+          </button>
+          <button
+            type="button"
+            className="routing-editor-danger"
+            disabled={deleting}
+            onClick={onConfirm}
+          >
+            {deleting ? labels.common.savingProgress : labels.routing.delete}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function makeNewRoutingProfile(
@@ -806,16 +874,6 @@ function makeUniqueProfileName(name: string, profiles: Array<{ name: string }>):
   return `${name} ${Date.now().toString(36)}`;
 }
 
-function makeCopyProfileId(sourceId: string): string {
-  const slug = slugifyProfileId(sourceId).slice(0, 42) || "profile";
-  return `${slug}-copy-${Date.now().toString(36)}`;
-}
-
-function makeCopyProfileName(name: string, profiles: Array<{ name: string }>, suffix: string): string {
-  const baseName = `${name}${suffix}`;
-  return makeUniqueProfileName(baseName, profiles);
-}
-
 function RoutingActionButton({
   children,
   title,
@@ -840,7 +898,7 @@ function RoutingActionButton({
   );
 }
 
-function DuplicateIcon() {
+function CopyIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="8" y="8" width="11" height="11" rx="2" />
@@ -894,12 +952,14 @@ function PlusIcon() {
   );
 }
 
-function ClipboardIcon() {
+function PasteIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M9 4h6" />
       <path d="M9 4a3 3 0 0 0 6 0" />
       <rect x="6" y="5" width="12" height="16" rx="2" />
+      <path d="M12 9v6" />
+      <path d="m9.5 12.5 2.5 2.5 2.5-2.5" />
     </svg>
   );
 }
