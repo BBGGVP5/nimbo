@@ -575,17 +575,24 @@ function AppearanceSection({
   const [accentOpen, toggleAccent] = usePersistentToggle("nimbo.collapse.accent", false);
   const [backgroundOpen, toggleBackground] = usePersistentToggle("nimbo.collapse.background", true);
 
-  const livePalette = (colors: string[]) => {
-    setAppearance({ palette: colors.length ? colors.slice(0, 3) : ["#7c5dfa"] });
-  };
-  const commitPalette = (colors: string[]) => {
-    const next = colors.length ? colors.slice(0, 3) : ["#7c5dfa"];
-    setAppearance({ palette: next });
-    void onChange({ accent_mode: "custom", accent_color: next[0] });
-  };
   const samePalette = (a: string[], b: string[]) =>
     a.join(",").toLowerCase() === b.join(",").toLowerCase();
   const matchedGradient = gradientAccentPresets.find((g) => samePalette(g.colors, appearance.palette));
+
+  const [isCustomActive, setIsCustomActive] = useState(() => preferences.accent_mode === "custom" && !matchedGradient);
+
+  const livePalette = (colors: string[]) => {
+    setIsCustomActive(true);
+    setAppearance({ palette: colors.length ? colors.slice(0, 3) : ["#7c5dfa"] });
+  };
+  const commitPalette = (colors: string[], fromPreset = false) => {
+    const next = colors.length ? colors.slice(0, 3) : ["#7c5dfa"];
+    setAppearance({ palette: next });
+    void onChange({ accent_mode: "custom", accent_color: next[0] });
+    if (!fromPreset) {
+      setIsCustomActive(true);
+    }
+  };
   const [visualDraft, setVisualDraft] = useState({
     interface_panel_brightness: preferences.interface_panel_brightness,
     interface_transparency: preferences.interface_transparency,
@@ -812,7 +819,10 @@ function AppearanceSection({
               title={m.settings.systemAccent}
               color={systemAccent}
               selected={preferences.accent_mode === "system"}
-              onClick={() => onChange({ accent_mode: "system" })}
+              onClick={() => {
+                setIsCustomActive(false);
+                onChange({ accent_mode: "system" });
+              }}
             />
             {accentPresets.map(({ color, labelKey }) => (
               <AccentPreviewOption
@@ -820,7 +830,10 @@ function AppearanceSection({
                 title={m.settings[labelKey]}
                 color={color}
                 selected={accentPresetActive(color)}
-                onClick={() => onChange({ accent_mode: "preset", accent_color: color })}
+                onClick={() => {
+                  setIsCustomActive(false);
+                  onChange({ accent_mode: "preset", accent_color: color });
+                }}
               />
             ))}
             {extraAccentPresets.map(({ color, label }) => (
@@ -829,7 +842,10 @@ function AppearanceSection({
                 title={label}
                 color={color}
                 selected={accentPresetActive(color)}
-                onClick={() => onChange({ accent_mode: "preset", accent_color: color })}
+                onClick={() => {
+                  setIsCustomActive(false);
+                  onChange({ accent_mode: "preset", accent_color: color });
+                }}
               />
             ))}
             {gradientAccentPresets.map((gradient) => (
@@ -837,15 +853,21 @@ function AppearanceSection({
                 key={gradient.label}
                 label={gradient.label}
                 colors={gradient.colors}
-                selected={preferences.accent_mode === "custom" && samePalette(gradient.colors, appearance.palette)}
-                onClick={() => commitPalette(gradient.colors)}
+                selected={preferences.accent_mode === "custom" && !isCustomActive && samePalette(gradient.colors, appearance.palette)}
+                onClick={() => {
+                  setIsCustomActive(false);
+                  commitPalette(gradient.colors, true);
+                }}
               />
             ))}
             <AccentCustomOption
               title={m.settings.customAccent}
               colors={appearance.palette}
-              selected={preferences.accent_mode === "custom" && !matchedGradient}
-              onClick={() => commitPalette(appearance.palette)}
+              selected={preferences.accent_mode === "custom" && (isCustomActive || !matchedGradient)}
+              onClick={() => {
+                setIsCustomActive(true);
+                commitPalette(appearance.palette);
+              }}
             />
           </div>
           {preferences.accent_mode === "custom" && (
@@ -2200,6 +2222,27 @@ function AccentPreviewOption({
 
 function AccentSplitPreview({ colors }: { colors: string[] }) {
   const accentColor = colors[0] ?? "#7c5dfa";
+  if (colors.length <= 1) {
+    return (
+      <span
+        className="settings-theme-preview"
+        style={{ "--theme-preview-accent": accentColor } as CSSProperties}
+        aria-hidden="true"
+      >
+        <span className="settings-theme-preview-rail">
+          <span />
+          <span />
+        </span>
+        <span className="settings-theme-preview-canvas">
+          <span className="settings-theme-preview-top" />
+          <span className="settings-theme-preview-row">
+            <span />
+            <span />
+          </span>
+        </span>
+      </span>
+    );
+  }
   return (
     <span className="settings-accent-split" aria-hidden="true">
       <span

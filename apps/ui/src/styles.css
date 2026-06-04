@@ -5099,6 +5099,33 @@ body[data-theme="light"] .settings-input {
   min-height: 58px;
 }
 
+.settings-accent-card .settings-theme-preview-rail {
+  padding: 6px 5px;
+  gap: 6px;
+}
+
+.settings-accent-card .settings-theme-preview-rail span:first-child {
+  height: 6px;
+}
+
+.settings-accent-card .settings-theme-preview-canvas {
+  padding: 6px 6px 6px 0;
+  gap: 6px;
+  align-content: center;
+}
+
+.settings-accent-card .settings-theme-preview-top {
+  height: 22px;
+}
+
+.settings-accent-card .settings-theme-preview-row {
+  gap: 5px;
+}
+
+.settings-accent-card .settings-theme-preview-row span {
+  height: 10px;
+}
+
 .settings-accent-card-active {
   border-color: var(--accent-card-color) !important;
   background:
