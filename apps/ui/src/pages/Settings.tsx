@@ -2526,7 +2526,13 @@ function BackgroundChooser({ appearance }: { appearance: AppearanceState }) {
             ].join(" ")}
           >
             <span className={["settings-background-thumb", `settings-background-thumb-${preset.id}`].join(" ")} aria-hidden="true">
-              {preset.animated && preset.id !== "none" && <span className="settings-background-anim-dot" />}
+              {preset.animated && preset.id !== "none" && (
+                <span className="settings-background-anim-indicator">
+                  <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor">
+                    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+                  </svg>
+                </span>
+              )}
             </span>
             <span className="settings-background-label">{preset.id === "none" ? m.settings.backgroundNone : preset.label}</span>
           </button>

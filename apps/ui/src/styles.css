@@ -227,7 +227,7 @@ body::after {
 /* ── Custom / preset app background layer ─────────────────────── */
 .app-background {
   position: fixed;
-  inset: 0;
+  inset: -6%;
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
@@ -261,7 +261,6 @@ body.has-app-bg::before {
   background-color: #06070d;
   background-repeat: no-repeat;
   background-size: 200% 200%;
-  animation: app-bg-flow 26s ease-in-out infinite alternate;
 }
 
 .app-background[data-preset="aurora"] {
@@ -269,6 +268,7 @@ body.has-app-bg::before {
     radial-gradient(46% 42% at 18% 22%, color-mix(in srgb, var(--color-accent) 60%, transparent), transparent 70%),
     radial-gradient(50% 46% at 82% 28%, rgba(64, 160, 255, 0.5), transparent 72%),
     radial-gradient(58% 52% at 60% 88%, rgba(124, 93, 250, 0.45), transparent 72%);
+  animation: app-bg-aurora 28s ease-in-out infinite alternate;
 }
 
 .app-background[data-preset="nebula"] {
@@ -276,6 +276,7 @@ body.has-app-bg::before {
     radial-gradient(48% 44% at 22% 24%, rgba(168, 85, 247, 0.55), transparent 70%),
     radial-gradient(52% 48% at 80% 30%, rgba(236, 72, 153, 0.45), transparent 72%),
     radial-gradient(60% 54% at 55% 90%, rgba(79, 70, 229, 0.5), transparent 72%);
+  animation: app-bg-nebula 32s ease-in-out infinite alternate;
 }
 
 .app-background[data-preset="sunset"] {
@@ -283,6 +284,7 @@ body.has-app-bg::before {
     radial-gradient(48% 44% at 20% 20%, rgba(251, 146, 60, 0.55), transparent 70%),
     radial-gradient(54% 50% at 82% 34%, rgba(244, 63, 94, 0.45), transparent 72%),
     radial-gradient(60% 56% at 58% 92%, rgba(168, 85, 247, 0.4), transparent 72%);
+  animation: app-bg-sunset 24s ease-in-out infinite alternate;
 }
 
 .app-background[data-preset="ocean"] {
@@ -290,6 +292,7 @@ body.has-app-bg::before {
     radial-gradient(48% 44% at 18% 22%, rgba(34, 211, 238, 0.5), transparent 70%),
     radial-gradient(52% 48% at 82% 30%, rgba(59, 130, 246, 0.48), transparent 72%),
     radial-gradient(60% 56% at 56% 90%, rgba(14, 165, 233, 0.42), transparent 72%);
+  animation: app-bg-ocean 26s ease-in-out infinite alternate;
 }
 
 .app-background[data-preset="emerald"] {
@@ -297,6 +300,7 @@ body.has-app-bg::before {
     radial-gradient(48% 44% at 20% 24%, rgba(16, 185, 129, 0.5), transparent 70%),
     radial-gradient(52% 48% at 80% 32%, rgba(34, 197, 94, 0.45), transparent 72%),
     radial-gradient(60% 56% at 58% 90%, rgba(20, 184, 166, 0.42), transparent 72%);
+  animation: app-bg-emerald 30s ease-in-out infinite alternate;
 }
 
 .app-background[data-preset="mesh"] {
@@ -327,9 +331,34 @@ body.has-app-bg::before {
     linear-gradient(180deg, #0a0b12, #050609);
 }
 
-@keyframes app-bg-flow {
-  0% { background-position: 0% 50%; }
-  100% { background-position: 100% 50%; }
+@keyframes app-bg-aurora {
+  0% { background-position: 0% 0%; transform: scale(1) translate3d(0, 0, 0); }
+  50% { background-position: 50% 100%; transform: scale(1.04) translate3d(1%, -1%, 0); }
+  100% { background-position: 100% 50%; transform: scale(1.02) translate3d(-1%, 1%, 0); }
+}
+
+@keyframes app-bg-nebula {
+  0% { background-position: 10% 90%; transform: scale(1.02) rotate(0deg); }
+  50% { background-position: 90% 10%; transform: scale(1.06) rotate(1.5deg); }
+  100% { background-position: 50% 50%; transform: scale(1.02) rotate(-1.5deg); }
+}
+
+@keyframes app-bg-sunset {
+  0% { background-position: 90% 90%; transform: scale(1.05); }
+  50% { background-position: 10% 10%; transform: scale(1); }
+  100% { background-position: 50% 90%; transform: scale(1.05); }
+}
+
+@keyframes app-bg-ocean {
+  0% { background-position: 0% 50%; transform: scale(1) translate3d(-1.5%, 0, 0); }
+  50% { background-position: 100% 50%; transform: scale(1.04) translate3d(1.5%, 0, 0); }
+  100% { background-position: 50% 0%; transform: scale(1.02) translate3d(0, -1%, 0); }
+}
+
+@keyframes app-bg-emerald {
+  0% { background-position: 100% 100%; transform: scale(1.03) translate3d(0, 1.5%, 0); }
+  50% { background-position: 0% 0%; transform: scale(1) translate3d(0, -1.5%, 0); }
+  100% { background-position: 50% 50%; transform: scale(1.03) translate3d(0, 0, 0); }
 }
 
 @keyframes app-bg-grid {
@@ -4988,7 +5017,34 @@ body[data-theme="light"] .settings-input {
 }
 
 .settings-accent-card .settings-theme-preview {
-  min-height: 58px;
+  min-height: 50px;
+  height: 50px;
+}
+
+.settings-accent-card .settings-theme-preview-rail {
+  padding: 6px 5px;
+  gap: 6px;
+}
+
+.settings-accent-card .settings-theme-preview-rail span:first-child {
+  height: 6px;
+}
+
+.settings-accent-card .settings-theme-preview-canvas {
+  padding: 6px 6px 6px 0;
+  gap: 6px;
+}
+
+.settings-accent-card .settings-theme-preview-top {
+  height: 22px;
+}
+
+.settings-accent-card .settings-theme-preview-row {
+  gap: 5px;
+}
+
+.settings-accent-card .settings-theme-preview-row span {
+  height: 10px;
 }
 
 .settings-accent-card-active {
@@ -5224,7 +5280,7 @@ body[data-theme="light"] .settings-input {
 .settings-accent-split {
   position: relative;
   display: flex;
-  min-height: 58px;
+  min-height: 50px;
   overflow: hidden;
   border-radius: calc(var(--ui-radius-md) + 2px);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2);
@@ -5244,7 +5300,7 @@ body[data-theme="light"] .settings-input {
   flex: 1 1 auto;
   border-radius: 0;
   box-shadow: none;
-  min-height: 58px;
+  min-height: 50px;
   border: none;
 }
 
@@ -5470,16 +5526,22 @@ body[data-theme="light"] .settings-input {
   background-position: center;
 }
 
-.settings-background-anim-dot {
+.settings-background-anim-indicator {
   position: absolute;
   top: 6px;
   right: 6px;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.3);
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.48);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
   opacity: 0.85;
+  transition: opacity 150ms ease;
 }
 
 .settings-background-label {
