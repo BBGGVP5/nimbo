@@ -571,8 +571,8 @@ function AppearanceSection({
   const appearance = useAppearance();
   const [interfaceOpen, toggleInterface] = usePersistentToggle("nimbo.collapse.interface", true);
   const [detailsOpen, toggleDetails] = usePersistentToggle("nimbo.collapse.details", false);
-  const [themeOpen, toggleTheme] = usePersistentToggle("nimbo.collapse.theme", true);
-  const [accentOpen, toggleAccent] = usePersistentToggle("nimbo.collapse.accent", true);
+  const [themeOpen, toggleTheme] = usePersistentToggle("nimbo.collapse.theme", false);
+  const [accentOpen, toggleAccent] = usePersistentToggle("nimbo.collapse.accent", false);
   const [backgroundOpen, toggleBackground] = usePersistentToggle("nimbo.collapse.background", true);
 
   const livePalette = (colors: string[]) => {
@@ -843,8 +843,7 @@ function AppearanceSection({
             ))}
             <AccentCustomOption
               title={m.settings.customAccent}
-              gradient={accentGradientCss(appearance.palette)}
-              primary={appearance.palette[0] ?? "#7c5dfa"}
+              colors={appearance.palette}
               selected={preferences.accent_mode === "custom" && !matchedGradient}
               onClick={() => commitPalette(appearance.palette)}
             />
@@ -2201,6 +2200,19 @@ function AccentPreviewOption({
   );
 }
 
+function AccentSplitPreview({ colors }: { colors: string[] }) {
+  return (
+    <span className="settings-accent-split" aria-hidden="true">
+      <span className="settings-accent-split-preview" style={{ backgroundImage: accentGradientCss(colors) }} />
+      <span className="settings-accent-split-colors">
+        {colors.map((color, index) => (
+          <span key={index} style={{ background: color }} />
+        ))}
+      </span>
+    </span>
+  );
+}
+
 function GradientAccentOption({
   label,
   colors,
@@ -2220,11 +2232,11 @@ function GradientAccentOption({
       onClick={onClick}
       style={{ "--accent-card-color": colors[0] } as CSSProperties}
       className={[
-        "settings-theme-card settings-accent-card",
+        "settings-theme-card settings-accent-card settings-accent-card-split",
         selected ? "settings-accent-card-active" : "",
       ].join(" ")}
     >
-      <span className="settings-accent-swatch" style={{ backgroundImage: accentGradientCss(colors) }} aria-hidden="true" />
+      <AccentSplitPreview colors={colors} />
       <span className="settings-theme-card-label">{label}</span>
     </button>
   );
@@ -2232,14 +2244,12 @@ function GradientAccentOption({
 
 function AccentCustomOption({
   title,
-  gradient,
-  primary,
+  colors,
   selected,
   onClick,
 }: {
   title: string;
-  gradient: string;
-  primary: string;
+  colors: string[];
   selected: boolean;
   onClick: () => void;
 }) {
@@ -2249,13 +2259,13 @@ function AccentCustomOption({
       role="radio"
       aria-checked={selected}
       onClick={onClick}
-      style={{ "--accent-card-color": primary } as CSSProperties}
+      style={{ "--accent-card-color": colors[0] ?? "#7c5dfa" } as CSSProperties}
       className={[
-        "settings-theme-card settings-accent-card settings-accent-card-custom",
+        "settings-theme-card settings-accent-card settings-accent-card-split settings-accent-card-custom",
         selected ? "settings-accent-card-active" : "",
       ].join(" ")}
     >
-      <span className="settings-accent-swatch" style={{ backgroundImage: gradient }} aria-hidden="true" />
+      <AccentSplitPreview colors={colors.length ? colors : ["#7c5dfa"]} />
       <span className="settings-theme-card-label">{title}</span>
     </button>
   );

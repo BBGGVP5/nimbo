@@ -32,7 +32,7 @@ fn build_device_info() -> DeviceInfo {
     let os = platform::os_name();
     let os_version = platform::os_version();
     let hostname = platform::hostname();
-    let user_agent = build_user_agent(APP_NAME, APP_VERSION);
+    let user_agent = build_user_agent(APP_NAME, APP_VERSION, os);
 
     DeviceInfo {
         hwid,
@@ -43,10 +43,10 @@ fn build_device_info() -> DeviceInfo {
     }
 }
 
-fn build_user_agent(app_name: &str, app_version: &str) -> String {
-    // Используем Nimbo как основной User-Agent
-    // Для совместимости с серверами можно переопределить через user_agent_override
-    format!("{app_name}/{app_version}")
+fn build_user_agent(app_name: &str, app_version: &str, os: &str) -> String {
+    // User-Agent по умолчанию: Nimbo/<версия>/<Система>, например Nimbo/1.0.0/Windows.
+    // Для совместимости с серверами можно переопределить через user_agent_override.
+    format!("{app_name}/{app_version}/{os}")
 }
 
 fn resolve_hwid() -> String {
@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn user_agent_uses_name_version_format() {
-        assert_eq!(build_user_agent("Nimbo", "0.1.0"), "Nimbo/0.1.0");
+    fn user_agent_uses_name_version_system_format() {
+        assert_eq!(build_user_agent("Nimbo", "0.1.0", "Windows"), "Nimbo/0.1.0/Windows");
     }
 }
