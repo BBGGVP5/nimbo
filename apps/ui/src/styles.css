@@ -112,6 +112,17 @@ body[data-theme="light"] {
   --color-material-inset: rgba(255, 255, 255, 0.6);
   --color-settings-divider: rgba(28, 24, 48, 0.08);
   --color-glow-accent: rgba(124, 93, 250, 0.16);
+  --ui-panel-bg:
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    color-mix(in srgb, var(--color-surface) var(--ui-panel-alpha-percent), transparent);
+  --ui-panel-bg-strong:
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    color-mix(in srgb, var(--color-card) var(--ui-panel-alpha-percent), transparent);
+  --ui-control-bg: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--color-text) 4%, transparent) var(--ui-control-alpha-percent),
+    transparent
+  );
 }
 
 body[data-theme="light"]::before {
@@ -151,6 +162,17 @@ body[data-theme="black"] {
   --color-material-shadow: rgba(0, 0, 0, 0.55);
   --color-material-inset: rgba(255, 255, 255, 0.03);
   --color-settings-divider: rgba(255, 255, 255, 0.05);
+  --ui-panel-bg:
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    color-mix(in srgb, var(--color-surface) var(--ui-panel-alpha-percent), transparent);
+  --ui-panel-bg-strong:
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    color-mix(in srgb, var(--color-card) var(--ui-panel-alpha-percent), transparent);
+  --ui-control-bg: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--color-text) 4%, transparent) var(--ui-control-alpha-percent),
+    transparent
+  );
 }
 
 body[data-theme="black"]::before {
