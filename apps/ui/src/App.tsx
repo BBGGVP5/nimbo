@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { NavLink, Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Home } from "./pages/Home";
 import { Subscriptions } from "./pages/Subscriptions";
@@ -9,7 +10,15 @@ import { Routing } from "./pages/Routing";
 import { Statistics } from "./pages/Statistics";
 import { TunnelLogs } from "./pages/TunnelLogs";
 import { Settings } from "./pages/Settings";
+import { Notifications } from "./pages/Notifications";
 import { NotificationCenter } from "./components/NotificationCenter";
+import { useNotificationHistory } from "./lib/notify";
+import {
+  applyAccentGradient,
+  loadBackgroundBlob,
+  useAppearance,
+  type AppearanceState,
+} from "./lib/appearance";
 import { useAppStore } from "./store";
 import { api, type AppPreferences, type AppUpdateInfo, type ConflictingProcess, type HelperStatus } from "./lib/api";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -29,6 +38,7 @@ const navItems = [
   { to: "/connections", key: "connections", icon: "connections", end: false, compactHide: true },
   { to: "/statistics", key: "statistics", icon: "stats", end: false, compactHide: true },
   { to: "/tunnel-logs", key: "tunnelLogs", icon: "logs", end: false, compactHide: true },
+  { to: "/notifications", key: "notifications", icon: "bell", end: false, compactHide: true },
   { to: "/settings", key: "settings", icon: "settings", end: false, compactHide: false },
 ];
 
@@ -64,8 +74,14 @@ export default function App() {
   const resumeReconnectInFlight = useRef(false);
   const [startupUpdate, setStartupUpdate] = useState<AppUpdateInfo | null>(null);
   const m = useMessages();
+  const { unread: unreadNotifications } = useNotificationHistory();
+  const appearance = useAppearance();
 
   useEffect(() => applyVisualPreferences(preferences), [preferences]);
+
+  useEffect(() => {
+    applyAccentGradient(preferences.accent_mode, preferences.accent_color, appearance.palette);
+  }, [preferences.accent_mode, preferences.accent_color, appearance.palette]);
 
   useEffect(() => {
     // Notify the backend that the React frontend has mounted and is ready
@@ -258,6 +274,7 @@ export default function App() {
 
   return (
     <div className="app-shell flex h-full">
+      <AppBackground appearance={appearance} />
       <DeepLinkBridge />
       <OnboardingRedirect
         ready={Boolean(status)}
@@ -322,6 +339,11 @@ export default function App() {
                 <NavIcon name={item.icon} />
                 <span className="app-nav-text">{navLabel(m.app, item.key, false)}</span>
                 <span className="app-nav-short">{navLabel(m.app, item.key, true)}</span>
+                {item.key === "notifications" && unreadNotifications > 0 && (
+                  <span className="app-nav-badge" aria-label={`${unreadNotifications} ${m.notifications.unread}`}>
+                    {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                  </span>
+                )}
               </NavLink>
             ))}
           </nav>
@@ -350,6 +372,7 @@ export default function App() {
           <Route path="/connections" element={<Connections />} />
           <Route path="/statistics" element={<Statistics />} />
           <Route path="/tunnel-logs" element={<TunnelLogs />} />
+          <Route path="/notifications" element={<Notifications />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
@@ -553,6 +576,7 @@ function navLabel(labels: Messages["app"], key: string, short: boolean): string 
   if (key === "connections") return short ? labels.connectionsShort : labels.connections;
   if (key === "statistics") return short ? labels.statisticsShort : labels.statistics;
   if (key === "tunnelLogs") return short ? labels.tunnelLogsShort : labels.tunnelLogs;
+  if (key === "notifications") return short ? labels.notificationsShort : labels.notifications;
   return labels.settings;
 }
 
@@ -733,6 +757,77 @@ function OnboardingRedirect({
   return null;
 }
 
+function AppBackground({ appearance }: { appearance: AppearanceState }) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const active = appearance.background !== "none";
+
+  useEffect(() => {
+    document.body.classList.toggle("has-app-bg", active);
+    return () => {
+      document.body.classList.remove("has-app-bg");
+    };
+  }, [active]);
+
+  useEffect(() => {
+    if (appearance.background !== "custom") {
+      setObjectUrl(null);
+      return;
+    }
+    let revoke: string | null = null;
+    let cancelled = false;
+    void loadBackgroundBlob()
+      .then((blob) => {
+        if (cancelled || !blob) return;
+        const url = URL.createObjectURL(blob);
+        revoke = url;
+        setObjectUrl(url);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      if (revoke) URL.revokeObjectURL(revoke);
+    };
+  }, [appearance.background, appearance.customType, appearance.customName]);
+
+  if (!active) return null;
+
+  const isCustom = appearance.background === "custom";
+  const isPreset = !isCustom;
+
+  const layer = (
+    <div
+      className="app-background"
+      data-preset={isPreset ? appearance.background : undefined}
+      style={
+        {
+          "--app-bg-dim": String(appearance.backgroundDim / 100),
+          "--app-bg-blur": `${appearance.backgroundBlur}px`,
+        } as React.CSSProperties
+      }
+    >
+      {isCustom && objectUrl && appearance.customType === "video" && (
+        <video
+          className="app-background-media"
+          src={objectUrl}
+          autoPlay
+          loop
+          muted
+          playsInline
+        />
+      )}
+      {isCustom && objectUrl && appearance.customType === "image" && (
+        <div
+          className="app-background-media"
+          style={{ backgroundImage: `url("${objectUrl}")` }}
+        />
+      )}
+      <div className="app-background-overlay" />
+    </div>
+  );
+
+  return createPortal(layer, document.body);
+}
+
 function DeepLinkBridge() {
   const navigate = useNavigate();
   const openImportDialog = useAppStore((s) => s.openImportDialog);
@@ -834,6 +929,14 @@ function NavIcon({ name }: { name: string }) {
         <path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
         <path d="M14 3v4h4" />
         <path d="M9 12h7M9 16h5" />
+      </svg>
+    );
+  }
+  if (name === "bell") {
+    return (
+      <svg {...common}>
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
       </svg>
     );
   }

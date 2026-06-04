@@ -16,6 +16,18 @@ import {
 } from "../lib/api";
 import { fillTemplate, useMessages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
+import {
+  BACKGROUND_PRESETS,
+  accentGradientCss,
+  clearBackgroundBlob,
+  removePalettePreset,
+  saveBackgroundBlob,
+  savePalettePreset,
+  setAppearance,
+  useAppearance,
+  type AppearanceState,
+  type PalettePreset,
+} from "../lib/appearance";
 import { useAppStore } from "../store";
 import { showAppUpdateDialog } from "../App";
 
@@ -422,6 +434,68 @@ const accentPresets: Array<{
   { color: "#00a8c8", labelKey: "accentCyan" },
 ];
 
+const extraAccentPresets: Array<{ color: string; label: string }> = [
+  { color: "#ef4444", label: "Red" },
+  { color: "#f97316", label: "Orange" },
+  { color: "#eab308", label: "Gold" },
+  { color: "#84cc16", label: "Lime" },
+  { color: "#14b8a6", label: "Teal" },
+  { color: "#6366f1", label: "Indigo" },
+  { color: "#ec4899", label: "Pink" },
+  { color: "#64748b", label: "Slate" },
+];
+
+const gradientAccentPresets: Array<{ label: string; colors: string[] }> = [
+  { label: "Aurora", colors: ["#7c5dfa", "#4f8cff"] },
+  { label: "Candy", colors: ["#e24d70", "#7c5dfa"] },
+  { label: "Sunset", colors: ["#f5a623", "#e24d70"] },
+  { label: "Lagoon", colors: ["#21a67a", "#00a8c8"] },
+  { label: "Spectrum", colors: ["#7c5dfa", "#e24d70", "#f5a623"] },
+  { label: "Reef", colors: ["#00a8c8", "#21a67a", "#4f8cff"] },
+];
+
+function usePersistentToggle(key: string, defaultValue: boolean) {
+  const [value, setValue] = useState<boolean>(() => {
+    if (typeof window === "undefined") return defaultValue;
+    try {
+      const raw = window.localStorage.getItem(key);
+      return raw == null ? defaultValue : raw === "1";
+    } catch {
+      return defaultValue;
+    }
+  });
+  const toggle = () =>
+    setValue((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(key, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  return [value, toggle] as const;
+}
+
+function readSystemAccentColor(): string {
+  if (typeof document === "undefined") return "#4f8cff";
+  try {
+    const sample = document.createElement("span");
+    sample.style.color = "Highlight";
+    sample.style.position = "fixed";
+    sample.style.visibility = "hidden";
+    document.body.appendChild(sample);
+    const value = getComputedStyle(sample).color;
+    sample.remove();
+    const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    if (!match) return "#4f8cff";
+    const toHex = (n: number) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0");
+    return `#${toHex(Number(match[1]))}${toHex(Number(match[2]))}${toHex(Number(match[3]))}`;
+  } catch {
+    return "#4f8cff";
+  }
+}
+
 function GeneralSection({
   preferences,
   onChange,
@@ -493,8 +567,25 @@ function AppearanceSection({
   onChange: (patch: Partial<AppPreferences>) => Promise<void>;
 }) {
   const m = useMessages();
-  const [customAccentDraft, setCustomAccentDraft] = useState(preferences.accent_color);
-  const customAccentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [systemAccent, setSystemAccent] = useState("#4f8cff");
+  const appearance = useAppearance();
+  const [interfaceOpen, toggleInterface] = usePersistentToggle("nimbo.collapse.interface", true);
+  const [detailsOpen, toggleDetails] = usePersistentToggle("nimbo.collapse.details", false);
+  const [themeOpen, toggleTheme] = usePersistentToggle("nimbo.collapse.theme", true);
+  const [accentOpen, toggleAccent] = usePersistentToggle("nimbo.collapse.accent", true);
+  const [backgroundOpen, toggleBackground] = usePersistentToggle("nimbo.collapse.background", true);
+
+  const livePalette = (colors: string[]) => {
+    setAppearance({ palette: colors.length ? colors.slice(0, 3) : ["#7c5dfa"] });
+  };
+  const commitPalette = (colors: string[]) => {
+    const next = colors.length ? colors.slice(0, 3) : ["#7c5dfa"];
+    setAppearance({ palette: next });
+    void onChange({ accent_mode: "custom", accent_color: next[0] });
+  };
+  const samePalette = (a: string[], b: string[]) =>
+    a.join(",").toLowerCase() === b.join(",").toLowerCase();
+  const matchedGradient = gradientAccentPresets.find((g) => samePalette(g.colors, appearance.palette));
   const [visualDraft, setVisualDraft] = useState({
     interface_panel_brightness: preferences.interface_panel_brightness,
     interface_transparency: preferences.interface_transparency,
@@ -504,10 +595,8 @@ function AppearanceSection({
   const visualTimers = useRef<Partial<Record<VisualPreferenceKey, ReturnType<typeof setTimeout>>>>({});
 
   useEffect(() => {
-    if (preferences.accent_mode !== "custom") {
-      setCustomAccentDraft(preferences.accent_color);
-    }
-  }, [preferences.accent_color, preferences.accent_mode]);
+    setSystemAccent(readSystemAccentColor());
+  }, []);
 
   useEffect(() => {
     setVisualDraft({
@@ -525,32 +614,11 @@ function AppearanceSection({
 
   useEffect(() => {
     return () => {
-      if (customAccentTimer.current) clearTimeout(customAccentTimer.current);
       Object.values(visualTimers.current).forEach((timer) => {
         if (timer) clearTimeout(timer);
       });
     };
   }, []);
-
-  const saveCustomAccent = (color: string, immediate = false) => {
-    if (customAccentTimer.current) clearTimeout(customAccentTimer.current);
-    const commit = () => {
-      if (
-        preferences.accent_mode === "custom" &&
-        preferences.accent_color.toLowerCase() === color.toLowerCase()
-      ) {
-        return;
-      }
-      void onChange({ accent_mode: "custom", accent_color: color });
-    };
-
-    if (immediate) {
-      commit();
-      return;
-    }
-
-    customAccentTimer.current = setTimeout(commit, 280);
-  };
 
   const saveVisualPreference = (key: VisualPreferenceKey, value: number, immediate = false) => {
     setVisualDraft((current) => ({ ...current, [key]: value }));
@@ -599,128 +667,206 @@ function AppearanceSection({
     });
   };
 
+  const accentPresetActive = (color: string) =>
+    preferences.accent_mode === "preset" && preferences.accent_color.toLowerCase() === color.toLowerCase();
+
   return (
     <Section title={m.settings.appearance}>
       <SettingsCard>
-        <div className="settings-row settings-row-block">
-          <div>
-            <div className="settings-row-title">{m.settings.interfaceStyle}</div>
-            <div className="settings-row-description">{m.settings.interfaceStyleDescription}</div>
+        <CollapsibleSection
+          title={m.settings.interfaceStyle}
+          description={m.settings.interfaceStyleDescription}
+          open={interfaceOpen}
+          onToggle={toggleInterface}
+        >
+          <div className="settings-interface-grid" role="radiogroup" aria-label={m.settings.interfaceStyle}>
+            <InterfaceStyleOption
+              styleId="nebula"
+              title={m.settings.nebulaStyle}
+              subtitle={m.settings.nebulaStyleSubtitle}
+              selected={preferences.ui_style === "nebula"}
+              onClick={() => onChange({ ui_style: "nebula" })}
+            />
+            <InterfaceStyleOption
+              styleId="material_you"
+              title={m.settings.materialYouStyle}
+              subtitle={m.settings.materialYouStyleSubtitle}
+              selected={preferences.ui_style === "material_you"}
+              onClick={() => onChange({ ui_style: "material_you" })}
+            />
           </div>
-        </div>
-        <div className="settings-segment px-6 pb-4">
-          <ModeOption
-            title={m.settings.nebulaStyle}
-            subtitle={m.settings.nebulaStyleSubtitle}
-            selected={preferences.ui_style === "nebula"}
-            onClick={() => onChange({ ui_style: "nebula" })}
-          />
-          <ModeOption
-            title={m.settings.materialYouStyle}
-            subtitle={m.settings.materialYouStyleSubtitle}
-            selected={preferences.ui_style === "material_you"}
-            onClick={() => onChange({ ui_style: "material_you" })}
-          />
-        </div>
+        </CollapsibleSection>
 
-        <div className="settings-row settings-row-block appearance-details-heading">
-          <div>
-            <div className="settings-row-title">{m.settings.styleDetails}</div>
-            <div className="settings-row-description">{m.settings.styleDetailsDescription}</div>
+        <CollapsibleSection
+          title={m.settings.styleDetails}
+          description={m.settings.styleDetailsDescription}
+          open={detailsOpen}
+          onToggle={toggleDetails}
+          action={
+            hasGlobalChanges ? (
+              <button onClick={resetAllVisuals} className="settings-reset-all-btn" title={m.settings.resetAll}>
+                <RotateCcwIcon />
+                <span>{m.settings.resetAll}</span>
+              </button>
+            ) : undefined
+          }
+        >
+          <div className="appearance-slider-stack">
+            <VisualSliderRow
+              label={m.settings.panelBrightness}
+              description={m.settings.panelBrightnessDescription}
+              value={visualDraft.interface_panel_brightness}
+              min={60}
+              max={140}
+              step={5}
+              formatValue={(value) => `${value}%`}
+              onChange={(value) => saveVisualPreference("interface_panel_brightness", value)}
+              onCommit={(value) => saveVisualPreference("interface_panel_brightness", value, true)}
+              defaultValue={defaultAppPreferences.interface_panel_brightness}
+              onReset={() => saveVisualPreference("interface_panel_brightness", defaultAppPreferences.interface_panel_brightness, true)}
+            />
+            <VisualSliderRow
+              label={m.settings.elementTransparency}
+              description={m.settings.elementTransparencyDescription}
+              value={visualDraft.interface_transparency}
+              min={0}
+              max={80}
+              step={5}
+              formatValue={(value) => `${value}%`}
+              onChange={(value) => saveVisualPreference("interface_transparency", value)}
+              onCommit={(value) => saveVisualPreference("interface_transparency", value, true)}
+              defaultValue={defaultAppPreferences.interface_transparency}
+              onReset={() => saveVisualPreference("interface_transparency", defaultAppPreferences.interface_transparency, true)}
+            />
+            <VisualSliderRow
+              label={m.settings.blurRadius}
+              description={m.settings.blurRadiusDescription}
+              value={visualDraft.interface_blur}
+              min={0}
+              max={48}
+              step={1}
+              formatValue={(value) => `${value} px`}
+              onChange={(value) => saveVisualPreference("interface_blur", value)}
+              onCommit={(value) => saveVisualPreference("interface_blur", value, true)}
+              defaultValue={defaultAppPreferences.interface_blur}
+              onReset={() => saveVisualPreference("interface_blur", defaultAppPreferences.interface_blur, true)}
+            />
+            <VisualSliderRow
+              label={m.settings.elementRounding}
+              description={m.settings.elementRoundingDescription}
+              value={visualDraft.interface_rounding}
+              min={50}
+              max={180}
+              step={5}
+              formatValue={(value) => `${(value / 100).toFixed(2)}x`}
+              onChange={(value) => saveVisualPreference("interface_rounding", value)}
+              onCommit={(value) => saveVisualPreference("interface_rounding", value, true)}
+              defaultValue={defaultAppPreferences.interface_rounding}
+              onReset={() => saveVisualPreference("interface_rounding", defaultAppPreferences.interface_rounding, true)}
+            />
           </div>
-          {hasGlobalChanges && (
-            <button
-              onClick={resetAllVisuals}
-              className="settings-reset-all-btn"
-              title={m.settings.resetAll}
-            >
-              <RotateCcwIcon />
-              <span>{m.settings.resetAll}</span>
-            </button>
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          title={m.settings.theme}
+          description={m.settings.themeDescription}
+          open={themeOpen}
+          onToggle={toggleTheme}
+        >
+          <div className="settings-theme-grid settings-theme-grid-4" role="radiogroup" aria-label={m.settings.theme}>
+            <ThemePreviewOption
+              title={m.settings.lightTheme}
+              value="light"
+              selected={preferences.theme_mode === "light"}
+              onClick={() => onChange({ theme_mode: "light" })}
+            />
+            <ThemePreviewOption
+              title={m.settings.darkTheme}
+              value="dark"
+              selected={preferences.theme_mode === "dark"}
+              onClick={() => onChange({ theme_mode: "dark" })}
+            />
+            <ThemePreviewOption
+              title={m.settings.blackTheme}
+              value="black"
+              selected={preferences.theme_mode === "black"}
+              onClick={() => onChange({ theme_mode: "black" })}
+            />
+            <ThemePreviewOption
+              title={m.settings.systemTheme}
+              value="system"
+              selected={preferences.theme_mode === "system"}
+              onClick={() => onChange({ theme_mode: "system" })}
+            />
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          title={m.settings.accentColor}
+          description={m.settings.accentDescription}
+          open={accentOpen}
+          onToggle={toggleAccent}
+        >
+          <div className="settings-accent-grid" role="radiogroup" aria-label={m.settings.accentColor}>
+            <AccentPreviewOption
+              title={m.settings.systemAccent}
+              color={systemAccent}
+              selected={preferences.accent_mode === "system"}
+              onClick={() => onChange({ accent_mode: "system" })}
+            />
+            {accentPresets.map(({ color, labelKey }) => (
+              <AccentPreviewOption
+                key={color}
+                title={m.settings[labelKey]}
+                color={color}
+                selected={accentPresetActive(color)}
+                onClick={() => onChange({ accent_mode: "preset", accent_color: color })}
+              />
+            ))}
+            {extraAccentPresets.map(({ color, label }) => (
+              <AccentPreviewOption
+                key={color}
+                title={label}
+                color={color}
+                selected={accentPresetActive(color)}
+                onClick={() => onChange({ accent_mode: "preset", accent_color: color })}
+              />
+            ))}
+            {gradientAccentPresets.map((gradient) => (
+              <GradientAccentOption
+                key={gradient.label}
+                label={gradient.label}
+                colors={gradient.colors}
+                selected={preferences.accent_mode === "custom" && samePalette(gradient.colors, appearance.palette)}
+                onClick={() => commitPalette(gradient.colors)}
+              />
+            ))}
+            <AccentCustomOption
+              title={m.settings.customAccent}
+              gradient={accentGradientCss(appearance.palette)}
+              primary={appearance.palette[0] ?? "#7c5dfa"}
+              selected={preferences.accent_mode === "custom" && !matchedGradient}
+              onClick={() => commitPalette(appearance.palette)}
+            />
+          </div>
+          {preferences.accent_mode === "custom" && (
+            <CustomPaletteEditor
+              palette={appearance.palette}
+              presets={appearance.presets}
+              onLive={livePalette}
+              onCommit={commitPalette}
+            />
           )}
-        </div>
-        <div className="appearance-slider-stack">
-          <VisualSliderRow
-            label={m.settings.panelBrightness}
-            description={m.settings.panelBrightnessDescription}
-            value={visualDraft.interface_panel_brightness}
-            min={60}
-            max={140}
-            step={5}
-            formatValue={(value) => `${value}%`}
-            onChange={(value) => saveVisualPreference("interface_panel_brightness", value)}
-            onCommit={(value) => saveVisualPreference("interface_panel_brightness", value, true)}
-            defaultValue={defaultAppPreferences.interface_panel_brightness}
-            onReset={() => saveVisualPreference("interface_panel_brightness", defaultAppPreferences.interface_panel_brightness, true)}
-          />
-          <VisualSliderRow
-            label={m.settings.elementTransparency}
-            description={m.settings.elementTransparencyDescription}
-            value={visualDraft.interface_transparency}
-            min={0}
-            max={80}
-            step={5}
-            formatValue={(value) => `${value}%`}
-            onChange={(value) => saveVisualPreference("interface_transparency", value)}
-            onCommit={(value) => saveVisualPreference("interface_transparency", value, true)}
-            defaultValue={defaultAppPreferences.interface_transparency}
-            onReset={() => saveVisualPreference("interface_transparency", defaultAppPreferences.interface_transparency, true)}
-          />
-          <VisualSliderRow
-            label={m.settings.blurRadius}
-            description={m.settings.blurRadiusDescription}
-            value={visualDraft.interface_blur}
-            min={0}
-            max={48}
-            step={1}
-            formatValue={(value) => `${value} px`}
-            onChange={(value) => saveVisualPreference("interface_blur", value)}
-            onCommit={(value) => saveVisualPreference("interface_blur", value, true)}
-            defaultValue={defaultAppPreferences.interface_blur}
-            onReset={() => saveVisualPreference("interface_blur", defaultAppPreferences.interface_blur, true)}
-          />
-          <VisualSliderRow
-            label={m.settings.elementRounding}
-            description={m.settings.elementRoundingDescription}
-            value={visualDraft.interface_rounding}
-            min={50}
-            max={180}
-            step={5}
-            formatValue={(value) => `${(value / 100).toFixed(2)}x`}
-            onChange={(value) => saveVisualPreference("interface_rounding", value)}
-            onCommit={(value) => saveVisualPreference("interface_rounding", value, true)}
-            defaultValue={defaultAppPreferences.interface_rounding}
-            onReset={() => saveVisualPreference("interface_rounding", defaultAppPreferences.interface_rounding, true)}
-          />
-        </div>
+        </CollapsibleSection>
 
-
-        <div className="settings-row settings-row-block">
-          <div>
-            <div className="settings-row-title">{m.settings.theme}</div>
-            <div className="settings-row-description">{m.settings.themeDescription}</div>
-          </div>
-        </div>
-        <div className="settings-theme-grid" role="radiogroup" aria-label={m.settings.theme}>
-          <ThemePreviewOption
-            title={m.settings.lightTheme}
-            value="light"
-            selected={preferences.theme_mode === "light"}
-            onClick={() => onChange({ theme_mode: "light" })}
-          />
-          <ThemePreviewOption
-            title={m.settings.darkTheme}
-            value="dark"
-            selected={preferences.theme_mode === "dark" || preferences.theme_mode === "black"}
-            onClick={() => onChange({ theme_mode: "dark" })}
-          />
-          <ThemePreviewOption
-            title={m.settings.systemTheme}
-            value="system"
-            selected={preferences.theme_mode === "system"}
-            onClick={() => onChange({ theme_mode: "system" })}
-          />
-        </div>
+        <CollapsibleSection
+          title={m.settings.backgroundTitle}
+          description={m.settings.backgroundDescription}
+          open={backgroundOpen}
+          onToggle={toggleBackground}
+        >
+          <BackgroundChooser appearance={appearance} />
+        </CollapsibleSection>
 
         <div className="settings-row settings-row-block">
           <div>
@@ -749,89 +895,32 @@ function AppearanceSection({
 
         <div className="settings-row settings-row-block">
           <div>
-            <div className="settings-row-title">{m.settings.accentColor}</div>
-            <div className="settings-row-description">{m.settings.accentDescription}</div>
-          </div>
-        </div>
-        <div className="settings-accent-panel">
-          <button
-            onClick={() => onChange({ accent_mode: "system" })}
-            aria-pressed={preferences.accent_mode === "system"}
-            className={[
-              "settings-accent-system",
-              "settings-accent-system-card",
-              preferences.accent_mode === "system" ? "settings-accent-active" : "",
-            ].join(" ")}
-          >
-            <span className="settings-accent-system-swatch" />
-            <span>{m.settings.systemAccent}</span>
-          </button>
-          <div className="settings-color-grid settings-color-grid-showcase">
-            {accentPresets.map(({ color, labelKey }) => (
-              <button
-                key={color}
-                title={m.settings[labelKey]}
-                onClick={() => onChange({ accent_mode: "preset", accent_color: color })}
-                aria-pressed={preferences.accent_mode === "preset" && preferences.accent_color.toLowerCase() === color}
-                className={[
-                  "settings-color-swatch",
-                  "settings-color-card",
-                  preferences.accent_mode === "preset" && preferences.accent_color.toLowerCase() === color
-                    ? "settings-color-swatch-active"
-                    : "",
-                ].join(" ")}
-                style={{ "--accent-card-color": color } as CSSProperties}
-              >
-                <span>{m.settings[labelKey]}</span>
-              </button>
-            ))}
-            <label
-              className={[
-                "settings-color-custom",
-                "settings-color-custom-card",
-                preferences.accent_mode === "custom" ? "settings-color-custom-active" : "",
-              ].join(" ")}
-            >
-              <span className="settings-color-custom-preview" style={{ backgroundColor: customAccentDraft }} />
-              <input
-                type="color"
-                value={customAccentDraft}
-                onChange={(e) => {
-                  const color = e.target.value;
-                  setCustomAccentDraft(color);
-                  saveCustomAccent(color);
-                }}
-                onBlur={() => saveCustomAccent(customAccentDraft, true)}
-              />
-              {m.settings.customAccent}
-            </label>
-          </div>
-        </div>
-
-        <div className="settings-row settings-row-block">
-          <div>
             <div className="settings-row-title">{m.settings.language}</div>
             <div className="settings-row-description">{m.settings.languageDescription}</div>
           </div>
         </div>
-        <div className="settings-segment px-6 pb-4">
-          <ModeOption
+        <div className="settings-language-grid" role="radiogroup" aria-label={m.settings.language}>
+          <LanguageOption
+            flag="ru"
             title="Русский"
-            subtitle="ru"
+            subtitle="RU"
             selected={preferences.language === "ru"}
             onClick={() => onChange({ language: "ru" })}
           />
-          <ModeOption
+          <LanguageOption
+            flag="gb"
             title="English"
-            subtitle="en"
+            subtitle="EN"
             selected={preferences.language === "en"}
             onClick={() => onChange({ language: "en" })}
           />
         </div>
-        <ToggleRow
+        <ProviderThemeRow
           label={m.settings.providerTheme}
           description={m.settings.providerThemeDescription}
           enabled={preferences.provider_theme}
+          onLabel={m.settings.providerThemeOn}
+          offLabel={m.settings.providerThemeOff}
           onToggle={(provider_theme) => onChange({ provider_theme })}
         />
       </SettingsCard>
@@ -1168,7 +1257,7 @@ function SubscriptionsSection({
           value={preferences.subscriptions_update_interval_hours}
           min={1}
           max={168}
-          suffix="h"
+          suffix={m.settings.hoursSuffix}
           onCommit={(subscriptions_update_interval_hours) => onChange({ subscriptions_update_interval_hours })}
           icon={<SlidersIcon />}
         />
@@ -1183,7 +1272,7 @@ function SubscriptionsSection({
           value={preferences.subscriptions_expiration_threshold_days}
           min={1}
           max={365}
-          suffix="d"
+          suffix={m.settings.daysSuffix}
           onCommit={(subscriptions_expiration_threshold_days) => onChange({ subscriptions_expiration_threshold_days })}
           icon={<SlidersIcon />}
         />
@@ -2031,7 +2120,7 @@ function ThemePreviewOption({
   onClick,
 }: {
   title: string;
-  value: Extract<ThemeMode, "light" | "dark" | "system">;
+  value: Extract<ThemeMode, "light" | "dark" | "black" | "system">;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -2061,6 +2150,543 @@ function ThemePreviewOption({
         </span>
       </span>
       <span className="settings-theme-card-label">{title}</span>
+    </button>
+  );
+}
+
+function AccentPreviewArt() {
+  return (
+    <span className="settings-theme-preview" aria-hidden="true">
+      <span className="settings-theme-preview-rail">
+        <span />
+        <span />
+      </span>
+      <span className="settings-theme-preview-canvas">
+        <span className="settings-theme-preview-top" />
+        <span className="settings-theme-preview-row">
+          <span />
+          <span />
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function AccentPreviewOption({
+  title,
+  color,
+  selected,
+  onClick,
+}: {
+  title: string;
+  color: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onClick}
+      style={{ "--theme-preview-accent": color, "--accent-card-color": color } as CSSProperties}
+      className={[
+        "settings-theme-card settings-accent-card",
+        selected ? "settings-accent-card-active" : "",
+      ].join(" ")}
+    >
+      <AccentPreviewArt />
+      <span className="settings-theme-card-label">{title}</span>
+    </button>
+  );
+}
+
+function GradientAccentOption({
+  label,
+  colors,
+  selected,
+  onClick,
+}: {
+  label: string;
+  colors: string[];
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onClick}
+      style={{ "--accent-card-color": colors[0] } as CSSProperties}
+      className={[
+        "settings-theme-card settings-accent-card",
+        selected ? "settings-accent-card-active" : "",
+      ].join(" ")}
+    >
+      <span className="settings-accent-swatch" style={{ backgroundImage: accentGradientCss(colors) }} aria-hidden="true" />
+      <span className="settings-theme-card-label">{label}</span>
+    </button>
+  );
+}
+
+function AccentCustomOption({
+  title,
+  gradient,
+  primary,
+  selected,
+  onClick,
+}: {
+  title: string;
+  gradient: string;
+  primary: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onClick}
+      style={{ "--accent-card-color": primary } as CSSProperties}
+      className={[
+        "settings-theme-card settings-accent-card settings-accent-card-custom",
+        selected ? "settings-accent-card-active" : "",
+      ].join(" ")}
+    >
+      <span className="settings-accent-swatch" style={{ backgroundImage: gradient }} aria-hidden="true" />
+      <span className="settings-theme-card-label">{title}</span>
+    </button>
+  );
+}
+
+function CustomPaletteEditor({
+  palette,
+  presets,
+  onLive,
+  onCommit,
+}: {
+  palette: string[];
+  presets: PalettePreset[];
+  onLive: (colors: string[]) => void;
+  onCommit: (colors: string[]) => void;
+}) {
+  const m = useMessages();
+  const colors = palette.length ? palette : ["#7c5dfa"];
+
+  const setColorAt = (index: number, value: string, commit: boolean) => {
+    const next = colors.map((c, i) => (i === index ? value : c));
+    (commit ? onCommit : onLive)(next);
+  };
+  const addColor = () => {
+    if (colors.length >= 3) return;
+    onCommit([...colors, colors[colors.length - 1] ?? "#4f8cff"]);
+  };
+  const removeColorAt = (index: number) => {
+    if (colors.length <= 1) return;
+    onCommit(colors.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className="settings-palette-editor">
+      <span className="settings-palette-bar" style={{ backgroundImage: accentGradientCss(colors) }} aria-hidden="true" />
+      <div className="settings-palette-slots">
+        {colors.map((color, index) => (
+          <div key={index} className="settings-palette-slot">
+            <label className="settings-palette-swatch" style={{ backgroundColor: color }}>
+              <input
+                type="color"
+                value={color}
+                onChange={(event) => setColorAt(index, event.target.value, false)}
+                onBlur={(event) => setColorAt(index, event.target.value, true)}
+                aria-label={`${m.settings.customPaletteTitle} ${index + 1}`}
+              />
+            </label>
+            {colors.length > 1 && (
+              <button
+                type="button"
+                className="settings-palette-remove"
+                onClick={() => removeColorAt(index)}
+                title={m.settings.removeColor}
+                aria-label={m.settings.removeColor}
+              >
+                <XMarkIcon />
+              </button>
+            )}
+          </div>
+        ))}
+        {colors.length < 3 && (
+          <button
+            type="button"
+            className="settings-palette-add"
+            onClick={addColor}
+            title={m.settings.addColor}
+            aria-label={m.settings.addColor}
+          >
+            <PlusSmIcon />
+          </button>
+        )}
+      </div>
+      <div className="settings-palette-actions">
+        <span className="settings-palette-hint">{m.settings.customPaletteHint}</span>
+        <button
+          type="button"
+          className="settings-action"
+          onClick={() => {
+            savePalettePreset(colors);
+            notifyInfo(m.settings.presetSaved);
+          }}
+        >
+          {m.settings.savePreset}
+        </button>
+      </div>
+      {presets.length > 0 && (
+        <div className="settings-palette-presets">
+          <div className="settings-palette-presets-label">{m.settings.savedPresets}</div>
+          <div className="settings-palette-presets-list">
+            {presets.map((preset) => (
+              <div key={preset.id} className="settings-palette-preset">
+                <button
+                  type="button"
+                  className="settings-palette-preset-swatch"
+                  style={{ backgroundImage: accentGradientCss(preset.colors) }}
+                  onClick={() => onCommit(preset.colors)}
+                  title={preset.colors.join(", ")}
+                  aria-label={preset.colors.join(", ")}
+                />
+                <button
+                  type="button"
+                  className="settings-palette-preset-remove"
+                  onClick={() => removePalettePreset(preset.id)}
+                  title={m.settings.deletePreset}
+                  aria-label={m.settings.deletePreset}
+                >
+                  <XMarkIcon />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CollapsibleSection({
+  title,
+  description,
+  open,
+  onToggle,
+  action,
+  children,
+}: {
+  title: string;
+  description: string;
+  open: boolean;
+  onToggle: () => void;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <div className="appearance-collapse-head">
+        <button
+          type="button"
+          className="appearance-collapse-toggle"
+          aria-expanded={open}
+          onClick={onToggle}
+        >
+          <span className="appearance-collapse-titles">
+            <span className="settings-row-title">{title}</span>
+            <span className="settings-row-description">{description}</span>
+          </span>
+          <span className={["appearance-collapse-chevron", open ? "is-open" : ""].join(" ")} aria-hidden="true">
+            <ChevronDownIcon />
+          </span>
+        </button>
+        {action}
+      </div>
+      <div className={["appearance-collapse-body", open ? "is-open" : ""].join(" ")}>
+        <div className="appearance-collapse-inner">{children}</div>
+      </div>
+    </>
+  );
+}
+
+function InterfaceStyleOption({
+  styleId,
+  title,
+  subtitle,
+  selected,
+  onClick,
+}: {
+  styleId: "nebula" | "material_you";
+  title: string;
+  subtitle: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onClick}
+      className={[
+        "settings-theme-card settings-interface-card",
+        `settings-interface-card-${styleId}`,
+        selected ? "settings-theme-card-active" : "",
+      ].join(" ")}
+    >
+      <span className="settings-interface-preview" aria-hidden="true">
+        <span className="settings-interface-preview-panel">
+          <span className="settings-interface-preview-pill" />
+          <span className="settings-interface-preview-line" />
+          <span className="settings-interface-preview-line settings-interface-preview-line-sm" />
+        </span>
+      </span>
+      <span className="settings-interface-card-copy">
+        <span className="settings-theme-card-label">{title}</span>
+        <span className="settings-interface-card-subtitle">{subtitle}</span>
+      </span>
+    </button>
+  );
+}
+
+function BackgroundChooser({ appearance }: { appearance: AppearanceState }) {
+  const m = useMessages();
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  const onFile = async (file: File) => {
+    const isVideo = file.type.startsWith("video");
+    const isImage = file.type.startsWith("image");
+    if (!isVideo && !isImage) {
+      notifyError(m.settings.backgroundUploadError);
+      return;
+    }
+    try {
+      await saveBackgroundBlob(file);
+      setAppearance({
+        background: "custom",
+        customType: isVideo ? "video" : "image",
+        customName: file.name,
+      });
+    } catch {
+      notifyError(m.settings.backgroundUploadError);
+    }
+  };
+
+  const removeCustom = async () => {
+    try {
+      await clearBackgroundBlob();
+    } catch {
+      /* ignore */
+    }
+    setAppearance({ background: "none", customType: null, customName: null });
+  };
+
+  return (
+    <div className="settings-background-block">
+      <div className="settings-background-grid" role="radiogroup" aria-label={m.settings.backgroundTitle}>
+        {BACKGROUND_PRESETS.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            role="radio"
+            aria-checked={appearance.background === preset.id}
+            onClick={() => setAppearance({ background: preset.id })}
+            className={[
+              "settings-background-card",
+              appearance.background === preset.id ? "settings-background-card-active" : "",
+            ].join(" ")}
+          >
+            <span className={["settings-background-thumb", `settings-background-thumb-${preset.id}`].join(" ")} aria-hidden="true">
+              {preset.animated && preset.id !== "none" && <span className="settings-background-anim-dot" />}
+            </span>
+            <span className="settings-background-label">{preset.id === "none" ? m.settings.backgroundNone : preset.label}</span>
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className={[
+            "settings-background-card settings-background-card-custom",
+            appearance.background === "custom" ? "settings-background-card-active" : "",
+          ].join(" ")}
+        >
+          <span className="settings-background-thumb settings-background-thumb-upload" aria-hidden="true">
+            <UploadIcon />
+          </span>
+          <span className="settings-background-label">{m.settings.backgroundCustom}</span>
+        </button>
+      </div>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void onFile(file);
+          event.target.value = "";
+        }}
+      />
+      <div className="settings-background-formats">{m.settings.backgroundFormats}</div>
+
+      {appearance.background === "custom" && (
+        <div className="settings-background-custom-row">
+          <span className="settings-background-custom-name">{appearance.customName ?? "—"}</span>
+          <div className="settings-background-custom-actions">
+            <button type="button" className="settings-action" onClick={() => fileRef.current?.click()}>
+              {m.settings.backgroundReplace}
+            </button>
+            <button type="button" className="settings-action" onClick={() => void removeCustom()}>
+              {m.settings.backgroundRemove}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {appearance.background !== "none" && (
+        <div className="settings-background-sliders">
+          <VisualSliderRow
+            label={m.settings.backgroundDim}
+            value={appearance.backgroundDim}
+            min={0}
+            max={90}
+            step={5}
+            formatValue={(value) => `${value}%`}
+            onChange={(value) => setAppearance({ backgroundDim: value })}
+            onCommit={(value) => setAppearance({ backgroundDim: value })}
+          />
+          <VisualSliderRow
+            label={m.settings.backgroundBlur}
+            value={appearance.backgroundBlur}
+            min={0}
+            max={40}
+            step={1}
+            formatValue={(value) => `${value} px`}
+            onChange={(value) => setAppearance({ backgroundBlur: value })}
+            onCommit={(value) => setAppearance({ backgroundBlur: value })}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProviderPreviewArt({ variant }: { variant: "default" | "branded" }) {
+  const style = variant === "branded"
+    ? ({ "--theme-preview-accent": "#21c08a" } as CSSProperties)
+    : undefined;
+  return (
+    <span className="settings-theme-preview settings-provider-preview-art" style={style} aria-hidden="true">
+      <span className="settings-theme-preview-rail">
+        <span />
+        <span />
+      </span>
+      <span className="settings-theme-preview-canvas">
+        <span className="settings-theme-preview-top" />
+        <span className="settings-theme-preview-row">
+          <span />
+          <span />
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function ProviderThemeRow({
+  label,
+  description,
+  enabled,
+  onLabel,
+  offLabel,
+  onToggle,
+}: {
+  label: string;
+  description: string;
+  enabled: boolean;
+  onLabel: string;
+  offLabel: string;
+  onToggle: (enabled: boolean) => void;
+}) {
+  return (
+    <div className="settings-provider-theme">
+      <div className="settings-row">
+        <div className="settings-row-label-container">
+          <div>
+            <div className="settings-row-title">{label}</div>
+            <div className="settings-row-description">{description}</div>
+          </div>
+        </div>
+        <button
+          type="button"
+          aria-pressed={enabled}
+          onClick={() => onToggle(!enabled)}
+          className={["settings-toggle", enabled ? "settings-toggle-on" : ""].join(" ")}
+        >
+          <span />
+        </button>
+      </div>
+      <div className="settings-provider-preview">
+        <button
+          type="button"
+          className={["settings-provider-preview-card", !enabled ? "is-active" : ""].join(" ")}
+          onClick={() => onToggle(false)}
+        >
+          <ProviderPreviewArt variant="default" />
+          <span className="settings-provider-preview-label">{offLabel}</span>
+        </button>
+        <button
+          type="button"
+          className={["settings-provider-preview-card", enabled ? "is-active" : ""].join(" ")}
+          onClick={() => onToggle(true)}
+        >
+          <ProviderPreviewArt variant="branded" />
+          <span className="settings-provider-preview-label">{onLabel}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LanguageOption({
+  flag,
+  title,
+  subtitle,
+  selected,
+  onClick,
+}: {
+  flag: string;
+  title: string;
+  subtitle: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onClick}
+      className={[
+        "settings-language-card",
+        selected ? "settings-language-card-active" : "",
+      ].join(" ")}
+    >
+      <span className={`fi fi-${flag} settings-language-flag`} aria-hidden="true" />
+      <span className="settings-language-copy">
+        <span className="settings-language-title">{title}</span>
+        <span className="settings-language-subtitle">{subtitle}</span>
+      </span>
+      <span
+        className={["settings-language-check", selected ? "settings-language-check-on" : ""].join(" ")}
+        aria-hidden="true"
+      >
+        {selected && <CheckIcon />}
+      </span>
     </button>
   );
 }
@@ -2101,32 +2727,14 @@ function ConnectionStyleOption({
   );
 }
 
-function ModeOption({
-  title,
-  subtitle,
-  selected,
-  onClick,
-}: {
-  title: string;
-  subtitle: string;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={[
-        "settings-mode-option",
-        selected ? "settings-mode-option-active" : "",
-      ].join(" ")}
-    >
-      <span className={["settings-radio", selected ? "settings-radio-on" : ""].join(" ")} />
-      <span className="min-w-0">
-        <span className="block text-sm font-semibold text-white">{title}</span>
-        <span className="block truncate text-xs text-[var(--color-text-faint)]">{subtitle}</span>
-      </span>
-    </button>
-  );
+function XMarkIcon() {
+  return <Icon><path d="M6 6l12 12M18 6 6 18" /></Icon>;
+}
+function PlusSmIcon() {
+  return <Icon><path d="M12 5v14" /><path d="M5 12h14" /></Icon>;
+}
+function UploadIcon() {
+  return <Icon><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M5 20h14" /></Icon>;
 }
 
 function SlidersIcon() {
@@ -2226,6 +2834,9 @@ function RotateCcwIcon() {
       <path d="M3 3v5h5" />
     </Icon>
   );
+}
+function ChevronDownIcon() {
+  return <Icon><path d="m6 9 6 6 6-6" /></Icon>;
 }
 
 function Icon({ children }: { children: ReactNode }) {

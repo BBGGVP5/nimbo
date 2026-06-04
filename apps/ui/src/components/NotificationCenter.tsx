@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type AppNotification, type NotificationTone, subscribeNotifications } from "../lib/notify";
+import { useMessages } from "../lib/i18n";
 
 type DisplayState = "shown" | "leaving";
 
@@ -11,9 +12,29 @@ const SHOW_DURATION_MS = 3600;
 const EXIT_DURATION_MS = 260;
 
 export function NotificationCenter() {
+  const m = useMessages();
   const [items, setItems] = useState<DisplayedNotification[]>([]);
   const exitTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const hideTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  const dismiss = useCallback((id: string) => {
+    // Cancel the auto-hide timer if it is still pending, then play the exit
+    // animation and remove the toast once it finishes.
+    const hideTimer = hideTimers.current.get(id);
+    if (hideTimer) {
+      clearTimeout(hideTimer);
+      hideTimers.current.delete(id);
+    }
+    if (exitTimers.current.has(id)) return;
+    setItems((current) =>
+      current.map((item) => (item.id === id ? { ...item, state: "leaving" } : item)),
+    );
+    const exitTimer = setTimeout(() => {
+      exitTimers.current.delete(id);
+      setItems((current) => current.filter((item) => item.id !== id));
+    }, EXIT_DURATION_MS);
+    exitTimers.current.set(id, exitTimer);
+  }, []);
 
   useEffect(() => {
     const exitTimersSnapshot = exitTimers.current;
@@ -63,6 +84,15 @@ export function NotificationCenter() {
             <NotificationIcon tone={item.tone} />
           </span>
           <span className="flex-1 leading-5">{item.message}</span>
+          <button
+            type="button"
+            onClick={() => dismiss(item.id)}
+            className="notification-toast-close"
+            title={m.common.close}
+            aria-label={m.common.close}
+          >
+            <CloseIcon />
+          </button>
         </div>
       ))}
     </div>
@@ -81,6 +111,14 @@ function toneIconColor(tone: NotificationTone): string {
     default:
       return "text-[var(--color-accent-bright)]";
   }
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
 }
 
 function NotificationIcon({ tone }: { tone: NotificationTone }) {

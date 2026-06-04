@@ -11,6 +11,7 @@ import {
   formatBytes,
   formatExpire,
   protocolLabel,
+  serverCustomDescription,
   serverDisplayName,
   serverListDescription,
   transportLabel,
@@ -217,11 +218,14 @@ export function Subscriptions() {
       </div>
 
       <div className="relative mb-8">
+        <span className="pointer-events-none absolute left-4 top-1/2 grid -translate-y-1/2 place-items-center text-[var(--color-text-faint)]">
+          <SearchIcon />
+        </span>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={m.profiles.searchServers}
-          className="dark-input px-5 py-4 pr-12 text-lg"
+          className="dark-input py-4 pl-12 pr-12 text-lg"
         />
         {query && (
           <button
@@ -627,6 +631,7 @@ function ServerLine({
 }) {
   const m = useMessages();
   const label = displayName;
+  const description = serverCustomDescription(server);
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [confirmHideOpen, setConfirmHideOpen] = useState(false);
@@ -667,6 +672,7 @@ function ServerLine({
             </span>
           )}
         </div>
+        {description && <div className="server-profile-description">{description}</div>}
         <div className="server-profile-meta">
           <span className="server-row-pill server-row-pill-proto">{protocolLabel(server.protocol)}</span>
           <span className="server-row-pill server-row-pill-transport">{networkBadge(server.protocol)}</span>
@@ -1607,6 +1613,15 @@ function PlusIcon() {
     <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 5v14" />
       <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.2-3.2" />
     </svg>
   );
 }
