@@ -8,9 +8,11 @@ import {
   formatBytes,
   type AppPreferences,
   type AppUpdateInfo,
+  type ConnectButtonStyle,
   type ConnectionMode,
   type DeviceInfo,
   type ProxySettingsPatch,
+  type ThemeMode,
 } from "../lib/api";
 import { fillTemplate, useMessages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
@@ -402,13 +404,22 @@ export function Settings() {
   );
 }
 
-const accentPresets = [
-  "#7c5dfa",
-  "#4f8cff",
-  "#21a67a",
-  "#e24d70",
-  "#f5a623",
-  "#00a8c8",
+const accentPresets: Array<{
+  color: string;
+  labelKey:
+    | "accentViolet"
+    | "accentBlue"
+    | "accentGreen"
+    | "accentRose"
+    | "accentAmber"
+    | "accentCyan";
+}> = [
+  { color: "#7c5dfa", labelKey: "accentViolet" },
+  { color: "#4f8cff", labelKey: "accentBlue" },
+  { color: "#21a67a", labelKey: "accentGreen" },
+  { color: "#e24d70", labelKey: "accentRose" },
+  { color: "#f5a623", labelKey: "accentAmber" },
+  { color: "#00a8c8", labelKey: "accentCyan" },
 ];
 
 function GeneralSection({
@@ -690,30 +701,49 @@ function AppearanceSection({
             <div className="settings-row-description">{m.settings.themeDescription}</div>
           </div>
         </div>
-        <div className="settings-segment px-6 pb-4">
-          <ModeOption
+        <div className="settings-theme-grid" role="radiogroup" aria-label={m.settings.theme}>
+          <ThemePreviewOption
+            title={m.settings.lightTheme}
+            value="light"
+            selected={preferences.theme_mode === "light"}
+            onClick={() => onChange({ theme_mode: "light" })}
+          />
+          <ThemePreviewOption
+            title={m.settings.darkTheme}
+            value="dark"
+            selected={preferences.theme_mode === "dark" || preferences.theme_mode === "black"}
+            onClick={() => onChange({ theme_mode: "dark" })}
+          />
+          <ThemePreviewOption
             title={m.settings.systemTheme}
-            subtitle={m.settings.systemThemeSubtitle}
+            value="system"
             selected={preferences.theme_mode === "system"}
             onClick={() => onChange({ theme_mode: "system" })}
           />
-          <ModeOption
-            title={m.settings.darkTheme}
-            subtitle={m.settings.darkThemeSubtitle}
-            selected={preferences.theme_mode === "dark"}
-            onClick={() => onChange({ theme_mode: "dark" })}
+        </div>
+
+        <div className="settings-row settings-row-block">
+          <div>
+            <div className="settings-row-title">{m.settings.connectionStyle}</div>
+            <div className="settings-row-description">{m.settings.connectionStyleDescription}</div>
+          </div>
+        </div>
+        <div className="settings-connect-style-grid" role="radiogroup" aria-label={m.settings.connectionStyle}>
+          <ConnectionStyleOption
+            title={m.profiles.classic}
+            description={m.settings.classicConnectStyleDescription}
+            value="classic"
+            selected={preferences.servers_connect_button === "classic"}
+            icon={<ClassicButtonIcon />}
+            onClick={() => onChange({ servers_connect_button: "classic" })}
           />
-          <ModeOption
-            title={m.settings.blackTheme}
-            subtitle={m.settings.blackThemeSubtitle}
-            selected={preferences.theme_mode === "black"}
-            onClick={() => onChange({ theme_mode: "black" })}
-          />
-          <ModeOption
-            title={m.settings.lightTheme}
-            subtitle={m.settings.lightThemeSubtitle}
-            selected={preferences.theme_mode === "light"}
-            onClick={() => onChange({ theme_mode: "light" })}
+          <ConnectionStyleOption
+            title={m.settings.compact}
+            description={m.settings.compactConnectStyleDescription}
+            value="compact"
+            selected={preferences.servers_connect_button === "compact"}
+            icon={<CompactButtonIcon />}
+            onClick={() => onChange({ servers_connect_button: "compact" })}
           />
         </div>
 
@@ -729,31 +759,36 @@ function AppearanceSection({
             aria-pressed={preferences.accent_mode === "system"}
             className={[
               "settings-accent-system",
+              "settings-accent-system-card",
               preferences.accent_mode === "system" ? "settings-accent-active" : "",
             ].join(" ")}
           >
             <span className="settings-accent-system-swatch" />
-            {m.settings.systemAccent}
+            <span>{m.settings.systemAccent}</span>
           </button>
-          <div className="settings-color-grid">
-            {accentPresets.map((color) => (
+          <div className="settings-color-grid settings-color-grid-showcase">
+            {accentPresets.map(({ color, labelKey }) => (
               <button
                 key={color}
-                title={color}
+                title={m.settings[labelKey]}
                 onClick={() => onChange({ accent_mode: "preset", accent_color: color })}
                 aria-pressed={preferences.accent_mode === "preset" && preferences.accent_color.toLowerCase() === color}
                 className={[
                   "settings-color-swatch",
+                  "settings-color-card",
                   preferences.accent_mode === "preset" && preferences.accent_color.toLowerCase() === color
                     ? "settings-color-swatch-active"
                     : "",
                 ].join(" ")}
-                style={{ backgroundColor: color }}
-              />
+                style={{ "--accent-card-color": color } as CSSProperties}
+              >
+                <span>{m.settings[labelKey]}</span>
+              </button>
             ))}
             <label
               className={[
                 "settings-color-custom",
+                "settings-color-custom-card",
                 preferences.accent_mode === "custom" ? "settings-color-custom-active" : "",
               ].join(" ")}
             >
@@ -1248,16 +1283,6 @@ function ServersSection({
           ]}
           onChange={(servers_sorting) => onChange({ servers_sorting })}
           icon={<ListIcon />}
-        />
-        <SettingsChoiceRow
-          label={m.settings.connectButton}
-          value={preferences.servers_connect_button}
-          options={[
-            { value: "classic", label: m.profiles.classic, icon: <ClassicButtonIcon /> },
-            { value: "compact", label: m.settings.compact, icon: <CompactButtonIcon /> },
-          ]}
-          onChange={(servers_connect_button) => onChange({ servers_connect_button })}
-          icon={<SlidersIcon />}
         />
         <NumberPreferenceRow
           label={m.settings.uiScale}
@@ -1994,6 +2019,83 @@ function UaOption({
       <span className="min-w-0">
         <span className="block text-sm font-semibold text-white">{title}</span>
         <span className="block truncate font-mono text-xs text-[var(--color-text-faint)]">{subtitle}</span>
+      </span>
+    </button>
+  );
+}
+
+function ThemePreviewOption({
+  title,
+  value,
+  selected,
+  onClick,
+}: {
+  title: string;
+  value: Extract<ThemeMode, "light" | "dark" | "system">;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onClick}
+      className={[
+        "settings-theme-card",
+        `settings-theme-card-${value}`,
+        selected ? "settings-theme-card-active" : "",
+      ].join(" ")}
+    >
+      <span className="settings-theme-preview" aria-hidden="true">
+        <span className="settings-theme-preview-rail">
+          <span />
+          <span />
+        </span>
+        <span className="settings-theme-preview-canvas">
+          <span className="settings-theme-preview-top" />
+          <span className="settings-theme-preview-row">
+            <span />
+            <span />
+          </span>
+        </span>
+      </span>
+      <span className="settings-theme-card-label">{title}</span>
+    </button>
+  );
+}
+
+function ConnectionStyleOption({
+  title,
+  description,
+  value,
+  selected,
+  icon,
+  onClick,
+}: {
+  title: string;
+  description: string;
+  value: ConnectButtonStyle;
+  selected: boolean;
+  icon: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      aria-label={`${title}. ${description}`}
+      data-style={value}
+      onClick={onClick}
+      className={[
+        "settings-connect-style-card",
+        selected ? "settings-connect-style-card-active" : "",
+      ].join(" ")}
+    >
+      <span className="settings-connect-style-icon" aria-hidden="true">{icon}</span>
+      <span className="settings-connect-style-copy">
+        <span className="settings-connect-style-title">{title}</span>
       </span>
     </button>
   );

@@ -249,47 +249,51 @@ function ServerRow({
         }
       }}
       className={[
-        "server-detail-row relative grid w-full grid-cols-[50px_minmax(0,1fr)_auto_32px] items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--color-text)_4%,transparent)]",
-        active ? "server-detail-row-active" : "",
+        "server-profile-row server-detail-profile-row group",
+        active ? "server-profile-row-active server-detail-row-active" : "",
       ].join(" ")}
     >
-      <div className="grid h-10 w-10 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-lg text-[var(--color-text-faint)]">
-        <CountryFlag serverName={server.name} fallback={<GlobeIcon />} />
+      <div className="server-profile-logo server-detail-profile-logo">
+        <CountryFlag
+          serverName={server.name}
+          fallback={<GlobeIcon />}
+          className="country-flag-server"
+        />
       </div>
-      <div className="min-w-0">
-        <div className="server-detail-row-title flex min-w-0 items-center gap-2 pr-3">
-          <div className="truncate text-base font-semibold text-white">{label}</div>
+      <div className="server-profile-main">
+        <div className="server-profile-title-line">
+          <div className="server-profile-title">{label}</div>
           <PingBadge ping={ping} loading={pinging} />
         </div>
         {description && (
-          <div className="mt-0.5 truncate pr-3 text-xs text-[var(--color-text-faint)]">
+          <div className="server-detail-row-description">
             {description}
           </div>
         )}
       </div>
-      <div className="server-detail-row-badges flex items-center gap-1.5">
+      <div className="server-profile-actions server-detail-profile-actions">
         <span className="server-row-pill server-row-pill-proto">{proto}</span>
         <span className="server-row-pill server-row-pill-transport">{transport}</span>
         {active && (
           <span className="server-row-pill server-row-pill-selected">{m.common.selected}</span>
         )}
+        <button
+          type="button"
+          title={m.home.pingServers}
+          aria-label={m.home.pingServers}
+          onClick={(event) => {
+            event.stopPropagation();
+            void onPing();
+          }}
+          disabled={pinging}
+          className={[
+            "server-row-icon-button server-row-dots-button",
+            pinging ? "text-[var(--color-accent-bright)] opacity-80" : "",
+          ].join(" ")}
+        >
+          <SignalIcon pulse={pinging} />
+        </button>
       </div>
-      <button
-        type="button"
-        title={m.home.pingServers}
-        aria-label={m.home.pingServers}
-        onClick={(event) => {
-          event.stopPropagation();
-          void onPing();
-        }}
-        disabled={pinging}
-        className={[
-          "interactive grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[var(--color-border)] bg-[var(--color-glass-bg)] text-[var(--color-text-dim)] transition-all hover:border-[var(--color-border-strong)] hover:bg-[var(--color-glass-bg-strong)] hover:text-white",
-          pinging ? "text-[var(--color-accent-bright)] opacity-70" : "",
-        ].join(" ")}
-      >
-        <SignalIcon pulse={pinging} />
-      </button>
     </div>
   );
 }
@@ -297,7 +301,7 @@ function ServerRow({
 function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean }) {
   if (loading) {
     return (
-      <span className="shrink-0 rounded-full bg-[var(--color-accent-active-bg)] px-2 py-0.5 text-[10px] font-semibold tabular-nums text-[var(--color-accent-bright)]">
+      <span className="server-ping-badge server-detail-ping-badge server-ping-badge-loading">
         ...
       </span>
     );
@@ -306,7 +310,7 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
   const tier = pingTier(ping);
   return (
     <span
-      className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums"
+      className="server-ping-badge server-detail-ping-badge"
       style={{ background: tier.bg, color: tier.fg }}
     >
       {ping} ms

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CountryFlag } from "../components/CountryFlag";
@@ -18,6 +18,104 @@ import {
   type Subscription,
 } from "../lib/api";
 
+type ServerUiOverride = {
+  name?: string;
+  hidden?: boolean;
+};
+
+type ServerUiOverrides = Record<string, ServerUiOverride>;
+
+const FAVORITES_KEY = "nimbo.favorites";
+const SERVER_OVERRIDES_KEY = "nimbo.serverUiOverrides";
+
+function readFavoriteServers(): Set<string> {
+  try {
+    const raw = localStorage.getItem(FAVORITES_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeFavoriteServers(value: Set<string>) {
+  try {
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify([...value]));
+  } catch {}
+}
+
+function useFavoriteServers() {
+  const [favorites, setFavorites] = useState<Set<string>>(readFavoriteServers);
+
+  const toggle = useCallback((id: string) => {
+    setFavorites((previous) => {
+      const next = new Set(previous);
+      next.has(id) ? next.delete(id) : next.add(id);
+      writeFavoriteServers(next);
+      return next;
+    });
+  }, []);
+
+  return { favorites, toggle };
+}
+
+function readServerUiOverrides(): ServerUiOverrides {
+  try {
+    const raw = localStorage.getItem(SERVER_OVERRIDES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as ServerUiOverrides;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeServerUiOverrides(value: ServerUiOverrides) {
+  try {
+    localStorage.setItem(SERVER_OVERRIDES_KEY, JSON.stringify(value));
+  } catch {}
+}
+
+function useServerUiOverrides() {
+  const [overrides, setOverrides] = useState<ServerUiOverrides>(readServerUiOverrides);
+
+  const commit = useCallback((producer: (current: ServerUiOverrides) => ServerUiOverrides) => {
+    setOverrides((current) => {
+      const next = producer(current);
+      writeServerUiOverrides(next);
+      return next;
+    });
+  }, []);
+
+  const renameServer = useCallback((serverId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    commit((current) => ({
+      ...current,
+      [serverId]: {
+        ...(current[serverId] ?? {}),
+        name: trimmed,
+      },
+    }));
+  }, [commit]);
+
+  const hideServer = useCallback((serverId: string) => {
+    commit((current) => ({
+      ...current,
+      [serverId]: {
+        ...(current[serverId] ?? {}),
+        hidden: true,
+      },
+    }));
+  }, [commit]);
+
+  return { overrides, renameServer, hideServer };
+}
+
+function serverDisplayLabel(server: Server, overrides: ServerUiOverrides): string {
+  const customName = overrides[server.id]?.name?.trim();
+  return customName || serverDisplayName(server.name);
+}
+
 export function Subscriptions() {
   const m = useMessages();
   const subs = useAppStore((s) => s.subscriptions);
@@ -34,22 +132,25 @@ export function Subscriptions() {
   const closeImportDialog = useAppStore((s) => s.closeImportDialog);
   const [query, setQuery] = useState("");
   const [showFavOnly, setShowFavOnly] = useState(false);
-  const [favorites] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem("nimbo.favorites");
-      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
-    } catch {
-      return new Set();
-    }
-  });
+  const { favorites, toggle: toggleFavorite } = useFavoriteServers();
+  const {
+    overrides: serverOverrides,
+    renameServer,
+    hideServer,
+  } = useServerUiOverrides();
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const serverCount = subs.reduce((sum, sub) => sum + sub.servers.length, 0);
 
   const filteredSubs = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let base = subs;
+    let base = subs
+      .map((sub) => ({
+        ...sub,
+        servers: sub.servers.filter((server) => !serverOverrides[server.id]?.hidden),
+      }))
+      .filter((sub) => sub.servers.length > 0 || !q);
     if (showFavOnly) {
-      base = subs
+      base = base
         .map((sub) => ({ ...sub, servers: sub.servers.filter((s) => favorites.has(s.id)) }))
         .filter((sub) => sub.servers.length > 0);
     }
@@ -60,7 +161,9 @@ export function Subscriptions() {
         servers: sub.servers.filter(
           (server) => {
             const description = serverListDescription(server, sub.servers);
+            const displayName = serverDisplayLabel(server, serverOverrides);
             return (
+              displayName.toLowerCase().includes(q) ||
               server.name.toLowerCase().includes(q) ||
               (description?.toLowerCase().includes(q) ?? false)
             );
@@ -73,7 +176,7 @@ export function Subscriptions() {
           (sub.name ?? "").toLowerCase().includes(q) ||
           sub.url.toLowerCase().includes(q),
       );
-  }, [query, subs]);
+  }, [favorites, query, serverOverrides, showFavOnly, subs]);
 
   const onSelect = async (server: Server) => {
     try {
@@ -144,7 +247,12 @@ export function Subscriptions() {
               activeId={activeId}
               serverPings={serverPings}
               connectingId={connectingServerId || switchingServerId}
+              favorites={favorites}
+              serverOverrides={serverOverrides}
               onSelect={onSelect}
+              onToggleFavorite={toggleFavorite}
+              onRenameServer={renameServer}
+              onHideServer={hideServer}
               onRefresh={() => refreshSubscription(sub.url)}
               onUpdate={(settings) => updateSubscriptionSettings(sub.url, settings)}
               onRemove={() => removeSubscription(sub.url)}
@@ -189,7 +297,12 @@ function ProfileCard({
   activeId,
   serverPings,
   connectingId,
+  favorites,
+  serverOverrides,
   onSelect,
+  onToggleFavorite,
+  onRenameServer,
+  onHideServer,
   onRefresh,
   onUpdate,
   onRemove,
@@ -198,7 +311,12 @@ function ProfileCard({
   activeId: string | null;
   serverPings: Record<string, number>;
   connectingId: string | null;
+  favorites: ReadonlySet<string>;
+  serverOverrides: ServerUiOverrides;
   onSelect: (server: Server) => void;
+  onToggleFavorite: (serverId: string) => void;
+  onRenameServer: (serverId: string, name: string) => void;
+  onHideServer: (serverId: string) => void;
   onRefresh: () => Promise<unknown>;
   onUpdate: (settings: {
     name?: string | null;
@@ -433,8 +551,13 @@ function ProfileCard({
               connecting={connectingId === server.id}
               ping={serverPings[server.id]}
               pinging={pingingServerIds.has(server.id)}
+              displayName={serverDisplayLabel(server, serverOverrides)}
+              favorite={favorites.has(server.id)}
               onSelect={() => onSelect(server)}
               onPing={() => onPingServerClick(server.id)}
+              onToggleFavorite={() => onToggleFavorite(server.id)}
+              onRename={(name) => onRenameServer(server.id, name)}
+              onHide={() => onHideServer(server.id)}
             />
           ))}
         </div>
@@ -446,6 +569,13 @@ function ProfileCard({
           showOnHome={showOnHome}
           updateInterval={updateInterval}
           supportUrl={supportUrl}
+          siteUrl={siteUrl}
+          description={visibleDescription}
+          sourceUrl={sub.url}
+          onDelete={() => {
+            setSettingsOpen(false);
+            setConfirmRemoveOpen(true);
+          }}
           onSave={onUpdate}
           onClose={() => setSettingsOpen(false)}
         />
@@ -473,8 +603,13 @@ function ServerLine({
   connecting,
   ping,
   pinging,
+  displayName,
+  favorite,
   onSelect,
   onPing,
+  onToggleFavorite,
+  onRename,
+  onHide,
 }: {
   server: Server;
   servers: Server[];
@@ -482,12 +617,21 @@ function ServerLine({
   connecting: boolean;
   ping?: number;
   pinging: boolean;
+  displayName: string;
+  favorite: boolean;
   onSelect: () => void;
   onPing: () => void;
+  onToggleFavorite: () => void;
+  onRename: (name: string) => void;
+  onHide: () => void;
 }) {
   const m = useMessages();
-  const label = serverDisplayName(server.name);
-  const description = serverListDescription(server, servers);
+  const label = displayName;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [confirmHideOpen, setConfirmHideOpen] = useState(false);
+  void servers;
+
   return (
     <div
       role="button"
@@ -501,55 +645,132 @@ function ServerLine({
         }
       }}
       className={[
-        "grid w-full grid-cols-[40px_minmax(0,1fr)_auto_32px] items-center gap-2.5 px-4 py-3 text-left transition-all hover:bg-[var(--color-glass-bg)]",
-        active
-          ? "border-l-2 border-[var(--color-accent)] bg-[var(--color-accent-active-bg)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_16%,transparent)]"
-          : connecting
-            ? "border-l-2 border-[var(--color-accent-bright)] bg-[var(--color-accent-active-bg)] animate-pulse"
-          : "border-l-2 border-transparent",
+        "server-profile-row group",
+        active ? "server-profile-row-active" : "",
+        connecting ? "server-profile-row-connecting" : "",
       ].join(" ")}
     >
-      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)]">
-        <CountryFlag serverName={server.name} fallback={<GlobeIcon className="h-5 w-5" />} />
-      </div>
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2 pr-2">
-          <div className="truncate text-sm font-semibold text-white">{label}</div>
-          <PingBadge ping={ping} loading={pinging} />
-        </div>
-        {description && (
-          <div className="mt-0.5 truncate pr-2 text-[11px] text-[var(--color-text-faint)]">
-            {description}
-          </div>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <span className="tag-pill shrink-0 px-1.5 py-0.5 text-[9px]">{protocolLabel(server.protocol)}</span>
-        <span className="shrink-0 rounded-full bg-[var(--color-glass-bg-strong)] px-1.5 py-0.5 text-[9px] font-bold text-[var(--color-accent-bright)]">
-          {networkBadge(server.protocol)}
-        </span>
-        {connecting && (
-          <span className="shrink-0 rounded-full bg-[var(--color-accent-active-bg)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--color-accent-bright)]">
-            {m.common.connecting}
+      <div className="server-profile-logo">
+        <CountryFlag serverName={server.name} fallback={<GlobeIcon className="h-5 w-5" />} className="country-flag-server" />
+        {favorite && (
+          <span className="server-favorite-mark" aria-hidden="true">
+            <HeartIcon filled />
           </span>
         )}
       </div>
-      <button
-        type="button"
-        title={m.home.pingServers}
-        aria-label={m.home.pingServers}
-        onClick={(event) => {
-          event.stopPropagation();
-          void onPing();
-        }}
-        disabled={pinging}
-        className={[
-          "interactive grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[var(--color-border)] bg-[var(--color-glass-bg)] text-[var(--color-text-dim)] transition-all hover:border-[var(--color-border-strong)] hover:bg-[var(--color-glass-bg-strong)] hover:text-white",
-          pinging ? "text-[var(--color-accent-bright)] opacity-70" : "",
-        ].join(" ")}
-      >
-        <SignalIcon pulse={pinging} small />
-      </button>
+      <div className="server-profile-main">
+        <div className="server-profile-title-line">
+          <div className="server-profile-title">{label}</div>
+          {connecting && (
+            <span className="server-row-pill server-row-pill-selected">
+              {m.common.connecting}
+            </span>
+          )}
+        </div>
+        <div className="server-profile-meta">
+          <span className="server-row-pill server-row-pill-proto">{protocolLabel(server.protocol)}</span>
+          <span className="server-row-pill server-row-pill-transport">{networkBadge(server.protocol)}</span>
+        </div>
+      </div>
+      <div className="server-profile-actions" data-no-toggle>
+        <PingBadge ping={ping} loading={pinging} />
+        <button
+          type="button"
+          title={favorite ? m.profiles.unfavoriteServer : m.profiles.favoriteServer}
+          aria-label={favorite ? m.profiles.unfavoriteServer : m.profiles.favoriteServer}
+          aria-pressed={favorite}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleFavorite();
+          }}
+          className={[
+            "server-row-icon-button",
+            favorite ? "server-row-icon-button-active" : "",
+          ].join(" ")}
+        >
+          <HeartIcon filled={favorite} />
+        </button>
+        <div className="server-row-menu-wrap">
+          <button
+            type="button"
+            title={m.profiles.serverMenu}
+            aria-label={m.profiles.serverMenu}
+            aria-expanded={menuOpen}
+            onClick={(event) => {
+              event.stopPropagation();
+              setMenuOpen((value) => !value);
+            }}
+            className="server-row-icon-button server-row-dots-button"
+          >
+            <DotsIcon />
+          </button>
+          {menuOpen && (
+            <div
+              className="server-row-menu"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  void onPing();
+                }}
+              >
+                <SignalIcon pulse={pinging} small />
+                {m.profiles.testLatency}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setRenameOpen(true);
+                }}
+              >
+                <EditIcon />
+                {m.profiles.renameServer}
+              </button>
+              <button
+                type="button"
+                className="server-row-menu-danger"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setConfirmHideOpen(true);
+                }}
+              >
+                <TrashIcon />
+                {m.profiles.deleteServer}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {renameOpen && (
+        <RenameServerDialog
+          initialName={label}
+          onSave={(name) => {
+            onRename(name);
+            notifyInfo(m.profiles.serverRenamed);
+            setRenameOpen(false);
+          }}
+          onClose={() => setRenameOpen(false)}
+        />
+      )}
+
+      {confirmHideOpen && (
+        <ConfirmDialog
+          title={m.profiles.deleteServerTitle}
+          description={fillTemplate(m.profiles.deleteServerDescription, { name: label })}
+          confirmLabel={m.profiles.delete}
+          danger
+          onConfirm={() => {
+            onHide();
+            notifyInfo(m.profiles.serverHidden);
+            setConfirmHideOpen(false);
+          }}
+          onClose={() => setConfirmHideOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -557,16 +778,74 @@ function ServerLine({
 function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean }) {
   if (loading) {
     return (
-      <span className="shrink-0 rounded-full bg-[var(--color-accent-active-bg)] px-2 py-1 text-[10px] font-semibold text-[var(--color-accent-bright)]">
+      <span className="server-ping-badge server-ping-badge-loading">
         ...
       </span>
     );
   }
   if (ping == null) return null;
   return (
-    <span className="shrink-0 rounded-full bg-[var(--color-accent-active-bg)] px-2 py-1 text-[10px] font-semibold text-[var(--color-accent-bright)]">
+    <span className="server-ping-badge">
       {ping} ms
     </span>
+  );
+}
+
+function RenameServerDialog({
+  initialName,
+  onSave,
+  onClose,
+}: {
+  initialName: string;
+  onSave: (name: string) => void;
+  onClose: () => void;
+}) {
+  const m = useMessages();
+  const [name, setName] = useState(initialName);
+  const canSave = name.trim().length > 0;
+
+  return (
+    <ModalPortal>
+      <div className="app-dialog-backdrop" role="presentation" onClick={onClose}>
+        <div
+          className="panel server-rename-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="rename-server-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div id="rename-server-title" className="mb-2 text-xl font-bold text-white">
+            {m.profiles.renameServer}
+          </div>
+          <div className="mb-4 text-sm text-[var(--color-text-faint)]">
+            {m.profiles.renameServerDescription}
+          </div>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="dark-input px-4 py-3 text-base"
+            autoFocus
+          />
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="interactive rounded-xl border border-[var(--color-border)] px-4 py-3 text-sm font-semibold text-[var(--color-text-dim)]"
+            >
+              {m.common.cancel}
+            </button>
+            <button
+              type="button"
+              disabled={!canSave}
+              onClick={() => canSave && onSave(name)}
+              className="primary-button interactive rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-50"
+            >
+              {m.common.save}
+            </button>
+          </div>
+        </div>
+      </div>
+    </ModalPortal>
   );
 }
 
@@ -575,6 +854,10 @@ function SubscriptionSettingsDialog({
   showOnHome,
   updateInterval,
   supportUrl,
+  siteUrl,
+  description,
+  sourceUrl,
+  onDelete,
   onSave,
   onClose,
 }: {
@@ -582,6 +865,10 @@ function SubscriptionSettingsDialog({
   showOnHome: boolean;
   updateInterval: number;
   supportUrl: string;
+  siteUrl: string | null;
+  description: string;
+  sourceUrl: string;
+  onDelete: () => void;
   onSave: (settings: {
     name?: string | null;
     show_on_home?: boolean | null;
@@ -594,6 +881,7 @@ function SubscriptionSettingsDialog({
   const [visible, setVisible] = useState(showOnHome);
   const [interval, setInterval] = useState(updateInterval);
   const [saving, setSaving] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   const save = async () => {
     setSaving(true);
@@ -612,112 +900,177 @@ function SubscriptionSettingsDialog({
     }
   };
 
+  const copyUrl = async () => {
+    try {
+      await api.writeClipboardText(sourceUrl);
+      setCopiedUrl(true);
+      notifyInfo(m.common.copied);
+      window.setTimeout(() => setCopiedUrl(false), 1200);
+    } catch {
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error(m.common.copy);
+        await navigator.clipboard.writeText(sourceUrl);
+        setCopiedUrl(true);
+        notifyInfo(m.common.copied);
+        window.setTimeout(() => setCopiedUrl(false), 1200);
+      } catch (error) {
+        notifyError(String(error));
+      }
+    }
+  };
+
   return (
     <ModalPortal>
       <div
-        className="fixed inset-0 z-50 grid place-items-center p-5"
-        style={{ background: "rgba(0,0,0,0.62)", backdropFilter: "blur(10px)" }}
+        className="subscription-settings-backdrop"
         onClick={onClose}
       >
         <div
-          className="panel max-h-[calc(100vh-40px)] w-full max-w-lg overflow-y-auto bg-[rgba(26,26,46,0.96)] shadow-[0_28px_90px_rgba(0,0,0,0.46)]"
+          className="subscription-settings-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="subscription-settings-title"
           onClick={(e) => e.stopPropagation()}
         >
-        <div className="border-b border-[var(--color-border)] px-5 py-5 text-center">
-          <div className="mx-auto mb-2 grid h-14 w-14 place-items-center rounded-full bg-[var(--color-accent)] text-black">
-            <SettingsIcon large />
-          </div>
-          <div className="text-sm text-[var(--color-text-faint)]">{m.profiles.subscriptionSettings}</div>
-          <div className="truncate text-xl font-bold text-white">{sub.name ?? m.common.subscription}</div>
-        </div>
-
-        <div className="space-y-3 p-5">
-          <div className="rounded-xl bg-[var(--color-glass-bg)] p-4">
-            <div className="mb-3 flex items-center gap-2 text-sm font-bold text-[var(--color-text-dim)]">
-              <EditIcon />
-              {m.profiles.namePlaceholder}
-            </div>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="dark-input px-4 py-3 text-base"
-              placeholder={m.profiles.subscriptionNamePlaceholder}
-            />
-          </div>
-
-          <div className="flex items-center justify-between gap-4 rounded-xl bg-[var(--color-glass-bg)] p-4">
-            <div>
-              <div className="mb-1 flex items-center gap-2 text-sm font-bold text-[var(--color-text-dim)]">
-                <EyeIcon />
-                {m.profiles.showOnHome}
-              </div>
-              <div className="text-base font-semibold text-white">{m.profiles.showOnHome}</div>
-              <div className="text-xs text-[var(--color-text-faint)]">
-                {visible ? m.profiles.shownOnHome : m.profiles.hiddenFromHome}
-              </div>
-            </div>
+          <div className="subscription-settings-header">
+            <h2 id="subscription-settings-title">{m.profiles.subscriptionSettings}</h2>
             <button
-              onClick={() => setVisible((value) => !value)}
-              className={["settings-toggle", visible ? "settings-toggle-on" : ""].join(" ")}
-              title={m.profiles.showOnHome}
+              type="button"
+              onClick={onClose}
+              className="subscription-settings-close"
+              title={m.common.close}
+              aria-label={m.common.close}
             >
-              <span />
+              <XIcon />
             </button>
           </div>
 
-          <div className="rounded-xl bg-[var(--color-glass-bg)] p-4">
-            <div className="mb-3 flex items-center gap-2 text-sm font-bold text-[var(--color-text-dim)]">
-              <ClockIcon />
-              {m.settings.updateInterval}
+          <div className="subscription-settings-body">
+            <label className="subscription-settings-field">
+              <span>{m.profiles.displayName}</span>
+              <div className="subscription-settings-input-wrap">
+                <ShieldIcon />
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="subscription-settings-input"
+                  placeholder={m.profiles.subscriptionNamePlaceholder}
+                />
+              </div>
+              <small>{m.profiles.displayNameHint}</small>
+            </label>
+
+            <div className="subscription-settings-toggle-row">
+              <div>
+                <div className="subscription-settings-row-title">{m.profiles.showOnHome}</div>
+                <div className="subscription-settings-row-subtitle">{m.profiles.showOnHomeDescription}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVisible((value) => !value)}
+                className={["settings-toggle subscription-settings-switch", visible ? "settings-toggle-on" : ""].join(" ")}
+                title={m.profiles.showOnHome}
+                aria-pressed={visible}
+              >
+                <span />
+              </button>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+
+            <div className="subscription-settings-toggle-row">
+              <div>
+                <div className="subscription-settings-row-title">{m.profiles.customUpdateInterval}</div>
+                <div className="subscription-settings-row-subtitle">{m.profiles.customUpdateIntervalDescription}</div>
+              </div>
+              <button
+                type="button"
+                className="settings-toggle subscription-settings-switch settings-toggle-on"
+                aria-pressed="true"
+                title={m.profiles.customUpdateInterval}
+              >
+                <span />
+              </button>
+            </div>
+
+            <div className="subscription-settings-interval-grid">
               {[30, 60, 120, 360, 720, 1440].map((value) => (
                 <button
                   key={value}
+                  type="button"
                   onClick={() => setInterval(value)}
-                  className={[
-                    "rounded-xl px-3 py-3 text-sm font-bold transition-colors",
-                    interval === value
-                      ? "bg-[var(--color-accent)] text-black"
-                      : "bg-[var(--color-glass-bg)] text-white hover:bg-[var(--color-glass-bg-strong)]",
-                  ].join(" ")}
+                  className={interval === value ? "subscription-settings-interval-active" : ""}
                 >
                   {intervalLabel(value, m)}
                 </button>
               ))}
             </div>
+
+            <div className="subscription-settings-url">
+              <div className="subscription-settings-label">{m.profiles.subscriptionUrl}</div>
+              <div className="subscription-settings-url-row">
+                <div className="subscription-settings-copy-field">{sourceUrl}</div>
+                <button
+                  type="button"
+                  onClick={() => void copyUrl()}
+                  className="subscription-settings-copy-button"
+                  title={m.common.copy}
+                  aria-label={m.common.copy}
+                >
+                  {copiedUrl ? <CheckIcon /> : <ClipboardIcon />}
+                </button>
+              </div>
+            </div>
+
+            <section className="subscription-settings-provider-links">
+              <div className="subscription-settings-label">{m.profiles.providerLinks}</div>
+              <div className="subscription-settings-provider-grid">
+                <a href={supportUrl} target="_blank" rel="noreferrer">
+                  <SupportIcon />
+                  {m.common.support}
+                </a>
+                {siteUrl && (
+                  <a href={siteUrl} target="_blank" rel="noreferrer">
+                    <GlobeIcon className="h-5 w-5" />
+                    {m.common.site}
+                  </a>
+                )}
+              </div>
+            </section>
+
+            {description && (
+              <section className="subscription-settings-announcement">
+                <div className="subscription-settings-label">{m.profiles.providerAnnouncement}</div>
+                <div>{description}</div>
+              </section>
+            )}
           </div>
 
-          <a
-            href={supportUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center justify-between rounded-xl bg-[var(--color-glass-bg)] p-4 text-base font-semibold text-white"
-          >
-            <span className="flex items-center gap-3">
-              <SupportIcon />
-              {m.common.support}
-            </span>
-            <ExternalIcon />
-          </a>
+          <div className="subscription-settings-footer">
+            <button
+              type="button"
+              onClick={onDelete}
+              className="subscription-settings-delete"
+            >
+              {m.profiles.delete}
+            </button>
+            <div className="subscription-settings-footer-actions">
+              <button
+                type="button"
+                onClick={onClose}
+                className="subscription-settings-cancel"
+              >
+                {m.common.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={save}
+                disabled={saving}
+                className="subscription-settings-save"
+              >
+                {saving ? m.common.saving : m.common.save}
+              </button>
+            </div>
+          </div>
         </div>
-
-        <div className="grid grid-cols-2 gap-3 px-5 pb-5">
-          <button
-            onClick={onClose}
-            className="interactive rounded-xl border border-[var(--color-border)] px-5 py-3 text-base font-semibold text-[var(--color-text-dim)]"
-          >
-            {m.common.cancel}
-          </button>
-          <button
-            onClick={save}
-            disabled={saving}
-            className="primary-button interactive rounded-xl px-5 py-3 text-base font-bold disabled:opacity-50"
-          >
-            {saving ? m.common.saving : m.common.save}
-          </button>
-        </div>
-      </div>
       </div>
     </ModalPortal>
   );
@@ -1090,35 +1443,6 @@ function EditIcon() {
   );
 }
 
-function EyeIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function ClockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
-}
-
-function ExternalIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M15 3h6v6" />
-      <path d="M10 14 21 3" />
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-    </svg>
-  );
-}
-
-
 function SignalIcon({ pulse = false, small = false }: { pulse?: boolean; small?: boolean }) {
   return (
     <svg
@@ -1199,6 +1523,14 @@ function ClipboardIcon() {
   );
 }
 
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m20 6-11 11-5-5" />
+    </svg>
+  );
+}
+
 function FolderIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -1241,6 +1573,31 @@ function StarIcon({ filled = false }: { filled?: boolean }) {
       strokeLinejoin="round"
     >
       <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z" />
+    </svg>
+  );
+}
+
+function HeartIcon({ filled = false }: { filled?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={filled ? "0" : "1.9"}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M20.8 4.6a5.2 5.2 0 0 0-7.4 0L12 6l-1.4-1.4a5.2 5.2 0 1 0-7.4 7.4L12 20.8 20.8 12a5.2 5.2 0 0 0 0-7.4Z" />
+    </svg>
+  );
+}
+
+function ShieldIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
     </svg>
   );
 }

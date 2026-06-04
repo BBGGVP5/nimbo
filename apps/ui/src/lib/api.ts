@@ -170,6 +170,10 @@ export interface AppPreferences {
   check_updates_on_launch: boolean;
   provider_theme: boolean;
   ui_style: UiStyle;
+  interface_panel_brightness: number;
+  interface_transparency: number;
+  interface_blur: number;
+  interface_rounding: number;
   theme_mode: ThemeMode;
   accent_mode: AccentMode;
   accent_color: string;
@@ -386,6 +390,33 @@ function nonEmptyString(value: string | null | undefined, fallback: string): str
   return trimmed ? trimmed : fallback;
 }
 
+function randomUuid(): string {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === "function") {
+    return cryptoApi.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  if (typeof cryptoApi?.getRandomValues === "function") {
+    cryptoApi.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0"));
+  return [
+    hex.slice(0, 4).join(""),
+    hex.slice(4, 6).join(""),
+    hex.slice(6, 8).join(""),
+    hex.slice(8, 10).join(""),
+    hex.slice(10, 16).join(""),
+  ].join("-");
+}
+
 export const defaultAppPreferences: AppPreferences = {
   launch_at_login: false,
   auto_connect_on_launch: false,
@@ -395,6 +426,10 @@ export const defaultAppPreferences: AppPreferences = {
   check_updates_on_launch: true,
   provider_theme: true,
   ui_style: "nebula",
+  interface_panel_brightness: 100,
+  interface_transparency: 0,
+  interface_blur: 25,
+  interface_rounding: 100,
   theme_mode: "system",
   accent_mode: "preset",
   accent_color: "#7c5dfa",
@@ -523,6 +558,10 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     check_updates_on_launch: value?.check_updates_on_launch !== false,
     provider_theme: value?.provider_theme !== false,
     ui_style: uiStyle,
+    interface_panel_brightness: clampNumber(value?.interface_panel_brightness, defaultAppPreferences.interface_panel_brightness, 60, 140),
+    interface_transparency: clampNumber(value?.interface_transparency, defaultAppPreferences.interface_transparency, 0, 80),
+    interface_blur: clampNumber(value?.interface_blur, defaultAppPreferences.interface_blur, 0, 48),
+    interface_rounding: clampNumber(value?.interface_rounding, defaultAppPreferences.interface_rounding, 50, 180),
     latency_protocol: latencyProtocol,
     latency_test_url: latencyTestUrl,
     latency_timeout_ms: latencyTimeoutMs,
@@ -620,13 +659,13 @@ function fallbackServerFromProxyLink(value: string): Server {
     const hashName = decodeURIComponent((u.hash || "").replace(/^#/, "")).trim();
     const address = u.hostname || fallbackAddress;
     const port = Number(u.port) || fallbackPort;
-    const uuid = q.get("id") || crypto.randomUUID();
+    const uuid = q.get("id") || randomUuid();
     const network = (q.get("type") as Network | null) || "tcp";
     const security = (q.get("security") as Security | null) || "tls";
 
     if (u.protocol === "hysteria2:" || u.protocol === "hy2:") {
       return {
-        id: crypto.randomUUID(),
+        id: randomUuid(),
         name: hashName || "Hysteria2",
         server_description: queryValue(q, ["serverDescription", "server_description", "server-description"]),
         host_uuid: queryValue(q, ["hostUuid", "host_uuid", "host-uuid"]),
@@ -650,7 +689,7 @@ function fallbackServerFromProxyLink(value: string): Server {
     }
 
     return {
-      id: crypto.randomUUID(),
+      id: randomUuid(),
       name: hashName || fallbackName,
       server_description: queryValue(q, ["serverDescription", "server_description", "server-description"]),
       host_uuid: queryValue(q, ["hostUuid", "host_uuid", "host-uuid"]),
@@ -685,7 +724,7 @@ function fallbackServerFromProxyLink(value: string): Server {
     };
   } catch {
     return {
-      id: crypto.randomUUID(),
+      id: randomUuid(),
       name: fallbackName,
       server_description: null,
       host_uuid: null,
@@ -694,7 +733,7 @@ function fallbackServerFromProxyLink(value: string): Server {
         kind: "vless",
         address: fallbackAddress,
         port: fallbackPort,
-        uuid: crypto.randomUUID(),
+          uuid: randomUuid(),
         encryption: "none",
         stream: { network: "tcp", security: "tls" },
       },
@@ -753,7 +792,7 @@ function browserDeviceInfo(): DeviceInfo {
   if (stored) return stored;
 
   const device: DeviceInfo = {
-    hwid: crypto.randomUUID(),
+    hwid: randomUuid(),
     os: "Windows",
     os_version: navigator.platform || "unknown",
     hostname: "browser-preview",
@@ -1228,7 +1267,7 @@ export const api = {
       : Promise.resolve(browserDeviceInfo()),
   resetDeviceId: () => {
     if (isTauriRuntime()) return invoke<DeviceInfo>("reset_device_id");
-    const device = { ...browserDeviceInfo(), hwid: crypto.randomUUID() };
+    const device = { ...browserDeviceInfo(), hwid: randomUuid() };
     writeBrowserJson("nimbo.deviceInfo", device);
     return Promise.resolve(device);
   },
