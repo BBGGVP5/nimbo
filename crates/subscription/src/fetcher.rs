@@ -1435,22 +1435,40 @@ fn extract_subscription_logo(headers: &reqwest::header::HeaderMap) -> Option<Str
 /// Parses the `<filter>,<accent>,<orb1>,<orb2>,<blur>` provider theme contract.
 fn extract_subscription_theme(headers: &reqwest::header::HeaderMap) -> Option<SubscriptionTheme> {
     const THEME_HEADERS: &[&str] = &["nimbo-theme", "x-nimbo-theme"];
-    let value = raw_header_value(headers, THEME_HEADERS)?;
-    let parts: Vec<&str> = value.split(',').map(str::trim).collect();
-    let part = |index: usize| parts.get(index).copied().filter(|s| !s.is_empty());
 
-    let theme = SubscriptionTheme {
-        filter: part(0).map(|s| s.to_ascii_lowercase()),
-        accent: part(1).and_then(normalize_hex_color),
-        orb1: part(2).and_then(normalize_hex_color),
-        orb2: part(3).and_then(normalize_hex_color),
-        blur: part(4).and_then(|s| s.parse::<u32>().ok()),
-    };
+    let mut theme = SubscriptionTheme::default();
+    if let Some(value) = raw_header_value(headers, THEME_HEADERS) {
+        let parts: Vec<&str> = value.split(',').map(str::trim).collect();
+        let part = |index: usize| parts.get(index).copied().filter(|s| !s.is_empty());
+        theme.filter = part(0).map(|s| s.to_ascii_lowercase());
+        theme.accent = part(1).and_then(normalize_hex_color);
+        theme.orb1 = part(2).and_then(normalize_hex_color);
+        theme.orb2 = part(3).and_then(normalize_hex_color);
+        theme.blur = part(4).and_then(|s| s.parse::<u32>().ok());
+    }
+    theme.ui_style = extract_subscription_ui_style(headers);
 
     if theme == SubscriptionTheme::default() {
         None
     } else {
         Some(theme)
+    }
+}
+
+/// Parses the interface style from the `nimbo-style` header into the app's
+/// internal value: `nimbo` (Glass) or `material_you`.
+fn extract_subscription_ui_style(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    const STYLE_HEADERS: &[&str] = &["nimbo-style", "x-nimbo-style"];
+    let value = raw_header_value(headers, STYLE_HEADERS)?;
+    let normalized: String = value
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    match normalized.as_str() {
+        "glass" | "nebula" | "nimbo" | "nimboglass" => Some("nimbo".to_string()),
+        "materialyou" | "material" | "md3" | "mdyou" | "md" => Some("material_you".to_string()),
+        _ => None,
     }
 }
 

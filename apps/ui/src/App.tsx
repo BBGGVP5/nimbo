@@ -21,6 +21,7 @@ import {
 } from "./lib/appearance";
 import { useAppStore } from "./store";
 import { api, type AppPreferences, type AppUpdateInfo, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
+import { cachedSubscriptionTheme } from "./lib/subscriptionTheme";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initNimboDeepLinks } from "./lib/deepLinks";
 import { fillTemplate, resolveLanguage, useMessages, type Messages } from "./lib/i18n";
@@ -83,7 +84,7 @@ export default function App() {
     const active =
       subscriptions.find((s) => s.url === activeSubscriptionUrl) ??
       subscriptions.find((s) => s.servers.some((srv) => srv.id === activeServerId));
-    return active?.meta?.theme ?? null;
+    return cachedSubscriptionTheme(active);
   }, [preferences.provider_theme, subscriptions, activeSubscriptionUrl, activeServerId]);
 
   useEffect(
@@ -616,6 +617,10 @@ function applyVisualPreferences(
     providerTheme && typeof providerTheme.blur === "number" && Number.isFinite(providerTheme.blur)
       ? providerTheme.blur
       : null;
+  const themeUiStyle =
+    providerTheme?.ui_style === "material_you" || providerTheme?.ui_style === "nimbo"
+      ? providerTheme.ui_style
+      : null;
 
   const media = window.matchMedia("(prefers-color-scheme: light)");
   const apply = () => {
@@ -626,7 +631,7 @@ function applyVisualPreferences(
     const isBlackTheme = resolvedTheme === "black";
     document.documentElement.lang = resolveLanguage(preferences.language);
     document.body.dataset.theme = resolvedTheme;
-    document.body.dataset.uiStyle = preferences.ui_style;
+    document.body.dataset.uiStyle = themeUiStyle ?? preferences.ui_style;
 
     const accent = themeAccent
       ?? (preferences.accent_mode === "system"

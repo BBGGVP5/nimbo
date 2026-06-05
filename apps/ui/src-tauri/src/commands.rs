@@ -1,11 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 #[cfg(all(windows, target_arch = "x86_64"))]
 use std::io::Cursor;
 use std::net::{IpAddr, Ipv4Addr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -15,7 +17,7 @@ use nimbo_device::{DeviceInfo, device_info, reset_cache};
 use nimbo_ipc::PROTOCOL_VERSION;
 use nimbo_subscription::{
     FetchOptions, Fetched, HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS,
-    HAPP_COMPAT_OS_VERSION, Server, Subscription, build_subscription, fetch_subscription,
+    HAPP_COMPAT_OS_VERSION, Server, Subscription, USER_AGENT, build_subscription, fetch_subscription,
     extract_xray_templates_from_value, happ_compatible_user_agent,
     parse_aggregate, parse_subscription_userinfo,
 };
@@ -44,6 +46,8 @@ const NIMBO_REMNAWAVE_ENV_ENV: &str = "NIMBO_REMNAWAVE_ENV";
 const CONFLICT_STOP_ATTEMPTS: usize = 6;
 const CONFLICT_STOP_INITIAL_SETTLE_MS: u64 = 900;
 const CONFLICT_STOP_RETRY_SETTLE_MS: u64 = 650;
+const SUBSCRIPTION_LOGO_CACHE_BYTES: usize = 4 * 1024 * 1024;
+const SUBSCRIPTION_LOGO_CACHE_DIR: &str = "subscription-logos";
 static RESUME_RECONNECT_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1127,6 +1131,113 @@ pub fn get_app_icon(path: String) -> Option<String> {
 }
 
 #[tauri::command]
+pub async fn get_subscription_logo(
+    app: AppHandle,
+    subscription_url: String,
+    logo_url: Option<String>,
+    fetched_at: u64,
+) -> Result<Option<String>, String> {
+    let Some(logo_url) = logo_url
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+
+    let lower = logo_url.to_ascii_lowercase();
+    if lower.starts_with("data:image/") {
+        return Ok(Some(logo_url));
+    }
+    if lower.starts_with("data:") {
+        return Ok(None);
+    }
+
+    let parsed = match url::Url::parse(&logo_url) {
+        Ok(url) if matches!(url.scheme(), "http" | "https") => url,
+        _ => return Ok(None),
+    };
+
+    let subscription_key = cache_key(&subscription_url);
+    let logo_key = cache_key(&format!("{logo_url}\n{fetched_at}"));
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("Не удалось открыть папку кеша: {e}"))?
+        .join(SUBSCRIPTION_LOGO_CACHE_DIR)
+        .join(subscription_key);
+    let cache_file = cache_dir.join(format!("{logo_key}.txt"));
+
+    if let Ok(cached) = std::fs::read_to_string(&cache_file) {
+        if cached.starts_with("data:image/") {
+            return Ok(Some(cached));
+        }
+    }
+
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|e| format!("Не удалось создать папку кеша логотипов: {e}"))?;
+    cleanup_subscription_logo_cache(&cache_dir, &cache_file);
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .user_agent(USER_AGENT)
+        .build()
+        .map_err(|e| format!("Не удалось подготовить загрузку логотипа: {e}"))?;
+
+    let response = match client
+        .get(parsed)
+        .header(
+            reqwest::header::ACCEPT,
+            "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        )
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(?error, "failed to download subscription logo");
+            return Ok(Some(logo_url));
+        }
+    };
+
+    if !response.status().is_success() {
+        return Ok(Some(logo_url));
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > SUBSCRIPTION_LOGO_CACHE_BYTES as u64)
+    {
+        return Ok(Some(logo_url));
+    }
+
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            tracing::warn!(?error, "failed to read subscription logo");
+            return Ok(Some(logo_url));
+        }
+    };
+
+    if bytes.len() > SUBSCRIPTION_LOGO_CACHE_BYTES {
+        return Ok(Some(logo_url));
+    }
+
+    let Some(mime) = subscription_logo_mime(content_type.as_deref(), &bytes) else {
+        return Ok(Some(logo_url));
+    };
+    let data_url = format!("data:{mime};base64,{}", simple_base64(&bytes));
+    if let Err(error) = std::fs::write(&cache_file, data_url.as_bytes()) {
+        tracing::warn!(?error, "failed to write subscription logo cache");
+    }
+
+    Ok(Some(data_url))
+}
+
+#[tauri::command]
 pub fn pick_app_executable() -> Result<Option<String>, String> {
     platform_pick_app_executable()
 }
@@ -1995,6 +2106,77 @@ fn encode_rgba_png_base64(rgba: &[u8], width: u32, height: u32) -> Option<String
         writer.write_image_data(rgba).ok()?;
     }
     Some(format!("data:image/png;base64,{}", simple_base64(&buf)))
+}
+
+fn cache_key(value: &str) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn cleanup_subscription_logo_cache(cache_dir: &Path, keep_file: &Path) {
+    let Ok(entries) = std::fs::read_dir(cache_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == keep_file {
+            continue;
+        }
+        if path.extension().and_then(|value| value.to_str()) == Some("txt") {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+fn subscription_logo_mime(content_type: Option<&str>, bytes: &[u8]) -> Option<&'static str> {
+    let declared = content_type
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match declared.as_str() {
+        "image/png" => return Some("image/png"),
+        "image/jpeg" | "image/jpg" => return Some("image/jpeg"),
+        "image/webp" => return Some("image/webp"),
+        "image/gif" => return Some("image/gif"),
+        "image/svg+xml" => return Some("image/svg+xml"),
+        "image/avif" => return Some("image/avif"),
+        "image/bmp" => return Some("image/bmp"),
+        "image/x-icon" | "image/vnd.microsoft.icon" => return Some("image/x-icon"),
+        _ => {}
+    }
+
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("image/png");
+    }
+    if bytes.starts_with(b"\xff\xd8\xff") {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    if bytes.len() >= 12 && &bytes[4..12] == b"ftypavif" {
+        return Some("image/avif");
+    }
+    if bytes.starts_with(b"BM") {
+        return Some("image/bmp");
+    }
+    if bytes.starts_with(b"\0\0\x01\0") {
+        return Some("image/x-icon");
+    }
+    let prefix = std::str::from_utf8(&bytes[..bytes.len().min(256)])
+        .ok()?
+        .trim_start()
+        .to_ascii_lowercase();
+    if prefix.starts_with("<svg") || (prefix.starts_with("<?xml") && prefix.contains("<svg")) {
+        return Some("image/svg+xml");
+    }
+
+    None
 }
 
 fn simple_base64(data: &[u8]) -> String {
@@ -6908,8 +7090,8 @@ fn normalize_accent_color(value: &str) -> String {
 
 fn normalize_ui_style(value: &str) -> String {
     match value.trim() {
-        "nebula" | "material_you" => value.trim().into(),
-        _ => "nebula".into(),
+        "nimbo" | "material_you" => value.trim().into(),
+        _ => "nimbo".into(),
     }
 }
 

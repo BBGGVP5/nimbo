@@ -275,7 +275,7 @@ fn default_show_speed_chart() -> bool {
 }
 
 fn default_ui_style() -> String {
-    "nebula".into()
+    "nimbo".into()
 }
 
 fn default_interface_panel_brightness() -> u32 {

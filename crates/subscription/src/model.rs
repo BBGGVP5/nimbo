@@ -44,6 +44,8 @@ pub struct SubscriptionTheme {
     pub orb2: Option<String>,
     /// Background blur intensity.
     pub blur: Option<u32>,
+    /// Interface style from the `nimbo-style` header: `nebula` (Glass) or `material_you`.
+    pub ui_style: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

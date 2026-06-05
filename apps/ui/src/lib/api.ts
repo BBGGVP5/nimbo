@@ -93,6 +93,7 @@ export interface SubscriptionTheme {
   orb1?: string | null;
   orb2?: string | null;
   blur?: number | null;
+  ui_style?: string | null;
 }
 
 export interface SubscriptionMeta {
@@ -161,7 +162,7 @@ export interface PersistedState {
 
 export type ThemeMode = "system" | "dark" | "black" | "light";
 export type AccentMode = "system" | "preset" | "custom";
-export type UiStyle = "nebula" | "material_you";
+export type UiStyle = "nimbo" | "material_you";
 export type AppLanguage = "ru" | "en" | "system";
 export type LatencyProtocol = "tcp_connect" | "icmp" | "http_head";
 export type LatencyDisplayFormat = "ms" | "badge";
@@ -437,7 +438,7 @@ export const defaultAppPreferences: AppPreferences = {
   check_updates_on_launch: true,
   provider_theme: true,
   show_subscription_logo: true,
-  ui_style: "nebula",
+  ui_style: "nimbo",
   interface_panel_brightness: 100,
   interface_transparency: 0,
   interface_blur: 25,
@@ -491,7 +492,7 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
   const accentMode = value?.accent_mode === "system" || value?.accent_mode === "preset" || value?.accent_mode === "custom"
     ? value.accent_mode
     : defaultAppPreferences.accent_mode;
-  const uiStyle = value?.ui_style === "material_you" || value?.ui_style === "nebula"
+  const uiStyle = value?.ui_style === "material_you" || value?.ui_style === "nimbo"
     ? value.ui_style
     : defaultAppPreferences.ui_style;
   const language = value?.language === "en" || value?.language === "ru" || value?.language === "system"
@@ -1092,6 +1093,77 @@ function downloadBrowserTextFile(fileName: string, contents: string): string | n
   return fileName;
 }
 
+const BROWSER_SUBSCRIPTION_LOGO_CACHE_BYTES = 2 * 1024 * 1024;
+
+function browserHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function browserSubscriptionLogoPrefix(subscriptionUrl: string): string {
+  return `nimbo.subscriptionLogo.${browserHash(subscriptionUrl)}.`;
+}
+
+function cleanupBrowserSubscriptionLogoCache(prefix: string, keepKey: string) {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(prefix) && key !== keepKey) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {}
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(reader.error ?? new Error("Не удалось прочитать логотип."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function browserCachedSubscriptionLogo(
+  subscriptionUrl: string,
+  logoUrl?: string | null,
+  fetchedAt?: number | null,
+): Promise<string | null> {
+  const source = logoUrl?.trim();
+  if (!source) return null;
+  const lower = source.toLowerCase();
+  if (lower.startsWith("data:image/")) return source;
+  if (lower.startsWith("data:")) return null;
+
+  const prefix = browserSubscriptionLogoPrefix(subscriptionUrl);
+  const key = `${prefix}${browserHash(`${source}\n${fetchedAt ?? 0}`)}`;
+  try {
+    const cached = localStorage.getItem(key);
+    if (cached?.startsWith("data:image/")) return cached;
+  } catch {}
+
+  cleanupBrowserSubscriptionLogoCache(prefix, key);
+
+  try {
+    const response = await fetch(source, { cache: "force-cache" });
+    if (!response.ok) return source;
+    const blob = await response.blob();
+    if (blob.size > BROWSER_SUBSCRIPTION_LOGO_CACHE_BYTES) return source;
+    const dataUrl = await blobToDataUrl(blob);
+    if (!dataUrl.startsWith("data:image/")) return source;
+    try {
+      localStorage.setItem(key, dataUrl);
+    } catch {}
+    return dataUrl;
+  } catch {
+    return source;
+  }
+}
+
 export const api = {
   appReady: () =>
     isTauriRuntime()
@@ -1343,6 +1415,18 @@ export const api = {
     isTauriRuntime()
       ? invoke<string | null>("get_app_icon", { path })
       : Promise.resolve(null),
+  getSubscriptionLogo: (
+    subscriptionUrl: string,
+    logoUrl?: string | null,
+    fetchedAt?: number | null,
+  ): Promise<string | null> =>
+    isTauriRuntime()
+      ? invoke<string | null>("get_subscription_logo", {
+          subscriptionUrl,
+          logoUrl: logoUrl ?? null,
+          fetchedAt: fetchedAt ?? 0,
+        })
+      : browserCachedSubscriptionLogo(subscriptionUrl, logoUrl, fetchedAt),
   pickAppExecutable: (): Promise<string | null> =>
     isTauriRuntime()
       ? invoke<string | null>("pick_app_executable")

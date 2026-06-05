@@ -709,11 +709,11 @@ function AppearanceSection({
         >
           <div className="settings-interface-grid" role="radiogroup" aria-label={m.settings.interfaceStyle}>
             <InterfaceStyleOption
-              styleId="nebula"
-              title={m.settings.nebulaStyle}
-              subtitle={m.settings.nebulaStyleSubtitle}
-              selected={preferences.ui_style === "nebula"}
-              onClick={() => onChange({ ui_style: "nebula" })}
+              styleId="nimbo"
+              title={m.settings.nimboStyle}
+              subtitle={m.settings.nimboStyleSubtitle}
+              selected={preferences.ui_style === "nimbo"}
+              onClick={() => onChange({ ui_style: "nimbo" })}
             />
             <InterfaceStyleOption
               styleId="material_you"
@@ -979,6 +979,14 @@ function AppearanceSection({
           open={providerThemeOpen}
           onToggle={toggleProviderTheme}
         >
+          <SubscriptionProviderPreview
+            sub={previewSubscription}
+            theme={providerThemePreview}
+            logoSrc={providerLogoPreview}
+            themeEnabled={preferences.provider_theme}
+            logoEnabled={preferences.show_subscription_logo}
+            labels={m}
+          />
           <ProviderThemeRow
             label={m.settings.providerTheme}
             description={m.settings.providerThemeDescription}
@@ -990,14 +998,6 @@ function AppearanceSection({
             description={m.settings.showSubscriptionLogoDescription}
             enabled={preferences.show_subscription_logo}
             onToggle={(show_subscription_logo) => onChange({ show_subscription_logo })}
-          />
-          <SubscriptionProviderPreview
-            sub={previewSubscription}
-            theme={providerThemePreview}
-            logoSrc={providerLogoPreview}
-            themeEnabled={preferences.provider_theme}
-            logoEnabled={preferences.show_subscription_logo}
-            labels={m}
           />
         </CollapsibleSection>
       </SettingsCard>
@@ -2546,7 +2546,7 @@ function InterfaceStyleOption({
   selected,
   onClick,
 }: {
-  styleId: "nebula" | "material_you";
+  styleId: "nimbo" | "material_you";
   title: string;
   subtitle: string;
   selected: boolean;
@@ -2715,7 +2715,7 @@ function providerCssColor(value: string | null | undefined, fallback: string): s
 
 function providerUiChip(theme: SubscriptionTheme | null): string {
   if (theme?.ui_style === "material_you") return "M3";
-  if (theme?.ui_style === "nebula") return "Nebula";
+  if (theme?.ui_style === "nimbo") return "Nimbo";
   const filter = theme?.filter?.trim();
   return filter ? filter.slice(0, 8) : "Nimbo";
 }
