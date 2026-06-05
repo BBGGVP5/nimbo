@@ -5519,6 +5519,8 @@ body[data-ui-style="material_you"][data-theme="black"] .settings-accent-card {
 .settings-language-card .settings-theme-card-label {
   font-size: 14px;
   font-weight: 740;
+  line-height: 1.45;
+  padding-bottom: 3px;
 }
 
 .settings-language-preview-flag {

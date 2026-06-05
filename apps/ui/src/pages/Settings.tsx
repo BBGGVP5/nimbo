@@ -12,10 +12,14 @@ import {
   type ConnectionMode,
   type DeviceInfo,
   type ProxySettingsPatch,
+  type Subscription,
+  type SubscriptionTheme,
   type ThemeMode,
 } from "../lib/api";
-import { fillTemplate, useMessages } from "../lib/i18n";
+import { fillTemplate, useMessages, type Messages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
+import { useCachedSubscriptionLogo } from "../lib/subscriptionLogo";
+import { cachedSubscriptionTheme } from "../lib/subscriptionTheme";
 import {
   BACKGROUND_PRESETS,
   accentGradientCss,
@@ -98,6 +102,8 @@ export function Settings() {
   const m = useMessages();
   const subscriptions = useAppStore((s) => s.subscriptions);
   const preferences = useAppStore((s) => s.preferences);
+  const activeSubscriptionUrl = useAppStore((s) => s.activeSubscriptionUrl);
+  const activeServerId = useAppStore((s) => s.activeServerId);
   const setPreferences = useAppStore((s) => s.setPreferences);
   const refreshSubscription = useAppStore((s) => s.refreshSubscription);
   const status = useAppStore((s) => s.status);
@@ -114,6 +120,13 @@ export function Settings() {
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [appVersion, setAppVersion] = useState(APP_VERSION);
   const connectionMode = status?.connection_mode ?? "tun";
+  const previewSubscription =
+    subscriptions.find((sub) => sub.url === (activeSubscriptionUrl ?? status?.active_subscription_url)) ??
+    subscriptions.find((sub) =>
+      sub.servers.some((server) => server.id === (activeServerId ?? status?.active_server_id)),
+    ) ??
+    subscriptions[0] ??
+    null;
 
   const updatePreferences = async (patch: Partial<AppPreferences>) => {
     try {
@@ -331,6 +344,7 @@ export function Settings() {
           {section === "appearance" && (
             <AppearanceSection
               preferences={preferences}
+              previewSubscription={previewSubscription}
               onChange={updatePreferences}
             />
           )}
@@ -561,12 +575,16 @@ function GeneralSection({
 
 function AppearanceSection({
   preferences,
+  previewSubscription,
   onChange,
 }: {
   preferences: AppPreferences;
+  previewSubscription: Subscription | null;
   onChange: (patch: Partial<AppPreferences>) => Promise<void>;
 }) {
   const m = useMessages();
+  const providerThemePreview = cachedSubscriptionTheme(previewSubscription);
+  const providerLogoPreview = useCachedSubscriptionLogo(previewSubscription, true);
   const [systemAccent, setSystemAccent] = useState("#4f8cff");
   const appearance = useAppearance();
   const [interfaceOpen, toggleInterface] = usePersistentToggle("nimbo.collapse.interface", true);
@@ -574,6 +592,9 @@ function AppearanceSection({
   const [themeOpen, toggleTheme] = usePersistentToggle("nimbo.collapse.theme", false);
   const [accentOpen, toggleAccent] = usePersistentToggle("nimbo.collapse.accent", false);
   const [backgroundOpen, toggleBackground] = usePersistentToggle("nimbo.collapse.background", true);
+  const [connectionStyleOpen, toggleConnectionStyle] = usePersistentToggle("nimbo.collapse.connectionStyle", true);
+  const [languageOpen, toggleLanguage] = usePersistentToggle("nimbo.collapse.language", true);
+  const [providerThemeOpen, toggleProviderTheme] = usePersistentToggle("nimbo.collapse.providerThemeAndLogo", true);
 
   const samePalette = (a: string[], b: string[]) =>
     a.join(",").toLowerCase() === b.join(",").toLowerCase();
@@ -889,78 +910,96 @@ function AppearanceSection({
           <BackgroundChooser appearance={appearance} />
         </CollapsibleSection>
 
-        <div className="settings-row settings-row-block">
-          <div>
-            <div className="settings-row-title">{m.settings.connectionStyle}</div>
-            <div className="settings-row-description">{m.settings.connectionStyleDescription}</div>
+        <CollapsibleSection
+          title={m.settings.connectionStyle}
+          description={m.settings.connectionStyleDescription}
+          open={connectionStyleOpen}
+          onToggle={toggleConnectionStyle}
+        >
+          <div className="settings-connect-style-grid" role="radiogroup" aria-label={m.settings.connectionStyle}>
+            <ConnectionStyleOption
+              title={m.profiles.classic}
+              description={m.settings.classicConnectStyleDescription}
+              value="classic"
+              selected={preferences.servers_connect_button === "classic"}
+              icon={<ClassicButtonIcon />}
+              onClick={() => onChange({ servers_connect_button: "classic" })}
+            />
+            <ConnectionStyleOption
+              title={m.settings.compact}
+              description={m.settings.compactConnectStyleDescription}
+              value="compact"
+              selected={preferences.servers_connect_button === "compact"}
+              icon={<CompactButtonIcon />}
+              onClick={() => onChange({ servers_connect_button: "compact" })}
+            />
           </div>
-        </div>
-        <div className="settings-connect-style-grid" role="radiogroup" aria-label={m.settings.connectionStyle}>
-          <ConnectionStyleOption
-            title={m.profiles.classic}
-            description={m.settings.classicConnectStyleDescription}
-            value="classic"
-            selected={preferences.servers_connect_button === "classic"}
-            icon={<ClassicButtonIcon />}
-            onClick={() => onChange({ servers_connect_button: "classic" })}
-          />
-          <ConnectionStyleOption
-            title={m.settings.compact}
-            description={m.settings.compactConnectStyleDescription}
-            value="compact"
-            selected={preferences.servers_connect_button === "compact"}
-            icon={<CompactButtonIcon />}
-            onClick={() => onChange({ servers_connect_button: "compact" })}
-          />
-        </div>
+        </CollapsibleSection>
 
-        <div className="settings-row settings-row-block">
-          <div>
-            <div className="settings-row-title">{m.settings.language}</div>
-            <div className="settings-row-description">{m.settings.languageDescription}</div>
+        <CollapsibleSection
+          title={m.settings.language}
+          description={m.settings.languageDescription}
+          open={languageOpen}
+          onToggle={toggleLanguage}
+        >
+          <div className="settings-theme-grid settings-language-grid" role="radiogroup" aria-label={m.settings.language}>
+            <LanguagePreviewOption
+              flag="ru"
+              title="Русский"
+              sampleTitle="Подключено"
+              sampleLine="Выберите сервер"
+              sampleChip="Серверы"
+              selected={preferences.language === "ru"}
+              onClick={() => onChange({ language: "ru" })}
+            />
+            <LanguagePreviewOption
+              flag="gb"
+              title="English"
+              sampleTitle="Connected"
+              sampleLine="Choose a server"
+              sampleChip="Servers"
+              selected={preferences.language === "en"}
+              onClick={() => onChange({ language: "en" })}
+            />
+            <LanguagePreviewOption
+              icon={<GlobeIcon />}
+              title={m.settings.systemLanguage}
+              sampleTitle="RU · EN"
+              sampleLine={m.settings.systemLanguageSubtitle}
+              sampleChip="OS"
+              selected={preferences.language === "system"}
+              onClick={() => onChange({ language: "system" })}
+            />
           </div>
-        </div>
-        <div className="settings-theme-grid settings-language-grid" role="radiogroup" aria-label={m.settings.language}>
-          <LanguagePreviewOption
-            flag="ru"
-            title="Русский"
-            sampleTitle="Подключено"
-            sampleLine="Выберите сервер"
-            sampleChip="Серверы"
-            selected={preferences.language === "ru"}
-            onClick={() => onChange({ language: "ru" })}
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          title={m.settings.providerThemeAndLogo}
+          description={m.settings.providerThemeAndLogoDescription}
+          open={providerThemeOpen}
+          onToggle={toggleProviderTheme}
+        >
+          <ProviderThemeRow
+            label={m.settings.providerTheme}
+            description={m.settings.providerThemeDescription}
+            enabled={preferences.provider_theme}
+            onToggle={(provider_theme) => onChange({ provider_theme })}
           />
-          <LanguagePreviewOption
-            flag="gb"
-            title="English"
-            sampleTitle="Connected"
-            sampleLine="Choose a server"
-            sampleChip="Servers"
-            selected={preferences.language === "en"}
-            onClick={() => onChange({ language: "en" })}
+          <ProviderThemeRow
+            label={m.settings.showSubscriptionLogo}
+            description={m.settings.showSubscriptionLogoDescription}
+            enabled={preferences.show_subscription_logo}
+            onToggle={(show_subscription_logo) => onChange({ show_subscription_logo })}
           />
-          <LanguagePreviewOption
-            icon={<GlobeIcon />}
-            title={m.settings.systemLanguage}
-            sampleTitle="RU · EN"
-            sampleLine={m.settings.systemLanguageSubtitle}
-            sampleChip="OS"
-            selected={preferences.language === "system"}
-            onClick={() => onChange({ language: "system" })}
+          <SubscriptionProviderPreview
+            sub={previewSubscription}
+            theme={providerThemePreview}
+            logoSrc={providerLogoPreview}
+            themeEnabled={preferences.provider_theme}
+            logoEnabled={preferences.show_subscription_logo}
+            labels={m}
           />
-        </div>
-        <ProviderThemeRow
-          label={m.settings.providerTheme}
-          description={m.settings.providerThemeDescription}
-          enabled={preferences.provider_theme}
-          onToggle={(provider_theme) => onChange({ provider_theme })}
-        />
-        <ProviderThemeRow
-          label={m.settings.showSubscriptionLogo}
-          description={m.settings.showSubscriptionLogoDescription}
-          enabled={preferences.show_subscription_logo}
-          onToggle={(show_subscription_logo) => onChange({ show_subscription_logo })}
-        />
+        </CollapsibleSection>
       </SettingsCard>
     </Section>
   );
@@ -1166,7 +1205,7 @@ function TunnelSection({
           icon={<SignalIcon />}
         />
         <ToggleRow
-          label={`🛡 ${m.settings.tlsFragmentation}`}
+          label={m.settings.tlsFragmentation}
           description={m.settings.tlsFragmentationDescription}
           enabled={preferences.tunnel_tls_fragmentation}
           onToggle={(tunnel_tls_fragmentation) => onChange({ tunnel_tls_fragmentation })}
@@ -2662,6 +2701,79 @@ function BackgroundChooser({ appearance }: { appearance: AppearanceState }) {
           />
         </div>
       )}
+    </div>
+  );
+}
+
+function isHexColor(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value.trim());
+}
+
+function providerCssColor(value: string | null | undefined, fallback: string): string {
+  return isHexColor(value) ? value.trim() : fallback;
+}
+
+function providerUiChip(theme: SubscriptionTheme | null): string {
+  if (theme?.ui_style === "material_you") return "M3";
+  if (theme?.ui_style === "nebula") return "Nebula";
+  const filter = theme?.filter?.trim();
+  return filter ? filter.slice(0, 8) : "Nimbo";
+}
+
+function SubscriptionProviderPreview({
+  sub,
+  theme,
+  logoSrc,
+  themeEnabled,
+  logoEnabled,
+  labels,
+}: {
+  sub: Subscription | null;
+  theme: SubscriptionTheme | null;
+  logoSrc: string | null;
+  themeEnabled: boolean;
+  logoEnabled: boolean;
+  labels: Messages;
+}) {
+  const accent = providerCssColor(theme?.accent, "var(--color-accent)");
+  const orb1 = providerCssColor(theme?.orb1, accent);
+  const orb2 = providerCssColor(theme?.orb2, "var(--color-accent-bright)");
+  const subscriptionName = sub?.name?.trim() || labels.common.subscription;
+  const themeStyle = {
+    "--provider-accent": accent,
+    "--provider-orb-1": orb1,
+    "--provider-orb-2": orb2,
+  } as CSSProperties;
+
+  return (
+    <div className="settings-provider-preview" aria-label={`${labels.settings.providerTheme} · ${labels.settings.showSubscriptionLogo}`}>
+      <div className={["settings-provider-preview-card", themeEnabled ? "is-active" : ""].join(" ")}>
+        <div className="settings-provider-preview-art settings-provider-theme-art" style={themeStyle}>
+          <span className="settings-provider-theme-orb settings-provider-theme-orb-one" />
+          <span className="settings-provider-theme-orb settings-provider-theme-orb-two" />
+          <span className="settings-provider-theme-panel">
+            <span className="settings-provider-theme-line settings-provider-theme-line-strong" />
+            <span className="settings-provider-theme-line" />
+            <span className="settings-provider-theme-line settings-provider-theme-line-short" />
+          </span>
+          <span className="settings-provider-theme-chip">{providerUiChip(theme)}</span>
+        </div>
+        <div className="settings-provider-preview-label">
+          {theme ? labels.settings.providerThemeOn : labels.settings.providerThemeOff}
+        </div>
+      </div>
+      <div className={["settings-provider-preview-card", logoEnabled ? "is-active" : ""].join(" ")}>
+        <div className="settings-provider-preview-art settings-provider-logo-art">
+          {logoSrc ? (
+            <img src={logoSrc} alt="" className="subscription-logo-image subscription-logo-image-lg settings-provider-logo-image" />
+          ) : (
+            <span className="settings-provider-logo-fallback">
+              <GlobeIcon />
+            </span>
+          )}
+        </div>
+        <div className="settings-provider-preview-label">{subscriptionName}</div>
+      </div>
     </div>
   );
 }
