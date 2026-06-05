@@ -87,9 +87,9 @@ pub struct Fetched {
     pub support_url: Option<String>,
     pub website_url: Option<String>,
     pub app_proxy_rules: Vec<SubscriptionAppProxyRule>,
-    /// Brand logo from the `nimbo-logo` / `dropweb-logo` header.
+    /// Brand logo from the `nimbo-logo` header.
     pub logo_url: Option<String>,
-    /// Provider theme from the `nimbo-theme` / `dropweb-theme` header.
+    /// Provider theme from the `nimbo-theme` header.
     pub theme: Option<SubscriptionTheme>,
     /// Xray-config templates, извлечённые из тела подписки.
     /// Ключ — xrayJsonTemplateUuid/uuid/id, если есть; иначе `default`.
@@ -1421,15 +1421,7 @@ fn normalize_hex_color(value: &str) -> Option<String> {
 
 /// Extracts the provider brand logo (URL or base64) from the subscription headers.
 fn extract_subscription_logo(headers: &reqwest::header::HeaderMap) -> Option<String> {
-    const LOGO_HEADERS: &[&str] = &[
-        "nimbo-logo",
-        "dropweb-logo",
-        "x-nimbo-logo",
-        "x-dropweb-logo",
-        "profile-logo",
-        "servicelogo",
-        "logo",
-    ];
+    const LOGO_HEADERS: &[&str] = &["nimbo-logo", "x-nimbo-logo"];
     let value = raw_header_value(headers, LOGO_HEADERS)?;
     let lower = value.to_ascii_lowercase();
     if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("data:") {
@@ -1442,14 +1434,7 @@ fn extract_subscription_logo(headers: &reqwest::header::HeaderMap) -> Option<Str
 
 /// Parses the `<filter>,<accent>,<orb1>,<orb2>,<blur>` provider theme contract.
 fn extract_subscription_theme(headers: &reqwest::header::HeaderMap) -> Option<SubscriptionTheme> {
-    const THEME_HEADERS: &[&str] = &[
-        "nimbo-theme",
-        "dropweb-theme",
-        "x-nimbo-theme",
-        "x-dropweb-theme",
-        "profile-theme",
-        "theme",
-    ];
+    const THEME_HEADERS: &[&str] = &["nimbo-theme", "x-nimbo-theme"];
     let value = raw_header_value(headers, THEME_HEADERS)?;
     let parts: Vec<&str> = value.split(',').map(str::trim).collect();
     let part = |index: usize| parts.get(index).copied().filter(|s| !s.is_empty());

@@ -22,10 +22,10 @@ pub struct SubscriptionMeta {
     pub update_interval_minutes: Option<u32>,
     #[serde(default)]
     pub app_proxy_rules: Vec<SubscriptionAppProxyRule>,
-    /// Brand logo URL (or data: URI) from the `nimbo-logo` / `dropweb-logo` header.
+    /// Brand logo URL (or data: URI) from the `nimbo-logo` header.
     #[serde(default)]
     pub logo_url: Option<String>,
-    /// Provider theme contract from the `nimbo-theme` / `dropweb-theme` header.
+    /// Provider theme contract from the `nimbo-theme` header.
     #[serde(default)]
     pub theme: Option<SubscriptionTheme>,
 }
