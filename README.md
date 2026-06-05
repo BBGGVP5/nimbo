@@ -30,7 +30,7 @@
 </p>
 
 <p align="center">
-  <img src="./nimbo-poster.png" alt="Постер Nimbo" />
+  <img src="./nimbo-poster-ru.png" alt="Постер Nimbo" />
 </p>
 
 ---
