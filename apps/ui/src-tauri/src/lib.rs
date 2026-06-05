@@ -3,6 +3,7 @@ pub mod commands;
 pub mod helper;
 pub mod state;
 pub mod tray;
+pub mod tray_icons;
 pub mod updater;
 
 use crate::commands::{

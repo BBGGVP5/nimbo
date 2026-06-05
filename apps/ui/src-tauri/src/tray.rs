@@ -1,11 +1,14 @@
 use std::sync::OnceLock;
 
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{
+    CheckMenuItem, IconMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu,
+};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 
 use crate::state::{AppState, Language};
+use crate::tray_icons;
 
 // Pre-computed PNG bytes for the connected-state tray icon (green dot overlay).
 static CONNECTED_ICON_PNG: OnceLock<Vec<u8>> = OnceLock::new();
@@ -246,25 +249,51 @@ fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let labels = tray_labels(snapshot.preferences.language);
     let status_text = if snapshot.connected { labels.connected } else { labels.disconnected };
 
+    let connect_enabled = snapshot.active_server_id.is_some() && !snapshot.connected;
+    let disconnect_enabled = snapshot.connected;
+
     let menu = Menu::new(app)?;
-    let status = MenuItem::with_id(app, MENU_STATUS, status_text, false, None::<&str>)?;
-    let show = MenuItem::with_id(app, MENU_SHOW, labels.show, true, None::<&str>)?;
-    let connect = MenuItem::with_id(
+    let status = IconMenuItem::with_id(
+        app,
+        MENU_STATUS,
+        status_text,
+        false,
+        Some(tray_icons::status_icon(snapshot.connected)),
+        None::<&str>,
+    )?;
+    let show = IconMenuItem::with_id(
+        app,
+        MENU_SHOW,
+        labels.show,
+        true,
+        Some(tray_icons::show_icon()),
+        None::<&str>,
+    )?;
+    let connect = IconMenuItem::with_id(
         app,
         MENU_CONNECT,
         labels.connect,
-        snapshot.active_server_id.is_some() && !snapshot.connected,
+        connect_enabled,
+        Some(tray_icons::connect_icon(connect_enabled)),
         None::<&str>,
     )?;
-    let disconnect = MenuItem::with_id(
+    let disconnect = IconMenuItem::with_id(
         app,
         MENU_DISCONNECT,
         labels.disconnect,
-        snapshot.connected,
+        disconnect_enabled,
+        Some(tray_icons::disconnect_icon(disconnect_enabled)),
         None::<&str>,
     )?;
-    let servers = Submenu::new(app, labels.servers, true)?;
-    let quit = MenuItem::with_id(app, MENU_QUIT, labels.quit, true, None::<&str>)?;
+    let servers = Submenu::new_with_icon(app, labels.servers, true, Some(tray_icons::servers_icon()))?;
+    let quit = IconMenuItem::with_id(
+        app,
+        MENU_QUIT,
+        labels.quit,
+        true,
+        Some(tray_icons::quit_icon()),
+        None::<&str>,
+    )?;
 
     let mut server_count = 0usize;
     for sub in &snapshot.subscriptions {
