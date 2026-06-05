@@ -22,6 +22,28 @@ pub struct SubscriptionMeta {
     pub update_interval_minutes: Option<u32>,
     #[serde(default)]
     pub app_proxy_rules: Vec<SubscriptionAppProxyRule>,
+    /// Brand logo URL (or data: URI) from the `nimbo-logo` / `dropweb-logo` header.
+    #[serde(default)]
+    pub logo_url: Option<String>,
+    /// Provider theme contract from the `nimbo-theme` / `dropweb-theme` header.
+    #[serde(default)]
+    pub theme: Option<SubscriptionTheme>,
+}
+
+/// Provider-supplied theme, parsed from the `<filter>,<accent>,<orb1>,<orb2>,<blur>`
+/// header contract. All parts are optional so a partial header still applies.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SubscriptionTheme {
+    /// Color-derivation filter: fidelity | vibrant | monochrome | neutral | expressive.
+    pub filter: Option<String>,
+    /// Accent color, `#rrggbb`.
+    pub accent: Option<String>,
+    /// First background orb color, `#rrggbb`.
+    pub orb1: Option<String>,
+    /// Second background orb color, `#rrggbb`.
+    pub orb2: Option<String>,
+    /// Background blur intensity.
+    pub blur: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

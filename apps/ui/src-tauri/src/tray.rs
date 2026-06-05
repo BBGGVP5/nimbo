@@ -321,7 +321,9 @@ struct TrayLabels {
 }
 
 fn tray_labels(language: Language) -> TrayLabels {
-    match language {
+    // `resolved()` collapses `System` to a concrete `Ru`/`En`; the `System`
+    // arm below only exists to keep the match exhaustive.
+    match language.resolved() {
         Language::En => TrayLabels {
             connected: "Connected",
             disconnected: "Disconnected",
@@ -332,7 +334,7 @@ fn tray_labels(language: Language) -> TrayLabels {
             no_servers: "No servers",
             quit: "Quit",
         },
-        Language::Ru => TrayLabels {
+        Language::Ru | Language::System => TrayLabels {
             connected: "Подключено",
             disconnected: "Отключено",
             show: "Показать Nimbo",

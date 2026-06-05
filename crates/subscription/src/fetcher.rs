@@ -11,7 +11,7 @@ use nimbo_device::{DeviceInfo, device_info};
 use crate::USER_AGENT;
 use crate::model::{
     Protocol, Server, Subscription, SubscriptionAppProxyMode, SubscriptionAppProxyRule,
-    SubscriptionMeta,
+    SubscriptionMeta, SubscriptionTheme,
 };
 use crate::parser::{ParseError, parse_aggregate};
 use crate::userinfo::{SubscriptionInfo, parse_subscription_userinfo};
@@ -87,6 +87,10 @@ pub struct Fetched {
     pub support_url: Option<String>,
     pub website_url: Option<String>,
     pub app_proxy_rules: Vec<SubscriptionAppProxyRule>,
+    /// Brand logo from the `nimbo-logo` / `dropweb-logo` header.
+    pub logo_url: Option<String>,
+    /// Provider theme from the `nimbo-theme` / `dropweb-theme` header.
+    pub theme: Option<SubscriptionTheme>,
     /// Xray-config templates, извлечённые из тела подписки.
     /// Ключ — xrayJsonTemplateUuid/uuid/id, если есть; иначе `default`.
     pub xray_templates: HashMap<String, Value>,
@@ -154,6 +158,8 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
     ]);
     let provider_app_proxy_rules = extract_provider_app_proxy_rules(&client, resp.headers()).await;
     let suggested_name = extract_subscription_name(resp.headers(), url);
+    let logo_url = extract_subscription_logo(resp.headers());
+    let theme = extract_subscription_theme(resp.headers());
 
     let body = resp
         .text()
@@ -194,6 +200,8 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         support_url: remnawave.support_url.or(support_url),
         website_url: remnawave.website_url.or(website_url),
         app_proxy_rules: provider_app_proxy_rules,
+        logo_url,
+        theme,
         xray_templates,
     })
 }
@@ -316,6 +324,8 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
         support_url,
         website_url,
         app_proxy_rules,
+        logo_url,
+        theme,
         xray_templates: _,
     } = fetched;
     let resolved_name = sanitize_name(name).or_else(|| sanitize_name(suggested_name));
@@ -331,6 +341,8 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
             show_on_home: Some(true),
             update_interval_minutes: None,
             app_proxy_rules,
+            logo_url: sanitize_name(logo_url),
+            theme,
         },
         servers,
         info,
@@ -1380,6 +1392,83 @@ fn extract_header_url(headers: &reqwest::header::HeaderMap, keys: &[&str]) -> Op
     }
 }
 
+/// Reads a header value verbatim (trimmed, unquoted) without percent-decoding or
+/// base64 unwrapping — used for logo/theme values where the raw string matters.
+fn raw_header_value(headers: &reqwest::header::HeaderMap, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(raw) = headers.get(*key).and_then(|v| v.to_str().ok()) {
+            let trimmed = raw.trim().trim_matches('"').trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Normalizes a `#rrggbb` / `rrggbb` / `#rgb` color into lowercase `#rrggbb`.
+fn normalize_hex_color(value: &str) -> Option<String> {
+    let hex = value.trim().trim_start_matches('#');
+    if hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(format!("#{}", hex.to_ascii_lowercase()))
+    } else if hex.len() == 3 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        let expanded: String = hex.chars().flat_map(|c| [c, c]).collect();
+        Some(format!("#{}", expanded.to_ascii_lowercase()))
+    } else {
+        None
+    }
+}
+
+/// Extracts the provider brand logo (URL or base64) from the subscription headers.
+fn extract_subscription_logo(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    const LOGO_HEADERS: &[&str] = &[
+        "nimbo-logo",
+        "dropweb-logo",
+        "x-nimbo-logo",
+        "x-dropweb-logo",
+        "profile-logo",
+        "servicelogo",
+        "logo",
+    ];
+    let value = raw_header_value(headers, LOGO_HEADERS)?;
+    let lower = value.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("data:") {
+        Some(value)
+    } else {
+        // Bare base64 payload — wrap it as a PNG data URI so the UI can render it.
+        Some(format!("data:image/png;base64,{value}"))
+    }
+}
+
+/// Parses the `<filter>,<accent>,<orb1>,<orb2>,<blur>` provider theme contract.
+fn extract_subscription_theme(headers: &reqwest::header::HeaderMap) -> Option<SubscriptionTheme> {
+    const THEME_HEADERS: &[&str] = &[
+        "nimbo-theme",
+        "dropweb-theme",
+        "x-nimbo-theme",
+        "x-dropweb-theme",
+        "profile-theme",
+        "theme",
+    ];
+    let value = raw_header_value(headers, THEME_HEADERS)?;
+    let parts: Vec<&str> = value.split(',').map(str::trim).collect();
+    let part = |index: usize| parts.get(index).copied().filter(|s| !s.is_empty());
+
+    let theme = SubscriptionTheme {
+        filter: part(0).map(|s| s.to_ascii_lowercase()),
+        accent: part(1).and_then(normalize_hex_color),
+        orb1: part(2).and_then(normalize_hex_color),
+        orb2: part(3).and_then(normalize_hex_color),
+        blur: part(4).and_then(|s| s.parse::<u32>().ok()),
+    };
+
+    if theme == SubscriptionTheme::default() {
+        None
+    } else {
+        Some(theme)
+    }
+}
+
 async fn extract_provider_app_proxy_rules(
     client: &reqwest::Client,
     headers: &reqwest::header::HeaderMap,
@@ -2422,6 +2511,8 @@ mod tests {
             support_url: None,
             website_url: None,
             app_proxy_rules: Vec::new(),
+            logo_url: None,
+            theme: None,
             xray_templates: HashMap::new(),
         }
     }

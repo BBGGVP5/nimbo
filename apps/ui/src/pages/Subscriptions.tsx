@@ -349,6 +349,7 @@ function ProfileCard({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const setServerPing = useAppStore((s) => s.setServerPing);
+  const showSubscriptionLogo = useAppStore((s) => s.preferences.show_subscription_logo);
 
   const trafficValue = total ? `${formatBytes(used)} / ${formatBytes(total)}` : `${formatBytes(used)} / ∞`;
   const toggleExpanded = () => setExpanded((value) => !value);
@@ -453,6 +454,16 @@ function ProfileCard({
           </div>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-3">
+              {showSubscriptionLogo && sub.meta?.logo_url && (
+                <img
+                  src={sub.meta.logo_url}
+                  alt=""
+                  className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-white/15"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              )}
               <div className="truncate text-lg font-semibold text-white">{sub.name ?? m.common.subscription}</div>
               <span className="shrink-0 rounded-full bg-[rgba(255,255,255,0.08)] px-2.5 py-1 text-xs font-bold text-[var(--color-text-dim)]">
                 {sub.servers.length}

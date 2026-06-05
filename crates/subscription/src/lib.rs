@@ -11,7 +11,7 @@ pub use fetcher::{
 pub use model::{
     Hysteria2Config, Network, Protocol, Security, Server, ShadowsocksConfig, StreamSettings,
     Subscription, SubscriptionAppProxyMode, SubscriptionAppProxyRule, SubscriptionMeta,
-    TrojanConfig, VlessConfig, VmessConfig,
+    SubscriptionTheme, TrojanConfig, VlessConfig, VmessConfig,
 };
 pub use parser::{ParseError, parse_aggregate};
 pub use userinfo::{SubscriptionInfo, parse_subscription_userinfo};

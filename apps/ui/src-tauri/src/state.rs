@@ -193,6 +193,7 @@ pub struct AppPreferences {
     pub ping_on_launch: bool,
     pub check_updates_on_launch: bool,
     pub provider_theme: bool,
+    pub show_subscription_logo: bool,
     #[serde(default = "default_ui_style")]
     pub ui_style: String,
     #[serde(default = "default_interface_panel_brightness")]
@@ -351,6 +352,7 @@ impl Default for AppPreferences {
             ping_on_launch: true,
             check_updates_on_launch: true,
             provider_theme: true,
+            show_subscription_logo: true,
             ui_style: default_ui_style(),
             interface_panel_brightness: default_interface_panel_brightness(),
             interface_transparency: 0,
@@ -430,12 +432,41 @@ impl Default for AccentMode {
 pub enum Language {
     Ru,
     En,
+    System,
 }
 
 impl Default for Language {
     fn default() -> Self {
         Self::Ru
     }
+}
+
+impl Language {
+    /// Resolves `System` to a concrete language based on the OS UI locale.
+    /// Concrete `Ru`/`En` values are returned unchanged.
+    pub fn resolved(self) -> Language {
+        match self {
+            Language::System => detect_system_language(),
+            other => other,
+        }
+    }
+}
+
+#[cfg(windows)]
+fn detect_system_language() -> Language {
+    // LANG_RUSSIAN primary language identifier.
+    const LANG_RUSSIAN: u16 = 0x19;
+    let langid = unsafe { winapi::um::winnls::GetUserDefaultUILanguage() };
+    if (langid & 0x3ff) == LANG_RUSSIAN {
+        Language::Ru
+    } else {
+        Language::En
+    }
+}
+
+#[cfg(not(windows))]
+fn detect_system_language() -> Language {
+    Language::En
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

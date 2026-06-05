@@ -87,6 +87,14 @@ export interface SubscriptionInfo {
   expire?: number | null;
 }
 
+export interface SubscriptionTheme {
+  filter?: string | null;
+  accent?: string | null;
+  orb1?: string | null;
+  orb2?: string | null;
+  blur?: number | null;
+}
+
 export interface SubscriptionMeta {
   description?: string | null;
   support_url?: string | null;
@@ -94,6 +102,8 @@ export interface SubscriptionMeta {
   show_on_home?: boolean | null;
   update_interval_minutes?: number | null;
   app_proxy_rules?: AppProxyRule[];
+  logo_url?: string | null;
+  theme?: SubscriptionTheme | null;
 }
 
 export interface Subscription {
@@ -152,7 +162,7 @@ export interface PersistedState {
 export type ThemeMode = "system" | "dark" | "black" | "light";
 export type AccentMode = "system" | "preset" | "custom";
 export type UiStyle = "nebula" | "material_you";
-export type AppLanguage = "ru" | "en";
+export type AppLanguage = "ru" | "en" | "system";
 export type LatencyProtocol = "tcp_connect" | "icmp" | "http_head";
 export type LatencyDisplayFormat = "ms" | "badge";
 export type XudpUdp443Mode = "reject" | "allow" | "skip";
@@ -169,6 +179,7 @@ export interface AppPreferences {
   ping_on_launch: boolean;
   check_updates_on_launch: boolean;
   provider_theme: boolean;
+  show_subscription_logo: boolean;
   ui_style: UiStyle;
   interface_panel_brightness: number;
   interface_transparency: number;
@@ -425,6 +436,7 @@ export const defaultAppPreferences: AppPreferences = {
   ping_on_launch: true,
   check_updates_on_launch: true,
   provider_theme: true,
+  show_subscription_logo: true,
   ui_style: "nebula",
   interface_panel_brightness: 100,
   interface_transparency: 0,
@@ -482,7 +494,7 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
   const uiStyle = value?.ui_style === "material_you" || value?.ui_style === "nebula"
     ? value.ui_style
     : defaultAppPreferences.ui_style;
-  const language = value?.language === "en" || value?.language === "ru"
+  const language = value?.language === "en" || value?.language === "ru" || value?.language === "system"
     ? value.language
     : defaultAppPreferences.language;
   const accent = typeof value?.accent_color === "string" && /^#[0-9a-f]{6}$/i.test(value.accent_color)
@@ -557,6 +569,7 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     ping_on_launch: value?.ping_on_launch !== false,
     check_updates_on_launch: value?.check_updates_on_launch !== false,
     provider_theme: value?.provider_theme !== false,
+    show_subscription_logo: value?.show_subscription_logo !== false,
     ui_style: uiStyle,
     interface_panel_brightness: clampNumber(value?.interface_panel_brightness, defaultAppPreferences.interface_panel_brightness, 60, 140),
     interface_transparency: clampNumber(value?.interface_transparency, defaultAppPreferences.interface_transparency, 0, 80),

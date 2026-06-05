@@ -733,6 +733,8 @@ pub async fn add_subscription(
             support_url: None,
             website_url: None,
             app_proxy_rules: Vec::new(),
+            logo_url: None,
+            theme: None,
             xray_templates,
         }
     };
@@ -5066,6 +5068,97 @@ fn build_runtime_xray_config(
 fn apply_runtime_preferences(config: &mut serde_json::Value, preferences: &AppPreferences) {
     apply_inbound_preferences(config, preferences);
     apply_mux_preferences(config, preferences);
+    apply_tls_fragmentation_preferences(config, preferences);
+}
+
+/// Tag of the freedom outbound that performs TLS ClientHello fragmentation.
+const XRAY_FRAGMENT_TAG: &str = "fragment";
+
+/// Wires up Xray-style TLS fragmentation: a dedicated `freedom` outbound with a
+/// `fragment` (packets=tlshello) setting, dialed through by the proxy outbound
+/// via `streamSettings.sockopt.dialerProxy`. This splits the TLS ClientHello —
+/// including the SNI — across several TCP segments so SNI-based DPI can't read
+/// the hostname in one piece. Idempotent: removes its own outbound first so the
+/// toggle can flip on/off without leaving stale config behind.
+fn apply_tls_fragmentation_preferences(
+    config: &mut serde_json::Value,
+    preferences: &AppPreferences,
+) {
+    let Some(outbounds) = config
+        .get_mut("outbounds")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+
+    // Drop any fragment outbound we injected previously so re-applying is clean.
+    outbounds.retain(|outbound| {
+        outbound.get("tag").and_then(serde_json::Value::as_str) != Some(XRAY_FRAGMENT_TAG)
+    });
+
+    // Locate the proxy outbound (same heuristic as mux).
+    let target_index = outbounds
+        .iter()
+        .position(|outbound| {
+            outbound.get("tag").and_then(serde_json::Value::as_str) == Some(XRAY_PROXY_TAG)
+        })
+        .or_else(|| {
+            outbounds.iter().position(|outbound| {
+                let protocol = outbound
+                    .get("protocol")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                protocol != "freedom" && protocol != "blackhole"
+            })
+        });
+
+    let Some(index) = target_index else {
+        return;
+    };
+
+    if preferences.tunnel_tls_fragmentation {
+        if let Some(outbound) = outbounds[index].as_object_mut() {
+            let stream = outbound
+                .entry("streamSettings")
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(stream_obj) = stream.as_object_mut() {
+                let sockopt = stream_obj
+                    .entry("sockopt")
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(sockopt_obj) = sockopt.as_object_mut() {
+                    sockopt_obj.insert(
+                        "dialerProxy".into(),
+                        serde_json::Value::String(XRAY_FRAGMENT_TAG.into()),
+                    );
+                }
+            }
+        }
+
+        outbounds.push(serde_json::json!({
+            "tag": XRAY_FRAGMENT_TAG,
+            "protocol": "freedom",
+            "settings": {
+                "domainStrategy": "AsIs",
+                "fragment": {
+                    "packets": "tlshello",
+                    "length": "10-20",
+                    "interval": "10-20"
+                }
+            }
+        }));
+    } else if let Some(sockopt) = outbounds[index]
+        .get_mut("streamSettings")
+        .and_then(|stream| stream.get_mut("sockopt"))
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        if sockopt
+            .get("dialerProxy")
+            .and_then(serde_json::Value::as_str)
+            == Some(XRAY_FRAGMENT_TAG)
+        {
+            sockopt.remove("dialerProxy");
+        }
+    }
 }
 
 fn apply_inbound_preferences(config: &mut serde_json::Value, preferences: &AppPreferences) {

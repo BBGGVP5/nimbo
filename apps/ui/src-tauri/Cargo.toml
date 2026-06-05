@@ -47,7 +47,7 @@ png = "0.17"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
-winapi = { version = "0.3", features = ["shellapi", "wingdi", "winuser", "libloaderapi"] }
+winapi = { version = "0.3", features = ["shellapi", "wingdi", "winuser", "libloaderapi", "winnls"] }
 windows-service = "0.7"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",

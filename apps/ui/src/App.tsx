@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Home } from "./pages/Home";
@@ -20,10 +20,10 @@ import {
   type AppearanceState,
 } from "./lib/appearance";
 import { useAppStore } from "./store";
-import { api, type AppPreferences, type AppUpdateInfo, type ConflictingProcess, type HelperStatus } from "./lib/api";
+import { api, type AppPreferences, type AppUpdateInfo, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initNimboDeepLinks } from "./lib/deepLinks";
-import { fillTemplate, useMessages, type Messages } from "./lib/i18n";
+import { fillTemplate, resolveLanguage, useMessages, type Messages } from "./lib/i18n";
 import nimboLogo from "./assets/nimbo.png";
 
 const APP_UPDATE_DIALOG_EVENT = "nimbo:show-update-dialog";
@@ -48,6 +48,7 @@ export default function App() {
   const error = useAppStore((s) => s.error);
   const subscriptions = useAppStore((s) => s.subscriptions);
   const activeServerId = useAppStore((s) => s.activeServerId);
+  const activeSubscriptionUrl = useAppStore((s) => s.activeSubscriptionUrl);
   const connectServer = useAppStore((s) => s.connectServer);
   const hydrate = useAppStore((s) => s.hydrate);
   const refreshSubscription = useAppStore((s) => s.refreshSubscription);
@@ -77,11 +78,31 @@ export default function App() {
   const { unread: unreadNotifications } = useNotificationHistory();
   const appearance = useAppearance();
 
-  useEffect(() => applyVisualPreferences(preferences), [preferences]);
+  const providerTheme = useMemo<SubscriptionTheme | null>(() => {
+    if (!preferences.provider_theme) return null;
+    const active =
+      subscriptions.find((s) => s.url === activeSubscriptionUrl) ??
+      subscriptions.find((s) => s.servers.some((srv) => srv.id === activeServerId));
+    return active?.meta?.theme ?? null;
+  }, [preferences.provider_theme, subscriptions, activeSubscriptionUrl, activeServerId]);
+
+  useEffect(
+    () => applyVisualPreferences(preferences, providerTheme),
+    [preferences, providerTheme],
+  );
 
   useEffect(() => {
-    applyAccentGradient(preferences.accent_mode, preferences.accent_color, appearance.palette);
-  }, [preferences.accent_mode, preferences.accent_color, appearance.palette]);
+    const isHex = (c: string | null | undefined): c is string =>
+      typeof c === "string" && /^#[0-9a-fA-F]{6}$/.test(c.trim());
+    if (isHex(providerTheme?.accent)) {
+      const orbs = [providerTheme!.accent, providerTheme!.orb1, providerTheme!.orb2]
+        .filter(isHex)
+        .map((c) => c.trim());
+      applyAccentGradient("custom", orbs[0], orbs);
+    } else {
+      applyAccentGradient(preferences.accent_mode, preferences.accent_color, appearance.palette);
+    }
+  }, [providerTheme, preferences.accent_mode, preferences.accent_color, appearance.palette]);
 
   useEffect(() => {
     // Notify the backend that the React frontend has mounted and is ready
@@ -580,8 +601,21 @@ function navLabel(labels: Messages["app"], key: string, short: boolean): string 
   return labels.settings;
 }
 
-function applyVisualPreferences(preferences: AppPreferences) {
+function applyVisualPreferences(
+  preferences: AppPreferences,
+  providerTheme?: SubscriptionTheme | null,
+) {
   if (typeof window === "undefined") return () => {};
+
+  const isHexColor = (value: string | null | undefined): value is string =>
+    typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value.trim());
+  const themeAccent = isHexColor(providerTheme?.accent) ? providerTheme!.accent!.trim() : null;
+  const themeOrb1 = isHexColor(providerTheme?.orb1) ? providerTheme!.orb1!.trim() : null;
+  const themeOrb2 = isHexColor(providerTheme?.orb2) ? providerTheme!.orb2!.trim() : null;
+  const themeBlur =
+    providerTheme && typeof providerTheme.blur === "number" && Number.isFinite(providerTheme.blur)
+      ? providerTheme.blur
+      : null;
 
   const media = window.matchMedia("(prefers-color-scheme: light)");
   const apply = () => {
@@ -590,20 +624,21 @@ function applyVisualPreferences(preferences: AppPreferences) {
       : preferences.theme_mode;
     const isLightTheme = resolvedTheme === "light";
     const isBlackTheme = resolvedTheme === "black";
-    document.documentElement.lang = preferences.language;
+    document.documentElement.lang = resolveLanguage(preferences.language);
     document.body.dataset.theme = resolvedTheme;
     document.body.dataset.uiStyle = preferences.ui_style;
 
-    const accent = preferences.accent_mode === "system"
-      ? readSystemAccentColor()
-      : preferences.accent_color;
+    const accent = themeAccent
+      ?? (preferences.accent_mode === "system"
+        ? readSystemAccentColor()
+        : preferences.accent_color);
     const bright = mixHex(accent, isLightTheme ? "#ffffff" : isBlackTheme ? "#f2f1ff" : "#d9d2ff", isBlackTheme ? 0.26 : 0.32);
     const soft = mixHex(accent, "#ffffff", 0.58);
     const glow = hexToRgba(accent, isLightTheme ? 0.22 : isBlackTheme ? 0.22 : 0.28);
     const activeBg = hexToRgba(accent, isLightTheme ? 0.12 : isBlackTheme ? 0.14 : 0.16);
     const panel = hexToRgba(accent, isLightTheme ? 0.08 : isBlackTheme ? 0.07 : 0.10);
-    const bgAura1 = hexToRgba(accent, isLightTheme ? 0.15 : isBlackTheme ? 0.09 : 0.20);
-    const bgAura2 = hexToRgba(bright, isLightTheme ? 0.10 : isBlackTheme ? 0.06 : 0.12);
+    const bgAura1 = hexToRgba(themeOrb1 ?? accent, isLightTheme ? 0.15 : isBlackTheme ? 0.09 : 0.20);
+    const bgAura2 = hexToRgba(themeOrb2 ?? bright, isLightTheme ? 0.10 : isBlackTheme ? 0.06 : 0.12);
     const bgAura3 = hexToRgba(soft, isLightTheme ? 0.09 : isBlackTheme ? 0.07 : 0.13);
     const root = document.documentElement;
     const clampVisual = (value: unknown, fallback: number, min: number, max: number) => {
@@ -613,7 +648,7 @@ function applyVisualPreferences(preferences: AppPreferences) {
     };
     const panelBrightness = clampVisual(preferences.interface_panel_brightness, 100, 60, 140);
     const transparency = clampVisual(preferences.interface_transparency, 0, 0, 80);
-    const blur = clampVisual(preferences.interface_blur, 25, 0, 48);
+    const blur = clampVisual(themeBlur ?? preferences.interface_blur, 25, 0, 48);
     const rounding = clampVisual(preferences.interface_rounding, 100, 50, 180) / 100;
     const brightnessDelta = panelBrightness - 100;
     const overlayStrength = Math.min(1, Math.abs(brightnessDelta) / 40) * (brightnessDelta > 0 ? 0.18 : 0.22);

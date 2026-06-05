@@ -417,12 +417,16 @@ export const messages = {
       backgroundDim: "Затемнение",
       backgroundBlur: "Размытие фона",
       backgroundUploadError: "Не удалось загрузить файл фона.",
-      providerThemeOn: "С темой провайдера",
+      providerThemeOn: "С темой из подписки",
       providerThemeOff: "Стандартная",
       language: "Язык",
       languageDescription: "Русский или English для интерфейса приложения",
-      providerTheme: "Тема от провайдера",
-      providerThemeDescription: "Подменять акцент и градиенты на брендинг активной подписки",
+      systemLanguage: "Как в системе",
+      systemLanguageSubtitle: "Авто",
+      providerTheme: "Тема из подписки",
+      providerThemeDescription: "Брать акцент, градиенты и цвета из активной подписки",
+      showSubscriptionLogo: "Логотип подписки",
+      showSubscriptionLogoDescription: "Показывать логотип бренда из подписки на её карточке",
       connectionMode: "Режим подключения",
       connectionModeDescription: "Включите TUN, System Proxy или оба сразу. Если оба включены — Nimbo поднимет туннель и одновременно переключит системный прокси Windows.",
       tunSubtitle: "Wintun + tun2socks, требуется запуск от имени администратора",
@@ -440,8 +444,8 @@ export const messages = {
       sniffing: "Сниффинг",
       sniffingDescription: "Передавать SNI / Host в роутинг",
       muxDescription: "Мультиплексирование потоков в одно соединение",
-      tlsFragmentation: "TLS фрагментация",
-      tlsFragmentationDescription: "Делит ClientHello, чтобы обойти DPI по SNI",
+      tlsFragmentation: "TLS Fragment",
+      tlsFragmentationDescription: "Режет TLS ClientHello на сегменты, чтобы имя хоста (SNI) не уходило одним куском — DPI по SNI не может его прочитать. Небольшой оверхед на коннект, поэтому по умолчанию выключено.",
       remoteDns: "Удалённый DNS",
       remoteDnsDescription: "Резолвит проксируемые домены. Принимаются DoH / DoT / IP.",
       localDns: "Локальный DNS",
@@ -951,12 +955,16 @@ export const messages = {
       backgroundDim: "Dim",
       backgroundBlur: "Background blur",
       backgroundUploadError: "Could not load the background file.",
-      providerThemeOn: "With provider theme",
+      providerThemeOn: "With subscription theme",
       providerThemeOff: "Default",
       language: "Language",
       languageDescription: "Russian or English for the app interface",
-      providerTheme: "Provider theme",
-      providerThemeDescription: "Use active subscription branding for accents and gradients",
+      systemLanguage: "System",
+      systemLanguageSubtitle: "Auto",
+      providerTheme: "Theme from subscription",
+      providerThemeDescription: "Use accent, gradients and colors from the active subscription",
+      showSubscriptionLogo: "Subscription logo",
+      showSubscriptionLogoDescription: "Show the subscription's brand logo on its card",
       connectionMode: "Connection mode",
       connectionModeDescription: "Enable TUN, System Proxy, or both. With both on, Nimbo brings up the tunnel and toggles the Windows system proxy simultaneously.",
       tunSubtitle: "Wintun + tun2socks, requires administrator launch",
@@ -974,8 +982,8 @@ export const messages = {
       sniffing: "Sniffing",
       sniffingDescription: "Pass SNI / Host to routing",
       muxDescription: "Multiplex several streams into one connection",
-      tlsFragmentation: "TLS fragmentation",
-      tlsFragmentationDescription: "Splits ClientHello to bypass SNI DPI",
+      tlsFragmentation: "TLS Fragment",
+      tlsFragmentationDescription: "Splits the TLS ClientHello into segments so the hostname (SNI) doesn't go out in one piece — SNI-based DPI can't read it. Small connection overhead, so it's off by default.",
       remoteDns: "Remote DNS",
       remoteDnsDescription: "Resolves proxied domains. DoH / DoT / IP accepted.",
       localDns: "Local DNS",
@@ -1078,8 +1086,23 @@ type WidenStrings<T> = {
 
 export type Messages = WidenStrings<typeof messages.ru>;
 
+export function resolveLanguage(language: AppLanguage | undefined | null): "ru" | "en" {
+  if (language === "system") {
+    if (typeof navigator !== "undefined") {
+      const candidates = navigator.languages && navigator.languages.length
+        ? navigator.languages
+        : [navigator.language];
+      for (const candidate of candidates) {
+        if (candidate && candidate.toLowerCase().startsWith("ru")) return "ru";
+      }
+    }
+    return "en";
+  }
+  return language === "en" ? "en" : "ru";
+}
+
 export function getMessages(language: AppLanguage | undefined | null): Messages {
-  return messages[language === "en" ? "en" : "ru"];
+  return messages[resolveLanguage(language)];
 }
 
 export function useMessages(): Messages {

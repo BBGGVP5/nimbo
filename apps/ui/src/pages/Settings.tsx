@@ -920,20 +920,33 @@ function AppearanceSection({
             <div className="settings-row-description">{m.settings.languageDescription}</div>
           </div>
         </div>
-        <div className="settings-language-grid" role="radiogroup" aria-label={m.settings.language}>
-          <LanguageOption
+        <div className="settings-theme-grid settings-language-grid" role="radiogroup" aria-label={m.settings.language}>
+          <LanguagePreviewOption
             flag="ru"
             title="Русский"
-            subtitle="RU"
+            sampleTitle="Подключено"
+            sampleLine="Выберите сервер"
+            sampleChip="Серверы"
             selected={preferences.language === "ru"}
             onClick={() => onChange({ language: "ru" })}
           />
-          <LanguageOption
+          <LanguagePreviewOption
             flag="gb"
             title="English"
-            subtitle="EN"
+            sampleTitle="Connected"
+            sampleLine="Choose a server"
+            sampleChip="Servers"
             selected={preferences.language === "en"}
             onClick={() => onChange({ language: "en" })}
+          />
+          <LanguagePreviewOption
+            icon={<GlobeIcon />}
+            title={m.settings.systemLanguage}
+            sampleTitle="RU · EN"
+            sampleLine={m.settings.systemLanguageSubtitle}
+            sampleChip="OS"
+            selected={preferences.language === "system"}
+            onClick={() => onChange({ language: "system" })}
           />
         </div>
         <ProviderThemeRow
@@ -941,6 +954,12 @@ function AppearanceSection({
           description={m.settings.providerThemeDescription}
           enabled={preferences.provider_theme}
           onToggle={(provider_theme) => onChange({ provider_theme })}
+        />
+        <ProviderThemeRow
+          label={m.settings.showSubscriptionLogo}
+          description={m.settings.showSubscriptionLogoDescription}
+          enabled={preferences.show_subscription_logo}
+          onToggle={(show_subscription_logo) => onChange({ show_subscription_logo })}
         />
       </SettingsCard>
     </Section>
@@ -1147,7 +1166,7 @@ function TunnelSection({
           icon={<SignalIcon />}
         />
         <ToggleRow
-          label={m.settings.tlsFragmentation}
+          label={`🛡 ${m.settings.tlsFragmentation}`}
           description={m.settings.tlsFragmentationDescription}
           enabled={preferences.tunnel_tls_fragmentation}
           onToggle={(tunnel_tls_fragmentation) => onChange({ tunnel_tls_fragmentation })}
@@ -2680,16 +2699,22 @@ function ProviderThemeRow({
   );
 }
 
-function LanguageOption({
+function LanguagePreviewOption({
   flag,
+  icon,
   title,
-  subtitle,
+  sampleTitle,
+  sampleLine,
+  sampleChip,
   selected,
   onClick,
 }: {
-  flag: string;
+  flag?: string;
+  icon?: ReactNode;
   title: string;
-  subtitle: string;
+  sampleTitle: string;
+  sampleLine: string;
+  sampleChip: string;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -2698,23 +2723,30 @@ function LanguageOption({
       type="button"
       role="radio"
       aria-checked={selected}
+      aria-label={title}
       onClick={onClick}
       className={[
+        "settings-theme-card",
         "settings-language-card",
-        selected ? "settings-language-card-active" : "",
+        selected ? "settings-theme-card-active" : "",
       ].join(" ")}
     >
-      <span className={`fi fi-${flag} settings-language-flag`} aria-hidden="true" />
-      <span className="settings-language-copy">
-        <span className="settings-language-title">{title}</span>
-        <span className="settings-language-subtitle">{subtitle}</span>
+      <span className="settings-theme-preview settings-language-preview" aria-hidden="true">
+        <span
+          className={[
+            "settings-language-preview-flag",
+            icon ? "settings-language-preview-flag-icon" : "",
+          ].join(" ")}
+        >
+          {icon ?? <span className={`fi fi-${flag}`} />}
+        </span>
+        <span className="settings-language-preview-body">
+          <span className="settings-language-preview-title">{sampleTitle}</span>
+          <span className="settings-language-preview-line">{sampleLine}</span>
+          <span className="settings-language-preview-chip">{sampleChip}</span>
+        </span>
       </span>
-      <span
-        className={["settings-language-check", selected ? "settings-language-check-on" : ""].join(" ")}
-        aria-hidden="true"
-      >
-        {selected && <CheckIcon />}
-      </span>
+      <span className="settings-theme-card-label">{title}</span>
     </button>
   );
 }
