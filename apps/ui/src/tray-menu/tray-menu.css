@@ -1,0 +1,185 @@
+/* Custom tray flyout. The window itself is transparent and frameless; the card
+   below provides the visible surface, rounded corners and drop shadow. The
+   shell adds a margin so the shadow has room to render inside the window. */
+
+html,
+body,
+#tray-root {
+  height: auto;
+  margin: 0;
+  background: transparent !important;
+}
+
+body {
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+#tray-root {
+  display: inline-block;
+}
+
+.tray-shell {
+  display: inline-block;
+  padding: 12px;
+}
+
+.tray-card {
+  width: 250px;
+  box-sizing: border-box;
+  padding: 6px;
+  border-radius: 16px;
+  background: rgba(20, 21, 29, 0.98);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid var(--color-border-strong);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.55),
+    0 4px 14px rgba(0, 0, 0, 0.4);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.tray-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: default;
+  outline: none;
+  transition: background-color 0.12s ease;
+}
+
+button.tray-item:not(.is-disabled):hover,
+button.tray-item:not(.is-disabled):focus-visible {
+  background: var(--color-accent-active-bg);
+}
+
+button.tray-item:not(.is-disabled):active {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
+.tray-item.is-disabled {
+  color: var(--color-text-faint);
+  cursor: default;
+}
+
+.tray-item.is-static {
+  cursor: default;
+}
+
+.tray-item.is-muted .tray-label {
+  color: var(--color-text-faint);
+}
+
+.tray-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tray-icon {
+  width: 19px;
+  height: 19px;
+  flex: none;
+  color: var(--color-text-dim);
+}
+
+.tray-item:not(.is-disabled):hover .tray-icon {
+  color: var(--color-text);
+}
+
+.tray-item.is-disabled .tray-icon {
+  color: var(--color-text-faint);
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  margin: 0 4.5px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.status-dot.is-on {
+  background: var(--color-status-connected);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-status-connected) 22%, transparent);
+}
+
+.status-dot.is-off {
+  background: var(--color-status-disconnected);
+}
+
+.tray-sep {
+  height: 1px;
+  margin: 5px 10px;
+  background: var(--color-border);
+}
+
+.tray-section-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+.tray-section-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.tray-servers {
+  max-height: 216px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.tray-servers::-webkit-scrollbar {
+  width: 8px;
+}
+
+.tray-servers::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.tray-server .tray-flag {
+  flex: none;
+  width: 19px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.tray-server.is-active .tray-label {
+  color: var(--color-accent-soft);
+}
+
+.tray-check {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  color: var(--color-accent-bright);
+}

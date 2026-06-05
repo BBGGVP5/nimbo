@@ -1,14 +1,13 @@
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
+use serde::Serialize;
 use tauri::image::Image;
-use tauri::menu::{
-    CheckMenuItem, IconMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu,
-};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
+};
 
 use crate::state::{AppState, Language};
-use crate::tray_icons;
 
 // Pre-computed PNG bytes for the connected-state tray icon (green dot overlay).
 static CONNECTED_ICON_PNG: OnceLock<Vec<u8>> = OnceLock::new();
@@ -188,36 +187,50 @@ fn make_tray_icon_png(connected: bool) -> Result<Vec<u8>, Box<dyn std::error::Er
 }
 
 const TRAY_ID: &str = "nimbo-tray";
-const MENU_STATUS: &str = "tray-status";
-const MENU_SHOW: &str = "tray-show";
-const MENU_CONNECT: &str = "tray-connect";
-const MENU_DISCONNECT: &str = "tray-disconnect";
-const MENU_QUIT: &str = "tray-quit";
-const MENU_SERVER_PREFIX: &str = "tray-server:";
+const MENU_WINDOW: &str = "tray-menu";
+
+/// Cursor anchor (physical px) captured on right-click, plus whether a reveal
+/// is pending. The popup measures its rendered content and calls
+/// `tray_menu_resize`, which reads this to size, position, and show the window
+/// at the right spot.
+struct MenuCtl {
+    anchor: Option<(f64, f64)>,
+    pending: bool,
+}
+
+static MENU_CTL: OnceLock<Mutex<MenuCtl>> = OnceLock::new();
+
+fn menu_ctl() -> &'static Mutex<MenuCtl> {
+    MENU_CTL.get_or_init(|| Mutex::new(MenuCtl { anchor: None, pending: false }))
+}
 
 pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let snapshot = app.state::<AppState>().snapshot();
-    let menu = build_tray_menu(app)?;
     let icon = get_tray_icon(snapshot.connected)?;
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
         .tooltip(tray_tooltip(snapshot.connected))
-        .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()))
-        .on_tray_icon_event(|tray, event| {
-            if matches!(
-                event,
-                TrayIconEvent::DoubleClick { .. }
-                    | TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    }
-            ) {
+        .on_tray_icon_event(|tray, event| match event {
+            TrayIconEvent::DoubleClick { .. }
+            | TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } => {
                 show_main_window(tray.app_handle());
             }
+            // Right-click opens our custom webview flyout instead of a native menu.
+            TrayIconEvent::Click {
+                button: MouseButton::Right,
+                button_state: MouseButtonState::Up,
+                position,
+                ..
+            } => {
+                open_tray_menu(tray.app_handle(), position.x, position.y);
+            }
+            _ => {}
         })
         .build(app)?;
 
@@ -227,7 +240,6 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
 pub fn refresh_tray_menu(app: &AppHandle) -> tauri::Result<()> {
     let connected = app.state::<AppState>().snapshot().connected;
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        tray.set_menu(Some(build_tray_menu(app)?))?;
         tray.set_icon(Some(get_tray_icon(connected)?))?;
         tray.set_tooltip(Some(tray_tooltip(connected)))?;
     }
@@ -237,6 +249,8 @@ pub fn refresh_tray_menu(app: &AppHandle) -> tauri::Result<()> {
             let _ = window.set_icon(icon);
         }
     }
+    // If the popup is open, let it refresh its contents to reflect new state.
+    let _ = app.emit_to(MENU_WINDOW, "tray-menu:refresh", ());
     Ok(())
 }
 
@@ -244,148 +258,146 @@ fn tray_tooltip(connected: bool) -> &'static str {
     if connected { "Nimbo — Подключено" } else { "Nimbo" }
 }
 
-fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+/// Lazily create the (hidden) frameless webview that renders the tray menu.
+fn create_menu_window(app: &AppHandle) -> tauri::Result<()> {
+    WebviewWindowBuilder::new(app, MENU_WINDOW, WebviewUrl::App("tray-menu.html".into()))
+        .title("Nimbo")
+        .inner_size(268.0, 360.0)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .visible(false)
+        .focused(false)
+        .build()?;
+    Ok(())
+}
+
+/// Capture the cursor anchor and ask the popup to (re)load and reveal itself.
+fn open_tray_menu(app: &AppHandle, x: f64, y: f64) {
+    {
+        let mut ctl = menu_ctl().lock().unwrap();
+        ctl.anchor = Some((x, y));
+        ctl.pending = true;
+    }
+    if app.get_webview_window(MENU_WINDOW).is_none() {
+        if let Err(error) = create_menu_window(app) {
+            tracing::warn!(?error, "failed to create tray menu window");
+            return;
+        }
+        // First creation: the window's own mount flow performs the initial
+        // load + resize (which reveals it because `pending` is set), so a
+        // missed event here is harmless.
+        return;
+    }
+    let _ = app.emit_to(MENU_WINDOW, "tray-menu:open", ());
+}
+
+#[derive(Serialize)]
+pub struct TrayMenuServer {
+    id: String,
+    name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrayMenuState {
+    connected: bool,
+    active_server_id: Option<String>,
+    language: String,
+    servers: Vec<TrayMenuServer>,
+}
+
+/// Snapshot the data the popup needs to render itself.
+#[tauri::command]
+pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
     let snapshot = app.state::<AppState>().snapshot();
-    let labels = tray_labels(snapshot.preferences.language);
-    let status_text = if snapshot.connected { labels.connected } else { labels.disconnected };
+    let language = match snapshot.preferences.language.resolved() {
+        Language::En => "en",
+        _ => "ru",
+    }
+    .to_string();
 
-    let connect_enabled = snapshot.active_server_id.is_some() && !snapshot.connected;
-    let disconnect_enabled = snapshot.connected;
-
-    let menu = Menu::new(app)?;
-    let status = IconMenuItem::with_id(
-        app,
-        MENU_STATUS,
-        status_text,
-        false,
-        Some(tray_icons::status_icon(snapshot.connected)),
-        None::<&str>,
-    )?;
-    let show = IconMenuItem::with_id(
-        app,
-        MENU_SHOW,
-        labels.show,
-        true,
-        Some(tray_icons::show_icon()),
-        None::<&str>,
-    )?;
-    let connect = IconMenuItem::with_id(
-        app,
-        MENU_CONNECT,
-        labels.connect,
-        connect_enabled,
-        Some(tray_icons::connect_icon(connect_enabled)),
-        None::<&str>,
-    )?;
-    let disconnect = IconMenuItem::with_id(
-        app,
-        MENU_DISCONNECT,
-        labels.disconnect,
-        disconnect_enabled,
-        Some(tray_icons::disconnect_icon(disconnect_enabled)),
-        None::<&str>,
-    )?;
-    let servers = Submenu::new_with_icon(app, labels.servers, true, Some(tray_icons::servers_icon()))?;
-    let quit = IconMenuItem::with_id(
-        app,
-        MENU_QUIT,
-        labels.quit,
-        true,
-        Some(tray_icons::quit_icon()),
-        None::<&str>,
-    )?;
-
-    let mut server_count = 0usize;
+    let mut servers = Vec::new();
     for sub in &snapshot.subscriptions {
         for server in &sub.servers {
-            server_count += 1;
-            let selected = snapshot.active_server_id.as_deref() == Some(server.id.as_str());
-            let label = if selected {
-                format!("✓ {}", compact_menu_label(&server.name))
-            } else {
-                compact_menu_label(&server.name)
-            };
-            let item = CheckMenuItem::with_id(
-                app,
-                format!("{MENU_SERVER_PREFIX}{}", server.id),
-                label,
-                true,
-                selected,
-                None::<&str>,
-            )?;
-            servers.append(&item)?;
+            servers.push(TrayMenuServer {
+                id: server.id.clone(),
+                name: server.name.clone(),
+            });
         }
     }
 
-    if server_count == 0 {
-        let empty = MenuItem::with_id(app, "tray-server-empty", labels.no_servers, false, None::<&str>)?;
-        servers.append(&empty)?;
-    }
-
-    menu.append_items(&[
-        &status as &dyn IsMenuItem<_>,
-        &PredefinedMenuItem::separator(app)?,
-        &show,
-        &PredefinedMenuItem::separator(app)?,
-        &connect,
-        &disconnect,
-        &PredefinedMenuItem::separator(app)?,
-        &servers,
-        &PredefinedMenuItem::separator(app)?,
-        &quit,
-    ])?;
-
-    Ok(menu)
-}
-
-struct TrayLabels {
-    connected: &'static str,
-    disconnected: &'static str,
-    show: &'static str,
-    connect: &'static str,
-    disconnect: &'static str,
-    servers: &'static str,
-    no_servers: &'static str,
-    quit: &'static str,
-}
-
-fn tray_labels(language: Language) -> TrayLabels {
-    // `resolved()` collapses `System` to a concrete `Ru`/`En`; the `System`
-    // arm below only exists to keep the match exhaustive.
-    match language.resolved() {
-        Language::En => TrayLabels {
-            connected: "Connected",
-            disconnected: "Disconnected",
-            show: "Show Nimbo",
-            connect: "Connect",
-            disconnect: "Disconnect",
-            servers: "Servers",
-            no_servers: "No servers",
-            quit: "Quit",
-        },
-        Language::Ru | Language::System => TrayLabels {
-            connected: "Подключено",
-            disconnected: "Отключено",
-            show: "Показать Nimbo",
-            connect: "Подключить",
-            disconnect: "Отключить",
-            servers: "Серверы",
-            no_servers: "Нет серверов",
-            quit: "Выйти",
-        },
+    TrayMenuState {
+        connected: snapshot.connected,
+        active_server_id: snapshot.active_server_id,
+        language,
+        servers,
     }
 }
 
-fn handle_menu_event(app: &AppHandle, id: &str) {
-    match id {
-        MENU_SHOW => show_main_window(app),
-        MENU_CONNECT => connect_active_server(app),
-        MENU_DISCONNECT => disconnect(app),
-        MENU_QUIT => app.exit(0),
-        _ if id.starts_with(MENU_SERVER_PREFIX) => {
-            let server_id = id.trim_start_matches(MENU_SERVER_PREFIX).to_string();
-            connect_specific_server(app, server_id);
+/// Size the popup to its measured content, then (if a reveal is pending)
+/// position it relative to the cursor and show it.
+#[tauri::command]
+pub fn tray_menu_resize(app: AppHandle, width: f64, height: f64) {
+    let Some(window) = app.get_webview_window(MENU_WINDOW) else {
+        return;
+    };
+    let w = width.max(1.0).round() as u32;
+    let h = height.max(1.0).round() as u32;
+    let _ = window.set_size(PhysicalSize::new(w, h));
+
+    let (anchor, pending) = {
+        let mut ctl = menu_ctl().lock().unwrap();
+        let result = (ctl.anchor, ctl.pending);
+        ctl.pending = false;
+        result
+    };
+    if !pending {
+        return;
+    }
+    let Some((ax, ay)) = anchor else {
+        return;
+    };
+
+    // Grow up-and-left from the cursor (bottom-right tray convention).
+    let mut left = ax - w as f64;
+    let mut top = ay - h as f64;
+
+    // Keep the flyout fully inside the work area of the cursor's monitor.
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        let area = monitor.work_area();
+        let min_x = area.position.x as f64;
+        let min_y = area.position.y as f64;
+        let max_x = min_x + area.size.width as f64;
+        let max_y = min_y + area.size.height as f64;
+        left = left.min(max_x - w as f64).max(min_x);
+        top = top.min(max_y - h as f64).max(min_y);
+    }
+
+    let _ = window.set_position(PhysicalPosition::new(left.round() as i32, top.round() as i32));
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
+/// Perform a menu action, then dismiss the popup.
+#[tauri::command]
+pub fn tray_menu_action(app: AppHandle, action: String, server_id: Option<String>) {
+    if let Some(window) = app.get_webview_window(MENU_WINDOW) {
+        let _ = window.hide();
+    }
+    match action.as_str() {
+        "show" => show_main_window(&app),
+        "connect" => connect_active_server(&app),
+        "disconnect" => disconnect(&app),
+        "server" => {
+            if let Some(id) = server_id {
+                connect_specific_server(&app, id);
+            }
         }
+        "quit" => app.exit(0),
         _ => {}
     }
 }
@@ -421,15 +433,4 @@ fn disconnect(app: &AppHandle) {
         let _ = crate::commands::disconnect_server(app.clone(), state).await;
         let _ = refresh_tray_menu(&app);
     });
-}
-
-fn compact_menu_label(name: &str) -> String {
-    let label = name.split_whitespace().collect::<Vec<_>>().join(" ");
-    const MAX: usize = 56;
-    if label.chars().count() <= MAX {
-        return label;
-    }
-    let mut out = label.chars().take(MAX - 1).collect::<String>();
-    out.push('…');
-    out
 }

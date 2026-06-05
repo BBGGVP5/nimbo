@@ -3,7 +3,6 @@ pub mod commands;
 pub mod helper;
 pub mod state;
 pub mod tray;
-pub mod tray_icons;
 pub mod updater;
 
 use crate::commands::{
@@ -23,6 +22,7 @@ use crate::commands::{
     uninstall_helper, update_routing_profile, update_subscription_settings, write_clipboard_text,
 };
 use crate::state::AppState;
+use crate::tray::{tray_menu_action, tray_menu_resize, tray_menu_state};
 use crate::updater::{check_app_update, open_update_download};
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -153,6 +153,15 @@ pub fn run() {
         .manage(app_state)
         .manage(single_instance_guard)
         .on_window_event(|window, event| {
+            // The custom tray popup is a transient flyout: hide it as soon as it
+            // loses focus (click elsewhere), and never run the main-window
+            // close/minimize logic for it.
+            if window.label() == "tray-menu" {
+                if let WindowEvent::Focused(false) = event {
+                    let _ = window.hide();
+                }
+                return;
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let preferences = window.app_handle().state::<AppState>().snapshot().preferences;
                 if preferences.minimize_to_tray {
@@ -254,6 +263,9 @@ pub fn run() {
             reset_traffic_totals,
             get_tunnel_logs,
             clear_tunnel_logs,
+            tray_menu_state,
+            tray_menu_resize,
+            tray_menu_action,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
