@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { serverDisplayName, serverFlagEmoji } from "../lib/api";
+import {
+  defaultAppPreferences,
+  serverDisplayName,
+  serverFlagEmoji,
+  type AppPreferences,
+  type SubscriptionTheme,
+} from "../lib/api";
+import { applyAccentGradient, refreshAppearance, subscribeAppearance } from "../lib/appearance";
+import { applyVisualPreferences } from "../lib/visualTheme";
 
 interface TrayServer {
   id: string;
@@ -12,6 +20,8 @@ interface TrayState {
   connected: boolean;
   activeServerId: string | null;
   language: string;
+  visualPreferences: AppPreferences;
+  providerTheme: SubscriptionTheme | null;
   servers: TrayServer[];
 }
 
@@ -60,6 +70,46 @@ export function TrayMenu() {
       subscriptions.forEach((p) => void p.then((un) => un()).catch(() => {}));
     };
   }, [load]);
+
+  useEffect(() => {
+    if (!state) return;
+    return applyVisualPreferences(
+      state.visualPreferences ?? defaultAppPreferences,
+      state.providerTheme ?? null,
+      { includeUiScale: false },
+    );
+  }, [state]);
+
+  useEffect(() => {
+    if (!state) return;
+    const apply = () => {
+      const preferences = state.visualPreferences ?? defaultAppPreferences;
+      const providerTheme = state.providerTheme ?? null;
+      const providerAccent = providerTheme?.accent;
+      if (isHexColor(providerAccent)) {
+        const colors = [providerAccent, providerTheme?.orb1, providerTheme?.orb2]
+          .filter(isHexColor)
+          .map((color) => color.trim());
+        applyAccentGradient("custom", colors[0], colors);
+        return;
+      }
+
+      applyAccentGradient(
+        preferences.accent_mode,
+        preferences.accent_color,
+        refreshAppearance().palette,
+      );
+    };
+
+    apply();
+    const unsubscribeAppearance = subscribeAppearance(apply);
+    const onStorage = () => apply();
+    window.addEventListener("storage", onStorage);
+    return () => {
+      unsubscribeAppearance();
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [state]);
 
   // After each render with data, report the exact content size so the backend
   // can size the flyout and (on open) position + reveal it at the cursor.
@@ -172,6 +222,10 @@ const svgProps = {
   strokeLinejoin: "round" as const,
   "aria-hidden": true,
 };
+
+function isHexColor(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value.trim());
+}
 
 function ShowIcon() {
   return (

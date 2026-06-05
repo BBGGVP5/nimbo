@@ -1,6 +1,5 @@
-/* Custom tray flyout. The window itself is transparent and frameless; the card
-   below provides the visible surface, rounded corners and drop shadow. The
-   shell adds a margin so the shadow has room to render inside the window. */
+/* Custom tray flyout. The transparent frameless window gets only this compact
+   surface, so the shadow and rounding are part of the measured content. */
 
 html,
 body,
@@ -15,6 +14,13 @@ body {
   user-select: none;
   -webkit-user-select: none;
   cursor: default;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+body::before,
+body::after {
+  display: none !important;
 }
 
 #tray-root {
@@ -27,48 +33,93 @@ body {
 }
 
 .tray-card {
-  width: 250px;
+  position: relative;
+  isolation: isolate;
+  width: 260px;
   box-sizing: border-box;
-  padding: 6px;
-  border-radius: 16px;
-  background: rgba(20, 21, 29, 0.98);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
-  backdrop-filter: blur(24px) saturate(140%);
+  overflow: hidden;
+  padding: 7px;
   border: 1px solid var(--color-border-strong);
+  border-radius: var(--ui-radius-xl);
+  background:
+    linear-gradient(145deg, var(--color-material-glaze-strong), var(--color-material-glaze)),
+    var(--ui-panel-bg-strong);
+  -webkit-backdrop-filter: var(--ui-backdrop-filter);
+  backdrop-filter: var(--ui-backdrop-filter);
   box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.55),
-    0 4px 14px rgba(0, 0, 0, 0.4);
+    0 22px 56px rgba(0, 0, 0, 0.48),
+    0 6px 18px rgba(0, 0, 0, 0.32);
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
+.tray-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 46%),
+    linear-gradient(315deg, color-mix(in srgb, var(--color-accent-bright) 8%, transparent), transparent 56%);
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+body[data-theme="light"] .tray-card {
+  box-shadow:
+    0 22px 54px rgba(40, 32, 64, 0.18),
+    0 8px 20px rgba(40, 32, 64, 0.10);
+}
+
+body[data-theme="black"] .tray-card {
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.68),
+    0 8px 22px rgba(0, 0, 0, 0.48);
+}
+
 .tray-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 11px;
   width: 100%;
   height: 40px;
+  box-sizing: border-box;
   padding: 0 12px;
-  border: none;
-  border-radius: 10px;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-md);
   background: transparent;
   color: var(--color-text);
   font-family: inherit;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 560;
+  letter-spacing: 0;
   text-align: left;
   cursor: default;
   outline: none;
-  transition: background-color 0.12s ease;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
 }
 
 button.tray-item:not(.is-disabled):hover,
 button.tray-item:not(.is-disabled):focus-visible {
+  border-color: color-mix(in srgb, var(--color-accent) 24%, transparent);
   background: var(--color-accent-active-bg);
+  color: var(--color-text);
 }
 
 button.tray-item:not(.is-disabled):active {
   background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  transform: scale(0.985);
+}
+
+button.tray-server.is-active {
+  border-color: color-mix(in srgb, var(--color-accent) 28%, transparent);
+  background: var(--color-accent-panel);
 }
 
 .tray-item.is-disabled {
@@ -82,6 +133,7 @@ button.tray-item:not(.is-disabled):active {
 
 .tray-item.is-muted .tray-label {
   color: var(--color-text-faint);
+  font-weight: 520;
 }
 
 .tray-label {
@@ -97,9 +149,11 @@ button.tray-item:not(.is-disabled):active {
   height: 19px;
   flex: none;
   color: var(--color-text-dim);
+  transition: color 150ms ease;
 }
 
-.tray-item:not(.is-disabled):hover .tray-icon {
+.tray-item:not(.is-disabled):hover .tray-icon,
+.tray-server.is-active .tray-icon {
   color: var(--color-text);
 }
 
@@ -117,16 +171,19 @@ button.tray-item:not(.is-disabled):active {
 
 .status-dot.is-on {
   background: var(--color-status-connected);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-status-connected) 22%, transparent);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--color-status-connected) 22%, transparent),
+    0 0 18px color-mix(in srgb, var(--color-status-connected) 32%, transparent);
 }
 
 .status-dot.is-off {
   background: var(--color-status-disconnected);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-status-disconnected) 16%, transparent);
 }
 
 .tray-sep {
   height: 1px;
-  margin: 5px 10px;
+  margin: 6px 10px;
   background: var(--color-border);
 }
 
@@ -134,10 +191,10 @@ button.tray-item:not(.is-disabled):active {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 7px 12px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  padding: 8px 12px 5px;
+  font-size: 10.5px;
+  font-weight: 720;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-text-faint);
 }
@@ -152,6 +209,7 @@ button.tray-item:not(.is-disabled):active {
   max-height: 216px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-color: var(--color-border-strong) transparent;
 }
 
 .tray-servers::-webkit-scrollbar {
@@ -160,8 +218,8 @@ button.tray-item:not(.is-disabled):active {
 
 .tray-servers::-webkit-scrollbar-thumb {
   background: var(--color-border-strong);
-  border-radius: 8px;
   border: 2px solid transparent;
+  border-radius: 8px;
   background-clip: padding-box;
 }
 
@@ -182,4 +240,57 @@ button.tray-item:not(.is-disabled):active {
   height: 17px;
   flex: none;
   color: var(--color-accent-bright);
+}
+
+body[data-ui-style="material_you"] .tray-card {
+  border-color: var(--md-outline-variant);
+  border-radius: var(--md-shape-xl);
+  background: var(--ui-panel-bg-strong);
+  box-shadow: var(--md-elevation-2);
+}
+
+body[data-ui-style="material_you"] .tray-card::before {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--md-primary) 10%, transparent), transparent 48%),
+    linear-gradient(315deg, color-mix(in srgb, var(--md-tertiary-container) 26%, transparent), transparent 62%);
+  opacity: 0.8;
+}
+
+body[data-ui-style="material_you"] .tray-item {
+  height: 42px;
+  border: 0;
+  border-radius: var(--md-shape-lg);
+  color: var(--md-on-surface);
+  font-weight: 680;
+  transition:
+    border-radius var(--md-motion-expressive),
+    background-color var(--md-motion),
+    color var(--md-motion),
+    transform var(--md-motion);
+}
+
+body[data-ui-style="material_you"] button.tray-item:not(.is-disabled):hover,
+body[data-ui-style="material_you"] button.tray-item:not(.is-disabled):focus-visible {
+  border-radius: var(--md-shape-xl);
+  background: var(--md-state-hover);
+}
+
+body[data-ui-style="material_you"] button.tray-item:not(.is-disabled):active {
+  border-radius: var(--md-shape-md);
+  background: var(--md-state-press);
+}
+
+body[data-ui-style="material_you"] button.tray-server.is-active {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+
+body[data-ui-style="material_you"] .tray-server.is-active .tray-label,
+body[data-ui-style="material_you"] .tray-check {
+  color: var(--md-on-primary-container);
+}
+
+body[data-ui-style="material_you"] .tray-icon,
+body[data-ui-style="material_you"] .tray-section-title {
+  color: var(--md-on-surface-variant);
 }

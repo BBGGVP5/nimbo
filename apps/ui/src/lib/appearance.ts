@@ -121,6 +121,11 @@ export function getAppearance(): AppearanceState {
   return state;
 }
 
+export function refreshAppearance(): AppearanceState {
+  state = loadState();
+  return state;
+}
+
 export function setAppearance(patch: Partial<AppearanceState>): void {
   state = { ...state, ...patch };
   persist();

@@ -7,7 +7,8 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
 };
 
-use crate::state::{AppState, Language};
+use crate::state::{AppPreferences, AppState, Language, PersistedState};
+use nimbo_subscription::SubscriptionTheme;
 
 // Pre-computed PNG bytes for the connected-state tray icon (green dot overlay).
 static CONNECTED_ICON_PNG: OnceLock<Vec<u8>> = OnceLock::new();
@@ -307,6 +308,8 @@ pub struct TrayMenuState {
     connected: bool,
     active_server_id: Option<String>,
     language: String,
+    visual_preferences: AppPreferences,
+    provider_theme: Option<SubscriptionTheme>,
     servers: Vec<TrayMenuServer>,
 }
 
@@ -319,6 +322,9 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
         _ => "ru",
     }
     .to_string();
+    let active_server_id = snapshot.active_server_id.clone();
+    let visual_preferences = snapshot.preferences.clone();
+    let provider_theme = active_provider_theme(&snapshot);
 
     let mut servers = Vec::new();
     for sub in &snapshot.subscriptions {
@@ -332,10 +338,33 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
 
     TrayMenuState {
         connected: snapshot.connected,
-        active_server_id: snapshot.active_server_id,
+        active_server_id,
         language,
+        visual_preferences,
+        provider_theme,
         servers,
     }
+}
+
+fn active_provider_theme(snapshot: &PersistedState) -> Option<SubscriptionTheme> {
+    if !snapshot.preferences.provider_theme {
+        return None;
+    }
+
+    let by_url = snapshot
+        .active_subscription_url
+        .as_deref()
+        .and_then(|url| snapshot.subscriptions.iter().find(|sub| sub.url == url));
+    let by_server = || {
+        snapshot.active_server_id.as_deref().and_then(|server_id| {
+            snapshot
+                .subscriptions
+                .iter()
+                .find(|sub| sub.servers.iter().any(|server| server.id == server_id))
+        })
+    };
+
+    by_url.or_else(by_server).and_then(|sub| sub.meta.theme.clone())
 }
 
 /// Size the popup to its measured content, then (if a reveal is pending)
