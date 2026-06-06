@@ -4,12 +4,13 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   defaultAppPreferences,
   serverDisplayName,
-  serverFlagEmoji,
   type AppPreferences,
   type SubscriptionTheme,
 } from "../lib/api";
 import { applyAccentGradient, refreshAppearance, subscribeAppearance } from "../lib/appearance";
 import { applyVisualPreferences } from "../lib/visualTheme";
+import { pingServersProgressively } from "../lib/ping";
+import { CountryFlag } from "../components/CountryFlag";
 
 type ConnectionMode = "system_proxy" | "tun" | "both";
 
@@ -52,6 +53,12 @@ const LABELS = {
     maintenance: "Обслуживание",
     refresh: "Обновить подписки",
     ping: "Проверить пинг",
+    refreshRunning: "Обновление подписок…",
+    refreshDone: "Подписки обновлены",
+    pingRunning: "Проверка пинга…",
+    pingDone: "Пинг обновлён",
+    pingBest: "лучший",
+    taskFailed: "Не удалось выполнить",
     servers: "Серверы",
     collapseServers: "Свернуть серверы",
     expandServers: "Развернуть серверы",
@@ -84,6 +91,12 @@ const LABELS = {
     maintenance: "Maintenance",
     refresh: "Refresh subscriptions",
     ping: "Check latency",
+    refreshRunning: "Refreshing subscriptions…",
+    refreshDone: "Subscriptions updated",
+    pingRunning: "Checking latency…",
+    pingDone: "Latency updated",
+    pingBest: "best",
+    taskFailed: "Action failed",
     servers: "Servers",
     collapseServers: "Collapse servers",
     expandServers: "Expand servers",
@@ -101,11 +114,43 @@ const LABELS = {
 
 const SERVERS_COLLAPSED_KEY = "nimbo.tray.serversCollapsed";
 
+type MaintenanceAction = "refresh_subscriptions" | "ping_servers";
+
+interface TrayTask {
+  kind: MaintenanceAction;
+  status: "running" | "done" | "error";
+  count?: number;
+  best?: number | null;
+  servers?: number;
+  // Live ping progress: how many servers measured so far out of the total.
+  done?: number;
+  total?: number;
+}
+
+interface TrayActionDone {
+  action: string;
+  ok: boolean;
+  count?: number;
+  best?: number | null;
+  servers?: number;
+}
+
 export function TrayMenu() {
   const [state, setState] = useState<TrayState | null>(null);
   const [openNonce, setOpenNonce] = useState(0);
   const [serversCollapsed, setServersCollapsed] = useState(readServersCollapsed);
-  const shellRef = useRef<HTMLDivElement>(null);
+  const [task, setTask] = useState<TrayTask | null>(null);
+  // Latencies measured during the current session's ping run, overlaid on top of
+  // the backend snapshot so each row updates live as the ping sweeps the list.
+  const [livePings, setLivePings] = useState<Record<string, number>>({});
+  const [pingingIds, setPingingIds] = useState<Set<string>>(() => new Set());
+  const cardRef = useRef<HTMLDivElement>(null);
+  const taskTimers = useRef<number[]>([]);
+
+  const clearTaskTimers = useCallback(() => {
+    taskTimers.current.forEach((id) => window.clearTimeout(id));
+    taskTimers.current = [];
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -119,19 +164,106 @@ export function TrayMenu() {
     void invoke("tray_menu_action", { action, serverId: serverId ?? null }).catch(() => {});
   }, []);
 
+  // Maintenance actions keep the flyout open: show a live status and let the
+  // backend report the result via `tray-menu:action-done`.
+  const runMaintenance = useCallback(
+    (kind: MaintenanceAction) => {
+      clearTaskTimers();
+      setTask({ kind, status: "running" });
+      act(kind);
+      // Safety net: clear a stuck spinner if the backend never reports back.
+      taskTimers.current.push(window.setTimeout(() => setTask(null), 40000));
+    },
+    [act, clearTaskTimers],
+  );
+
+  // Ping every server one at a time (a few in flight) instead of firing the
+  // backend's all-at-once command: the list expands and each row fills in its
+  // latency as the sweep reaches it, so the ping visibly travels the servers.
+  const runPing = useCallback(async () => {
+    const ids = (state?.servers ?? []).map((server) => server.id);
+    if (ids.length === 0) return;
+
+    clearTaskTimers();
+    setServersCollapsed(false);
+    setPingingIds(new Set(ids));
+    setTask({ kind: "ping_servers", status: "running", done: 0, total: ids.length });
+
+    // Safety net: never leave spinners stuck if a ping hangs past the timeout.
+    taskTimers.current.push(
+      window.setTimeout(() => {
+        setTask(null);
+        setPingingIds(new Set());
+      }, 60000),
+    );
+
+    let done = 0;
+    let count = 0;
+    let best: number | null = null;
+    try {
+      await pingServersProgressively(ids, (result) => {
+        done += 1;
+        setPingingIds((current) => {
+          const next = new Set(current);
+          next.delete(result.server_id);
+          return next;
+        });
+        if (typeof result.latency_ms === "number" && Number.isFinite(result.latency_ms)) {
+          const latency = result.latency_ms;
+          count += 1;
+          best = best == null ? latency : Math.min(best, latency);
+          setLivePings((current) => ({ ...current, [result.server_id]: latency }));
+        }
+        setTask((current) =>
+          current && current.kind === "ping_servers" && current.status === "running"
+            ? { ...current, done }
+            : current,
+        );
+      });
+      setTask({ kind: "ping_servers", status: "done", count, best, done, total: ids.length });
+    } catch {
+      setTask({ kind: "ping_servers", status: "error" });
+    } finally {
+      setPingingIds(new Set());
+      clearTaskTimers();
+      taskTimers.current.push(window.setTimeout(() => setTask(null), 2600));
+      void load();
+    }
+  }, [state, clearTaskTimers, load]);
+
   useEffect(() => {
     void load();
     const subscriptions: Array<Promise<UnlistenFn>> = [
       listen("tray-menu:open", () => {
         setOpenNonce((value) => value + 1);
+        // Drop a lingering result banner from a previous session, but keep a
+        // spinner that is still in flight.
+        setTask((current) => (current?.status === "running" ? current : null));
         void load();
       }),
       listen("tray-menu:refresh", () => void load()),
+      listen<TrayActionDone>("tray-menu:action-done", (event) => {
+        const payload = event.payload;
+        setTask((current) => {
+          if (!current || current.kind !== payload.action) return current;
+          return {
+            kind: current.kind,
+            status: payload.ok ? "done" : "error",
+            count: payload.count,
+            best: payload.best,
+            servers: payload.servers,
+          };
+        });
+        void load();
+        clearTaskTimers();
+        taskTimers.current.push(window.setTimeout(() => setTask(null), 2600));
+      }),
     ];
     return () => {
+      clearTaskTimers();
       subscriptions.forEach((p) => void p.then((un) => un()).catch(() => {}));
     };
-  }, [load]);
+  }, [load, clearTaskTimers]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -181,29 +313,53 @@ export function TrayMenu() {
     };
   }, [state]);
 
-  // After every content change, report the exact surface size. A second delayed
-  // measurement keeps the native window anchored while the server section folds.
+  // Size the native window to the rendered card and keep it glued as the height
+  // changes (server fold/unfold, status banner, live ping rows). The card no
+  // longer animates its own geometry — the entrance lives on an inner layer — so
+  // its layout box is stable from the first frame: we size + reveal once, then a
+  // ResizeObserver tracks every later height change. Driving the resize from real
+  // layout changes (instead of a fixed-length per-frame loop racing a transform)
+  // keeps the window bounds and the rounded clip region in lock-step, so WebView2
+  // never flashes the black transparent corners and the open reads smoothly.
   useLayoutEffect(() => {
     if (!state) return;
-    const el = shellRef.current;
-    if (!el) return;
+    const card = cardRef.current;
+    if (!card) return;
 
     const measure = () => {
       const dpr = window.devicePixelRatio || 1;
-      const rect = el.getBoundingClientRect();
-      const width = Math.ceil(rect.width * dpr);
-      const height = Math.ceil(rect.height * dpr);
-      void invoke("tray_menu_resize", { width, height }).catch(() => {});
+      const rect = card.getBoundingClientRect();
+      const radius = parseCssPixels(window.getComputedStyle(card).borderTopLeftRadius, 18);
+      // Floor (not ceil) so the window is never a fraction of a pixel wider than
+      // the painted card — that gap renders as a black seam on WebView2. Pass the
+      // real dpr and CSS radius too: the rounded clip region is derived from them, and if it
+      // disagrees with this size the corners round short and go black.
+      const width = Math.floor(rect.width * dpr);
+      const height = Math.floor(rect.height * dpr);
+      if (width > 0 && height > 0) {
+        void invoke("tray_menu_resize", { width, height, dpr, radius }).catch(() => {});
+      }
+    };
+
+    // Coalesce bursts of layout changes (e.g. a height transition) to one resize
+    // per frame so the window follows the card without redundant native calls.
+    let raf = 0;
+    const schedule = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        measure();
+      });
     };
 
     measure();
-    const frame = window.requestAnimationFrame(measure);
-    const timer = window.setTimeout(measure, 210);
+    const observer = new ResizeObserver(schedule);
+    observer.observe(card);
     return () => {
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(timer);
+      if (raf) window.cancelAnimationFrame(raf);
+      observer.disconnect();
     };
-  }, [state, serversCollapsed]);
+  }, [state, openNonce]);
 
   const lang: "ru" | "en" = state?.language === "en" ? "en" : "ru";
   const t = LABELS[lang];
@@ -234,9 +390,18 @@ export function TrayMenu() {
     });
   }, []);
 
+  const taskBusy = task?.status === "running";
+  const taskLabel = task ? describeTask(task, t) : null;
+
   return (
-    <div className="tray-shell" ref={shellRef}>
-      <div key={openNonce} className="tray-card" data-connected={connected ? "true" : "false"}>
+    <div className="tray-shell">
+      <div
+        key={openNonce}
+        ref={cardRef}
+        className="tray-card"
+        data-connected={connected ? "true" : "false"}
+      >
+        <div className="tray-card-inner">
         <div className="tray-hero">
           <span className={`tray-status-orb ${connected ? "is-on" : "is-off"}`} aria-hidden="true">
             <span />
@@ -262,7 +427,7 @@ export function TrayMenu() {
 
         <div className="tray-meta-row" aria-label={t.mode}>
           <span>
-            {t.mode}: <strong>{t.modeNames[connectionMode]}</strong>
+            {t.mode}:&nbsp;<strong>{t.modeNames[connectionMode]}</strong>
           </span>
           <span>
             {subscriptionCount} {t.subscriptionsShort}
@@ -320,23 +485,38 @@ export function TrayMenu() {
         <div className="tray-utility-grid" aria-label={t.maintenance}>
           <button
             type="button"
-            disabled={subscriptionCount === 0}
-            className={subscriptionCount === 0 ? "is-disabled" : ""}
-            onClick={() => subscriptionCount > 0 && act("refresh_subscriptions")}
+            disabled={subscriptionCount === 0 || taskBusy}
+            className={subscriptionCount === 0 || taskBusy ? "is-disabled" : ""}
+            onClick={() =>
+              subscriptionCount > 0 && !taskBusy && runMaintenance("refresh_subscriptions")
+            }
           >
             <RefreshIcon />
             <span>{t.refresh}</span>
           </button>
           <button
             type="button"
-            disabled={serverCount === 0}
-            className={serverCount === 0 ? "is-disabled" : ""}
-            onClick={() => serverCount > 0 && act("ping_servers")}
+            disabled={serverCount === 0 || taskBusy}
+            className={serverCount === 0 || taskBusy ? "is-disabled" : ""}
+            onClick={() => serverCount > 0 && !taskBusy && void runPing()}
           >
             <RadarIcon />
             <span>{t.ping}</span>
           </button>
         </div>
+
+        {task && taskLabel ? (
+          <div className={`tray-task is-${task.status}`} role="status" aria-live="polite">
+            {task.status === "running" ? (
+              <span className="tray-task-spinner" aria-hidden="true" />
+            ) : (
+              <span className="tray-task-icon" aria-hidden="true">
+                {task.status === "done" ? <TaskDoneIcon /> : <TaskErrorIcon />}
+              </span>
+            )}
+            <span className="tray-task-text">{taskLabel}</span>
+          </div>
+        ) : null}
 
         <button
           type="button"
@@ -357,23 +537,35 @@ export function TrayMenu() {
               <div className="tray-server-empty">{t.noServers}</div>
             ) : (
               servers.map((server) => {
-                const flag = serverFlagEmoji(server.name);
                 const active = server.id === activeId;
-                const latency = formatLatency(server.latencyMs, t.noPing);
+                const livePing = livePings[server.id];
+                const latencyValue = typeof livePing === "number" ? livePing : server.latencyMs;
+                const latency = formatLatency(latencyValue, t.noPing);
+                const isPinging = pingingIds.has(server.id);
                 return (
                   <button
                     key={server.id}
                     type="button"
-                    className={`tray-server ${active ? "is-active" : ""}`}
+                    className={`tray-server ${active ? "is-active" : ""} ${isPinging ? "is-pinging" : ""}`}
                     onClick={() => act("server", server.id)}
                     title={displayServerName(server)}
                   >
-                    <span className="tray-flag">{flag ?? ""}</span>
+                    <span className="tray-flag">
+                      <CountryFlag
+                        serverName={server.name}
+                        fallback={<GlobeIcon />}
+                        className="country-flag-xs"
+                      />
+                    </span>
                     <span className="tray-server-copy">
                       <span className="tray-server-name">{displayServerName(server)}</span>
                       <span className="tray-server-meta">
                         {server.subscriptionName ? <span>{server.subscriptionName}</span> : null}
-                        <span>{latency}</span>
+                        {isPinging ? (
+                          <span className="tray-ping-spinner" aria-hidden="true" />
+                        ) : (
+                          <span>{latency}</span>
+                        )}
                       </span>
                     </span>
                     {active ? <CheckIcon /> : null}
@@ -389,6 +581,7 @@ export function TrayMenu() {
             <QuitIcon />
             <span>{t.quit}</span>
           </button>
+        </div>
         </div>
       </div>
     </div>
@@ -418,13 +611,87 @@ function isHexColor(value: string | null | undefined): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value.trim());
 }
 
+function parseCssPixels(value: string, fallback: number): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function displayServerName(server: TrayServer): string {
   return serverDisplayName(server.name) || server.name || "Server";
 }
 
 function formatLatency(value: number | null | undefined, fallback: string): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-  return `${Math.round(value)} ms`;
+  return formatMs(value);
+}
+
+// A successful probe always took *some* time; CDN-fronted servers just connect
+// to a nearby edge in well under a millisecond, which `as_millis()` truncates to
+// 0. Show "<1 ms" rather than a "0 ms" that reads as broken.
+function formatMs(value: number): string {
+  return value < 1 ? "<1 ms" : `${Math.round(value)} ms`;
+}
+
+type Labels = (typeof LABELS)[keyof typeof LABELS];
+
+function describeTask(task: TrayTask, t: Labels): string {
+  if (task.status === "running") {
+    if (task.kind === "ping_servers") {
+      return typeof task.done === "number" && typeof task.total === "number"
+        ? `${t.pingRunning} ${task.done}/${task.total}`
+        : t.pingRunning;
+    }
+    return t.refreshRunning;
+  }
+  if (task.status === "error") {
+    return t.taskFailed;
+  }
+  if (task.kind === "ping_servers") {
+    const parts: string[] = [t.pingDone];
+    if (typeof task.count === "number") parts.push(`${task.count} ${t.serversShort}`);
+    if (typeof task.best === "number" && Number.isFinite(task.best)) {
+      parts.push(`${t.pingBest} ${formatMs(task.best)}`);
+    }
+    return parts.join(" · ");
+  }
+  return typeof task.servers === "number"
+    ? `${t.refreshDone} · ${task.servers} ${t.serversShort}`
+    : t.refreshDone;
+}
+
+function TaskDoneIcon() {
+  return (
+    <svg
+      className="tray-task-glyph"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5 12.5l4.5 4.5L19 7" />
+    </svg>
+  );
+}
+
+function TaskErrorIcon() {
+  return (
+    <svg
+      className="tray-task-glyph"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 7v6" />
+      <path d="M12 16.5h0.01" />
+    </svg>
+  );
 }
 
 function ShowIcon() {
@@ -488,6 +755,17 @@ function CheckIcon() {
       aria-hidden="true"
     >
       <path d="M5 12.5l4.5 4.5L19 7" />
+    </svg>
+  );
+}
+
+function GlobeIcon() {
+  return (
+    <svg className="tray-flag-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.4" />
+      <path d="M3.6 12h16.8" />
+      <path d="M12 3.6a12.4 12.4 0 0 1 0 16.8" />
+      <path d="M12 3.6a12.4 12.4 0 0 0 0 16.8" />
     </svg>
   );
 }

@@ -158,6 +158,7 @@ pub fn run() {
             // close/minimize logic for it.
             if window.label() == "tray-menu" {
                 if let WindowEvent::Focused(false) = event {
+                    crate::tray::note_tray_menu_hidden();
                     let _ = window.hide();
                 }
                 return;

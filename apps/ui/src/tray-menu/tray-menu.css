@@ -1,6 +1,11 @@
-/* Custom tray flyout. The native window is transparent; the visible surface
-   intentionally fills the measured bounds so WebView2 never shows a dark box
-   behind the rounded menu. */
+/* Custom tray flyout. The native window is clipped to a rounded region; this
+   fallback surface paints every WebView pixel before React/theme hydration, so
+   WebView2 never leaks black transparent corners or a white first frame. */
+
+:root {
+  --tray-window-bg: #181a25;
+  --tray-radius: 18px;
+}
 
 html,
 body,
@@ -8,7 +13,7 @@ body,
   width: max-content;
   height: max-content;
   margin: 0;
-  background: transparent !important;
+  background: var(--tray-window-bg) !important;
 }
 
 body {
@@ -20,6 +25,19 @@ body {
   font-family: var(--font-sans);
 }
 
+body[data-theme="light"] {
+  --tray-window-bg: #f1f0f6;
+}
+
+body[data-theme="black"] {
+  --tray-window-bg: #080810;
+}
+
+body[data-ui-style="material_you"] {
+  --tray-window-bg: var(--md-surface-container-high);
+  --tray-radius: var(--md-shape-xl);
+}
+
 body::before,
 body::after {
   display: none !important;
@@ -28,7 +46,12 @@ body::after {
 #tray-root,
 .tray-shell {
   display: inline-block;
-  background: transparent;
+  background: var(--tray-window-bg);
+}
+
+.tray-shell {
+  border-radius: var(--tray-radius);
+  overflow: hidden;
 }
 
 .tray-card {
@@ -39,7 +62,7 @@ body::after {
   overflow: hidden;
   padding: 10px;
   border: 1px solid color-mix(in srgb, var(--color-border-strong) 82%, transparent);
-  border-radius: 18px;
+  border-radius: var(--tray-radius);
   background:
     linear-gradient(145deg, color-mix(in srgb, var(--color-accent) 13%, transparent), transparent 42%),
     linear-gradient(315deg, color-mix(in srgb, var(--color-accent-bright) 10%, transparent), transparent 56%),
@@ -50,11 +73,20 @@ body::after {
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  transform-origin: calc(100% - 12px) calc(100% - 12px);
-  animation: tray-flyout-in 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  /* The card surface must be fully painted from the first frame: the window is
+     transparent and WebView2 renders any uncovered pixel as an opaque black box,
+     so the entrance animation lives on `.tray-card-inner`, never on the card's
+     own geometry. */
   box-shadow:
     inset 0 1px rgba(255, 255, 255, 0.13),
     inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+}
+
+/* Entrance layer: fades and settles the contents up into place inside the
+   already-sized, already-clipped card — so the open reads as a smooth reveal
+   with no native window resize racing a transform. */
+.tray-card-inner {
+  animation: tray-flyout-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .tray-card::before {
@@ -87,18 +119,11 @@ body[data-theme="black"] .tray-card {
 @keyframes tray-flyout-in {
   from {
     opacity: 0;
-    transform: translate(18px, 18px) scale(0.72);
-    filter: blur(7px);
-  }
-  70% {
-    opacity: 1;
-    transform: translate(-1px, -1px) scale(1.01);
-    filter: blur(0);
+    transform: translateY(9px);
   }
   to {
     opacity: 1;
-    transform: translate(0, 0) scale(1);
-    filter: blur(0);
+    transform: none;
   }
 }
 
@@ -409,6 +434,89 @@ body[data-theme="black"] .tray-card {
   white-space: nowrap;
 }
 
+.tray-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin-top: 8px;
+  padding: 0 11px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  border-radius: 8px;
+  background: var(--color-accent-panel);
+  color: var(--color-text-dim);
+  font-size: 11px;
+  font-weight: 760;
+  animation: tray-task-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tray-task.is-done {
+  border-color: color-mix(in srgb, var(--color-status-connected) 42%, transparent);
+  background: color-mix(in srgb, var(--color-status-connected) 13%, transparent);
+  color: var(--color-text);
+}
+
+.tray-task.is-error {
+  border-color: color-mix(in srgb, var(--color-status-error) 46%, transparent);
+  background: color-mix(in srgb, var(--color-status-error) 13%, transparent);
+  color: var(--color-text);
+}
+
+.tray-task-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tray-task-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  border-top-color: var(--color-accent-bright);
+  animation: tray-task-spin 720ms linear infinite;
+}
+
+.tray-task-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.tray-task-glyph {
+  width: 15px;
+  height: 15px;
+}
+
+.tray-task.is-done .tray-task-icon {
+  color: var(--color-status-connected);
+}
+
+.tray-task.is-error .tray-task-icon {
+  color: var(--color-status-error);
+}
+
+@keyframes tray-task-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes tray-task-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .tray-section-toggle {
   display: flex;
   align-items: center;
@@ -456,7 +564,7 @@ body[data-theme="black"] .tray-card {
   height: 16px;
   flex: none;
   color: var(--color-text-faint);
-  transition: transform 170ms ease;
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .tray-section-toggle[aria-expanded="false"] .tray-chevron {
@@ -467,17 +575,22 @@ body[data-theme="black"] .tray-card {
   max-height: 218px;
   opacity: 1;
   overflow: hidden;
-  transition:
-    max-height 180ms cubic-bezier(0.2, 0, 0, 1),
-    opacity 150ms ease,
-    margin-top 180ms cubic-bezier(0.2, 0, 0, 1);
   margin-top: 7px;
+  transform: translateY(0);
+  transform-origin: top;
+  will-change: max-height, opacity, transform;
+  transition:
+    max-height 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 200ms ease,
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin-top 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .tray-servers-frame.is-collapsed {
   max-height: 0;
   opacity: 0;
   margin-top: 0;
+  transform: translateY(-7px);
   pointer-events: none;
 }
 
@@ -556,6 +669,18 @@ body[data-theme="black"] .tray-card {
   line-height: 1;
 }
 
+/* Real SVG country flag (flag-icons) instead of a regional-indicator emoji,
+   which Windows has no glyph for and renders as bare "FI" letters. */
+.tray-flag .country-flag {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
+}
+
+.tray-flag-globe {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-faint);
+}
+
 .tray-server-copy {
   min-width: 0;
   display: flex;
@@ -595,6 +720,22 @@ body[data-theme="black"] .tray-card {
 .tray-server.is-active .tray-server-name,
 .tray-server.is-active .tray-check {
   color: var(--color-accent-soft);
+}
+
+/* The row currently being measured during a ping sweep. */
+.tray-server.is-pinging {
+  border-color: color-mix(in srgb, var(--color-accent) 26%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.tray-ping-spinner {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--color-accent) 26%, transparent);
+  border-top-color: var(--color-accent-bright);
+  animation: tray-task-spin 720ms linear infinite;
 }
 
 .tray-check {
@@ -646,7 +787,6 @@ body[data-theme="black"] .tray-card {
 
 body[data-ui-style="material_you"] .tray-card {
   border-color: var(--md-outline-variant);
-  border-radius: var(--md-shape-xl);
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--md-primary) 10%, transparent), transparent 46%),
     linear-gradient(315deg, color-mix(in srgb, var(--md-tertiary-container) 24%, transparent), transparent 62%),
@@ -679,6 +819,7 @@ body[data-ui-style="material_you"] .tray-server.is-active .tray-check {
 
 @media (prefers-reduced-motion: reduce) {
   .tray-card,
+  .tray-card-inner,
   .tray-servers-frame,
   .tray-chevron,
   .tray-tile,
@@ -687,8 +828,14 @@ body[data-ui-style="material_you"] .tray-server.is-active .tray-check {
   .tray-section-toggle,
   .tray-server,
   .tray-quit,
-  .tray-close-button {
+  .tray-close-button,
+  .tray-task {
     animation: none;
     transition: none;
+  }
+
+  .tray-task-spinner,
+  .tray-ping-spinner {
+    animation-duration: 1.6s;
   }
 }

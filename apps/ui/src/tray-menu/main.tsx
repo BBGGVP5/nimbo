@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { TrayMenu } from "./TrayMenu";
 import "../styles.css";
+import "flag-icons/css/flag-icons.min.css";
 import "./tray-menu.css";
 
 // The flyout is a menu, not a page: suppress its own context menu and any

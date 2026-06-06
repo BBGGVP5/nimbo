@@ -1,8 +1,10 @@
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::image::Image;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::utils::config::Color;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
 };
@@ -197,12 +199,30 @@ const MENU_WINDOW: &str = "tray-menu";
 struct MenuCtl {
     anchor: Option<(f64, f64)>,
     pending: bool,
+    /// When the popup was last dismissed. Lets a tray click that arrives right
+    /// after a focus-loss dismissal toggle the menu closed instead of reopening.
+    last_hidden: Option<Instant>,
 }
 
 static MENU_CTL: OnceLock<Mutex<MenuCtl>> = OnceLock::new();
 
 fn menu_ctl() -> &'static Mutex<MenuCtl> {
-    MENU_CTL.get_or_init(|| Mutex::new(MenuCtl { anchor: None, pending: false }))
+    MENU_CTL.get_or_init(|| {
+        Mutex::new(MenuCtl {
+            anchor: None,
+            pending: false,
+            last_hidden: None,
+        })
+    })
+}
+
+/// Record that the popup was just dismissed (e.g. it lost focus because the user
+/// pressed the tray icon). `open_tray_menu` reads this so the same click that
+/// dismissed it does not immediately reopen it.
+pub fn note_tray_menu_hidden() {
+    if let Ok(mut ctl) = menu_ctl().lock() {
+        ctl.last_hidden = Some(Instant::now());
+    }
 }
 
 pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -261,27 +281,60 @@ fn tray_tooltip(connected: bool) -> &'static str {
 
 /// Lazily create the (hidden) frameless webview that renders the tray menu.
 fn create_menu_window(app: &AppHandle) -> tauri::Result<()> {
-    WebviewWindowBuilder::new(app, MENU_WINDOW, WebviewUrl::App("tray-menu.html".into()))
-        .title("Nimbo")
-        .inner_size(318.0, 420.0)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .visible(false)
-        .focused(false)
-        .build()?;
+    let window =
+        WebviewWindowBuilder::new(app, MENU_WINDOW, WebviewUrl::App("tray-menu.html".into()))
+            .title("Nimbo")
+            .inner_size(318.0, 420.0)
+            .decorations(false)
+            .transparent(true)
+            .background_color(Color(0, 0, 0, 0))
+            .shadow(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .visible(false)
+            .focused(false)
+            .build()?;
+    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+    if let Ok(size) = window.inner_size() {
+        let scale = window.scale_factor().unwrap_or(1.0);
+        apply_rounded_region(&window, size.width, size.height, scale, 18.0);
+    }
     Ok(())
 }
 
 /// Capture the cursor anchor and ask the popup to (re)load and reveal itself.
 fn open_tray_menu(app: &AppHandle, x: f64, y: f64) {
+    // Toggle: if the popup is already up — or was dismissed a moment ago by this
+    // very click (Windows fires the focus-loss the instant the icon is pressed,
+    // hiding the window before this handler runs) — leave it closed instead of
+    // popping it straight back open.
+    let dismissed_recently = menu_ctl()
+        .lock()
+        .ok()
+        .and_then(|ctl| ctl.last_hidden)
+        .map(|at| at.elapsed() < Duration::from_millis(350))
+        .unwrap_or(false);
+    let visible = app
+        .get_webview_window(MENU_WINDOW)
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    if visible || dismissed_recently {
+        if let Some(window) = app.get_webview_window(MENU_WINDOW) {
+            let _ = window.hide();
+        }
+        if let Ok(mut ctl) = menu_ctl().lock() {
+            ctl.pending = false;
+            ctl.last_hidden = None;
+        }
+        return;
+    }
+
     {
         let mut ctl = menu_ctl().lock().unwrap();
         ctl.anchor = Some((x, y));
         ctl.pending = true;
+        ctl.last_hidden = None;
     }
     if app.get_webview_window(MENU_WINDOW).is_none() {
         if let Err(error) = create_menu_window(app) {
@@ -387,13 +440,26 @@ fn active_provider_theme(snapshot: &PersistedState) -> Option<SubscriptionTheme>
 /// Size the popup to its measured content, then (if a reveal is pending)
 /// position it relative to the cursor and show it.
 #[tauri::command]
-pub fn tray_menu_resize(app: AppHandle, width: f64, height: f64) {
+pub fn tray_menu_resize(
+    app: AppHandle,
+    width: f64,
+    height: f64,
+    dpr: Option<f64>,
+    radius: Option<f64>,
+) {
     let Some(window) = app.get_webview_window(MENU_WINDOW) else {
         return;
     };
     let w = width.max(1.0).round() as u32;
     let h = height.max(1.0).round() as u32;
-    let _ = window.set_size(PhysicalSize::new(w, h));
+    // Prefer the webview's own device-pixel-ratio (the same value used to compute
+    // `width`/`height`) so the rounded clip region matches the rendered card. The
+    // window's `scale_factor()` can lag or disagree on HiDPI, which rounds the
+    // region short and leaves WebView2's black corners poking out.
+    let scale = dpr
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .or_else(|| window.scale_factor().ok())
+        .unwrap_or(1.0);
 
     let (anchor, pending) = {
         let mut ctl = menu_ctl().lock().unwrap();
@@ -401,16 +467,23 @@ pub fn tray_menu_resize(app: AppHandle, width: f64, height: f64) {
         ctl.pending = false;
         result
     };
-    let Some((ax, ay)) = anchor else {
-        return;
-    };
 
-    position_menu_window(&window, w, h, ax, ay);
-
-    if pending {
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    // Resize, re-clip the rounded corners, position and reveal as one unit on the
+    // UI thread. Keeping them together means the window bounds and the corner
+    // region never disagree for a frame mid-animation (which would flash the
+    // black transparent corners WebView2 paints on Windows).
+    let win = window.clone();
+    let _ = app.run_on_main_thread(move || {
+        let _ = win.set_size(PhysicalSize::new(w, h));
+        apply_rounded_region(&win, w, h, scale, radius.unwrap_or(18.0));
+        if let Some((ax, ay)) = anchor {
+            position_menu_window(&win, w, h, ax, ay);
+        }
+        if pending {
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+    });
 }
 
 fn position_menu_window(
@@ -446,11 +519,16 @@ fn position_menu_window(
     let _ = window.set_position(PhysicalPosition::new(left.round() as i32, top.round() as i32));
 }
 
-/// Perform a menu action, then dismiss the popup.
+/// Perform a menu action. Most actions dismiss the popup; maintenance actions
+/// (refresh / ping) run in the background and report progress into the still-open
+/// flyout instead.
 #[tauri::command]
 pub fn tray_menu_action(app: AppHandle, action: String, server_id: Option<String>) {
-    if let Some(window) = app.get_webview_window(MENU_WINDOW) {
-        let _ = window.hide();
+    let keep_open = matches!(action.as_str(), "refresh_subscriptions" | "ping_servers");
+    if !keep_open {
+        if let Some(window) = app.get_webview_window(MENU_WINDOW) {
+            let _ = window.hide();
+        }
     }
     match action.as_str() {
         "hide" => {}
@@ -499,12 +577,33 @@ fn refresh_all_subscriptions(app: &AppHandle) {
             .map(|sub| sub.url.clone())
             .collect::<Vec<_>>();
 
+        let mut ok = 0usize;
         for url in urls {
             let state = app.state::<AppState>();
-            let _ = crate::commands::refresh_subscription(state, url).await;
+            if crate::commands::refresh_subscription(state, url).await.is_ok() {
+                ok += 1;
+            }
         }
 
         let _ = refresh_tray_menu(&app);
+
+        let servers = app
+            .state::<AppState>()
+            .snapshot()
+            .subscriptions
+            .iter()
+            .map(|sub| sub.servers.len())
+            .sum::<usize>();
+        let _ = app.emit_to(
+            MENU_WINDOW,
+            "tray-menu:action-done",
+            serde_json::json!({
+                "action": "refresh_subscriptions",
+                "ok": true,
+                "count": ok,
+                "servers": servers,
+            }),
+        );
     });
 }
 
@@ -519,12 +618,31 @@ fn ping_all_servers(app: &AppHandle) {
             .flat_map(|sub| sub.servers.iter().map(|server| server.id.clone()))
             .collect::<Vec<_>>();
 
+        let mut count = 0usize;
+        let mut best: Option<u64> = None;
         if !server_ids.is_empty() {
             let state = app.state::<AppState>();
-            let _ = crate::commands::ping_servers(state, server_ids).await;
+            if let Ok(results) = crate::commands::ping_servers(state, server_ids).await {
+                for result in &results {
+                    if let Some(latency) = result.latency_ms {
+                        count += 1;
+                        best = Some(best.map_or(latency, |current| current.min(latency)));
+                    }
+                }
+            }
         }
 
         let _ = refresh_tray_menu(&app);
+        let _ = app.emit_to(
+            MENU_WINDOW,
+            "tray-menu:action-done",
+            serde_json::json!({
+                "action": "ping_servers",
+                "ok": true,
+                "count": count,
+                "best": best,
+            }),
+        );
     });
 }
 
@@ -551,4 +669,48 @@ fn disconnect(app: &AppHandle) {
         let _ = crate::commands::disconnect_server(app.clone(), state).await;
         let _ = refresh_tray_menu(&app);
     });
+}
+
+/// Clip the popup window to a rounded rectangle that matches the CSS card radius.
+/// Without this, WebView2 on Windows renders the transparent area outside the
+/// rounded card as an opaque black box. Must be called on the UI thread.
+#[cfg(windows)]
+fn apply_rounded_region(
+    window: &tauri::WebviewWindow,
+    width: u32,
+    height: u32,
+    scale: f64,
+    css_radius: f64,
+) {
+    use winapi::shared::windef::HWND;
+    use winapi::um::wingdi::CreateRoundRectRgn;
+    use winapi::um::winuser::SetWindowRgn;
+
+    // Mirror the actual `.tray-card` border radius, scaled to physical pixels.
+    // Bias up by a pixel so the region rounds a hair *more* than the card: it then
+    // clips a sliver of the painted corner (which just shows the desktop) instead
+    // of stopping short of it and exposing the transparent corner WebView2 paints
+    // black.
+    let radius = ((css_radius.max(1.0) * scale).round() as i32 + 1).max(1);
+    let Ok(handle) = window.hwnd() else {
+        return;
+    };
+    unsafe {
+        let region =
+            CreateRoundRectRgn(0, 0, width as i32 + 1, height as i32 + 1, radius * 2, radius * 2);
+        if !region.is_null() {
+            // On success the window takes ownership of the region handle.
+            SetWindowRgn(handle.0 as HWND, region, 1);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn apply_rounded_region(
+    _window: &tauri::WebviewWindow,
+    _width: u32,
+    _height: u32,
+    _scale: f64,
+    _css_radius: f64,
+) {
 }
