@@ -5,6 +5,7 @@ import { CountryFlag } from "../components/CountryFlag";
 import { notifyError, notifyInfo } from "../lib/notify";
 import { fillTemplate, useMessages, type Messages } from "../lib/i18n";
 import { pingServersProgressively } from "../lib/ping";
+import { useCachedSubscriptionLogo } from "../lib/subscriptionLogo";
 import { useAppStore } from "../store";
 import {
   api,
@@ -350,6 +351,7 @@ function ProfileCard({
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const setServerPing = useAppStore((s) => s.setServerPing);
   const showSubscriptionLogo = useAppStore((s) => s.preferences.show_subscription_logo);
+  const logoSrc = useCachedSubscriptionLogo(sub, showSubscriptionLogo);
 
   const trafficValue = total ? `${formatBytes(used)} / ${formatBytes(total)}` : `${formatBytes(used)} / ∞`;
   const toggleExpanded = () => setExpanded((value) => !value);
@@ -454,11 +456,12 @@ function ProfileCard({
           </div>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-3">
-              {showSubscriptionLogo && sub.meta?.logo_url && (
+              {logoSrc && (
                 <img
-                  src={sub.meta.logo_url}
+                  key={logoSrc}
+                  src={logoSrc}
                   alt=""
-                  className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-white/15"
+                  className="subscription-logo-image h-8 w-8 shrink-0 object-cover ring-1 ring-white/15"
                   onError={(e) => {
                     e.currentTarget.style.display = "none";
                   }}

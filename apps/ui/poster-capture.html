@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, initial-scale=1" />
+    <title>Nimbo Poster Capture</title>
+    <script>
+      const gb = 1024 ** 3;
+      const now = Date.now();
+      const nowSeconds = Math.floor(now / 1000);
+      const expires = nowSeconds + 64 * 24 * 60 * 60;
+      const subUrl = "https://demo.nimbo.cloud/sub/android";
+      const activeServer = "de-frankfurt-1";
+      const posterLocale = new URLSearchParams(window.location.search).get("lang") === "en" ? "en" : "ru";
+      document.documentElement.lang = posterLocale;
+      const posterCopy = {
+        ru: {
+          tagline: "VPN-клиент для xray-подписок с чистым интерфейсом на Windows и Android.",
+          features: [
+            ["TUN и proxy", "Полный туннель, системный прокси и комбинированный режим."],
+            ["Split tunneling", "Маршрутизация приложений, доменов и IP через удобные профили."],
+            ["Remnawave ready", "Метаданные подписки, описания серверов и xray-шаблоны."],
+            ["TLS Fragment", "Дробление TLS ClientHello помогает обходить DPI-фильтрацию."],
+          ],
+          notifications: [
+            "Подписка Nimbo Cloud обновлена: 5 серверов готовы",
+            "До окончания подписки осталось 63 дня",
+            "Профиль Split tunneling применен",
+            "US New York недоступен при последней проверке",
+          ],
+        },
+        en: {
+          tagline: "Clean VPN client for xray subscriptions on Windows and Android.",
+          features: [
+            ["TUN and proxy", "Full tunnel, system proxy, and combined connection mode."],
+            ["Split tunneling", "Route apps, domains, and IPs through precise profiles."],
+            ["Remnawave ready", "Subscription metadata, server descriptions, and xray templates."],
+            ["TLS Fragment", "Splits TLS ClientHello to help bypass DPI filtering."],
+          ],
+          notifications: [
+            "Nimbo Cloud subscription updated: 5 servers are ready",
+            "Subscription expires in 63 days",
+            "Split tunneling profile applied",
+            "US New York was unreachable during the last check",
+          ],
+        },
+      };
+      const copy = posterCopy[posterLocale];
+      const notificationHistory = [
+        {
+          id: "poster-subscription-updated",
+          tone: "success",
+          message: copy.notifications[0],
+          createdAt: now + 3 * 60 * 1000,
+        },
+        {
+          id: "poster-subscription-expiration",
+          tone: "warning",
+          message: copy.notifications[1],
+          createdAt: now + 2 * 60 * 1000,
+        },
+        {
+          id: "poster-routing-applied",
+          tone: "info",
+          message: copy.notifications[2],
+          createdAt: now - 12 * 60 * 1000,
+        },
+        {
+          id: "poster-server-unavailable",
+          tone: "error",
+          message: copy.notifications[3],
+          createdAt: now - 48 * 60 * 1000,
+        },
+      ];
+
+      localStorage.setItem(
+        "nimbo.persistedState",
+        JSON.stringify({
+          subscriptions: [
+            {
+              url: subUrl,
+              name: "Nimbo Cloud",
+              meta: {
+                description: "Premium xray subscription · Windows and Android",
+                support_url: "https://t.me/nimbo",
+                website_url: "https://nimbo.app",
+                show_on_home: true,
+                update_interval_minutes: 360,
+              },
+              info: {
+                upload: 24.7 * gb,
+                download: 82.4 * gb,
+                total: 300 * gb,
+                expire: expires,
+              },
+              fetched_at: nowSeconds,
+              servers: [
+                {
+                  id: activeServer,
+                  name: "DE Frankfurt · Reality",
+                  server_description: "Low-latency route for everyday browsing and video",
+                  protocol: {
+                    kind: "vless",
+                    address: "de1.nimbo.cloud",
+                    port: 443,
+                    uuid: "adcb1f20-5308-49f2-8f8f-7d717ddca2b2",
+                    encryption: "none",
+                    stream: {
+                      network: "xhttp",
+                      security: "reality",
+                      sni: "www.microsoft.com",
+                      fingerprint: "chrome",
+                      public_key: "nimbo",
+                      short_id: "a1b2c3",
+                    },
+                  },
+                },
+                {
+                  id: "nl-amsterdam-1",
+                  name: "NL Amsterdam · XHTTP",
+                  server_description: "Stable route with clean DNS and XHTTP transport",
+                  protocol: {
+                    kind: "vless",
+                    address: "nl1.nimbo.cloud",
+                    port: 443,
+                    uuid: "5fe27a48-e4e8-4f4d-b3f2-282416ef7ec4",
+                    encryption: "none",
+                    stream: {
+                      network: "xhttp",
+                      security: "tls",
+                      sni: "cdn.nimbo.cloud",
+                      fingerprint: "chrome",
+                    },
+                  },
+                },
+                {
+                  id: "fi-helsinki-1",
+                  name: "FI Helsinki · gRPC",
+                  server_description: "Balanced European endpoint for desktop apps",
+                  protocol: {
+                    kind: "trojan",
+                    address: "fi1.nimbo.cloud",
+                    port: 443,
+                    password: "nimbo",
+                    stream: {
+                      network: "grpc",
+                      security: "tls",
+                      sni: "grpc.nimbo.cloud",
+                      service_name: "nimbo",
+                    },
+                  },
+                },
+                {
+                  id: "us-newyork-1",
+                  name: "US New York · WS",
+                  server_description: "Fallback route for streaming and remote work",
+                  protocol: {
+                    kind: "vmess",
+                    address: "us1.nimbo.cloud",
+                    port: 443,
+                    uuid: "fc5205bf-0927-40e2-a4ca-593da033a8b5",
+                    alter_id: 0,
+                    security: "auto",
+                    stream: {
+                      network: "ws",
+                      security: "tls",
+                      path: "/nimbo",
+                      host: "edge.nimbo.cloud",
+                      sni: "edge.nimbo.cloud",
+                    },
+                  },
+                },
+                {
+                  id: "sg-singapore-1",
+                  name: "SG Singapore · HY2",
+                  server_description: "Mobile-friendly endpoint with Hysteria2 transport",
+                  protocol: {
+                    kind: "hysteria2",
+                    address: "sg1.nimbo.cloud",
+                    port: 443,
+                    password: "nimbo",
+                    sni: "sg.nimbo.cloud",
+                    alpn: ["h3"],
+                    insecure: false,
+                  },
+                },
+              ],
+            },
+          ],
+          active_server_id: activeServer,
+          active_subscription_url: subUrl,
+          connected: true,
+          connection_mode: "tun",
+          socks_username: "nimbo",
+          socks_password: "nmb-password",
+          require_socks_auth: false,
+          block_socks_udp: false,
+          server_pings: {
+            "de-frankfurt-1": 36,
+            "nl-amsterdam-1": 44,
+            "fi-helsinki-1": 57,
+            "us-newyork-1": 112,
+            "sg-singapore-1": 183,
+          },
+          preferences: {
+            theme_mode: "dark",
+            ui_style: "nebula",
+            accent_mode: "custom",
+            accent_color: "#8b5cf6",
+            language: posterLocale,
+            servers_connect_button: "classic",
+            servers_sorting: "ping",
+            show_speed_chart: true,
+            show_memory_usage: true,
+            minimize_to_tray: true,
+            ping_on_launch: false,
+            check_updates_on_launch: false,
+            subscriptions_auto_update: true,
+            subscriptions_update_interval_hours: 6,
+            subscriptions_notify_expiration: true,
+            subscriptions_notify_updates: true,
+          },
+        })
+      );
+
+      localStorage.setItem("nimbo.notifications.history", JSON.stringify(notificationHistory));
+      localStorage.setItem("nimbo.notifications.lastSeen", String(now - 90 * 60 * 1000));
+      localStorage.setItem("nimbo.mockConflictsDismissed", "true");
+      localStorage.setItem("nimbo.sidebarWidth", "232");
+      localStorage.setItem("nimbo.sidebarWidth.v2", "1");
+
+      const posterAccentCss = `
+        :root {
+          --color-status-connected: #a78bfa !important;
+        }
+
+        .server-side-ping-badge,
+        .active-server-ping,
+        span[style*="76, 217, 100"],
+        span[style*="123, 224, 132"] {
+          background: rgba(139, 92, 246, 0.20) !important;
+          color: #d8b4fe !important;
+        }
+
+        .active-server-card-connected {
+          border-color: color-mix(in srgb, var(--color-accent-bright) 56%, transparent) !important;
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.07),
+            0 0 0 1px color-mix(in srgb, var(--color-accent) 20%, transparent),
+            0 12px 34px rgba(139, 92, 246, 0.14) !important;
+        }
+
+        .speed-chart-value-up,
+        .speed-chart-value-up svg {
+          color: #c4b5fd !important;
+        }
+
+        .notification-history-item:nth-child(-n + 2) {
+          border-color: color-mix(in srgb, var(--color-accent-bright) 34%, transparent) !important;
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.08),
+            0 10px 28px rgba(139, 92, 246, 0.12) !important;
+        }
+
+        .notification-history-unread-dot {
+          background: #c4b5fd !important;
+          box-shadow: 0 0 18px rgba(196, 181, 253, 0.42) !important;
+        }
+      `;
+
+      const posterPhoneCss = `
+        main.app-main {
+          padding-left: 0.75rem !important;
+          padding-right: 0.75rem !important;
+        }
+
+        .home-center {
+          overflow: hidden !important;
+          scrollbar-gutter: auto !important;
+        }
+
+        .home-center::-webkit-scrollbar {
+          display: none !important;
+          width: 0 !important;
+          height: 0 !important;
+        }
+      `;
+
+      const pingBadgeBackground = "rgba(139, 92, 246, 0.2)";
+      const pingBadgeColor = "#d8b4fe";
+
+      function localizePosterFrame(doc) {
+        if (posterLocale !== "en" || !doc.body) return;
+        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+        const replacements = [];
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          if (node.nodeValue && /\d{2}\sавг\.\s2026(?:\sг\.)?\s\(через\s\d+\sдн\.\)/.test(node.nodeValue)) {
+            replacements.push(node);
+          }
+        }
+        replacements.forEach((node) => {
+          node.nodeValue = node.nodeValue.replace(
+            /\d{2}\sавг\.\s2026(?:\sг\.)?\s\(через\s\d+\sдн\.\)/g,
+            "Aug 08, 2026 (in 63 days)",
+          );
+        });
+      }
+
+      function paintPosterAccent(doc, isPhoneFrame = false) {
+        if (!doc.getElementById("poster-accent-css")) {
+          const style = doc.createElement("style");
+          style.id = "poster-accent-css";
+          style.textContent = posterAccentCss;
+          doc.head.appendChild(style);
+        }
+        if (isPhoneFrame && !doc.getElementById("poster-phone-css")) {
+          const style = doc.createElement("style");
+          style.id = "poster-phone-css";
+          style.textContent = posterPhoneCss;
+          doc.head.appendChild(style);
+        }
+        const pingBadges = [
+          ...doc.querySelectorAll(".server-side-ping-badge, .active-server-ping"),
+          ...[...doc.querySelectorAll("span")].filter((badge) => /^\d+\s*ms$/.test(badge.textContent.trim())),
+        ];
+
+        pingBadges.forEach((badge) => {
+          if (
+            badge.style.getPropertyValue("background") !== pingBadgeBackground ||
+            badge.style.getPropertyPriority("background") !== "important"
+          ) {
+            badge.style.setProperty("background", pingBadgeBackground, "important");
+          }
+          if (
+            badge.style.getPropertyValue("color") !== pingBadgeColor ||
+            badge.style.getPropertyPriority("color") !== "important"
+          ) {
+            badge.style.setProperty("color", pingBadgeColor, "important");
+          }
+        });
+        localizePosterFrame(doc);
+      }
+
+      function watchPosterAccent(doc, isPhoneFrame = false) {
+        if (!doc.body || doc.documentElement.dataset.posterAccentWatch === "true") return;
+        doc.documentElement.dataset.posterAccentWatch = "true";
+
+        let scheduled = false;
+        const schedulePaint = () => {
+          if (scheduled) return;
+          scheduled = true;
+          doc.defaultView.requestAnimationFrame(() => {
+            scheduled = false;
+            paintPosterAccent(doc, isPhoneFrame);
+          });
+        };
+
+        new doc.defaultView.MutationObserver(schedulePaint).observe(doc.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["class", "style"],
+        });
+        schedulePaint();
+      }
+
+      function applyPosterAccent(frame) {
+        try {
+          const doc = frame.contentDocument;
+          if (!doc) return;
+          const isPhoneFrame = frame.closest(".phone") !== null;
+          paintPosterAccent(doc, isPhoneFrame);
+          watchPosterAccent(doc, isPhoneFrame);
+        } catch {
+          /* same-origin iframe may still be booting */
+        }
+      }
+
+      window.addEventListener("load", () => {
+        const frames = [...document.querySelectorAll("iframe")];
+        frames.forEach((frame) => {
+          applyPosterAccent(frame);
+          frame.addEventListener("load", () => applyPosterAccent(frame));
+        });
+        [400, 1200, 2400, 3600, 5200, 6800].forEach((delay) => {
+          window.setTimeout(() => frames.forEach(applyPosterAccent), delay);
+        });
+      });
+
+      document.addEventListener("DOMContentLoaded", () => {
+        document.querySelector("[data-poster-tagline]").textContent = copy.tagline;
+        document.querySelectorAll("[data-feature-index]").forEach((feature) => {
+          const index = Number(feature.dataset.featureIndex);
+          const item = copy.features[index];
+          if (!item) return;
+          feature.querySelector("strong").textContent = item[0];
+          feature.querySelector("span").textContent = item[1];
+        });
+      });
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Segoe UI", Inter, system-ui, sans-serif;
+        background: #060914;
+        color: #f7f9ff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        background: #060914;
+      }
+
+      .poster {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background:
+          linear-gradient(135deg, rgba(139, 92, 246, 0.20), transparent 34%),
+          linear-gradient(315deg, rgba(167, 139, 250, 0.14), transparent 40%),
+          linear-gradient(180deg, #0a1020 0%, #050713 58%, #03050c 100%);
+      }
+
+      .poster::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+          linear-gradient(0deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+        background-size: 64px 64px;
+        mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.9), transparent 76%);
+        opacity: 0.42;
+      }
+
+      .poster::after {
+        content: "";
+        position: absolute;
+        inset: auto 0 0;
+        height: 260px;
+        background: linear-gradient(0deg, rgba(0, 0, 0, 0.55), transparent);
+        pointer-events: none;
+      }
+
+      .copy {
+        position: absolute;
+        left: 84px;
+        top: 78px;
+        z-index: 3;
+        width: 560px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 18px;
+        margin-bottom: 42px;
+      }
+
+      .brand img {
+        width: 74px;
+        height: 74px;
+        border-radius: 18px;
+        box-shadow: 0 24px 80px rgba(139, 92, 246, 0.28);
+      }
+
+      .brand span {
+        color: rgba(247, 249, 255, 0.72);
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 108px;
+        line-height: 0.92;
+        font-weight: 860;
+        letter-spacing: 0;
+      }
+
+      .tagline {
+        margin: 28px 0 0;
+        color: rgba(247, 249, 255, 0.78);
+        max-width: 510px;
+        font-size: 31px;
+        line-height: 1.26;
+        font-weight: 560;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 34px;
+        max-width: 520px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        height: 42px;
+        padding: 0 18px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.055);
+        color: rgba(247, 249, 255, 0.78);
+        font-size: 15px;
+        font-weight: 720;
+      }
+
+      .notes {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        margin-top: 46px;
+        width: 520px;
+      }
+
+      .note {
+        min-height: 112px;
+        border: 1px solid rgba(255, 255, 255, 0.11);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 18px;
+      }
+
+      .note strong {
+        display: block;
+        color: #fff;
+        font-size: 17px;
+        line-height: 1.15;
+      }
+
+      .note span {
+        display: block;
+        margin-top: 9px;
+        color: rgba(247, 249, 255, 0.55);
+        font-size: 14px;
+        line-height: 1.32;
+      }
+
+      .device-area {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+      }
+
+      .window {
+        position: absolute;
+        left: 652px;
+        top: 132px;
+        width: 1048px;
+        height: 720px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 26px;
+        background: rgba(12, 18, 31, 0.94);
+        box-shadow:
+          0 46px 130px rgba(0, 0, 0, 0.58),
+          0 0 0 1px rgba(139, 92, 246, 0.14);
+      }
+
+      .window-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        height: 48px;
+        padding: 0 18px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.045);
+      }
+
+      .dots {
+        display: flex;
+        gap: 8px;
+      }
+
+      .dots span {
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+      }
+
+      .dots span:nth-child(1) { background: #ff5f57; }
+      .dots span:nth-child(2) { background: #ffbd2e; }
+      .dots span:nth-child(3) { background: #28c840; }
+
+      .window-title,
+      .phone-label {
+        color: rgba(247, 249, 255, 0.62);
+        font-size: 13px;
+        font-weight: 720;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .window iframe {
+        display: block;
+        width: 1048px;
+        height: 672px;
+        border: 0;
+        background: #080b12;
+      }
+
+      .phone {
+        position: absolute;
+        right: 86px;
+        top: 252px;
+        width: 412px;
+        height: 810px;
+        border-radius: 46px;
+        padding: 12px;
+        background:
+          linear-gradient(145deg, rgba(255, 255, 255, 0.20), rgba(255, 255, 255, 0.045) 20%, rgba(255, 255, 255, 0.10)),
+          #11151f;
+        box-shadow:
+          0 44px 110px rgba(0, 0, 0, 0.66),
+          0 0 0 1px rgba(255, 255, 255, 0.18) inset,
+          0 0 0 7px rgba(7, 10, 17, 0.96) inset;
+      }
+
+      .phone-shell {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        border-radius: 36px;
+        background: #050713;
+      }
+
+      .phone-camera {
+        position: absolute;
+        left: 50%;
+        top: 12px;
+        z-index: 4;
+        width: 14px;
+        height: 14px;
+        transform: translateX(-50%);
+        border-radius: 999px;
+        background: #03050a;
+        box-shadow:
+          0 0 0 2px rgba(0, 0, 0, 0.72),
+          0 0 0 3px rgba(255, 255, 255, 0.035);
+      }
+
+      .phone iframe {
+        display: block;
+        width: 388px;
+        height: 786px;
+        border: 0;
+        background: #050713;
+      }
+
+      .phone-label {
+        position: absolute;
+        right: 142px;
+        top: 212px;
+        z-index: 4;
+        color: rgba(247, 249, 255, 0.70);
+        padding: 9px 13px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.055);
+        backdrop-filter: blur(12px);
+      }
+
+      .platform-label {
+        position: absolute;
+        left: 690px;
+        top: 88px;
+        z-index: 4;
+        color: rgba(247, 249, 255, 0.70);
+        padding: 9px 13px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.055);
+        backdrop-filter: blur(12px);
+        font-size: 13px;
+        font-weight: 720;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .footer {
+        position: absolute;
+        left: 84px;
+        right: 84px;
+        bottom: 52px;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: rgba(247, 249, 255, 0.46);
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .footer strong {
+        color: rgba(247, 249, 255, 0.78);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="poster" aria-label="Nimbo Windows and Android poster">
+      <section class="copy">
+        <div class="brand">
+          <img src="/src/assets/nimbo.png" alt="" />
+          <span>Nimbo</span>
+        </div>
+        <h1>Nimbo</h1>
+        <p class="tagline" data-poster-tagline>VPN-клиент для xray-подписок с чистым интерфейсом на Windows и Android.</p>
+        <div class="meta" aria-label="Technology stack">
+          <span class="pill">Windows</span>
+          <span class="pill">Android</span>
+          <span class="pill">Tauri</span>
+          <span class="pill">React</span>
+          <span class="pill">Rust</span>
+          <span class="pill">TLS Fragment</span>
+        </div>
+        <div class="notes">
+          <div class="note" data-feature-index="0">
+            <strong>TUN и proxy</strong>
+            <span>Полный туннель, системный прокси и комбинированный режим.</span>
+          </div>
+          <div class="note" data-feature-index="1">
+            <strong>Split tunneling</strong>
+            <span>Маршрутизация приложений, доменов и IP через удобные профили.</span>
+          </div>
+          <div class="note" data-feature-index="2">
+            <strong>Remnawave ready</strong>
+            <span>Метаданные подписки, описания серверов и xray-шаблоны.</span>
+          </div>
+          <div class="note" data-feature-index="3">
+            <strong>TLS Fragment</strong>
+            <span>Дробление TLS ClientHello помогает обходить DPI-фильтрацию.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="device-area" aria-hidden="true">
+        <div class="platform-label">Windows desktop</div>
+        <div class="window">
+          <div class="window-bar">
+            <div class="dots"><span></span><span></span><span></span></div>
+            <div class="window-title">Nimbo connected · Frankfurt Reality</div>
+          </div>
+          <iframe src="/"></iframe>
+        </div>
+
+        <div class="phone-label">Android</div>
+        <div class="phone">
+          <div class="phone-shell">
+            <div class="phone-camera"></div>
+            <iframe src="/"></iframe>
+          </div>
+        </div>
+      </section>
+
+      <div class="footer">
+        <span><strong>xray subscriptions</strong> · VLESS · VMess · Trojan · Shadowsocks · Hysteria2</span>
+        <span>nimbo.app</span>
+      </div>
+    </main>
+  </body>
+</html>

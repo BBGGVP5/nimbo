@@ -6,6 +6,7 @@ import { notifyError } from "../lib/notify";
 import { useMessages } from "../lib/i18n";
 import type { Messages } from "../lib/i18n";
 import { pingServersProgressively } from "../lib/ping";
+import { useCachedSubscriptionLogo } from "../lib/subscriptionLogo";
 import { useAppStore } from "../store";
 import {
   api,
@@ -609,6 +610,7 @@ export function Home() {
             sub={currentSub}
             refreshing={refreshingUrl === currentSub?.url}
             onRefresh={onRefreshSelected}
+            showLogo={preferences.show_subscription_logo}
             labels={m}
           />
         </div>
@@ -1411,13 +1413,17 @@ function ProfileSummary({
   sub,
   refreshing,
   onRefresh,
+  showLogo,
   labels,
 }: {
   sub: Subscription | null;
   refreshing: boolean;
   onRefresh: () => void;
+  showLogo: boolean;
   labels: Messages;
 }) {
+  const logoSrc = useCachedSubscriptionLogo(sub, showLogo);
+
   if (!sub) return null;
 
   const used = (sub.info?.upload ?? 0) + (sub.info?.download ?? 0);
@@ -1430,8 +1436,19 @@ function ProfileSummary({
   return (
     <div className="home-stack w-full max-w-[740px] space-y-2">
       <div className="panel px-4 py-2.5">
-        <div className="grid grid-cols-[1fr_auto] items-start gap-2">
-          <div className="min-w-0">
+        <div className="flex items-start gap-3">
+          {logoSrc && (
+            <img
+              key={logoSrc}
+              src={logoSrc}
+              alt=""
+              className="subscription-logo-image subscription-logo-image-lg h-10 w-10 shrink-0 object-cover ring-1 ring-white/15"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          )}
+          <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] font-semibold text-white">
               {sub.name ?? labels.common.subscription}
             </div>

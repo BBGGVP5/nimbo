@@ -20,13 +20,14 @@ import {
   type AppearanceState,
 } from "./lib/appearance";
 import { useAppStore } from "./store";
-import { api, type AppUpdateInfo, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
+import { api, isTauriRuntime, type AppUpdateInfo, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
 import { cachedSubscriptionTheme } from "./lib/subscriptionTheme";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initNimboDeepLinks } from "./lib/deepLinks";
 import { fillTemplate, useMessages, type Messages } from "./lib/i18n";
 import { applyVisualPreferences } from "./lib/visualTheme";
 import nimboLogo from "./assets/nimbo.png";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 const APP_UPDATE_DIALOG_EVENT = "nimbo:show-update-dialog";
 
@@ -45,6 +46,7 @@ const navItems = [
 ];
 
 export default function App() {
+  const navigate = useNavigate();
   const preferences = useAppStore((s) => s.preferences);
   const status = useAppStore((s) => s.status);
   const error = useAppStore((s) => s.error);
@@ -110,6 +112,31 @@ export default function App() {
     // Notify the backend that the React frontend has mounted and is ready
     void api.appReady().catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+
+    let active = true;
+    let unlisten: UnlistenFn | null = null;
+
+    void listen<string>("nimbo:navigate", (event) => {
+      const route = normalizeTrayRoute(event.payload);
+      if (route) navigate(route);
+    })
+      .then((dispose) => {
+        if (active) {
+          unlisten = dispose;
+        } else {
+          dispose();
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+      if (unlisten) unlisten();
+    };
+  }, [navigate]);
 
   useEffect(() => {
     checkUpdatesOnLaunch.current = preferences.check_updates_on_launch;
@@ -601,6 +628,15 @@ function navLabel(labels: Messages["app"], key: string, short: boolean): string 
   if (key === "tunnelLogs") return short ? labels.tunnelLogsShort : labels.tunnelLogs;
   if (key === "notifications") return short ? labels.notificationsShort : labels.notifications;
   return labels.settings;
+}
+
+function normalizeTrayRoute(route: unknown): string | null {
+  if (route === "/") return "/";
+  if (route === "/subscriptions") return "/subscriptions";
+  if (route === "/statistics") return "/statistics";
+  if (route === "/tunnel-logs") return "/tunnel-logs";
+  if (route === "/settings") return "/settings";
+  return null;
 }
 
 const SIDEBAR_WIDTH_KEY = "nimbo.sidebarWidth";

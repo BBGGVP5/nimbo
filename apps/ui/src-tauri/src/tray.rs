@@ -7,7 +7,7 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
 };
 
-use crate::state::{AppPreferences, AppState, Language, PersistedState};
+use crate::state::{AppPreferences, AppState, ConnectionMode, Language, PersistedState};
 use nimbo_subscription::SubscriptionTheme;
 
 // Pre-computed PNG bytes for the connected-state tray icon (green dot overlay).
@@ -263,7 +263,7 @@ fn tray_tooltip(connected: bool) -> &'static str {
 fn create_menu_window(app: &AppHandle) -> tauri::Result<()> {
     WebviewWindowBuilder::new(app, MENU_WINDOW, WebviewUrl::App("tray-menu.html".into()))
         .title("Nimbo")
-        .inner_size(268.0, 360.0)
+        .inner_size(318.0, 420.0)
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -300,6 +300,8 @@ fn open_tray_menu(app: &AppHandle, x: f64, y: f64) {
 pub struct TrayMenuServer {
     id: String,
     name: String,
+    subscription_name: Option<String>,
+    latency_ms: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -307,6 +309,9 @@ pub struct TrayMenuServer {
 pub struct TrayMenuState {
     connected: bool,
     active_server_id: Option<String>,
+    connection_mode: ConnectionMode,
+    subscription_count: usize,
+    server_count: usize,
     language: String,
     visual_preferences: AppPreferences,
     provider_theme: Option<SubscriptionTheme>,
@@ -323,6 +328,13 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
     }
     .to_string();
     let active_server_id = snapshot.active_server_id.clone();
+    let connection_mode = snapshot.connection_mode;
+    let subscription_count = snapshot.subscriptions.len();
+    let server_count = snapshot
+        .subscriptions
+        .iter()
+        .map(|sub| sub.servers.len())
+        .sum();
     let visual_preferences = snapshot.preferences.clone();
     let provider_theme = active_provider_theme(&snapshot);
 
@@ -332,6 +344,8 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
             servers.push(TrayMenuServer {
                 id: server.id.clone(),
                 name: server.name.clone(),
+                subscription_name: sub.name.clone(),
+                latency_ms: snapshot.server_pings.get(&server.id).copied(),
             });
         }
     }
@@ -339,6 +353,9 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
     TrayMenuState {
         connected: snapshot.connected,
         active_server_id,
+        connection_mode,
+        subscription_count,
+        server_count,
         language,
         visual_preferences,
         provider_theme,
@@ -384,19 +401,39 @@ pub fn tray_menu_resize(app: AppHandle, width: f64, height: f64) {
         ctl.pending = false;
         result
     };
-    if !pending {
-        return;
-    }
     let Some((ax, ay)) = anchor else {
         return;
     };
 
-    // Grow up-and-left from the cursor (bottom-right tray convention).
-    let mut left = ax - w as f64;
-    let mut top = ay - h as f64;
+    position_menu_window(&window, w, h, ax, ay);
+
+    if pending {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn position_menu_window(
+    window: &tauri::WebviewWindow,
+    w: u32,
+    h: u32,
+    ax: f64,
+    ay: f64,
+) {
+    const GAP: f64 = 8.0;
+
+    // Grow up-and-left from the tray click point, leaving a small gap so the
+    // animation reads as emerging from the icon instead of the screen center.
+    let mut left = ax - w as f64 + GAP;
+    let mut top = ay - h as f64 - GAP;
 
     // Keep the flyout fully inside the work area of the cursor's monitor.
-    if let Ok(Some(monitor)) = window.current_monitor() {
+    let monitor = window
+        .monitor_from_point(ax, ay)
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten());
+    if let Some(monitor) = monitor {
         let area = monitor.work_area();
         let min_x = area.position.x as f64;
         let min_y = area.position.y as f64;
@@ -407,8 +444,6 @@ pub fn tray_menu_resize(app: AppHandle, width: f64, height: f64) {
     }
 
     let _ = window.set_position(PhysicalPosition::new(left.round() as i32, top.round() as i32));
-    let _ = window.show();
-    let _ = window.set_focus();
 }
 
 /// Perform a menu action, then dismiss the popup.
@@ -418,7 +453,15 @@ pub fn tray_menu_action(app: AppHandle, action: String, server_id: Option<String
         let _ = window.hide();
     }
     match action.as_str() {
+        "hide" => {}
         "show" => show_main_window(&app),
+        "home" => open_main_route(&app, "/"),
+        "profiles" => open_main_route(&app, "/subscriptions"),
+        "statistics" => open_main_route(&app, "/statistics"),
+        "logs" => open_main_route(&app, "/tunnel-logs"),
+        "settings" => open_main_route(&app, "/settings"),
+        "refresh_subscriptions" => refresh_all_subscriptions(&app),
+        "ping_servers" => ping_all_servers(&app),
         "connect" => connect_active_server(&app),
         "disconnect" => disconnect(&app),
         "server" => {
@@ -431,12 +474,58 @@ pub fn tray_menu_action(app: AppHandle, action: String, server_id: Option<String
     }
 }
 
+fn open_main_route(app: &AppHandle, route: &'static str) {
+    show_main_window(app);
+    let _ = app.emit_to("main", "nimbo:navigate", route);
+}
+
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+fn refresh_all_subscriptions(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let urls = app
+            .state::<AppState>()
+            .snapshot()
+            .subscriptions
+            .iter()
+            .filter(|sub| sub.url.starts_with("http://") || sub.url.starts_with("https://"))
+            .map(|sub| sub.url.clone())
+            .collect::<Vec<_>>();
+
+        for url in urls {
+            let state = app.state::<AppState>();
+            let _ = crate::commands::refresh_subscription(state, url).await;
+        }
+
+        let _ = refresh_tray_menu(&app);
+    });
+}
+
+fn ping_all_servers(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let server_ids = app
+            .state::<AppState>()
+            .snapshot()
+            .subscriptions
+            .iter()
+            .flat_map(|sub| sub.servers.iter().map(|server| server.id.clone()))
+            .collect::<Vec<_>>();
+
+        if !server_ids.is_empty() {
+            let state = app.state::<AppState>();
+            let _ = crate::commands::ping_servers(state, server_ids).await;
+        }
+
+        let _ = refresh_tray_menu(&app);
+    });
 }
 
 fn connect_active_server(app: &AppHandle) {
