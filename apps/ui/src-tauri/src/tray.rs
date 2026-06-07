@@ -191,7 +191,7 @@ fn make_tray_icon_png(connected: bool) -> Result<Vec<u8>, Box<dyn std::error::Er
 
 const TRAY_ID: &str = "nimbo-tray";
 const MENU_WINDOW: &str = "tray-menu";
-const MENU_WINDOW_BG: Color = Color(24, 26, 37, 255);
+const MENU_WINDOW_BG: Color = Color(32, 34, 49, 255);
 
 /// Cursor anchor (physical px) captured on right-click, plus whether a reveal
 /// is pending. The popup measures its rendered content and calls

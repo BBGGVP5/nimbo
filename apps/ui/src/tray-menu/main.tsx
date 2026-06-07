@@ -12,7 +12,7 @@ document.addEventListener("contextmenu", (event) => event.preventDefault());
 document.addEventListener("dragstart", (event) => event.preventDefault());
 
 try {
-  void getCurrentWebview().setBackgroundColor([24, 26, 37, 255]).catch(() => undefined);
+  void getCurrentWebview().setBackgroundColor([32, 34, 49, 255]).catch(() => undefined);
 } catch {
   // Browser preview does not have a Tauri webview.
 }
