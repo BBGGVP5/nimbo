@@ -319,8 +319,8 @@ export function TrayMenu() {
   // its layout box is stable from the first frame: we size + reveal once, then a
   // ResizeObserver tracks every later height change. Driving the resize from real
   // layout changes (instead of a fixed-length per-frame loop racing a transform)
-  // keeps the window bounds and the rounded clip region in lock-step, so WebView2
-  // never flashes the black transparent corners and the open reads smoothly.
+  // keeps the window bounds, DWM rounding and the fallback rounded region in
+  // lock-step, so Windows never exposes the native rectangle behind the flyout.
   useLayoutEffect(() => {
     if (!state) return;
     const card = cardRef.current;

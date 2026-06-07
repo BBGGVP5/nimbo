@@ -51,6 +51,7 @@ winapi = { version = "0.3", features = ["shellapi", "wingdi", "winuser", "libloa
 windows-service = "0.7"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Dwm",
     "Win32_Storage_FileSystem",
     "Win32_System_Pipes",
     "Win32_System_IO",

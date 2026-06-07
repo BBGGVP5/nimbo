@@ -1,7 +1,6 @@
-/* Custom tray flyout. The native Tauri window is transparent and clipped to the
-   same rounded shape as the card. Keep every root layer transparent: painting
-   them creates the black square that can show behind the rounded menu on
-   Windows/WebView2. The card below is the only painted surface. */
+/* Custom tray flyout. The native Tauri window is opaque and rounded by Windows
+   DWM, with this same surface color painted from the first HTML frame. That
+   avoids WebView2's black transparent-corner rectangle on Windows. */
 
 :root {
   --tray-radius: 20px;
@@ -17,7 +16,7 @@ body,
   width: max-content;
   height: max-content;
   margin: 0;
-  background: transparent !important;
+  background: var(--tray-surface) !important;
 }
 
 body {
@@ -59,12 +58,12 @@ body::after {
 #tray-root,
 .tray-shell {
   display: inline-block;
-  background: transparent !important;
+  background: var(--tray-surface) !important;
 }
 
 .tray-shell {
   border-radius: var(--tray-radius);
-  overflow: visible;
+  overflow: hidden;
 }
 
 .tray-card {

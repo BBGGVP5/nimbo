@@ -191,6 +191,7 @@ fn make_tray_icon_png(connected: bool) -> Result<Vec<u8>, Box<dyn std::error::Er
 
 const TRAY_ID: &str = "nimbo-tray";
 const MENU_WINDOW: &str = "tray-menu";
+const MENU_WINDOW_BG: Color = Color(24, 26, 37, 255);
 
 /// Cursor anchor (physical px) captured on right-click, plus whether a reveal
 /// is pending. The popup measures its rendered content and calls
@@ -284,10 +285,10 @@ fn create_menu_window(app: &AppHandle) -> tauri::Result<()> {
     let window =
         WebviewWindowBuilder::new(app, MENU_WINDOW, WebviewUrl::App("tray-menu.html".into()))
             .title("Nimbo")
-            .inner_size(318.0, 420.0)
+            .inner_size(326.0, 420.0)
             .decorations(false)
-            .transparent(true)
-            .background_color(Color(0, 0, 0, 0))
+            .transparent(false)
+            .background_color(MENU_WINDOW_BG)
             .shadow(false)
             .always_on_top(true)
             .skip_taskbar(true)
@@ -295,10 +296,11 @@ fn create_menu_window(app: &AppHandle) -> tauri::Result<()> {
             .visible(false)
             .focused(false)
             .build()?;
-    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+    let _ = window.set_background_color(Some(MENU_WINDOW_BG));
+    configure_native_tray_window(&window);
     if let Ok(size) = window.inner_size() {
         let scale = window.scale_factor().unwrap_or(1.0);
-        apply_rounded_region(&window, size.width, size.height, scale, 18.0);
+        apply_rounded_region(&window, size.width, size.height, scale, 20.0);
     }
     Ok(())
 }
@@ -468,13 +470,14 @@ pub fn tray_menu_resize(
         result
     };
 
-    // Resize, re-clip the rounded corners, position and reveal as one unit on the
-    // UI thread. Keeping them together means the window bounds and the corner
-    // region never disagree for a frame mid-animation (which would flash the
-    // black transparent corners WebView2 paints on Windows).
+    // Resize, apply native rounding, re-clip the fallback region, position and
+    // reveal as one unit on the UI thread. Keeping them together means the
+    // window bounds and the rounded shape never disagree for a frame.
     let win = window.clone();
     let _ = app.run_on_main_thread(move || {
+        let _ = win.set_background_color(Some(MENU_WINDOW_BG));
         let _ = win.set_size(PhysicalSize::new(w, h));
+        configure_native_tray_window(&win);
         apply_rounded_region(&win, w, h, scale, radius.unwrap_or(18.0));
         if let Some((ax, ay)) = anchor {
             position_menu_window(&win, w, h, ax, ay);
@@ -671,9 +674,46 @@ fn disconnect(app: &AppHandle) {
     });
 }
 
+/// Ask Windows 11 DWM to round the top-level popup like a native Fluent flyout.
+/// This is more reliable than relying on transparent WebView2 corners, which can
+/// show a black system-painted rectangle behind the CSS card.
+#[cfg(windows)]
+fn configure_native_tray_window(window: &tauri::WebviewWindow) {
+    use std::ffi::c_void;
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    };
+
+    let Ok(handle) = window.hwnd() else {
+        return;
+    };
+    unsafe {
+        let corner = DWMWCP_ROUND;
+        let _ = DwmSetWindowAttribute(
+            handle.0 as _,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            &corner as *const _ as *const c_void,
+            std::mem::size_of_val(&corner) as u32,
+        );
+
+        // Hide the thin square DWM border; the CSS card draws its own rounded
+        // border inside the clipped native window.
+        let no_border: u32 = 0xFFFFFFFE;
+        let _ = DwmSetWindowAttribute(
+            handle.0 as _,
+            DWMWA_BORDER_COLOR as u32,
+            &no_border as *const _ as *const c_void,
+            std::mem::size_of_val(&no_border) as u32,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn configure_native_tray_window(_window: &tauri::WebviewWindow) {}
+
 /// Clip the popup window to a rounded rectangle that matches the CSS card radius.
-/// Without this, WebView2 on Windows renders the transparent area outside the
-/// rounded card as an opaque black box. Must be called on the UI thread.
+/// DWM rounding is preferred; this is a Win32 fallback for systems where DWM
+/// does not round an undecorated utility window. Must be called on the UI thread.
 #[cfg(windows)]
 fn apply_rounded_region(
     window: &tauri::WebviewWindow,
@@ -687,10 +727,8 @@ fn apply_rounded_region(
     use winapi::um::winuser::SetWindowRgn;
 
     // Mirror the actual `.tray-card` border radius, scaled to physical pixels.
-    // Bias up by a pixel so the region rounds a hair *more* than the card: it then
-    // clips a sliver of the painted corner (which just shows the desktop) instead
-    // of stopping short of it and exposing the transparent corner WebView2 paints
-    // black.
+    // Bias up by a pixel so the fallback region rounds a hair more than the card
+    // instead of stopping short of it.
     let radius = ((css_radius.max(1.0) * scale).round() as i32 + 1).max(1);
     let Ok(handle) = window.hwnd() else {
         return;
