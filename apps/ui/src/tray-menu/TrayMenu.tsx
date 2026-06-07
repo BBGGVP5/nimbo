@@ -329,7 +329,8 @@ export function TrayMenu() {
     const measure = () => {
       const dpr = window.devicePixelRatio || 1;
       const rect = card.getBoundingClientRect();
-      const radius = parseCssPixels(window.getComputedStyle(card).borderTopLeftRadius, 18);
+      const style = window.getComputedStyle(card);
+      const radius = parseCssPixels(style.getPropertyValue("--tray-radius"), 20);
       // Floor (not ceil) so the window is never a fraction of a pixel wider than
       // the painted card — that gap renders as a black seam on WebView2. Pass the
       // real dpr and CSS radius too: the rounded clip region is derived from them, and if it

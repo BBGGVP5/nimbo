@@ -297,10 +297,12 @@ fn create_menu_window(app: &AppHandle) -> tauri::Result<()> {
             .focused(false)
             .build()?;
     let _ = window.set_background_color(Some(MENU_WINDOW_BG));
-    configure_native_tray_window(&window);
-    if let Ok(size) = window.inner_size() {
-        let scale = window.scale_factor().unwrap_or(1.0);
-        apply_rounded_region(&window, size.width, size.height, scale, 20.0);
+    let native_rounding = configure_native_tray_window(&window);
+    if !native_rounding {
+        if let Ok(size) = window.inner_size() {
+            let scale = window.scale_factor().unwrap_or(1.0);
+            apply_rounded_region(&window, size.width, size.height, scale, 20.0);
+        }
     }
     Ok(())
 }
@@ -477,8 +479,10 @@ pub fn tray_menu_resize(
     let _ = app.run_on_main_thread(move || {
         let _ = win.set_background_color(Some(MENU_WINDOW_BG));
         let _ = win.set_size(PhysicalSize::new(w, h));
-        configure_native_tray_window(&win);
-        apply_rounded_region(&win, w, h, scale, radius.unwrap_or(18.0));
+        let native_rounding = configure_native_tray_window(&win);
+        if !native_rounding {
+            apply_rounded_region(&win, w, h, scale, radius.unwrap_or(20.0));
+        }
         if let Some((ax, ay)) = anchor {
             position_menu_window(&win, w, h, ax, ay);
         }
@@ -678,23 +682,23 @@ fn disconnect(app: &AppHandle) {
 /// This is more reliable than relying on transparent WebView2 corners, which can
 /// show a black system-painted rectangle behind the CSS card.
 #[cfg(windows)]
-fn configure_native_tray_window(window: &tauri::WebviewWindow) {
+fn configure_native_tray_window(window: &tauri::WebviewWindow) -> bool {
     use std::ffi::c_void;
     use windows_sys::Win32::Graphics::Dwm::{
         DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
     };
 
     let Ok(handle) = window.hwnd() else {
-        return;
+        return false;
     };
     unsafe {
         let corner = DWMWCP_ROUND;
-        let _ = DwmSetWindowAttribute(
+        let rounded = DwmSetWindowAttribute(
             handle.0 as _,
             DWMWA_WINDOW_CORNER_PREFERENCE as u32,
             &corner as *const _ as *const c_void,
             std::mem::size_of_val(&corner) as u32,
-        );
+        ) >= 0;
 
         // Hide the thin square DWM border; the CSS card draws its own rounded
         // border inside the clipped native window.
@@ -705,11 +709,14 @@ fn configure_native_tray_window(window: &tauri::WebviewWindow) {
             &no_border as *const _ as *const c_void,
             std::mem::size_of_val(&no_border) as u32,
         );
+        rounded
     }
 }
 
 #[cfg(not(windows))]
-fn configure_native_tray_window(_window: &tauri::WebviewWindow) {}
+fn configure_native_tray_window(_window: &tauri::WebviewWindow) -> bool {
+    false
+}
 
 /// Clip the popup window to a rounded rectangle that matches the CSS card radius.
 /// DWM rounding is preferred; this is a Win32 fallback for systems where DWM
