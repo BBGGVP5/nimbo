@@ -1,10 +1,14 @@
-/* Custom tray flyout. The native window is clipped to a rounded region; this
-   fallback surface paints every WebView pixel before React/theme hydration, so
-   WebView2 never leaks black transparent corners or a white first frame. */
+/* Custom tray flyout. The native Tauri window is transparent and clipped to the
+   same rounded shape as the card. Keep every root layer transparent: painting
+   them creates the black square that can show behind the rounded menu on
+   Windows/WebView2. The card below is the only painted surface. */
 
 :root {
-  --tray-window-bg: #181a25;
-  --tray-radius: 18px;
+  --tray-radius: 20px;
+  --tray-surface: #181a25;
+  --tray-surface-strong: #202231;
+  --tray-surface-soft: rgba(255, 255, 255, 0.055);
+  --tray-hairline: rgba(255, 255, 255, 0.12);
 }
 
 html,
@@ -13,7 +17,7 @@ body,
   width: max-content;
   height: max-content;
   margin: 0;
-  background: var(--tray-window-bg) !important;
+  background: transparent !important;
 }
 
 body {
@@ -26,16 +30,25 @@ body {
 }
 
 body[data-theme="light"] {
-  --tray-window-bg: #f1f0f6;
+  --tray-surface: #f5f2fb;
+  --tray-surface-strong: #ffffff;
+  --tray-surface-soft: rgba(20, 18, 31, 0.055);
+  --tray-hairline: rgba(20, 18, 31, 0.12);
 }
 
 body[data-theme="black"] {
-  --tray-window-bg: #080810;
+  --tray-surface: #080810;
+  --tray-surface-strong: #11121b;
+  --tray-surface-soft: rgba(255, 255, 255, 0.045);
+  --tray-hairline: rgba(255, 255, 255, 0.1);
 }
 
 body[data-ui-style="material_you"] {
-  --tray-window-bg: var(--md-surface-container-high);
   --tray-radius: var(--md-shape-xl);
+  --tray-surface: var(--md-surface-container);
+  --tray-surface-strong: var(--md-surface-container-high);
+  --tray-surface-soft: color-mix(in srgb, var(--md-on-surface) 5%, transparent);
+  --tray-hairline: color-mix(in srgb, var(--md-outline-variant) 70%, transparent);
 }
 
 body::before,
@@ -46,47 +59,44 @@ body::after {
 #tray-root,
 .tray-shell {
   display: inline-block;
-  background: var(--tray-window-bg);
+  background: transparent !important;
 }
 
 .tray-shell {
   border-radius: var(--tray-radius);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .tray-card {
   position: relative;
   isolation: isolate;
-  width: 318px;
+  width: 326px;
   box-sizing: border-box;
   overflow: hidden;
-  padding: 10px;
-  border: 1px solid color-mix(in srgb, var(--color-border-strong) 82%, transparent);
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 78%, transparent);
   border-radius: var(--tray-radius);
   background:
-    linear-gradient(145deg, color-mix(in srgb, var(--color-accent) 13%, transparent), transparent 42%),
-    linear-gradient(315deg, color-mix(in srgb, var(--color-accent-bright) 10%, transparent), transparent 56%),
-    linear-gradient(180deg, var(--color-material-glaze-strong), var(--color-material-glaze)),
-    var(--ui-panel-bg-strong);
+    radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--color-accent-bright) 23%, transparent), transparent 34%),
+    radial-gradient(circle at 98% 104%, color-mix(in srgb, var(--color-accent) 20%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--tray-surface-strong) 96%, transparent), color-mix(in srgb, var(--tray-surface) 98%, transparent)),
+    var(--tray-surface);
   -webkit-backdrop-filter: var(--ui-backdrop-filter);
   backdrop-filter: var(--ui-backdrop-filter);
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  /* The card surface must be fully painted from the first frame: the window is
-     transparent and WebView2 renders any uncovered pixel as an opaque black box,
-     so the entrance animation lives on `.tray-card-inner`, never on the card's
-     own geometry. */
   box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.13),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+    inset 0 1px var(--tray-hairline),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.035),
+    inset 0 -28px 70px rgba(0, 0, 0, 0.12);
 }
 
-/* Entrance layer: fades and settles the contents up into place inside the
-   already-sized, already-clipped card — so the open reads as a smooth reveal
-   with no native window resize racing a transform. */
+/* Entrance layer: animate the contents from the tray icon while the card's
+   geometry stays fixed, so native clipping and CSS layout never race. */
 .tray-card-inner {
-  animation: tray-flyout-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: calc(100% - 18px) calc(100% - 10px);
+  animation: tray-flyout-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .tray-card::before {
@@ -96,9 +106,9 @@ body::after {
   z-index: -1;
   border-radius: inherit;
   background:
-    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--color-accent-bright) 20%, transparent), transparent 34%),
-    radial-gradient(circle at 100% 92%, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 42%);
-  opacity: 0.9;
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08), transparent 28%, transparent 72%, rgba(255, 255, 255, 0.035)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 18%);
+  opacity: 0.75;
   pointer-events: none;
 }
 
@@ -111,19 +121,21 @@ body[data-theme="light"] .tray-card {
 
 body[data-theme="black"] .tray-card {
   background:
-    linear-gradient(145deg, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 44%),
-    linear-gradient(315deg, color-mix(in srgb, var(--color-accent-bright) 8%, transparent), transparent 60%),
-    #080810;
+    radial-gradient(circle at 14% -8%, color-mix(in srgb, var(--color-accent-bright) 14%, transparent), transparent 34%),
+    radial-gradient(circle at 102% 106%, color-mix(in srgb, var(--color-accent) 13%, transparent), transparent 42%),
+    linear-gradient(180deg, #11121b, #080810);
 }
 
 @keyframes tray-flyout-in {
   from {
     opacity: 0;
-    transform: translateY(9px);
+    transform: translate(12px, 15px) scale(0.94);
+    filter: blur(2px);
   }
   to {
     opacity: 1;
     transform: none;
+    filter: blur(0);
   }
 }
 
@@ -143,7 +155,7 @@ body[data-theme="black"] .tray-card {
   width: 38px;
   height: 38px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  background: var(--tray-surface-soft);
   border: 1px solid color-mix(in srgb, var(--color-border-strong) 70%, transparent);
 }
 
@@ -263,7 +275,7 @@ body[data-theme="black"] .tray-card {
   height: 26px;
   border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  background: var(--tray-surface-soft);
   color: var(--color-text-faint);
   display: flex;
   align-items: center;
@@ -296,7 +308,7 @@ body[data-theme="black"] .tray-card {
   min-height: 38px;
   border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  background: var(--tray-surface-soft);
   color: var(--color-text);
   padding: 0 11px;
   font-family: inherit;
@@ -317,7 +329,7 @@ body[data-theme="black"] .tray-card {
   flex-direction: column;
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent 58%),
-    color-mix(in srgb, var(--color-text) 5%, transparent);
+    var(--tray-surface-soft);
 }
 
 .tray-tile:not(.is-disabled):hover,
@@ -377,7 +389,7 @@ body[data-theme="black"] .tray-card {
   min-height: 58px;
   border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  background: var(--tray-surface-soft);
   color: var(--color-text-dim);
   padding: 6px 5px;
   font-family: inherit;
@@ -413,7 +425,7 @@ body[data-theme="black"] .tray-card {
   min-height: 36px;
   border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  background: var(--tray-surface-soft);
   color: var(--color-text-dim);
   padding: 0 10px;
   font-family: inherit;
@@ -526,7 +538,7 @@ body[data-theme="black"] .tray-card {
   margin-top: 9px;
   border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  background: var(--tray-surface-soft);
   color: var(--color-text);
   padding: 0 10px;
   font-family: inherit;
@@ -664,7 +676,7 @@ body[data-theme="black"] .tray-card {
   width: 27px;
   height: 27px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+  background: var(--tray-surface-soft);
   font-size: 15px;
   line-height: 1;
 }
@@ -788,9 +800,9 @@ body[data-theme="black"] .tray-card {
 body[data-ui-style="material_you"] .tray-card {
   border-color: var(--md-outline-variant);
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--md-primary) 10%, transparent), transparent 46%),
-    linear-gradient(315deg, color-mix(in srgb, var(--md-tertiary-container) 24%, transparent), transparent 62%),
-    var(--ui-panel-bg-strong);
+    radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--md-primary) 12%, transparent), transparent 35%),
+    radial-gradient(circle at 100% 104%, color-mix(in srgb, var(--md-tertiary) 10%, transparent), transparent 42%),
+    linear-gradient(180deg, var(--tray-surface-strong), var(--tray-surface));
 }
 
 body[data-ui-style="material_you"] .tray-status-orb,
