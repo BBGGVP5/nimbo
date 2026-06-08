@@ -273,6 +273,10 @@ pub fn refresh_tray_menu(app: &AppHandle) -> tauri::Result<()> {
     }
     // If the popup is open, let it refresh its contents to reflect new state.
     let _ = app.emit_to(MENU_WINDOW, "tray-menu:refresh", ());
+    // Keep the main window in sync too: a connect/disconnect from the tray (or a
+    // background monitor) changes the state without the main window's store
+    // knowing, so nudge it to re-read the status.
+    let _ = app.emit_to("main", "nimbo:state-changed", ());
     Ok(())
 }
 
@@ -301,7 +305,7 @@ fn create_menu_window(app: &AppHandle) -> tauri::Result<()> {
     if !native_rounding {
         if let Ok(size) = window.inner_size() {
             let scale = window.scale_factor().unwrap_or(1.0);
-            apply_rounded_region(&window, size.width, size.height, scale, 20.0);
+            apply_rounded_region(&window, size.width, size.height, scale, 8.0);
         }
     }
     Ok(())
@@ -373,6 +377,17 @@ pub struct TrayMenuState {
     visual_preferences: AppPreferences,
     provider_theme: Option<SubscriptionTheme>,
     servers: Vec<TrayMenuServer>,
+    /// The active mode needs the TUN driver but the app is not elevated, so a
+    /// connect attempt will fail until Nimbo is restarted as administrator. The
+    /// flyout shows this up front instead of letting the toggle silently fail.
+    needs_admin: bool,
+}
+
+/// Elevation can only change by relaunching the process, so probe it once
+/// (the check spawns `net session`) and reuse the answer for every tray render.
+fn is_elevated_cached() -> bool {
+    static ELEVATED: OnceLock<bool> = OnceLock::new();
+    *ELEVATED.get_or_init(crate::commands::is_running_as_admin)
 }
 
 /// Snapshot the data the popup needs to render itself.
@@ -407,6 +422,9 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
         }
     }
 
+    let needs_admin =
+        matches!(connection_mode, ConnectionMode::Tun | ConnectionMode::Both) && !is_elevated_cached();
+
     TrayMenuState {
         connected: snapshot.connected,
         active_server_id,
@@ -417,6 +435,7 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
         visual_preferences,
         provider_theme,
         servers,
+        needs_admin,
     }
 }
 
@@ -481,7 +500,7 @@ pub fn tray_menu_resize(
         let _ = win.set_size(PhysicalSize::new(w, h));
         let native_rounding = configure_native_tray_window(&win);
         if !native_rounding {
-            apply_rounded_region(&win, w, h, scale, radius.unwrap_or(20.0));
+            apply_rounded_region(&win, w, h, scale, radius.unwrap_or(8.0));
         }
         if let Some((ax, ay)) = anchor {
             position_menu_window(&win, w, h, ax, ay);
@@ -531,7 +550,13 @@ fn position_menu_window(
 /// flyout instead.
 #[tauri::command]
 pub fn tray_menu_action(app: AppHandle, action: String, server_id: Option<String>) {
-    let keep_open = matches!(action.as_str(), "refresh_subscriptions" | "ping_servers");
+    // Connect/disconnect now keep the flyout open so the toggle can play its
+    // switching animation and surface a result (e.g. the admin-rights prompt)
+    // instead of the window vanishing the instant it is clicked.
+    let keep_open = matches!(
+        action.as_str(),
+        "refresh_subscriptions" | "ping_servers" | "connect" | "disconnect"
+    );
     if !keep_open {
         if let Some(window) = app.get_webview_window(MENU_WINDOW) {
             let _ = window.hide();
@@ -655,6 +680,9 @@ fn ping_all_servers(app: &AppHandle) {
 
 fn connect_active_server(app: &AppHandle) {
     let Some(server_id) = app.state::<AppState>().snapshot().active_server_id else {
+        // No server selected — nothing connected, so report failure to let the
+        // flyout drop the switching state instead of waiting for the timeout.
+        emit_connect_result(app, "connect", false, None);
         return;
     };
     connect_specific_server(app, server_id);
@@ -664,8 +692,9 @@ fn connect_specific_server(app: &AppHandle, server_id: String) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let state = app.state::<AppState>();
-        let _ = crate::commands::connect_server(app.clone(), state, server_id).await;
+        let result = crate::commands::connect_server(app.clone(), state, server_id).await;
         let _ = refresh_tray_menu(&app);
+        emit_connect_result(&app, "connect", result.is_ok(), result.err());
     });
 }
 
@@ -673,9 +702,21 @@ fn disconnect(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let state = app.state::<AppState>();
-        let _ = crate::commands::disconnect_server(app.clone(), state).await;
+        let result = crate::commands::disconnect_server(app.clone(), state).await;
         let _ = refresh_tray_menu(&app);
+        emit_connect_result(&app, "disconnect", result.is_ok(), result.err());
     });
+}
+
+/// Tell the still-open flyout how a connect/disconnect attempt ended so it can
+/// stop the switching animation and, on an admin-rights failure, prompt to
+/// relaunch elevated.
+fn emit_connect_result(app: &AppHandle, action: &str, ok: bool, error: Option<String>) {
+    let _ = app.emit_to(
+        MENU_WINDOW,
+        "tray-menu:connect-result",
+        serde_json::json!({ "action": action, "ok": ok, "error": error }),
+    );
 }
 
 /// Ask Windows 11 DWM to round the top-level popup like a native Fluent flyout.

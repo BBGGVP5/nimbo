@@ -55,6 +55,7 @@ export default function App() {
   const activeSubscriptionUrl = useAppStore((s) => s.activeSubscriptionUrl);
   const connectServer = useAppStore((s) => s.connectServer);
   const hydrate = useAppStore((s) => s.hydrate);
+  const syncStatus = useAppStore((s) => s.syncStatus);
   const refreshSubscription = useAppStore((s) => s.refreshSubscription);
   const conflictDialogOpen = useAppStore((s) => s.conflictDialogOpen);
   const conflictingProcesses = useAppStore((s) => s.conflictingProcesses);
@@ -137,6 +138,29 @@ export default function App() {
       if (unlisten) unlisten();
     };
   }, [navigate]);
+
+  // The tray flyout (and background monitors) can change the connection state
+  // out from under this window; refresh_tray_menu fires this so we re-sync.
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+
+    let active = true;
+    let unlisten: UnlistenFn | null = null;
+
+    void listen("nimbo:state-changed", () => {
+      void syncStatus();
+    })
+      .then((dispose) => {
+        if (active) unlisten = dispose;
+        else dispose();
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+      if (unlisten) unlisten();
+    };
+  }, [syncStatus]);
 
   useEffect(() => {
     checkUpdatesOnLaunch.current = preferences.check_updates_on_launch;

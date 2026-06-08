@@ -62,6 +62,7 @@ interface AppStoreState {
   setActiveSubscription: (url: string | null) => Promise<void>;
   connectServer: (serverId: string) => Promise<void>;
   disconnectServer: () => Promise<void>;
+  syncStatus: () => Promise<void>;
   openConflictDialog: (conflicts: ConflictingProcess[]) => void;
   scanConflictingProcesses: () => Promise<ConflictingProcess[]>;
   closeConflictDialog: () => void;
@@ -133,6 +134,23 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       void api.refreshTrayMenu();
     } catch (e) {
       set({ error: String(e), loading: false });
+    }
+  },
+
+  // Lightweight reconcile (no loading flash, no subs/prefs refetch) for when the
+  // connection state changes outside this window — e.g. the user connected or
+  // disconnected from the tray flyout. Keeps the main window's status in lock-step.
+  syncStatus: async () => {
+    try {
+      const status = await api.getStatus();
+      set((s) => ({
+        status,
+        activeServerId: status.active_server_id,
+        activeSubscriptionUrl: status.active_subscription_url ?? s.activeSubscriptionUrl,
+        serverPings: status.server_pings ?? s.serverPings,
+      }));
+    } catch {
+      // Transient backend hiccup; the next event or hydrate will reconcile.
     }
   },
 

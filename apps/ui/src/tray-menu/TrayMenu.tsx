@@ -9,8 +9,6 @@ import {
 } from "../lib/api";
 import { applyAccentGradient, refreshAppearance, subscribeAppearance } from "../lib/appearance";
 import { applyVisualPreferences } from "../lib/visualTheme";
-import { pingServersProgressively } from "../lib/ping";
-import { CountryFlag } from "../components/CountryFlag";
 
 type ConnectionMode = "system_proxy" | "tun" | "both";
 
@@ -31,6 +29,13 @@ interface TrayState {
   visualPreferences: AppPreferences;
   providerTheme: SubscriptionTheme | null;
   servers: TrayServer[];
+  needsAdmin: boolean;
+}
+
+interface TrayConnectResult {
+  action: "connect" | "disconnect";
+  ok: boolean;
+  error?: string | null;
 }
 
 const LABELS = {
@@ -45,6 +50,10 @@ const LABELS = {
     show: "Открыть",
     connect: "Подключить",
     disconnect: "Отключить",
+    connecting: "Подключение…",
+    disconnecting: "Отключение…",
+    adminNeeded: "Для TUN нужны права администратора",
+    restartAdmin: "Перезапустить",
     quick: "Быстро",
     profiles: "Профили",
     statistics: "Статистика",
@@ -83,6 +92,10 @@ const LABELS = {
     show: "Open",
     connect: "Connect",
     disconnect: "Disconnect",
+    connecting: "Connecting…",
+    disconnecting: "Disconnecting…",
+    adminNeeded: "TUN needs administrator rights",
+    restartAdmin: "Restart",
     quick: "Quick",
     profiles: "Profiles",
     statistics: "Stats",
@@ -112,8 +125,6 @@ const LABELS = {
   },
 } as const;
 
-const SERVERS_COLLAPSED_KEY = "nimbo.tray.serversCollapsed";
-
 type MaintenanceAction = "refresh_subscriptions" | "ping_servers";
 
 interface TrayTask {
@@ -138,18 +149,29 @@ interface TrayActionDone {
 export function TrayMenu() {
   const [state, setState] = useState<TrayState | null>(null);
   const [openNonce, setOpenNonce] = useState(0);
-  const [serversCollapsed, setServersCollapsed] = useState(readServersCollapsed);
   const [task, setTask] = useState<TrayTask | null>(null);
-  // Latencies measured during the current session's ping run, overlaid on top of
-  // the backend snapshot so each row updates live as the ping sweeps the list.
-  const [livePings, setLivePings] = useState<Record<string, number>>({});
-  const [pingingIds, setPingingIds] = useState<Set<string>>(() => new Set());
+  // The state the user just asked the toggle to reach, held from the click until
+  // the backend confirms (or a timeout fires). Non-null means a switch is in
+  // flight; we show this target optimistically so the toggle never flickers when
+  // `connected` flips a render before the in-flight flag clears.
+  const [pendingTarget, setPendingTarget] = useState<boolean | null>(null);
+  // Set when a connect attempt is blocked by missing administrator rights;
+  // surfaces a banner with a one-click relaunch-as-admin action.
+  const [adminBlocked, setAdminBlocked] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const taskTimers = useRef<number[]>([]);
+  const switchTimer = useRef<number | null>(null);
 
   const clearTaskTimers = useCallback(() => {
     taskTimers.current.forEach((id) => window.clearTimeout(id));
     taskTimers.current = [];
+  }, []);
+
+  const clearSwitchTimer = useCallback(() => {
+    if (switchTimer.current != null) {
+      window.clearTimeout(switchTimer.current);
+      switchTimer.current = null;
+    }
   }, []);
 
   const load = useCallback(async () => {
@@ -177,60 +199,6 @@ export function TrayMenu() {
     [act, clearTaskTimers],
   );
 
-  // Ping every server one at a time (a few in flight) instead of firing the
-  // backend's all-at-once command: the list expands and each row fills in its
-  // latency as the sweep reaches it, so the ping visibly travels the servers.
-  const runPing = useCallback(async () => {
-    const ids = (state?.servers ?? []).map((server) => server.id);
-    if (ids.length === 0) return;
-
-    clearTaskTimers();
-    setServersCollapsed(false);
-    setPingingIds(new Set(ids));
-    setTask({ kind: "ping_servers", status: "running", done: 0, total: ids.length });
-
-    // Safety net: never leave spinners stuck if a ping hangs past the timeout.
-    taskTimers.current.push(
-      window.setTimeout(() => {
-        setTask(null);
-        setPingingIds(new Set());
-      }, 60000),
-    );
-
-    let done = 0;
-    let count = 0;
-    let best: number | null = null;
-    try {
-      await pingServersProgressively(ids, (result) => {
-        done += 1;
-        setPingingIds((current) => {
-          const next = new Set(current);
-          next.delete(result.server_id);
-          return next;
-        });
-        if (typeof result.latency_ms === "number" && Number.isFinite(result.latency_ms)) {
-          const latency = result.latency_ms;
-          count += 1;
-          best = best == null ? latency : Math.min(best, latency);
-          setLivePings((current) => ({ ...current, [result.server_id]: latency }));
-        }
-        setTask((current) =>
-          current && current.kind === "ping_servers" && current.status === "running"
-            ? { ...current, done }
-            : current,
-        );
-      });
-      setTask({ kind: "ping_servers", status: "done", count, best, done, total: ids.length });
-    } catch {
-      setTask({ kind: "ping_servers", status: "error" });
-    } finally {
-      setPingingIds(new Set());
-      clearTaskTimers();
-      taskTimers.current.push(window.setTimeout(() => setTask(null), 2600));
-      void load();
-    }
-  }, [state, clearTaskTimers, load]);
-
   useEffect(() => {
     void load();
     const subscriptions: Array<Promise<UnlistenFn>> = [
@@ -239,9 +207,23 @@ export function TrayMenu() {
         // Drop a lingering result banner from a previous session, but keep a
         // spinner that is still in flight.
         setTask((current) => (current?.status === "running" ? current : null));
+        setAdminBlocked(false);
         void load();
       }),
       listen("tray-menu:refresh", () => void load()),
+      // Connect/disconnect now report back here (the flyout stays open). On
+      // success we let the `connected` change settle the optimistic toggle so it
+      // never flickers to the wrong side for a frame; on failure we drop the
+      // switching state right away and raise the admin prompt if that was why.
+      listen<TrayConnectResult>("tray-menu:connect-result", (event) => {
+        const { ok, error } = event.payload;
+        if (!ok) {
+          clearSwitchTimer();
+          setPendingTarget(null);
+          if (isAdminError(error)) setAdminBlocked(true);
+        }
+        void load();
+      }),
       listen<TrayActionDone>("tray-menu:action-done", (event) => {
         const payload = event.payload;
         setTask((current) => {
@@ -263,7 +245,7 @@ export function TrayMenu() {
       clearTaskTimers();
       subscriptions.forEach((p) => void p.then((un) => un()).catch(() => {}));
     };
-  }, [load, clearTaskTimers]);
+  }, [load, clearTaskTimers, clearSwitchTimer]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -330,7 +312,7 @@ export function TrayMenu() {
       const dpr = window.devicePixelRatio || 1;
       const rect = card.getBoundingClientRect();
       const style = window.getComputedStyle(card);
-      const radius = parseCssPixels(style.getPropertyValue("--tray-radius"), 20);
+      const radius = parseCssPixels(style.getPropertyValue("--tray-radius"), 8);
       // Floor (not ceil) so the window is never a fraction of a pixel wider than
       // the painted card — that gap renders as a black seam on WebView2. Pass the
       // real dpr and CSS radius too: the rounded clip region is derived from them, and if it
@@ -378,17 +360,51 @@ export function TrayMenu() {
   const serverCount = state?.serverCount ?? servers.length;
   const canConnect = !connected && activeId != null;
   const canDisconnect = connected;
+  const canToggle = canConnect || canDisconnect;
+  // Show the admin banner proactively (mode needs TUN but the app is not
+  // elevated) or reactively (a connect attempt failed with an admin error).
+  const showAdmin = (state?.needsAdmin ?? false) || adminBlocked;
+  const switching = pendingTarget !== null;
+  // While a switch is in flight, show its target optimistically so the knob
+  // slides and recolors the instant the user clicks; otherwise mirror the real
+  // connection state.
+  const targetOn = pendingTarget ?? connected;
+  const toggleLabel = switching
+    ? targetOn
+      ? t.connecting
+      : t.disconnecting
+    : targetOn
+      ? t.disconnect
+      : t.connect;
 
-  const toggleServers = useCallback(() => {
-    setServersCollapsed((value) => {
-      const next = !value;
-      try {
-        window.localStorage.setItem(SERVERS_COLLAPSED_KEY, next ? "1" : "0");
-      } catch {
-        // Ignore storage failures; the menu still works for the current open.
-      }
-      return next;
-    });
+  const prevConnected = useRef(connected);
+  useEffect(() => {
+    if (prevConnected.current === connected) return;
+    prevConnected.current = connected;
+    // The backend reported the new connection state — land the animation and
+    // drop any reactive admin banner (a successful connect clears the block).
+    setPendingTarget(null);
+    clearSwitchTimer();
+    if (connected) setAdminBlocked(false);
+  }, [connected, clearSwitchTimer]);
+
+  // Drop a stuck switching state if this view unmounts mid-action.
+  useEffect(() => clearSwitchTimer, [clearSwitchTimer]);
+
+  const toggleConnection = useCallback(() => {
+    if (switching || !canToggle) return;
+    clearSwitchTimer();
+    setAdminBlocked(false);
+    setPendingTarget(!connected);
+    act(connected ? "disconnect" : "connect");
+    // Safety net only: the backend always emits a result (success lands via the
+    // connection-state change, failure via connect-result), so this just rescues
+    // a lost event. Generous, since a TUN connection can take a while.
+    switchTimer.current = window.setTimeout(() => setPendingTarget(null), 30000);
+  }, [switching, canToggle, connected, act, clearSwitchTimer]);
+
+  const restartAsAdmin = useCallback(() => {
+    void invoke("restart_as_admin").catch(() => {});
   }, []);
 
   const taskBusy = task?.status === "running";
@@ -430,58 +446,52 @@ export function TrayMenu() {
           <span>
             {t.mode}:&nbsp;<strong>{t.modeNames[connectionMode]}</strong>
           </span>
-          <span>
-            {subscriptionCount} {t.subscriptionsShort}
-          </span>
-          <span>
-            {serverCount} {t.serversShort}
-          </span>
         </div>
 
-        <div className="tray-action-grid">
-          <button type="button" className="tray-tile tray-tile-wide" onClick={() => act("show")}>
-            <ShowIcon />
-            <span>{t.show}</span>
-          </button>
-          <button
-            type="button"
-            className={`tray-tile ${canConnect ? "" : "is-disabled"}`}
-            disabled={!canConnect}
-            onClick={() => canConnect && act("connect")}
-          >
+        <button
+          type="button"
+          className={`tray-connect-toggle ${canToggle ? "" : "is-disabled"}`}
+          data-on={targetOn ? "true" : "false"}
+          data-busy={switching ? "true" : "false"}
+          disabled={!canToggle}
+          role="switch"
+          aria-checked={connected}
+          aria-busy={switching}
+          aria-label={connected ? t.disconnect : t.connect}
+          onClick={toggleConnection}
+        >
+          <span className="tray-power" aria-hidden="true">
             <PowerIcon />
-            <span>{t.connect}</span>
-          </button>
-          <button
-            type="button"
-            className={`tray-tile ${canDisconnect ? "" : "is-disabled"}`}
-            disabled={!canDisconnect}
-            onClick={() => canDisconnect && act("disconnect")}
-          >
-            <DisconnectIcon />
-            <span>{t.disconnect}</span>
-          </button>
-        </div>
+            <span className="tray-power-ring" />
+          </span>
+          <span className="tray-connect-text">
+            <span key={toggleLabel} className="tray-connect-text-value">
+              {toggleLabel}
+            </span>
+          </span>
+        </button>
 
-        <div className="tray-section-label">{t.quick}</div>
-        <div className="tray-shortcuts">
-          <button type="button" onClick={() => act("profiles")} title={t.profiles}>
-            <ProfilesIcon />
-            <span>{t.profiles}</span>
-          </button>
-          <button type="button" onClick={() => act("statistics")} title={t.statistics}>
-            <StatsIcon />
-            <span>{t.statistics}</span>
-          </button>
-          <button type="button" onClick={() => act("logs")} title={t.logs}>
-            <LogsIcon />
-            <span>{t.logs}</span>
-          </button>
-          <button type="button" onClick={() => act("settings")} title={t.settings}>
-            <SettingsIcon />
-            <span>{t.settings}</span>
-          </button>
-        </div>
+        {showAdmin ? (
+          <div className="tray-admin-notice" role="alert">
+            <span className="tray-admin-icon" aria-hidden="true">
+              <ShieldIcon />
+            </span>
+            <span className="tray-admin-text">{t.adminNeeded}</span>
+            <button type="button" className="tray-admin-action" onClick={restartAsAdmin}>
+              {t.restartAdmin}
+            </button>
+          </div>
+        ) : null}
+
+        <button
+          type="button"
+          className="tray-tile tray-tile-settings"
+          onClick={() => act("settings")}
+          title={t.settings}
+        >
+          <SettingsIcon />
+          <span>{t.settings}</span>
+        </button>
 
         <div className="tray-utility-grid" aria-label={t.maintenance}>
           <button
@@ -499,7 +509,7 @@ export function TrayMenu() {
             type="button"
             disabled={serverCount === 0 || taskBusy}
             className={serverCount === 0 || taskBusy ? "is-disabled" : ""}
-            onClick={() => serverCount > 0 && !taskBusy && void runPing()}
+            onClick={() => serverCount > 0 && !taskBusy && runMaintenance("ping_servers")}
           >
             <RadarIcon />
             <span>{t.ping}</span>
@@ -518,64 +528,6 @@ export function TrayMenu() {
             <span className="tray-task-text">{taskLabel}</span>
           </div>
         ) : null}
-
-        <button
-          type="button"
-          className="tray-section-toggle"
-          aria-expanded={!serversCollapsed}
-          onClick={toggleServers}
-          title={serversCollapsed ? t.expandServers : t.collapseServers}
-        >
-          <ServersIcon />
-          <span>{t.servers}</span>
-          <span className="tray-section-count">{servers.length}</span>
-          <ChevronIcon />
-        </button>
-
-        <div className={`tray-servers-frame ${serversCollapsed ? "is-collapsed" : ""}`}>
-          <div className="tray-servers">
-            {servers.length === 0 ? (
-              <div className="tray-server-empty">{t.noServers}</div>
-            ) : (
-              servers.map((server) => {
-                const active = server.id === activeId;
-                const livePing = livePings[server.id];
-                const latencyValue = typeof livePing === "number" ? livePing : server.latencyMs;
-                const latency = formatLatency(latencyValue, t.noPing);
-                const isPinging = pingingIds.has(server.id);
-                return (
-                  <button
-                    key={server.id}
-                    type="button"
-                    className={`tray-server ${active ? "is-active" : ""} ${isPinging ? "is-pinging" : ""}`}
-                    onClick={() => act("server", server.id)}
-                    title={displayServerName(server)}
-                  >
-                    <span className="tray-flag">
-                      <CountryFlag
-                        serverName={server.name}
-                        fallback={<GlobeIcon />}
-                        className="country-flag-xs"
-                      />
-                    </span>
-                    <span className="tray-server-copy">
-                      <span className="tray-server-name">{displayServerName(server)}</span>
-                      <span className="tray-server-meta">
-                        {server.subscriptionName ? <span>{server.subscriptionName}</span> : null}
-                        {isPinging ? (
-                          <span className="tray-ping-spinner" aria-hidden="true" />
-                        ) : (
-                          <span>{latency}</span>
-                        )}
-                      </span>
-                    </span>
-                    {active ? <CheckIcon /> : null}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
 
         <div className="tray-footer">
           <button type="button" className="tray-quit" onClick={() => act("quit")}>
@@ -600,16 +552,16 @@ const svgProps = {
   "aria-hidden": true,
 };
 
-function readServersCollapsed(): boolean {
-  try {
-    return window.localStorage.getItem(SERVERS_COLLAPSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
 function isHexColor(value: string | null | undefined): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value.trim());
+}
+
+// A connect failure that boils down to "relaunch as administrator" (TUN/both
+// mode without elevation). Mirrors the main window's `isAdminRestartError`.
+function isAdminError(message: string | null | undefined): boolean {
+  if (!message) return false;
+  const normalized = message.toLowerCase();
+  return normalized.includes("администратор") || normalized.includes("administrator");
 }
 
 function parseCssPixels(value: string, fallback: number): number {
@@ -619,11 +571,6 @@ function parseCssPixels(value: string, fallback: number): number {
 
 function displayServerName(server: TrayServer): string {
   return serverDisplayName(server.name) || server.name || "Server";
-}
-
-function formatLatency(value: number | null | undefined, fallback: string): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-  return formatMs(value);
 }
 
 // A successful probe always took *some* time; CDN-fronted servers just connect
@@ -695,15 +642,6 @@ function TaskErrorIcon() {
   );
 }
 
-function ShowIcon() {
-  return (
-    <svg {...svgProps}>
-      <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
-      <path d="M3 9.5h18" />
-    </svg>
-  );
-}
-
 function PowerIcon() {
   return (
     <svg {...svgProps}>
@@ -713,22 +651,11 @@ function PowerIcon() {
   );
 }
 
-function DisconnectIcon() {
+function ShieldIcon() {
   return (
     <svg {...svgProps}>
-      <circle cx="12" cy="12" r="8.4" />
-      <path d="M6.4 6.4l11.2 11.2" />
-    </svg>
-  );
-}
-
-function ServersIcon() {
-  return (
-    <svg {...svgProps}>
-      <rect x="3.5" y="4.5" width="17" height="6.4" rx="1.6" />
-      <rect x="3.5" y="13.1" width="17" height="6.4" rx="1.6" />
-      <path d="M7 7.7h0.01" />
-      <path d="M7 16.3h0.01" />
+      <path d="M12 3.2l6.5 2.4v5.1c0 4-2.7 7.1-6.5 8.1-3.8-1-6.5-4.1-6.5-8.1V5.6L12 3.2Z" />
+      <path d="M9.4 11.8l1.9 1.9 3.4-3.6" />
     </svg>
   );
 }
@@ -739,67 +666,6 @@ function QuitIcon() {
       <path d="M14 4.5H6.5A2 2 0 0 0 4.5 6.5v11a2 2 0 0 0 2 2H14" />
       <path d="M16.5 8.5L20 12l-3.5 3.5" />
       <path d="M20 12H9.5" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      className="tray-check"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M5 12.5l4.5 4.5L19 7" />
-    </svg>
-  );
-}
-
-function GlobeIcon() {
-  return (
-    <svg className="tray-flag-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="8.4" />
-      <path d="M3.6 12h16.8" />
-      <path d="M12 3.6a12.4 12.4 0 0 1 0 16.8" />
-      <path d="M12 3.6a12.4 12.4 0 0 0 0 16.8" />
-    </svg>
-  );
-}
-
-function ProfilesIcon() {
-  return (
-    <svg {...svgProps}>
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M3.5 12h17" />
-      <path d="M12 3.5a12.5 12.5 0 0 1 0 17" />
-      <path d="M12 3.5a12.5 12.5 0 0 0 0 17" />
-    </svg>
-  );
-}
-
-function StatsIcon() {
-  return (
-    <svg {...svgProps}>
-      <path d="M4.5 19.5V10" />
-      <path d="M10 19.5V5" />
-      <path d="M15.5 19.5v-7" />
-      <path d="M3.5 20.5h17" />
-    </svg>
-  );
-}
-
-function LogsIcon() {
-  return (
-    <svg {...svgProps}>
-      <path d="M7 3.5h7l4 4v12a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19.5v-15A1.5 1.5 0 0 1 7.5 3" />
-      <path d="M14 3.5v4h4" />
-      <path d="M9 12h6.5" />
-      <path d="M9 16h5" />
     </svg>
   );
 }
@@ -834,23 +700,6 @@ function RadarIcon() {
       <path d="M12 18.5v2" />
       <path d="M3.5 12h2" />
       <path d="M18.5 12h2" />
-    </svg>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg
-      className="tray-chevron"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m6 9 6 6 6-6" />
     </svg>
   );
 }

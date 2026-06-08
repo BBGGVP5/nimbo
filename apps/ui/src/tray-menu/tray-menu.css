@@ -3,17 +3,33 @@
    avoids WebView2's black transparent-corner rectangle on Windows. */
 
 :root {
-  --tray-radius: 20px;
+  /* Match the native window silhouette: on Windows 11 the opaque popup is
+     rounded by DWM at the system 8px corner, so the card's decorative border
+     must hug that same radius instead of floating inside it. */
+  --tray-radius: 8px;
   --tray-surface: #181a25;
   --tray-surface-strong: #202231;
-  --tray-surface-soft: rgba(255, 255, 255, 0.055);
+  /* Control fills follow the transparency setting (control alpha) just like the
+     main window's panels. */
+  --tray-surface-soft: color-mix(in srgb, rgba(255, 255, 255, 0.055) var(--ui-control-alpha-percent, 100%), transparent);
   --tray-hairline: rgba(255, 255, 255, 0.12);
   --tray-window-color: #202231;
+  /* Opaque aura "wallpaper" painted on the window/body. It sits BEHIND the
+     translucent card so the transparency + blur settings have something real to
+     reveal and frost. */
   --tray-panel-bg:
     radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--color-accent-bright) 23%, transparent), transparent 34%),
     radial-gradient(circle at 98% 104%, color-mix(in srgb, var(--color-accent) 20%, transparent), transparent 42%),
     linear-gradient(180deg, color-mix(in srgb, var(--tray-surface-strong) 96%, transparent), color-mix(in srgb, var(--tray-surface) 98%, transparent)),
     var(--tray-surface);
+  /* Card surface. The final fill honors the transparency (panel alpha) and
+     brightness (panel overlay) settings; the card's backdrop-filter (blur
+     setting) frosts the wallpaper behind it. */
+  --tray-card-bg:
+    radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--color-accent-bright) 23%, transparent), transparent 34%),
+    radial-gradient(circle at 98% 104%, color-mix(in srgb, var(--color-accent) 20%, transparent), transparent 42%),
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    linear-gradient(180deg, color-mix(in srgb, var(--tray-surface-strong) var(--ui-panel-alpha-percent), transparent), color-mix(in srgb, var(--tray-surface) var(--ui-panel-alpha-percent), transparent));
 }
 
 html,
@@ -37,25 +53,35 @@ body {
 body[data-theme="light"] {
   --tray-surface: #f5f2fb;
   --tray-surface-strong: #ffffff;
-  --tray-surface-soft: rgba(20, 18, 31, 0.055);
+  --tray-surface-soft: color-mix(in srgb, rgba(20, 18, 31, 0.055) var(--ui-control-alpha-percent, 100%), transparent);
   --tray-hairline: rgba(20, 18, 31, 0.12);
   --tray-window-color: #ffffff;
   --tray-panel-bg:
     radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--color-accent-bright) 18%, transparent), transparent 35%),
     radial-gradient(circle at 100% 104%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 43%),
     linear-gradient(180deg, #ffffff, #f5f2fb);
+  --tray-card-bg:
+    radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--color-accent-bright) 18%, transparent), transparent 35%),
+    radial-gradient(circle at 100% 104%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 43%),
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    linear-gradient(180deg, color-mix(in srgb, #ffffff var(--ui-panel-alpha-percent), transparent), color-mix(in srgb, #f5f2fb var(--ui-panel-alpha-percent), transparent));
 }
 
 body[data-theme="black"] {
   --tray-surface: #080810;
   --tray-surface-strong: #11121b;
-  --tray-surface-soft: rgba(255, 255, 255, 0.045);
+  --tray-surface-soft: color-mix(in srgb, rgba(255, 255, 255, 0.045) var(--ui-control-alpha-percent, 100%), transparent);
   --tray-hairline: rgba(255, 255, 255, 0.1);
   --tray-window-color: #11121b;
   --tray-panel-bg:
     radial-gradient(circle at 14% -8%, color-mix(in srgb, var(--color-accent-bright) 14%, transparent), transparent 34%),
     radial-gradient(circle at 102% 106%, color-mix(in srgb, var(--color-accent) 13%, transparent), transparent 42%),
     linear-gradient(180deg, #11121b, #080810);
+  --tray-card-bg:
+    radial-gradient(circle at 14% -8%, color-mix(in srgb, var(--color-accent-bright) 14%, transparent), transparent 34%),
+    radial-gradient(circle at 102% 106%, color-mix(in srgb, var(--color-accent) 13%, transparent), transparent 42%),
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    linear-gradient(180deg, color-mix(in srgb, #11121b var(--ui-panel-alpha-percent), transparent), color-mix(in srgb, #080810 var(--ui-panel-alpha-percent), transparent));
 }
 
 body[data-ui-style="material_you"] {
@@ -69,6 +95,11 @@ body[data-ui-style="material_you"] {
     radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--md-primary) 12%, transparent), transparent 35%),
     radial-gradient(circle at 100% 104%, color-mix(in srgb, var(--md-tertiary) 10%, transparent), transparent 42%),
     linear-gradient(180deg, var(--tray-surface-strong), var(--tray-surface));
+  --tray-card-bg:
+    radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--md-primary) 12%, transparent), transparent 35%),
+    radial-gradient(circle at 100% 104%, color-mix(in srgb, var(--md-tertiary) 10%, transparent), transparent 42%),
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    linear-gradient(180deg, color-mix(in srgb, var(--tray-surface-strong) var(--ui-panel-alpha-percent), transparent), color-mix(in srgb, var(--tray-surface) var(--ui-panel-alpha-percent), transparent));
 }
 
 body::before,
@@ -95,7 +126,7 @@ body::after {
   padding: 11px;
   border: 0;
   border-radius: 0;
-  background: var(--tray-panel-bg);
+  background: var(--tray-card-bg);
   -webkit-backdrop-filter: var(--ui-backdrop-filter);
   backdrop-filter: var(--ui-backdrop-filter);
   color: var(--color-text);
@@ -168,7 +199,7 @@ body[data-theme="light"] .tray-card::before {
   place-items: center;
   width: 38px;
   height: 38px;
-  border-radius: 12px;
+  border-radius: var(--radius-xl, 12px);
   background: var(--tray-surface-soft);
   border: 1px solid color-mix(in srgb, var(--color-border-strong) 70%, transparent);
 }
@@ -177,7 +208,7 @@ body[data-theme="light"] .tray-card::before {
   content: "";
   position: absolute;
   inset: 6px;
-  border-radius: 10px;
+  border-radius: var(--ui-radius-md, 10px);
   background: color-mix(in srgb, var(--color-text) 7%, transparent);
 }
 
@@ -251,7 +282,7 @@ body[data-theme="light"] .tray-card::before {
   width: 28px;
   height: 28px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm, 8px);
   background: transparent;
   color: var(--color-text-faint);
   transition:
@@ -279,7 +310,7 @@ body[data-theme="light"] .tray-card::before {
 
 .tray-meta-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.75fr) minmax(0, 0.9fr);
+  grid-template-columns: 1fr;
   gap: 6px;
   padding: 0 2px 8px;
 }
@@ -288,7 +319,7 @@ body[data-theme="light"] .tray-card::before {
   min-width: 0;
   height: 26px;
   border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm, 8px);
   background: var(--tray-surface-soft);
   color: var(--color-text-faint);
   display: flex;
@@ -307,10 +338,253 @@ body[data-theme="light"] .tray-card::before {
   font-weight: 820;
 }
 
-.tray-action-grid {
+/* Single connect/disconnect control built around a press-to-power button: the
+   round power lamp on the left lights up, the fill washes in and the label
+   crossfades together when the connection state flips, so one click toggles it. */
+.tray-connect-toggle {
+  position: relative;
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 7px;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  min-height: 56px;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
+  border-radius: var(--ui-radius-md, 10px);
+  background: var(--tray-surface-soft);
+  color: var(--color-text);
+  padding: 0 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 240ms ease,
+    box-shadow 240ms ease,
+    transform 150ms ease;
+}
+
+/* Green wash that sweeps in from the left as the toggle turns on. */
+.tray-connect-toggle::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+  background:
+    linear-gradient(
+      120deg,
+      color-mix(in srgb, var(--color-status-connected) 26%, transparent),
+      color-mix(in srgb, var(--color-status-connected) 9%, transparent) 62%,
+      transparent
+    );
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition:
+    transform 380ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms ease;
+}
+
+.tray-connect-toggle[data-on="true"] {
+  border-color: color-mix(in srgb, var(--color-status-connected) 42%, transparent);
+}
+
+.tray-connect-toggle[data-on="true"]::before {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.tray-connect-toggle:not(.is-disabled):hover,
+.tray-connect-toggle:not(.is-disabled):focus-visible {
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
+.tray-connect-toggle[data-on="true"]:not(.is-disabled):hover,
+.tray-connect-toggle[data-on="true"]:not(.is-disabled):focus-visible {
+  border-color: color-mix(in srgb, var(--color-status-connected) 58%, transparent);
+}
+
+.tray-connect-toggle:not(.is-disabled):active {
+  transform: scale(0.985);
+}
+
+.tray-connect-toggle.is-disabled {
+  cursor: default;
+  color: var(--color-text-faint);
+  opacity: 0.6;
+}
+
+/* The power lamp: a round button face that is dim when off, glows green when
+   connected and shows a spinning ring while a switch is in flight. */
+.tray-power {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-text-dim);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-border-strong) 45%, transparent);
+  transition:
+    background-color 260ms ease,
+    color 260ms ease,
+    box-shadow 260ms ease,
+    transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.tray-power .tray-icon {
+  position: relative;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+}
+
+/* Connected: a steady green glow. */
+.tray-connect-toggle[data-on="true"] .tray-power {
+  background: color-mix(in srgb, var(--color-status-connected) 22%, transparent);
+  color: var(--color-status-connected);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-status-connected) 50%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--color-status-connected) 12%, transparent),
+    0 0 22px color-mix(in srgb, var(--color-status-connected) 34%, transparent);
+}
+
+/* Off + connectable: the lamp picks up the accent on hover/focus to invite a press. */
+.tray-connect-toggle:not(.is-disabled):not([data-on="true"]):hover .tray-power,
+.tray-connect-toggle:not(.is-disabled):not([data-on="true"]):focus-visible .tray-power {
+  color: var(--color-accent-bright);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 48%, transparent);
+}
+
+/* In flight: accent the lamp regardless of target and run the ring spinner. */
+.tray-connect-toggle[data-busy="true"] .tray-power {
+  color: var(--color-accent-bright);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 38%, transparent);
+}
+
+/* Tactile press on the lamp itself. */
+.tray-connect-toggle:not(.is-disabled):active .tray-power {
+  transform: scale(0.9);
+}
+
+.tray-power-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.tray-connect-toggle[data-busy="true"] .tray-power-ring {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  border-top-color: var(--color-accent-bright);
+  animation: tray-task-spin 720ms linear infinite;
+}
+
+/* Label crossfade: the value is keyed in React, so it remounts and replays this
+   entrance every time the connection state changes. */
+.tray-connect-text {
+  min-width: 0;
+  display: flex;
+}
+
+.tray-connect-text-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 820;
+  letter-spacing: 0.01em;
+  animation: tray-connect-label-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes tray-connect-label-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+    filter: blur(1px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+/* Admin-rights banner shown when the active mode needs TUN but the app is not
+   elevated (or a connect attempt failed for that reason). */
+.tray-admin-notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 36%, transparent);
+  border-radius: var(--ui-radius-sm, 8px);
+  background: var(--color-accent-panel);
+  color: var(--color-text);
+  animation: tray-task-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tray-admin-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--color-accent-bright);
+}
+
+.tray-admin-icon .tray-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.tray-admin-text {
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.tray-admin-action {
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 50%, transparent);
+  border-radius: var(--ui-radius-sm, 8px);
+  background: var(--color-accent-active-bg);
+  color: var(--color-text);
+  padding: 6px 11px;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 820;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease;
+}
+
+.tray-admin-action:hover,
+.tray-admin-action:focus-visible {
+  border-color: color-mix(in srgb, var(--color-accent) 72%, transparent);
+}
+
+.tray-admin-action:active {
+  transform: scale(0.96);
+}
+
+/* Full-width secondary row (Settings) that sits on its own line below the
+   primary connect/disconnect toggle. */
+.tray-tile-settings {
+  width: 100%;
+  margin-top: 7px;
 }
 
 .tray-tile {
@@ -321,7 +595,7 @@ body[data-theme="light"] .tray-card::before {
   min-width: 0;
   min-height: 38px;
   border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm, 8px);
   background: var(--tray-surface-soft);
   color: var(--color-text);
   padding: 0 11px;
@@ -402,7 +676,7 @@ body[data-theme="light"] .tray-card::before {
   min-width: 0;
   min-height: 58px;
   border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm, 8px);
   background: var(--tray-surface-soft);
   color: var(--color-text-dim);
   padding: 6px 5px;
@@ -438,7 +712,7 @@ body[data-theme="light"] .tray-card::before {
   min-width: 0;
   min-height: 36px;
   border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm, 8px);
   background: var(--tray-surface-soft);
   color: var(--color-text-dim);
   padding: 0 10px;
@@ -468,7 +742,7 @@ body[data-theme="light"] .tray-card::before {
   margin-top: 8px;
   padding: 0 11px;
   border: 1px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm, 8px);
   background: var(--color-accent-panel);
   color: var(--color-text-dim);
   font-size: 11px;
@@ -551,7 +825,7 @@ body[data-theme="light"] .tray-card::before {
   height: 38px;
   margin-top: 9px;
   border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm, 8px);
   background: var(--tray-surface-soft);
   color: var(--color-text);
   padding: 0 10px;
@@ -638,7 +912,7 @@ body[data-theme="light"] .tray-card::before {
 .tray-servers::-webkit-scrollbar-thumb {
   background: var(--color-border-strong);
   border: 2px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm, 8px);
   background-clip: padding-box;
 }
 
@@ -647,7 +921,7 @@ body[data-theme="light"] .tray-card::before {
   min-height: 42px;
   box-sizing: border-box;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm, 8px);
   background: transparent;
   color: var(--color-text);
 }
@@ -689,7 +963,7 @@ body[data-theme="light"] .tray-card::before {
   place-items: center;
   width: 27px;
   height: 27px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm, 8px);
   background: var(--tray-surface-soft);
   font-size: 15px;
   line-height: 1;
@@ -784,7 +1058,7 @@ body[data-theme="light"] .tray-card::before {
   width: 100%;
   height: 38px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm, 8px);
   background: transparent;
   color: var(--color-text-dim);
   padding: 0 10px;
@@ -812,7 +1086,7 @@ body[data-theme="light"] .tray-card::before {
 }
 
 body[data-ui-style="material_you"] .tray-card {
-  background: var(--tray-panel-bg);
+  background: var(--tray-card-bg);
 }
 
 body[data-ui-style="material_you"] .tray-card::before {
@@ -822,6 +1096,9 @@ body[data-ui-style="material_you"] .tray-card::before {
 body[data-ui-style="material_you"] .tray-status-orb,
 body[data-ui-style="material_you"] .tray-meta-row span,
 body[data-ui-style="material_you"] .tray-tile,
+body[data-ui-style="material_you"] .tray-connect-toggle,
+body[data-ui-style="material_you"] .tray-admin-notice,
+body[data-ui-style="material_you"] .tray-admin-action,
 body[data-ui-style="material_you"] .tray-shortcuts button,
 body[data-ui-style="material_you"] .tray-utility-grid button,
 body[data-ui-style="material_you"] .tray-section-toggle {
@@ -849,6 +1126,10 @@ body[data-ui-style="material_you"] .tray-server.is-active .tray-check {
   .tray-servers-frame,
   .tray-chevron,
   .tray-tile,
+  .tray-connect-toggle,
+  .tray-power,
+  .tray-connect-text-value,
+  .tray-admin-notice,
   .tray-shortcuts button,
   .tray-utility-grid button,
   .tray-section-toggle,
@@ -861,7 +1142,8 @@ body[data-ui-style="material_you"] .tray-server.is-active .tray-check {
   }
 
   .tray-task-spinner,
-  .tray-ping-spinner {
+  .tray-ping-spinner,
+  .tray-power-ring {
     animation-duration: 1.6s;
   }
 }

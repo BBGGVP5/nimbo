@@ -6810,7 +6810,7 @@ fn extract_amd64_wintun_from_zip(bytes: Vec<u8>, target: &Path) -> Result<(), St
 }
 
 #[cfg(windows)]
-fn is_running_as_admin() -> bool {
+pub(crate) fn is_running_as_admin() -> bool {
     hidden_command("net")
         .arg("session")
         .status()
@@ -6819,7 +6819,7 @@ fn is_running_as_admin() -> bool {
 }
 
 #[cfg(not(windows))]
-fn is_running_as_admin() -> bool {
+pub(crate) fn is_running_as_admin() -> bool {
     false
 }
 
