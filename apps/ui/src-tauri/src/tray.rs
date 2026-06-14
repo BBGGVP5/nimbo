@@ -193,12 +193,12 @@ const TRAY_ID: &str = "nimbo-tray";
 const MENU_WINDOW: &str = "tray-menu";
 const MENU_WINDOW_BG: Color = Color(32, 34, 49, 255);
 
-/// Cursor anchor (physical px) captured on right-click, plus whether a reveal
-/// is pending. The popup measures its rendered content and calls
-/// `tray_menu_resize`, which reads this to size, position, and show the window
-/// at the right spot.
+/// Tray icon rectangle (physical px: x, y, width, height) captured on
+/// right-click, plus whether a reveal is pending. The popup measures its
+/// rendered content and calls `tray_menu_resize`, which reads this to size,
+/// position, and show the window anchored to the icon itself.
 struct MenuCtl {
-    anchor: Option<(f64, f64)>,
+    anchor: Option<(f64, f64, f64, f64)>,
     pending: bool,
     /// When the popup was last dismissed. Lets a tray click that arrives right
     /// after a focus-loss dismissal toggle the menu closed instead of reopening.
@@ -247,10 +247,21 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             TrayIconEvent::Click {
                 button: MouseButton::Right,
                 button_state: MouseButtonState::Up,
-                position,
+                rect,
                 ..
             } => {
-                open_tray_menu(tray.app_handle(), position.x, position.y);
+                // Anchor to the icon's rectangle (not the cursor) so the flyout
+                // always pops out from the tray icon. The OS reports the rect in
+                // physical px on Windows; convert defensively via the main
+                // window's scale factor in case it arrives logical.
+                let app = tray.app_handle();
+                let scale = app
+                    .get_webview_window("main")
+                    .and_then(|window| window.scale_factor().ok())
+                    .unwrap_or(1.0);
+                let pos = rect.position.to_physical::<f64>(scale);
+                let size = rect.size.to_physical::<f64>(scale);
+                open_tray_menu(app, pos.x, pos.y, size.width, size.height);
             }
             _ => {}
         })
@@ -311,8 +322,8 @@ fn create_menu_window(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Capture the cursor anchor and ask the popup to (re)load and reveal itself.
-fn open_tray_menu(app: &AppHandle, x: f64, y: f64) {
+/// Capture the tray icon rectangle and ask the popup to (re)load and reveal itself.
+fn open_tray_menu(app: &AppHandle, ix: f64, iy: f64, iw: f64, ih: f64) {
     // Toggle: if the popup is already up — or was dismissed a moment ago by this
     // very click (Windows fires the focus-loss the instant the icon is pressed,
     // hiding the window before this handler runs) — leave it closed instead of
@@ -340,7 +351,7 @@ fn open_tray_menu(app: &AppHandle, x: f64, y: f64) {
 
     {
         let mut ctl = menu_ctl().lock().unwrap();
-        ctl.anchor = Some((x, y));
+        ctl.anchor = Some((ix, iy, iw, ih));
         ctl.pending = true;
         ctl.last_hidden = None;
     }
@@ -461,7 +472,7 @@ fn active_provider_theme(snapshot: &PersistedState) -> Option<SubscriptionTheme>
 }
 
 /// Size the popup to its measured content, then (if a reveal is pending)
-/// position it relative to the cursor and show it.
+/// position it relative to the tray icon and show it.
 #[tauri::command]
 pub fn tray_menu_resize(
     app: AppHandle,
@@ -502,8 +513,8 @@ pub fn tray_menu_resize(
         if !native_rounding {
             apply_rounded_region(&win, w, h, scale, radius.unwrap_or(8.0));
         }
-        if let Some((ax, ay)) = anchor {
-            position_menu_window(&win, w, h, ax, ay);
+        if let Some((ix, iy, iw, ih)) = anchor {
+            position_menu_window(&win, w, h, ix, iy, iw, ih);
         }
         if pending {
             let _ = win.show();
@@ -516,19 +527,27 @@ fn position_menu_window(
     window: &tauri::WebviewWindow,
     w: u32,
     h: u32,
-    ax: f64,
-    ay: f64,
+    ix: f64,
+    iy: f64,
+    iw: f64,
+    ih: f64,
 ) {
     const GAP: f64 = 8.0;
 
-    // Grow up-and-left from the tray click point, leaving a small gap so the
-    // animation reads as emerging from the icon instead of the screen center.
-    let mut left = ax - w as f64 + GAP;
-    let mut top = ay - h as f64 - GAP;
+    let icon_center_x = ix + iw / 2.0;
+    let icon_center_y = iy + ih / 2.0;
 
-    // Keep the flyout fully inside the work area of the cursor's monitor.
+    // Center the flyout horizontally on the icon so it reads as dropping out of
+    // it. Default to growing upward (a bottom taskbar is the common case);
+    // refined against the work area below.
+    let mut left = icon_center_x - w as f64 / 2.0;
+    let mut top = iy - h as f64 - GAP;
+
+    // Keep the flyout inside the work area of the icon's monitor, and flip it to
+    // the opposite side of the icon when the preferred side has no room (e.g. a
+    // top-docked taskbar, where the menu must drop below the icon).
     let monitor = window
-        .monitor_from_point(ax, ay)
+        .monitor_from_point(icon_center_x, icon_center_y)
         .ok()
         .flatten()
         .or_else(|| window.current_monitor().ok().flatten());
@@ -538,6 +557,17 @@ fn position_menu_window(
         let min_y = area.position.y as f64;
         let max_x = min_x + area.size.width as f64;
         let max_y = min_y + area.size.height as f64;
+
+        let above_top = iy - h as f64 - GAP;
+        let below_top = iy + ih + GAP;
+        let space_above = iy - min_y;
+        let space_below = max_y - (iy + ih);
+        top = if space_above >= h as f64 + GAP || space_above >= space_below {
+            above_top
+        } else {
+            below_top
+        };
+
         left = left.min(max_x - w as f64).max(min_x);
         top = top.min(max_y - h as f64).max(min_y);
     }

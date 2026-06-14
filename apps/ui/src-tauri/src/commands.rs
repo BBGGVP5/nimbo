@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::hash::{Hash, Hasher};
 #[cfg(all(windows, target_arch = "x86_64"))]
 use std::io::Cursor;
@@ -48,6 +48,7 @@ const CONFLICT_STOP_INITIAL_SETTLE_MS: u64 = 900;
 const CONFLICT_STOP_RETRY_SETTLE_MS: u64 = 650;
 const SUBSCRIPTION_LOGO_CACHE_BYTES: usize = 4 * 1024 * 1024;
 const SUBSCRIPTION_LOGO_CACHE_DIR: &str = "subscription-logos";
+const MAX_RUNTIME_LOG_BYTES: u64 = 5 * 1024 * 1024;
 static RESUME_RECONNECT_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -662,7 +663,7 @@ pub async fn inspect_subscription_headers(url: String) -> Result<SubscriptionHea
             .to_str()
             .map(ToString::to_string)
             .unwrap_or_else(|_| format!("{:?}", value.as_bytes()));
-        println!("subscription header: {}: {}", name.as_str(), value);
+        tracing::debug!(header = name.as_str(), value, "subscription response header");
         headers.push(SubscriptionHeader {
             name: name.as_str().to_string(),
             value,
@@ -3285,6 +3286,32 @@ pub fn open_routing_folder() -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn open_logs_folder() -> Result<(), String> {
+    let dir = nimbo_data_dir()
+        .map_err(|e| format!("Не удалось получить путь к данным: {e}"))?
+        .join("logs");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Не удалось создать папку логов: {e}"))?;
+
+    #[cfg(windows)]
+    Command::new("explorer.exe")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("Не удалось открыть папку логов: {e}"))?;
+    #[cfg(target_os = "macos")]
+    Command::new("open")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("Не удалось открыть папку логов: {e}"))?;
+    #[cfg(all(unix, not(target_os = "macos")))]
+    Command::new("xdg-open")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("Не удалось открыть папку логов: {e}"))?;
+    Ok(())
+}
+
 fn decode_base64(input: &str) -> Option<Vec<u8>> {
     const TABLE: &[u8; 256] = &{
         let mut t = [255u8; 256];
@@ -3428,8 +3455,36 @@ fn read_log_tail(path: &Path, max_lines: usize) -> Vec<String> {
     lines[start..].iter().map(|s| s.to_string()).collect()
 }
 
+fn log_sort_key(timestamp: Option<&str>) -> String {
+    timestamp
+        .unwrap_or_default()
+        .replace('/', "-")
+        .replace('T', " ")
+        .trim_end_matches('Z')
+        .to_string()
+}
+
+fn strip_ansi_codes(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            for code in chars.by_ref() {
+                if code.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+            continue;
+        }
+        result.push(ch);
+    }
+    result
+}
+
 fn parse_log_line(source: &str, raw: &str) -> Option<TunnelLogEntry> {
-    let trimmed = raw.trim();
+    let clean = strip_ansi_codes(raw);
+    let trimmed = clean.trim();
     if trimmed.is_empty() {
         return None;
     }
@@ -3445,26 +3500,45 @@ fn parse_log_line(source: &str, raw: &str) -> Option<TunnelLogEntry> {
         && bytes[16] == b':'
     {
         timestamp = Some(trimmed[..19].to_string());
-        let after = trimmed[19..].trim_start_matches(|c: char| c == ' ' || c == '.');
-        let dot_offset = trimmed[19..].find(' ').unwrap_or(0);
-        let after_full = if dot_offset > 0 {
-            trimmed[19 + dot_offset..].trim_start()
-        } else {
-            after
-        };
-        rest = after_full.to_string();
+        rest = trimmed[19..]
+            .trim_start_matches(|c: char| c == '.' || c.is_ascii_digit())
+            .trim_start()
+            .to_string();
+    } else if bytes.len() >= 19
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && (bytes[10] == b'T' || bytes[10] == b' ')
+        && bytes[13] == b':'
+        && bytes[16] == b':'
+    {
+        timestamp = Some(trimmed[..19].replace('T', " "));
+        rest = trimmed[19..]
+            .trim_start_matches(|c: char| c == '.' || c == 'Z' || c.is_ascii_digit())
+            .trim_start()
+            .to_string();
     }
 
     let lower = rest.to_lowercase();
-    let level = if lower.contains("[error]") || lower.contains(" error") {
+    let level = if lower.starts_with("error ") || lower.contains("[error]") {
         "error"
-    } else if lower.contains("[warning]") || lower.contains("[warn]") {
+    } else if lower.starts_with("warn ")
+        || lower.starts_with("warning ")
+        || lower.contains("[warning]")
+        || lower.contains("[warn]")
+    {
         "warn"
-    } else if lower.contains("[debug]") {
+    } else if lower.starts_with("debug ") || lower.contains("[debug]") {
         "debug"
     } else {
         "info"
     };
+
+    for prefix in ["ERROR ", "WARN ", "WARNING ", "INFO ", "DEBUG ", "TRACE "] {
+        if rest.starts_with(prefix) {
+            rest = rest[prefix.len()..].trim_start().to_string();
+            break;
+        }
+    }
 
     Some(TunnelLogEntry {
         source: source.into(),
@@ -3477,39 +3551,89 @@ fn parse_log_line(source: &str, raw: &str) -> Option<TunnelLogEntry> {
 #[tauri::command]
 pub fn get_tunnel_logs(limit: Option<usize>) -> Result<Vec<TunnelLogEntry>, String> {
     let max_lines = limit.unwrap_or(500).min(5000);
-    let mut entries: Vec<TunnelLogEntry> = Vec::new();
+    let mut entries: Vec<(String, usize, TunnelLogEntry)> = Vec::new();
+    let mut sequence = 0usize;
     if let Ok(dir) = nimbo_data_dir() {
         let runtime = dir.join("runtime");
-        for (source, file) in [("xray", "xray.log"), ("tun2socks", "tun2socks.log")] {
-            let path = runtime.join(file);
+        let mut sources = vec![
+            ("xray", runtime.join("xray.log.1")),
+            ("xray", runtime.join("xray.log")),
+            ("tun2socks", runtime.join("tun2socks.log.1")),
+            ("tun2socks", runtime.join("tun2socks.log")),
+        ];
+        if let Some(app_log) = crate::logging::app_log_path() {
+            sources.push(("nimbo", app_log.with_extension("log.1")));
+            sources.push(("nimbo", app_log));
+        }
+        if let Some(helper_log) = helper_log_path() {
+            sources.push(("helper", helper_log.with_extension("log.1")));
+            sources.push(("helper", helper_log));
+        }
+
+        for (source, path) in sources {
             for raw in read_log_tail(&path, max_lines) {
                 if let Some(entry) = parse_log_line(source, &raw) {
-                    entries.push(entry);
+                    let sort_key = log_sort_key(entry.timestamp.as_deref());
+                    entries.push((sort_key, sequence, entry));
+                    sequence += 1;
                 }
             }
         }
     }
+    entries.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
     if entries.len() > max_lines {
         let start = entries.len() - max_lines;
         entries = entries.split_off(start);
     }
-    Ok(entries)
+    Ok(entries.into_iter().map(|(_, _, entry)| entry).collect())
 }
 
 #[tauri::command]
 pub fn clear_tunnel_logs() -> Result<(), String> {
-    let dir = nimbo_data_dir()
-        .map_err(|e| format!("Не удалось получить папку логов: {e}"))?
-        .join("runtime");
-    for file in ["xray.log", "tun2socks.log"] {
-        let path = dir.join(file);
+    let data_dir = nimbo_data_dir().map_err(|e| format!("Не удалось получить папку логов: {e}"))?;
+    let runtime = data_dir.join("runtime");
+    let mut paths = vec![
+        runtime.join("xray.log"),
+        runtime.join("xray.log.1"),
+        runtime.join("tun2socks.log"),
+        runtime.join("tun2socks.log.1"),
+        data_dir.join("logs").join("nimbo.log"),
+        data_dir.join("logs").join("nimbo.log.1"),
+    ];
+    paths.retain(|path| path.exists());
+    for path in paths {
         if path.exists() {
             if let Err(e) = std::fs::write(&path, b"") {
-                return Err(format!("Не удалось очистить {}: {e}", file));
+                return Err(format!("Не удалось очистить {}: {e}", path.display()));
             }
         }
     }
+    tracing::info!("application logs cleared by user");
     Ok(())
+}
+
+fn helper_log_path() -> Option<PathBuf> {
+    std::env::var_os("ProgramData")
+        .map(PathBuf::from)
+        .or_else(dirs::data_local_dir)
+        .map(|base| base.join("Nimbo").join("helper.log"))
+}
+
+fn rotate_runtime_log(path: &Path) -> Result<(), String> {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return Ok(());
+    };
+    if metadata.len() < MAX_RUNTIME_LOG_BYTES {
+        return Ok(());
+    }
+
+    let rotated = path.with_extension("log.1");
+    if rotated.exists() {
+        std::fs::remove_file(&rotated)
+            .map_err(|e| format!("Не удалось удалить старый лог {}: {e}", rotated.display()))?;
+    }
+    std::fs::rename(path, &rotated)
+        .map_err(|e| format!("Не удалось ротировать лог {}: {e}", path.display()))
 }
 
 #[tauri::command]
@@ -3969,7 +4093,7 @@ async fn fetch_xray_templates_for_subscription(
             }
         }
         Err(error) => {
-            println!("xray template cache: client init failed: {error}");
+            tracing::warn!(?error, "xray template cache client init failed");
         }
     }
 
@@ -4058,7 +4182,7 @@ async fn fetch_api_xray_templates(
     let client = match build_remnawave_api_client(&config, user_agent_override) {
         Ok(client) => client,
         Err(error) => {
-            println!("xray template cache: Remnawave API client init failed: {error}");
+            tracing::warn!(?error, "Remnawave API client init failed for xray template cache");
             return HashMap::new();
         }
     };
@@ -4635,7 +4759,7 @@ async fn get_remnawave_json(
     let response = request.send().await.ok()?;
     if !response.status().is_success() {
         if response.status().as_u16() != 404 {
-            println!("xray template cache: {url} -> {}", response.status());
+            tracing::debug!(%url, status = %response.status(), "xray template cache response");
         }
         return None;
     }
@@ -6184,7 +6308,7 @@ async fn download_xray_windows_x64() -> Result<PathBuf, String> {
     let archive_url =
         "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip";
 
-    println!("xray: downloading {archive_url}");
+    tracing::info!(%archive_url, "downloading xray");
     let bytes = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(90))
         .build()
@@ -6232,8 +6356,12 @@ fn spawn_xray(xray_path: &Path, config_path: &Path) -> Result<std::process::Chil
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Не удалось создать папку логов Xray: {e}"))?;
     }
-    let stdout = File::create(&log_path)
-        .map_err(|e| format!("Не удалось создать лог Xray: {e}"))?;
+    rotate_runtime_log(&log_path)?;
+    let stdout = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| format!("Не удалось открыть лог Xray: {e}"))?;
     let stderr = stdout
         .try_clone()
         .map_err(|e| format!("Не удалось открыть лог Xray: {e}"))?;
@@ -6702,7 +6830,7 @@ async fn download_tun2socks_windows_x64() -> Result<PathBuf, String> {
 
     let archive_url =
         "https://github.com/xjasonlyu/tun2socks/releases/latest/download/tun2socks-windows-amd64.zip";
-    println!("tun2socks: downloading {archive_url}");
+    tracing::info!(%archive_url, "downloading tun2socks");
     let bytes = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(90))
         .build()
@@ -6732,7 +6860,7 @@ async fn download_wintun_windows_x64() -> Result<PathBuf, String> {
     }
 
     let archive_url = "https://www.wintun.net/builds/wintun-0.14.1.zip";
-    println!("wintun: downloading {archive_url}");
+    tracing::info!(%archive_url, "downloading wintun");
     let bytes = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(90))
         .build()
@@ -8019,5 +8147,30 @@ mod tests {
                 .map(|domains| domains.iter().any(|domain| domain == "domain:a.example"))
                 .unwrap_or(false)
         }));
+    }
+
+    #[test]
+    fn log_parser_handles_tracing_format() {
+        let entry = parse_log_line(
+            "nimbo",
+            "2026-06-12T14:15:16.123456Z  WARN nimbo_ui::commands: reconnect failed",
+        )
+        .unwrap();
+
+        assert_eq!(entry.timestamp.as_deref(), Some("2026-06-12 14:15:16"));
+        assert_eq!(entry.level, "warn");
+        assert_eq!(entry.message, "nimbo_ui::commands: reconnect failed");
+    }
+
+    #[test]
+    fn warning_with_error_word_stays_warning() {
+        let entry = parse_log_line(
+            "xray",
+            "2026/06/12 14:15:16.123 [Warning] observatory: error ping endpoint",
+        )
+        .unwrap();
+
+        assert_eq!(entry.level, "warn");
+        assert_eq!(entry.timestamp.as_deref(), Some("2026/06/12 14:15:16"));
     }
 }

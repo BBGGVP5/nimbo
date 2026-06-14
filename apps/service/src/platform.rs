@@ -19,6 +19,7 @@ pub const SERVICE_DISPLAY_NAME: &str = "Nimbo Helper Service";
 pub const SERVICE_DESCRIPTION: &str =
     "Helper service for Nimbo. Terminates conflicting VPN processes on request from Nimbo UI.";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
 
 pub fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -137,12 +138,16 @@ fn init_tracing(args: &[String]) {
         if let Some(parent) = log_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+        let _ = rotate_log_if_needed(&log_path);
         if let Ok(file) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&log_path)
         {
-            let _ = builder.with_writer(std::sync::Mutex::new(file)).try_init();
+            let _ = builder
+                .with_ansi(false)
+                .with_writer(std::sync::Mutex::new(file))
+                .try_init();
             return;
         }
     }
@@ -163,6 +168,21 @@ fn log_file_path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .or_else(|| dirs::data_local_dir())?;
     Some(base.join("Nimbo").join("helper.log"))
+}
+
+fn rotate_log_if_needed(path: &std::path::Path) -> std::io::Result<()> {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return Ok(());
+    };
+    if metadata.len() < MAX_LOG_BYTES {
+        return Ok(());
+    }
+
+    let rotated = path.with_extension("log.1");
+    if rotated.exists() {
+        std::fs::remove_file(&rotated)?;
+    }
+    std::fs::rename(path, rotated)
 }
 
 // ─── Service runtime ────────────────────────────────────────────────────────

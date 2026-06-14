@@ -1,6 +1,7 @@
 pub mod commands;
 #[cfg(windows)]
 pub mod helper;
+pub mod logging;
 pub mod state;
 pub mod tray;
 pub mod updater;
@@ -13,7 +14,7 @@ use crate::commands::{
     get_tunnel_logs, get_user_agent_override, helper_status, import_app_backup, import_routing_profile,
     inspect_subscription_headers, install_helper, install_tun, list_active_connections,
     list_app_proxy_rules, list_conflicting_processes, list_installed_apps, list_routing_profiles,
-    list_subscription_app_proxy_rules, list_subscriptions, open_routing_folder,
+    list_subscription_app_proxy_rules, list_subscriptions, open_logs_folder, open_routing_folder,
     pick_app_executable, ping_server, ping_servers, read_clipboard_text, refresh_subscription,
     refresh_tray_menu, remove_subscription, reapply_runtime_config, reset_builtin_routing_profiles,
     reset_device_id, reset_traffic_totals, restart_as_admin, set_active_routing_profile,
@@ -142,13 +143,22 @@ fn wait_for_parent_relaunch() {}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     wait_for_parent_relaunch();
+    logging::init();
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "nimbo-ui starting");
 
     let Some(single_instance_guard) = acquire_single_instance() else {
+        tracing::info!("duplicate nimbo-ui instance rejected");
         return;
     };
-    let app_state = AppState::load().expect("failed to load app state");
+    let app_state = match AppState::load() {
+        Ok(state) => state,
+        Err(error) => {
+            tracing::error!(?error, "failed to load app state");
+            return;
+        }
+    };
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .manage(app_state)
         .manage(single_instance_guard)
@@ -265,13 +275,22 @@ pub fn run() {
             reset_traffic_totals,
             get_tunnel_logs,
             clear_tunnel_logs,
+            open_logs_folder,
             tray_menu_state,
             tray_menu_resize,
             tray_menu_action,
         ])
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|app_handle, event| match event {
+        .build(tauri::generate_context!());
+
+    let app = match app {
+        Ok(app) => app,
+        Err(error) => {
+            tracing::error!(?error, "failed to build tauri application");
+            return;
+        }
+    };
+
+    app.run(|app_handle, event| match event {
             RunEvent::ExitRequested { .. } | RunEvent::Exit => {
                 crate::commands::cleanup_runtime_for_exit(app_handle);
             }

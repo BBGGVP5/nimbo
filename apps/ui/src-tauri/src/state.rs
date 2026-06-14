@@ -1,7 +1,9 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -543,12 +545,16 @@ pub struct TunRuntimeSnapshot {
 pub struct AppState {
     inner: Mutex<PersistedState>,
     runtime: Mutex<RuntimeState>,
+    persist_lock: Mutex<()>,
     storage_path: PathBuf,
 }
 
 impl AppState {
     pub fn load() -> anyhow::Result<Self> {
-        let storage_path = storage_path()?;
+        Self::load_from_path(storage_path()?)
+    }
+
+    fn load_from_path(storage_path: PathBuf) -> anyhow::Result<Self> {
         let mut inner = if storage_path.exists() {
             let bytes = std::fs::read(&storage_path)?;
             let had_update_launch_preference = serde_json::from_slice::<serde_json::Value>(&bytes)
@@ -564,7 +570,18 @@ impl AppState {
                     s
                 }
                 Err(e) => {
-                    tracing::warn!(?e, "subscriptions.json corrupted, starting fresh");
+                    match backup_corrupted_state(&storage_path) {
+                        Ok(backup) => tracing::warn!(
+                            ?e,
+                            backup = %backup.display(),
+                            "subscriptions.json corrupted, backup created and defaults restored"
+                        ),
+                        Err(backup_error) => tracing::error!(
+                            ?e,
+                            ?backup_error,
+                            "subscriptions.json corrupted and backup failed"
+                        ),
+                    }
                     PersistedState::default()
                 }
             }
@@ -576,6 +593,7 @@ impl AppState {
         let state = Self {
             inner: Mutex::new(inner),
             runtime: Mutex::new(RuntimeState::default()),
+            persist_lock: Mutex::new(()),
             storage_path,
         };
         state.persist()?;
@@ -583,7 +601,10 @@ impl AppState {
     }
 
     pub fn snapshot(&self) -> PersistedState {
-        self.inner.lock().expect("state poisoned").clone()
+        self.inner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
     }
 
     pub fn mutate<F, R>(&self, f: F) -> anyhow::Result<R>
@@ -591,7 +612,10 @@ impl AppState {
         F: FnOnce(&mut PersistedState) -> R,
     {
         let result = {
-            let mut guard = self.inner.lock().expect("state poisoned");
+            let mut guard = self
+                .inner
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
             f(&mut guard)
         };
         self.persist()?;
@@ -602,22 +626,104 @@ impl AppState {
     where
         F: FnOnce(&mut RuntimeState) -> R,
     {
-        let mut guard = self.runtime.lock().expect("runtime state poisoned");
+        let mut guard = self
+            .runtime
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         f(&mut guard)
     }
 
     fn persist(&self) -> anyhow::Result<()> {
+        let _persist_guard = self.persist_lock.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(parent) = self.storage_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let snapshot = self.inner.lock().expect("state poisoned").clone();
+        let snapshot = self.inner.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let json = serde_json::to_vec_pretty(&snapshot)?;
-        std::fs::write(&self.storage_path, json)?;
+        let temp_path = self.storage_path.with_extension("json.tmp");
+        let mut temp = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&temp_path)?;
+        temp.write_all(&json)?;
+        temp.sync_all()?;
+        drop(temp);
+
+        if let Err(error) = replace_file(&temp_path, &self.storage_path) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(error.into());
+        }
         Ok(())
     }
+}
+
+fn backup_corrupted_state(path: &Path) -> anyhow::Result<PathBuf> {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let backup = path.with_file_name(format!("subscriptions.corrupt-{stamp}.json"));
+    std::fs::copy(path, &backup)?;
+    Ok(backup)
+}
+
+#[cfg(windows)]
+fn replace_file(source: &Path, target: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    };
+
+    let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let target: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+    let result = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            target.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_file(source: &Path, target: &Path) -> std::io::Result<()> {
+    std::fs::rename(source, target)
 }
 
 fn storage_path() -> anyhow::Result<PathBuf> {
     let base = dirs::data_dir().ok_or_else(|| anyhow::anyhow!("APPDATA not available"))?;
     Ok(base.join("Nimbo").join(STORAGE_FILE))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn corrupted_state_is_backed_up_and_replaced_with_valid_json() {
+        let dir = std::env::temp_dir().join(format!("nimbo-state-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(STORAGE_FILE);
+        std::fs::write(&path, b"{ definitely not json").unwrap();
+
+        let state = AppState::load_from_path(path.clone()).unwrap();
+        assert!(state.snapshot().subscriptions.is_empty());
+        let saved: PersistedState = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(saved.subscriptions.is_empty());
+        assert!(
+            std::fs::read_dir(&dir)
+                .unwrap()
+                .filter_map(Result::ok)
+                .any(|entry| entry.file_name().to_string_lossy().starts_with("subscriptions.corrupt-"))
+        );
+        assert!(!path.with_extension("json.tmp").exists());
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

@@ -986,20 +986,28 @@ function browserTrafficStats(): TrafficStats {
 
 function browserTunnelLogs(limit: number): TunnelLogEntry[] {
   const stored = readBrowserJson<TunnelLogEntry[]>("nimbo.tunnelLogs", []);
-  if (stored.length) return stored.slice(-limit);
+  try {
+    if (window.localStorage.getItem("nimbo.tunnelLogs") !== null) {
+      return stored.slice(-limit);
+    }
+  } catch {
+    // Fall back to preview samples when storage is unavailable.
+  }
   const sample: TunnelLogEntry[] = [];
   const now = new Date();
   for (let i = 0; i < Math.min(limit, 12); i++) {
     const ts = new Date(now.getTime() - (12 - i) * 4000);
     sample.push({
-      source: i % 2 === 0 ? "xray" : "tun2socks",
-      level: i === 4 || i === 9 ? "warn" : "info",
+      source: i % 4 === 0 ? "nimbo" : i % 4 === 1 ? "xray" : i % 4 === 2 ? "helper" : "tun2socks",
+      level: i === 4 || i === 9 ? "warn" : i === 7 ? "debug" : "info",
       timestamp: ts.toISOString().replace("T", " ").slice(0, 19).replace(/-/g, "/"),
       message:
         i === 4
           ? "[Warning] app/proxyman/inbound: connection ends > ..."
           : i === 9
             ? "[Warning] app/observatory/burst: error ping https://www.gstatic.com/generate_204"
+            : i === 7
+              ? "[Debug] transport/internet: dialing outbound connection"
             : "[Info] core: tunnel established",
     });
   }
@@ -1346,6 +1354,10 @@ export const api = {
     isTauriRuntime()
       ? invoke<void>("clear_tunnel_logs")
       : Promise.resolve(writeBrowserJson<TunnelLogEntry[]>("nimbo.tunnelLogs", [])),
+  openLogsFolder: () =>
+    isTauriRuntime()
+      ? invoke<void>("open_logs_folder")
+      : Promise.resolve(),
   getDeviceInfo: () =>
     isTauriRuntime()
       ? invoke<DeviceInfo>("get_device_info")

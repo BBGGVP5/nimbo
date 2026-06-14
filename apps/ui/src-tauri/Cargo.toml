@@ -37,6 +37,7 @@ url.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 dirs.workspace = true
 uuid.workspace = true
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
