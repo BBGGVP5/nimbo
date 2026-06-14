@@ -138,14 +138,32 @@ body::after {
     inset 0 -28px 70px rgba(0, 0, 0, 0.12);
 }
 
-/* Entrance layer: animate the contents from the tray icon while the card's
-   geometry stays fixed, so native clipping and CSS layout never race. */
+/* Entrance layer: the card geometry stays fixed (so native clipping and CSS
+   layout never race) while each block inside rises into place with a short
+   top-to-bottom stagger. Transforms don't affect layout, so the ResizeObserver
+   still measures the final height from the first frame. */
 .tray-card-inner {
   position: relative;
   z-index: 1;
-  transform-origin: calc(100% - 18px) calc(100% - 10px);
-  animation: tray-flyout-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+.tray-hero,
+.tray-meta-row,
+.tray-connect-toggle,
+.tray-admin-notice,
+.tray-tile-settings,
+.tray-utility-grid,
+.tray-footer {
+  animation: tray-block-rise 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.tray-hero { animation-delay: 30ms; }
+.tray-meta-row { animation-delay: 65ms; }
+.tray-connect-toggle { animation-delay: 100ms; }
+.tray-admin-notice { animation-delay: 120ms; }
+.tray-tile-settings { animation-delay: 135ms; }
+.tray-utility-grid { animation-delay: 170ms; }
+.tray-footer { animation-delay: 205ms; }
 
 .tray-card::before {
   content: "";
@@ -171,16 +189,14 @@ body[data-theme="light"] .tray-card::before {
   border-color: color-mix(in srgb, var(--color-border-strong) 72%, transparent);
 }
 
-@keyframes tray-flyout-in {
+@keyframes tray-block-rise {
   from {
     opacity: 0;
-    transform: translate(12px, 15px) scale(0.94);
-    filter: blur(2px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
-    transform: none;
-    filter: blur(0);
+    transform: translateY(0);
   }
 }
 
@@ -1123,6 +1139,9 @@ body[data-ui-style="material_you"] .tray-server.is-active .tray-check {
 @media (prefers-reduced-motion: reduce) {
   .tray-card,
   .tray-card-inner,
+  .tray-hero,
+  .tray-meta-row,
+  .tray-footer,
   .tray-servers-frame,
   .tray-chevron,
   .tray-tile,
@@ -1131,6 +1150,7 @@ body[data-ui-style="material_you"] .tray-server.is-active .tray-check {
   .tray-connect-text-value,
   .tray-admin-notice,
   .tray-shortcuts button,
+  .tray-utility-grid,
   .tray-utility-grid button,
   .tray-section-toggle,
   .tray-server,
