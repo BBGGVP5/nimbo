@@ -3385,7 +3385,7 @@ body[data-theme="light"] .session-traffic-card {
   overflow: hidden;
   border-color: var(--color-border);
   border-radius: 12px;
-  background: var(--color-surface);
+  background: var(--ui-panel-bg);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
   transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
 }
@@ -3404,7 +3404,7 @@ body[data-theme="light"] .session-traffic-card {
 .notification-page .notification-history-item[data-tone="warning"]::before { background: #f5c040; }
 .notification-page .notification-history-item[data-tone="success"]::before { background: #5dd9a1; }
 
-.notification-page .notification-history-item:hover { transform: translateY(-1px); border-color: var(--color-border-strong); background: color-mix(in srgb, var(--color-text) 5%, var(--color-surface)); box-shadow: 0 14px 32px rgba(0, 0, 0, 0.34); }
+.notification-page .notification-history-item:hover { transform: translateY(-1px); border-color: var(--color-border-strong); background: color-mix(in srgb, var(--color-text) 5%, var(--ui-panel-bg)); box-shadow: 0 14px 32px rgba(0, 0, 0, 0.34); }
 
 .notification-page .notification-history-icon {
   width: 22px;
@@ -3449,7 +3449,8 @@ body[data-theme="light"] .session-traffic-card {
 }
 
 .notification-page .notification-history-time { margin: 0; flex: 0 0 auto; font-size: 10px; font-weight: 680; font-variant-numeric: tabular-nums; }
-.notification-page .notification-history-unread { border-color: color-mix(in srgb, var(--color-accent) 32%, var(--color-border)); background: color-mix(in srgb, var(--color-accent) 7%, var(--color-surface)); }
+.notification-page .notification-history-unread { border-color: color-mix(in srgb, var(--color-accent) 32%, var(--color-border)); background: color-mix(in srgb, var(--color-accent) 10%, var(--ui-panel-bg)); }
+.notification-page .notification-history-unread:hover { background: color-mix(in srgb, var(--color-accent) 14%, var(--ui-panel-bg)); }
 .notification-page .notification-history-unread::before { width: 4px; box-shadow: 0 0 12px color-mix(in srgb, var(--color-accent) 60%, transparent); }
 
 .notification-page .notification-history-delete {
