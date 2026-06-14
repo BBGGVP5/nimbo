@@ -9204,22 +9204,22 @@ body[data-ui-style="material_you"] {
   --md-elevation-3: 0 6px 18px rgba(0, 0, 0, 0.20), 0 10px 26px rgba(0, 0, 0, 0.14);
   --md-motion: 220ms cubic-bezier(0.2, 0, 0, 1);
   --md-motion-expressive: 360ms cubic-bezier(0.2, 0.9, 0.18, 1);
-  --md-surface: color-mix(in srgb, var(--color-accent) 8%, #141218);
-  --md-surface-dim: color-mix(in srgb, var(--color-accent) 5%, #0f0d13);
-  --md-surface-container-low: color-mix(in srgb, var(--color-accent) 8%, #1d1a22);
-  --md-surface-container: color-mix(in srgb, var(--color-accent) 11%, #24202a);
-  --md-surface-container-high: color-mix(in srgb, var(--color-accent) 15%, #2d2934);
-  --md-surface-container-highest: color-mix(in srgb, var(--color-accent) 18%, #37313e);
-  --md-on-surface: #f0eaf2;
-  --md-on-surface-variant: #d2c6d8;
-  --md-outline: color-mix(in srgb, var(--color-accent) 28%, #948a9b);
-  --md-outline-variant: color-mix(in srgb, var(--color-accent) 18%, #514957);
+  --md-surface: color-mix(in srgb, var(--color-accent) 8%, #141416);
+  --md-surface-dim: color-mix(in srgb, var(--color-accent) 5%, #0f0f11);
+  --md-surface-container-low: color-mix(in srgb, var(--color-accent) 8%, #1d1d20);
+  --md-surface-container: color-mix(in srgb, var(--color-accent) 11%, #242427);
+  --md-surface-container-high: color-mix(in srgb, var(--color-accent) 15%, #2d2d31);
+  --md-surface-container-highest: color-mix(in srgb, var(--color-accent) 18%, #37373b);
+  --md-on-surface: #ececee;
+  --md-on-surface-variant: #cbcbce;
+  --md-outline: color-mix(in srgb, var(--color-accent) 28%, #909094);
+  --md-outline-variant: color-mix(in srgb, var(--color-accent) 18%, #4f4f53);
   --md-primary: var(--color-accent);
   --md-on-primary: #ffffff;
-  --md-primary-container: color-mix(in srgb, var(--color-accent) 42%, #2b2136);
-  --md-on-primary-container: color-mix(in srgb, var(--color-accent-soft) 34%, #fff7ff);
-  --md-secondary-container: color-mix(in srgb, var(--color-accent) 18%, #4b4350);
-  --md-tertiary-container: color-mix(in srgb, var(--color-accent-bright) 22%, #503c45);
+  --md-primary-container: color-mix(in srgb, var(--color-accent) 42%, #28282c);
+  --md-on-primary-container: color-mix(in srgb, var(--color-accent-soft) 34%, #fafafb);
+  --md-secondary-container: color-mix(in srgb, var(--color-accent) 18%, #494a4e);
+  --md-tertiary-container: color-mix(in srgb, var(--color-accent-bright) 22%, #45454a);
   --color-bg: var(--md-surface);
   --color-surface: var(--md-surface-container-low);
   --color-card: var(--md-surface-container);
@@ -9252,33 +9252,33 @@ body[data-ui-style="material_you"] {
 }
 
 body[data-ui-style="material_you"][data-theme="light"] {
-  --md-surface: color-mix(in srgb, var(--color-accent) 5%, #fff8ff);
-  --md-surface-dim: color-mix(in srgb, var(--color-accent) 6%, #f1edf4);
-  --md-surface-container-low: color-mix(in srgb, var(--color-accent) 5%, #fff8ff);
-  --md-surface-container: color-mix(in srgb, var(--color-accent) 7%, #f7f1fa);
-  --md-surface-container-high: color-mix(in srgb, var(--color-accent) 10%, #eee8f2);
-  --md-surface-container-highest: color-mix(in srgb, var(--color-accent) 14%, #e7dfea);
-  --md-on-surface: #1d1b20;
-  --md-on-surface-variant: #4d4452;
-  --md-outline: color-mix(in srgb, var(--color-accent) 22%, #7b717f);
-  --md-outline-variant: color-mix(in srgb, var(--color-accent) 15%, #cbc2cf);
-  --md-primary-container: color-mix(in srgb, var(--color-accent) 24%, #f4ddff);
-  --md-on-primary-container: color-mix(in srgb, var(--color-accent) 58%, #1f102f);
-  --md-secondary-container: color-mix(in srgb, var(--color-accent) 15%, #e8def0);
-  --md-tertiary-container: color-mix(in srgb, var(--color-accent-bright) 18%, #ffd8e4);
+  --md-surface: color-mix(in srgb, var(--color-accent) 5%, #fdfdfe);
+  --md-surface-dim: color-mix(in srgb, var(--color-accent) 6%, #f0f0f2);
+  --md-surface-container-low: color-mix(in srgb, var(--color-accent) 5%, #fdfdfe);
+  --md-surface-container: color-mix(in srgb, var(--color-accent) 7%, #f5f5f7);
+  --md-surface-container-high: color-mix(in srgb, var(--color-accent) 10%, #ededf0);
+  --md-surface-container-highest: color-mix(in srgb, var(--color-accent) 14%, #e6e6e9);
+  --md-on-surface: #1c1c1e;
+  --md-on-surface-variant: #4a4a4f;
+  --md-outline: color-mix(in srgb, var(--color-accent) 22%, #79797f);
+  --md-outline-variant: color-mix(in srgb, var(--color-accent) 15%, #c9c9cd);
+  --md-primary-container: color-mix(in srgb, var(--color-accent) 24%, #e9e9ee);
+  --md-on-primary-container: color-mix(in srgb, var(--color-accent) 58%, #16161c);
+  --md-secondary-container: color-mix(in srgb, var(--color-accent) 15%, #e7e7ec);
+  --md-tertiary-container: color-mix(in srgb, var(--color-accent-bright) 18%, #e7e7ec);
   --md-elevation-1: 0 1px 2px rgba(49, 43, 55, 0.10), 0 1px 3px rgba(49, 43, 55, 0.08);
   --md-elevation-2: 0 2px 8px rgba(49, 43, 55, 0.12), 0 6px 18px rgba(49, 43, 55, 0.08);
   --md-elevation-3: 0 8px 24px rgba(49, 43, 55, 0.14), 0 16px 36px rgba(49, 43, 55, 0.09);
 }
 
 body[data-ui-style="material_you"][data-theme="black"] {
-  --md-surface: #050408;
+  --md-surface: #050506;
   --md-surface-dim: #000000;
-  --md-surface-container-low: color-mix(in srgb, var(--color-accent) 5%, #0b0910);
-  --md-surface-container: color-mix(in srgb, var(--color-accent) 7%, #111018);
-  --md-surface-container-high: color-mix(in srgb, var(--color-accent) 10%, #191720);
-  --md-surface-container-highest: color-mix(in srgb, var(--color-accent) 14%, #22202a);
-  --md-outline-variant: color-mix(in srgb, var(--color-accent) 14%, #342e3a);
+  --md-surface-container-low: color-mix(in srgb, var(--color-accent) 5%, #0b0b0d);
+  --md-surface-container: color-mix(in srgb, var(--color-accent) 7%, #111114);
+  --md-surface-container-high: color-mix(in srgb, var(--color-accent) 10%, #19191d);
+  --md-surface-container-highest: color-mix(in srgb, var(--color-accent) 14%, #222226);
+  --md-outline-variant: color-mix(in srgb, var(--color-accent) 14%, #343438);
 }
 
 body[data-ui-style="material_you"]::before {
