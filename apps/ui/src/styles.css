@@ -3378,7 +3378,7 @@ body[data-theme="light"] .session-traffic-card {
 .notification-page .notification-history-item {
   position: relative;
   grid-template-columns: 22px minmax(0, 1fr) 28px;
-  align-items: start;
+  align-items: center;
   gap: 12px;
   min-height: 0;
   padding: 11px 14px;
@@ -3409,7 +3409,6 @@ body[data-theme="light"] .session-traffic-card {
 .notification-page .notification-history-icon {
   width: 22px;
   height: 22px;
-  margin-top: 1px;
   border: 0;
   border-radius: 0;
   background: transparent;
