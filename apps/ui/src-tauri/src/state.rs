@@ -362,7 +362,7 @@ impl Default for AppPreferences {
             interface_rounding: default_interface_rounding(),
             theme_mode: ThemeMode::System,
             accent_mode: AccentMode::Preset,
-            accent_color: "#7c5dfa".into(),
+            accent_color: "#75a7ff".into(),
             language: Language::Ru,
             latency_protocol: "tcp_connect".into(),
             latency_test_url: "https://www.gstatic.com/generate_204".into(),

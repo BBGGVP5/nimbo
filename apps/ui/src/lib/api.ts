@@ -162,6 +162,15 @@ export interface PersistedState {
 
 export type ThemeMode = "system" | "dark" | "black" | "light";
 export type AccentMode = "system" | "preset" | "custom";
+
+export const DEFAULT_ACCENT_COLOR = "#75a7ff";
+export const DEFAULT_ACCENT_STRONG = "#4e8cff";
+export const DEFAULT_ACCENT_SOFT = "#dce9ff";
+export const DEFAULT_ACCENT_PALETTE = [
+  DEFAULT_ACCENT_COLOR,
+  DEFAULT_ACCENT_STRONG,
+  DEFAULT_ACCENT_SOFT,
+] as const;
 export type UiStyle = "nimbo" | "material_you";
 export type AppLanguage = "ru" | "en" | "system";
 export type LatencyProtocol = "tcp_connect" | "icmp" | "http_head";
@@ -445,7 +454,7 @@ export const defaultAppPreferences: AppPreferences = {
   interface_rounding: 100,
   theme_mode: "system",
   accent_mode: "preset",
-  accent_color: "#7c5dfa",
+  accent_color: DEFAULT_ACCENT_COLOR,
   language: "ru",
   latency_protocol: "tcp_connect",
   latency_test_url: "https://www.gstatic.com/generate_204",

@@ -4,6 +4,8 @@ import { Link } from "react-router-dom";
 import {
   api,
   APP_VERSION,
+  DEFAULT_ACCENT_COLOR,
+  DEFAULT_ACCENT_PALETTE,
   defaultAppPreferences,
   formatBytes,
   type AppPreferences,
@@ -440,8 +442,8 @@ const accentPresets: Array<{
     | "accentAmber"
     | "accentCyan";
 }> = [
+  { color: DEFAULT_ACCENT_COLOR, labelKey: "accentBlue" },
   { color: "#7c5dfa", labelKey: "accentViolet" },
-  { color: "#4f8cff", labelKey: "accentBlue" },
   { color: "#21a67a", labelKey: "accentGreen" },
   { color: "#e24d70", labelKey: "accentRose" },
   { color: "#f5a623", labelKey: "accentAmber" },
@@ -492,7 +494,7 @@ function usePersistentToggle(key: string, defaultValue: boolean) {
 }
 
 function readSystemAccentColor(): string {
-  if (typeof document === "undefined") return "#4f8cff";
+  if (typeof document === "undefined") return DEFAULT_ACCENT_COLOR;
   try {
     const sample = document.createElement("span");
     sample.style.color = "Highlight";
@@ -502,11 +504,11 @@ function readSystemAccentColor(): string {
     const value = getComputedStyle(sample).color;
     sample.remove();
     const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
-    if (!match) return "#4f8cff";
+    if (!match) return DEFAULT_ACCENT_COLOR;
     const toHex = (n: number) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0");
     return `#${toHex(Number(match[1]))}${toHex(Number(match[2]))}${toHex(Number(match[3]))}`;
   } catch {
-    return "#4f8cff";
+    return DEFAULT_ACCENT_COLOR;
   }
 }
 
@@ -585,7 +587,7 @@ function AppearanceSection({
   const m = useMessages();
   const providerThemePreview = cachedSubscriptionTheme(previewSubscription);
   const providerLogoPreview = useCachedSubscriptionLogo(previewSubscription, true);
-  const [systemAccent, setSystemAccent] = useState("#4f8cff");
+  const [systemAccent, setSystemAccent] = useState(DEFAULT_ACCENT_COLOR);
   const appearance = useAppearance();
   const [interfaceOpen, toggleInterface] = usePersistentToggle("nimbo.collapse.interface", true);
   const [detailsOpen, toggleDetails] = usePersistentToggle("nimbo.collapse.details", false);
@@ -604,10 +606,10 @@ function AppearanceSection({
 
   const livePalette = (colors: string[]) => {
     setIsCustomActive(true);
-    setAppearance({ palette: colors.length ? colors.slice(0, 3) : ["#7c5dfa"] });
+    setAppearance({ palette: colors.length ? colors.slice(0, 3) : [...DEFAULT_ACCENT_PALETTE] });
   };
   const commitPalette = (colors: string[], fromPreset = false) => {
-    const next = colors.length ? colors.slice(0, 3) : ["#7c5dfa"];
+    const next = colors.length ? colors.slice(0, 3) : [...DEFAULT_ACCENT_PALETTE];
     setAppearance({ palette: next });
     void onChange({ accent_mode: "custom", accent_color: next[0] });
     if (!fromPreset) {
@@ -2279,7 +2281,7 @@ function AccentPreviewOption({
 }
 
 function AccentSplitPreview({ colors }: { colors: string[] }) {
-  const accentColor = colors[0] ?? "#7c5dfa";
+  const accentColor = colors[0] ?? DEFAULT_ACCENT_COLOR;
   if (colors.length <= 1) {
     return (
       <span
@@ -2374,13 +2376,13 @@ function AccentCustomOption({
       role="radio"
       aria-checked={selected}
       onClick={onClick}
-      style={{ "--accent-card-color": colors[0] ?? "#7c5dfa" } as CSSProperties}
+      style={{ "--accent-card-color": colors[0] ?? DEFAULT_ACCENT_COLOR } as CSSProperties}
       className={[
         "settings-theme-card settings-accent-card settings-accent-card-split settings-accent-card-custom",
         selected ? "settings-accent-card-active" : "",
       ].join(" ")}
     >
-      <AccentSplitPreview colors={colors.length ? colors : ["#7c5dfa"]} />
+      <AccentSplitPreview colors={colors.length ? colors : [...DEFAULT_ACCENT_PALETTE]} />
       <span className="settings-theme-card-label">{title}</span>
     </button>
   );
@@ -2398,7 +2400,7 @@ function CustomPaletteEditor({
   onCommit: (colors: string[]) => void;
 }) {
   const m = useMessages();
-  const colors = palette.length ? palette : ["#7c5dfa"];
+  const colors = palette.length ? palette : [...DEFAULT_ACCENT_PALETTE];
 
   const setColorAt = (index: number, value: string, commit: boolean) => {
     const next = colors.map((c, i) => (i === index ? value : c));

@@ -7212,7 +7212,7 @@ fn normalize_accent_color(value: &str) -> String {
     {
         value.to_ascii_lowercase()
     } else {
-        "#7c5dfa".into()
+        "#75a7ff".into()
     }
 }
 

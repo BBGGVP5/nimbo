@@ -104,7 +104,7 @@ function applyAppTheme(theme: AppTheme | null | undefined) {
   root.dataset.uiStyle = uiStyle;
   const accent = typeof theme?.accent_color === "string" && /^#[0-9a-f]{6}$/i.test(theme.accent_color)
     ? theme.accent_color
-    : "#7c5dfa";
+    : "#75a7ff";
   root.style.setProperty("--accent", accent);
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { DEFAULT_ACCENT_COLOR, DEFAULT_ACCENT_PALETTE } from "./api";
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -57,7 +58,7 @@ const STORAGE_KEY = "nimbo.appearance.v1";
 const CHANGE_EVENT = "nimbo:appearance-change";
 
 const DEFAULT_STATE: AppearanceState = {
-  palette: ["#7c5dfa"],
+  palette: [...DEFAULT_ACCENT_PALETTE],
   presets: [],
   background: "none",
   customType: null,
@@ -165,14 +166,18 @@ export function removePalettePreset(id: string): void {
 export function accentGradientCss(colors: string[]): string {
   if (colors.length >= 3) return `linear-gradient(135deg, ${colors[0]}, ${colors[1]}, ${colors[2]})`;
   if (colors.length === 2) return `linear-gradient(135deg, ${colors[0]}, ${colors[1]})`;
-  return colors[0] ?? "#7c5dfa";
+  return colors[0] ?? DEFAULT_ACCENT_COLOR;
 }
 
 /** Applies the custom-accent gradient CSS variables to the document root. */
 export function applyAccentGradient(accentMode: string, accentColor: string, palette: string[]): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  const colors = accentMode === "custom" && palette.length >= 1 ? palette : [accentColor];
+  const colors = accentMode === "custom" && palette.length >= 1
+    ? palette
+    : accentColor.toLowerCase() === DEFAULT_ACCENT_COLOR
+      ? [...DEFAULT_ACCENT_PALETTE]
+      : [accentColor];
   root.style.setProperty("--accent-gradient", accentGradientCss(colors));
   root.style.setProperty("--color-accent-2", colors[1] ?? colors[0] ?? accentColor);
   root.style.setProperty("--color-accent-3", colors[2] ?? colors[1] ?? colors[0] ?? accentColor);

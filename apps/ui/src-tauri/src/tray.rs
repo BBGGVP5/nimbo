@@ -129,7 +129,7 @@ fn make_tray_icon_png(connected: bool) -> Result<Vec<u8>, Box<dyn std::error::Er
     }
 
     if connected {
-        // Accent-colored ring (#7c5dfa) around the perimeter, with a soft outer halo.
+        // Accent-colored ring (#75a7ff) around the perimeter, with a soft outer halo.
         let cx = (dst_w as f32 - 1.0) / 2.0;
         let cy = (dst_h as f32 - 1.0) / 2.0;
         let max_r = (dst_w.min(dst_h) as f32) / 2.0;
@@ -138,7 +138,7 @@ fn make_tray_icon_png(connected: bool) -> Result<Vec<u8>, Box<dyn std::error::Er
         let inner_r = outer_r - ring_thickness;
         let halo_outer = outer_r + (max_r * 0.05).max(2.0);
 
-        let (ar, ag, ab) = (124u8, 93u8, 250u8);
+        let (ar, ag, ab) = (117u8, 167u8, 255u8);
 
         for py in 0..dst_h {
             for px in 0..dst_w {

@@ -6,7 +6,7 @@
 
 :root {
   color-scheme: dark;
-  --accent: #8d72ff;
+  --accent: #75a7ff;
   --accent-strong: color-mix(in srgb, var(--accent) 88%, #000);
   --accent-soft: color-mix(in srgb, var(--accent) 70%, #ffffff);
   --accent-glow: color-mix(in srgb, var(--accent) 18%, transparent);
@@ -1336,4 +1336,3 @@ body[data-ui-style="material_you"] .done-path {
   letter-spacing: 0;
   vertical-align: middle;
 }
-

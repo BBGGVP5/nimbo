@@ -12,9 +12,10 @@
   --color-text-dim: rgba(234, 235, 242, 0.66);
   --color-text-faint: rgba(234, 235, 242, 0.42);
 
-  --color-accent: #7c5dfa;
-  --color-accent-bright: #9b8df5;
-  --color-accent-soft: #c7b8ff;
+  --color-accent: #75a7ff;
+  --color-accent-deep: #4e8cff;
+  --color-accent-bright: #dce9ff;
+  --color-accent-soft: #dce9ff;
   --color-accent-active-bg: color-mix(in srgb, var(--color-accent) 12%, transparent);
   --color-accent-panel: color-mix(in srgb, var(--color-accent) 8%, transparent);
   --color-bg-aura-1: color-mix(in srgb, var(--color-accent) 14%, transparent);
@@ -23,13 +24,13 @@
   --color-settings-divider: rgba(255, 255, 255, 0.06);
 
   --color-status-connected: #5dd9a1;
-  --color-status-connecting: #9b8df5;
+  --color-status-connecting: #75a7ff;
   --color-status-disconnected: #6b7280;
   --color-status-error: #ff7a7a;
 
   --color-glass-bg: rgba(255, 255, 255, 0.03);
   --color-glass-bg-strong: rgba(255, 255, 255, 0.05);
-  --color-glow-accent: rgba(124, 93, 250, 0.18);
+  --color-glow-accent: rgba(117, 167, 255, 0.18);
   --color-material-bg: #13141d;
   --color-material-bg-strong: #181a25;
   --color-material-glaze: rgba(255, 255, 255, 0.02);
@@ -63,9 +64,9 @@ body {
 
 :root {
   color-scheme: dark;
-  --accent-gradient: var(--color-accent);
-  --color-accent-2: var(--color-accent);
-  --color-accent-3: var(--color-accent);
+  --accent-gradient: linear-gradient(135deg, #75a7ff, #4e8cff 55%, #dce9ff);
+  --color-accent-2: #4e8cff;
+  --color-accent-3: #dce9ff;
   --ui-panel-alpha-percent: 100%;
   --ui-control-alpha-percent: 100%;
   --ui-panel-overlay: rgba(255, 255, 255, 0);
@@ -119,7 +120,7 @@ body[data-theme="light"] {
   --color-material-shadow: rgba(40, 32, 64, 0.10);
   --color-material-inset: rgba(255, 255, 255, 0.6);
   --color-settings-divider: rgba(28, 24, 48, 0.08);
-  --color-glow-accent: rgba(124, 93, 250, 0.16);
+  --color-glow-accent: rgba(117, 167, 255, 0.16);
   --ui-panel-bg:
     linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
     color-mix(in srgb, var(--color-surface) var(--ui-panel-alpha-percent), transparent);
@@ -162,7 +163,7 @@ body[data-theme="black"] {
   --color-bg-aura-3: transparent;
   --color-glass-bg: rgba(255, 255, 255, 0.025);
   --color-glass-bg-strong: rgba(255, 255, 255, 0.04);
-  --color-glow-accent: rgba(124, 93, 250, 0.18);
+  --color-glow-accent: rgba(117, 167, 255, 0.18);
   --color-material-bg: #07080d;
   --color-material-bg-strong: #0a0b12;
   --color-material-glaze: rgba(255, 255, 255, 0.015);

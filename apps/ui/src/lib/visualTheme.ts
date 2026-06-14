@@ -1,4 +1,10 @@
-import type { AppPreferences, SubscriptionTheme } from "./api";
+import {
+  DEFAULT_ACCENT_COLOR,
+  DEFAULT_ACCENT_SOFT,
+  DEFAULT_ACCENT_STRONG,
+  type AppPreferences,
+  type SubscriptionTheme,
+} from "./api";
 import { resolveLanguage } from "./i18n";
 
 interface VisualPreferenceOptions {
@@ -45,8 +51,11 @@ export function applyVisualPreferences(
       ?? (preferences.accent_mode === "system"
         ? readSystemAccentColor()
         : preferences.accent_color);
-    const bright = mixHex(accent, isLightTheme ? "#ffffff" : isBlackTheme ? "#f2f1ff" : "#d9d2ff", isBlackTheme ? 0.26 : 0.32);
-    const soft = mixHex(accent, "#ffffff", 0.58);
+    const usesDefaultAccent = accent.toLowerCase() === DEFAULT_ACCENT_COLOR;
+    const bright = usesDefaultAccent
+      ? (isLightTheme ? DEFAULT_ACCENT_STRONG : DEFAULT_ACCENT_SOFT)
+      : mixHex(accent, isLightTheme ? "#ffffff" : isBlackTheme ? "#f2f1ff" : "#d9d2ff", isBlackTheme ? 0.26 : 0.32);
+    const soft = usesDefaultAccent ? DEFAULT_ACCENT_SOFT : mixHex(accent, "#ffffff", 0.58);
     const glow = hexToRgba(accent, isLightTheme ? 0.22 : isBlackTheme ? 0.22 : 0.28);
     const activeBg = hexToRgba(accent, isLightTheme ? 0.12 : isBlackTheme ? 0.14 : 0.16);
     const panel = hexToRgba(accent, isLightTheme ? 0.08 : isBlackTheme ? 0.07 : 0.10);
@@ -87,6 +96,7 @@ export function applyVisualPreferences(
     root.style.setProperty("--radius-2xl", scaledRadius(16));
     root.style.setProperty("--radius-3xl", scaledRadius(24));
     root.style.setProperty("--color-accent", accent);
+    root.style.setProperty("--color-accent-deep", usesDefaultAccent ? DEFAULT_ACCENT_STRONG : accent);
     root.style.setProperty("--color-accent-bright", bright);
     root.style.setProperty("--color-accent-soft", soft);
     root.style.setProperty("--color-status-connected", bright);
@@ -128,7 +138,7 @@ function readSystemAccentColor(): string {
   document.body.appendChild(sample);
   const value = getComputedStyle(sample).color;
   sample.remove();
-  return cssColorToHex(value) ?? "#4f8cff";
+  return cssColorToHex(value) ?? DEFAULT_ACCENT_COLOR;
 }
 
 function cssColorToHex(value: string): string | null {
@@ -150,7 +160,7 @@ function mixHex(a: string, b: string, amount: number): string {
 
 function hexToRgba(hex: string, alpha: number): string {
   const rgb = hexToRgb(hex);
-  if (!rgb) return `rgba(124, 93, 250, ${alpha})`;
+  if (!rgb) return `rgba(117, 167, 255, ${alpha})`;
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
 }
 
