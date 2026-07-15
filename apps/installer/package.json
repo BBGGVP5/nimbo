@@ -9,6 +9,7 @@
     "tauri": "tauri",
     "build:custom": "powershell -NoProfile -ExecutionPolicy Bypass -File build-custom-installer.ps1",
     "build:custom:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File build-custom-installer.ps1",
+    "build:custom:windows:all": "powershell -NoProfile -ExecutionPolicy Bypass -File build-custom-installer.ps1 -All",
     "build:custom:linux": "bash ./build-custom-linux-installer.sh",
     "build:release:linux": "bash ./build-linux-release.sh"
   },
