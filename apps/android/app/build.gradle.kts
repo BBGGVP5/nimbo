@@ -234,7 +234,7 @@ dependencies {
     // Per-app language switching via AppCompatDelegate.setApplicationLocales
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation(files("libs/libxray.aar"))
-    implementation("sh.calvin.reorderable:reorderable:3.0.0")
+    implementation("sh.calvin.reorderable:reorderable:3.1.0")
     // CameraX
     implementation("androidx.camera:camera-core:1.5.3")
     implementation("androidx.camera:camera-camera2:1.5.3")
