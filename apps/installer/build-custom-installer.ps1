@@ -37,6 +37,53 @@ function Get-ArchSuffix([string]$TargetTriple) {
   }
 }
 
+function Get-XrayArchiveName([string]$TargetTriple) {
+  switch ($TargetTriple) {
+    "x86_64-pc-windows-msvc" { return "Xray-windows-64.zip" }
+    "i686-pc-windows-msvc" { return "Xray-windows-32.zip" }
+    "aarch64-pc-windows-msvc" { return "Xray-windows-arm64-v8a.zip" }
+    default { throw "Unsupported Xray target: $TargetTriple" }
+  }
+}
+
+function Install-XrayPayload([string]$TargetTriple) {
+  $archiveName = Get-XrayArchiveName $TargetTriple
+  $downloadBase = "https://github.com/XTLS/Xray-core/releases/latest/download"
+  $workDir = Join-Path $repoRoot "target\xray\.downloads\$TargetTriple"
+  $archivePath = Join-Path $workDir $archiveName
+  $digestPath = "$archivePath.dgst"
+  $extractDir = Join-Path $workDir "extract"
+  $payloadDir = Join-Path $repoRoot "target\xray\$TargetTriple"
+  $payloadPath = Join-Path $payloadDir "xray.exe"
+
+  New-Item -ItemType Directory -Force -Path $workDir, $extractDir, $payloadDir | Out-Null
+  Write-Host "Downloading verified Xray payload for $TargetTriple..."
+  $headers = @{ "User-Agent" = "Nimbo installer build" }
+  Invoke-WebRequest -Uri "$downloadBase/$archiveName" -OutFile $archivePath -Headers $headers
+  Invoke-WebRequest -Uri "$downloadBase/$archiveName.dgst" -OutFile $digestPath -Headers $headers
+
+  $digestText = Get-Content -Raw -LiteralPath $digestPath
+  $digestMatch = [regex]::Match($digestText, '(?im)^\s*(?:SHA256|SHA2-256)\s*=\s*([0-9a-f]{64})\s*$')
+  if (-not $digestMatch.Success) {
+    throw "The official Xray checksum file does not contain a SHA-256 digest: $digestPath"
+  }
+
+  $expectedHash = $digestMatch.Groups[1].Value.ToLowerInvariant()
+  $actualHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($actualHash -ne $expectedHash) {
+    throw "Xray archive SHA-256 mismatch for $TargetTriple. Expected $expectedHash, got $actualHash."
+  }
+
+  Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDir -Force
+  $xrayBinary = Get-ChildItem -LiteralPath $extractDir -Recurse -File -Filter "xray.exe" |
+    Select-Object -First 1
+  if (-not $xrayBinary) {
+    throw "The verified Xray archive does not contain xray.exe: $archiveName"
+  }
+  Copy-Item -LiteralPath $xrayBinary.FullName -Destination $payloadPath -Force
+  Write-Host "Embedded Xray: $payloadPath"
+}
+
 function Get-MsvcArchFolder([string]$TargetTriple) {
   switch ($TargetTriple) {
     "x86_64-pc-windows-msvc" { return "x64" }
@@ -211,6 +258,10 @@ try {
   }
 } finally {
   Pop-Location
+}
+
+foreach ($targetTriple in $Target) {
+  Install-XrayPayload $targetTriple
 }
 
 $createdInstallers = @()

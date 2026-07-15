@@ -120,6 +120,18 @@ const WINTUN_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../ui/src-tauri/resources/tun/wintun.dll"
 ));
+// Xray is embedded in release installers so a fresh Nimbo installation does
+// not depend on GitHub being reachable. The installer build script downloads
+// the official archive and verifies its SHA-256 before placing it here.
+#[cfg(all(windows, not(debug_assertions)))]
+const XRAY_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../target/xray/",
+    env!("NIMBO_TARGET_TRIPLE"),
+    "/xray.exe"
+));
+#[cfg(all(windows, debug_assertions))]
+const XRAY_BYTES: &[u8] = &[];
 #[cfg(windows)]
 const ICON_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -328,11 +340,20 @@ fn install_blocking_windows(
     copy_self_uninstaller(&install_dir)?;
     emit(&app, "files", "done", 36, "Файлы Nimbo установлены");
 
-    emit(&app, "tun", "running", 44, "Копируем TUN-компоненты");
+    emit(
+        &app,
+        "tun",
+        "running",
+        44,
+        "Копируем компоненты подключения",
+    );
     let tun_dir = roaming_nimbo_bin_dir()?;
     fs::create_dir_all(&tun_dir).map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
     replace_payload(&tun_dir.join("tun2socks.exe"), TUN2SOCKS_BYTES)?;
     replace_payload(&tun_dir.join("wintun.dll"), WINTUN_BYTES)?;
+    if !XRAY_BYTES.is_empty() {
+        replace_payload(&tun_dir.join("xray.exe"), XRAY_BYTES)?;
+    }
     run_status(&install_dir.join(APP_EXE), &["--install-tun"])
         .map_err(|e| format!("TUN-компоненты не установились: {e}"))?;
     cleanup_old_tun_binaries(&tun_dir);
@@ -520,6 +541,7 @@ fn perform_uninstall(
     let tun_dir = roaming_nimbo_bin_dir()?;
     let _ = fs::remove_file(tun_dir.join("tun2socks.exe"));
     let _ = fs::remove_file(tun_dir.join("wintun.dll"));
+    let _ = fs::remove_file(tun_dir.join("xray.exe"));
     let _ = fs::remove_dir(&tun_dir);
 
     #[cfg(windows)]
@@ -1186,7 +1208,12 @@ fn cleanup_old_binaries(install_dir: &Path) {
 }
 
 fn cleanup_old_tun_binaries(tun_dir: &Path) {
-    for name in ["tun2socks.exe.old", "wintun.dll.old", "wintun.exe.old"] {
+    for name in [
+        "tun2socks.exe.old",
+        "wintun.dll.old",
+        "wintun.exe.old",
+        "xray.exe.old",
+    ] {
         let _ = fs::remove_file(tun_dir.join(name));
     }
 }
