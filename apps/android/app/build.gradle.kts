@@ -232,7 +232,7 @@ dependencies {
     implementation("androidx.compose.animation:animation:1.10.5")
     implementation("androidx.work:work-runtime-ktx:2.11.1")
     // Per-app language switching via AppCompatDelegate.setApplicationLocales
-    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.appcompat:appcompat:1.7.1")
     implementation(files("libs/libxray.aar"))
     implementation("sh.calvin.reorderable:reorderable:3.0.0")
     // CameraX
