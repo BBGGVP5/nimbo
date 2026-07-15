@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.ScreenLockLandscape
 import androidx.compose.material.icons.filled.Send
@@ -363,6 +364,10 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
 
                 GlassSection(title = "Ссылки", icon = Icons.Default.Link) {
+                    ModernLinkRow(icon = Icons.Default.Public, title = "Сайт") {
+                        uriHandler.openUri("https://nimboapp.pw")
+                    }
+                    HorizontalDivider(color = nebulaColors.textTertiary.copy(alpha = 0.08f))
                     ModernLinkRow(icon = Icons.Default.Send, title = "Telegram канал") {
                         uriHandler.openUri("https://t.me/nebulaguard_channel")
                     }

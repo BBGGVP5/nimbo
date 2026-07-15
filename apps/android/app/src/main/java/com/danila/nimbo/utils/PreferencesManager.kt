@@ -1540,8 +1540,8 @@ class PreferencesManager(context: Context) {
         set(value) = sharedPreferences.edit().putString(KEY_VPN_URL, value).apply()
 
     var websiteUrl: String
-        get() = sharedPreferences.getString(KEY_WEBSITE_URL, "https://t.me/nebulaguard_update")
-            ?: "https://t.me/nebulaguard_update"
+        get() = sharedPreferences.getString(KEY_WEBSITE_URL, "https://nimboapp.pw")
+            ?: "https://nimboapp.pw"
         set(value) = sharedPreferences.edit().putString(KEY_WEBSITE_URL, value).apply()
 
     var supportUrl: String

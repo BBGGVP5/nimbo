@@ -1741,7 +1741,12 @@ function AboutSection({
 
       <Section title={m.settings.usefulLinks} nested>
         <SettingsCard>
-          <LinkRow icon={<GlobeIcon />} label={m.common.site} value="nimbo.local" href="#" />
+          <LinkRow
+            icon={<GlobeIcon />}
+            label={m.common.site}
+            value="nimboapp.pw"
+            href="https://nimboapp.pw"
+          />
           <LinkRow
             icon={<TelegramIcon />}
             label={m.settings.telegramChannel}

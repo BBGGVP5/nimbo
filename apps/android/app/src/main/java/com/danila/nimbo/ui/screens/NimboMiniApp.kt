@@ -13695,6 +13695,7 @@ private fun ColumnScope.AboutSettingsContent() {
     SubPageSectionHeader(t("Полезные ссылки", "Useful links"), icon = Icons.Default.Link)
     Spacer(Modifier.height(10.dp))
     SettingsCompactCard {
+        AboutLinkRow(t("Сайт", "Website"), "https://nimboapp.pw", icon = Icons.Default.Public) { openUrl(context, it) }
         AboutLinkRow(t("Проект", "Project"), "https://github.com/BBGGVP5/nimbo", icon = Icons.Default.Public) { openUrl(context, it) }
         AboutLinkRow(t("Канал", "Channel"), "https://t.me/nebulaguard_channel", icon = Icons.Default.Language) { openUrl(context, it) }
         AboutLinkRow(t("Ядро", "Core"), "https://github.com/XTLS/Xray-core", showDivider = false, icon = Icons.Default.Description) { openUrl(context, it) }
