@@ -137,6 +137,7 @@ fun LogsScreen(onNavigateBack: () -> Unit) {
     }
     // Бейджи должны описывать текущий список на экране. Раньше они считались
     // от полного журнала и могли показывать, например, INFO 12 при «Показано 0».
+    val visibleDebugCount = filtered.count { it.level == LogLevel.DEBUG }
     val visibleInfoCount = filtered.count { it.level == LogLevel.INFO }
     val visibleWarnCount = filtered.count { it.level == LogLevel.WARNING }
     val visibleErrorCount = filtered.count { it.level == LogLevel.ERROR }
@@ -193,9 +194,10 @@ fun LogsScreen(onNavigateBack: () -> Unit) {
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(Modifier.weight(1f))
-            if (visibleInfoCount > 0) LogLevelCountBadge("INFO", visibleInfoCount, logLevelColor(LogLevel.INFO))
-            if (visibleWarnCount > 0) LogLevelCountBadge("WARN", visibleWarnCount, logLevelColor(LogLevel.WARNING))
-            if (visibleErrorCount > 0) LogLevelCountBadge("ERR", visibleErrorCount, logLevelColor(LogLevel.ERROR))
+            LogLevelCountBadge("DBG", visibleDebugCount, logLevelColor(LogLevel.DEBUG))
+            LogLevelCountBadge("INFO", visibleInfoCount, logLevelColor(LogLevel.INFO))
+            LogLevelCountBadge("WARN", visibleWarnCount, logLevelColor(LogLevel.WARNING))
+            LogLevelCountBadge("ERR", visibleErrorCount, logLevelColor(LogLevel.ERROR))
         }
 
         if (source.isEmpty()) {

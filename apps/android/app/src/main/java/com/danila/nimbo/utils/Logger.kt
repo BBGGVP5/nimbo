@@ -74,7 +74,9 @@ object Logger {
             LogLevel.ERROR -> Log.e(safeTag, safeMessage)
         }
 
-        if (level == LogLevel.DEBUG && !BuildConfig.DEBUG) return
+        // Диагностический журнал доступен и в release-сборке. Раньше DEBUG
+        // попадал только в Logcat и отбрасывался до сохранения, из-за чего
+        // пользователь не мог приложить его к отчёту о проблеме.
         val entry = LogEntry(
             timestamp = System.currentTimeMillis(),
             level = level,
