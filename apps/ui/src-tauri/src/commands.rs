@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::hash::{Hash, Hasher};
-#[cfg(all(windows, target_arch = "x86_64"))]
+#[cfg(all(target_arch = "x86_64", any(windows, target_os = "linux")))]
 use std::io::Cursor;
 use std::net::{IpAddr, Ipv4Addr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
@@ -6254,14 +6254,14 @@ async fn ensure_xray_binary(app: &AppHandle) -> Result<PathBuf, String> {
         }
     }
 
-    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[cfg(all(target_arch = "x86_64", any(windows, target_os = "linux")))]
     {
-        download_xray_windows_x64().await
+        download_xray_for_current_platform().await
     }
 
-    #[cfg(not(all(windows, target_arch = "x86_64")))]
+    #[cfg(not(all(target_arch = "x86_64", any(windows, target_os = "linux"))))]
     {
-        Err("xray-core не найден. Положи xray.exe рядом с приложением или укажи NIMBO_XRAY_PATH.".into())
+        Err("xray-core не найден. Положите бинарный файл рядом с приложением или укажите NIMBO_XRAY_PATH.".into())
     }
 }
 
@@ -6299,14 +6299,18 @@ fn xray_exe_name() -> &'static str {
     if cfg!(windows) { "xray.exe" } else { "xray" }
 }
 
-#[cfg(all(windows, target_arch = "x86_64"))]
-async fn download_xray_windows_x64() -> Result<PathBuf, String> {
+#[cfg(all(target_arch = "x86_64", any(windows, target_os = "linux")))]
+async fn download_xray_for_current_platform() -> Result<PathBuf, String> {
     let bin_dir = nimbo_data_dir()?.join("bin");
     std::fs::create_dir_all(&bin_dir)
         .map_err(|e| format!("Не удалось создать папку Xray: {e}"))?;
-    let target = bin_dir.join("xray.exe");
-    let archive_url =
-        "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip";
+    let binary_name = xray_exe_name();
+    let target = bin_dir.join(binary_name);
+    let archive_url = if cfg!(windows) {
+        "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
+    } else {
+        "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
+    };
 
     tracing::info!(%archive_url, "downloading xray");
     let bytes = reqwest::Client::builder()
@@ -6343,10 +6347,22 @@ async fn download_xray_windows_x64() -> Result<PathBuf, String> {
             .map_err(|e| format!("Не удалось записать файл Xray: {e}"))?;
     }
 
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = std::fs::metadata(&target)
+            .map_err(|e| format!("Не удалось прочитать права Xray: {e}"))?
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&target, permissions)
+            .map_err(|e| format!("Не удалось выдать права на запуск Xray: {e}"))?;
+    }
+
     if target.exists() {
         Ok(target)
     } else {
-        Err("Архив Xray скачан, но xray.exe внутри не найден.".into())
+        Err(format!("Архив Xray скачан, но {binary_name} внутри не найден."))
     }
 }
 

@@ -1,0 +1,6 @@
+# Скопируйте в signing.properties и укажите реальные значения.
+# Файл signing.properties игнорируется Git и никогда не должен публиковаться.
+nimboReleaseStoreFile=C:/keys/nimbo-release.jks
+nimboReleaseStorePassword=change-me
+nimboReleaseKeyAlias=nimbo
+nimboReleaseKeyPassword=change-me

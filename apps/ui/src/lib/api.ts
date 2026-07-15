@@ -835,16 +835,16 @@ function browserUpdateInfo(): AppUpdateInfo {
       latest_version: "3.0.33",
       release_name: "3.0.33",
       release_notes: "Демо обновления для браузерного предпросмотра.",
-      release_url: "https://github.com/Case211/nimbo-app/releases",
+      release_url: "https://github.com/BBGGVP5/nimbo/releases",
       published_at: new Date().toISOString(),
       target: "Windows x64",
       asset: {
         name: "Nimbo_3.0.33_x64-setup.exe",
-        download_url: "https://github.com/Case211/nimbo-app/releases",
+        download_url: "https://github.com/BBGGVP5/nimbo/releases",
         size: 0,
         content_type: "application/octet-stream",
       },
-      download_url: "https://github.com/Case211/nimbo-app/releases",
+      download_url: "https://github.com/BBGGVP5/nimbo/releases",
     };
   }
 
@@ -854,7 +854,7 @@ function browserUpdateInfo(): AppUpdateInfo {
     latest_version: APP_VERSION,
     release_name: APP_VERSION,
     release_notes: null,
-    release_url: "https://github.com/Case211/nimbo-app/releases",
+    release_url: "https://github.com/BBGGVP5/nimbo/releases",
     published_at: null,
     target: "Browser preview",
     asset: null,

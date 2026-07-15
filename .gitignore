@@ -31,5 +31,16 @@ desktop.ini
 apps/ui/src-tauri/gen/
 apps/ui/src-tauri/target/
 
+# Android
+apps/android/.gradle/
+apps/android/.idea/
+apps/android/.kotlin/
+apps/android/build/
+apps/android/**/build/
+apps/android/local.properties
+apps/android/app/signing.properties
+*.apk
+*.aab
+
 # UI design references (not for repo)
 ui-template/

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/bg_alias_0011" />
+    <item>
+        <inset
+            android:drawable="@drawable/sprite_0011"
+            android:insetLeft="14dp"
+            android:insetTop="14dp"
+            android:insetRight="14dp"
+            android:insetBottom="14dp" />
+    </item>
+</layer-list>
