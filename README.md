@@ -71,10 +71,6 @@ nimbo/
 
 Подробности — в [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
 
-## Для разработчиков
-
-Здесь находится официальная открытая кодовая база Nimbo. Состав проекта описан в [архитектуре](./docs/ARCHITECTURE.md); инструкции по сборке и выпуску находятся в [документации для Linux](./docs/build/linux.md), [Android README](./apps/android/README.md) и [чек-листе релиза](./docs/RELEASE.md).
-
 ## Официальные каналы
 
 - Сайт: [nimboapp.pw](https://nimboapp.pw)
