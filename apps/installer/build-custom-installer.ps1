@@ -48,6 +48,7 @@ function Get-MsvcArchFolder([string]$TargetTriple) {
 
 # Cache: triple -> $true if both Rust target + MSVC linker are available.
 $script:toolchainCache = @{}
+$script:msvcToolchainCache = @{}
 
 function Test-RustTargetInstalled([string]$TargetTriple) {
   $installed = & rustup target list --installed 2>$null
@@ -58,31 +59,80 @@ function Test-RustTargetInstalled([string]$TargetTriple) {
   return $false
 }
 
-function Test-MsvcLinkerAvailable([string]$TargetTriple) {
+function Get-MsvcToolchain([string]$TargetTriple) {
+  if ($script:msvcToolchainCache.ContainsKey($TargetTriple)) {
+    return $script:msvcToolchainCache[$TargetTriple]
+  }
+
   $arch = Get-MsvcArchFolder $TargetTriple
-  if (-not $arch) { return $true }
+  if (-not $arch) { return $null }
 
   $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
   if (-not (Test-Path -LiteralPath $vswhere)) {
-    # No vswhere -> can't probe; assume yes and let the build fail with a real error.
-    return $true
+    return $null
   }
 
-  $vsRoot = & $vswhere -latest -products * -property installationPath 2>$null
-  if (-not $vsRoot) { return $true }
+  $components = @("Microsoft.VisualStudio.Component.VC.Tools.x86.x64")
+  if ($arch -eq "arm64") {
+    $components += "Microsoft.VisualStudio.Component.VC.Tools.ARM64"
+  }
+  $vsRoot = & $vswhere -latest -products * -requires $components -property installationPath 2>$null |
+    Select-Object -First 1
+  if ([string]::IsNullOrWhiteSpace($vsRoot)) { return $null }
+  $vsRoot = $vsRoot.Trim()
+
+  $vcvarsall = Join-Path $vsRoot "VC\Auxiliary\Build\vcvarsall.bat"
+  if (-not (Test-Path -LiteralPath $vcvarsall)) { return $null }
 
   $msvcRoot = Join-Path $vsRoot "VC\Tools\MSVC"
-  if (-not (Test-Path -LiteralPath $msvcRoot)) { return $true }
+  if (-not (Test-Path -LiteralPath $msvcRoot)) { return $null }
+
+  $clangDir = $null
+  if ($arch -eq "arm64") {
+    $clangCandidates = @(
+      (Join-Path $vsRoot "VC\Tools\Llvm\x64\bin\clang.exe"),
+      (Join-Path $env:ProgramFiles "LLVM\bin\clang.exe")
+    )
+    foreach ($clang in $clangCandidates) {
+      if (Test-Path -LiteralPath $clang) {
+        $clangDir = Split-Path -Parent $clang
+        break
+      }
+    }
+    if (-not $clangDir) { return $null }
+  }
 
   $versions = Get-ChildItem -LiteralPath $msvcRoot -Directory -ErrorAction SilentlyContinue |
     Sort-Object Name -Descending
   foreach ($ver in $versions) {
     $candidate = Join-Path $ver.FullName "bin\Hostx64\$arch\link.exe"
-    if (Test-Path -LiteralPath $candidate) { return $true }
-    $candidateX86 = Join-Path $ver.FullName "bin\Hostx86\$arch\link.exe"
-    if (Test-Path -LiteralPath $candidateX86) { return $true }
+    if (Test-Path -LiteralPath $candidate) {
+      $vcvarsArgument = switch ($arch) {
+        "x64" { "x64" }
+        "x86" { "x64_x86" }
+        "arm64" { "x64_arm64" }
+      }
+      $toolchain = [PSCustomObject]@{
+        VcVarsAll = $vcvarsall
+        Argument = $vcvarsArgument
+        ClangDir = $clangDir
+      }
+      $script:msvcToolchainCache[$TargetTriple] = $toolchain
+      return $toolchain
+    }
   }
-  return $false
+  return $null
+}
+
+function Invoke-MsvcCommand([string]$TargetTriple, [string]$WorkingDirectory, [string]$CommandLine) {
+  $toolchain = Get-MsvcToolchain $TargetTriple
+  if (-not $toolchain) {
+    throw "MSVC toolchain for $TargetTriple is unavailable."
+  }
+
+  $clangPath = if ($toolchain.ClangDir) { "set `"PATH=$($toolchain.ClangDir);%PATH%`" && " } else { "" }
+  $fullCommand = "call `"$($toolchain.VcVarsAll)`" $($toolchain.Argument) >nul && cd /d `"$WorkingDirectory`" && $clangPath$CommandLine"
+  & cmd.exe /d /s /c $fullCommand
 }
 
 function Test-TargetSupported([string]$TargetTriple) {
@@ -97,10 +147,11 @@ function Test-TargetSupported([string]$TargetTriple) {
     return $false
   }
 
-  $linkerOk = Test-MsvcLinkerAvailable $TargetTriple
-  if (-not $linkerOk) {
+  $msvcToolchain = Get-MsvcToolchain $TargetTriple
+  if (-not $msvcToolchain) {
     $arch = Get-MsvcArchFolder $TargetTriple
-    Write-Warning "Skipping $TargetTriple — MSVC linker for $arch not found. Install it via the Visual Studio Installer (Individual components -> MSVC v143 - VS 2022 C++ $arch build tools)."
+    $required = if ($arch -eq "arm64") { "MSVC C++ ARM64 build tools and LLVM clang" } else { "MSVC C++ $arch build tools" }
+    Write-Warning "Skipping $TargetTriple — toolchain not found. Install $required via the Visual Studio Installer."
     $script:toolchainCache[$TargetTriple] = $false
     return $false
   }
@@ -119,6 +170,10 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 Push-Location $uiDir
 try {
+  if (-not (Test-Path -LiteralPath (Join-Path $uiDir "node_modules"))) {
+    & npm ci
+    if ($LASTEXITCODE -ne 0) { throw "npm ci failed for Nimbo UI." }
+  }
   & npm run build
   if ($LASTEXITCODE -ne 0) { throw "npm run build failed for Nimbo UI." }
 } finally {
@@ -139,6 +194,7 @@ if (Test-Path -LiteralPath $distIndex) {
 
 Push-Location $repoRoot
 try {
+  $cargoExe = (Get-Command cargo -CommandType Application -ErrorAction Stop).Source
   foreach ($targetTriple in $Target) {
     Write-Host "Building app payload for $targetTriple..."
 
@@ -147,10 +203,10 @@ try {
     # nimbo-ui in dev mode and the installed app tries to load
     # http://127.0.0.1:1420 (ERR_CONNECTION_REFUSED). `cargo tauri build`
     # passes this automatically; this raw `cargo build` does not.
-    & cargo build -p nimbo-ui --release --features custom-protocol --target $targetTriple
+    Invoke-MsvcCommand $targetTriple $repoRoot "`"$cargoExe`" build -p nimbo-ui --release --features custom-protocol --target $targetTriple"
     if ($LASTEXITCODE -ne 0) { throw "cargo build -p nimbo-ui failed for $targetTriple." }
 
-    & cargo build -p nimbo-svc --release --target $targetTriple
+    Invoke-MsvcCommand $targetTriple $repoRoot "`"$cargoExe`" build -p nimbo-svc --release --target $targetTriple"
     if ($LASTEXITCODE -ne 0) { throw "cargo build -p nimbo-svc failed for $targetTriple." }
   }
 } finally {
@@ -163,12 +219,16 @@ foreach ($targetTriple in $Target) {
   Push-Location $installerDir
   try {
     if (-not (Test-Path -LiteralPath (Join-Path $installerDir "node_modules"))) {
-      & npm install
-      if ($LASTEXITCODE -ne 0) { throw "npm install failed for custom installer." }
+      & npm ci
+      if ($LASTEXITCODE -ne 0) { throw "npm ci failed for custom installer." }
     }
 
     Write-Host "Building custom installer for $targetTriple..."
-    & npx tauri build --no-bundle --target $targetTriple
+    $tauriCmd = Join-Path $installerDir "node_modules\.bin\tauri.cmd"
+    if (-not (Test-Path -LiteralPath $tauriCmd)) {
+      throw "Tauri CLI was not installed: $tauriCmd"
+    }
+    Invoke-MsvcCommand $targetTriple $installerDir "call `"$tauriCmd`" build --no-bundle --target $targetTriple"
     if ($LASTEXITCODE -ne 0) { throw "tauri build failed for custom installer $targetTriple." }
   } finally {
     Pop-Location
