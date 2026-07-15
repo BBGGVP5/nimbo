@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Language
@@ -110,6 +111,7 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
     var showImportDialog by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
     var editingProfile by remember { mutableStateOf<RoutingProfile?>(null) }
+    var deletingProfile by remember { mutableStateOf<RoutingProfile?>(null) }
 
     val invalidLinkMessage = t("Неверный формат ссылки", "Invalid routing link")
     val importedMessage = t("Профиль маршрутизации добавлен", "Routing profile added")
@@ -207,10 +209,33 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
         )
     }
 
+    deletingProfile?.let { profile ->
+        NebulaMorphicDialog(
+            onDismissRequest = { deletingProfile = null },
+            title = t("Удалить профиль?", "Delete profile?"),
+            description = t(
+                "«${profile.name}» исчезнет из списка. Его можно вернуть только сбросом встроенных профилей.",
+                "“${profile.name}” will be removed from the list. It can only be restored by resetting built-in profiles."
+            ),
+            confirmButtonText = t("Удалить", "Delete"),
+            confirmButtonColor = Color(0xFFE85D75),
+            headerIcon = Icons.Default.Delete,
+            headerIconTint = Color(0xFFE85D75),
+            onConfirm = {
+                preferencesManager.deleteBuiltinRoutingProfile(profile.id.orEmpty())
+                builtinProfiles = preferencesManager.builtinRoutingProfiles()
+                activeBuiltinId = preferencesManager.activeBuiltinRoutingProfileId()
+                activeProfile = preferencesManager.loadRoutingProfile()
+                deletingProfile = null
+            }
+        )
+    }
+
     val activePreset = builtinRoutingPresets.firstOrNull { it.id == activeBuiltinId }
     val activeDisplayName = activeProfile?.name?.takeIf { it.isNotBlank() }
         ?: activePreset?.let { t(it.nameRu, it.nameEn) }
-        ?: builtinRoutingPresets.first().let { t(it.nameRu, it.nameEn) }
+        ?: builtinProfiles.firstOrNull()?.name
+        ?: t("Нет профиля", "No profile")
     val routingEnabled = preferencesManager.isRoutingEnabled
 
     NimboSubPageScaffold(
@@ -249,13 +274,26 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(24.dp))
-        Text(
-            text = t("ГОТОВЫЕ ПРОФИЛИ", "BUILT-IN PROFILES"),
-            color = nebulaColors.textSecondary,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier.padding(start = 2.dp, bottom = 10.dp)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 2.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = t("ГОТОВЫЕ ПРОФИЛИ", "BUILT-IN PROFILES"),
+                color = nebulaColors.textSecondary,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.ExtraBold
+            )
+            Spacer(Modifier.weight(1f))
+            if (preferencesManager.hasDeletedBuiltinRoutingProfiles()) {
+                TextButton(onClick = {
+                    preferencesManager.restoreDeletedBuiltinRoutingProfiles()
+                    builtinProfiles = preferencesManager.builtinRoutingProfiles()
+                }) {
+                    Text(t("Вернуть", "Restore"), fontWeight = FontWeight.Bold)
+                }
+            }
+        }
 
         builtinRoutingPresets.forEach { preset ->
             val profile = builtinProfiles.firstOrNull { it.id == preset.id } ?: return@forEach
@@ -271,7 +309,8 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
                     clipboard.setText(AnnotatedString(link))
                     Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
                 },
-                onEdit = { editingProfile = profile }
+                onEdit = { editingProfile = profile },
+                onDelete = { deletingProfile = profile }
             )
             Spacer(Modifier.height(12.dp))
         }
@@ -388,7 +427,8 @@ private fun RoutingProfileCard(
     active: Boolean,
     onActivate: () -> Unit,
     onCopyLink: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val colors = LocalNebulaColors.current
     val shape = RoundedCornerShape(20.dp)
@@ -466,32 +506,51 @@ private fun RoutingProfileCard(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
             )
-            Button(
+            RoutingProfileIconAction(
+                icon = Icons.Default.ContentCopy,
+                contentDescription = t("Скопировать ссылку", "Copy link"),
+                onClick = onCopyLink
+            )
+            Spacer(Modifier.width(6.dp))
+            RoutingProfileIconAction(
+                icon = Icons.Default.Edit,
+                contentDescription = t("Изменить профиль", "Edit profile"),
                 onClick = onEdit,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.softFill,
-                    contentColor = colors.textSecondary
-                ),
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Icon(Icons.Default.Edit, null, modifier = Modifier.size(17.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(t("Изменить", "Edit"), fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.width(8.dp))
-            Button(
-                onClick = onCopyLink,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.softFill,
-                    contentColor = colors.textSecondary
-                ),
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(17.dp))
-            }
+            )
+            Spacer(Modifier.width(6.dp))
+            RoutingProfileIconAction(
+                icon = Icons.Default.Delete,
+                contentDescription = t("Удалить профиль", "Delete profile"),
+                danger = true,
+                onClick = onDelete
+            )
         }
+    }
+}
+
+@Composable
+private fun RoutingProfileIconAction(
+    icon: ImageVector,
+    contentDescription: String,
+    danger: Boolean = false,
+    onClick: () -> Unit
+) {
+    val colors = LocalNebulaColors.current
+    val tint = if (danger) Color(0xFFE85D75) else colors.textSecondary
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .clip(shape)
+            .background(if (danger) tint.copy(alpha = 0.12f) else colors.softFill)
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription, tint = tint, modifier = Modifier.size(19.dp))
     }
 }
 

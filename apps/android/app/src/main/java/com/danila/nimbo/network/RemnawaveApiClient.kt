@@ -78,7 +78,7 @@ object RemnawaveApiClient {
      * Инициализация User-Agent и Device ID
      */
     fun init(context: Context) {
-        userAgent = com.danila.nimbo.utils.PreferencesManager(context).subscriptionUserAgent
+        userAgent = AppVersionManager.getUserAgent(context)
         deviceId = AppVersionManager.getHWID(context)
         Log.d("RemnawaveApi", "Initialized with deviceId: $deviceId")
     }
@@ -97,18 +97,13 @@ object RemnawaveApiClient {
             // 🔥 Logging for debug
             Log.d("RemnawaveApi", "Sending Headers: x-device-os=Android, x-ver-os=$osVersion, HWID=$deviceId")
 
-            val requestUserAgent = original.header("User-Agent")
-                ?.takeIf { it.isNotBlank() }
-                ?: userAgent.takeIf { it.isNotBlank() }
-                ?: AppVersionManager.getUserAgent(context)
+            val requestUserAgent = AppVersionManager.getUserAgent(context)
 
             chain.proceed(
                 original.newBuilder()
                     .header("User-Agent", requestUserAgent)
                     .header("x-device-id", deviceId)
                     .header("x-hwid", deviceId)
-                    .header("X-HWID", deviceId)
-                    .header("HWID", deviceId)
                     .header("x-device-os", "Android")
                     .header("x-ver-os", osVersion)
                     .header("x-device-model", deviceModel)
@@ -1212,14 +1207,7 @@ object RemnawaveApiClient {
 
     private fun xraySubscriptionUserAgents(): List<String> {
         val context = NebulaGuardApplication.instance
-        return listOfNotNull(
-            runCatching { com.danila.nimbo.utils.PreferencesManager(context).subscriptionUserAgent }.getOrNull(),
-            userAgent.takeIf { it.isNotBlank() },
-            runCatching { AppVersionManager.getUserAgent(context) }.getOrNull()
-        )
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
+        return listOf(AppVersionManager.getUserAgent(context))
     }
 
     private fun buildTemplateParameterizedUrls(
@@ -1545,8 +1533,8 @@ object RemnawaveApiClient {
                     return@withContext null
                 }
 
-                // Remnawave предоставляет sing-box конфиг через subscription URL
-                // Используем User-Agent в формате SFA — Remnawave отдаёт JSON sing-box конфиг по этому UA
+                // Request the optional sing-box config with the same Nimbo identity
+                // used by every other subscription request.
                 val configClient = OkHttpClient.Builder()
                     .connectTimeout(15, TimeUnit.SECONDS)
                     .readTimeout(15, TimeUnit.SECONDS)
@@ -1560,7 +1548,7 @@ object RemnawaveApiClient {
 
                 val request = Request.Builder()
                     .url(subscriptionUrl)
-                    .addHeader("User-Agent", "SFA/1.8.0 (Sing-box for Android)")
+                    .addHeader("User-Agent", AppVersionManager.getUserAgent(context))
                     .addHeader("x-device-id", deviceId)
                     .addHeader("x-hwid", deviceId)
                     .addHeader("x-device-os", "Android")
@@ -1821,8 +1809,6 @@ object RemnawaveApiClient {
                         .get()
                         .addHeader("User-Agent", userAgent)
                         .addHeader("x-hwid", hwid)
-                        .addHeader("X-HWID", hwid)
-                        .addHeader("HWID", hwid)
                         .addHeader("x-device-os", "Android")
                         .addHeader("x-device-model", newName) // Новое название отправляем как модель
                         .addHeader("Cache-Control", "no-cache")

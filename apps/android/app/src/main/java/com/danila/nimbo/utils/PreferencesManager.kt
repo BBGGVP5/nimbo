@@ -102,6 +102,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_ROUTING_ENABLED = "routing_enabled"
         private const val KEY_ROUTING_PROFILE_JSON = "routing_profile_json"
         private const val KEY_ROUTING_BUILTIN_OVERRIDES_JSON = "routing_builtin_overrides_json"
+        private const val KEY_ROUTING_DELETED_BUILTIN_PROFILE_IDS_JSON = "routing_deleted_builtin_profile_ids"
         private const val KEY_ACTIVE_BUILTIN_ROUTING_PROFILE_ID = "active_builtin_routing_profile_id"
         private const val KEY_HARDWARE_ID = "hardware_id"
         private const val KEY_SHOW_VERSION_IN_HEADER = "show_version_in_header"
@@ -221,8 +222,6 @@ class PreferencesManager(context: Context) {
     val pingTimeoutState = mutableStateOf(sharedPreferences.getInt(KEY_PING_TIMEOUT, 3))
     val pingDisplayModeState = mutableStateOf(sharedPreferences.getInt(KEY_PING_DISPLAY_MODE, 0))
     val pingThroughProxyState = mutableStateOf(sharedPreferences.getBoolean(KEY_PING_THROUGH_PROXY, false))
-    val subscriptionUserAgentModeState = mutableStateOf(readSubscriptionUserAgentMode())
-    val customSubscriptionUserAgentState = mutableStateOf(readCustomSubscriptionUserAgent())
     val autoBypassByNetworkState = mutableStateOf(sharedPreferences.getBoolean(KEY_AUTO_BYPASS_BY_NETWORK, true))
     val allowServerSwitchWhileConnectedState = mutableStateOf(sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false))
     val connectButtonStyleState = mutableStateOf(sharedPreferences.getInt(KEY_CONNECT_BUTTON_STYLE, 0))
@@ -261,117 +260,42 @@ class PreferencesManager(context: Context) {
      */
     var hardwareId: String
         get() {
-            var id = sharedPreferences.getString(KEY_HARDWARE_ID, null)
-            if (id == null) {
-                id = java.util.UUID.randomUUID().toString().uppercase()
+            val stored = sharedPreferences.getString(KEY_HARDWARE_ID, null)
+            val id = stored?.let { runCatching { SubscriptionRequestIdentity.canonicalUuid(it) }.getOrNull() }
+                ?: java.util.UUID.randomUUID().toString()
+            if (stored != id) {
                 sharedPreferences.edit().putString(KEY_HARDWARE_ID, id).apply()
-                Log.d("PreferencesManager", "Generated new stable HWID: $id")
+                Log.d("PreferencesManager", "Normalized stable UUID HWID: $id")
             }
             return id
         }
-        set(value) = sharedPreferences.edit().putString(KEY_HARDWARE_ID, value).apply()
+        set(value) {
+            val normalized = SubscriptionRequestIdentity.canonicalUuid(value)
+            sharedPreferences.edit().putString(KEY_HARDWARE_ID, normalized).apply()
+        }
 
     val defaultSubscriptionUserAgent: String
-        get() = "Nimbo/${BuildConfig.VERSION_NAME}/Android"
-
-    val happSubscriptionUserAgent: String
-        get() = "Happ/${BuildConfig.VERSION_NAME}"
-
-    val incySubscriptionUserAgent: String
-        get() = "Incy/${BuildConfig.VERSION_NAME}"
-
-    private fun readSubscriptionUserAgentMode(): Int {
-        if (sharedPreferences.contains(KEY_SUBSCRIPTION_USER_AGENT_MODE)) {
-            return sharedPreferences.getInt(KEY_SUBSCRIPTION_USER_AGENT_MODE, 0).coerceIn(0, 3)
-        }
-        val legacy = sharedPreferences.getString(KEY_SUBSCRIPTION_USER_AGENT, null)
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?: return 0
-        return when {
-            legacy.equals(defaultSubscriptionUserAgent, ignoreCase = true) -> 0
-            legacy.contains("happ", ignoreCase = true) -> 1
-            legacy.contains("incy", ignoreCase = true) -> 2
-            else -> 3
-        }
-    }
-
-    private fun readCustomSubscriptionUserAgent(): String {
-        val stored = sharedPreferences.getString(KEY_SUBSCRIPTION_USER_AGENT_CUSTOM, null)
-            ?.trim()
-            .orEmpty()
-        if (stored.isNotBlank()) return stored
-
-        if (!sharedPreferences.contains(KEY_SUBSCRIPTION_USER_AGENT_MODE)) {
-            val legacy = sharedPreferences.getString(KEY_SUBSCRIPTION_USER_AGENT, null)
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-                .orEmpty()
-            if (legacy.isNotBlank() && readSubscriptionUserAgentMode() == 3) return legacy
-        }
-        return ""
-    }
-
-    var subscriptionUserAgentMode: Int
-        get() = readSubscriptionUserAgentMode()
-        set(value) {
-            val safe = value.coerceIn(0, 3)
-            sharedPreferences.edit()
-                .putInt(KEY_SUBSCRIPTION_USER_AGENT_MODE, safe)
-                .putString(KEY_SUBSCRIPTION_USER_AGENT, userAgentForMode(safe))
-                .apply()
-            subscriptionUserAgentModeState.value = safe
-        }
-
-    var customSubscriptionUserAgent: String
-        get() = readCustomSubscriptionUserAgent()
-        set(value) {
-            val normalized = value.trim()
-            sharedPreferences.edit()
-                .putString(KEY_SUBSCRIPTION_USER_AGENT_CUSTOM, normalized)
-                .putString(KEY_SUBSCRIPTION_USER_AGENT, userAgentForMode(subscriptionUserAgentMode, normalized))
-                .apply()
-            customSubscriptionUserAgentState.value = normalized
-        }
-
-    private fun userAgentForMode(mode: Int, customOverride: String? = null): String {
-        val custom = customOverride ?: customSubscriptionUserAgent
-        return when (mode.coerceIn(0, 3)) {
-            1 -> happSubscriptionUserAgent
-            2 -> incySubscriptionUserAgent
-            3 -> custom.trim().ifBlank { defaultSubscriptionUserAgent }
-            else -> defaultSubscriptionUserAgent
-        }
-    }
+        get() = SubscriptionRequestIdentity.userAgent(BuildConfig.VERSION_NAME)
 
     // User-Agent header sent when fetching subscription URLs.
     var subscriptionUserAgent: String
-        get() = userAgentForMode(subscriptionUserAgentMode)
-        set(value) {
-            val normalized = value.trim()
-            val nextMode = when {
-                normalized.isBlank() || normalized.equals(defaultSubscriptionUserAgent, ignoreCase = true) -> 0
-                normalized.equals(happSubscriptionUserAgent, ignoreCase = true) -> 1
-                normalized.equals(incySubscriptionUserAgent, ignoreCase = true) -> 2
-                normalized.contains("happ", ignoreCase = true) &&
-                    !normalized.contains("nimbo", ignoreCase = true) -> 1
-                normalized.contains("incy", ignoreCase = true) -> 2
-                else -> 3
-            }
-            if (nextMode == 3) {
+        get() {
+            val userAgent = defaultSubscriptionUserAgent
+            if (sharedPreferences.getString(KEY_SUBSCRIPTION_USER_AGENT, null) != userAgent ||
+                sharedPreferences.getInt(KEY_SUBSCRIPTION_USER_AGENT_MODE, 0) != 0 ||
+                sharedPreferences.contains(KEY_SUBSCRIPTION_USER_AGENT_CUSTOM)
+            ) {
                 sharedPreferences.edit()
-                    .putString(KEY_SUBSCRIPTION_USER_AGENT_CUSTOM, normalized)
-                    .putString(KEY_SUBSCRIPTION_USER_AGENT, normalized)
-                    .putInt(KEY_SUBSCRIPTION_USER_AGENT_MODE, nextMode)
-                    .apply()
-                customSubscriptionUserAgentState.value = normalized
-            } else {
-                sharedPreferences.edit()
-                    .putString(KEY_SUBSCRIPTION_USER_AGENT, userAgentForMode(nextMode))
-                    .putInt(KEY_SUBSCRIPTION_USER_AGENT_MODE, nextMode)
+                    .putString(KEY_SUBSCRIPTION_USER_AGENT, userAgent)
+                    .putInt(KEY_SUBSCRIPTION_USER_AGENT_MODE, 0)
+                    .remove(KEY_SUBSCRIPTION_USER_AGENT_CUSTOM)
                     .apply()
             }
-            subscriptionUserAgentModeState.value = nextMode
+            return userAgent
+        }
+        set(@Suppress("UNUSED_PARAMETER") value) {
+            // Kept for source compatibility: requests are intentionally always Nimbo.
+            subscriptionUserAgent
         }
 
     // Language tag for in-app locale override. Blank = system default.
@@ -383,27 +307,30 @@ class PreferencesManager(context: Context) {
     /** Built-in routing profiles with saved user edits overlaid on top of app defaults. */
     fun builtinRoutingProfiles(): List<RoutingProfile> =
         BuiltinRoutingProfiles.resolve(readBuiltinRoutingOverrides())
+            .filterNot { it.id in readDeletedBuiltinRoutingProfileIds() }
 
     /**
      * Returns the selected built-in profile. Older app versions saved only its name;
      * that legacy value is migrated lazily the first time it is read.
      */
     fun activeBuiltinRoutingProfileId(): String? {
+        val deletedIds = readDeletedBuiltinRoutingProfileIds()
         sharedPreferences.getString(KEY_ACTIVE_BUILTIN_ROUTING_PROFILE_ID, null)
             ?.trim()
-            ?.takeIf { BuiltinRoutingProfiles.byId(it) != null }
+            ?.takeIf { BuiltinRoutingProfiles.byId(it) != null && it !in deletedIds }
             ?.let { return it }
 
         val legacyId = routingProfileJson
             ?.let { json -> runCatching { gson.fromJson(json, RoutingProfile::class.java) }.getOrNull() }
             ?.let { profile -> BuiltinRoutingProfiles.idForLegacyName(profile.name) }
 
-        if (legacyId != null) {
+        if (legacyId != null && legacyId !in deletedIds) {
             sharedPreferences.edit()
                 .putString(KEY_ACTIVE_BUILTIN_ROUTING_PROFILE_ID, legacyId)
                 .apply()
+            return legacyId
         }
-        return legacyId
+        return null
     }
 
     fun activateBuiltinRoutingProfile(id: String): RoutingProfile {
@@ -451,6 +378,43 @@ class PreferencesManager(context: Context) {
         return default
     }
 
+    /**
+     * Hides a standard profile without losing its identifier. The deleted-id set is
+     * stored separately, so an app update cannot silently bring it back.
+     */
+    fun deleteBuiltinRoutingProfile(id: String): RoutingProfile? {
+        if (BuiltinRoutingProfiles.byId(id) == null) {
+            throw IllegalArgumentException("Unknown built-in routing profile: $id")
+        }
+        val deletedIds = readDeletedBuiltinRoutingProfileIds().toMutableSet().apply { add(id) }
+        val overrides = readBuiltinRoutingOverrides().toMutableMap().apply { remove(id) }
+        val wasActive = activeBuiltinRoutingProfileId() == id
+        val nextProfile = BuiltinRoutingProfiles.resolve(overrides)
+            .firstOrNull { it.id !in deletedIds }
+        val editor = sharedPreferences.edit()
+            .putString(KEY_ROUTING_DELETED_BUILTIN_PROFILE_IDS_JSON, gson.toJson(deletedIds))
+            .putString(KEY_ROUTING_BUILTIN_OVERRIDES_JSON, gson.toJson(overrides))
+        if (wasActive) {
+            if (nextProfile != null) {
+                editor.putString(KEY_ACTIVE_BUILTIN_ROUTING_PROFILE_ID, nextProfile.id)
+                editor.putString(KEY_ROUTING_PROFILE_JSON, gson.toJson(nextProfile))
+                editor.putBoolean(KEY_ROUTING_ENABLED, true)
+            } else {
+                editor.remove(KEY_ACTIVE_BUILTIN_ROUTING_PROFILE_ID)
+                editor.remove(KEY_ROUTING_PROFILE_JSON)
+                editor.putBoolean(KEY_ROUTING_ENABLED, false)
+            }
+        }
+        editor.apply()
+        return nextProfile
+    }
+
+    fun restoreDeletedBuiltinRoutingProfiles() {
+        sharedPreferences.edit().remove(KEY_ROUTING_DELETED_BUILTIN_PROFILE_IDS_JSON).apply()
+    }
+
+    fun hasDeletedBuiltinRoutingProfiles(): Boolean = readDeletedBuiltinRoutingProfileIds().isNotEmpty()
+
     fun saveImportedRoutingProfile(profile: RoutingProfile) {
         val imported = profile.copy(id = null, builtin = false)
         sharedPreferences.edit()
@@ -474,6 +438,15 @@ class PreferencesManager(context: Context) {
         return runCatching { gson.fromJson<Map<String, RoutingProfile>>(json, type) ?: emptyMap() }
             .getOrDefault(emptyMap())
             .filterKeys { BuiltinRoutingProfiles.byId(it) != null }
+    }
+
+    private fun readDeletedBuiltinRoutingProfileIds(): Set<String> {
+        val json = sharedPreferences.getString(KEY_ROUTING_DELETED_BUILTIN_PROFILE_IDS_JSON, null) ?: return emptySet()
+        val type = object : TypeToken<Set<String>>() {}.type
+        return runCatching { gson.fromJson<Set<String>>(json, type) ?: emptySet() }
+            .getOrDefault(emptySet())
+            .filter { BuiltinRoutingProfiles.byId(it) != null }
+            .toSet()
     }
 
     private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
@@ -513,8 +486,6 @@ class PreferencesManager(context: Context) {
             KEY_PING_TIMEOUT -> pingTimeoutState.value = prefs.getInt(KEY_PING_TIMEOUT, 3)
             KEY_PING_DISPLAY_MODE -> pingDisplayModeState.value = prefs.getInt(KEY_PING_DISPLAY_MODE, 0)
             KEY_PING_THROUGH_PROXY -> pingThroughProxyState.value = prefs.getBoolean(KEY_PING_THROUGH_PROXY, false)
-            KEY_SUBSCRIPTION_USER_AGENT_MODE -> subscriptionUserAgentModeState.value = prefs.getInt(KEY_SUBSCRIPTION_USER_AGENT_MODE, 0).coerceIn(0, 3)
-            KEY_SUBSCRIPTION_USER_AGENT_CUSTOM -> customSubscriptionUserAgentState.value = prefs.getString(KEY_SUBSCRIPTION_USER_AGENT_CUSTOM, "") ?: ""
             KEY_AUTO_BYPASS_BY_NETWORK -> autoBypassByNetworkState.value = true
             KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED -> allowServerSwitchWhileConnectedState.value = prefs.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false)
             KEY_CONNECT_BUTTON_STYLE -> connectButtonStyleState.value = prefs.getInt(KEY_CONNECT_BUTTON_STYLE, 0)
@@ -571,8 +542,7 @@ class PreferencesManager(context: Context) {
         pingTimeoutState.value = sharedPreferences.getInt(KEY_PING_TIMEOUT, 3)
         pingDisplayModeState.value = sharedPreferences.getInt(KEY_PING_DISPLAY_MODE, 0)
         pingThroughProxyState.value = sharedPreferences.getBoolean(KEY_PING_THROUGH_PROXY, false)
-        subscriptionUserAgentModeState.value = readSubscriptionUserAgentMode()
-        customSubscriptionUserAgentState.value = readCustomSubscriptionUserAgent()
+        subscriptionUserAgent // migrate older Happ, Incy, and custom settings to Nimbo
         autoBypassByNetworkState.value = sharedPreferences.getBoolean(KEY_AUTO_BYPASS_BY_NETWORK, true)
         allowServerSwitchWhileConnectedState.value = sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false)
         connectButtonStyleState.value = sharedPreferences.getInt(KEY_CONNECT_BUTTON_STYLE, 0)

@@ -13815,17 +13815,7 @@ private fun NimboConnectionIdScreen(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val context = LocalContext.current
-    val defaultUserAgent = remember { preferencesManager.defaultSubscriptionUserAgent }
-    val happUserAgent = remember { preferencesManager.happSubscriptionUserAgent }
-    val incyUserAgent = remember { preferencesManager.incySubscriptionUserAgent }
-    val userAgentMode by preferencesManager.subscriptionUserAgentModeState
-    val customUserAgent by preferencesManager.customSubscriptionUserAgentState
-    val effectiveUserAgent = when (userAgentMode) {
-        1 -> happUserAgent
-        2 -> incyUserAgent
-        3 -> customUserAgent.ifBlank { defaultUserAgent }
-        else -> defaultUserAgent
-    }
+    val subscriptionUserAgent = remember { preferencesManager.subscriptionUserAgent }
     val hwid = remember { preferencesManager.hardwareId }
     var copiedHint by remember { mutableStateOf(false) }
     LaunchedEffect(copiedHint) {
@@ -13886,66 +13876,29 @@ private fun NimboConnectionIdScreen(
         Spacer(Modifier.height(28.dp))
         SubPageSectionHeader(t("User-Agent для подписки", "Subscription User-Agent"), icon = Icons.Default.Public)
         Spacer(Modifier.height(10.dp))
-        Row(
+        GlassPanel(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            shape = RoundedCornerShape(18.dp),
+            borderColor = Color.White.copy(alpha = 0.12f)
         ) {
-            ThemeModeChip(t("Дефолт", "Default"), selected = userAgentMode == 0, modifier = Modifier.weight(1f)) {
-                preferencesManager.subscriptionUserAgentMode = 0
-            }
-            ThemeModeChip("Happ", selected = userAgentMode == 1, modifier = Modifier.weight(1f)) {
-                preferencesManager.subscriptionUserAgentMode = 1
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ThemeModeChip("Incy", selected = userAgentMode == 2, modifier = Modifier.weight(1f)) {
-                preferencesManager.subscriptionUserAgentMode = 2
-            }
-            ThemeModeChip(t("Свой", "Custom"), selected = userAgentMode == 3, modifier = Modifier.weight(1f)) {
-                preferencesManager.subscriptionUserAgentMode = 3
-            }
-        }
-        AnimatedVisibility(visible = userAgentMode == 3) {
-            Column {
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = customUserAgent,
-                    onValueChange = {
-                        preferencesManager.customSubscriptionUserAgent = it
-                        preferencesManager.subscriptionUserAgentMode = 3
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    placeholder = {
-                        Text(
-                            t("Например: Happ/1.0.0", "Example: Happ/1.0.0"),
-                            color = nebulaColors.textTertiary
-                        )
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = nebulaColors.accent,
-                        unfocusedBorderColor = nebulaColors.textSecondary.copy(alpha = 0.22f),
-                        focusedTextColor = nebulaColors.textPrimary,
-                        unfocusedTextColor = nebulaColors.textPrimary,
-                        cursorColor = nebulaColors.accent
-                    )
+            Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
+                Text(
+                    text = subscriptionUserAgent,
+                    color = nebulaColors.textPrimary,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = t(
+                        "Единый User-Agent для всех запросов подписки.",
+                        "One User-Agent for every subscription request."
+                    ),
+                    color = nebulaColors.textSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp)
                 )
             }
         }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = t(
-                "Сейчас отправляется: $effectiveUserAgent",
-                "Currently sent: $effectiveUserAgent"
-            ),
-            color = nebulaColors.textTertiary,
-            style = MaterialTheme.typography.bodyMedium
-        )
     }
 }
 

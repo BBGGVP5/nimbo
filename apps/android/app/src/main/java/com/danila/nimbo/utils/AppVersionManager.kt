@@ -2,7 +2,6 @@ package com.danila.nimbo.utils
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.provider.Settings
 
 /**
  * Менеджер для получения информации о версии приложения
@@ -15,24 +14,15 @@ object AppVersionManager {
      */
     fun getUserAgent(context: Context): String {
         val appVersion = getVersionName(context)
-        return "Nimbo/$appVersion/Android"
+        return SubscriptionRequestIdentity.userAgent(appVersion)
     }
 
     /**
      * Получение уникального идентификатора устройства (HWID)
      */
     fun getHWID(context: Context): String {
-        val androidId = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ANDROID_ID
-        )?.trim()
-
-        // ANDROID_ID стабилен для приложения и не сбрасывается при переустановке.
-        if (!androidId.isNullOrBlank() && androidId != "9774d56d682e549c") {
-            return androidId.lowercase()
-        }
-
-        // Fallback для редких устройств, где ANDROID_ID недоступен/некорректен.
+        // Response rules expect a UUID. ANDROID_ID is usually a 16-character hex
+        // string, so it cannot be used as x-hwid for those rules.
         return PreferencesManager(context).hardwareId
     }
 

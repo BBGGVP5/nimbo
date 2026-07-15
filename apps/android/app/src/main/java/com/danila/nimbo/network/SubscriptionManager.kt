@@ -3,13 +3,8 @@ package com.danila.nimbo.network
 import android.content.Context
 import android.net.Uri
 import android.util.Log
-import com.danila.nimbo.BuildConfig
 import com.danila.nimbo.NebulaGuardApplication
 import com.danila.nimbo.utils.AppVersionManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URLDecoder
@@ -59,11 +54,6 @@ object SubscriptionManager {
     )
 
     private const val DEFAULT_CACHE_TTL_MS = 45_000L
-    private const val PRIMARY_LOAD_BUDGET_MS = 30_000L
-    private const val MIN_REMAINING_ATTEMPT_MS = 2_000L
-    private const val ENRICHMENT_MAX_CANDIDATES = 3
-
-    private var userAgent: String = "Nimbo/${BuildConfig.VERSION_NAME}/Android"
     private var deviceId: String = ""
     private var appContext: Context? = null
     private val responseCache = ConcurrentHashMap<String, CachedSubscription>()
@@ -77,11 +67,8 @@ object SubscriptionManager {
                 val appVersion = AppVersionManager.getVersionName(NebulaGuardApplication.instance)
 
                 val prefs = appContext?.let { com.danila.nimbo.utils.PreferencesManager(it) }
-                val cleanUA = original.header("User-Agent")
-                    ?.takeIf { it.isNotBlank() }
-                    ?: prefs?.subscriptionUserAgent?.takeIf { it.isNotBlank() }
-                    ?: userAgent.takeIf { it.isNotBlank() }
-                    ?: AppVersionManager.getUserAgent(NebulaGuardApplication.instance)
+                // Subscription response rules must see exactly the Nimbo identity.
+                val cleanUA = AppVersionManager.getUserAgent(NebulaGuardApplication.instance)
 
                 val customName = prefs?.customDeviceName
                 val finalDeviceModel = if (!customName.isNullOrBlank()) customName else deviceModel
@@ -93,8 +80,6 @@ object SubscriptionManager {
                         .header("User-Agent", cleanUA)
                         .header("x-device-id", deviceId)
                         .header("x-hwid", deviceId)
-                        .header("X-HWID", deviceId)
-                        .header("HWID", deviceId)
                         .header("x-device-os", "Android")
                         .header("x-ver-os", osVersion)
                         .header("x-device-model", finalDeviceModel)
@@ -122,16 +107,8 @@ object SubscriptionManager {
      */
     fun init(context: Context) {
         appContext = context.applicationContext
-        userAgent = com.danila.nimbo.utils.PreferencesManager(context).subscriptionUserAgent
         deviceId = AppVersionManager.getHWID(context)
         Log.d("SubscriptionManager", "Initialized with deviceId: $deviceId")
-    }
-
-    /**
-     * Получение уникального ID устройства (HWID)
-     */
-    private fun getDeviceId(context: Context): String {
-        return AppVersionManager.getHWID(context)
     }
 
     fun load(url: String): SubscriptionInfo = load(url = url, forceRefresh = false)
@@ -195,39 +172,15 @@ object SubscriptionManager {
 
     private fun loadInternal(url: String): SubscriptionInfo {
         val attempts = subscriptionUserAgentAttempts()
-        val deadlineMs = System.currentTimeMillis() + PRIMARY_LOAD_BUDGET_MS
         var lastInfo: SubscriptionInfo? = null
         var lastError: Exception? = null
 
-        for ((index, attemptUserAgent) in attempts.withIndex()) {
-            if (System.currentTimeMillis() + MIN_REMAINING_ATTEMPT_MS >= deadlineMs) {
-                break
-            }
-
+        for (attemptUserAgent in attempts) {
             try {
                 val info = loadInternalOnce(url, attemptUserAgent)
                 if (info.hasLoadableSubscriptionContent()) {
-                    if (index > 0) {
-                        Log.w(
-                            "SubscriptionManager",
-                            "Loaded subscription after User-Agent fallback: ${attemptUserAgent.substringBefore(' ')}"
-                        )
-                    }
-                    val alternateResponses = loadAlternateClientResponses(
-                        url = url,
-                        baseInfo = info,
-                        currentUserAgent = attemptUserAgent
-                    )
-                    val mergedHysteria = mergeMissingHysteriaFromAlternateClients(
-                        baseInfo = info,
-                        alternateResponses = alternateResponses
-                    )
-                    val enriched = enrichNamesAndDescriptionsFromAlternateClients(
-                        baseInfo = mergedHysteria,
-                        alternateResponses = alternateResponses
-                    )
                     return mergeFallbackPool(
-                        baseInfo = enriched,
+                        baseInfo = info,
                         mainUrl = url,
                         requestUserAgent = attemptUserAgent
                     )
@@ -250,93 +203,18 @@ object SubscriptionManager {
         if (lastInfo != null) {
             throw IllegalStateException("Ответ подписки не содержит серверов или Xray JSON-конфиг")
         }
-        if (lastError != null && System.currentTimeMillis() >= deadlineMs) {
-            throw java.net.SocketTimeoutException("Таймаут обновления подписки")
-        }
         throw lastError ?: IllegalStateException("Ответ подписки не содержит серверов или Xray JSON-конфиг")
     }
 
     private fun subscriptionUserAgentAttempts(): List<String> {
         val context = appContext ?: NebulaGuardApplication.instance
-        val prefs = runCatching { com.danila.nimbo.utils.PreferencesManager(context) }.getOrNull()
-        val version = AppVersionManager.getVersionName(context)
-        val nimboUserAgent = AppVersionManager.getUserAgent(context)
-        return listOfNotNull(
-            nimboUserAgent,
-            prefs?.subscriptionUserAgent,
-            userAgent.takeIf { it.isNotBlank() },
-            "Happ/$version",
-            "Happ/Nimbo/$version/Android",
-            "Incy/$version",
-            "SFA/1.8.0 (Sing-box for Android)",
-            AppVersionManager.getUserAgent(context)
-        )
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinctBy { it.lowercase() }
+        return listOf(AppVersionManager.getUserAgent(context))
     }
 
     private fun SubscriptionInfo.hasLoadableSubscriptionContent(): Boolean {
         return servers.any { isProtocolLink(it) } ||
             !rawConfig.isNullOrBlank() ||
             supportsJsonResponse == true
-    }
-
-    /**
-     * Дополнительные форматы подписки независимы друг от друга, поэтому загружаем
-     * короткий приоритетный набор параллельно. Один и тот же ответ затем используется
-     * и для поиска Hysteria, и для обогащения имён/описаний.
-     */
-    private fun loadAlternateClientResponses(
-        url: String,
-        baseInfo: SubscriptionInfo,
-        currentUserAgent: String
-    ): List<Pair<String, SubscriptionInfo>> {
-        val protocolLinks = baseInfo.servers.filter { isProtocolLink(it) }
-        val needsHysteria = protocolLinks.none { isHysteriaProtocolLink(it) }
-        val needsMetadata = protocolLinks.any { shareLinkNameNeedsImprovement(it) } ||
-            (protocolLinks.isNotEmpty() && protocolLinks.none { !linkServerDescription(it).isNullOrBlank() })
-        if (!needsHysteria && !needsMetadata) return emptyList()
-
-        val context = appContext ?: NebulaGuardApplication.instance
-        val version = AppVersionManager.getVersionName(context)
-        val candidates = buildList {
-            if (needsHysteria) {
-                add("Incy/$version")
-                add("Happ/$version")
-                add("SFA/1.8.0 (Sing-box for Android)")
-                add("NekoBoxForAndroid/1.3.0")
-                add("sing-box/1.10.0")
-            }
-            if (needsMetadata) {
-                add("Happ/$version")
-                add("Happ")
-                add("Happ/Nimbo/$version/Android")
-                add("Incy/$version")
-            }
-        }
-            .map { it.trim() }
-            .filter { it.isNotBlank() && !it.equals(currentUserAgent, ignoreCase = true) }
-            .distinctBy { it.lowercase() }
-            .take(ENRICHMENT_MAX_CANDIDATES)
-
-        if (candidates.isEmpty()) return emptyList()
-
-        return runBlocking {
-            candidates.map { userAgent ->
-                async(Dispatchers.IO) {
-                    val result = runCatching { loadInternalOnce(url, userAgent, bestEffort = true) }
-                        .onFailure {
-                            Log.d(
-                                "SubscriptionManager",
-                                "No enrichment response from ${userAgent.substringBefore(' ')}: ${it.message}"
-                            )
-                        }
-                        .getOrNull()
-                    result?.let { userAgent to it }
-                }
-            }.awaitAll().filterNotNull()
-        }
     }
 
     private fun isSingBoxClientConfig(json: JSONObject): Boolean {
@@ -796,13 +674,14 @@ object SubscriptionManager {
             } catch (_: Exception) { }
         }
 
-        // 1. Проверяем, не является ли это сразу JSON-конфигом
-        if (trimmedBody.startsWith("{") && trimmedBody.endsWith("}")) {
+        fun clientConfigInfo(configBody: String): SubscriptionInfo? {
+            val normalizedConfig = configBody.trim()
+            if (!normalizedConfig.startsWith("{") || !normalizedConfig.endsWith("}")) return null
             try {
-                val json = JSONObject(trimmedBody)
+                val json = JSONObject(normalizedConfig)
                 val isXrayClientConfig = RemnawaveApiClient.isUsableXrayClientConfig(json)
                 val isSingBoxClientConfig = isSingBoxClientConfig(json)
-                val detectedProxyProtocol = detectPrimaryProxyProtocolFromJsonConfig(trimmedBody)
+                val detectedProxyProtocol = detectPrimaryProxyProtocolFromJsonConfig(normalizedConfig)
                 if (isXrayClientConfig || isSingBoxClientConfig || !detectedProxyProtocol.isNullOrBlank()) {
                     val hasXrayProtocolKeys = listOfNotNull(json.optJSONArray("outbounds"), json.optJSONArray("inbounds"))
                         .any { array ->
@@ -821,7 +700,7 @@ object SubscriptionManager {
                     } else {
                         "xray"
                     }
-                    val clientConfigServers = parseServerLinksFromClientJsonConfig(trimmedBody)
+                    val clientConfigServers = parseServerLinksFromClientJsonConfig(normalizedConfig)
                     if (clientConfigServers.isNotEmpty()) {
                         Log.d(
                             "SubscriptionManager",
@@ -830,7 +709,7 @@ object SubscriptionManager {
                     }
                     val resolvedInfo = SubscriptionInfo(
                         servers = clientConfigServers,
-                        rawConfig = trimmedBody,
+                        rawConfig = normalizedConfig,
                         configType = type,
                         supportsJsonResponse = true,
                         uploadTotal = uploadTotal,
@@ -857,25 +736,27 @@ object SubscriptionManager {
                         announce = resolveAnnounceTemplate(resolvedInfo, url)
                     )
                 }
-            } catch (e: Exception) { }
+            } catch (_: Exception) { }
+            return null
         }
+
+        // 1. Проверяем, не является ли это сразу JSON-конфигом.
+        clientConfigInfo(trimmedBody)?.let { return it }
 
         val serversFromApiJson = parseServerLinksFromApiJson(trimmedBody)
         if (serversFromApiJson != null) {
             Log.d("SubscriptionManager", "Parsed ${serversFromApiJson.size} server links from JSON API payload")
         }
 
-        // 2. Декодируем как Base64 (если это не JSON-массив серверов)
+        // 2. Декодируем как Base64 (если это не JSON-массив серверов).
+        // XRAY_BASE64 returns a base64-encoded JSON config, not just a list of links.
         val decoded = if (serversFromApiJson == null) {
-            try {
-                val decodedBytes = Base64.getDecoder().decode(trimmedBody)
-                String(decodedBytes, Charsets.UTF_8)
-            } catch (e: Exception) {
-                body
-            }
+            decodeSubscriptionBase64(trimmedBody) ?: body
         } else {
             ""
         }
+
+        clientConfigInfo(decoded)?.let { return it }
 
         val structuredTextServers = if (serversFromApiJson == null) {
             parseServerLinksFromSubscriptionText(decoded)
@@ -917,6 +798,16 @@ object SubscriptionManager {
         return baselineInfo.copy(
             announce = resolveAnnounceTemplate(baselineInfo, url)
         )
+    }
+
+    internal fun decodeSubscriptionBase64(value: String): String? {
+        val encoded = value.trim()
+        if (encoded.isBlank()) return null
+        val decodedBytes = runCatching { Base64.getDecoder().decode(encoded) }
+            .recoverCatching { Base64.getUrlDecoder().decode(encoded) }
+            .getOrNull()
+            ?: return null
+        return String(decodedBytes, Charsets.UTF_8)
     }
 
     private fun extractUsernameFromUrl(url: String): String? {
