@@ -9,7 +9,8 @@
     "tauri": "tauri",
     "build:custom": "powershell -NoProfile -ExecutionPolicy Bypass -File build-custom-installer.ps1",
     "build:custom:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File build-custom-installer.ps1",
-    "build:custom:linux": "bash ./build-custom-linux-installer.sh"
+    "build:custom:linux": "bash ./build-custom-linux-installer.sh",
+    "build:release:linux": "bash ./build-linux-release.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

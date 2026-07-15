@@ -55,8 +55,16 @@ jobs:
           if-no-files-found: error
 
   linux:
-    name: Linux packages
-    runs-on: ubuntu-22.04
+    name: Linux (${{ matrix.architecture }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: ubuntu-22.04
+          - architecture: arm64
+            runner: ubuntu-22.04-arm
 
     steps:
       - name: Получить исходники
@@ -84,22 +92,23 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/ui/package-lock.json
+          cache-dependency-path: |
+            apps/ui/package-lock.json
+            apps/installer/package-lock.json
 
-      - name: Собрать AppImage, DEB и RPM
-        working-directory: apps/ui
-        run: |
-          npm ci
-          npm run build:linux
+      - name: Собрать все Linux-артефакты
+        working-directory: apps/installer
+        run: npm run build:release:linux
 
-      - name: Сохранить Linux-пакеты
+      - name: Сохранить Linux-артефакты
         uses: actions/upload-artifact@v4
         with:
-          name: nimbo-linux
+          name: nimbo-linux-${{ matrix.architecture }}
           path: |
             target/release/bundle/appimage/*.AppImage
             target/release/bundle/deb/*.deb
             target/release/bundle/rpm/*.rpm
+            target/release/bundle/custom/linux/NimboSetup_*
           if-no-files-found: error
 
   publish:
@@ -114,11 +123,12 @@ jobs:
           name: nimbo-windows
           path: release-assets/windows
 
-      - name: Скачать Linux-пакеты
+      - name: Скачать Linux-артефакты
         uses: actions/download-artifact@v4
         with:
-          name: nimbo-linux
+          pattern: nimbo-linux-*
           path: release-assets/linux
+          merge-multiple: true
 
       - name: Опубликовать файлы
         env:
