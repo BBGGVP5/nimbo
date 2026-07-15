@@ -170,7 +170,14 @@ val renameBuiltApks by tasks.registering {
             // AGP может оставлять рядом служебные/устаревшие *.apk. Их нельзя
             // подхватывать по маске: небольшой split способен перезаписать
             // полноценный universal APK. Берём только известные финальные имена.
-            val finalOutputs = linkedMapOf(
+            // Неподписанный release получает суффикс -unsigned от AGP. Оба
+            // варианта должны иметь читаемое имя Nimbo, но unsigned нельзя
+            // маскировать под готовый к распространению подписанный APK.
+            val finalOutputs = listOf(
+                "app-universal-$buildType-unsigned.apk" to "universal",
+                "app-arm64-v8a-$buildType-unsigned.apk" to "arm64_v8a",
+                "app-armeabi-v7a-$buildType-unsigned.apk" to "armeabi_v7a",
+                "app-$buildType-unsigned.apk" to "universal",
                 "app-universal-$buildType.apk" to "universal",
                 "app-arm64-v8a-$buildType.apk" to "arm64_v8a",
                 "app-armeabi-v7a-$buildType.apk" to "armeabi_v7a",
@@ -181,7 +188,8 @@ val renameBuiltApks by tasks.registering {
             finalOutputs.forEach { (sourceName, abi) ->
                 val source = outputDir.resolve(sourceName)
                 if (!source.isFile) return@forEach
-                val target = outputDir.resolve("Nimbo_v${version}_${abi}_$buildType.apk")
+                val unsignedSuffix = if (sourceName.endsWith("-unsigned.apk")) "_unsigned" else ""
+                val target = outputDir.resolve("Nimbo_v${version}_${abi}_${buildType}${unsignedSuffix}.apk")
                 if (source.absolutePath != target.absolutePath) {
                     source.copyTo(target, overwrite = true)
                 }
@@ -192,11 +200,16 @@ val renameBuiltApks by tasks.registering {
 
 tasks.configureEach {
     val taskName = name.lowercase()
-    // Only on assemble* — NOT package*, so installDebug / IDE "Run" still find app-debug.apk.
-    val buildsApk = taskName.startsWith("assemble")
-    val isDebugOrRelease = taskName.endsWith("debug") || taskName.endsWith("release")
+    // Для обычного Run/InstallDebug штатное app-debug.apk сохраняем без изменений.
+    // Мастер Android Studio «Generate Signed APK» запускает packageRelease,
+    // минуя assembleRelease, поэтому release-пакет также должен финализировать
+    // переименование результата.
+    val buildsApk = taskName.startsWith("assemble") &&
+        (taskName.endsWith("debug") || taskName.endsWith("release"))
+    val packagesReleaseApk = taskName == "packagerelease" ||
+        taskName == "packagereleaseuniversalapk"
 
-    if (buildsApk && isDebugOrRelease) {
+    if (buildsApk || packagesReleaseApk) {
         finalizedBy(renameBuiltApks)
     }
 }
