@@ -14,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -26,6 +27,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.danila.nimbo.model.Server
 import com.danila.nimbo.network.SubscriptionManager
 import com.danila.nimbo.service.SubscriptionUpdateScheduler
+import com.danila.nimbo.ui.LocalPreferencesManager
 import com.danila.nimbo.ui.screens.MainScreen
 import com.danila.nimbo.ui.theme.DEFAULT_COLOR_THEME_INDEX
 import com.danila.nimbo.ui.theme.NebulaGuardTheme
@@ -146,57 +148,59 @@ class MainActivity : ComponentActivity() {
                 else -> if (systemDark) baseThemeIndex else baseThemeIndex + 9
             }
 
-            NebulaGuardTheme(
-                themeIndex = effectiveThemeIndex,
-                isCustomAccent = isCustomAccent,
-                customAccentColor = customAccentColor,
-                gradientEffectsEnabled = gradientEffectsEnabled,
-                customGradientColor1 = customGradientColor1,
-                customGradientColor2 = customGradientColor2,
-                customGradientColor3 = customGradientColor3,
-                customGradientCount = customGradientCount,
-                useDynamicColor = useDynamicColor,
-                backgroundStyle = backgroundStyle,
-                elementStyle = elementStyle,
-                backgroundAnimationEnabled = backgroundAnimationEnabled,
-                highContrastUi = highContrastUi,
-                reducedTransparency = reducedTransparency,
-                pureBlackMode = pureBlackMode,
-                textScale = textScale,
-                globalBrightness = globalBrightness,
-                globalTransparency = globalTransparency,
-                globalBlur = globalBlur,
-                globalCorners = globalCorners
-            ) {
-                val viewModel: MainViewModel = viewModel()
-                val profiles by viewModel.profilesState.collectAsState()
+            CompositionLocalProvider(LocalPreferencesManager provides preferencesManager) {
+                NebulaGuardTheme(
+                    themeIndex = effectiveThemeIndex,
+                    isCustomAccent = isCustomAccent,
+                    customAccentColor = customAccentColor,
+                    gradientEffectsEnabled = gradientEffectsEnabled,
+                    customGradientColor1 = customGradientColor1,
+                    customGradientColor2 = customGradientColor2,
+                    customGradientColor3 = customGradientColor3,
+                    customGradientCount = customGradientCount,
+                    useDynamicColor = useDynamicColor,
+                    backgroundStyle = backgroundStyle,
+                    elementStyle = elementStyle,
+                    backgroundAnimationEnabled = backgroundAnimationEnabled,
+                    highContrastUi = highContrastUi,
+                    reducedTransparency = reducedTransparency,
+                    pureBlackMode = pureBlackMode,
+                    textScale = textScale,
+                    globalBrightness = globalBrightness,
+                    globalTransparency = globalTransparency,
+                    globalBlur = globalBlur,
+                    globalCorners = globalCorners
+                ) {
+                    val viewModel: MainViewModel = viewModel()
+                    val profiles by viewModel.profilesState.collectAsState()
 
-                LaunchedEffect(pendingSubscriptionUrl, profiles.size) {
-                    pendingSubscriptionUrl?.let { url ->
-                        pendingSubscriptionUrl = null
-                        viewModel.addSubscription(url)
+                    LaunchedEffect(pendingSubscriptionUrl, profiles.size) {
+                        pendingSubscriptionUrl?.let { url ->
+                            pendingSubscriptionUrl = null
+                            viewModel.addSubscription(url)
+                        }
                     }
-                }
 
-                LaunchedEffect(pendingPingTrigger) {
-                    if (pendingPingTrigger > 0) viewModel.pingAllServers()
-                }
+                    LaunchedEffect(pendingPingTrigger) {
+                        if (pendingPingTrigger > 0) viewModel.pingAllServers()
+                    }
 
-                MainScreen(
-                    initialScreen = intent.getStringExtra("OPEN_SCREEN"),
-                    onConnect = ::connectWithPermission,
-                    onDisconnect = ::disconnectVpn,
-                    onSubscriptionAdded = { url ->
-                        viewModel.addSubscription(url)
-                    },
-                    onProfileDeleted = { url ->
-                        viewModel.removeSubscription(url)
-                    },
-                    onProfileRefresh = { url ->
-                        viewModel.refreshSubscription(url)
-                    },
-                    viewModel = viewModel
-                )
+                    MainScreen(
+                        initialScreen = intent.getStringExtra("OPEN_SCREEN"),
+                        onConnect = ::connectWithPermission,
+                        onDisconnect = ::disconnectVpn,
+                        onSubscriptionAdded = { url ->
+                            viewModel.addSubscription(url)
+                        },
+                        onProfileDeleted = { url ->
+                            viewModel.removeSubscription(url)
+                        },
+                        onProfileRefresh = { url ->
+                            viewModel.refreshSubscription(url)
+                        },
+                        viewModel = viewModel
+                    )
+                }
             }
         }
     }

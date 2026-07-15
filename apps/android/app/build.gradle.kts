@@ -164,30 +164,27 @@ val renameBuiltApks by tasks.registering {
         val version = android.defaultConfig.versionName ?: "1.0.0"
 
         listOf("debug", "release").forEach { buildType ->
-            val candidateDirs = listOf(
-                project.layout.buildDirectory.dir("outputs/apk/$buildType").get().asFile,
-                project.file(buildType)
+            val outputDir = project.layout.buildDirectory.dir("outputs/apk/$buildType").get().asFile
+            if (!outputDir.exists()) return@forEach
+
+            // AGP может оставлять рядом служебные/устаревшие *.apk. Их нельзя
+            // подхватывать по маске: небольшой split способен перезаписать
+            // полноценный universal APK. Берём только известные финальные имена.
+            val finalOutputs = linkedMapOf(
+                "app-universal-$buildType.apk" to "universal",
+                "app-arm64-v8a-$buildType.apk" to "arm64_v8a",
+                "app-armeabi-v7a-$buildType.apk" to "armeabi_v7a",
+                // Проекты без ABI-splits используют это имя для одного universal APK.
+                "app-$buildType.apk" to "universal"
             )
 
-            candidateDirs.filter { it.exists() }.forEach { outputDir ->
-                outputDir.listFiles { file -> file.isFile && file.extension.equals("apk", ignoreCase = true) }
-                    ?.forEach { apk ->
-                        val name = apk.name.lowercase()
-                        val abi = when {
-                            "arm64-v8a" in name || "arm64_v8a" in name -> "arm64_v8a"
-                            "armeabi-v7a" in name || "armeabi_v7a" in name -> "armeabi_v7a"
-                            "universal" in name -> "universal"
-                            name == "app-$buildType.apk" -> "universal"
-                            else -> null
-                        } ?: return@forEach
-
-                        val target = outputDir.resolve("Nimbo_v${version}_${abi}_$buildType.apk")
-                        if (apk.absolutePath != target.absolutePath) {
-                            apk.copyTo(target, overwrite = true)
-                            // Drop the default-named (app-*) APK so only the Nimbo_* files remain.
-                            apk.delete()
-                        }
-                    }
+            finalOutputs.forEach { (sourceName, abi) ->
+                val source = outputDir.resolve(sourceName)
+                if (!source.isFile) return@forEach
+                val target = outputDir.resolve("Nimbo_v${version}_${abi}_$buildType.apk")
+                if (source.absolutePath != target.absolutePath) {
+                    source.copyTo(target, overwrite = true)
+                }
             }
         }
     }

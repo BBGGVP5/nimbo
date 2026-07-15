@@ -282,6 +282,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.graphics.BlendMode
 import com.danila.nimbo.utils.PreferencesManager
+import com.danila.nimbo.ui.LocalPreferencesManager
 import com.danila.nimbo.utils.Logger
 import com.danila.nimbo.utils.formatBytes
 import com.danila.nimbo.vpn.VpnManager
@@ -356,7 +357,9 @@ fun NimboMiniApp(
     initialScreen: String?
 ) {
     val context = LocalContext.current
-    val preferencesManager = remember { PreferencesManager(context) }
+    // Должен быть тем же экземпляром, что и в MainActivity: так изменение
+    // палитры/фона публикуется в NebulaGuardTheme в тот же кадр.
+    val preferencesManager = LocalPreferencesManager.current
     val profilesMetadata by mainViewModel.profilesMetadataState.collectAsState()
 
     var destination by rememberSaveable {

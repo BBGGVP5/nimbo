@@ -40,12 +40,12 @@ import com.danila.nimbo.ui.components.GlassSection
 import com.danila.nimbo.ui.components.jellyScrollAnimation
 import com.danila.nimbo.ui.components.dotPatternOverlay
 import com.danila.nimbo.ui.theme.*
-import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.utils.AppIconManager
 import com.danila.nimbo.R
 import androidx.compose.ui.text.style.TextOverflow
 import com.danila.nimbo.ui.components.SubscriptionBrandLogo
 import com.danila.nimbo.ui.theme.LocalGlobalCornerRadius
+import com.danila.nimbo.ui.LocalPreferencesManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,9 +53,8 @@ fun AppearanceSettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToAppIconSettings: () -> Unit
 ) {
-    val context = LocalContext.current
     val nebulaColors = LocalNebulaColors.current
-    val preferencesManager = remember { PreferencesManager(context) }
+    val preferencesManager = LocalPreferencesManager.current
     val activeProfile = remember {
         val profiles = preferencesManager.loadProfiles()
         val lastUrl = preferencesManager.loadLastSelectedProfileUrl()
