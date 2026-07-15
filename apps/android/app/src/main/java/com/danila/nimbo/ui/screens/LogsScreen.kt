@@ -135,9 +135,11 @@ fun LogsScreen(onNavigateBack: () -> Unit) {
         (levelFilter == null || e.level == levelFilter) &&
             (q.isBlank() || e.message.lowercase().contains(q) || e.tag.lowercase().contains(q))
     }
-    val infoCount = source.count { it.level == LogLevel.INFO }
-    val warnCount = source.count { it.level == LogLevel.WARNING }
-    val errorCount = source.count { it.level == LogLevel.ERROR }
+    // Бейджи должны описывать текущий список на экране. Раньше они считались
+    // от полного журнала и могли показывать, например, INFO 12 при «Показано 0».
+    val visibleInfoCount = filtered.count { it.level == LogLevel.INFO }
+    val visibleWarnCount = filtered.count { it.level == LogLevel.WARNING }
+    val visibleErrorCount = filtered.count { it.level == LogLevel.ERROR }
 
     LaunchedEffect(filtered.size, autoScroll, paused) {
         if (autoScroll && !paused && filtered.isNotEmpty()) {
@@ -191,9 +193,9 @@ fun LogsScreen(onNavigateBack: () -> Unit) {
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(Modifier.weight(1f))
-            if (infoCount > 0) LogLevelCountBadge("INFO", infoCount, logLevelColor(LogLevel.INFO))
-            if (warnCount > 0) LogLevelCountBadge("WARN", warnCount, logLevelColor(LogLevel.WARNING))
-            if (errorCount > 0) LogLevelCountBadge("ERR", errorCount, logLevelColor(LogLevel.ERROR))
+            if (visibleInfoCount > 0) LogLevelCountBadge("INFO", visibleInfoCount, logLevelColor(LogLevel.INFO))
+            if (visibleWarnCount > 0) LogLevelCountBadge("WARN", visibleWarnCount, logLevelColor(LogLevel.WARNING))
+            if (visibleErrorCount > 0) LogLevelCountBadge("ERR", visibleErrorCount, logLevelColor(LogLevel.ERROR))
         }
 
         if (source.isEmpty()) {
