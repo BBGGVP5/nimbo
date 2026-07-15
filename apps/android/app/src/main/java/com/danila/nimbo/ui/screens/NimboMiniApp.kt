@@ -6139,11 +6139,7 @@ private fun ColumnScope.ConnectionsSettingsSection(
     val sessionDown = VpnManager.totalBytesDownloaded.value
 
     val routingEnabled = preferencesManager.isRoutingEnabled
-    val routingProfile = remember(refreshKey) {
-        preferencesManager.routingProfileJson
-            ?.takeIf { it.isNotBlank() }
-            ?.let { runCatching { com.google.gson.Gson().fromJson(it, com.danila.nimbo.model.RoutingProfile::class.java) }.getOrNull() }
-    }
+    val routingProfile = remember(refreshKey) { preferencesManager.loadRoutingProfile() }
     val activeProfileName = when {
         routingEnabled && !routingProfile?.name.isNullOrBlank() -> routingProfile!!.name!!
         routingEnabled -> t("Маршрутизация", "Routing")

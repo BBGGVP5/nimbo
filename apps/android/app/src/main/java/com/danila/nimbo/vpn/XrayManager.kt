@@ -9,6 +9,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.danila.nimbo.BuildConfig
 import com.danila.nimbo.NebulaGuardApplication
+import com.danila.nimbo.model.RoutingProfile
 import com.danila.nimbo.model.Server
 import com.danila.nimbo.network.RemnawaveApiClient
 import com.danila.nimbo.utils.PreferencesManager
@@ -748,6 +749,8 @@ object XrayManager {
     }
 
     private fun generateXrayConfig(server: Server): String {
+        val prefs = PreferencesManager(NebulaGuardApplication.instance)
+        val routingProfile = activeRoutingProfile(prefs)
         val protocol = canonicalXrayOutboundProtocol(server.protocol)
 
         val outbound = JSONObject().apply {
@@ -760,7 +763,7 @@ object XrayManager {
 
         val root = JSONObject().apply {
             put("log", JSONObject().put("loglevel", "warning"))
-            put("dns", JSONObject().put("servers", JSONArray().put("1.1.1.1").put("8.8.8.8")))
+            put("dns", JSONObject().put("servers", buildGeneratedDnsServers(routingProfile)))
             put("inbounds", JSONArray().put(buildTunInbound()))
             put("outbounds", JSONArray().apply {
                 put(outbound)
@@ -773,8 +776,8 @@ object XrayManager {
                 put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
             })
             put("routing", JSONObject().apply {
-                put("domainStrategy", "IPIfNonMatch")
-                put("rules", buildGeneratedRoutingRules())
+                put("domainStrategy", routingProfile?.domainStrategy?.takeIf { it.isNotBlank() } ?: "IPIfNonMatch")
+                put("rules", buildGeneratedRoutingRules(routingProfile))
             })
         }
 
@@ -798,9 +801,18 @@ object XrayManager {
 
     private fun applyGeneratedNetworkPreferences(json: JSONObject) {
         val prefs = PreferencesManager(NebulaGuardApplication.instance)
-        val routing = json.optJSONObject("routing") ?: return
-        val rules = routing.optJSONArray("rules") ?: return
+        val routingProfile = activeRoutingProfile(prefs)
+        val routing = json.optJSONObject("routing") ?: JSONObject().also { json.put("routing", it) }
+        val rules = routing.optJSONArray("rules") ?: JSONArray()
         val updated = JSONArray()
+
+        routingProfile?.let { profile ->
+            routing.put("domainStrategy", profile.domainStrategy?.takeIf { it.isNotBlank() } ?: "IPIfNonMatch")
+            val profileRules = RoutingProfileRules.build(profile, includeFallback = false)
+            for (i in 0 until profileRules.length()) {
+                updated.put(profileRules.getJSONObject(i))
+            }
+        }
 
         if (prefs.blockUdp) {
             updated.put(
@@ -826,7 +838,7 @@ object XrayManager {
         defaultLevel.put("connIdle", prefs.idleTimeoutSeconds)
     }
 
-    private fun buildGeneratedRoutingRules(): JSONArray {
+    private fun buildGeneratedRoutingRules(routingProfile: RoutingProfile?): JSONArray {
         val prefs = PreferencesManager(NebulaGuardApplication.instance)
         val dnsMode = prefs.vpnDnsMode.lowercase()
         return JSONArray().apply {
@@ -859,7 +871,7 @@ object XrayManager {
                     put("outboundTag", "direct")
                 }
             )
-            if (prefs.allowLanConnections && !prefs.lanThroughProxy) {
+            if (routingProfile == null && prefs.allowLanConnections && !prefs.lanThroughProxy) {
                 put(
                     JSONObject().apply {
                         put("type", "field")
@@ -869,38 +881,59 @@ object XrayManager {
                     }
                 )
             }
-            put(
-                JSONObject().apply {
-                    put("type", "field")
-                    put("inboundTag", JSONArray().put("tun-in"))
-                    put("ip", JSONArray().put("geoip:ru"))
-                    put("outboundTag", "direct")
-                }
-            )
-            put(
-                JSONObject().apply {
-                    put("type", "field")
-                    put("inboundTag", JSONArray().put("tun-in"))
-                    put(
-                        "domain",
-                        JSONArray()
-                            .put("2ip.io")
-                            .put("2ip.ru")
-                            .put("regexp:.*\\.ru$")
-                            .put("regexp:.*\\.xn--p1ai$")
-                            .put("regexp:.*\\.su$")
-                    )
-                    put("outboundTag", "direct")
-                }
-            )
-            put(
-                JSONObject().apply {
-                    put("type", "field")
-                    put("inboundTag", JSONArray().put("tun-in"))
-                    put("outboundTag", "proxy")
-                }
-            )
+            if (routingProfile != null) {
+                val profileRules = RoutingProfileRules.build(routingProfile, includeFallback = true)
+                for (i in 0 until profileRules.length()) put(profileRules.getJSONObject(i))
+            } else {
+                put(
+                    JSONObject().apply {
+                        put("type", "field")
+                        put("inboundTag", JSONArray().put("tun-in"))
+                        put("ip", JSONArray().put("geoip:ru"))
+                        put("outboundTag", "direct")
+                    }
+                )
+                put(
+                    JSONObject().apply {
+                        put("type", "field")
+                        put("inboundTag", JSONArray().put("tun-in"))
+                        put(
+                            "domain",
+                            JSONArray()
+                                .put("2ip.io")
+                                .put("2ip.ru")
+                                .put("regexp:.*\\.ru$")
+                                .put("regexp:.*\\.xn--p1ai$")
+                                .put("regexp:.*\\.su$")
+                        )
+                        put("outboundTag", "direct")
+                    }
+                )
+                put(
+                    JSONObject().apply {
+                        put("type", "field")
+                        put("inboundTag", JSONArray().put("tun-in"))
+                        put("outboundTag", "proxy")
+                    }
+                )
+            }
         }
+    }
+
+    private fun activeRoutingProfile(prefs: PreferencesManager): RoutingProfile? =
+        prefs.loadRoutingProfile().takeIf { prefs.isRoutingEnabled }
+
+    private fun buildGeneratedDnsServers(profile: RoutingProfile?): JSONArray {
+        val servers = linkedSetOf<String>()
+        listOf(
+            profile?.remoteDNSDomain,
+            profile?.remoteDNSIP,
+            profile?.domesticDNSDomain,
+            profile?.domesticDNSIP
+        ).mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
+            .forEach(servers::add)
+        if (servers.isEmpty()) servers += listOf("1.1.1.1", "8.8.8.8")
+        return JSONArray(servers.toList())
     }
 
     private fun canonicalXrayOutboundProtocol(protocolRaw: String): String {

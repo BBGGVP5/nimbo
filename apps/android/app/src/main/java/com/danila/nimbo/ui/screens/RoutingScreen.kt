@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lan
@@ -38,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +57,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.danila.nimbo.model.BuiltinRoutingProfiles
 import com.danila.nimbo.model.RoutingProfile
 import com.danila.nimbo.ui.components.NebulaMorphicDialog
 import com.danila.nimbo.ui.i18n.formatEnglishCount
@@ -65,33 +68,28 @@ import com.danila.nimbo.utils.PreferencesManager
 import com.google.gson.Gson
 
 private data class RoutingPreset(
+    val id: String,
     val nameRu: String,
     val nameEn: String,
     val descriptionRu: String,
     val descriptionEn: String,
     val mode: String,
-    val ruleCount: Int,
     val domainStrategy: String,
     val icon: ImageVector
-) {
-    fun toProfile(): RoutingProfile = RoutingProfile(
-        name = nameRu,
-        domainStrategy = domainStrategy
-    )
-}
+)
 
 private val builtinRoutingPresets = listOf(
-    RoutingPreset("Глобальный", "Global", "Весь трафик через VPN", "Route all traffic through VPN", "block-proxy-direct", 1, "AsIs", Icons.Default.Public),
-    RoutingPreset("Обход LAN", "Bypass LAN", "Локальные адреса идут напрямую", "Send local addresses directly", "block-proxy-direct", 8, "AsIs", Icons.Default.Lan),
-    RoutingPreset("Китай", "China", "Китайские сайты идут напрямую", "Send Chinese resources directly", "block-proxy-direct", 9, "IPIfNonMatch", Icons.Default.Language),
-    RoutingPreset("Россия", "Russia", "Российские ресурсы идут напрямую", "Send Russian resources directly", "block-proxy-direct", 33, "IPIfNonMatch", Icons.Default.Route),
+    RoutingPreset(BuiltinRoutingProfiles.GLOBAL, "Глобальный", "Global", "Весь трафик через VPN", "Route all traffic through VPN", "block-proxy-direct", "AsIs", Icons.Default.Public),
+    RoutingPreset(BuiltinRoutingProfiles.BYPASS_LAN, "Обход LAN", "Bypass LAN", "Локальные адреса идут напрямую", "Send local addresses directly", "block-proxy-direct", "AsIs", Icons.Default.Lan),
+    RoutingPreset(BuiltinRoutingProfiles.CHINA_DIRECT, "Китай", "China", "Китайские сайты идут напрямую", "Send Chinese resources directly", "block-proxy-direct", "IPIfNonMatch", Icons.Default.Language),
+    RoutingPreset(BuiltinRoutingProfiles.RUSSIA_DIRECT, "Россия", "Russia", "Российские ресурсы идут напрямую", "Send Russian resources directly", "block-proxy-direct", "IPIfNonMatch", Icons.Default.Route),
     RoutingPreset(
+        BuiltinRoutingProfiles.ROSCOMVPN,
         "RoscomVPN",
         "RoscomVPN",
         "Заблокированные ресурсы через VPN, остальное напрямую",
         "Blocked resources through VPN, everything else directly",
         "block-direct-proxy",
-        31,
         "IPIfNonMatch",
         Icons.Default.Shield
     )
@@ -106,28 +104,22 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
     val gson = remember { Gson() }
     val clipboard = LocalClipboardManager.current
 
-    var activeName by remember {
-        mutableStateOf(
-            runCatching {
-                preferencesManager.routingProfileJson
-                    ?.let { gson.fromJson(it, RoutingProfile::class.java)?.name }
-            }.getOrNull() ?: builtinRoutingPresets.first().nameRu
-        )
-    }
+    var builtinProfiles by remember { mutableStateOf(preferencesManager.builtinRoutingProfiles()) }
+    var activeProfile by remember { mutableStateOf(preferencesManager.loadRoutingProfile()) }
+    var activeBuiltinId by remember { mutableStateOf(preferencesManager.activeBuiltinRoutingProfileId()) }
     var showImportDialog by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
+    var editingProfile by remember { mutableStateOf<RoutingProfile?>(null) }
 
     val invalidLinkMessage = t("Неверный формат ссылки", "Invalid routing link")
     val importedMessage = t("Профиль маршрутизации добавлен", "Routing profile added")
     val decodeErrorMessage = t("Не удалось прочитать профиль", "Could not read the profile")
     val emptyClipboardMessage = t("Буфер обмена пуст", "Clipboard is empty")
     val copiedMessage = t("Ссылка скопирована", "Link copied")
-    val importedProfileName = t("Импортированный профиль", "Imported profile")
-
     val activate: (RoutingPreset) -> Unit = { preset ->
-        activeName = preset.nameRu
-        preferencesManager.routingProfileJson = gson.toJson(preset.toProfile())
-        preferencesManager.isRoutingEnabled = true
+        activeProfile = preferencesManager.activateBuiltinRoutingProfile(preset.id)
+        activeBuiltinId = preset.id
+        builtinProfiles = preferencesManager.builtinRoutingProfiles()
     }
 
     fun importRoutingLink(rawText: String): Boolean {
@@ -149,9 +141,9 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
         return runCatching {
             val decoded = String(Base64.decode(base64Part, Base64.DEFAULT), Charsets.UTF_8)
             val newProfile = gson.fromJson(decoded, RoutingProfile::class.java)
-            preferencesManager.routingProfileJson = decoded
-            preferencesManager.isRoutingEnabled = true
-            activeName = newProfile.name?.takeIf { it.isNotBlank() } ?: importedProfileName
+            preferencesManager.saveImportedRoutingProfile(newProfile)
+            activeProfile = newProfile
+            activeBuiltinId = null
             Toast.makeText(context, importedMessage, Toast.LENGTH_SHORT).show()
             true
         }.getOrElse {
@@ -196,8 +188,29 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
         }
     }
 
-    val activePreset = builtinRoutingPresets.firstOrNull { it.nameRu == activeName }
-    val activeDisplayName = activePreset?.let { t(it.nameRu, it.nameEn) } ?: activeName
+    editingProfile?.let { profile ->
+        BuiltinRoutingProfileEditorDialog(
+            profile = profile,
+            onDismiss = { editingProfile = null },
+            onSave = { edited ->
+                val saved = preferencesManager.saveBuiltinRoutingProfile(edited)
+                builtinProfiles = preferencesManager.builtinRoutingProfiles()
+                if (activeBuiltinId == saved.id) activeProfile = saved
+                editingProfile = null
+            },
+            onReset = {
+                val reset = preferencesManager.resetBuiltinRoutingProfile(profile.id.orEmpty())
+                builtinProfiles = preferencesManager.builtinRoutingProfiles()
+                if (activeBuiltinId == reset.id) activeProfile = reset
+                editingProfile = null
+            }
+        )
+    }
+
+    val activePreset = builtinRoutingPresets.firstOrNull { it.id == activeBuiltinId }
+    val activeDisplayName = activeProfile?.name?.takeIf { it.isNotBlank() }
+        ?: activePreset?.let { t(it.nameRu, it.nameEn) }
+        ?: builtinRoutingPresets.first().let { t(it.nameRu, it.nameEn) }
     val routingEnabled = preferencesManager.isRoutingEnabled
 
     NimboSubPageScaffold(
@@ -208,7 +221,7 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
         RoutingOverviewCard(
             activeName = activeDisplayName,
             enabled = routingEnabled,
-            ruleCount = activePreset?.ruleCount,
+            ruleCount = activeProfile?.let(BuiltinRoutingProfiles::ruleCount),
             icon = activePreset?.icon ?: Icons.Default.AccountTree
         )
 
@@ -245,17 +258,20 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
         )
 
         builtinRoutingPresets.forEach { preset ->
+            val profile = builtinProfiles.firstOrNull { it.id == preset.id } ?: return@forEach
             RoutingProfileCard(
                 preset = preset,
-                active = routingEnabled && preset.nameRu == activeName,
+                profile = profile,
+                active = routingEnabled && preset.id == activeBuiltinId,
                 onActivate = { activate(preset) },
                 onCopyLink = {
-                    val json = gson.toJson(preset.toProfile())
+                    val json = gson.toJson(profile)
                     val link = "nimbo://routing/add/" +
                         Base64.encodeToString(json.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
                     clipboard.setText(AnnotatedString(link))
                     Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
-                }
+                },
+                onEdit = { editingProfile = profile }
             )
             Spacer(Modifier.height(12.dp))
         }
@@ -368,9 +384,11 @@ private fun RoutingQuickAction(
 @Composable
 private fun RoutingProfileCard(
     preset: RoutingPreset,
+    profile: RoutingProfile,
     active: Boolean,
     onActivate: () -> Unit,
-    onCopyLink: () -> Unit
+    onCopyLink: () -> Unit,
+    onEdit: () -> Unit
 ) {
     val colors = LocalNebulaColors.current
     val shape = RoundedCornerShape(20.dp)
@@ -396,7 +414,7 @@ private fun RoutingProfileCard(
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = t(preset.nameRu, preset.nameEn),
+                    text = profile.name?.takeIf { it.isNotBlank() } ?: t(preset.nameRu, preset.nameEn),
                     color = colors.textPrimary,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.ExtraBold,
@@ -404,7 +422,8 @@ private fun RoutingProfileCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = t(preset.descriptionRu, preset.descriptionEn),
+                    text = profile.description?.takeIf { it.isNotBlank() }
+                        ?: t(preset.descriptionRu, preset.descriptionEn),
                     color = colors.textSecondary,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
@@ -430,12 +449,12 @@ private fun RoutingProfileCard(
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             RoutingMetaChip(
                 t(
-                    formatRussianCount(preset.ruleCount, "правило", "правила", "правил"),
-                    formatEnglishCount(preset.ruleCount, "rule", "rules")
+                    formatRussianCount(BuiltinRoutingProfiles.ruleCount(profile), "правило", "правила", "правил"),
+                    formatEnglishCount(BuiltinRoutingProfiles.ruleCount(profile), "rule", "rules")
                 )
             )
-            RoutingMetaChip(preset.domainStrategy)
-            RoutingMetaChip(preset.mode)
+            RoutingMetaChip(profile.domainStrategy ?: preset.domainStrategy)
+            RoutingMetaChip(profile.ruleOrder ?: preset.mode)
         }
 
         Spacer(Modifier.height(14.dp))
@@ -448,6 +467,20 @@ private fun RoutingProfileCard(
                 modifier = Modifier.weight(1f)
             )
             Button(
+                onClick = onEdit,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.softFill,
+                    contentColor = colors.textSecondary
+                ),
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Icon(Icons.Default.Edit, null, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(t("Изменить", "Edit"), fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(8.dp))
+            Button(
                 onClick = onCopyLink,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = colors.softFill,
@@ -457,12 +490,196 @@ private fun RoutingProfileCard(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(17.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(t("Ссылка", "Link"), fontWeight = FontWeight.Bold)
             }
         }
     }
 }
+
+@Composable
+private fun BuiltinRoutingProfileEditorDialog(
+    profile: RoutingProfile,
+    onDismiss: () -> Unit,
+    onSave: (RoutingProfile) -> Unit,
+    onReset: () -> Unit
+) {
+    var name by remember(profile) { mutableStateOf(profile.name.orEmpty()) }
+    var description by remember(profile) { mutableStateOf(profile.description.orEmpty()) }
+    var globalProxy by remember(profile) { mutableStateOf(profile.isGlobalProxyEnabled()) }
+    var bypassLocalIp by remember(profile) { mutableStateOf(profile.isBypassLocalIpEnabled()) }
+    var domainStrategy by remember(profile) { mutableStateOf(profile.domainStrategy ?: "IPIfNonMatch") }
+    var directSites by remember(profile) { mutableStateOf(profile.directSites.orEmpty().joinToString("\n")) }
+    var directIp by remember(profile) { mutableStateOf(profile.directIp.orEmpty().joinToString("\n")) }
+    var proxySites by remember(profile) { mutableStateOf(profile.proxySites.orEmpty().joinToString("\n")) }
+    var proxyIp by remember(profile) { mutableStateOf(profile.proxyIp.orEmpty().joinToString("\n")) }
+    var blockSites by remember(profile) { mutableStateOf(profile.blockSites.orEmpty().joinToString("\n")) }
+    var blockIp by remember(profile) { mutableStateOf(profile.blockIp.orEmpty().joinToString("\n")) }
+
+    NebulaMorphicDialog(
+        onDismissRequest = onDismiss,
+        title = t("Редактирование маршрутизации", "Edit routing"),
+        description = t(
+            "Правила применятся при следующем подключении VPN.",
+            "Rules apply on the next VPN connection."
+        ),
+        confirmButtonText = t("Сохранить", "Save"),
+        onConfirm = {
+            onSave(
+                profile.copy(
+                    name = name.trim(),
+                    description = description.trim(),
+                    globalProxy = globalProxy.toString(),
+                    bypassLocalIp = bypassLocalIp.toString(),
+                    domainStrategy = domainStrategy,
+                    directSites = parseRoutingEntries(directSites),
+                    directIp = parseRoutingEntries(directIp),
+                    proxySites = parseRoutingEntries(proxySites),
+                    proxyIp = parseRoutingEntries(proxyIp),
+                    blockSites = parseRoutingEntries(blockSites),
+                    blockIp = parseRoutingEntries(blockIp)
+                )
+            )
+        },
+        headerIcon = Icons.Default.Route
+    ) {
+        RoutingEditorTextField(
+            label = t("Название", "Name"),
+            value = name,
+            onValueChange = { name = it },
+            singleLine = true
+        )
+        Spacer(Modifier.height(10.dp))
+        RoutingEditorTextField(
+            label = t("Описание", "Description"),
+            value = description,
+            onValueChange = { description = it },
+            minHeight = 74.dp
+        )
+        Spacer(Modifier.height(14.dp))
+        Text(
+            t("Поведение по умолчанию", "Default behavior"),
+            color = LocalNebulaColors.current.textSecondary,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.ExtraBold
+        )
+        Spacer(Modifier.height(7.dp))
+        Button(
+            onClick = { globalProxy = !globalProxy },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (globalProxy) LocalNebulaColors.current.accent else LocalNebulaColors.current.softFill,
+                contentColor = if (globalProxy) Color.White else LocalNebulaColors.current.textPrimary
+            ),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Text(
+                if (globalProxy) t("Весь прочий трафик через VPN", "Other traffic through VPN")
+                else t("Весь прочий трафик напрямую", "Other traffic direct"),
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = { bypassLocalIp = !bypassLocalIp },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (bypassLocalIp) LocalNebulaColors.current.softFill else LocalNebulaColors.current.controlFill,
+                contentColor = LocalNebulaColors.current.textPrimary
+            ),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Text(
+                if (bypassLocalIp) t("Локальные IP напрямую", "Local IPs direct")
+                else t("Локальные IP через правила", "Local IPs follow rules"),
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            t("Стратегия доменов", "Domain strategy"),
+            color = LocalNebulaColors.current.textSecondary,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.ExtraBold
+        )
+        Spacer(Modifier.height(7.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf("AsIs", "IPIfNonMatch", "IPOnDemand").forEach { strategy ->
+                val selected = domainStrategy == strategy
+                Button(
+                    onClick = { domainStrategy = strategy },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (selected) LocalNebulaColors.current.accent.copy(alpha = 0.85f) else LocalNebulaColors.current.softFill,
+                        contentColor = if (selected) Color.White else LocalNebulaColors.current.textSecondary
+                    ),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 5.dp, vertical = 7.dp),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(strategy, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Text(
+            t("ПРАВИЛА", "RULES"),
+            color = LocalNebulaColors.current.textSecondary,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.ExtraBold
+        )
+        Text(
+            t("По одному значению на строку: domain:example.com, geosite:ru, geoip:ru, IP или CIDR.", "One value per line: domain:example.com, geosite:ru, geoip:ru, IP, or CIDR."),
+            color = LocalNebulaColors.current.textTertiary,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
+        )
+        RoutingEditorTextField(t("Сайты напрямую", "Direct domains"), directSites, { directSites = it })
+        Spacer(Modifier.height(9.dp))
+        RoutingEditorTextField(t("IP напрямую", "Direct IPs"), directIp, { directIp = it })
+        Spacer(Modifier.height(9.dp))
+        RoutingEditorTextField(t("Сайты через VPN", "Proxy domains"), proxySites, { proxySites = it })
+        Spacer(Modifier.height(9.dp))
+        RoutingEditorTextField(t("IP через VPN", "Proxy IPs"), proxyIp, { proxyIp = it })
+        Spacer(Modifier.height(9.dp))
+        RoutingEditorTextField(t("Блокируемые сайты", "Blocked domains"), blockSites, { blockSites = it })
+        Spacer(Modifier.height(9.dp))
+        RoutingEditorTextField(t("Блокируемые IP", "Blocked IPs"), blockIp, { blockIp = it })
+        TextButton(onClick = onReset, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+            Text(t("Сбросить к версии приложения", "Reset to app defaults"))
+        }
+    }
+}
+
+@Composable
+private fun RoutingEditorTextField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    singleLine: Boolean = false,
+    minHeight: androidx.compose.ui.unit.Dp = 92.dp
+) {
+    val colors = LocalNebulaColors.current
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth().height(if (singleLine) 56.dp else minHeight),
+        label = { Text(label) },
+        textStyle = MaterialTheme.typography.bodySmall,
+        singleLine = singleLine,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = colors.textPrimary,
+            unfocusedTextColor = colors.textPrimary,
+            focusedBorderColor = colors.accent,
+            unfocusedBorderColor = colors.textTertiary.copy(alpha = 0.3f),
+            cursorColor = colors.accent
+        ),
+        shape = RoundedCornerShape(14.dp)
+    )
+}
+
+private fun parseRoutingEntries(raw: String): List<String> = raw
+    .split(Regex("[\\n,;]+"))
+    .map(String::trim)
+    .filter(String::isNotBlank)
+    .distinct()
 
 @Composable
 private fun RoutingMetaChip(text: String) {

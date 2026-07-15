@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.compose.runtime.mutableStateOf
 import com.danila.nimbo.BuildConfig
+import com.danila.nimbo.model.BuiltinRoutingProfiles
 import com.danila.nimbo.model.RoutingProfile
 import com.danila.nimbo.ui.screens.SubscriptionProfile
 import com.danila.nimbo.model.HomeWidget
@@ -100,6 +101,8 @@ class PreferencesManager(context: Context) {
         private const val KEY_HIDDEN_SERVER_KEYS = "hidden_server_keys_v1"
         private const val KEY_ROUTING_ENABLED = "routing_enabled"
         private const val KEY_ROUTING_PROFILE_JSON = "routing_profile_json"
+        private const val KEY_ROUTING_BUILTIN_OVERRIDES_JSON = "routing_builtin_overrides_json"
+        private const val KEY_ACTIVE_BUILTIN_ROUTING_PROFILE_ID = "active_builtin_routing_profile_id"
         private const val KEY_HARDWARE_ID = "hardware_id"
         private const val KEY_SHOW_VERSION_IN_HEADER = "show_version_in_header"
         private const val KEY_CUSTOM_ACCENT_COLOR = "custom_accent_color"
@@ -235,10 +238,21 @@ class PreferencesManager(context: Context) {
 
     var routingProfileJson: String?
         get() = sharedPreferences.getString(KEY_ROUTING_PROFILE_JSON, null)
-        set(value) = sharedPreferences.edit().putString(KEY_ROUTING_PROFILE_JSON, value).apply()
+        set(value) = sharedPreferences.edit()
+            .putString(KEY_ROUTING_PROFILE_JSON, value)
+            .remove(KEY_ACTIVE_BUILTIN_ROUTING_PROFILE_ID)
+            .apply()
 
     fun saveRoutingProfile(profile: RoutingProfile?) {
-        routingProfileJson = if (profile != null) gson.toJson(profile) else null
+        when {
+            profile == null -> sharedPreferences.edit()
+                .remove(KEY_ROUTING_PROFILE_JSON)
+                .remove(KEY_ACTIVE_BUILTIN_ROUTING_PROFILE_ID)
+                .apply()
+            profile.id != null && BuiltinRoutingProfiles.byId(profile.id) != null ->
+                saveBuiltinRoutingProfile(profile)
+            else -> saveImportedRoutingProfile(profile)
+        }
     }
 
     /**
@@ -366,13 +380,100 @@ class PreferencesManager(context: Context) {
         get() = sharedPreferences.getString("app_language", "") ?: ""
         set(value) = sharedPreferences.edit().putString("app_language", value.trim()).apply()
 
-    fun loadRoutingProfile(): RoutingProfile? {
-        val json = routingProfileJson ?: return null
-        return try {
-            gson.fromJson(json, RoutingProfile::class.java)
-        } catch (e: Exception) {
-            null
+    /** Built-in routing profiles with saved user edits overlaid on top of app defaults. */
+    fun builtinRoutingProfiles(): List<RoutingProfile> =
+        BuiltinRoutingProfiles.resolve(readBuiltinRoutingOverrides())
+
+    /**
+     * Returns the selected built-in profile. Older app versions saved only its name;
+     * that legacy value is migrated lazily the first time it is read.
+     */
+    fun activeBuiltinRoutingProfileId(): String? {
+        sharedPreferences.getString(KEY_ACTIVE_BUILTIN_ROUTING_PROFILE_ID, null)
+            ?.trim()
+            ?.takeIf { BuiltinRoutingProfiles.byId(it) != null }
+            ?.let { return it }
+
+        val legacyId = routingProfileJson
+            ?.let { json -> runCatching { gson.fromJson(json, RoutingProfile::class.java) }.getOrNull() }
+            ?.let { profile -> BuiltinRoutingProfiles.idForLegacyName(profile.name) }
+
+        if (legacyId != null) {
+            sharedPreferences.edit()
+                .putString(KEY_ACTIVE_BUILTIN_ROUTING_PROFILE_ID, legacyId)
+                .apply()
         }
+        return legacyId
+    }
+
+    fun activateBuiltinRoutingProfile(id: String): RoutingProfile {
+        val profile = builtinRoutingProfiles().firstOrNull { it.id == id }
+            ?: throw IllegalArgumentException("Unknown built-in routing profile: $id")
+        sharedPreferences.edit()
+            .putString(KEY_ACTIVE_BUILTIN_ROUTING_PROFILE_ID, id)
+            .putString(KEY_ROUTING_PROFILE_JSON, gson.toJson(profile))
+            .putBoolean(KEY_ROUTING_ENABLED, true)
+            .apply()
+        return profile
+    }
+
+    /** Saves an override only; future updates can safely add new default rules. */
+    fun saveBuiltinRoutingProfile(profile: RoutingProfile): RoutingProfile {
+        val id = profile.id?.trim().orEmpty()
+        val default = BuiltinRoutingProfiles.byId(id)
+            ?: throw IllegalArgumentException("Unknown built-in routing profile: $id")
+        val normalized = profile.copy(
+            id = id,
+            builtin = true,
+            name = profile.name?.trim().takeUnless { it.isNullOrBlank() } ?: default.name,
+            description = profile.description?.trim().takeUnless { it.isNullOrBlank() } ?: default.description
+        )
+        val overrides = readBuiltinRoutingOverrides().toMutableMap().apply { put(id, normalized) }
+        val editor = sharedPreferences.edit()
+            .putString(KEY_ROUTING_BUILTIN_OVERRIDES_JSON, gson.toJson(overrides))
+        if (activeBuiltinRoutingProfileId() == id) {
+            editor.putString(KEY_ROUTING_PROFILE_JSON, gson.toJson(normalized))
+        }
+        editor.apply()
+        return normalized
+    }
+
+    fun resetBuiltinRoutingProfile(id: String): RoutingProfile {
+        val default = BuiltinRoutingProfiles.byId(id)
+            ?: throw IllegalArgumentException("Unknown built-in routing profile: $id")
+        val overrides = readBuiltinRoutingOverrides().toMutableMap().apply { remove(id) }
+        val editor = sharedPreferences.edit()
+            .putString(KEY_ROUTING_BUILTIN_OVERRIDES_JSON, gson.toJson(overrides))
+        if (activeBuiltinRoutingProfileId() == id) {
+            editor.putString(KEY_ROUTING_PROFILE_JSON, gson.toJson(default))
+        }
+        editor.apply()
+        return default
+    }
+
+    fun saveImportedRoutingProfile(profile: RoutingProfile) {
+        val imported = profile.copy(id = null, builtin = false)
+        sharedPreferences.edit()
+            .remove(KEY_ACTIVE_BUILTIN_ROUTING_PROFILE_ID)
+            .putString(KEY_ROUTING_PROFILE_JSON, gson.toJson(imported))
+            .putBoolean(KEY_ROUTING_ENABLED, true)
+            .apply()
+    }
+
+    fun loadRoutingProfile(): RoutingProfile? {
+        activeBuiltinRoutingProfileId()?.let { id ->
+            return builtinRoutingProfiles().firstOrNull { it.id == id }
+        }
+        val json = routingProfileJson ?: return null
+        return runCatching { gson.fromJson(json, RoutingProfile::class.java) }.getOrNull()
+    }
+
+    private fun readBuiltinRoutingOverrides(): Map<String, RoutingProfile> {
+        val json = sharedPreferences.getString(KEY_ROUTING_BUILTIN_OVERRIDES_JSON, null) ?: return emptyMap()
+        val type = object : TypeToken<Map<String, RoutingProfile>>() {}.type
+        return runCatching { gson.fromJson<Map<String, RoutingProfile>>(json, type) ?: emptyMap() }
+            .getOrDefault(emptyMap())
+            .filterKeys { BuiltinRoutingProfiles.byId(it) != null }
     }
 
     private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->

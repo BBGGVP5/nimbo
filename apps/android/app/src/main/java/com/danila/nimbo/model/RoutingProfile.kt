@@ -3,8 +3,13 @@ package com.danila.nimbo.model
 import com.google.gson.annotations.SerializedName
 
 data class RoutingProfile(
+    @SerializedName("Id") val id: String? = null,
     @SerializedName("Name") val name: String? = null,
+    @SerializedName("Description") val description: String? = null,
+    @SerializedName("Builtin") val builtin: Boolean? = false,
+    @SerializedName("RuleOrder") val ruleOrder: String? = "block-proxy-direct",
     @SerializedName("GlobalProxy") val globalProxy: String? = "true",
+    @SerializedName("BypassLocalIp") val bypassLocalIp: String? = "true",
     @SerializedName("RemoteDNSType") val remoteDNSType: String? = "DoU",
     @SerializedName("RemoteDNSDomain") val remoteDNSDomain: String? = "https://cloudflare-dns.com/dns-query",
     @SerializedName("RemoteDNSIP") val remoteDNSIP: String? = "1.1.1.1",
@@ -26,5 +31,9 @@ data class RoutingProfile(
 ) {
     fun isGlobalProxyEnabled(): Boolean {
         return globalProxy.toBoolean()
+    }
+
+    fun isBypassLocalIpEnabled(): Boolean {
+        return bypassLocalIp.toBoolean()
     }
 }
