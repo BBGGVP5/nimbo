@@ -273,7 +273,7 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
             ) { showImportDialog = true }
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(20.dp))
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 2.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -312,33 +312,33 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
                 onEdit = { editingProfile = profile },
                 onDelete = { deletingProfile = profile }
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
     }
 }
 
 @Composable
 private fun RoutingOverviewCard(activeName: String, enabled: Boolean, ruleCount: Int?, icon: ImageVector) {
     val colors = LocalNebulaColors.current
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(18.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
             .background(colors.panelFill)
             .border(1.dp, colors.panelBorder, shape)
-            .padding(18.dp),
+            .padding(15.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(54.dp)
-                .clip(RoundedCornerShape(18.dp))
+                .size(48.dp)
+                .clip(RoundedCornerShape(16.dp))
                 .background(colors.accent.copy(alpha = 0.16f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, null, tint = colors.accent, modifier = Modifier.size(28.dp))
+            Icon(icon, null, tint = colors.accent, modifier = Modifier.size(24.dp))
         }
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -395,19 +395,19 @@ private fun RoutingQuickAction(
     onClick: () -> Unit
 ) {
     val colors = LocalNebulaColors.current
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(14.dp)
     Row(
         modifier = modifier
-            .height(58.dp)
+            .height(52.dp)
             .clip(shape)
             .background(if (accent) colors.accent.copy(alpha = 0.14f) else colors.controlFill)
             .border(1.dp, if (accent) colors.accent.copy(alpha = 0.48f) else colors.panelBorder, shape)
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onClick)
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
-        Icon(icon, null, tint = if (accent) colors.accent else colors.textSecondary, modifier = Modifier.size(21.dp))
+        Icon(icon, null, tint = if (accent) colors.accent else colors.textSecondary, modifier = Modifier.size(19.dp))
         Spacer(Modifier.width(8.dp))
         Text(
             text = label,
@@ -431,7 +431,7 @@ private fun RoutingProfileCard(
     onDelete: () -> Unit
 ) {
     val colors = LocalNebulaColors.current
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(18.dp)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -439,17 +439,17 @@ private fun RoutingProfileCard(
             .background(colors.panelFill)
             .border(1.dp, if (active) colors.accent.copy(alpha = 0.68f) else colors.panelBorder, shape)
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onActivate)
-            .padding(16.dp)
+            .padding(14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(if (active) colors.accent.copy(alpha = 0.18f) else colors.softFill),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(preset.icon, null, tint = if (active) colors.accent else colors.textSecondary, modifier = Modifier.size(23.dp))
+                Icon(preset.icon, null, tint = if (active) colors.accent else colors.textSecondary, modifier = Modifier.size(21.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -475,17 +475,17 @@ private fun RoutingProfileCard(
             if (active) {
                 Box(
                     modifier = Modifier
-                        .size(30.dp)
+                        .size(28.dp)
                         .clip(CircleShape)
                         .background(colors.accent),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
                 }
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             RoutingMetaChip(
                 t(
@@ -497,7 +497,7 @@ private fun RoutingProfileCard(
             RoutingMetaChip(profile.ruleOrder ?: preset.mode)
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = if (active) t("Используется сейчас", "Currently in use") else t("Нажмите, чтобы выбрать", "Tap to select"),
@@ -540,7 +540,7 @@ private fun RoutingProfileIconAction(
     val shape = RoundedCornerShape(12.dp)
     Box(
         modifier = Modifier
-            .size(38.dp)
+            .size(34.dp)
             .clip(shape)
             .background(if (danger) tint.copy(alpha = 0.12f) else colors.softFill)
             .clickable(
@@ -550,7 +550,7 @@ private fun RoutingProfileIconAction(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription, tint = tint, modifier = Modifier.size(19.dp))
+        Icon(icon, contentDescription, tint = tint, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -747,7 +747,7 @@ private fun RoutingMetaChip(text: String) {
         modifier = Modifier
             .clip(RoundedCornerShape(9.dp))
             .background(colors.softFill)
-            .padding(horizontal = 8.dp, vertical = 5.dp)
+            .padding(horizontal = 7.dp, vertical = 4.dp)
     ) {
         Text(
             text = text,
