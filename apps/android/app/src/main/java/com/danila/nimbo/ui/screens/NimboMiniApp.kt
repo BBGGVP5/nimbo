@@ -470,7 +470,8 @@ fun NimboMiniApp(
 
         val info = runCatching { UpdateManager.checkUpdate() }.getOrNull()
         preferencesManager.lastUpdateCheckTime = System.currentTimeMillis()
-        if (info != null && info.versionCode > BuildConfig.VERSION_CODE) {
+        // checkUpdate() возвращает объект только для реально более нового релиза.
+        if (info != null) {
             val skipped = preferencesManager.updateDialogSkippedVersion
             if (skipped == null || skipped != info.versionName || info.forceUpdate) {
                 pendingUpdateInfo = info

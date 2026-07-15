@@ -72,19 +72,26 @@ object UpdateManager {
 
             Log.d(TAG, "Found release: $releaseName (Tag: $tagName)")
 
-            // Пытаемся найти versionCode в описании (например, "versionCode: 10")
+            // Пытаемся найти versionCode в описании (например, "versionCode: 10").
+            // Он нужен только если автор релиза явно его указал.
             val manualVersionCode = Regex("versionCode:?\\s*(\\d+)").find(releaseBody)?.groupValues?.get(1)?.toIntOrNull()
 
-            // Если в описании нет - извлекаем все числа из тега (v1.0.5 -> 105)
-            val tagNumbers = Regex("\\d+").findAll(tagName).map { it.value }.joinToString("").toIntOrNull() ?: 0
+            // Нельзя склеивать цифры из тега: v1.0.0 превращался в 100 и
+            // ошибочно считался новее установленного build 1. Без явного
+            // versionCode сравниваем именно семантическую версию релиза.
+            val isNewer = manualVersionCode?.let { it > BuildConfig.VERSION_CODE }
+                ?: isSemanticVersionNewer(tagName, BuildConfig.VERSION_NAME)
+            val remoteVersionCode = manualVersionCode ?: BuildConfig.VERSION_CODE
 
-            val remoteVersionCode = manualVersionCode ?: tagNumbers
+            Log.d(
+                TAG,
+                "Installed=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}), " +
+                    "release=$tagName, explicitCode=$manualVersionCode, newer=$isNewer"
+            )
 
-            Log.d(TAG, "Local VersionCode: ${BuildConfig.VERSION_CODE}, Remote VersionCode: $remoteVersionCode")
-
-            // 2. Проверяем, новее ли версия
-            if (remoteVersionCode > BuildConfig.VERSION_CODE) {
-                Log.d(TAG, "New version available! $remoteVersionCode > ${BuildConfig.VERSION_CODE}")
+            // 2. Проверяем, новее ли релиз.
+            if (isNewer) {
+                Log.d(TAG, "New version available: $tagName")
 
                 // 3. Ищем лучший APK файл в ассетах (архитектура > universal > first)
                 val assets = parseAssets(githubRelease["assets"])
@@ -110,6 +117,25 @@ object UpdateManager {
             Log.e(TAG, "Update check failed via GitHub API", e)
             null
         }
+    }
+
+    /** Сравнение v1.2.3 и 1.2.3 без преобразования в искусственный versionCode. */
+    internal fun isSemanticVersionNewer(remote: String, local: String): Boolean {
+        val remoteParts = parseSemanticVersion(remote) ?: return false
+        val localParts = parseSemanticVersion(local) ?: return false
+        for (index in remoteParts.indices) {
+            if (remoteParts[index] != localParts[index]) {
+                return remoteParts[index] > localParts[index]
+            }
+        }
+        return false
+    }
+
+    private fun parseSemanticVersion(value: String): List<Int>? {
+        val match = Regex("""^[vV]?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?$""")
+            .matchEntire(value.trim())
+            ?: return null
+        return (1..3).map { index -> match.groupValues[index].toIntOrNull() ?: 0 }
     }
 
     /**

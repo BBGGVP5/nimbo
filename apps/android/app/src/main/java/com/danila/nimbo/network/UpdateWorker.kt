@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.danila.nimbo.BuildConfig
 
 class UpdateWorker(
     context: Context,
@@ -17,7 +16,8 @@ class UpdateWorker(
         return try {
             val updateInfo = UpdateManager.checkUpdate()
 
-            if (updateInfo != null && updateInfo.versionCode > BuildConfig.VERSION_CODE) {
+            // checkUpdate() возвращает объект только для реально более нового релиза.
+            if (updateInfo != null) {
                 Log.d("UpdateWorker", "New version available: ${updateInfo.versionName}. Showing notification.")
                 UpdateManager.showUpdateNotification(applicationContext, updateInfo)
             }
