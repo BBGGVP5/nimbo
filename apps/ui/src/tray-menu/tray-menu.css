@@ -1,0 +1,1169 @@
+/* Custom tray flyout. The native Tauri window is opaque and rounded by Windows
+   DWM, with this same surface color painted from the first HTML frame. That
+   avoids WebView2's black transparent-corner rectangle on Windows. */
+
+:root {
+  /* Match the native window silhouette: on Windows 11 the opaque popup is
+     rounded by DWM at the system 8px corner, so the card's decorative border
+     must hug that same radius instead of floating inside it. */
+  --tray-radius: 8px;
+  --tray-surface: #181a25;
+  --tray-surface-strong: #202231;
+  /* Control fills follow the transparency setting (control alpha) just like the
+     main window's panels. */
+  --tray-surface-soft: color-mix(in srgb, rgba(255, 255, 255, 0.055) var(--ui-control-alpha-percent, 100%), transparent);
+  --tray-hairline: rgba(255, 255, 255, 0.12);
+  --tray-window-color: #202231;
+  /* Opaque aura "wallpaper" painted on the window/body. It sits BEHIND the
+     translucent card so the transparency + blur settings have something real to
+     reveal and frost. */
+  --tray-panel-bg:
+    radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--color-accent-bright) 23%, transparent), transparent 34%),
+    radial-gradient(circle at 98% 104%, color-mix(in srgb, var(--color-accent) 20%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--tray-surface-strong) 96%, transparent), color-mix(in srgb, var(--tray-surface) 98%, transparent)),
+    var(--tray-surface);
+  /* Card surface. The final fill honors the transparency (panel alpha) and
+     brightness (panel overlay) settings; the card's backdrop-filter (blur
+     setting) frosts the wallpaper behind it. */
+  --tray-card-bg:
+    radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--color-accent-bright) 23%, transparent), transparent 34%),
+    radial-gradient(circle at 98% 104%, color-mix(in srgb, var(--color-accent) 20%, transparent), transparent 42%),
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    linear-gradient(180deg, color-mix(in srgb, var(--tray-surface-strong) var(--ui-panel-alpha-percent), transparent), color-mix(in srgb, var(--tray-surface) var(--ui-panel-alpha-percent), transparent));
+}
+
+html,
+body,
+#tray-root {
+  width: max-content;
+  height: max-content;
+  margin: 0;
+  background: var(--tray-window-color) !important;
+}
+
+body {
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+body[data-theme="light"] {
+  --tray-surface: #f5f2fb;
+  --tray-surface-strong: #ffffff;
+  --tray-surface-soft: color-mix(in srgb, rgba(20, 18, 31, 0.055) var(--ui-control-alpha-percent, 100%), transparent);
+  --tray-hairline: rgba(20, 18, 31, 0.12);
+  --tray-window-color: #ffffff;
+  --tray-panel-bg:
+    radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--color-accent-bright) 18%, transparent), transparent 35%),
+    radial-gradient(circle at 100% 104%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 43%),
+    linear-gradient(180deg, #ffffff, #f5f2fb);
+  --tray-card-bg:
+    radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--color-accent-bright) 18%, transparent), transparent 35%),
+    radial-gradient(circle at 100% 104%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 43%),
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    linear-gradient(180deg, color-mix(in srgb, #ffffff var(--ui-panel-alpha-percent), transparent), color-mix(in srgb, #f5f2fb var(--ui-panel-alpha-percent), transparent));
+}
+
+body[data-theme="black"] {
+  --tray-surface: #080810;
+  --tray-surface-strong: #11121b;
+  --tray-surface-soft: color-mix(in srgb, rgba(255, 255, 255, 0.045) var(--ui-control-alpha-percent, 100%), transparent);
+  --tray-hairline: rgba(255, 255, 255, 0.1);
+  --tray-window-color: #11121b;
+  --tray-panel-bg:
+    radial-gradient(circle at 14% -8%, color-mix(in srgb, var(--color-accent-bright) 14%, transparent), transparent 34%),
+    radial-gradient(circle at 102% 106%, color-mix(in srgb, var(--color-accent) 13%, transparent), transparent 42%),
+    linear-gradient(180deg, #11121b, #080810);
+  --tray-card-bg:
+    radial-gradient(circle at 14% -8%, color-mix(in srgb, var(--color-accent-bright) 14%, transparent), transparent 34%),
+    radial-gradient(circle at 102% 106%, color-mix(in srgb, var(--color-accent) 13%, transparent), transparent 42%),
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    linear-gradient(180deg, color-mix(in srgb, #11121b var(--ui-panel-alpha-percent), transparent), color-mix(in srgb, #080810 var(--ui-panel-alpha-percent), transparent));
+}
+
+body[data-ui-style="material_you"] {
+  --tray-radius: var(--md-shape-xl);
+  --tray-surface: var(--md-surface-container);
+  --tray-surface-strong: var(--md-surface-container-high);
+  --tray-surface-soft: color-mix(in srgb, var(--md-on-surface) 5%, transparent);
+  --tray-hairline: color-mix(in srgb, var(--md-outline-variant) 70%, transparent);
+  --tray-window-color: var(--md-surface-container-high);
+  --tray-panel-bg:
+    radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--md-primary) 12%, transparent), transparent 35%),
+    radial-gradient(circle at 100% 104%, color-mix(in srgb, var(--md-tertiary) 10%, transparent), transparent 42%),
+    linear-gradient(180deg, var(--tray-surface-strong), var(--tray-surface));
+  --tray-card-bg:
+    radial-gradient(circle at 16% -6%, color-mix(in srgb, var(--md-primary) 12%, transparent), transparent 35%),
+    radial-gradient(circle at 100% 104%, color-mix(in srgb, var(--md-tertiary) 10%, transparent), transparent 42%),
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    linear-gradient(180deg, color-mix(in srgb, var(--tray-surface-strong) var(--ui-panel-alpha-percent), transparent), color-mix(in srgb, var(--tray-surface) var(--ui-panel-alpha-percent), transparent));
+}
+
+body::before,
+body::after {
+  display: none !important;
+}
+
+#tray-root,
+.tray-shell {
+  display: inline-block;
+  background: var(--tray-panel-bg) !important;
+}
+
+.tray-shell {
+  overflow: visible;
+}
+
+.tray-card {
+  position: relative;
+  isolation: isolate;
+  width: 326px;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 11px;
+  border: 0;
+  border-radius: 0;
+  background: var(--tray-card-bg);
+  -webkit-backdrop-filter: var(--ui-backdrop-filter);
+  backdrop-filter: var(--ui-backdrop-filter);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  box-shadow:
+    inset 0 1px var(--tray-hairline),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.035),
+    inset 0 -28px 70px rgba(0, 0, 0, 0.12);
+}
+
+/* Entrance layer: the card geometry stays fixed (so native clipping and CSS
+   layout never race) while each block inside rises into place with a short
+   top-to-bottom stagger. Transforms don't affect layout, so the ResizeObserver
+   still measures the final height from the first frame. */
+.tray-card-inner {
+  position: relative;
+  z-index: 1;
+}
+
+.tray-hero,
+.tray-meta-row,
+.tray-connect-toggle,
+.tray-admin-notice,
+.tray-tile-settings,
+.tray-utility-grid,
+.tray-footer {
+  animation: tray-block-rise 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.tray-hero { animation-delay: 30ms; }
+.tray-meta-row { animation-delay: 65ms; }
+.tray-connect-toggle { animation-delay: 100ms; }
+.tray-admin-notice { animation-delay: 120ms; }
+.tray-tile-settings { animation-delay: 135ms; }
+.tray-utility-grid { animation-delay: 170ms; }
+.tray-footer { animation-delay: 205ms; }
+
+.tray-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 78%, transparent);
+  border-radius: var(--tray-radius);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08), transparent 28%, transparent 72%, rgba(255, 255, 255, 0.035)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 18%);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+body[data-theme="light"] .tray-card {
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.82),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.34);
+}
+
+body[data-theme="light"] .tray-card::before {
+  border-color: color-mix(in srgb, var(--color-border-strong) 72%, transparent);
+}
+
+@keyframes tray-block-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tray-hero {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 8px 8px 10px;
+}
+
+.tray-status-orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-xl, 12px);
+  background: var(--tray-surface-soft);
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 70%, transparent);
+}
+
+.tray-status-orb::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border-radius: var(--ui-radius-md, 10px);
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+
+.tray-status-orb span {
+  position: relative;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+
+.tray-status-orb.is-on span {
+  background: var(--color-status-connected);
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--color-status-connected) 16%, transparent),
+    0 0 20px color-mix(in srgb, var(--color-status-connected) 38%, transparent);
+}
+
+.tray-status-orb.is-off span {
+  background: var(--color-status-disconnected);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-status-disconnected) 16%, transparent);
+}
+
+.tray-hero-copy {
+  min-width: 0;
+}
+
+.tray-eyebrow {
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.tray-status-title {
+  margin-top: 2px;
+  color: var(--color-text);
+  font-size: 18px;
+  line-height: 1.15;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.tray-status-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 5px;
+  color: var(--color-text-faint);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.tray-status-subtitle span {
+  flex: none;
+}
+
+.tray-status-subtitle strong {
+  min-width: 0;
+  color: var(--color-text-dim);
+  font-weight: 720;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tray-close-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-sm, 8px);
+  background: transparent;
+  color: var(--color-text-faint);
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.tray-close-button:hover,
+.tray-close-button:focus-visible {
+  border-color: color-mix(in srgb, var(--color-border-strong) 70%, transparent);
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+  color: var(--color-text);
+}
+
+.tray-close-button:active {
+  transform: scale(0.94);
+}
+
+.tray-close-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.tray-meta-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  padding: 0 2px 8px;
+}
+
+.tray-meta-row span {
+  min-width: 0;
+  height: 26px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
+  border-radius: var(--ui-radius-sm, 8px);
+  background: var(--tray-surface-soft);
+  color: var(--color-text-faint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  font-size: 10.5px;
+  font-weight: 760;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tray-meta-row strong {
+  color: var(--color-text);
+  font-weight: 820;
+}
+
+/* Single connect/disconnect control built around a press-to-power button: the
+   round power lamp on the left lights up, the fill washes in and the label
+   crossfades together when the connection state flips, so one click toggles it. */
+.tray-connect-toggle {
+  position: relative;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  min-height: 56px;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
+  border-radius: var(--ui-radius-md, 10px);
+  background: var(--tray-surface-soft);
+  color: var(--color-text);
+  padding: 0 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 240ms ease,
+    box-shadow 240ms ease,
+    transform 150ms ease;
+}
+
+/* Green wash that sweeps in from the left as the toggle turns on. */
+.tray-connect-toggle::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+  background:
+    linear-gradient(
+      120deg,
+      color-mix(in srgb, var(--color-status-connected) 26%, transparent),
+      color-mix(in srgb, var(--color-status-connected) 9%, transparent) 62%,
+      transparent
+    );
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition:
+    transform 380ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms ease;
+}
+
+.tray-connect-toggle[data-on="true"] {
+  border-color: color-mix(in srgb, var(--color-status-connected) 42%, transparent);
+}
+
+.tray-connect-toggle[data-on="true"]::before {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.tray-connect-toggle:not(.is-disabled):hover,
+.tray-connect-toggle:not(.is-disabled):focus-visible {
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
+.tray-connect-toggle[data-on="true"]:not(.is-disabled):hover,
+.tray-connect-toggle[data-on="true"]:not(.is-disabled):focus-visible {
+  border-color: color-mix(in srgb, var(--color-status-connected) 58%, transparent);
+}
+
+.tray-connect-toggle:not(.is-disabled):active {
+  transform: scale(0.985);
+}
+
+.tray-connect-toggle.is-disabled {
+  cursor: default;
+  color: var(--color-text-faint);
+  opacity: 0.6;
+}
+
+/* The power lamp: a round button face that is dim when off, glows green when
+   connected and shows a spinning ring while a switch is in flight. */
+.tray-power {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-text-dim);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-border-strong) 45%, transparent);
+  transition:
+    background-color 260ms ease,
+    color 260ms ease,
+    box-shadow 260ms ease,
+    transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.tray-power .tray-icon {
+  position: relative;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+}
+
+/* Connected: a steady green glow. */
+.tray-connect-toggle[data-on="true"] .tray-power {
+  background: color-mix(in srgb, var(--color-status-connected) 22%, transparent);
+  color: var(--color-status-connected);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-status-connected) 50%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--color-status-connected) 12%, transparent),
+    0 0 22px color-mix(in srgb, var(--color-status-connected) 34%, transparent);
+}
+
+/* Off + connectable: the lamp picks up the accent on hover/focus to invite a press. */
+.tray-connect-toggle:not(.is-disabled):not([data-on="true"]):hover .tray-power,
+.tray-connect-toggle:not(.is-disabled):not([data-on="true"]):focus-visible .tray-power {
+  color: var(--color-accent-bright);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 48%, transparent);
+}
+
+/* In flight: accent the lamp regardless of target and run the ring spinner. */
+.tray-connect-toggle[data-busy="true"] .tray-power {
+  color: var(--color-accent-bright);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 38%, transparent);
+}
+
+/* Tactile press on the lamp itself. */
+.tray-connect-toggle:not(.is-disabled):active .tray-power {
+  transform: scale(0.9);
+}
+
+.tray-power-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.tray-connect-toggle[data-busy="true"] .tray-power-ring {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  border-top-color: var(--color-accent-bright);
+  animation: tray-task-spin 720ms linear infinite;
+}
+
+/* Label crossfade: the value is keyed in React, so it remounts and replays this
+   entrance every time the connection state changes. */
+.tray-connect-text {
+  min-width: 0;
+  display: flex;
+}
+
+.tray-connect-text-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 820;
+  letter-spacing: 0.01em;
+  animation: tray-connect-label-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes tray-connect-label-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+    filter: blur(1px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+/* Admin-rights banner shown when the active mode needs TUN but the app is not
+   elevated (or a connect attempt failed for that reason). */
+.tray-admin-notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 36%, transparent);
+  border-radius: var(--ui-radius-sm, 8px);
+  background: var(--color-accent-panel);
+  color: var(--color-text);
+  animation: tray-task-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tray-admin-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--color-accent-bright);
+}
+
+.tray-admin-icon .tray-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.tray-admin-text {
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.tray-admin-action {
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 50%, transparent);
+  border-radius: var(--ui-radius-sm, 8px);
+  background: var(--color-accent-active-bg);
+  color: var(--color-text);
+  padding: 6px 11px;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 820;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease;
+}
+
+.tray-admin-action:hover,
+.tray-admin-action:focus-visible {
+  border-color: color-mix(in srgb, var(--color-accent) 72%, transparent);
+}
+
+.tray-admin-action:active {
+  transform: scale(0.96);
+}
+
+/* Full-width secondary row (Settings) that sits on its own line below the
+   primary connect/disconnect toggle. */
+.tray-tile-settings {
+  width: 100%;
+  margin-top: 7px;
+}
+
+.tray-tile {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
+  border-radius: var(--ui-radius-sm, 8px);
+  background: var(--tray-surface-soft);
+  color: var(--color-text);
+  padding: 0 11px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 780;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.tray-tile-wide {
+  grid-row: span 2;
+  min-height: 83px;
+  align-items: flex-start;
+  justify-content: center;
+  flex-direction: column;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent 58%),
+    var(--tray-surface-soft);
+}
+
+.tray-tile:not(.is-disabled):hover,
+.tray-tile:not(.is-disabled):focus-visible,
+.tray-shortcuts button:hover,
+.tray-shortcuts button:focus-visible,
+.tray-utility-grid button:not(.is-disabled):hover,
+.tray-utility-grid button:not(.is-disabled):focus-visible,
+.tray-section-toggle:hover,
+.tray-section-toggle:focus-visible,
+.tray-server:hover,
+.tray-server:focus-visible,
+.tray-quit:hover,
+.tray-quit:focus-visible {
+  border-color: color-mix(in srgb, var(--color-accent) 34%, transparent);
+  background: var(--color-accent-active-bg);
+  color: var(--color-text);
+}
+
+.tray-tile:not(.is-disabled):active,
+.tray-shortcuts button:active,
+.tray-utility-grid button:not(.is-disabled):active,
+.tray-section-toggle:active,
+.tray-server:active,
+.tray-quit:active {
+  transform: scale(0.985);
+}
+
+.tray-tile.is-disabled,
+.tray-utility-grid button.is-disabled {
+  color: var(--color-text-faint);
+  opacity: 0.58;
+}
+
+.tray-section-label {
+  margin: 10px 2px 6px;
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-weight: 820;
+}
+
+.tray-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.tray-shortcuts button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 58px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
+  border-radius: var(--ui-radius-sm, 8px);
+  background: var(--tray-surface-soft);
+  color: var(--color-text-dim);
+  padding: 6px 5px;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 760;
+  line-height: 1.12;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.tray-shortcuts span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tray-utility-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.tray-utility-grid button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
+  border-radius: var(--ui-radius-sm, 8px);
+  background: var(--tray-surface-soft);
+  color: var(--color-text-dim);
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 760;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease,
+    opacity 150ms ease;
+}
+
+.tray-utility-grid span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tray-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin-top: 8px;
+  padding: 0 11px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  border-radius: var(--ui-radius-sm, 8px);
+  background: var(--color-accent-panel);
+  color: var(--color-text-dim);
+  font-size: 11px;
+  font-weight: 760;
+  animation: tray-task-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tray-task.is-done {
+  border-color: color-mix(in srgb, var(--color-status-connected) 42%, transparent);
+  background: color-mix(in srgb, var(--color-status-connected) 13%, transparent);
+  color: var(--color-text);
+}
+
+.tray-task.is-error {
+  border-color: color-mix(in srgb, var(--color-status-error) 46%, transparent);
+  background: color-mix(in srgb, var(--color-status-error) 13%, transparent);
+  color: var(--color-text);
+}
+
+.tray-task-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tray-task-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  border-top-color: var(--color-accent-bright);
+  animation: tray-task-spin 720ms linear infinite;
+}
+
+.tray-task-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.tray-task-glyph {
+  width: 15px;
+  height: 15px;
+}
+
+.tray-task.is-done .tray-task-icon {
+  color: var(--color-status-connected);
+}
+
+.tray-task.is-error .tray-task-icon {
+  color: var(--color-status-error);
+}
+
+@keyframes tray-task-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes tray-task-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tray-section-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 9px;
+  height: 38px;
+  margin-top: 9px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
+  border-radius: var(--ui-radius-sm, 8px);
+  background: var(--tray-surface-soft);
+  color: var(--color-text);
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 820;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.tray-section-toggle > span:nth-of-type(1) {
+  min-width: 0;
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+.tray-section-count {
+  flex: none;
+  min-width: 22px;
+  height: 20px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-dim);
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.tray-chevron {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--color-text-faint);
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tray-section-toggle[aria-expanded="false"] .tray-chevron {
+  transform: rotate(-90deg);
+}
+
+.tray-servers-frame {
+  max-height: 218px;
+  opacity: 1;
+  overflow: hidden;
+  margin-top: 7px;
+  transform: translateY(0);
+  transform-origin: top;
+  will-change: max-height, opacity, transform;
+  transition:
+    max-height 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 200ms ease,
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin-top 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tray-servers-frame.is-collapsed {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+  transform: translateY(-7px);
+  pointer-events: none;
+}
+
+.tray-servers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 218px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+.tray-servers::-webkit-scrollbar {
+  width: 8px;
+}
+
+.tray-servers::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border: 2px solid transparent;
+  border-radius: var(--ui-radius-sm, 8px);
+  background-clip: padding-box;
+}
+
+.tray-server,
+.tray-server-empty {
+  min-height: 42px;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-sm, 8px);
+  background: transparent;
+  color: var(--color-text);
+}
+
+.tray-server {
+  display: grid;
+  grid-template-columns: 27px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 9px 5px 6px;
+  font-family: inherit;
+  text-align: left;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.tray-server.is-active {
+  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 76%),
+    var(--color-accent-panel);
+}
+
+.tray-server-empty {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: var(--color-text-faint);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.tray-flag {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border-radius: var(--ui-radius-sm, 8px);
+  background: var(--tray-surface-soft);
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* Real SVG country flag (flag-icons) instead of a regional-indicator emoji,
+   which Windows has no glyph for and renders as bare "FI" letters. */
+.tray-flag .country-flag {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
+}
+
+.tray-flag-globe {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-faint);
+}
+
+.tray-server-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tray-server-name {
+  min-width: 0;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 780;
+  line-height: 1.15;
+}
+
+.tray-server-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-faint);
+  font-size: 10px;
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+.tray-server-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tray-server.is-active .tray-server-name,
+.tray-server.is-active .tray-check {
+  color: var(--color-accent-soft);
+}
+
+/* The row currently being measured during a ping sweep. */
+.tray-server.is-pinging {
+  border-color: color-mix(in srgb, var(--color-accent) 26%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.tray-ping-spinner {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--color-accent) 26%, transparent);
+  border-top-color: var(--color-accent-bright);
+  animation: tray-task-spin 720ms linear infinite;
+}
+
+.tray-check {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  color: var(--color-accent-bright);
+}
+
+.tray-footer {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
+}
+
+.tray-quit {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-sm, 8px);
+  background: transparent;
+  color: var(--color-text-dim);
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 780;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.tray-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: currentColor;
+}
+
+.tray-tile-wide .tray-icon {
+  width: 22px;
+  height: 22px;
+  color: var(--color-accent-bright);
+}
+
+body[data-ui-style="material_you"] .tray-card {
+  background: var(--tray-card-bg);
+}
+
+body[data-ui-style="material_you"] .tray-card::before {
+  border-color: var(--md-outline-variant);
+}
+
+body[data-ui-style="material_you"] .tray-status-orb,
+body[data-ui-style="material_you"] .tray-meta-row span,
+body[data-ui-style="material_you"] .tray-tile,
+body[data-ui-style="material_you"] .tray-connect-toggle,
+body[data-ui-style="material_you"] .tray-admin-notice,
+body[data-ui-style="material_you"] .tray-admin-action,
+body[data-ui-style="material_you"] .tray-shortcuts button,
+body[data-ui-style="material_you"] .tray-utility-grid button,
+body[data-ui-style="material_you"] .tray-section-toggle {
+  border-radius: var(--md-shape-lg);
+}
+
+body[data-ui-style="material_you"] .tray-server,
+body[data-ui-style="material_you"] .tray-flag,
+body[data-ui-style="material_you"] .tray-quit {
+  border-radius: var(--md-shape-md);
+}
+
+body[data-ui-style="material_you"] .tray-server.is-active {
+  background: var(--md-primary-container);
+}
+
+body[data-ui-style="material_you"] .tray-server.is-active .tray-server-name,
+body[data-ui-style="material_you"] .tray-server.is-active .tray-check {
+  color: var(--md-on-primary-container);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tray-card,
+  .tray-card-inner,
+  .tray-hero,
+  .tray-meta-row,
+  .tray-footer,
+  .tray-servers-frame,
+  .tray-chevron,
+  .tray-tile,
+  .tray-connect-toggle,
+  .tray-power,
+  .tray-connect-text-value,
+  .tray-admin-notice,
+  .tray-shortcuts button,
+  .tray-utility-grid,
+  .tray-utility-grid button,
+  .tray-section-toggle,
+  .tray-server,
+  .tray-quit,
+  .tray-close-button,
+  .tray-task {
+    animation: none;
+    transition: none;
+  }
+
+  .tray-task-spinner,
+  .tray-ping-spinner,
+  .tray-power-ring {
+    animation-duration: 1.6s;
+  }
+}

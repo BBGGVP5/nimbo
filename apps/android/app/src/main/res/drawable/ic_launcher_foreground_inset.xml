@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive icon canvas is 108dp; the visible safe zone is the inner 66dp.
+  Inset the cloud foreground so it sits comfortably inside any launcher mask
+  (circle, squircle, rounded square) instead of bleeding to the edges.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@mipmap/ic_launcher_foreground"
+    android:inset="18dp" />

@@ -1,0 +1,62 @@
+[package]
+name = "nimbo-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Nimbo UI (Tauri shell)"
+
+[lib]
+name = "nimbo_ui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Enables the embedded asset protocol used at runtime in production. Tauri's
+# generate_context! macro flips into "dev" mode (and serves http://127.0.0.1:1420)
+# whenever this feature is NOT enabled, regardless of --release. `cargo tauri build`
+# enables it automatically; plain `cargo build --release` does not, so we must
+# pass `--features custom-protocol` when building this crate outside the Tauri CLI.
+# Do NOT make this a default feature — `cargo tauri dev` would then try to load
+# the embedded (non-existent) frontend instead of the Vite dev server.
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+nimbo-device.workspace = true
+nimbo-ipc.workspace = true
+nimbo-subscription.workspace = true
+nimbo-xray-config.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+url.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+dirs.workspace = true
+uuid.workspace = true
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-deep-link = "2"
+arboard = "3.6"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
+png = "0.17"
+sha2.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+winapi = { version = "0.3", features = ["shellapi", "wingdi", "winuser", "libloaderapi", "winnls"] }
+windows-service = "0.7"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }

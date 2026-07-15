@@ -4,211 +4,116 @@
 
 <h1 align="center">Nimbo</h1>
 
-<p align="center">
-  Быстрый и легковесный VPN-клиент для xray-подписок на Windows и Android.
-</p>
+<p align="center">Лёгкий VPN-клиент для подписок, совместимых с Xray.</p>
 
 <p align="center">
-  <strong>Русский</strong> · <a href="./README.en.md">English</a>
+  <a href="https://github.com/BBGGVP5/nimbo/actions">GitHub Actions</a> ·
+  <a href="../../releases">Релизы</a> ·
+  <a href="./docs/build/linux.md">Сборка для Linux</a>
 </p>
 
-<p align="center">
-  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24c8db?style=for-the-badge&logo=tauri&logoColor=white" />
-  <img alt="React 19" src="https://img.shields.io/badge/React-19-61dafb?style=for-the-badge&logo=react&logoColor=111827" />
-  <img alt="Rust" src="https://img.shields.io/badge/Rust-native-f97316?style=for-the-badge&logo=rust&logoColor=white" />
-  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078d4?style=for-the-badge&logo=windows11&logoColor=white" />
-  <img alt="Android" src="https://img.shields.io/badge/Android-supported-3ddc84?style=for-the-badge&logo=android&logoColor=white" />
-  <img alt="Open Source" src="https://img.shields.io/badge/Open%20Source-open-8b5cf6?style=for-the-badge&logo=github&logoColor=white" />
-</p>
+## О проекте
 
-<p align="center">
-  <a href="#-что-такое-nimbo">Обзор</a> ·
-  <a href="#-возможности">Возможности</a> ·
-  <a href="#-скачать">Скачать</a> ·
-  <a href="#-открытый-код">Открытый код</a> ·
-  <a href="#-архитектура">Архитектура</a>
-</p>
+Nimbo импортирует подписки с `vless://`, `vmess://`, `trojan://`, `ss://` и `hysteria2://`, показывает серверы, измеряет задержку и создаёт конфигурацию Xray. Интерфейс написан на React, desktop-оболочка и системная логика — на Tauri/Rust.
 
-<p align="center">
-  <img src="./nimbo-poster-ru.png" alt="Постер Nimbo" />
-</p>
+Возможности текущей desktop-версии:
 
----
+- системный proxy, TUN и комбинированный режим;
+- маршрутизация по доменам, IP и приложениям;
+- подписки Remnawave, Marzban, 3x-ui и совместимые форматы;
+- русский и английский интерфейсы, темы, системный трей и журнал туннеля;
+- автоматическая загрузка Xray из официального stable release с проверкой SHA-256.
 
-## ✨ Что такое Nimbo
+## Платформы
 
-Nimbo — аккуратный VPN-клиент для xray-совместимых подписок на Windows и Android. Он работает с Remnawave, Marzban, 3x-ui и любыми панелями, которые отдают стандартные ссылки `vless://`, `vmess://`, `trojan://`, `ss://` или `hysteria2://`.
+| Платформа | Статус | Форматы релиза |
+|---|---|---|
+| Windows 10/11 x64 | Основная | NSIS setup (`.exe`) |
+| Linux x64 | Экспериментальная | AppImage, DEB, RPM |
+| Linux arm64 | Поддержан Xray runtime; пакет нужно собирать на arm64 Linux | AppImage/DEB/RPM при нативной сборке |
+| Android 10+ | Экспериментальная мобильная версия | Kotlin/Compose, APK для arm64-v8a и armeabi-v7a |
 
-Приложение импортирует URL подписки, показывает доступные серверы, измеряет задержку, генерирует runtime-конфиг для xray и подключает трафик через системный прокси, TUN-режим или оба режима сразу.
+AppImage подходит большинству дистрибутивов. DEB предназначен для Ubuntu, Debian, Linux Mint и Pop!_OS; RPM — для Fedora, RHEL-подобных систем и openSUSE.
 
----
-
-## 💎 Почему Nimbo
-
-| Акцент | Детали |
-|---|---|
-| **Легковесность** | Tauri 2 использует системный WebView вместо встроенного Chromium. |
-| **Открытый код** | Прозрачная кодовая база: клиент можно изучать, проверять, собирать самостоятельно и улучшать через PR. |
-| **Нативное ядро** | Rust-бэкенд, интеграция с xray-core и отдельный helper-сервис для сетевых операций. |
-| **Повышение прав один раз** | Сервис устанавливается один раз, поэтому подключение не требует постоянных UAC-подтверждений. |
-| **Удобство для провайдеров** | Метаданные подписки, описания серверов, User-Agent пресеты и deep links через `nimbo://`. |
-| **Практичная маршрутизация** | TUN, прокси, комбинированный режим, split tunneling и пользовательские профили маршрутизации. |
-
----
-
-## 🔓 Открытый код
-
-Nimbo развивается как проект с открытым исходным кодом. Код можно изучать, проверять, собирать самостоятельно и адаптировать под свои сценарии.
-
-- **Прозрачность**: видны логика подключения, работа helper-сервиса, генерация xray-конфигов и сетевые операции.
-- **Безопасность через аудит**: пользователи и провайдеры могут проверить, как клиент работает с подписками, DNS, маршрутами и локальными настройками.
-- **Контроль над сборкой**: можно собрать клиент из исходников, проверить зависимости и зафиксировать нужную версию.
-- **Вклад сообщества**: багрепорты, pull request и идеи по маршрутизации, интерфейсу, протоколам и платформам помогают развивать проект быстрее.
-
----
-
-## 🚀 Возможности
-
-### Протоколы
-
-- VLESS: Reality, XHTTP, WebSocket, gRPC, HTTP/2, TCP
-- VMess: WebSocket, gRPC, TCP, HTTP Upgrade
-- Trojan: TLS, WebSocket, gRPC
-- Shadowsocks
-- Hysteria2
-
-### Режимы подключения
-
-- Системный прокси: SOCKS5 / HTTP
-- TUN-режим: перехват системного трафика
-- Комбинированный режим: прокси + TUN
-
-### Управление подписками
-
-- Импорт по URL с метаданными трафика и срока действия
-- Автообновление по интервалу
-- User-Agent пресеты для совместимости с Happ/Incy
-- Импорт через deep link: `nimbo://import?url=...`
-- Поддержка метаданных Remnawave, включая описания серверов
-
-### Сетевые инструменты
-
-- Проверка TCP-задержки для всех серверов
-- Монитор активного подключения
-- Статистика трафика за сессию и за все время
-- Защита от DNS-утечек
-- Настройки доступа к локальной сети
-- Split tunneling по приложениям
-- Пользовательские профили маршрутизации: домены, IP, `geosite`, `geoip`
-
-### Интерфейс
-
-- Русский и английский языки
-- Темная, светлая, системная и True Black/OLED темы
-- Акцентный цвет от провайдера или выбранный вручную
-- Быстрые действия из системного трея
-- Просмотр логов туннеля
-- Компактный адаптивный интерфейс для десктопа и мобильных экранов
-
----
-
-## 🖥 Платформы
-
-| Платформа | Статус |
-|---|---|
-| **Windows 10/11** | Основная платформа. NSIS/custom installer, helper-сервис и поддержка TUN. |
-| **Linux** | Экспериментальная поддержка AppImage/deb/custom installer. |
-| **Android** | Поддерживаемый мобильный клиент. |
-
----
-
-## 📦 Скачать
-
-Последнюю версию можно скачать на странице [Releases](../../releases).
-
-> Установщик пока не подписан. Windows SmartScreen может показать предупреждение.
-> Нажмите **Подробнее** → **Выполнить в любом случае**, если доверяете релизу.
-
----
-
-## 🧭 Архитектура
-
-```text
-Nimbo UI
-Tauri 2 + React + WebView2
-Окно, трей, настройки, подписки
-        |
-        | named pipe / JSON IPC
-        v
-Nimbo Service
-Rust, SYSTEM на Windows
-xray-core, TUN-адаптер, таблица маршрутов, DNS-защита
-```
-
-UI запускается от обычного пользователя. Сервис работает с повышенными правами и берет на себя TUN-адаптер, маршруты, DNS, xray runtime и очистку конфликтующих VPN-процессов.
-
----
-
-## 📁 Структура проекта
+## Структура исходников
 
 ```text
 nimbo/
 ├── apps/
-│   ├── ui/             # Tauri 2 + React фронтенд и Tauri-бэкенд
-│   ├── service/        # Rust helper-сервис
-│   └── installer/      # Кастомный установщик
+│   ├── ui/             # Tauri 2 + React desktop-клиент
+│   ├── service/        # Windows-служба для привилегированных операций
+│   ├── installer/      # Кастомные установщики Windows/Linux
+│   └── android/        # Kotlin + Jetpack Compose Android-клиент
 ├── crates/
-│   ├── device/         # Генерация HWID
-│   ├── ipc/            # Общие типы IPC-протокола
-│   ├── subscription/   # Загрузка и парсинг подписок
-│   └── xray-config/    # Генерация xray JSON-конфига
-├── CHANGELOG_NIMBO.md
-├── Cargo.toml
-└── README.md
+│   ├── device/         # Идентификация устройства
+│   ├── ipc/            # Общие типы IPC
+│   ├── subscription/   # Загрузка и разбор подписок
+│   └── xray-config/    # Построение конфигурации Xray
+├── docs/
+│   └── build/          # Инструкции по сборке
+└── .github/workflows/  # Проверки и публикация релизов
 ```
 
----
+Подробности по границам модулей — в [apps/README.md](./apps/README.md).
 
-## 🔌 Совместимость с подписками
+## Требования для разработки
 
-Nimbo работает с любыми панелями, которые выдают xray-совместимые подписки:
+| Инструмент | Версия |
+|---|---:|
+| Rust | 1.80+ |
+| Node.js | 22+ |
+| npm | 10+ |
+| Tauri CLI | ставится локально через `npm ci` |
+| Android | JDK 21 и Android SDK; подробности в `apps/android/README.md` |
 
-- **Remnawave**: метаданные, описания серверов и xray-шаблоны
-- **Marzban**: base64 subscription links
-- **3x-ui**: xray JSON и base64-форматы
-- **Другие панели**: стандартные proxy URL
+На Windows для запуска нужен WebView2 Runtime; в актуальных Windows 10/11 он обычно уже есть. Для кастомного Windows-установщика дополнительно нужен NSIS.
 
-User-Agent по умолчанию:
+## Быстрый старт на Windows
 
-```text
-Nimbo/<version>
+```powershell
+git clone https://github.com/BBGGVP5/nimbo.git
+cd nimbo\apps\ui
+npm ci
+npm run dev
 ```
 
-Для legacy-подписок можно выбрать Happ/Incy User-Agent пресеты в настройках.
+Сборка готового Windows-установщика с сервисом:
 
----
+```powershell
+winget install --id NSIS.NSIS -e
+cd nimbo\apps\ui
+npm ci
+npm run build:installer:current
+```
 
-## 🗺 Планы
+Готовый файл появится в `target\release\bundle\nsis\`.
 
-- Полировка Android UX
-- Импорт подписки через QR-код
-- Усиление platform kill switch
-- Больше пресетов для split tunneling
-- Работа с несколькими профилями
-- Подписанный установщик и улучшенное автообновление
+## Сборка для Linux
 
----
+Linux-пакеты собираются нативно в Linux. На компьютере с Windows используйте WSL2 с Ubuntu: это нормальная Linux-среда, а не кросс-сборка из PowerShell. Инструкция с командами и путями к файлам находится в [docs/build/linux.md](./docs/build/linux.md).
 
-## 🤝 Участие
+## Android
 
-1. Откройте issue и опишите предлагаемое изменение.
-2. Создайте feature branch.
-3. Сделайте сфокусированные коммиты.
-4. Запустите проверки перед pull request.
-5. Откройте PR с понятным описанием и скриншотами для UI-изменений.
+Android-клиент находится в [apps/android](./apps/android). Он использует `VpnService` и официальный `libXray` `26.7.11`; в нём уже есть Gradle-wrapper, unit-тесты, lint и профили arm64-v8a/armeabi-v7a. Для подписанного APK нужен личный keystore; инструкция находится в [apps/android/README.md](./apps/android/README.md).
 
----
+## Автоматические релизы
 
-## 📄 Лицензия
+Push в `main` и pull request запускают тесты, frontend-сборки и Android unit-тесты/lint. Push тега формата `v*` собирает Windows NSIS setup и Linux AppImage/DEB/RPM, после чего прикладывает файлы к GitHub Release. Android workflow собирает только неподписанный APK для проверки: публикация Android-релиза потребует настроить signing credentials.
 
-Проект распространяется с открытым исходным кодом. Условия использования, модификации и распространения определяются лицензией репозитория.
+```powershell
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+Версия тега должна совпадать с версией в `apps/ui/src-tauri/tauri.conf.json` и workspace `Cargo.toml`.
+
+## Безопасность и обновления
+
+- Проверка обновлений приложения обращается к GitHub Release проекта `BBGGVP5/nimbo`.
+- Desktop Xray загружается только при отсутствии локального runtime; перед распаковкой Nimbo сверяет SHA-256 с `.dgst` из официального выпуска XTLS/Xray-core.
+- Android использует официальный `libXray`; скрипт `tools/update-libxray.ps1` проверяет SHA-256 GitHub release asset до замены AAR.
+- В production включена Content Security Policy Tauri; удалённые скрипты и произвольные origins не разрешены.
+
+## Лицензия
+
+Проект распространяется как проприетарный. Все права защищены, если отдельный файл лицензии не говорит иное.

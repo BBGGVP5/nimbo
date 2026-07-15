@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="quick_connect"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher_nimbo_blue_v2"
+        android:shortcutShortLabel="@string/shortcut_short_label"
+        android:shortcutLongLabel="@string/shortcut_long_label"
+        android:shortcutDisabledMessage="@string/shortcut_disabled_message">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.danila.nimbo"
+            android:targetClass="com.danila.nimbo.QuickConnectActivity"/>
+    </shortcut>
+</shortcuts>

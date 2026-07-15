@@ -1,0 +1,130 @@
+name: Публикация релиза
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег для GitHub Release, например v1.0.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows setup
+    runs-on: windows-latest
+
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v4
+
+      - name: Установить Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Кэш Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Установить Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/ui/package-lock.json
+
+      - name: Установить NSIS
+        shell: powershell
+        run: choco install nsis --no-progress -y
+
+      - name: Собрать установщик
+        working-directory: apps/ui
+        run: |
+          npm ci
+          npm run build:installer:current
+
+      - name: Сохранить Windows setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbo-windows
+          path: target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+  linux:
+    name: Linux packages
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v4
+
+      - name: Установить системные зависимости
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential file patchelf pkg-config rpm \
+            libwebkit2gtk-4.1-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Установить Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Кэш Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Установить Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/ui/package-lock.json
+
+      - name: Собрать AppImage, DEB и RPM
+        working-directory: apps/ui
+        run: |
+          npm ci
+          npm run build:linux
+
+      - name: Сохранить Linux-пакеты
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbo-linux
+          path: |
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+          if-no-files-found: error
+
+  publish:
+    name: Прикрепить файлы к GitHub Release
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Скачать Windows setup
+        uses: actions/download-artifact@v4
+        with:
+          name: nimbo-windows
+          path: release-assets/windows
+
+      - name: Скачать Linux-пакеты
+        uses: actions/download-artifact@v4
+        with:
+          name: nimbo-linux
+          path: release-assets/linux
+
+      - name: Опубликовать файлы
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        shell: bash
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes
+          find release-assets -type f -print0 | xargs -0 gh release upload "$TAG" --clobber

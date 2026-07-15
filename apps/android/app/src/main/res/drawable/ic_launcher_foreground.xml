@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Щит (фон) -->
+    <path
+        android:fillColor="#7C5DFA"
+        android:pathData="M54,38 L54,38 C54,38 70,42 70,52 L70,62 C70,68 54,74 54,74 C54,74 38,68 38,62 L38,52 C38,42 54,38 54,38 Z" />
+
+    <!-- Внутренний градиент щита -->
+    <path
+        android:pathData="M54,38 L54,38 C54,38 70,42 70,52 L70,62 C70,68 54,74 54,74 C54,74 38,68 38,62 L38,52 C38,42 54,38 54,38 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="54"
+                android:centerY="55"
+                android:gradientRadius="20"
+                android:type="radial">
+                <item
+                    android:color="#9B8DF5"
+                    android:offset="0" />
+                <item
+                    android:color="#7C5DFA"
+                    android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Молния в центре -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M56,44 L48,56 L53,56 L51,68 L61,54 L55,54 L56,44 Z" />
+
+</vector>

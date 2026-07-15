@@ -1,0 +1,426 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Нужен для выбора приложений в per-app VPN и локальной статистики трафика. -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK"/>
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher_nimbo_blue_v2"
+        android:label="Nimbo"
+        android:roundIcon="@mipmap/ic_launcher_nimbo_blue_v2_round"
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
+        android:theme="@style/Theme.NebulaGuard"
+        android:name=".NebulaGuardApplication"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+
+        <activity
+            android:name=".MainActivity"
+            android:launchMode="singleTask"
+            android:exported="true"
+            android:enableOnBackInvokedCallback="true"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.NebulaGuard">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES"/>
+            </intent-filter>
+
+            <!-- URL схема для добавления подписок -->
+            <!-- Формат: nimbo://add/https://example.com/subscription (nebula:// — старая схема, поддерживается для совместимости) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="nebula"/>
+                <data android:scheme="nimbo"/>
+                <data android:host="add"/>
+            </intent-filter>
+
+            <!-- Альтернативный формат: nimbo://subscription/https://example.com/subscription -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="nebula"/>
+                <data android:scheme="nimbo"/>
+                <data android:host="subscription"/>
+            </intent-filter>
+
+            <!-- Ярлыки приложения -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts"/>
+        </activity>
+
+        <!-- Activity Aliases for App Icons -->
+        <activity-alias
+            android:name=".AliasDefault"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_nimbo_blue_v2"
+            android:roundIcon="@mipmap/ic_launcher_nimbo_blue_v2_round"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0000"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0000"
+            android:roundIcon="@mipmap/ic_alias_0000"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0001"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0001"
+            android:roundIcon="@mipmap/ic_alias_0001"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0002"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0002"
+            android:roundIcon="@mipmap/ic_alias_0002"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0004"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0004"
+            android:roundIcon="@mipmap/ic_alias_0004"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0005"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0005"
+            android:roundIcon="@mipmap/ic_alias_0005"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0006"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0006"
+            android:roundIcon="@mipmap/ic_alias_0006"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0007"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0007"
+            android:roundIcon="@mipmap/ic_alias_0007"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0008"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0008"
+            android:roundIcon="@mipmap/ic_alias_0008"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0009"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0009"
+            android:roundIcon="@mipmap/ic_alias_0009"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0010"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0010"
+            android:roundIcon="@mipmap/ic_alias_0010"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0011"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0011"
+            android:roundIcon="@mipmap/ic_alias_0011"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0012"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0012"
+            android:roundIcon="@mipmap/ic_alias_0012"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0013"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0013"
+            android:roundIcon="@mipmap/ic_alias_0013"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0014"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0014"
+            android:roundIcon="@mipmap/ic_alias_0014"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0015"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0015"
+            android:roundIcon="@mipmap/ic_alias_0015"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0016"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0016"
+            android:roundIcon="@mipmap/ic_alias_0016"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0017"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0017"
+            android:roundIcon="@mipmap/ic_alias_0017"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasSprite0018"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_alias_0018"
+            android:roundIcon="@mipmap/ic_alias_0018"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Ярлык для быстрого подключения -->
+        <activity
+            android:name=".QuickConnectActivity"
+            android:exported="true"
+            android:label="Подключить VPN"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:enableOnBackInvokedCallback="true"
+            android:theme="@style/Theme.NebulaGuard">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".vpn.MyVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="true"
+            android:foregroundServiceType="specialUse">
+
+            <intent-filter>
+                <action android:name="android.net.VpnService"/>
+            </intent-filter>
+
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="vpn"/>
+        </service>
+
+        <receiver
+            android:name=".BootRestoreReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- TileService для центра управления (шторки) -->
+        <service
+            android:name=".service.VpnQuickSettingsTileService"
+            android:label="Nimbo"
+            android:icon="@drawable/icon_quick_settings"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true"/>
+        </service>
+
+        <!--
+        Убраны по просьбе пользователя для чистоты быстрой панели шторки:
+        .service.DeviceStatsQuickSettingsTileService
+        .service.TrafficStatsQuickSettingsTileService
+        .service.ProfileStatsQuickSettingsTileService
+        -->
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+    </application>
+
+</manifest>

@@ -1,0 +1,48 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Node
+node_modules/
+dist/
+.vite/
+*.log
+.npm/
+
+# IDEs
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Tauri
+apps/**/src-tauri/gen/
+apps/ui/src-tauri/target/
+
+# UI design references (not for repo)
+ui-template/
+
+# Local agent workspaces
+.claude/
+.codex-logs/
+
+# Android local state and signing material
+apps/android/.gradle/
+apps/android/.kotlin/
+apps/android/build/
+apps/android/app/build/
+apps/android/local.properties
+apps/android/app/signing.properties
+apps/android/app/libs/libbox_unpacked/

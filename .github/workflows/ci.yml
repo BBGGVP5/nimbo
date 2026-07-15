@@ -1,0 +1,74 @@
+name: Проверка проекта
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Проверка (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v4
+
+      - name: Установить системные зависимости Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential file patchelf pkg-config rpm \
+            libwebkit2gtk-4.1-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Установить Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Кэш Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Установить Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/ui/package-lock.json
+            apps/installer/package-lock.json
+
+      - name: Собрать frontend клиента
+        working-directory: apps/ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Собрать frontend установщика
+        working-directory: apps/installer
+        run: |
+          npm ci
+          npm run build
+
+      - name: Запустить Rust-тесты
+        run: cargo test --workspace --all-targets
+
+      - name: Проверить форматирование Rust
+        run: cargo fmt --all -- --check
+
+      - name: Запустить Clippy без предупреждений
+        run: cargo clippy --workspace --all-targets -- -D warnings

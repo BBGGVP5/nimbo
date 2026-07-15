@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Nimbo</string>
+
+    <!-- Shortcuts -->
+    <string name="shortcut_short_label">Подключить VPN</string>
+    <string name="shortcut_long_label">Быстрое подключение VPN</string>
+    <string name="shortcut_disabled_message">Недоступно</string>
+</resources>
