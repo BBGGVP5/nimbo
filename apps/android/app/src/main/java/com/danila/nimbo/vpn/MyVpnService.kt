@@ -225,6 +225,21 @@ class MyVpnService : VpnService() {
                     return START_NOT_STICKY
                 }
 
+                // В Android allow-list VPN включается только после первого
+                // addAllowedApplication(). Пустой (либо состоящий из удалённых
+                // приложений) список иначе означает «через VPN идут все», что
+                // перехватывает DNS у программ, которые должны остаться direct.
+                if (!hasSelectedVpnOnlyApplication()) {
+                    Logger.w(TAG, "VPN-only mode has no installed selected apps; tunnel was not started to keep direct DNS working")
+                    android.widget.Toast.makeText(
+                        applicationContext,
+                        "Выберите хотя бы одно приложение для VPN",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    requestManualStop("vpn-only app list is empty")
+                    return START_NOT_STICKY
+                }
+
                 preferencesManager.vpnConnectionDesired = true
                 preferencesManager.vpnPausedByScreen = false
                 recoveryState = VpnRecoveryPolicy.reduce(
@@ -304,6 +319,26 @@ class MyVpnService : VpnService() {
         }
 
         return START_STICKY
+    }
+
+    /**
+     * Возвращает false для пустых, вручную введённых и уже удалённых пакетов.
+     * Такие записи нельзя передавать в Builder.addAllowedApplication(): Android
+     * не активирует allow-list, если ни один пакет фактически не был добавлен.
+     */
+    private fun hasSelectedVpnOnlyApplication(): Boolean {
+        if (preferencesManager.proxyByApp != 2) return true
+        val ownPackage = packageName
+        return preferencesManager.getAppVpnOnlyList()
+            .asSequence()
+            .map(String::trim)
+            .filter { it.isNotBlank() && it != ownPackage }
+            .any { candidate ->
+                runCatching {
+                    @Suppress("DEPRECATION")
+                    packageManager.getApplicationInfo(candidate, 0)
+                }.isSuccess
+            }
     }
 
     /**
