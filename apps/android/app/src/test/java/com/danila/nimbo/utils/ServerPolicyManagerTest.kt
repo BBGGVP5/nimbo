@@ -24,6 +24,16 @@ class ServerPolicyManagerTest {
     }
 
     @Test
+    fun isAutoBalancerServer_detectsRemnawaveLeastPingTag() {
+        val server = remoteServer(name = "Маршрут EU").copy(
+            remoteBalancerTag = "balance-last-ping"
+        )
+
+        assertTrue(isAutoBalancerServer(server))
+        assertFalse(isBypassServer(server))
+    }
+
+    @Test
     fun isAutoBalancerServer_detectsAutobalancersInServerDescription() {
         val server = remoteServer(
             name = "EU обход",

@@ -35,6 +35,27 @@ class ServerSelectionTest {
         assertNotEquals(keyA, keyB)
     }
 
+    @Test
+    fun remoteBalancerTagsRemainSeparateSelections() {
+        val lastPing = Server(
+            name = "leastPing",
+            host = "API",
+            port = 0,
+            uuid = "remote",
+            protocol = "xray",
+            profileUrl = "https://example.com/sub",
+            remoteBalancerTag = "balance-last-ping"
+        )
+        val leastLoaded = lastPing.copy(
+            name = "leastLoad",
+            remoteBalancerTag = "balance-least-loaded"
+        )
+
+        assertFalse(lastPing.matchesSelection(leastLoaded))
+        assertNotEquals(lastPing.selectionKey(), leastLoaded.selectionKey())
+        assertNotEquals(lastPing.pingKey(), leastLoaded.pingKey())
+    }
+
     private fun remoteServer(
         templateUuid: String,
         templateName: String

@@ -452,9 +452,17 @@ object XrayManager {
             includeTunInboundForProxyStyleRule(rule)
         }
         val normalizedRules = reorderRoutingRules(rules)
-        val balancerTag = resolvePreferredBalancerTag(routing, normalizedRules)
+        val selectedOutboundTag = resolveSelectedRemoteOutboundTag(outbounds, server)
+        val balancerTag = resolvePreferredBalancerTag(routing, normalizedRules, server)
         val finalRules = JSONArray()
-        if (!balancerTag.isNullOrBlank() && !hasTunInboundBalancerRule(normalizedRules, balancerTag)) {
+        if (!selectedOutboundTag.isNullOrBlank() && !hasTunInboundOutboundRule(normalizedRules, selectedOutboundTag)) {
+            finalRules.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("inboundTag", JSONArray().put("tun-in"))
+                    .put("outboundTag", selectedOutboundTag)
+            )
+        } else if (!balancerTag.isNullOrBlank() && !hasTunInboundBalancerRule(normalizedRules, balancerTag)) {
             finalRules.put(
                 JSONObject()
                     .put("type", "field")
@@ -564,7 +572,27 @@ object XrayManager {
         return true
     }
 
-    private fun resolvePreferredBalancerTag(routing: JSONObject, rules: JSONArray): String? {
+    private fun resolveSelectedRemoteOutboundTag(outbounds: JSONArray, server: Server?): String? {
+        val selectedTag = server?.remoteOutboundTag?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        for (i in 0 until outbounds.length()) {
+            if (outbounds.optJSONObject(i)?.optString("tag")?.equals(selectedTag, ignoreCase = true) == true) {
+                return selectedTag
+            }
+        }
+        Log.w(TAG, "Selected remote outbound '$selectedTag' is absent from config; use template default")
+        return null
+    }
+
+    private fun resolvePreferredBalancerTag(routing: JSONObject, rules: JSONArray, server: Server?): String? {
+        val selectedTag = server?.remoteBalancerTag?.trim()?.takeIf { it.isNotBlank() }
+        if (selectedTag != null) {
+            val balancers = routing.optJSONArray("balancers")
+            for (i in 0 until (balancers?.length() ?: 0)) {
+                val tag = balancers?.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+                if (tag.equals(selectedTag, ignoreCase = true)) return tag
+            }
+            Log.w(TAG, "Selected Remnawave balancer '$selectedTag' is absent from config; use template default")
+        }
         for (i in 0 until rules.length()) {
             val rule = rules.optJSONObject(i) ?: continue
             val balancerTag = rule.optString("balancerTag").trim()
@@ -578,6 +606,24 @@ object XrayManager {
             if (tag.isNotBlank()) return tag
         }
         return null
+    }
+
+    private fun hasTunInboundOutboundRule(rules: JSONArray, outboundTag: String): Boolean {
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            val tag = rule.optString("outboundTag", rule.optString("outTag"))
+            if (!tag.equals(outboundTag, ignoreCase = true)) continue
+            when (val inboundTag = rule.opt("inboundTag")) {
+                is JSONArray -> {
+                    for (j in 0 until inboundTag.length()) {
+                        if (inboundTag.optString(j).equals("tun-in", ignoreCase = true)) return true
+                    }
+                }
+                is String -> if (inboundTag.equals("tun-in", ignoreCase = true)) return true
+                else -> if (!rule.has("inboundTag")) return true
+            }
+        }
+        return false
     }
 
     private fun hasTunInboundBalancerRule(rules: JSONArray, balancerTag: String): Boolean {

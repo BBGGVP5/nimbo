@@ -66,6 +66,16 @@ data class RemnawaveSubscriptionTemplate(
     val fetchedAtMs: Long? = null
 )
 
+/**
+ * A selectable route declared by an Xray JSON template. Remnawave can return
+ * several balancing strategies or virtual routed hosts inside one client config.
+ */
+internal data class RemnawaveXrayRoute(
+    val tag: String,
+    val label: String,
+    val isBalancer: Boolean
+)
+
 object RemnawaveApiClient {
 
     const val DEFAULT_XRAY_TEMPLATE_MARKER = "__default_xray_template__"
@@ -160,8 +170,9 @@ object RemnawaveApiClient {
         // Remnawave auto-balancer templates ship only direct/block/loopback outbounds
         // plus a routing.balancers entry and a remnawave.injectHosts directive; the real
         // proxy outbounds are injected client-side before launch (standard xray-core does
-        // not expand injectHosts). Treat such templates as usable so we don't discard them.
-        return hasBalancerOrInjectHosts(json)
+        // not expand injectHosts). Virtual hosts may similarly use a loopback route.
+        // Keep both forms instead of discarding them as an empty subscription.
+        return hasBalancerOrInjectHosts(json) || hasRoutedClientTarget(json)
     }
 
     internal fun hasBalancerOrInjectHosts(json: JSONObject): Boolean {
@@ -169,6 +180,73 @@ object RemnawaveApiClient {
         if (balancers != null && balancers.length() > 0) return true
         val injectHosts = json.optJSONObject("remnawave")?.optJSONArray("injectHosts")
         return injectHosts != null && injectHosts.length() > 0
+    }
+
+    /**
+     * Extract strategies and virtual routed outbounds that a user can select.
+     * The panel may send several balancers in one Xray JSON response, while the
+     * regular outbound parser deliberately skips their technical loopback entries.
+     */
+    internal fun extractSelectableXrayRoutes(json: JSONObject): List<RemnawaveXrayRoute> {
+        val routing = json.optJSONObject("routing") ?: return emptyList()
+        val routes = LinkedHashMap<String, RemnawaveXrayRoute>()
+        val configLabel = listOf("remarks", "remark", "name")
+            .firstNotNullOfOrNull { key ->
+                json.optString(key).trim().takeIf { it.isNotBlank() }
+            }
+
+        routing.optJSONArray("balancers")?.let { balancers ->
+            for (i in 0 until balancers.length()) {
+                val balancer = balancers.optJSONObject(i) ?: continue
+                val tag = balancer.optString("tag").trim()
+                if (tag.isBlank()) continue
+                val strategy = balancer.optJSONObject("strategy")
+                    ?.optString("type")
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: balancer.optString("strategy").trim().takeIf { it.isNotBlank() }
+                val label = strategy ?: configLabel ?: tag
+                routes.putIfAbsent(
+                    "balancer:${tag.lowercase(Locale.ROOT)}",
+                    RemnawaveXrayRoute(tag = tag, label = label, isBalancer = true)
+                )
+            }
+        }
+
+        val loopbackTags = buildSet {
+            json.optJSONArray("outbounds")?.let { outbounds ->
+                for (i in 0 until outbounds.length()) {
+                    val outbound = outbounds.optJSONObject(i) ?: continue
+                    if (!outbound.optString("protocol").equals("loopback", ignoreCase = true)) continue
+                    outbound.optString("tag").trim().takeIf { it.isNotBlank() }?.let(::add)
+                }
+            }
+        }
+        if (loopbackTags.isEmpty()) return routes.values.toList()
+
+        val ignoredTags = setOf("direct", "block", "dns")
+        routing.optJSONArray("rules")?.let { rules ->
+            for (i in 0 until rules.length()) {
+                val rule = rules.optJSONObject(i) ?: continue
+                val tag = rule.optString("outboundTag")
+                    .ifBlank { rule.optString("outTag") }
+                    .trim()
+                if (tag.isBlank() || tag.lowercase(Locale.ROOT) in ignoredTags || tag !in loopbackTags) continue
+                routes.putIfAbsent(
+                    "outbound:${tag.lowercase(Locale.ROOT)}",
+                    RemnawaveXrayRoute(
+                        tag = tag,
+                        label = configLabel ?: tag,
+                        isBalancer = false
+                    )
+                )
+            }
+        }
+        return routes.values.toList()
+    }
+
+    private fun hasRoutedClientTarget(json: JSONObject): Boolean {
+        return extractSelectableXrayRoutes(json).any { !it.isBalancer }
     }
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()

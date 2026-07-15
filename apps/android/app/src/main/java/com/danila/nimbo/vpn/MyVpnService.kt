@@ -1490,10 +1490,12 @@ class MyVpnService : VpnService() {
         val network = server.network?.trim()?.lowercase().orEmpty()
         val templateUuid = server.templateUuid?.trim()?.lowercase().orEmpty()
         val templateName = server.templateName?.trim()?.lowercase().orEmpty()
+        val remoteBalancerTag = server.remoteBalancerTag?.trim()?.lowercase().orEmpty()
+        val remoteOutboundTag = server.remoteOutboundTag?.trim()?.lowercase().orEmpty()
         val isRemote = uuid == "remote" || host == "api"
 
         return if (isRemote) {
-            "remote|$uuid|$host|${server.port}|$protocol|$network|$templateUuid|$templateName|${server.name.trim().lowercase()}"
+            "remote|$uuid|$host|${server.port}|$protocol|$network|$templateUuid|$templateName|$remoteBalancerTag|$remoteOutboundTag|${server.name.trim().lowercase()}"
         } else {
             "regular|$uuid|$host|${server.port}|$protocol|$network"
         }
@@ -1547,7 +1549,9 @@ class MyVpnService : VpnService() {
                 candidate.uuid != "remote" ||
                     (
                         candidate.templateUuid.equals(baseServer.templateUuid, ignoreCase = true) &&
-                            candidate.templateName.equals(baseServer.templateName, ignoreCase = true)
+                            candidate.templateName.equals(baseServer.templateName, ignoreCase = true) &&
+                            candidate.remoteBalancerTag.orEmpty().equals(baseServer.remoteBalancerTag.orEmpty(), ignoreCase = true) &&
+                            candidate.remoteOutboundTag.orEmpty().equals(baseServer.remoteOutboundTag.orEmpty(), ignoreCase = true)
                         )
                 )
         }

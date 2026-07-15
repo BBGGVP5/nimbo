@@ -48,6 +48,11 @@ data class Server(
     // Remnawave template selection hints
     @SerializedName("templateUuid") val templateUuid: String? = null,
     @SerializedName("templateName") val templateName: String? = null,
+    // Тег балансировщика/виртуального маршрута из Xray JSON Remnawave. Нужен,
+    // чтобы несколько стратегий одного конфига (leastPing, leastLoad и т. п.)
+    // оставались отдельными пунктами и подключались именно к выбранной стратегии.
+    @SerializedName("remoteBalancerTag") val remoteBalancerTag: String? = null,
+    @SerializedName("remoteOutboundTag") val remoteOutboundTag: String? = null,
     @SerializedName("pingHost") val pingHost: String? = null,
     @SerializedName("pingPort") val pingPort: Int? = null,
 
@@ -79,7 +84,9 @@ data class Server(
         return if (isRemoteTemplateServer()) {
             val templateUuidPart = normalized(templateUuid)
             val templateNamePart = normalized(templateName)
-            "remote|$profile|$hostPart|$port|$uuidPart|$templateUuidPart|$templateNamePart"
+            val balancerTagPart = normalized(remoteBalancerTag)
+            val outboundTagPart = normalized(remoteOutboundTag)
+            "remote|$profile|$hostPart|$port|$uuidPart|$templateUuidPart|$templateNamePart|$balancerTagPart|$outboundTagPart"
         } else {
             "regular|$profile|$hostPart|$port|$uuidPart|$protocolPart|$networkPart"
         }
@@ -134,7 +141,7 @@ data class Server(
             hysteriaHopInterval.orEmpty()
         ).joinToString("|")
         val pingTargetPart = if (isRemoteTemplateServer()) {
-            "|${normalized(pingHost)}|${pingPort ?: 0}"
+            "|${normalized(pingHost)}|${pingPort ?: 0}|${normalized(remoteBalancerTag)}|${normalized(remoteOutboundTag)}"
         } else {
             ""
         }

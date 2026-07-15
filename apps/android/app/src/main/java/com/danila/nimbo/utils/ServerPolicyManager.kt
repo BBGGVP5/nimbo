@@ -44,10 +44,15 @@ fun isAutoBalancerServer(server: Server): Boolean {
     fun hasAutoBalancerMarker(value: String?): Boolean {
         val normalized = value?.trim()?.lowercase().orEmpty()
         if (normalized.isBlank()) return false
+        val compact = normalized.replace(Regex("[\\s_\\-]"), "")
         return normalized.contains("autobalancer") ||
             normalized.contains("balancer") ||
             normalized.contains("балансер") ||
-            normalized.contains("loadbalance")
+            normalized.contains("loadbalance") ||
+            compact.contains("lastping") ||
+            compact.contains("leastping") ||
+            compact.contains("leastload") ||
+            compact.contains("leastloaded")
     }
 
     val nameLower = server.name.trim().lowercase()
@@ -59,7 +64,8 @@ fun isAutoBalancerServer(server: Server): Boolean {
         nameLower.contains("|") &&
         nameLower.contains("обход")
 
-    return hasAutoBalancerMarker(server.templateName) ||
+    return !server.remoteBalancerTag.isNullOrBlank() ||
+        hasAutoBalancerMarker(server.templateName) ||
         hasAutoBalancerMarker(server.templateUuid) ||
         hasAutoBalancerMarker(server.serverDescription) ||
         hasAutoBalancerMarker(server.name) ||

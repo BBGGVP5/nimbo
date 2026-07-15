@@ -237,6 +237,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return templateConfig ?: profile.rawConfig?.takeIf { it.isNotBlank() }
     }
 
+    /**
+     * Converts Remnawave's balancing and virtual routes from one Xray JSON response
+     * into selectable rows. The normal link parser intentionally ignores loopback
+     * outbounds, so without this step lastPing/leastLoad and routed virtual nodes are
+     * reduced to one anonymous "Remote Config" row.
+     */
+    private fun remoteRouteServersFromConfig(config: String?, profileUrl: String): List<Server> {
+        val text = config?.trim()?.takeIf { it.startsWith("{") && it.endsWith("}") } ?: return emptyList()
+        val json = runCatching { JSONObject(text) }.getOrNull() ?: return emptyList()
+        val routes = RemnawaveApiClient.extractSelectableXrayRoutes(json)
+        if (routes.isEmpty()) return emptyList()
+
+        val protocol = SubscriptionManager.detectPrimaryProxyProtocolFromJsonConfig(text) ?: "xray"
+        return routes.map { route ->
+            val label = route.label.trim().ifBlank { route.tag }
+            val isBalancer = route.isBalancer
+            Server(
+                name = if (isBalancer) "⚖️ $label" else "🔀 $label",
+                host = "API",
+                port = 0,
+                uuid = "remote",
+                protocol = protocol,
+                serverDescription = if (isBalancer) {
+                    "Автобалансер Remnawave · ${route.tag}"
+                } else {
+                    "Маршрутизируемая нода Remnawave · ${route.tag}"
+                },
+                profileUrl = profileUrl,
+                remoteBalancerTag = route.tag.takeIf { isBalancer },
+                remoteOutboundTag = route.tag.takeIf { !isBalancer }
+            )
+        }
+    }
+
     private fun resolveTemplateUuidValue(
         rawValue: String?,
         defaultTemplate: RemnawaveSubscriptionTemplate?
@@ -1533,7 +1567,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     parsedFromResponse.addAll(templateServers)
-                } else if (!hasDirectSubscriptionServers) {
+                }
+
+                // Один Xray JSON ответ может содержать несколько балансировщиков
+                // (lastPing / leastLoad и т. п.) или виртуальную ноду, направленную
+                // на другой хост. Они не превращаются в share-ссылки, поэтому
+                // добавляем их как отдельные remote-пункты.
+                val remoteRouteServers = remoteRouteServersFromConfig(result.rawConfig, url)
+                if (remoteRouteServers.isNotEmpty()) {
+                    parsedFromResponse.addAll(remoteRouteServers)
+                } else if (xrayTemplates.isEmpty() && !hasDirectSubscriptionServers) {
                     // Фолбэк: если шаблонов нет и direct серверов тоже нет, используем дефолтный /json.
                     val detectedProtocol = SubscriptionManager.detectPrimaryProxyProtocolFromJsonConfig(result.rawConfig)
                         ?: result.configType
