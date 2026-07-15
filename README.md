@@ -5,7 +5,8 @@
 <h1 align="center">Nimbo</h1>
 
 <p align="center">
-  Открытые исходники VPN-клиента для xray-совместимых подписок.
+  Официальные открытые исходники Nimbo — лёгкого VPN-клиента для подписок,
+  маршрутов и защищённого подключения.
 </p>
 
 <p align="center">
@@ -16,6 +17,8 @@
 </p>
 
 <p align="center">
+  <a href="https://nimboapp.pw">Официальный сайт</a> ·
+  <a href="https://github.com/BBGGVP5/nimbo/releases/latest">Скачать последнюю версию</a> ·
   <a href="#платформы">Платформы</a> ·
   <a href="#возможности">Возможности</a> ·
   <a href="#структура-исходников">Структура</a> ·
@@ -36,6 +39,8 @@
 | Android 10+ | поддерживается | Kotlin, Jetpack Compose, `VpnService`, libXray |
 
 Nimbo работает с подписками Remnawave, Marzban, 3x-ui и другими панелями, которые выдают `vless://`, `vmess://`, `trojan://`, `ss://` или `hysteria2://`.
+
+Официальный сайт проекта — [nimboapp.pw](https://nimboapp.pw). Там находятся пользовательская документация, дорожная карта и ссылки на актуальные релизы. Этот репозиторий — официальная открытая кодовая база Nimbo.
 
 ## Возможности
 
@@ -90,4 +95,4 @@ npm run build:linux
 
 ## Лицензирование и авторство
 
-История desktop-исходников и исходное авторство сохранены. Новые публикации и релизы ведутся в [BBGGVP5/nimbo](https://github.com/BBGGVP5/nimbo).
+Nimbo представлен как единое приложение для Windows, Android и Linux. Официальная информация публикуется на [nimboapp.pw](https://nimboapp.pw), а исходники и релизы — в [BBGGVP5/nimbo](https://github.com/BBGGVP5/nimbo). История desktop-исходников и исходное авторство сохранены.
