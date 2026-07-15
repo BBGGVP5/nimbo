@@ -1,16 +1,16 @@
 #![cfg(windows)]
 
-use std::ffi::{OsStr, c_void};
+use std::ffi::{c_void, OsStr};
 use std::io::{self, Read, Write};
 use std::os::windows::ffi::OsStrExt;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use nimbo_ipc::{
-    Command, ErrorCode, KillFailure, KillReport, PIPE_NAME, PROTOCOL_VERSION, Response,
-    decode_command, encode_response, framing,
+    decode_command, encode_response, framing, Command, ErrorCode, KillFailure, KillReport,
+    Response, PIPE_NAME, PROTOCOL_VERSION,
 };
 use tracing::{debug, error, info, warn};
 use windows_sys::Win32::Foundation::{
@@ -22,8 +22,8 @@ use windows_sys::Win32::Security::{
     SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-    PIPE_ACCESS_DUPLEX, ReadFile, WriteFile,
+    CreateFileW, ReadFile, WriteFile, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
 };
 use windows_sys::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_MESSAGE,
@@ -138,8 +138,7 @@ pub fn serve(shutdown: Arc<AtomicBool>) -> Result<()> {
 
 fn handle_client(pipe: &PipeHandle) -> Result<()> {
     let mut io = PipeIo { handle: pipe.0 };
-    let payload = framing::read_frame(&mut io)
-        .map_err(|e| anyhow!("read frame: {e}"))?;
+    let payload = framing::read_frame(&mut io).map_err(|e| anyhow!("read frame: {e}"))?;
     let command = decode_command(&payload).map_err(|e| anyhow!("decode command: {e}"))?;
     let response = process_command(command);
     let bytes = encode_response(&response).map_err(|e| anyhow!("encode response: {e}"))?;
@@ -243,7 +242,7 @@ impl Write for PipeIo {
 fn create_pipe_instance() -> Result<PipeHandle> {
     let wide = pipe_name_wide();
     let mut descriptor = SecurityDescriptor::allow_authenticated_writers()?;
-    let mut attrs = SECURITY_ATTRIBUTES {
+    let attrs = SECURITY_ATTRIBUTES {
         nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
         lpSecurityDescriptor: descriptor.as_ptr(),
         bInheritHandle: FALSE,
@@ -253,15 +252,12 @@ fn create_pipe_instance() -> Result<PipeHandle> {
         CreateNamedPipeW(
             wide.as_ptr(),
             PIPE_ACCESS_DUPLEX,
-            PIPE_TYPE_MESSAGE
-                | PIPE_READMODE_MESSAGE
-                | PIPE_WAIT
-                | PIPE_REJECT_REMOTE_CLIENTS,
+            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
             PIPE_UNLIMITED_INSTANCES,
             BUFFER_BYTES,
             BUFFER_BYTES,
             0,
-            &mut attrs,
+            &attrs,
         )
     };
 

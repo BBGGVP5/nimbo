@@ -3,8 +3,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::MakeWriter;
+use tracing_subscriber::EnvFilter;
 
 const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
 

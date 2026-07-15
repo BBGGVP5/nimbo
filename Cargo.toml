@@ -14,7 +14,7 @@ members = [
 version = "1.0.0"
 edition = "2021"
 rust-version = "1.80"
-authors = ["Case211"]
+authors = ["BBGGVP5"]
 license = "Proprietary"
 repository = "https://github.com/BBGGVP5/nimbo"
 
@@ -36,6 +36,7 @@ base64 = "0.22"
 percent-encoding = "2.3"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli"] }
 dirs = "5.0"
+sha2 = "0.10"
 
 [profile.release]
 opt-level = 3

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use nimbo_subscription::Server;
 
 use crate::inbound::Inbound;
-use crate::outbound::{Outbound, server_to_outbound, outbound_direct, outbound_block};
+use crate::outbound::{outbound_block, outbound_direct, server_to_outbound, Outbound};
 use crate::routing::{AppRoutingRule, Routing, RoutingProfileRules};
 
 pub const TAG_PROXY: &str = "proxy";
@@ -84,17 +84,9 @@ impl Default for ApiConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Policy {
     pub system: PolicySystem,
-}
-
-impl Default for Policy {
-    fn default() -> Self {
-        Self {
-            system: PolicySystem::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

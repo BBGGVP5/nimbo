@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::model::{Protocol, Server, ShadowsocksConfig};
-use crate::parser::{ParseError, b64_decode_str, fingerprint, parse_port, url_decode};
+use crate::parser::{b64_decode_str, fingerprint, parse_port, url_decode, ParseError};
 
 pub fn parse(input: &str) -> Result<Server, ParseError> {
     let payload = input
@@ -58,7 +58,11 @@ pub fn parse(input: &str) -> Result<Server, ParseError> {
         name,
         server_description: query_param(
             &query,
-            &["serverDescription", "server_description", "server-description"],
+            &[
+                "serverDescription",
+                "server_description",
+                "server-description",
+            ],
         ),
         host_uuid: query_param(&query, &["hostUuid", "host_uuid", "host-uuid"]),
         xray_json_template_uuid: query_param(

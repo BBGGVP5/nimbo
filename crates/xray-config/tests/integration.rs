@@ -1,7 +1,7 @@
 use nimbo_subscription::parser::aggregate::parse_single;
 use nimbo_xray_config::{
-    AppRoutingMode, AppRoutingRule, ConfigBuilder, ProxyPorts, build_config,
-    build_config_with_ports,
+    build_config, build_config_with_ports, AppRoutingMode, AppRoutingRule, ConfigBuilder,
+    ProxyPorts,
 };
 
 #[test]
@@ -67,7 +67,9 @@ fn vless_reality_xhttp_full_config() {
     let rules = v["routing"]["rules"].as_array().unwrap();
     assert!(rules.iter().any(|r| r["outboundTag"] == "api"));
     assert!(rules.iter().any(|r| r["outboundTag"] == "direct"
-        && r["ip"].as_array().is_some_and(|a| a.contains(&"geoip:private".into()))));
+        && r["ip"]
+            .as_array()
+            .is_some_and(|a| a.contains(&"geoip:private".into()))));
 
     assert_eq!(v["api"]["tag"], "api");
     assert_eq!(v["api"]["services"][0], "StatsService");
@@ -92,8 +94,14 @@ fn vmess_ws_tls_config() {
     assert_eq!(proxy["settings"]["vnext"][0]["users"][0]["alterId"], 0);
     assert_eq!(proxy["streamSettings"]["network"], "ws");
     assert_eq!(proxy["streamSettings"]["wsSettings"]["path"], "/v");
-    assert_eq!(proxy["streamSettings"]["wsSettings"]["headers"]["Host"], "vm.tld");
-    assert_eq!(proxy["streamSettings"]["tlsSettings"]["serverName"], "vm.tld");
+    assert_eq!(
+        proxy["streamSettings"]["wsSettings"]["headers"]["Host"],
+        "vm.tld"
+    );
+    assert_eq!(
+        proxy["streamSettings"]["tlsSettings"]["serverName"],
+        "vm.tld"
+    );
 }
 
 #[test]

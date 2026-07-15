@@ -51,41 +51,44 @@ impl Routing {
         app_rules: &[AppRoutingRule],
         profile_rules: Option<&RoutingProfileRules>,
     ) -> Self {
-        let mut rules = vec![
-            RoutingRule {
-                rule_type: "field".into(),
-                inbound_tag: Some(vec!["api".into()]),
-                outbound_tag: TAG_API.into(),
-                ..Default::default()
-            },
-        ];
+        let mut rules = vec![RoutingRule {
+            rule_type: "field".into(),
+            inbound_tag: Some(vec!["api".into()]),
+            outbound_tag: TAG_API.into(),
+            ..Default::default()
+        }];
 
-        rules.extend(app_rules.iter().filter(|rule| rule.enabled).filter_map(|rule| {
-            let outbound_tag = match rule.mode {
-                AppRoutingMode::Proxy => TAG_PROXY.into(),
-                AppRoutingMode::Direct => TAG_DIRECT.into(),
-            };
+        rules.extend(
+            app_rules
+                .iter()
+                .filter(|rule| rule.enabled)
+                .filter_map(|rule| {
+                    let outbound_tag = match rule.mode {
+                        AppRoutingMode::Proxy => TAG_PROXY.into(),
+                        AppRoutingMode::Direct => TAG_DIRECT.into(),
+                    };
 
-            if let Some(domain) = normalize_domain_matcher(&rule.process) {
-                return Some(RoutingRule {
-                    rule_type: "field".into(),
-                    domain: Some(vec![domain]),
-                    outbound_tag,
-                    ..Default::default()
-                });
-            }
+                    if let Some(domain) = normalize_domain_matcher(&rule.process) {
+                        return Some(RoutingRule {
+                            rule_type: "field".into(),
+                            domain: Some(vec![domain]),
+                            outbound_tag,
+                            ..Default::default()
+                        });
+                    }
 
-            let process = normalize_process_matchers(&rule.process);
-            if process.is_empty() {
-                return None;
-            }
-            Some(RoutingRule {
-                rule_type: "field".into(),
-                process: Some(process),
-                outbound_tag,
-                ..Default::default()
-            })
-        }));
+                    let process = normalize_process_matchers(&rule.process);
+                    if process.is_empty() {
+                        return None;
+                    }
+                    Some(RoutingRule {
+                        rule_type: "field".into(),
+                        process: Some(process),
+                        outbound_tag,
+                        ..Default::default()
+                    })
+                }),
+        );
 
         if let Some(profile) = profile_rules {
             append_profile_rules(&mut rules, profile);
@@ -120,18 +123,12 @@ impl Routing {
 fn append_profile_rules(rules: &mut Vec<RoutingRule>, profile: &RoutingProfileRules) {
     for action in action_order(&profile.rule_order) {
         match action {
-            "block" => append_target_rules(
-                rules,
-                &profile.block_domains,
-                &profile.block_ips,
-                TAG_BLOCK,
-            ),
-            "proxy" => append_target_rules(
-                rules,
-                &profile.proxy_domains,
-                &profile.proxy_ips,
-                TAG_PROXY,
-            ),
+            "block" => {
+                append_target_rules(rules, &profile.block_domains, &profile.block_ips, TAG_BLOCK)
+            }
+            "proxy" => {
+                append_target_rules(rules, &profile.proxy_domains, &profile.proxy_ips, TAG_PROXY)
+            }
             "direct" => append_target_rules(
                 rules,
                 &profile.direct_domains,
@@ -249,7 +246,9 @@ fn normalize_process_matchers(process: &str) -> Vec<String> {
 
 fn normalize_domain_matcher(target: &str) -> Option<String> {
     let domain = target.trim().strip_prefix(DOMAIN_ENTRY_PREFIX)?.trim();
-    let domain = domain.trim_start_matches("http://").trim_start_matches("https://");
+    let domain = domain
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
     let domain = domain.split('/').next().unwrap_or(domain);
     let domain = domain.trim_matches('.').to_ascii_lowercase();
     if domain.is_empty() {
@@ -289,7 +288,10 @@ fn normalize_ip_matcher(target: &str) -> Option<String> {
     if value.is_empty() {
         return None;
     }
-    if value.starts_with("geoip:") || value.contains('/') || value.parse::<std::net::IpAddr>().is_ok() {
+    if value.starts_with("geoip:")
+        || value.contains('/')
+        || value.parse::<std::net::IpAddr>().is_ok()
+    {
         return Some(value.to_string());
     }
     None

@@ -93,7 +93,10 @@ fn write_cache(value: &str) -> std::io::Result<()> {
 }
 
 fn normalize(raw: &str) -> String {
-    raw.trim().trim_matches('{').trim_matches('}').to_lowercase()
+    raw.trim()
+        .trim_matches('{')
+        .trim_matches('}')
+        .to_lowercase()
 }
 
 fn is_valid(s: &str) -> bool {
@@ -115,10 +118,7 @@ mod tests {
 
     #[test]
     fn normalize_strips_braces_and_lowercases() {
-        assert_eq!(
-            normalize("{1AB2-CDEF}"),
-            "1ab2-cdef"
-        );
+        assert_eq!(normalize("{1AB2-CDEF}"), "1ab2-cdef");
     }
 
     #[test]
@@ -141,6 +141,9 @@ mod tests {
 
     #[test]
     fn user_agent_uses_name_version_system_format() {
-        assert_eq!(build_user_agent("Nimbo", "0.1.0", "Windows"), "Nimbo/0.1.0/Windows");
+        assert_eq!(
+            build_user_agent("Nimbo", "0.1.0", "Windows"),
+            "Nimbo/0.1.0/Windows"
+        );
     }
 }

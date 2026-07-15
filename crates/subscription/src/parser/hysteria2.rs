@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use url::Url;
 
 use crate::model::{Hysteria2Config, Protocol, Server};
-use crate::parser::{ParseError, fingerprint, url_decode};
+use crate::parser::{fingerprint, url_decode, ParseError};
 
 pub fn parse(input: &str) -> Result<Server, ParseError> {
     let url = Url::parse(input).map_err(|e| ParseError::InvalidUrl(e.to_string()))?;
@@ -41,7 +41,13 @@ pub fn parse(input: &str) -> Result<Server, ParseError> {
         sni: query_param(&q, &["sni", "peer"]),
         alpn: q
             .get("alpn")
-            .map(|value| value.split(',').map(|item| item.trim().to_string()).filter(|item| !item.is_empty()).collect())
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(|item| item.trim().to_string())
+                    .filter(|item| !item.is_empty())
+                    .collect()
+            })
             .filter(|items: &Vec<String>| !items.is_empty()),
         insecure: q
             .get("insecure")
@@ -62,7 +68,11 @@ pub fn parse(input: &str) -> Result<Server, ParseError> {
         name,
         server_description: query_param(
             &q,
-            &["serverDescription", "server_description", "server-description"],
+            &[
+                "serverDescription",
+                "server_description",
+                "server-description",
+            ],
         ),
         host_uuid: query_param(&q, &["hostUuid", "host_uuid", "host-uuid"]),
         xray_json_template_uuid: query_param(
@@ -80,7 +90,9 @@ pub fn parse(input: &str) -> Result<Server, ParseError> {
 fn query_param(q: &HashMap<String, String>, keys: &[&str]) -> Option<String> {
     q.iter().find_map(|(key, value)| {
         let normalized = normalize_key(key);
-        let matches = keys.iter().any(|wanted| normalize_key(wanted) == normalized);
+        let matches = keys
+            .iter()
+            .any(|wanted| normalize_key(wanted) == normalized);
         if matches {
             let trimmed = value.trim();
             (!trimmed.is_empty()).then(|| trimmed.to_string())
@@ -104,7 +116,9 @@ mod tests {
 
     #[test]
     fn parses_hysteria2_uri() {
-        let s = parse("hysteria2://secret@example.com:443?sni=cdn.example.com&alpn=h3&insecure=1#hy2").unwrap();
+        let s =
+            parse("hysteria2://secret@example.com:443?sni=cdn.example.com&alpn=h3&insecure=1#hy2")
+                .unwrap();
         assert_eq!(s.name, "hy2");
         match s.protocol {
             Protocol::Hysteria2(h) => {

@@ -17,7 +17,7 @@ use std::ptr;
 use std::time::{Duration, Instant};
 
 use nimbo_ipc::{
-    Command, KillReport, PIPE_NAME, Response, decode_response, encode_command, framing,
+    decode_response, encode_command, framing, Command, KillReport, Response, PIPE_NAME,
 };
 use tauri::{AppHandle, Manager};
 use windows_sys::Win32::Foundation::{
@@ -25,7 +25,7 @@ use windows_sys::Win32::Foundation::{
     INVALID_HANDLE_VALUE,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_ATTRIBUTE_NORMAL, OPEN_EXISTING, ReadFile, WriteFile,
+    CreateFileW, ReadFile, WriteFile, FILE_ATTRIBUTE_NORMAL, OPEN_EXISTING,
 };
 
 pub const HELPER_SERVICE_NAME: &str = "NimboHelper";
@@ -46,7 +46,9 @@ pub fn status(app: &AppHandle) -> HelperStatus {
     let (installed, running) = service_state();
     let version = if running {
         ping_helper().ok().and_then(|resp| match resp {
-            Response::Pong { service_version, .. } => Some(service_version),
+            Response::Pong {
+                service_version, ..
+            } => Some(service_version),
             _ => None,
         })
     } else {
@@ -71,18 +73,22 @@ pub fn install(app: &AppHandle) -> Result<(), String> {
 }
 
 pub fn uninstall(app: &AppHandle) -> Result<(), String> {
-    let exe = locate_helper_exe(app).ok_or_else(|| {
-        "nimbo-svc.exe не найден рядом с приложением.".to_string()
-    })?;
+    let exe = locate_helper_exe(app)
+        .ok_or_else(|| "nimbo-svc.exe не найден рядом с приложением.".to_string())?;
     run_elevated(&exe, "--uninstall")?;
     Ok(())
 }
 
 pub fn kill_processes(pids: &[u32]) -> Result<KillReport, String> {
     if pids.is_empty() {
-        return Ok(KillReport { killed: Vec::new(), failed: Vec::new() });
+        return Ok(KillReport {
+            killed: Vec::new(),
+            failed: Vec::new(),
+        });
     }
-    let response = send_command(Command::KillProcesses { pids: pids.to_vec() })?;
+    let response = send_command(Command::KillProcesses {
+        pids: pids.to_vec(),
+    })?;
     match response {
         Response::KillReport(report) => Ok(report),
         Response::Error { message, .. } => Err(message),
@@ -96,12 +102,9 @@ fn ping_helper() -> Result<Response, String> {
 
 fn send_command(command: Command) -> Result<Response, String> {
     let payload = encode_command(&command).map_err(|e| format!("encode: {e}"))?;
-    let mut client = open_pipe()
-        .map_err(|e| format!("connect to helper pipe: {e}"))?;
-    framing::write_frame(&mut client, &payload)
-        .map_err(|e| format!("write frame: {e}"))?;
-    let bytes = framing::read_frame(&mut client)
-        .map_err(|e| format!("read frame: {e}"))?;
+    let mut client = open_pipe().map_err(|e| format!("connect to helper pipe: {e}"))?;
+    framing::write_frame(&mut client, &payload).map_err(|e| format!("write frame: {e}"))?;
+    let bytes = framing::read_frame(&mut client).map_err(|e| format!("read frame: {e}"))?;
     decode_response(&bytes).map_err(|e| format!("decode response: {e}"))
 }
 
@@ -176,7 +179,11 @@ fn run_elevated(exe: &Path, action_arg: &str) -> Result<(), String> {
     if status.code() == Some(1223) {
         return Err("UAC-запрос отменён.".into());
     }
-    Err(format!("nimbo-svc {} завершился с кодом {:?}", action_arg, status.code()))
+    Err(format!(
+        "nimbo-svc {} завершился с кодом {:?}",
+        action_arg,
+        status.code()
+    ))
 }
 
 // ─── Locate the nimbo-svc.exe binary ────────────────────────────────────────
@@ -199,7 +206,11 @@ pub fn locate_helper_exe(app: &AppHandle) -> Option<PathBuf> {
     }
 
     if let Ok(cwd) = std::env::current_dir() {
-        candidates.push(cwd.join("target").join("release").join(HELPER_EXE_FILE_NAME));
+        candidates.push(
+            cwd.join("target")
+                .join("release")
+                .join(HELPER_EXE_FILE_NAME),
+        );
         candidates.push(cwd.join("target").join("debug").join(HELPER_EXE_FILE_NAME));
     }
 

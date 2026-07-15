@@ -100,7 +100,8 @@ foreach ($target in $Targets) {
   }
 
   $arch = Resolve-ArchName $target
-  $outputFile = Join-Path $installerDir "Nimbo_0.1.0_${arch}-setup.exe"
+  $tauriConfig = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\\tauri.conf.json') -Raw | ConvertFrom-Json
+  $outputFile = Join-Path $installerDir "Nimbo_$($tauriConfig.version)_${arch}-setup.exe"
 
   Write-Host ""
   Write-Host "Building Nimbo for $target ($arch)..."

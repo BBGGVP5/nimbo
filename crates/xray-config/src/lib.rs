@@ -6,9 +6,9 @@ pub mod outbound;
 pub mod routing;
 pub mod transport;
 
-pub use config::{ConfigBuilder, ProxyPorts, XrayConfig, build_config, build_config_with_ports};
+pub use config::{build_config, build_config_with_ports, ConfigBuilder, ProxyPorts, XrayConfig};
 pub use inbound::Inbound;
-pub use outbound::{Outbound, server_to_outbound};
+pub use outbound::{server_to_outbound, Outbound};
 pub use routing::{AppRoutingMode, AppRoutingRule, RoutingProfileRules};
 
 #[derive(Debug, Error)]

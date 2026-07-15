@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::hash::{Hash, Hasher};
-#[cfg(all(target_arch = "x86_64", any(windows, target_os = "linux")))]
 use std::io::Cursor;
 use std::net::{IpAddr, Ipv4Addr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
@@ -10,16 +9,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager, State};
 use tokio::process::Command as TokioCommand;
 
-use nimbo_device::{DeviceInfo, device_info, reset_cache};
+use nimbo_device::{device_info, reset_cache, DeviceInfo};
 use nimbo_ipc::PROTOCOL_VERSION;
 use nimbo_subscription::{
-    FetchOptions, Fetched, HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS,
-    HAPP_COMPAT_OS_VERSION, Server, Subscription, USER_AGENT, build_subscription, fetch_subscription,
-    extract_xray_templates_from_value, happ_compatible_user_agent,
-    parse_aggregate, parse_subscription_userinfo,
+    build_subscription, extract_xray_templates_from_value, fetch_subscription,
+    happ_compatible_user_agent, parse_aggregate, parse_subscription_userinfo, FetchOptions,
+    Fetched, Server, Subscription, HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS,
+    HAPP_COMPAT_OS_VERSION, USER_AGENT,
 };
 use nimbo_xray_config::{
     AppRoutingMode as XrayAppRoutingMode, AppRoutingRule as XrayAppRoutingRule, ConfigBuilder,
@@ -391,11 +391,7 @@ pub fn builtin_routing_profiles() -> Vec<RoutingProfile> {
 }
 
 fn ensure_routing_profiles(snapshot: &mut PersistedState) {
-    let deleted: HashSet<String> = snapshot
-        .deleted_builtin_profiles
-        .iter()
-        .cloned()
-        .collect();
+    let deleted: HashSet<String> = snapshot.deleted_builtin_profiles.iter().cloned().collect();
     if snapshot.routing_profiles.is_empty() {
         snapshot.routing_profiles = builtin_routing_profiles()
             .into_iter()
@@ -466,8 +462,8 @@ pub fn reset_device_id() -> Result<DeviceInfo, String> {
 
 #[tauri::command]
 pub fn read_clipboard_text() -> Result<String, String> {
-    let mut clipboard = arboard::Clipboard::new()
-        .map_err(|e| format!("Не удалось открыть буфер обмена: {e}"))?;
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|e| format!("Не удалось открыть буфер обмена: {e}"))?;
     clipboard
         .get_text()
         .map_err(|e| format!("В буфере нет текста или он недоступен: {e}"))
@@ -475,8 +471,8 @@ pub fn read_clipboard_text() -> Result<String, String> {
 
 #[tauri::command]
 pub fn write_clipboard_text(text: String) -> Result<(), String> {
-    let mut clipboard = arboard::Clipboard::new()
-        .map_err(|e| format!("Не удалось открыть буфер обмена: {e}"))?;
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|e| format!("Не удалось открыть буфер обмена: {e}"))?;
     clipboard
         .set_text(text)
         .map_err(|e| format!("Не удалось записать текст в буфер: {e}"))
@@ -553,17 +549,18 @@ pub fn set_preferences(
     preferences.app_routing_mode = normalize_app_routing_mode(&preferences.app_routing_mode);
     preferences.tunnel_mux_concurrency = preferences.tunnel_mux_concurrency.clamp(1, 1024);
     preferences.tunnel_xudp_concurrency = preferences.tunnel_xudp_concurrency.clamp(-1, 1024);
-    preferences.tunnel_xudp_udp443 =
-        normalize_xudp_udp443_mode(&preferences.tunnel_xudp_udp443);
+    preferences.tunnel_xudp_udp443 = normalize_xudp_udp443_mode(&preferences.tunnel_xudp_udp443);
     preferences.lan_tcp_idle_timeout_sec = preferences.lan_tcp_idle_timeout_sec.clamp(5, 3600);
     preferences.lan_max_tcp_connections = preferences.lan_max_tcp_connections.clamp(1, 100_000);
     preferences.lan_max_udp_connections = preferences.lan_max_udp_connections.clamp(1, 100_000);
     preferences.lan_preferred_ip_family =
         normalize_preferred_ip_family(&preferences.lan_preferred_ip_family);
-    preferences.subscriptions_update_interval_hours =
-        preferences.subscriptions_update_interval_hours.clamp(1, 168);
-    preferences.subscriptions_expiration_threshold_days =
-        preferences.subscriptions_expiration_threshold_days.clamp(1, 365);
+    preferences.subscriptions_update_interval_hours = preferences
+        .subscriptions_update_interval_hours
+        .clamp(1, 168);
+    preferences.subscriptions_expiration_threshold_days = preferences
+        .subscriptions_expiration_threshold_days
+        .clamp(1, 365);
     preferences.servers_sorting = normalize_server_sorting(&preferences.servers_sorting);
     preferences.servers_connect_button =
         normalize_connect_button_style(&preferences.servers_connect_button);
@@ -572,7 +569,8 @@ pub fn set_preferences(
     state
         .mutate(|s| s.preferences = preferences.clone())
         .map_err(|e| format!("Не удалось сохранить настройки приложения: {e}"))?;
-    crate::tray::refresh_tray_menu(&app).map_err(|e| format!("Не удалось обновить меню трея: {e}"))?;
+    crate::tray::refresh_tray_menu(&app)
+        .map_err(|e| format!("Не удалось обновить меню трея: {e}"))?;
     Ok(preferences)
 }
 
@@ -611,10 +609,7 @@ pub fn import_app_backup(
 ) -> Result<PersistedState, String> {
     let raw: serde_json::Value = serde_json::from_str(payload.trim())
         .map_err(|e| format!("Не удалось прочитать JSON резервной копии: {e}"))?;
-    let state_value = raw
-        .get("state")
-        .cloned()
-        .unwrap_or(raw);
+    let state_value = raw.get("state").cloned().unwrap_or(raw);
     let mut imported: PersistedState = serde_json::from_value(state_value)
         .map_err(|e| format!("Не удалось применить резервную копию: {e}"))?;
     imported.normalize_runtime_defaults();
@@ -641,7 +636,9 @@ pub fn list_subscriptions(state: State<'_, AppState>) -> Vec<Subscription> {
 }
 
 #[tauri::command]
-pub async fn inspect_subscription_headers(url: String) -> Result<SubscriptionHeaderMetadata, String> {
+pub async fn inspect_subscription_headers(
+    url: String,
+) -> Result<SubscriptionHeaderMetadata, String> {
     let source = url.trim();
     if source.is_empty() {
         return Err("Вставьте URL подписки".into());
@@ -663,7 +660,11 @@ pub async fn inspect_subscription_headers(url: String) -> Result<SubscriptionHea
             .to_str()
             .map(ToString::to_string)
             .unwrap_or_else(|_| format!("{:?}", value.as_bytes()));
-        tracing::debug!(header = name.as_str(), value, "subscription response header");
+        tracing::debug!(
+            header = name.as_str(),
+            value,
+            "subscription response header"
+        );
         headers.push(SubscriptionHeader {
             name: name.as_str().to_string(),
             value,
@@ -709,7 +710,11 @@ pub async fn add_subscription(
 ) -> Result<Subscription, String> {
     let snapshot_before = state.snapshot();
     let source = url.trim();
-    if snapshot_before.subscriptions.iter().any(|s| s.url == source) {
+    if snapshot_before
+        .subscriptions
+        .iter()
+        .any(|s| s.url == source)
+    {
         return Err("Подписка с таким URL уже добавлена".into());
     }
 
@@ -723,8 +728,8 @@ pub async fn add_subscription(
             .await
             .map_err(|e| format!("Не удалось загрузить: {e}"))?
     } else {
-        let servers = parse_aggregate(source)
-            .map_err(|e| format!("Не удалось распарсить конфиг: {e}"))?;
+        let servers =
+            parse_aggregate(source).map_err(|e| format!("Не удалось распарсить конфиг: {e}"))?;
         let xray_templates = serde_json::from_str::<serde_json::Value>(source.trim())
             .ok()
             .map(|json| extract_xray_templates_from_value(&json))
@@ -788,13 +793,11 @@ pub async fn refresh_subscription(
         .mutate(|s| {
             remove_xray_templates_for_subscription(&mut s.xray_templates, &url);
             merge_xray_template_cache(&mut s.xray_templates, &url, xray_templates);
-            let existing = s
-                .subscriptions
-                .iter()
-                .find(|sub| sub.url == url);
+            let existing = s.subscriptions.iter().find(|sub| sub.url == url);
             let existing_name = existing.and_then(|sub| sub.name.clone());
             let existing_show_on_home = existing.and_then(|sub| sub.meta.show_on_home);
-            let existing_update_interval = existing.and_then(|sub| sub.meta.update_interval_minutes);
+            let existing_update_interval =
+                existing.and_then(|sub| sub.meta.update_interval_minutes);
             let mut updated = build_subscription(&url, fetched.clone(), existing_name.clone());
             updated.meta.show_on_home = existing_show_on_home.or(Some(true));
             updated.meta.update_interval_minutes = existing_update_interval;
@@ -826,9 +829,7 @@ pub fn update_subscription_settings(
 ) -> Result<Subscription, String> {
     let updated = state
         .mutate(|s| {
-            let Some(sub) = s.subscriptions.iter_mut().find(|sub| sub.url == url) else {
-                return None;
-            };
+            let sub = s.subscriptions.iter_mut().find(|sub| sub.url == url)?;
 
             if let Some(name) = settings.name {
                 let name = name.trim().to_string();
@@ -890,7 +891,11 @@ pub fn set_user_agent_override(
 ) -> Result<PersistedState, String> {
     let cleaned = user_agent.and_then(|s| {
         let trimmed = s.trim().to_string();
-        if trimmed.is_empty() { None } else { Some(trimmed) }
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
     });
     state
         .mutate(|s| s.user_agent_override = cleaned)
@@ -966,7 +971,7 @@ fn stop_conflicting_processes_blocking(
     safe_pids.dedup();
 
     if safe_pids.is_empty() {
-        return Ok(detect_conflicting_processes()?);
+        return detect_conflicting_processes();
     }
 
     let target_names = target_conflict_names(&detected, &safe_pids);
@@ -976,10 +981,11 @@ fn stop_conflicting_processes_blocking(
         let helper = crate::helper::status(&app);
         if helper.running {
             // Route through the privileged helper — no UAC prompt, can kill SYSTEM processes.
-            let remaining = stop_conflicts_with_retries(&target_names, safe_pids.clone(), |pids| {
-                let _ = crate::helper::kill_processes(pids);
-                Ok(())
-            })?;
+            let remaining =
+                stop_conflicts_with_retries(&target_names, safe_pids.clone(), |pids| {
+                    let _ = crate::helper::kill_processes(pids);
+                    Ok(())
+                })?;
             let remaining_pids = target_pids_from_conflicts(&remaining, &target_names);
             if remaining_pids.is_empty() {
                 return Ok(remaining);
@@ -988,8 +994,11 @@ fn stop_conflicting_processes_blocking(
         }
     }
 
-    let mut remaining =
-        stop_conflicts_with_retries(&target_names, safe_pids.clone(), stop_conflicting_process_ids)?;
+    let mut remaining = stop_conflicts_with_retries(
+        &target_names,
+        safe_pids.clone(),
+        stop_conflicting_process_ids,
+    )?;
 
     #[cfg(windows)]
     {
@@ -1420,7 +1429,11 @@ $items = try {
             let exe = process_exe_name(&process.process_name);
             let path = process.path.and_then(|path| {
                 let trimmed = path.trim().to_string();
-                if trimmed.is_empty() { None } else { Some(trimmed) }
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
             });
             (display, exe, process.id, path)
         })
@@ -1463,7 +1476,11 @@ $items = try {
             group
         })
         .collect();
-    conflicts.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+    conflicts.sort_by(|a, b| {
+        a.name
+            .to_ascii_lowercase()
+            .cmp(&b.name.to_ascii_lowercase())
+    });
     Ok(conflicts)
 }
 
@@ -1637,9 +1654,7 @@ fn conflict_display_name(
         return "zapret".to_string();
     }
     let process_key = compact_process_identity(process_name);
-    if process_key == "happ"
-        || identity.contains("happdesktop")
-        || identity.contains("happservice")
+    if process_key == "happ" || identity.contains("happdesktop") || identity.contains("happservice")
     {
         return "Happ".to_string();
     }
@@ -1675,9 +1690,7 @@ fn conflict_display_name(
     }
 
     match normalized_process_name(process_name).as_str() {
-        "cloudflare warp" | "cloudflarewarp" | "warp" | "warp-svc" => {
-            "Cloudflare WARP".to_string()
-        }
+        "cloudflare warp" | "cloudflarewarp" | "warp" | "warp-svc" => "Cloudflare WARP".to_string(),
         "winws" | "zapret" => "zapret".to_string(),
         "flclash" | "flclashcore" | "flclashhelperservice" => "FlClash".to_string(),
         "clash-verge" | "clash-verge-service" | "clash verge" | "clash verge rev" => {
@@ -1714,10 +1727,7 @@ fn process_exe_name(process_name: &str) -> String {
 fn normalized_process_name(process_name: &str) -> String {
     let trimmed = process_name.trim();
     let lower = trimmed.to_ascii_lowercase();
-    lower
-        .strip_suffix(".exe")
-        .unwrap_or(&lower)
-        .to_string()
+    lower.strip_suffix(".exe").unwrap_or(&lower).to_string()
 }
 
 fn compact_process_identity(process_name: &str) -> String {
@@ -1744,8 +1754,8 @@ fn platform_get_app_icon(exe_path: &str) -> Option<String> {
     use winapi::um::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryW};
     use winapi::um::shellapi::{SHGetFileInfoW, SHFILEINFOW, SHGFI_SYSICONINDEX};
     use winapi::um::wingdi::{
-        CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject,
-        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS,
+        CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject, BITMAPINFO,
+        BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
     };
     use winapi::um::winuser::{DestroyIcon, DrawIconEx};
 
@@ -1792,7 +1802,7 @@ fn platform_get_app_icon(exe_path: &str) -> Option<String> {
         if shell32.is_null() {
             return None;
         }
-        let fn_ptr = GetProcAddress(shell32, b"SHGetImageList\0".as_ptr() as *const i8);
+        let fn_ptr = GetProcAddress(shell32, c"SHGetImageList".as_ptr());
         if fn_ptr.is_null() {
             FreeLibrary(shell32);
             return None;
@@ -1814,8 +1824,7 @@ fn platform_get_app_icon(exe_path: &str) -> Option<String> {
         // IUnknown: 0=QueryInterface, 1=AddRef, 2=Release
         // IImageList: 3=Add, 4=ReplaceIcon, 5=SetOverlayImage, 6=Replace,
         //             7=AddMasked, 8=Draw, 9=Remove, 10=GetIcon
-        type GetIconFn =
-            unsafe extern "system" fn(*mut c_void, i32, UINT, *mut HICON) -> i32;
+        type GetIconFn = unsafe extern "system" fn(*mut c_void, i32, UINT, *mut HICON) -> i32;
         type ReleaseFn = unsafe extern "system" fn(*mut c_void) -> u32;
 
         let vtable = *(image_list as *mut *mut *const ());
@@ -1864,7 +1873,17 @@ fn platform_get_app_icon(exe_path: &str) -> Option<String> {
         std::ptr::write_bytes(bits_ptr as *mut u8, 0, pixel_count * 4);
 
         let prev = SelectObject(mem_dc, hbm as _);
-        DrawIconEx(mem_dc, 0, 0, hicon, SIZE, SIZE, 0, std::ptr::null_mut(), DI_NORMAL);
+        DrawIconEx(
+            mem_dc,
+            0,
+            0,
+            hicon,
+            SIZE,
+            SIZE,
+            0,
+            std::ptr::null_mut(),
+            DI_NORMAL,
+        );
 
         let bgra = std::slice::from_raw_parts(bits_ptr as *const u8, pixel_count * 4);
 
@@ -1932,7 +1951,11 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     }
 
     let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(if selected.is_empty() { None } else { Some(selected) })
+    Ok(if selected.is_empty() {
+        None
+    } else {
+        Some(selected)
+    })
 }
 
 #[cfg(not(windows))]
@@ -1945,11 +1968,7 @@ fn sanitize_export_file_name(file_name: &str) -> String {
         .trim()
         .chars()
         .map(|ch| {
-            if ch.is_control()
-                || matches!(
-                    ch,
-                    '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
-                )
+            if ch.is_control() || matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
             {
                 '_'
             } else {
@@ -2013,8 +2032,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 #[cfg(not(windows))]
 fn platform_pick_app_rules_export_path(default_file_name: &str) -> Result<Option<PathBuf>, String> {
     let dir = nimbo_data_dir()?.join("exports");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("Не удалось создать папку экспорта: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Не удалось создать папку экспорта: {e}"))?;
     Ok(Some(dir.join(default_file_name)))
 }
 
@@ -2182,14 +2200,18 @@ fn subscription_logo_mime(content_type: Option<&str>, bytes: &[u8]) -> Option<&'
 
 fn simple_base64(data: &[u8]) -> String {
     const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for c in data.chunks(3) {
         let b0 = c[0] as usize;
         let b1 = if c.len() > 1 { c[1] as usize } else { 0 };
         let b2 = if c.len() > 2 { c[2] as usize } else { 0 };
         out.push(T[b0 >> 2] as char);
         out.push(T[((b0 & 3) << 4) | (b1 >> 4)] as char);
-        out.push(if c.len() > 1 { T[((b1 & 15) << 2) | (b2 >> 6)] as char } else { '=' });
+        out.push(if c.len() > 1 {
+            T[((b1 & 15) << 2) | (b2 >> 6)] as char
+        } else {
+            '='
+        });
         out.push(if c.len() > 2 { T[b2 & 63] as char } else { '=' });
     }
     out
@@ -2349,7 +2371,8 @@ pub async fn ping_servers(
     let mut out = Vec::with_capacity(servers.len());
     for chunk in servers.chunks(PING_CONCURRENCY) {
         let mut handles = Vec::with_capacity(chunk.len());
-        for server in chunk.iter().cloned() {
+        for server in chunk {
+            let server = server.clone();
             let protocol = protocol.clone();
             let test_url = test_url.clone();
             handles.push(tokio::spawn(async move {
@@ -2428,11 +2451,7 @@ fn process_memory_by_pid(pid: u32) -> u64 {
     };
 
     unsafe {
-        let handle = OpenProcess(
-            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
-            0,
-            pid,
-        );
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid);
         if handle.is_null() {
             return 0;
         }
@@ -2662,7 +2681,11 @@ $items = foreach ($c in $connections) {
         out.push(ActiveConnection {
             id: format!(
                 "{}:{}-{}:{}-{}",
-                item.local_address, item.local_port, item.remote_address, item.remote_port, item.pid
+                item.local_address,
+                item.local_port,
+                item.remote_address,
+                item.remote_port,
+                item.pid
             ),
             protocol: item.protocol.to_ascii_uppercase(),
             state: item.state,
@@ -2699,6 +2722,8 @@ fn platform_active_connections(
     Ok(Vec::new())
 }
 
+// OS adapters provide this data flat; grouping it would make the call sites less clear.
+#[allow(clippy::too_many_arguments)]
 fn classify_active_connection(
     snapshot: &PersistedState,
     active_server: Option<&Server>,
@@ -2728,8 +2753,12 @@ fn classify_active_connection(
         if is_local_proxy_endpoint(remote_address, remote_port, ports) {
             return proxy_connection_decision(active_server, "system proxy");
         }
-        if matches_active_server_endpoint(active_server, tunnel_server_ips, remote_address, remote_port)
-        {
+        if matches_active_server_endpoint(
+            active_server,
+            tunnel_server_ips,
+            remote_address,
+            remote_port,
+        ) {
             return proxy_connection_decision(active_server, "xray outbound");
         }
     }
@@ -3158,7 +3187,11 @@ pub fn delete_routing_profile(
     profile_id: String,
 ) -> Result<RoutingProfileList, String> {
     let snapshot = snapshot_with_profiles(&state);
-    let Some(target) = snapshot.routing_profiles.iter().find(|p| p.id == profile_id) else {
+    let Some(target) = snapshot
+        .routing_profiles
+        .iter()
+        .find(|p| p.id == profile_id)
+    else {
         return Err(format!("Профиль не найден: {profile_id}"));
     };
     let was_builtin = target.builtin;
@@ -3203,12 +3236,14 @@ pub fn import_routing_profile(
         trimmed.to_string()
     } else {
         let cleaned: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
-        let bytes = decode_base64(&cleaned)
-            .ok_or_else(|| "Не удалось декодировать base64. Ожидается JSON или base64.".to_string())?;
-        String::from_utf8(bytes).map_err(|_| "base64 декодирован, но это не текст UTF-8".to_string())?
+        let bytes = decode_base64(&cleaned).ok_or_else(|| {
+            "Не удалось декодировать base64. Ожидается JSON или base64.".to_string()
+        })?;
+        String::from_utf8(bytes)
+            .map_err(|_| "base64 декодирован, но это не текст UTF-8".to_string())?
     };
-    let parsed: RoutingProfile =
-        serde_json::from_str(&json).map_err(|e| format!("Не удалось разобрать JSON профиля: {e}"))?;
+    let parsed: RoutingProfile = serde_json::from_str(&json)
+        .map_err(|e| format!("Не удалось разобрать JSON профиля: {e}"))?;
 
     let mut next = parsed;
     next.id = next.id.trim().to_string();
@@ -3262,10 +3297,8 @@ pub fn reset_builtin_routing_profiles(
 
 #[tauri::command]
 pub fn open_routing_folder() -> Result<(), String> {
-    let dir = nimbo_data_dir()
-        .map_err(|e| format!("Не удалось получить путь к данным: {e}"))?;
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("Не удалось создать папку: {e}"))?;
+    let dir = nimbo_data_dir().map_err(|e| format!("Не удалось получить путь к данным: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Не удалось создать папку: {e}"))?;
 
     #[cfg(windows)]
     {
@@ -3291,8 +3324,7 @@ pub fn open_logs_folder() -> Result<(), String> {
     let dir = nimbo_data_dir()
         .map_err(|e| format!("Не удалось получить путь к данным: {e}"))?
         .join("logs");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("Не удалось создать папку логов: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Не удалось создать папку логов: {e}"))?;
 
     #[cfg(windows)]
     Command::new("explorer.exe")
@@ -3405,11 +3437,9 @@ pub async fn get_traffic_stats(
         let xray_running = state.runtime(|runtime| runtime.xray.is_some());
         if xray_running {
             match ensure_xray_binary(&app).await {
-                Ok(xray_path) => {
-                    query_xray_session_traffic(xray_path, ProxyPorts::default())
-                        .await
-                        .unwrap_or_default()
-                }
+                Ok(xray_path) => query_xray_session_traffic(xray_path, ProxyPorts::default())
+                    .await
+                    .unwrap_or_default(),
                 Err(_) => SessionTraffic::default(),
             }
         } else {
@@ -3677,7 +3707,10 @@ async fn query_xray_session_traffic(
             return Err(if stderr.is_empty() {
                 format!("Xray statsquery завершился с кодом {}", output.status)
             } else {
-                format!("Xray statsquery завершился с кодом {}: {stderr}", output.status)
+                format!(
+                    "Xray statsquery завершился с кодом {}: {stderr}",
+                    output.status
+                )
             });
         }
 
@@ -3761,7 +3794,11 @@ fn parse_stat_value(value: &serde_json::Value) -> Option<u64> {
     value
         .as_u64()
         .or_else(|| value.as_i64().and_then(|v| u64::try_from(v).ok()))
-        .or_else(|| value.as_str().and_then(|text| text.trim().parse::<u64>().ok()))
+        .or_else(|| {
+            value
+                .as_str()
+                .and_then(|text| text.trim().parse::<u64>().ok())
+        })
 }
 
 fn build_fetch_options(state: &PersistedState) -> FetchOptions {
@@ -3784,7 +3821,9 @@ fn header_value(headers: &[SubscriptionHeader], name: &str) -> Option<String> {
 }
 
 fn find_announce_header(headers: &[SubscriptionHeader]) -> Option<&SubscriptionHeader> {
-    headers.iter().find(|header| is_announce_header(&header.name))
+    headers
+        .iter()
+        .find(|header| is_announce_header(&header.name))
 }
 
 fn is_announce_header(name: &str) -> bool {
@@ -3841,7 +3880,11 @@ fn platform_installed_apps() -> Vec<InstalledApp> {
                 .and_then(|value| normalize_installed_app_path(&value));
 
             if let Some(executable_path) = executable_path {
-                let key = format!("{}|{}", display_name.to_lowercase(), executable_path.to_lowercase());
+                let key = format!(
+                    "{}|{}",
+                    display_name.to_lowercase(),
+                    executable_path.to_lowercase()
+                );
                 apps.entry(key).or_insert(InstalledApp {
                     name: display_name,
                     executable_path,
@@ -3999,11 +4042,9 @@ pub async fn disconnect_server(
         let xray_running = state.runtime(|runtime| runtime.xray.is_some());
         if xray_running {
             match ensure_xray_binary(&app).await {
-                Ok(xray_path) => {
-                    query_xray_session_traffic(xray_path, ProxyPorts::default())
-                        .await
-                        .unwrap_or_default()
-                }
+                Ok(xray_path) => query_xray_session_traffic(xray_path, ProxyPorts::default())
+                    .await
+                    .unwrap_or_default(),
                 Err(_) => SessionTraffic::default(),
             }
         } else {
@@ -4023,14 +4064,22 @@ pub async fn disconnect_server(
                 s.traffic_totals.monthly_upload = 0;
                 s.traffic_totals.monthly_download = 0;
             }
-            s.traffic_totals.all_time_upload =
-                s.traffic_totals.all_time_upload.saturating_add(final_session.upload);
-            s.traffic_totals.all_time_download =
-                s.traffic_totals.all_time_download.saturating_add(final_session.download);
-            s.traffic_totals.monthly_upload =
-                s.traffic_totals.monthly_upload.saturating_add(final_session.upload);
-            s.traffic_totals.monthly_download =
-                s.traffic_totals.monthly_download.saturating_add(final_session.download);
+            s.traffic_totals.all_time_upload = s
+                .traffic_totals
+                .all_time_upload
+                .saturating_add(final_session.upload);
+            s.traffic_totals.all_time_download = s
+                .traffic_totals
+                .all_time_download
+                .saturating_add(final_session.download);
+            s.traffic_totals.monthly_upload = s
+                .traffic_totals
+                .monthly_upload
+                .saturating_add(final_session.upload);
+            s.traffic_totals.monthly_download = s
+                .traffic_totals
+                .monthly_download
+                .saturating_add(final_session.download);
         })
         .map_err(|e| format!("Не удалось отключиться: {e}"))?;
     Ok(state.snapshot())
@@ -4044,16 +4093,13 @@ fn find_server_with_subscription(
     snapshot: &PersistedState,
     server_id: &str,
 ) -> Option<(String, Server)> {
-    snapshot
-        .subscriptions
-        .iter()
-        .find_map(|sub| {
-            sub.servers
-                .iter()
-                .find(|server| server.id == server_id)
-                .cloned()
-                .map(|server| (sub.url.clone(), server))
-        })
+    snapshot.subscriptions.iter().find_map(|sub| {
+        sub.servers
+            .iter()
+            .find(|server| server.id == server_id)
+            .cloned()
+            .map(|server| (sub.url.clone(), server))
+    })
 }
 
 fn merge_xray_template_cache(
@@ -4063,7 +4109,10 @@ fn merge_xray_template_cache(
 ) {
     for (uuid, template) in templates {
         cache.insert(uuid.clone(), template.clone());
-        cache.insert(namespaced_xray_template_key(subscription_url, &uuid), template);
+        cache.insert(
+            namespaced_xray_template_key(subscription_url, &uuid),
+            template,
+        );
     }
 }
 
@@ -4088,7 +4137,9 @@ async fn fetch_xray_templates_for_subscription(
 
     match build_remnawave_client(user_agent_override) {
         Ok(client) => {
-            for (key, template) in fetch_public_xray_templates(&client, subscription_url, servers).await {
+            for (key, template) in
+                fetch_public_xray_templates(&client, subscription_url, servers).await
+            {
                 out.entry(key).or_insert(template);
             }
         }
@@ -4114,8 +4165,12 @@ async fn collect_subscription_xray_templates(
     for (key, template) in fetched.xray_templates.clone() {
         out.entry(key).or_insert(template);
     }
-    let remote =
-        fetch_xray_templates_for_subscription(subscription_url, user_agent_override, &fetched.servers).await;
+    let remote = fetch_xray_templates_for_subscription(
+        subscription_url,
+        user_agent_override,
+        &fetched.servers,
+    )
+    .await;
     for (key, template) in remote {
         out.entry(key).or_insert(template);
     }
@@ -4134,14 +4189,26 @@ fn build_remnawave_client(
     insert_request_header(&mut headers, "X-Ver-Os", &device.os_version);
     insert_request_header(&mut headers, "X-Device-Model", &device.hostname);
     insert_request_header(&mut headers, "X-Happ-Device-Os", HAPP_COMPAT_DEVICE_OS);
-    insert_request_header(&mut headers, "X-Happ-Device-Os-Version", HAPP_COMPAT_OS_VERSION);
-    insert_request_header(&mut headers, "X-Happ-Device-Model", HAPP_COMPAT_DEVICE_MODEL);
+    insert_request_header(
+        &mut headers,
+        "X-Happ-Device-Os-Version",
+        HAPP_COMPAT_OS_VERSION,
+    );
+    insert_request_header(
+        &mut headers,
+        "X-Happ-Device-Model",
+        HAPP_COMPAT_DEVICE_MODEL,
+    );
     insert_request_header(&mut headers, "X-Nimbo-User-Agent", app_user_agent);
     insert_request_header(&mut headers, "X-Client-User-Agent", app_user_agent);
     insert_request_header(&mut headers, "X-Client-Name", "Nimbo");
     insert_request_header(&mut headers, "X-Client-Version", env!("CARGO_PKG_VERSION"));
     insert_request_header(&mut headers, "X-Nimbo-Device-Os", &device.os);
-    insert_request_header(&mut headers, "X-Nimbo-Device-Os-Version", &device.os_version);
+    insert_request_header(
+        &mut headers,
+        "X-Nimbo-Device-Os-Version",
+        &device.os_version,
+    );
     insert_request_header(&mut headers, "X-Nimbo-Device-Model", &device.hostname);
 
     reqwest::Client::builder()
@@ -4182,7 +4249,10 @@ async fn fetch_api_xray_templates(
     let client = match build_remnawave_api_client(&config, user_agent_override) {
         Ok(client) => client,
         Err(error) => {
-            tracing::warn!(?error, "Remnawave API client init failed for xray template cache");
+            tracing::warn!(
+                ?error,
+                "Remnawave API client init failed for xray template cache"
+            );
             return HashMap::new();
         }
     };
@@ -4293,7 +4363,12 @@ fn remnawave_env_file_candidates() -> Vec<PathBuf> {
         }
     }
     if let Some(home) = dirs::home_dir() {
-        paths.push(home.join(".codex").join("mcp").join("mcp-remnawave").join(".env"));
+        paths.push(
+            home.join(".codex")
+                .join("mcp")
+                .join("mcp-remnawave")
+                .join(".env"),
+        );
     }
 
     let mut seen = HashSet::new();
@@ -4344,9 +4419,18 @@ fn build_remnawave_api_client(
     insert_request_header(&mut headers, "X-Device-Os", &device.os);
     insert_request_header(&mut headers, "X-Device-Os-Version", &device.os_version);
     insert_request_header(&mut headers, "X-Happ-Device-Os", HAPP_COMPAT_DEVICE_OS);
-    insert_request_header(&mut headers, "X-Happ-Device-Os-Version", HAPP_COMPAT_OS_VERSION);
-    insert_request_header(&mut headers, "X-Happ-Device-Model", HAPP_COMPAT_DEVICE_MODEL);
-    if let Ok(value) = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", config.api_token))
+    insert_request_header(
+        &mut headers,
+        "X-Happ-Device-Os-Version",
+        HAPP_COMPAT_OS_VERSION,
+    );
+    insert_request_header(
+        &mut headers,
+        "X-Happ-Device-Model",
+        HAPP_COMPAT_DEVICE_MODEL,
+    );
+    if let Ok(value) =
+        reqwest::header::HeaderValue::from_str(&format!("Bearer {}", config.api_token))
     {
         headers.insert(reqwest::header::AUTHORIZATION, value);
     }
@@ -4590,8 +4674,15 @@ fn host_xray_template_key(host_uuid: &str) -> String {
 
 fn same_subscription_server(left: &Server, right: &Server) -> bool {
     if let (Some(left_host), Some(right_host)) = (
-        left.host_uuid.as_deref().map(str::trim).filter(|value| !value.is_empty()),
-        right.host_uuid.as_deref().map(str::trim).filter(|value| !value.is_empty()),
+        left.host_uuid
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        right
+            .host_uuid
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
     ) {
         if left_host.eq_ignore_ascii_case(right_host) {
             return true;
@@ -4670,10 +4761,7 @@ fn subscription_xray_template_urls(subscription_url: &str) -> Vec<String> {
     let public_base = subscription_public_base_path(&parsed, &short_uuid);
 
     let mut urls = Vec::new();
-    for base_path in [
-        format!("/api/sub/{short_uuid}"),
-        public_base,
-    ] {
+    for base_path in [format!("/api/sub/{short_uuid}"), public_base] {
         for suffix in ["happ", "xray-json", "xray", "json", "nimbo"] {
             let mut url = parsed.clone();
             url.set_path(&format!("{base_path}/{suffix}"));
@@ -4749,10 +4837,7 @@ fn subscription_short_uuid(parsed: &url::Url) -> Option<String> {
     }
 }
 
-async fn get_remnawave_json(
-    client: &reqwest::Client,
-    url: &str,
-) -> Option<serde_json::Value> {
+async fn get_remnawave_json(client: &reqwest::Client, url: &str) -> Option<serde_json::Value> {
     let request = client
         .get(url)
         .header(reqwest::header::ACCEPT, "application/json");
@@ -4927,7 +5012,9 @@ async fn connect_system_proxy(
         let _ = child.kill();
         let _ = child.wait();
         let _ = restore_system_proxy(proxy_snapshot);
-        return Err(format!("Не удалось сохранить снимок системного proxy: {error}"));
+        return Err(format!(
+            "Не удалось сохранить снимок системного proxy: {error}"
+        ));
     }
 
     state.runtime(|runtime| {
@@ -4955,7 +5042,9 @@ async fn connect_both(
             }) {
                 let _ = restore_system_proxy(proxy_snapshot);
                 stop_runtime(state)?;
-                return Err(format!("Не удалось сохранить снимок системного proxy: {error}"));
+                return Err(format!(
+                    "Не удалось сохранить снимок системного proxy: {error}"
+                ));
             }
             state.runtime(|runtime| {
                 runtime.system_proxy_snapshot = proxy_snapshot;
@@ -5035,8 +5124,7 @@ async fn connect_tun(
 
 fn prepare_tun_runtime_files(app: &AppHandle) -> Result<(), String> {
     let bin_dir = nimbo_data_dir()?.join("bin");
-    std::fs::create_dir_all(&bin_dir)
-        .map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
+    std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
 
     let tun2socks_source = find_existing_path(tun2socks_candidate_paths(app)?)
         .ok_or_else(|| "tun2socks.exe не найден после установки TUN.".to_string())?;
@@ -5308,8 +5396,7 @@ async fn resolve_ipv4s_via_doh(host: &str) -> Vec<Ipv4Addr> {
             continue;
         };
         for answer in answers {
-            let is_a_record =
-                answer.get("type").and_then(serde_json::Value::as_u64) == Some(1);
+            let is_a_record = answer.get("type").and_then(serde_json::Value::as_u64) == Some(1);
             if !is_a_record {
                 continue;
             }
@@ -5516,10 +5603,7 @@ fn apply_mux_preferences(config: &mut serde_json::Value, preferences: &AppPrefer
     let target_index = outbounds
         .iter()
         .position(|outbound| {
-            outbound
-                .get("tag")
-                .and_then(serde_json::Value::as_str)
-                == Some(XRAY_PROXY_TAG)
+            outbound.get("tag").and_then(serde_json::Value::as_str) == Some(XRAY_PROXY_TAG)
         })
         .or_else(|| {
             outbounds.iter().position(|outbound| {
@@ -5565,10 +5649,10 @@ fn select_xray_template<'a>(
                 return Some(template);
             }
         }
-        if let Some(template) = snapshot
-            .xray_templates
-            .get(&namespaced_xray_template_key(subscription_url, DEFAULT_XRAY_TEMPLATE_KEY))
-        {
+        if let Some(template) = snapshot.xray_templates.get(&namespaced_xray_template_key(
+            subscription_url,
+            DEFAULT_XRAY_TEMPLATE_KEY,
+        )) {
             return Some(template);
         }
     }
@@ -5577,13 +5661,16 @@ fn select_xray_template<'a>(
             return Some(template);
         }
     }
-    snapshot.xray_templates.get(DEFAULT_XRAY_TEMPLATE_KEY).or_else(|| {
-        if snapshot.xray_templates.len() == 1 {
-            snapshot.xray_templates.values().next()
-        } else {
-            None
-        }
-    })
+    snapshot
+        .xray_templates
+        .get(DEFAULT_XRAY_TEMPLATE_KEY)
+        .or_else(|| {
+            if snapshot.xray_templates.len() == 1 {
+                snapshot.xray_templates.values().next()
+            } else {
+                None
+            }
+        })
 }
 
 fn apply_xray_template(
@@ -5811,7 +5898,10 @@ fn merge_template_routing(
     }
 
     for rule in priority_rules.into_iter().rev() {
-        if rules_arr.iter().any(|existing| routing_rules_overlap(existing, &rule)) {
+        if rules_arr
+            .iter()
+            .any(|existing| routing_rules_overlap(existing, &rule))
+        {
             continue;
         }
         rules_arr.insert(0, rule);
@@ -5831,7 +5921,11 @@ fn sanitize_template_routing_rules(rules: &mut Vec<serde_json::Value>) {
         if is_template_catch_all_rule(rule) {
             return false;
         }
-        if rule.get("balancerTag").and_then(serde_json::Value::as_str).is_some() {
+        if rule
+            .get("balancerTag")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+        {
             return true;
         }
         let Some(outbound_tag) = rule
@@ -5846,8 +5940,14 @@ fn sanitize_template_routing_rules(rules: &mut Vec<serde_json::Value>) {
 }
 
 fn is_template_catch_all_rule(rule: &serde_json::Map<String, serde_json::Value>) -> bool {
-    let has_target = rule.get("outboundTag").and_then(serde_json::Value::as_str).is_some()
-        || rule.get("balancerTag").and_then(serde_json::Value::as_str).is_some();
+    let has_target = rule
+        .get("outboundTag")
+        .and_then(serde_json::Value::as_str)
+        .is_some()
+        || rule
+            .get("balancerTag")
+            .and_then(serde_json::Value::as_str)
+            .is_some();
     if !has_target {
         return false;
     }
@@ -5906,10 +6006,7 @@ fn normalize_xray_routing_rules(rules: &mut [serde_json::Value]) {
         .iter()
         .any(|key| rule.contains_key(*key));
         if has_matcher || rule.contains_key("outboundTag") {
-            rule.insert(
-                "type".into(),
-                serde_json::Value::String("field".into()),
-            );
+            rule.insert("type".into(), serde_json::Value::String("field".into()));
         }
     }
 }
@@ -5966,11 +6063,19 @@ fn is_xray_private_direct_rule(rule: &serde_json::Value) -> bool {
     let is_private_ip = rule
         .get("ip")
         .and_then(serde_json::Value::as_array)
-        .is_some_and(|items| items.iter().any(|item| item.as_str() == Some("geoip:private")));
+        .is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item.as_str() == Some("geoip:private"))
+        });
     let is_private_domain = rule
         .get("domain")
         .and_then(serde_json::Value::as_array)
-        .is_some_and(|items| items.iter().any(|item| item.as_str() == Some("geosite:private")));
+        .is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item.as_str() == Some("geosite:private"))
+        });
     is_private_ip || is_private_domain
 }
 
@@ -6058,7 +6163,10 @@ fn canonical_app_rule_key(path: &str) -> String {
         return String::new();
     }
     if let Some(rest) = trimmed.strip_prefix(APP_DOMAIN_ENTRY_PREFIX) {
-        return format!("{APP_DOMAIN_ENTRY_PREFIX}{}", rest.trim().to_ascii_lowercase());
+        return format!(
+            "{APP_DOMAIN_ENTRY_PREFIX}{}",
+            rest.trim().to_ascii_lowercase()
+        );
     }
     let normalized = trimmed.replace('\\', "/").to_ascii_lowercase();
     normalized
@@ -6075,10 +6183,11 @@ fn provider_app_proxy_rules(snapshot: &PersistedState, server: &Server) -> Vec<A
         .as_deref()
         .and_then(|url| snapshot.subscriptions.iter().find(|sub| sub.url == url))
         .or_else(|| {
-            snapshot
-                .subscriptions
-                .iter()
-                .find(|sub| sub.servers.iter().any(|candidate| candidate.id == server.id))
+            snapshot.subscriptions.iter().find(|sub| {
+                sub.servers
+                    .iter()
+                    .any(|candidate| candidate.id == server.id)
+            })
         });
 
     subscription_app_proxy_rules_from(subscription)
@@ -6091,10 +6200,11 @@ fn subscription_app_proxy_rules_for_display(snapshot: &PersistedState) -> Vec<Ap
         .and_then(|url| snapshot.subscriptions.iter().find(|sub| sub.url == url))
         .or_else(|| {
             snapshot.active_server_id.as_deref().and_then(|server_id| {
-                snapshot
-                    .subscriptions
-                    .iter()
-                    .find(|sub| sub.servers.iter().any(|candidate| candidate.id == server_id))
+                snapshot.subscriptions.iter().find(|sub| {
+                    sub.servers
+                        .iter()
+                        .any(|candidate| candidate.id == server_id)
+                })
             })
         })
         .or_else(|| snapshot.subscriptions.first());
@@ -6254,15 +6364,7 @@ async fn ensure_xray_binary(app: &AppHandle) -> Result<PathBuf, String> {
         }
     }
 
-    #[cfg(all(target_arch = "x86_64", any(windows, target_os = "linux")))]
-    {
-        download_xray_for_current_platform().await
-    }
-
-    #[cfg(not(all(target_arch = "x86_64", any(windows, target_os = "linux"))))]
-    {
-        Err("xray-core не найден. Положите бинарный файл рядом с приложением или укажите NIMBO_XRAY_PATH.".into())
-    }
+    download_xray_runtime().await
 }
 
 fn xray_candidate_paths(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
@@ -6296,28 +6398,60 @@ fn xray_candidate_paths(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
 }
 
 fn xray_exe_name() -> &'static str {
-    if cfg!(windows) { "xray.exe" } else { "xray" }
+    if cfg!(windows) {
+        "xray.exe"
+    } else {
+        "xray"
+    }
 }
 
-#[cfg(all(target_arch = "x86_64", any(windows, target_os = "linux")))]
-async fn download_xray_for_current_platform() -> Result<PathBuf, String> {
+fn xray_release_archive_name(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("windows", "x86_64") => Some("Xray-windows-64.zip"),
+        ("windows", "x86") => Some("Xray-windows-32.zip"),
+        ("windows", "aarch64") => Some("Xray-windows-arm64-v8a.zip"),
+        ("linux", "x86_64") => Some("Xray-linux-64.zip"),
+        ("linux", "x86") => Some("Xray-linux-32.zip"),
+        ("linux", "aarch64") => Some("Xray-linux-arm64-v8a.zip"),
+        _ => None,
+    }
+}
+
+fn xray_release_archive_url() -> Option<String> {
+    xray_release_archive_name(std::env::consts::OS, std::env::consts::ARCH).map(|archive| {
+        format!("https://github.com/XTLS/Xray-core/releases/latest/download/{archive}")
+    })
+}
+
+async fn download_xray_runtime() -> Result<PathBuf, String> {
+    let archive_url = xray_release_archive_url().ok_or_else(|| {
+        format!(
+            "Автоматическая загрузка xray-core не поддерживается для {} {}. Укажите NIMBO_XRAY_PATH.",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )
+    })?;
     let bin_dir = nimbo_data_dir()?.join("bin");
-    std::fs::create_dir_all(&bin_dir)
-        .map_err(|e| format!("Не удалось создать папку Xray: {e}"))?;
-    let binary_name = xray_exe_name();
-    let target = bin_dir.join(binary_name);
-    let archive_url = if cfg!(windows) {
-        "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip"
-    } else {
-        "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
-    };
+    std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Не удалось создать папку Xray: {e}"))?;
 
     tracing::info!(%archive_url, "downloading xray");
-    let bytes = reqwest::Client::builder()
+    let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(90))
+        .user_agent("Nimbo-Xray-Updater")
         .build()
-        .map_err(|e| format!("Не удалось создать HTTP-клиент для Xray: {e}"))?
-        .get(archive_url)
+        .map_err(|e| format!("Не удалось создать HTTP-клиент для Xray: {e}"))?;
+    let digest_url = format!("{archive_url}.dgst");
+    let (archive_bytes, digest_file) = tokio::try_join!(
+        download_xray_asset(&client, &archive_url),
+        download_xray_digest(&client, &digest_url),
+    )?;
+    verify_xray_archive_digest(&archive_bytes, &digest_file)?;
+    install_xray_runtime_archive(&archive_bytes, &bin_dir)
+}
+
+async fn download_xray_asset(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
+    let bytes = client
+        .get(url)
         .send()
         .await
         .map_err(|e| format!("Не удалось скачать Xray: {e}"))?
@@ -6326,44 +6460,128 @@ async fn download_xray_for_current_platform() -> Result<PathBuf, String> {
         .bytes()
         .await
         .map_err(|e| format!("Не удалось прочитать архив Xray: {e}"))?;
+    Ok(bytes.to_vec())
+}
 
-    let reader = Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(reader)
-        .map_err(|e| format!("Не удалось открыть архив Xray: {e}"))?;
-    for index in 0..archive.len() {
-        let mut file = archive
-            .by_index(index)
-            .map_err(|e| format!("Не удалось прочитать файл архива Xray: {e}"))?;
-        if !file.is_file() {
-            continue;
-        }
-        let Some(name) = file.enclosed_name().and_then(|path| path.file_name().map(|name| name.to_owned())) else {
-            continue;
-        };
-        let output = bin_dir.join(name);
-        let mut out = File::create(&output)
-            .map_err(|e| format!("Не удалось распаковать Xray: {e}"))?;
-        std::io::copy(&mut file, &mut out)
-            .map_err(|e| format!("Не удалось записать файл Xray: {e}"))?;
-    }
+async fn download_xray_digest(client: &reqwest::Client, url: &str) -> Result<String, String> {
+    client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Не удалось скачать контрольную сумму Xray: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("Не удалось скачать контрольную сумму Xray: {e}"))?
+        .text()
+        .await
+        .map_err(|e| format!("Не удалось прочитать контрольную сумму Xray: {e}"))
+}
 
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut permissions = std::fs::metadata(&target)
-            .map_err(|e| format!("Не удалось прочитать права Xray: {e}"))?
-            .permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&target, permissions)
-            .map_err(|e| format!("Не удалось выдать права на запуск Xray: {e}"))?;
-    }
-
-    if target.exists() {
-        Ok(target)
+fn verify_xray_archive_digest(bytes: &[u8], digest_file: &str) -> Result<(), String> {
+    let expected = digest_file
+        .lines()
+        .filter_map(|line| line.trim().split_once('='))
+        .find_map(|(algorithm, value)| {
+            algorithm
+                .trim()
+                .eq_ignore_ascii_case("SHA256")
+                .then(|| value.trim())
+        })
+        .filter(|value| value.len() == 64 && value.chars().all(|ch| ch.is_ascii_hexdigit()))
+        .ok_or_else(|| "В .dgst Xray нет корректной SHA-256 суммы.".to_string())?;
+    let actual = format!("{:x}", Sha256::digest(bytes));
+    if actual.eq_ignore_ascii_case(expected) {
+        Ok(())
     } else {
-        Err(format!("Архив Xray скачан, но {binary_name} внутри не найден."))
+        Err("Контрольная сумма архива Xray не совпала.".into())
     }
+}
+
+fn install_xray_runtime_archive(archive_bytes: &[u8], bin_dir: &Path) -> Result<PathBuf, String> {
+    const XRAY_RUNTIME_DATA_FILES: &[&str] = &["geoip.dat", "geosite.dat"];
+    let staging_dir = bin_dir.join(format!(".nimbo-xray-{}.partial", std::process::id()));
+    if staging_dir.exists() {
+        std::fs::remove_dir_all(&staging_dir)
+            .map_err(|e| format!("Не удалось очистить временную папку Xray: {e}"))?;
+    }
+    std::fs::create_dir_all(&staging_dir)
+        .map_err(|e| format!("Не удалось создать временную папку Xray: {e}"))?;
+
+    let install_result = (|| {
+        let reader = Cursor::new(archive_bytes);
+        let mut archive = zip::ZipArchive::new(reader)
+            .map_err(|e| format!("Не удалось открыть архив Xray: {e}"))?;
+        let mut found_binary = false;
+        for index in 0..archive.len() {
+            let mut file = archive
+                .by_index(index)
+                .map_err(|e| format!("Не удалось прочитать файл архива Xray: {e}"))?;
+            if !file.is_file() {
+                continue;
+            }
+            let Some(enclosed_name) = file.enclosed_name() else {
+                continue;
+            };
+            let Some(name) = enclosed_name.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name != xray_exe_name() && !XRAY_RUNTIME_DATA_FILES.contains(&name) {
+                continue;
+            }
+            let output = staging_dir.join(name);
+            let mut out =
+                File::create(&output).map_err(|e| format!("Не удалось распаковать Xray: {e}"))?;
+            std::io::copy(&mut file, &mut out)
+                .map_err(|e| format!("Не удалось записать файл Xray: {e}"))?;
+            out.sync_all()
+                .map_err(|e| format!("Не удалось сохранить файл Xray: {e}"))?;
+            found_binary |= name == xray_exe_name();
+        }
+
+        if !found_binary {
+            return Err(format!(
+                "Архив Xray скачан, но {} внутри не найден.",
+                xray_exe_name()
+            ));
+        }
+
+        let staged_binary = staging_dir.join(xray_exe_name());
+        mark_xray_executable(&staged_binary)?;
+        for name in XRAY_RUNTIME_DATA_FILES
+            .iter()
+            .copied()
+            .chain(std::iter::once(xray_exe_name()))
+        {
+            let staged = staging_dir.join(name);
+            if !staged.exists() {
+                continue;
+            }
+            let destination = bin_dir.join(name);
+            if destination.exists() {
+                std::fs::remove_file(&destination)
+                    .map_err(|e| format!("Не удалось обновить файл Xray {name}: {e}"))?;
+            }
+            std::fs::rename(&staged, &destination)
+                .map_err(|e| format!("Не удалось установить файл Xray {name}: {e}"))?;
+        }
+
+        Ok(bin_dir.join(xray_exe_name()))
+    })();
+
+    let _ = std::fs::remove_dir_all(&staging_dir);
+    install_result
+}
+
+#[cfg(unix)]
+fn mark_xray_executable(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+        .map_err(|e| format!("Не удалось выдать права на запуск Xray: {e}"))
+}
+
+#[cfg(not(unix))]
+fn mark_xray_executable(_path: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 fn spawn_xray(xray_path: &Path, config_path: &Path) -> Result<std::process::Child, String> {
@@ -6503,10 +6721,16 @@ pub fn cleanup_disconnected_runtime_on_startup(app: &AppHandle) {
         tracing::warn!(?error, "failed to clean stale runtime on startup");
     }
     if let Err(error) = cleanup_stale_nimbo_system_proxy() {
-        tracing::warn!(?error, "failed to clean stale Nimbo system proxy on startup");
+        tracing::warn!(
+            ?error,
+            "failed to clean stale Nimbo system proxy on startup"
+        );
     }
     if let Err(error) = kill_orphan_nimbo_core_processes() {
-        tracing::warn!(?error, "failed to stop orphaned Nimbo core processes on startup");
+        tracing::warn!(
+            ?error,
+            "failed to stop orphaned Nimbo core processes on startup"
+        );
     }
 }
 
@@ -6516,7 +6740,10 @@ pub fn cleanup_runtime_for_exit(app: &AppHandle) {
         tracing::warn!(?error, "failed to clean runtime during app exit");
     }
     if let Err(error) = state.mutate(|s| s.connected = false) {
-        tracing::warn!(?error, "failed to persist disconnected state during app exit");
+        tracing::warn!(
+            ?error,
+            "failed to persist disconnected state during app exit"
+        );
     }
 }
 
@@ -6706,8 +6933,7 @@ fn tun_status(app: &AppHandle) -> Result<TunInstallStatus, String> {
 #[allow(dead_code)]
 fn install_bundled_tun_files_without_app() -> Result<(), String> {
     let bin_dir = nimbo_data_dir()?.join("bin");
-    std::fs::create_dir_all(&bin_dir)
-        .map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
+    std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
 
     if let Some(path) = find_existing_path(local_bundled_tun_paths(tun2socks_name())) {
         copy_tun_file(&path, &bin_dir.join(tun2socks_name()))?;
@@ -6721,8 +6947,7 @@ fn install_bundled_tun_files_without_app() -> Result<(), String> {
 #[allow(dead_code)]
 fn install_bundled_tun_files(app: &AppHandle) -> Result<(), String> {
     let bin_dir = nimbo_data_dir()?.join("bin");
-    std::fs::create_dir_all(&bin_dir)
-        .map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
+    std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
 
     if let Some(path) = find_existing_path(bundled_tun2socks_paths(app)?) {
         copy_tun_file(&path, &bin_dir.join(tun2socks_name()))?;
@@ -6760,8 +6985,17 @@ fn tun2socks_candidate_paths(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
     if let Ok(cwd) = std::env::current_dir() {
         paths.push(cwd.join("resources").join("tun").join(tun2socks_name()));
         paths.push(cwd.join("binaries").join(tun2socks_name()));
-        paths.push(cwd.join("src-tauri").join("resources").join("tun").join(tun2socks_name()));
-        paths.push(cwd.join("src-tauri").join("binaries").join(tun2socks_name()));
+        paths.push(
+            cwd.join("src-tauri")
+                .join("resources")
+                .join("tun")
+                .join(tun2socks_name()),
+        );
+        paths.push(
+            cwd.join("src-tauri")
+                .join("binaries")
+                .join(tun2socks_name()),
+        );
     }
     Ok(paths)
 }
@@ -6776,7 +7010,12 @@ fn wintun_candidate_paths(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
     if let Ok(cwd) = std::env::current_dir() {
         paths.push(cwd.join("resources").join("tun").join(wintun_name()));
         paths.push(cwd.join("binaries").join(wintun_name()));
-        paths.push(cwd.join("src-tauri").join("resources").join("tun").join(wintun_name()));
+        paths.push(
+            cwd.join("src-tauri")
+                .join("resources")
+                .join("tun")
+                .join(wintun_name()),
+        );
         paths.push(cwd.join("src-tauri").join("binaries").join(wintun_name()));
     }
     Ok(paths)
@@ -6794,7 +7033,13 @@ fn bundled_tun_paths(app: &AppHandle, file_name: &str) -> Result<Vec<PathBuf>, S
     let mut paths = Vec::new();
     if let Ok(resource) = app.path().resource_dir() {
         paths.push(resource.join("resources").join("tun").join(file_name));
-        paths.push(resource.join("resources").join("resources").join("tun").join(file_name));
+        paths.push(
+            resource
+                .join("resources")
+                .join("resources")
+                .join("tun")
+                .join(file_name),
+        );
         paths.push(resource.join("tun").join(file_name));
         paths.push(resource.join("binaries").join(file_name));
         paths.push(resource.join(file_name));
@@ -6807,14 +7052,24 @@ fn local_bundled_tun_paths(file_name: &str) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            paths.push(dir.join("resources").join("resources").join("tun").join(file_name));
+            paths.push(
+                dir.join("resources")
+                    .join("resources")
+                    .join("tun")
+                    .join(file_name),
+            );
             paths.push(dir.join("resources").join("tun").join(file_name));
             paths.push(dir.join("tun").join(file_name));
             paths.push(dir.join("binaries").join(file_name));
         }
     }
     if let Ok(cwd) = std::env::current_dir() {
-        paths.push(cwd.join("resources").join("resources").join("tun").join(file_name));
+        paths.push(
+            cwd.join("resources")
+                .join("resources")
+                .join("tun")
+                .join(file_name),
+        );
         paths.push(cwd.join("resources").join("tun").join(file_name));
         paths.push(cwd.join("tun").join(file_name));
         paths.push(cwd.join("binaries").join(file_name));
@@ -6823,7 +7078,11 @@ fn local_bundled_tun_paths(file_name: &str) -> Vec<PathBuf> {
 }
 
 fn tun2socks_name() -> &'static str {
-    if cfg!(windows) { "tun2socks.exe" } else { "tun2socks" }
+    if cfg!(windows) {
+        "tun2socks.exe"
+    } else {
+        "tun2socks"
+    }
 }
 
 fn wintun_name() -> &'static str {
@@ -6837,8 +7096,7 @@ fn path_to_string(path: PathBuf) -> String {
 #[cfg(all(windows, target_arch = "x86_64"))]
 async fn download_tun2socks_windows_x64() -> Result<PathBuf, String> {
     let bin_dir = nimbo_data_dir()?.join("bin");
-    std::fs::create_dir_all(&bin_dir)
-        .map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
+    std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
     let target = bin_dir.join(tun2socks_name());
     if target.exists() {
         return Ok(target);
@@ -6868,8 +7126,7 @@ async fn download_tun2socks_windows_x64() -> Result<PathBuf, String> {
 #[cfg(all(windows, target_arch = "x86_64"))]
 async fn download_wintun_windows_x64() -> Result<PathBuf, String> {
     let bin_dir = nimbo_data_dir()?.join("bin");
-    std::fs::create_dir_all(&bin_dir)
-        .map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
+    std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
     let target = bin_dir.join(wintun_name());
     if target.exists() {
         return Ok(target);
@@ -6896,7 +7153,11 @@ async fn download_wintun_windows_x64() -> Result<PathBuf, String> {
 }
 
 #[cfg(all(windows, target_arch = "x86_64"))]
-fn extract_named_file_from_zip(bytes: Vec<u8>, file_name: &str, target: &Path) -> Result<(), String> {
+fn extract_named_file_from_zip(
+    bytes: Vec<u8>,
+    file_name: &str,
+    target: &Path,
+) -> Result<(), String> {
     let reader = Cursor::new(bytes);
     let mut archive = zip::ZipArchive::new(reader)
         .map_err(|e| format!("Не удалось открыть архив {file_name}: {e}"))?;
@@ -6907,7 +7168,10 @@ fn extract_named_file_from_zip(bytes: Vec<u8>, file_name: &str, target: &Path) -
         if !file.is_file() {
             continue;
         }
-        let Some(name) = file.enclosed_name().and_then(|path| path.file_name().map(|name| name.to_owned())) else {
+        let Some(name) = file
+            .enclosed_name()
+            .and_then(|path| path.file_name().map(|name| name.to_owned()))
+        else {
             continue;
         };
         let name = name.to_string_lossy();
@@ -6941,8 +7205,13 @@ fn extract_amd64_wintun_from_zip(bytes: Vec<u8>, target: &Path) -> Result<(), St
         let Some(path) = file.enclosed_name() else {
             continue;
         };
-        let normalized = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
-        if normalized.ends_with("/bin/amd64/wintun.dll") || normalized.ends_with("bin/amd64/wintun.dll") {
+        let normalized = path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .to_ascii_lowercase();
+        if normalized.ends_with("/bin/amd64/wintun.dll")
+            || normalized.ends_with("bin/amd64/wintun.dll")
+        {
             let mut out = File::create(target)
                 .map_err(|e| format!("Не удалось создать {}: {e}", target.display()))?;
             std::io::copy(&mut file, &mut out)
@@ -6969,8 +7238,7 @@ pub(crate) fn is_running_as_admin() -> bool {
 
 #[cfg(windows)]
 fn relaunch_as_admin() -> Result<(), String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("Не удалось найти путь Nimbo: {e}"))?;
+    let exe = std::env::current_exe().map_err(|e| format!("Не удалось найти путь Nimbo: {e}"))?;
     let escaped = exe.to_string_lossy().replace('\'', "''");
     let parent_pid = std::process::id();
     let status = hidden_command("powershell")
@@ -7070,10 +7338,7 @@ fn is_exact_nimbo_system_proxy(proxy_server: &str, ports: ProxyPorts) -> bool {
         format!("socks=127.0.0.1:{}", ports.socks),
     ];
     compact.split(';').collect::<HashSet<_>>()
-        == expected
-            .iter()
-            .map(String::as_str)
-            .collect::<HashSet<_>>()
+        == expected.iter().map(String::as_str).collect::<HashSet<_>>()
 }
 
 #[cfg(windows)]
@@ -7307,10 +7572,9 @@ fn is_launch_at_login_enabled() -> Result<bool, String> {
     use winreg::RegKey;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let key = match hkcu.open_subkey_with_flags(
-        r"Software\Microsoft\Windows\CurrentVersion\Run",
-        KEY_READ,
-    ) {
+    let key = match hkcu
+        .open_subkey_with_flags(r"Software\Microsoft\Windows\CurrentVersion\Run", KEY_READ)
+    {
         Ok(key) => key,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(format!("Не удалось открыть автозапуск Windows: {e}")),
@@ -7416,6 +7680,36 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn validates_xray_archive_sha256() {
+        verify_xray_archive_digest(
+            b"nimbo",
+            "SHA256= fae4ccc83b91d0f3d002cc9799e33d28a11fd847ab1aa9adf60061ddcde09105",
+        )
+        .unwrap();
+        assert!(verify_xray_archive_digest(
+            b"nimbo",
+            "SHA256= 0000000000000000000000000000000000000000000000000000000000000000"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn resolves_popular_xray_runtime_archives() {
+        assert_eq!(
+            xray_release_archive_name("windows", "x86_64"),
+            Some("Xray-windows-64.zip")
+        );
+        assert_eq!(
+            xray_release_archive_name("linux", "x86_64"),
+            Some("Xray-linux-64.zip")
+        );
+        assert_eq!(
+            xray_release_archive_name("linux", "aarch64"),
+            Some("Xray-linux-arm64-v8a.zip")
+        );
+    }
+
     fn test_server() -> Server {
         Server {
             id: "server-1".into(),
@@ -7438,26 +7732,32 @@ mod tests {
         server: Server,
         rule: nimbo_subscription::SubscriptionAppProxyRule,
     ) -> PersistedState {
-        let mut snapshot = PersistedState::default();
-        snapshot.active_subscription_url = Some("https://example.com/sub".into());
-        snapshot.subscriptions.push(nimbo_subscription::Subscription {
-            url: "https://example.com/sub".into(),
-            name: Some("Test".into()),
-            meta: nimbo_subscription::SubscriptionMeta {
-                app_proxy_rules: vec![rule],
-                ..Default::default()
-            },
-            servers: vec![server],
-            info: None,
-            fetched_at: 0,
-        });
+        let mut snapshot = PersistedState {
+            active_subscription_url: Some("https://example.com/sub".into()),
+            ..Default::default()
+        };
+        snapshot
+            .subscriptions
+            .push(nimbo_subscription::Subscription {
+                url: "https://example.com/sub".into(),
+                name: Some("Test".into()),
+                meta: nimbo_subscription::SubscriptionMeta {
+                    app_proxy_rules: vec![rule],
+                    ..Default::default()
+                },
+                servers: vec![server],
+                info: None,
+                fetched_at: 0,
+            });
         snapshot
     }
 
     #[test]
     fn active_connection_process_rule_wins_over_local_proxy_endpoint() {
-        let mut snapshot = PersistedState::default();
-        snapshot.connected = true;
+        let snapshot = PersistedState {
+            connected: true,
+            ..Default::default()
+        };
         let app_rules = vec![AppProxyRule {
             id: "opera-direct".into(),
             name: "Opera".into(),
@@ -7495,7 +7795,10 @@ mod tests {
             ProxyPorts::default(),
         );
 
-        assert!(matches!(decision_from_path.route, ActiveConnectionRoute::Direct));
+        assert!(matches!(
+            decision_from_path.route,
+            ActiveConnectionRoute::Direct
+        ));
         assert_eq!(decision_from_path.rule, "process rule");
     }
 
@@ -7724,7 +8027,11 @@ mod tests {
         assert!(rules.iter().any(|rule| {
             rule.get("domain")
                 .and_then(serde_json::Value::as_array)
-                .map(|domains| domains.iter().any(|domain| domain == "domain:direct.example"))
+                .map(|domains| {
+                    domains
+                        .iter()
+                        .any(|domain| domain == "domain:direct.example")
+                })
                 .unwrap_or(false)
         }));
         assert!(!rules.iter().any(|rule| {
@@ -7930,7 +8237,9 @@ mod tests {
         let rules = config["routing"]["rules"].as_array().unwrap();
 
         assert!(outbounds.iter().any(|outbound| outbound["tag"] == "proxy"));
-        assert!(outbounds.iter().any(|outbound| outbound["tag"] == "proxy-2"));
+        assert!(outbounds
+            .iter()
+            .any(|outbound| outbound["tag"] == "proxy-2"));
         assert!(config["routing"].get("balancers").is_some());
         assert!(rules.iter().any(|rule| {
             rule.get("domain")
@@ -8050,11 +8359,13 @@ mod tests {
         })
         .to_string();
 
-        let templates = extract_xray_templates_with_server_keys(&body, &[server.clone()]);
+        let templates =
+            extract_xray_templates_with_server_keys(&body, std::slice::from_ref(&server));
         let mut snapshot = PersistedState::default();
-        snapshot
-            .xray_templates
-            .insert(server_xray_template_key(&server.id), templates[&server_xray_template_key(&server.id)].clone());
+        snapshot.xray_templates.insert(
+            server_xray_template_key(&server.id),
+            templates[&server_xray_template_key(&server.id)].clone(),
+        );
 
         let config = build_runtime_xray_config(&server, &snapshot, ProxyPorts::default()).unwrap();
         let rules = config["routing"]["rules"].as_array().unwrap();
@@ -8062,7 +8373,11 @@ mod tests {
         assert!(rules.iter().any(|rule| {
             rule.get("domain")
                 .and_then(serde_json::Value::as_array)
-                .map(|domains| domains.iter().any(|domain| domain == "domain:from-remnawave.example"))
+                .map(|domains| {
+                    domains
+                        .iter()
+                        .any(|domain| domain == "domain:from-remnawave.example")
+                })
                 .unwrap_or(false)
         }));
     }
@@ -8148,7 +8463,8 @@ mod tests {
             }),
         );
 
-        let config = build_runtime_xray_config(&server_b, &snapshot, ProxyPorts::default()).unwrap();
+        let config =
+            build_runtime_xray_config(&server_b, &snapshot, ProxyPorts::default()).unwrap();
         let rules = config["routing"]["rules"].as_array().unwrap();
 
         assert!(rules.iter().any(|rule| {

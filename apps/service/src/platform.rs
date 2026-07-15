@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use tracing::{error, info, warn};
 
 mod elevation;
@@ -95,7 +95,7 @@ impl Drop for RuntimeGuard {
 
 fn acquire_runtime_guard() -> Result<Option<RuntimeGuard>> {
     use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError,
+        CloseHandle, GetLastError, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
     };
     use windows_sys::Win32::System::Threading::CreateMutexW;
 
@@ -123,7 +123,9 @@ fn acquire_runtime_guard() -> Result<Option<RuntimeGuard>> {
 }
 
 fn init_tracing(args: &[String]) {
-    let foreground = args.iter().any(|a| a == "--run-foreground" || a == "run-foreground");
+    let foreground = args
+        .iter()
+        .any(|a| a == "--run-foreground" || a == "run-foreground");
     let env = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let builder = tracing_subscriber::fmt().with_env_filter(env);
@@ -157,7 +159,7 @@ fn init_tracing(args: &[String]) {
 fn attach_parent_console() {
     // Best-effort: attaches stdio to the parent terminal if there is one.
     // Silently no-ops when launched from a GUI parent (NSIS, double-click).
-    use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
+    use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
     unsafe {
         AttachConsole(ATTACH_PARENT_PROCESS);
     }
@@ -166,7 +168,7 @@ fn attach_parent_console() {
 fn log_file_path() -> Option<PathBuf> {
     let base = std::env::var_os("ProgramData")
         .map(PathBuf::from)
-        .or_else(|| dirs::data_local_dir())?;
+        .or_else(dirs::data_local_dir)?;
     Some(base.join("Nimbo").join("helper.log"))
 }
 
@@ -305,9 +307,7 @@ fn install_service() -> Result<()> {
                 // image. We can then update the config to point at the new
                 // file path and start the service back up.
                 if let Ok(status) = existing.query_status() {
-                    if status.current_state
-                        != windows_service::service::ServiceState::Stopped
-                    {
+                    if status.current_state != windows_service::service::ServiceState::Stopped {
                         pipe::occupy_accept_briefly_for_stop();
                         if let Err(stop_err) = existing.stop() {
                             warn!(error = %stop_err, "stop existing service");

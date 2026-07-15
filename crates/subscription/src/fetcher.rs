@@ -3,18 +3,18 @@ use std::time::Duration;
 
 use base64::Engine;
 use percent_encoding::percent_decode_str;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use thiserror::Error;
 
-use nimbo_device::{DeviceInfo, device_info};
+use nimbo_device::{device_info, DeviceInfo};
 
-use crate::USER_AGENT;
 use crate::model::{
     Protocol, Server, Subscription, SubscriptionAppProxyMode, SubscriptionAppProxyRule,
     SubscriptionMeta, SubscriptionTheme,
 };
-use crate::parser::{ParseError, parse_aggregate};
-use crate::userinfo::{SubscriptionInfo, parse_subscription_userinfo};
+use crate::parser::{parse_aggregate, ParseError};
+use crate::userinfo::{parse_subscription_userinfo, SubscriptionInfo};
+use crate::USER_AGENT;
 
 pub const HAPP_COMPAT_USER_AGENT: &str = "Happ/2.0.0";
 pub const HAPP_COMPAT_DEVICE_OS: &str = "Android";
@@ -106,14 +106,26 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
     insert_header(&mut headers, "X-Ver-Os", &opts.device.os_version);
     insert_header(&mut headers, "X-Device-Model", &opts.device.hostname);
     insert_header(&mut headers, "X-Happ-Device-Os", HAPP_COMPAT_DEVICE_OS);
-    insert_header(&mut headers, "X-Happ-Device-Os-Version", HAPP_COMPAT_OS_VERSION);
-    insert_header(&mut headers, "X-Happ-Device-Model", HAPP_COMPAT_DEVICE_MODEL);
+    insert_header(
+        &mut headers,
+        "X-Happ-Device-Os-Version",
+        HAPP_COMPAT_OS_VERSION,
+    );
+    insert_header(
+        &mut headers,
+        "X-Happ-Device-Model",
+        HAPP_COMPAT_DEVICE_MODEL,
+    );
     insert_header(&mut headers, "X-Nimbo-User-Agent", &app_user_agent);
     insert_header(&mut headers, "X-Client-User-Agent", &app_user_agent);
     insert_header(&mut headers, "X-Client-Name", NIMBO_CLIENT_NAME);
     insert_header(&mut headers, "X-Client-Version", NIMBO_CLIENT_VERSION);
     insert_header(&mut headers, "X-Nimbo-Device-Os", &opts.device.os);
-    insert_header(&mut headers, "X-Nimbo-Device-Os-Version", &opts.device.os_version);
+    insert_header(
+        &mut headers,
+        "X-Nimbo-Device-Os-Version",
+        &opts.device.os_version,
+    );
     insert_header(&mut headers, "X-Nimbo-Device-Model", &opts.device.hostname);
 
     let client = reqwest::Client::builder()
@@ -144,18 +156,20 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         .and_then(|v| v.to_str().ok())
         .map(parse_subscription_userinfo);
     let announce = extract_announce_header(resp.headers());
-    let support_url = extract_header_url(resp.headers(), &[
-        "support-url",
-        "profile-support-url",
-        "x-support-url",
-    ]);
-    let website_url = extract_header_url(resp.headers(), &[
-        "profile-web-page-url",
-        "profile-page-url",
-        "website-url",
-        "web-page-url",
-        "x-web-page-url",
-    ]);
+    let support_url = extract_header_url(
+        resp.headers(),
+        &["support-url", "profile-support-url", "x-support-url"],
+    );
+    let website_url = extract_header_url(
+        resp.headers(),
+        &[
+            "profile-web-page-url",
+            "profile-page-url",
+            "website-url",
+            "web-page-url",
+            "x-web-page-url",
+        ],
+    );
     let provider_app_proxy_rules = extract_provider_app_proxy_rules(&client, resp.headers()).await;
     let suggested_name = extract_subscription_name(resp.headers(), url);
     let logo_url = extract_subscription_logo(resp.headers());
@@ -573,7 +587,11 @@ fn exact_option_key(value: Option<&str>) -> String {
 }
 
 fn display_name_key(value: &str) -> String {
-    value.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 fn lower_vec_key(values: Option<&[String]>) -> Vec<String> {
@@ -675,8 +693,7 @@ async fn fetch_subscription_api_info(
         };
         println!(
             "subscription api probe: {} -> 200 ({})",
-            info_url,
-            content_type
+            info_url, content_type
         );
         let info = parse_remnawave_info(&json);
         if !info.is_empty() {
@@ -702,7 +719,11 @@ fn subscription_api_info_urls(subscription_url: &str) -> Vec<String> {
     };
     let segments = parsed
         .path_segments()
-        .map(|s| s.filter(|segment| !segment.is_empty()).map(ToString::to_string).collect::<Vec<_>>())
+        .map(|s| {
+            s.filter(|segment| !segment.is_empty())
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default();
 
     if segments.last().map(|segment| segment.as_str()) == Some("info")
@@ -763,7 +784,10 @@ fn subscription_api_info_urls(subscription_url: &str) -> Vec<String> {
 
 fn subscription_public_base_path(segments: &[String], short_uuid: &str) -> String {
     let mut public_segments = segments.to_vec();
-    if let Some(pos) = public_segments.iter().rposition(|segment| segment == short_uuid) {
+    if let Some(pos) = public_segments
+        .iter()
+        .rposition(|segment| segment == short_uuid)
+    {
         public_segments.truncate(pos + 1);
     } else {
         public_segments.push(short_uuid.to_string());
@@ -772,7 +796,10 @@ fn subscription_public_base_path(segments: &[String], short_uuid: &str) -> Strin
 }
 
 fn parse_remnawave_info(json: &Value) -> RemnawaveInfo {
-    let root = json.get("response").or_else(|| json.get("data")).unwrap_or(json);
+    let root = json
+        .get("response")
+        .or_else(|| json.get("data"))
+        .unwrap_or(json);
     let user = root.get("user").unwrap_or(root);
     let settings = root
         .get("subscriptionSettings")
@@ -792,9 +819,9 @@ fn parse_remnawave_info(json: &Value) -> RemnawaveInfo {
 
     let description = first_string(settings, &["happAnnounce", "happ_announce", "announce"])
         .or_else(|| {
-            settings.get("happ").and_then(|happ| {
-                first_string(happ, &["happAnnounce", "happ_announce", "announce"])
-            })
+            settings
+                .get("happ")
+                .and_then(|happ| first_string(happ, &["happAnnounce", "happ_announce", "announce"]))
         })
         .or_else(|| {
             settings.get("hwidSettings").and_then(|hwid| {
@@ -802,9 +829,8 @@ fn parse_remnawave_info(json: &Value) -> RemnawaveInfo {
             })
         })
         .or_else(|| {
-            root.get("happ").and_then(|happ| {
-                first_string(happ, &["happAnnounce", "happ_announce", "announce"])
-            })
+            root.get("happ")
+                .and_then(|happ| first_string(happ, &["happAnnounce", "happ_announce", "announce"]))
         })
         .or_else(|| deep_find_string(settings, &["happAnnounce", "happ_announce", "announce"]))
         .or_else(|| deep_find_string(root, &["happAnnounce", "happ_announce", "announce"]));
@@ -813,21 +839,49 @@ fn parse_remnawave_info(json: &Value) -> RemnawaveInfo {
         settings,
         &["supportLink", "support_link", "supportUrl", "support_url"],
     )
-    .or_else(|| first_url(
-        root,
-        &["supportUrl", "support_url", "support", "telegramUrl", "telegram_url"],
-    ))
-    .or_else(|| first_url(user, &["supportUrl", "support_url", "telegramUrl", "telegram_url"]));
+    .or_else(|| {
+        first_url(
+            root,
+            &[
+                "supportUrl",
+                "support_url",
+                "support",
+                "telegramUrl",
+                "telegram_url",
+            ],
+        )
+    })
+    .or_else(|| {
+        first_url(
+            user,
+            &["supportUrl", "support_url", "telegramUrl", "telegram_url"],
+        )
+    });
 
     let website_url = first_url(
         settings,
-        &["websiteUrl", "website_url", "webPageUrl", "web_page_url", "profileWebPageUrl", "profile_web_page_url"],
+        &[
+            "websiteUrl",
+            "website_url",
+            "webPageUrl",
+            "web_page_url",
+            "profileWebPageUrl",
+            "profile_web_page_url",
+        ],
     )
     .or_else(|| first_url(settings, &["webpageUrl", "webpage_url"]))
-    .or_else(|| first_url(
-        root,
-        &["websiteUrl", "website_url", "webPageUrl", "web_page_url", "profileWebPageUrl"],
-    ));
+    .or_else(|| {
+        first_url(
+            root,
+            &[
+                "websiteUrl",
+                "website_url",
+                "webPageUrl",
+                "web_page_url",
+                "profileWebPageUrl",
+            ],
+        )
+    });
 
     RemnawaveInfo {
         username,
@@ -854,10 +908,7 @@ fn collect_server_descriptions(value: &Value) -> Vec<ServerDescriptionCandidate>
     out
 }
 
-fn collect_server_descriptions_inner(
-    value: &Value,
-    out: &mut Vec<ServerDescriptionCandidate>,
-) {
+fn collect_server_descriptions_inner(value: &Value, out: &mut Vec<ServerDescriptionCandidate>) {
     match value {
         Value::Object(map) => {
             if let Some(description) = server_description_from_object(value) {
@@ -897,9 +948,7 @@ fn collect_server_descriptions_inner(
                 let normalized = normalize_json_key(key);
                 // host-local lookups уже подобрали поля из meta/clientOverrides,
                 // повторно туда не лезем — иначе захватим чужие name/uuid из дочерних объектов.
-                if normalized == "meta"
-                    || normalized == "clientoverrides"
-                {
+                if normalized == "meta" || normalized == "clientoverrides" {
                     continue;
                 }
                 collect_server_descriptions_inner(nested, out);
@@ -964,7 +1013,13 @@ fn server_description_from_object(value: &Value) -> Option<String> {
             .and_then(|overrides| {
                 first_encoded_string_any_case(
                     overrides,
-                    &["serverDescription", "server_description", "server-description", "serverDesc", "server_desc"],
+                    &[
+                        "serverDescription",
+                        "server_description",
+                        "server-description",
+                        "serverDesc",
+                        "server_desc",
+                    ],
                 )
             })
     })
@@ -999,11 +1054,9 @@ fn apply_server_descriptions(
             .iter()
             .find(|candidate| server_description_matches(candidate, server))
             .or_else(|| {
-                candidates
-                    .iter()
-                    .find(|candidate| {
-                        server_description_matches_unique_address(candidate, server, &address_counts)
-                    })
+                candidates.iter().find(|candidate| {
+                    server_description_matches_unique_address(candidate, server, &address_counts)
+                })
             });
 
         let Some(candidate) = matched else {
@@ -1138,26 +1191,37 @@ fn normalized_identity_text(value: &str) -> String {
 
 fn parse_remnawave_userinfo(value: &Value) -> Option<SubscriptionInfo> {
     let upload = first_u64(value, &["upload", "up", "trafficUpload", "traffic_upload"]);
-    let download = first_u64(value, &[
-        "download",
-        "down",
-        "trafficDownload",
-        "traffic_download",
-        "usedTrafficBytes",
-        "used_traffic_bytes",
-        "trafficUsedBytes",
-        "traffic_used_bytes",
-    ]);
-    let total = first_u64(value, &[
-        "total",
-        "trafficLimitBytes",
-        "traffic_limit_bytes",
-        "trafficLimit",
-        "traffic_limit",
-    ]);
-    let expire = first_u64(value, &["expire", "expiresAtTimestamp", "expires_at_timestamp"])
-        .or_else(|| first_string(value, &["expire", "expiresAt", "expires_at"]).and_then(parse_unix_like))
-        .and_then(|value| i64::try_from(value).ok());
+    let download = first_u64(
+        value,
+        &[
+            "download",
+            "down",
+            "trafficDownload",
+            "traffic_download",
+            "usedTrafficBytes",
+            "used_traffic_bytes",
+            "trafficUsedBytes",
+            "traffic_used_bytes",
+        ],
+    );
+    let total = first_u64(
+        value,
+        &[
+            "total",
+            "trafficLimitBytes",
+            "traffic_limit_bytes",
+            "trafficLimit",
+            "traffic_limit",
+        ],
+    );
+    let expire = first_u64(
+        value,
+        &["expire", "expiresAtTimestamp", "expires_at_timestamp"],
+    )
+    .or_else(|| {
+        first_string(value, &["expire", "expiresAt", "expires_at"]).and_then(parse_unix_like)
+    })
+    .and_then(|value| i64::try_from(value).ok());
 
     if upload.is_none() && download.is_none() && total.is_none() && expire.is_none() {
         None
@@ -1295,7 +1359,10 @@ fn parse_unix_like(value: String) -> Option<u64> {
     None
 }
 
-fn merge_info(primary: Option<SubscriptionInfo>, secondary: Option<SubscriptionInfo>) -> Option<SubscriptionInfo> {
+fn merge_info(
+    primary: Option<SubscriptionInfo>,
+    secondary: Option<SubscriptionInfo>,
+) -> Option<SubscriptionInfo> {
     match (primary, secondary) {
         (Some(mut a), Some(b)) => {
             a.upload = a.upload.or(b.upload);
@@ -1639,7 +1706,9 @@ async fn parse_announce_app_rule_values(
         } else if let Some(value) = split_announce_rule_value(trimmed, "process-rules")
             .or_else(|| split_announce_rule_value(trimmed, "app-rules"))
         {
-            rules.extend(parse_provider_app_rule_value(client, value, None, "announce:process-rules").await);
+            rules.extend(
+                parse_provider_app_rule_value(client, value, None, "announce:process-rules").await,
+            );
         } else if is_likely_app_rule_url(trimmed) {
             rules.extend(
                 parse_provider_app_rule_value(
@@ -1662,9 +1731,7 @@ fn split_announce_rule_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
             .filter(|value| !value.is_empty());
     }
 
-    let mut parts = line.splitn(2, char::is_whitespace);
-    let left = parts.next()?;
-    let right = parts.next()?;
+    let (left, right) = line.split_once(char::is_whitespace)?;
     (normalize_json_key(left) == normalize_json_key(key))
         .then(|| right.trim())
         .filter(|value| !value.is_empty())
@@ -1734,8 +1801,6 @@ fn collect_json_app_rules(
                 let key_mode = mode_from_key(key).or(object_mode);
                 if is_app_rule_key(key) {
                     add_json_targets(nested, key_mode, source, out);
-                } else if normalize_json_key(key) == "rules" {
-                    collect_json_app_rules(nested, key_mode, source, out);
                 } else {
                     collect_json_app_rules(nested, key_mode, source, out);
                 }
@@ -1855,7 +1920,11 @@ fn parse_text_app_rules(
             if app_mode_from_text(&target).is_some() {
                 continue;
             }
-            if let Some(rule) = make_app_proxy_rule(&target, default_mode.unwrap_or(SubscriptionAppProxyMode::Direct), source) {
+            if let Some(rule) = make_app_proxy_rule(
+                &target,
+                default_mode.unwrap_or(SubscriptionAppProxyMode::Direct),
+                source,
+            ) {
                 rules.push(rule);
             }
         }
@@ -1950,9 +2019,7 @@ fn stable_text_id(value: &str) -> String {
     format!("{:x}", hasher.finish())
 }
 
-fn dedupe_app_proxy_rules(
-    rules: Vec<SubscriptionAppProxyRule>,
-) -> Vec<SubscriptionAppProxyRule> {
+fn dedupe_app_proxy_rules(rules: Vec<SubscriptionAppProxyRule>) -> Vec<SubscriptionAppProxyRule> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for rule in rules {
@@ -1962,7 +2029,10 @@ fn dedupe_app_proxy_rules(
                 SubscriptionAppProxyMode::Direct => "direct",
                 SubscriptionAppProxyMode::Proxy => "proxy",
             },
-            rule.executable_path.trim().to_ascii_lowercase().replace('\\', "/")
+            rule.executable_path
+                .trim()
+                .to_ascii_lowercase()
+                .replace('\\', "/")
         );
         if seen.insert(key) {
             out.push(rule);
@@ -2005,7 +2075,9 @@ fn parse_profile_title(value: &str) -> Option<String> {
         }
     }
 
-    sanitize_name(Some(percent_decode_str(raw).decode_utf8_lossy().to_string()))
+    sanitize_name(Some(
+        percent_decode_str(raw).decode_utf8_lossy().to_string(),
+    ))
 }
 
 fn parse_content_disposition_filename(value: &str) -> Option<String> {
@@ -2027,14 +2099,16 @@ fn parse_content_disposition_filename(value: &str) -> Option<String> {
 fn infer_name_from_url(url: &str) -> Option<String> {
     let parsed = url::Url::parse(url).ok()?;
 
-    let fragment = parsed.fragment().and_then(|f| sanitize_name(Some(f.to_string())));
+    let fragment = parsed
+        .fragment()
+        .and_then(|f| sanitize_name(Some(f.to_string())));
     if fragment.is_some() {
         return fragment;
     }
 
     let last = parsed
         .path_segments()
-        .and_then(|segments| segments.last())
+        .and_then(|mut segments| segments.next_back())
         .map(strip_known_extensions)
         .and_then(|s| sanitize_name(Some(s)));
 
@@ -2126,10 +2200,7 @@ mod tests {
 
     #[test]
     fn happ_compatible_user_agent_does_not_duplicate_happ() {
-        assert_eq!(
-            happ_compatible_user_agent("Happ/2.0.0"),
-            "Happ/2.0.0"
-        );
+        assert_eq!(happ_compatible_user_agent("Happ/2.0.0"), "Happ/2.0.0");
     }
 
     #[test]
@@ -2444,7 +2515,9 @@ mod tests {
         );
 
         assert_eq!(rules.len(), 3);
-        assert!(rules.iter().all(|rule| rule.mode == SubscriptionAppProxyMode::Direct));
+        assert!(rules
+            .iter()
+            .all(|rule| rule.mode == SubscriptionAppProxyMode::Direct));
         assert!(rules.iter().any(|rule| rule.executable_path == "steam.exe"));
     }
 
@@ -2537,8 +2610,12 @@ mod tests {
             url == "https://example.com/api/sub/e37b73d0-ec4d-4b49-b4cd-86685d6703ee/json?token=abc"
         }));
         // admin-only endpoints (subscription-settings, by-short-uuid) больше не запрашиваются
-        assert!(!urls.iter().any(|url| url.contains("/api/subscription-settings")));
-        assert!(!urls.iter().any(|url| url.contains("/api/subscriptions/by-short-uuid/")));
+        assert!(!urls
+            .iter()
+            .any(|url| url.contains("/api/subscription-settings")));
+        assert!(!urls
+            .iter()
+            .any(|url| url.contains("/api/subscriptions/by-short-uuid/")));
     }
 
     #[test]

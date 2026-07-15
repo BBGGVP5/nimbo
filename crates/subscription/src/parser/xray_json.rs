@@ -4,7 +4,7 @@ use crate::model::{
     Hysteria2Config, Network, Protocol, Security, Server, ShadowsocksConfig, StreamSettings,
     TrojanConfig, VlessConfig, VmessConfig,
 };
-use crate::parser::{ParseError, fingerprint};
+use crate::parser::{fingerprint, ParseError};
 
 pub fn parse(body: &str) -> Result<Vec<Server>, ParseError> {
     let root: Value =
@@ -78,7 +78,11 @@ fn collect_servers_from_item(item: &Value, out: &mut Vec<Server>) {
         proxy_index += 1;
         let tag = outbound_tag(outbound);
         let balancer_group = tag.as_deref().and_then(|t| {
-            match_balancer_group(t, &explicit_balancer_prefixes, implicit_balancer_base.as_deref())
+            match_balancer_group(
+                t,
+                &explicit_balancer_prefixes,
+                implicit_balancer_base.as_deref(),
+            )
         });
         // Balancer participants share one logical destination — keep only the
         // first one we see and skip the rest, so the autobalancer appears as a
@@ -112,8 +116,9 @@ fn collect_servers_from_item(item: &Value, out: &mut Vec<Server>) {
                 ],
             )
             .or_else(|| server_description.clone());
-            let outbound_host_uuid = metadata_string(outbound, &["hostUuid", "host_uuid", "host-uuid"])
-                .or_else(|| host_uuid.clone());
+            let outbound_host_uuid =
+                metadata_string(outbound, &["hostUuid", "host_uuid", "host-uuid"])
+                    .or_else(|| host_uuid.clone());
             let outbound_template_uuid = metadata_string(
                 outbound,
                 &[
@@ -124,18 +129,17 @@ fn collect_servers_from_item(item: &Value, out: &mut Vec<Server>) {
             )
             .or_else(|| xray_json_template_uuid.clone());
 
-            let resolved_name = display_name(outbound)
-                .or_else(|| {
-                    if balancer_group.is_some() || proxy_count <= 1 || proxy_index == 1 {
-                        name.clone()
-                    } else {
-                        tag.clone().map(|tag| {
-                            name.as_ref()
-                                .map(|name| format!("{name} · {tag}"))
-                                .unwrap_or(tag)
-                        })
-                    }
-                });
+            let resolved_name = display_name(outbound).or_else(|| {
+                if balancer_group.is_some() || proxy_count <= 1 || proxy_index == 1 {
+                    name.clone()
+                } else {
+                    tag.clone().map(|tag| {
+                        name.as_ref()
+                            .map(|name| format!("{name} · {tag}"))
+                            .unwrap_or(tag)
+                    })
+                }
+            });
 
             if let Some(name) = &resolved_name {
                 if !name.trim().is_empty() {
@@ -193,7 +197,10 @@ fn implicit_balancer_base(outbounds: &[Value]) -> Option<String> {
     if proxy_outbounds.len() < 2 {
         return None;
     }
-    let tags: Vec<String> = proxy_outbounds.iter().filter_map(|o| outbound_tag(o)).collect();
+    let tags: Vec<String> = proxy_outbounds
+        .iter()
+        .filter_map(|o| outbound_tag(o))
+        .collect();
     if tags.len() != proxy_outbounds.len() {
         return None;
     }
@@ -329,13 +336,7 @@ fn parse_outbound(outbound: &Value, item_index: usize) -> Option<Server> {
         _ => return None,
     };
 
-    let fingerprint_input = format!(
-        "{}::{}::{}::{}",
-        item_index,
-        protocol_name,
-        address,
-        port
-    );
+    let fingerprint_input = format!("{}::{}::{}::{}", item_index, protocol_name, address, port);
     Some(Server {
         id: fingerprint(&fingerprint_input),
         name: format!("{protocol_name}-{address}:{port}"),
@@ -347,7 +348,11 @@ fn parse_outbound(outbound: &Value, item_index: usize) -> Option<Server> {
 }
 
 fn stable_server_id(server: &Server) -> String {
-    if let Some(host_uuid) = server.host_uuid.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(host_uuid) = server
+        .host_uuid
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         return fingerprint(&format!("xray-json:host:{host_uuid}"));
     }
 
@@ -386,7 +391,12 @@ fn protocol_identity(protocol: &Protocol) -> String {
         ),
         Protocol::Hysteria2(config) => format!(
             "hysteria2:{}:{}:{}:{}:{:?}:{}",
-            config.address, config.port, config.password, config.sni.as_deref().unwrap_or_default(), config.alpn, config.insecure
+            config.address,
+            config.port,
+            config.password,
+            config.sni.as_deref().unwrap_or_default(),
+            config.alpn,
+            config.insecure
         ),
     }
 }
@@ -436,10 +446,7 @@ fn parse_vmess(
     let port = port_from_value(vnext.get("port")?)?;
     let user = vnext.get("users")?.as_array()?.first()?;
     let uuid = user.get("id")?.as_str()?.to_string();
-    let alter_id = user
-        .get("alterId")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u32;
+    let alter_id = user.get("alterId").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
     let security = user
         .get("security")
         .and_then(|v| v.as_str())
@@ -583,7 +590,10 @@ fn build_stream(stream_settings: Option<&Value>) -> StreamSettings {
     let sni = reality
         .and_then(|v| v.get("serverName"))
         .and_then(|v| v.as_str())
-        .or_else(|| tls.and_then(|v| v.get("serverName")).and_then(|v| v.as_str()))
+        .or_else(|| {
+            tls.and_then(|v| v.get("serverName"))
+                .and_then(|v| v.as_str())
+        })
         .map(str::to_string);
     let fingerprint = reality
         .and_then(|v| v.get("fingerprint"))
@@ -619,7 +629,11 @@ fn build_stream(stream_settings: Option<&Value>) -> StreamSettings {
         .and_then(|v| v.get("Host"))
         .and_then(|v| v.as_str())
         .or_else(|| xhttp.and_then(|v| v.get("host")).and_then(|v| v.as_str()))
-        .or_else(|| httpupgrade.and_then(|v| v.get("host")).and_then(|v| v.as_str()))
+        .or_else(|| {
+            httpupgrade
+                .and_then(|v| v.get("host"))
+                .and_then(|v| v.as_str())
+        })
         .or_else(|| {
             h2.and_then(|v| v.get("host"))
                 .and_then(|v| v.as_array())
@@ -642,9 +656,7 @@ fn build_stream(stream_settings: Option<&Value>) -> StreamSettings {
         .and_then(|v| v.get("mode"))
         .and_then(|v| v.as_str())
         .map(str::to_string);
-    let extra = xhttp
-        .and_then(|v| v.get("extra"))
-        .map(|v| v.to_string());
+    let extra = xhttp.and_then(|v| v.get("extra")).map(|v| v.to_string());
     let service_name = grpc
         .and_then(|v| v.get("serviceName"))
         .and_then(|v| v.as_str())
@@ -1019,8 +1031,18 @@ mod tests {
 
         let servers_a = parse(first).unwrap();
         let servers_b = parse(second).unwrap();
-        let a_id = servers_a.iter().find(|server| server.name == "A").unwrap().id.clone();
-        let a_id_after_reorder = servers_b.iter().find(|server| server.name == "A").unwrap().id.clone();
+        let a_id = servers_a
+            .iter()
+            .find(|server| server.name == "A")
+            .unwrap()
+            .id
+            .clone();
+        let a_id_after_reorder = servers_b
+            .iter()
+            .find(|server| server.name == "A")
+            .unwrap()
+            .id
+            .clone();
 
         assert_eq!(a_id, a_id_after_reorder);
     }

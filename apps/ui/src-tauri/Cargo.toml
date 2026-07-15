@@ -39,6 +39,7 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 dirs.workspace = true
+sha2.workspace = true
 uuid.workspace = true
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-deep-link = "2"

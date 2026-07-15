@@ -5,20 +5,18 @@ use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::ptr;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 use windows_sys::Win32::Security::{
-    GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation,
+    GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
 };
 use windows_sys::Win32::System::Com::{
-    COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize,
+    CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
 };
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, GetExitCodeProcess, INFINITE, OpenProcessToken, WaitForSingleObject,
+    GetCurrentProcess, GetExitCodeProcess, OpenProcessToken, WaitForSingleObject, INFINITE,
 };
-use windows_sys::Win32::UI::Shell::{
-    SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW,
-};
+use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_NORMAL;
 
 pub fn is_elevated() -> bool {
@@ -57,8 +55,7 @@ pub fn relaunch_elevated(action_arg: &str) -> Result<i32> {
     };
 
     let result = (|| -> Result<i32> {
-        let exe = std::env::current_exe()
-            .map_err(|e| anyhow!("locate current executable: {e}"))?;
+        let exe = std::env::current_exe().map_err(|e| anyhow!("locate current executable: {e}"))?;
         let exe_wide = wide(exe.as_os_str());
         let verb_wide = wide(OsStr::new("runas"));
         let args_wide = wide(OsStr::new(action_arg));
@@ -72,7 +69,7 @@ pub fn relaunch_elevated(action_arg: &str) -> Result<i32> {
         // SW_NORMAL — the child has no window of its own (windows-subsystem,
         // no window class registered) so this only matters in that it does
         // not interfere with UAC focus the way SW_HIDE occasionally does.
-        info.nShow = SW_NORMAL as i32;
+        info.nShow = SW_NORMAL;
 
         let ok = unsafe { ShellExecuteExW(&mut info) };
         if ok == 0 {
@@ -86,7 +83,9 @@ pub fn relaunch_elevated(action_arg: &str) -> Result<i32> {
 
         let process = info.hProcess;
         if process.is_null() {
-            return Err(anyhow!("ShellExecuteExW(runas) did not return a process handle"));
+            return Err(anyhow!(
+                "ShellExecuteExW(runas) did not return a process handle"
+            ));
         }
 
         unsafe { WaitForSingleObject(process, INFINITE) };

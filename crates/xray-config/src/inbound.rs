@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Inbound {
@@ -19,11 +19,7 @@ impl Inbound {
         Self::socks_with_options(port, None, false)
     }
 
-    pub fn socks_with_options(
-        port: u16,
-        account: Option<(&str, &str)>,
-        block_udp: bool,
-    ) -> Self {
+    pub fn socks_with_options(port: u16, account: Option<(&str, &str)>, block_udp: bool) -> Self {
         let settings = if let Some((user, pass)) = account {
             json!({
                 "auth": "password",

@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 use crate::model::{Network, Protocol, Security, Server, StreamSettings, VmessConfig};
-use crate::parser::{ParseError, b64_decode_str, fingerprint, parse_port};
+use crate::parser::{b64_decode_str, fingerprint, parse_port, ParseError};
 
 #[derive(Debug, Deserialize)]
 struct VmessRaw {

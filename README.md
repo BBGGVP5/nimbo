@@ -32,7 +32,7 @@
 | Платформа | Состояние | Технологии |
 |---|---|---|
 | Windows 10/11 | основной desktop-клиент | Tauri 2, React, Rust, служба и TUN |
-| Linux x64 | экспериментальная сборка | Tauri 2, React, Rust, AppImage/deb |
+| Linux x64 / arm64 | экспериментальная сборка | Tauri 2, React, Rust, AppImage/deb/RPM |
 | Android 10+ | поддерживается | Kotlin, Jetpack Compose, `VpnService`, libXray |
 
 Nimbo работает с подписками Remnawave, Marzban, 3x-ui и другими панелями, которые выдают `vless://`, `vmess://`, `trojan://`, `ss://` или `hysteria2://`.
@@ -46,7 +46,7 @@ Nimbo работает с подписками Remnawave, Marzban, 3x-ui и др
 - QR-импорт, уведомления и быстрая панель на Android;
 - регулярная проверка зависимостей через Dependabot и CI для Linux/Android.
 
-Desktop автоматически получает официальный текущий Xray-core для Windows x64 и Linux x64, если пользователь не предоставил путь через `NIMBO_XRAY_PATH`. Android содержит официальный `libXray 26.7.11`; его обновление описано в [apps/android/README.md](./apps/android/README.md).
+Desktop автоматически получает официальный текущий Xray-core для Windows и Linux на x64, x86 и arm64, если пользователь не предоставил путь через `NIMBO_XRAY_PATH`. Архив проверяется по SHA-256 до установки. Android содержит официальный `libXray 26.7.11`; его обновление описано в [apps/android/README.md](./apps/android/README.md).
 
 ## Структура исходников
 
@@ -80,13 +80,13 @@ cd apps/android
 Нужны Rust 1.80+, Node.js 20+ и зависимости Tauri. Для Linux:
 
 ```bash
-sudo apt install libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev build-essential patchelf
+sudo apt install libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev build-essential patchelf rpm
 cd apps/ui
 npm ci
 npm run build:linux
 ```
 
-Для Windows используйте `apps/ui` и `npm run build:installer`. Полный чек-лист перед публикацией — в [docs/RELEASE.md](./docs/RELEASE.md).
+Для Windows используйте `apps/ui` и `npm run build:installer`. Сборка Linux должна выполняться на Linux (или в WSL2); она создаёт AppImage, DEB и RPM. Подробная инструкция — в [docs/build/linux.md](./docs/build/linux.md), полный чек-лист перед публикацией — в [docs/RELEASE.md](./docs/RELEASE.md).
 
 ## Лицензирование и авторство
 

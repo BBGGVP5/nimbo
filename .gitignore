@@ -28,8 +28,12 @@ desktop.ini
 !.env.example
 
 # Tauri
-apps/ui/src-tauri/gen/
+apps/**/src-tauri/gen/
 apps/ui/src-tauri/target/
+
+# Local agent work files
+.claude/
+.codex-logs/
 
 # Android
 apps/android/.gradle/
@@ -39,6 +43,7 @@ apps/android/build/
 apps/android/**/build/
 apps/android/local.properties
 apps/android/app/signing.properties
+apps/android/app/libs/libbox_unpacked/
 *.apk
 *.aab
 

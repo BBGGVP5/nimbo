@@ -52,13 +52,19 @@ const PRODUCT_ARCH: &str = "Windows x86";
 const PRODUCT_ARCH: &str = "Windows x64";
 #[cfg(all(windows, target_arch = "aarch64"))]
 const PRODUCT_ARCH: &str = "Windows ARM64";
-#[cfg(all(windows, not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))))]
+#[cfg(all(
+    windows,
+    not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))
+))]
 const PRODUCT_ARCH: &str = "Windows";
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const PRODUCT_ARCH: &str = "Linux x64";
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 const PRODUCT_ARCH: &str = "Linux ARM64";
-#[cfg(all(target_os = "linux", not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+#[cfg(all(
+    target_os = "linux",
+    not(any(target_arch = "x86_64", target_arch = "aarch64"))
+))]
 const PRODUCT_ARCH: &str = "Linux";
 #[cfg(all(not(windows), not(target_os = "linux")))]
 const PRODUCT_ARCH: &str = "Unsupported";
@@ -77,27 +83,33 @@ const UNINSTALL_EXE: &str = "Uninstall.exe";
 #[cfg(not(windows))]
 const UNINSTALL_EXE: &str = "Uninstall";
 
-#[cfg(windows)]
+// Debug/test builds must remain reproducible without prebuilt desktop payloads.
+// The distributable installer is compiled with --release and embeds them below.
+#[cfg(all(windows, not(debug_assertions)))]
 const MAIN_APP_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
     env!("NIMBO_TARGET_TRIPLE"),
     "/release/nimbo-ui.exe"
 ));
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(debug_assertions)))]
 const MAIN_APP_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
     env!("NIMBO_TARGET_TRIPLE"),
     "/release/nimbo-ui"
 ));
-#[cfg(windows)]
+#[cfg(debug_assertions)]
+const MAIN_APP_BYTES: &[u8] = &[];
+#[cfg(all(windows, not(debug_assertions)))]
 const HELPER_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
     env!("NIMBO_TARGET_TRIPLE"),
     "/release/nimbo-svc.exe"
 ));
+#[cfg(all(windows, debug_assertions))]
+const HELPER_BYTES: &[u8] = &[];
 #[cfg(windows)]
 const TUN2SOCKS_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -238,12 +250,12 @@ pub fn choose_install_dir(current_dir: String) -> Result<Option<String>, String>
 
     #[cfg(not(target_os = "linux"))]
     {
-    let picked = rfd::FileDialog::new()
-        .set_title("Выберите папку установки Nimbo")
-        .set_directory(start_dir)
-        .pick_folder();
+        let picked = rfd::FileDialog::new()
+            .set_title("Выберите папку установки Nimbo")
+            .set_directory(start_dir)
+            .pick_folder();
 
-    Ok(picked.map(|path| path.to_string_lossy().to_string()))
+        Ok(picked.map(|path| path.to_string_lossy().to_string()))
     }
 }
 
@@ -272,7 +284,7 @@ pub fn open_nimbo(install_dir: String) -> Result<(), String> {
 fn install_blocking(app: AppHandle, options: InstallOptions) -> Result<InstallResult, String> {
     #[cfg(windows)]
     {
-        return install_blocking_windows(app, options);
+        install_blocking_windows(app, options)
     }
 
     #[cfg(target_os = "linux")]
@@ -288,15 +300,25 @@ fn install_blocking(app: AppHandle, options: InstallOptions) -> Result<InstallRe
 }
 
 #[cfg(windows)]
-fn install_blocking_windows(app: AppHandle, options: InstallOptions) -> Result<InstallResult, String> {
+fn install_blocking_windows(
+    app: AppHandle,
+    options: InstallOptions,
+) -> Result<InstallResult, String> {
     let install_dir = PathBuf::from(options.install_dir.trim());
     if install_dir.as_os_str().is_empty() {
         return Err("Папка установки не выбрана.".into());
     }
 
-    emit(&app, "prepare", "running", 6, "Отключаем Nimbo и останавливаем хелпер");
+    emit(
+        &app,
+        "prepare",
+        "running",
+        6,
+        "Отключаем Nimbo и останавливаем хелпер",
+    );
     prepare_windows_upgrade(&install_dir)?;
-    fs::create_dir_all(&install_dir).map_err(|e| format!("Не удалось создать папку установки: {e}"))?;
+    fs::create_dir_all(&install_dir)
+        .map_err(|e| format!("Не удалось создать папку установки: {e}"))?;
     emit(&app, "prepare", "done", 12, "Окружение готово");
 
     emit(&app, "files", "running", 18, "Обновляем исполняемые файлы");
@@ -331,7 +353,13 @@ fn install_blocking_windows(app: AppHandle, options: InstallOptions) -> Result<I
     }
     emit(&app, "shortcuts", "done", 88, "Ярлыки настроены");
 
-    emit(&app, "registry", "running", 93, "Записываем системные записи");
+    emit(
+        &app,
+        "registry",
+        "running",
+        93,
+        "Записываем системные записи",
+    );
     write_registry(&install_dir)?;
     emit(&app, "registry", "done", 100, "Nimbo установлен");
 
@@ -350,14 +378,18 @@ fn install_blocking_windows(app: AppHandle, options: InstallOptions) -> Result<I
 }
 
 #[cfg(target_os = "linux")]
-fn install_blocking_linux(app: AppHandle, options: InstallOptions) -> Result<InstallResult, String> {
+fn install_blocking_linux(
+    app: AppHandle,
+    options: InstallOptions,
+) -> Result<InstallResult, String> {
     let install_dir = PathBuf::from(options.install_dir.trim());
     if install_dir.as_os_str().is_empty() {
         return Err("Папка установки не выбрана.".into());
     }
 
     emit(&app, "prepare", "running", 8, "Готовим папку установки");
-    fs::create_dir_all(&install_dir).map_err(|e| format!("Не удалось создать папку установки: {e}"))?;
+    fs::create_dir_all(&install_dir)
+        .map_err(|e| format!("Не удалось создать папку установки: {e}"))?;
     emit(&app, "prepare", "done", 16, "Окружение готово");
 
     emit(&app, "files", "running", 28, "Обновляем исполняемый файл");
@@ -369,7 +401,13 @@ fn install_blocking_linux(app: AppHandle, options: InstallOptions) -> Result<Ins
     make_executable(&install_dir.join(UNINSTALL_EXE))?;
     emit(&app, "files", "done", 48, "Файлы Nimbo установлены");
 
-    emit(&app, "integrate", "running", 62, "Настраиваем desktop entry");
+    emit(
+        &app,
+        "integrate",
+        "running",
+        62,
+        "Настраиваем desktop entry",
+    );
     if options.start_menu_shortcut {
         create_start_menu_shortcut(&install_dir)?;
     }
@@ -403,7 +441,13 @@ pub fn uninstall_from_cli() -> Result<(), String> {
     // CLI / silent flow used by the registry "UninstallString" entry and by
     // older scripts. We never remove user data here — that's an explicit
     // opt-in available from the UI flow.
-    perform_uninstall(None, UninstallOptions { remove_user_data: false }).map(|_| ())
+    perform_uninstall(
+        None,
+        UninstallOptions {
+            remove_user_data: false,
+        },
+    )
+    .map(|_| ())
 }
 
 #[tauri::command]
@@ -456,9 +500,21 @@ fn perform_uninstall(
     delete_shortcuts();
     uemit(app.as_ref(), "shortcuts", "done", 44, "Ярлыки удалены");
 
-    uemit(app.as_ref(), "registry", "running", 54, "Чистим системные записи");
+    uemit(
+        app.as_ref(),
+        "registry",
+        "running",
+        54,
+        "Чистим системные записи",
+    );
     delete_registry();
-    uemit(app.as_ref(), "registry", "done", 64, "Системные записи удалены");
+    uemit(
+        app.as_ref(),
+        "registry",
+        "done",
+        64,
+        "Системные записи удалены",
+    );
 
     uemit(app.as_ref(), "files", "running", 72, "Удаляем файлы Nimbo");
     let tun_dir = roaming_nimbo_bin_dir()?;
@@ -467,7 +523,13 @@ fn perform_uninstall(
     let _ = fs::remove_dir(&tun_dir);
 
     #[cfg(windows)]
-    for name in [APP_EXE, HELPER_EXE, "icon.ico", "nimbo-svc.exe.old", "Nimbo.exe.old"] {
+    for name in [
+        APP_EXE,
+        HELPER_EXE,
+        "icon.ico",
+        "nimbo-svc.exe.old",
+        "Nimbo.exe.old",
+    ] {
         let _ = fs::remove_file(install_dir.join(name));
     }
     #[cfg(not(windows))]
@@ -556,7 +618,13 @@ fn wipe_user_data(root: &Path) {
     let _ = fs::remove_dir(root);
 }
 
-fn uemit(app: Option<&AppHandle>, step: &'static str, state: &'static str, progress: u8, detail: &str) {
+fn uemit(
+    app: Option<&AppHandle>,
+    step: &'static str,
+    state: &'static str,
+    progress: u8,
+    detail: &str,
+) {
     if let Some(app) = app {
         let _ = app.emit(
             "uninstaller_progress",
@@ -573,9 +641,9 @@ fn uemit(app: Option<&AppHandle>, step: &'static str, state: &'static str, progr
 fn dialog_start_dir(current_dir: &str) -> Result<PathBuf, String> {
     let trimmed = current_dir.trim();
     if trimmed.is_empty() {
-        return default_install_dir()
-            .map(existing_or_parent)
-            .or_else(|_| dirs::home_dir().ok_or_else(|| "Не удалось определить домашнюю папку.".into()));
+        return default_install_dir().map(existing_or_parent).or_else(|_| {
+            dirs::home_dir().ok_or_else(|| "Не удалось определить домашнюю папку.".into())
+        });
     }
 
     Ok(existing_or_parent(PathBuf::from(trimmed)))
@@ -614,9 +682,7 @@ fn choose_install_dir_linux(start_dir: &Path) -> Result<Option<String>, String> 
                 .arg("--title=Выберите папку установки Nimbo")
                 .arg(format!("--filename={}/", start_dir.display()));
         } else {
-            command
-                .arg("--getexistingdirectory")
-                .arg(start_dir);
+            command.arg("--getexistingdirectory").arg(start_dir);
         }
 
         let output = match command.output() {
@@ -727,15 +793,14 @@ where
             }
         }
     }
-    Err(last_error.unwrap_or_else(|| std::io::Error::last_os_error()))
+    Err(last_error.unwrap_or_else(std::io::Error::last_os_error))
 }
 
 fn copy_self_uninstaller(install_dir: &Path) -> Result<(), String> {
     let current = std::env::current_exe()
         .map_err(|e| format!("Не удалось определить путь установщика: {e}"))?;
     let target = install_dir.join(UNINSTALL_EXE);
-    fs::copy(current, &target)
-        .map_err(|e| format!("Не удалось создать деинсталлятор: {e}"))?;
+    fs::copy(current, &target).map_err(|e| format!("Не удалось создать деинсталлятор: {e}"))?;
     make_executable(&target)
 }
 
@@ -764,13 +829,20 @@ fn run_status(exe: &Path, args: &[&str]) -> Result<(), String> {
     if status.success() {
         Ok(())
     } else {
-        Err(format!("{} завершился с кодом {:?}", exe.display(), status.code()))
+        Err(format!(
+            "{} завершился с кодом {:?}",
+            exe.display(),
+            status.code()
+        ))
     }
 }
 
 fn hidden_command<P: AsRef<Path>>(program: P) -> Command {
     let mut command = Command::new(program.as_ref());
-    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -823,7 +895,9 @@ fn stop_helper_for_upgrade(install_dir: &Path) -> Result<(), String> {
 
 #[cfg(windows)]
 fn stop_service_with_sc() {
-    let _ = hidden_command("sc.exe").args(["stop", SERVICE_NAME]).status();
+    let _ = hidden_command("sc.exe")
+        .args(["stop", SERVICE_NAME])
+        .status();
 }
 
 #[cfg(windows)]
@@ -859,7 +933,11 @@ fn create_start_menu_shortcut(install_dir: &Path) -> Result<(), String> {
         .join(PRODUCT_NAME);
     fs::create_dir_all(&start_menu)
         .map_err(|e| format!("Не удалось создать папку меню Пуск: {e}"))?;
-    create_shortcut(&start_menu.join("Nimbo.lnk"), &install_dir.join(APP_EXE), install_dir)
+    create_shortcut(
+        &start_menu.join("Nimbo.lnk"),
+        &install_dir.join(APP_EXE),
+        install_dir,
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -881,9 +959,13 @@ fn create_start_menu_shortcut(_install_dir: &Path) -> Result<(), String> {
 
 #[cfg(windows)]
 fn create_desktop_shortcut(install_dir: &Path) -> Result<(), String> {
-    let desktop = dirs::desktop_dir()
-        .ok_or_else(|| "Не удалось определить рабочий стол.".to_string())?;
-    create_shortcut(&desktop.join("Nimbo.lnk"), &install_dir.join(APP_EXE), install_dir)
+    let desktop =
+        dirs::desktop_dir().ok_or_else(|| "Не удалось определить рабочий стол.".to_string())?;
+    create_shortcut(
+        &desktop.join("Nimbo.lnk"),
+        &install_dir.join(APP_EXE),
+        install_dir,
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -894,7 +976,11 @@ fn create_desktop_shortcut(install_dir: &Path) -> Result<(), String> {
     fs::create_dir_all(&desktop)
         .map_err(|e| format!("Не удалось создать папку рабочего стола: {e}"))?;
     let desktop_file = desktop.join("Nimbo.desktop");
-    write_linux_desktop_entry(&desktop_file, install_dir, &install_dir.join("icon.png").to_string_lossy())?;
+    write_linux_desktop_entry(
+        &desktop_file,
+        install_dir,
+        &install_dir.join("icon.png").to_string_lossy(),
+    )?;
     make_executable(&desktop_file)
 }
 
@@ -913,7 +999,13 @@ fn create_shortcut(link: &Path, target: &Path, working_dir: &Path) -> Result<(),
         ps_escape(target),
     );
     let status = hidden_command("powershell.exe")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
         .status()
         .map_err(|e| format!("Не удалось создать ярлык: {e}"))?;
     if status.success() {
@@ -937,7 +1029,12 @@ fn linux_applications_dir() -> Result<PathBuf, String> {
 #[cfg(target_os = "linux")]
 fn linux_icon_dir() -> Result<PathBuf, String> {
     dirs::data_dir()
-        .map(|base| base.join("icons").join("hicolor").join("256x256").join("apps"))
+        .map(|base| {
+            base.join("icons")
+                .join("hicolor")
+                .join("256x256")
+                .join("apps")
+        })
         .ok_or_else(|| "Не удалось определить папку иконок Linux.".to_string())
 }
 
@@ -980,23 +1077,39 @@ fn write_registry(install_dir: &Path) -> Result<(), String> {
         .set_value("InstallDir", &install_dir.to_string_lossy().to_string())
         .map_err(|e| format!("Не удалось записать путь установки: {e}"))?;
 
-    let uninstall_path = format!("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{APP_ID}");
+    let uninstall_path =
+        format!("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{APP_ID}");
     let (uninstall, _) = hkcu
         .create_subkey(uninstall_path)
         .map_err(|e| format!("Не удалось записать uninstall-запись: {e}"))?;
-    uninstall.set_value("DisplayName", &PRODUCT_NAME).map_err(reg_err)?;
-    uninstall.set_value("DisplayVersion", &PRODUCT_VERSION).map_err(reg_err)?;
-    uninstall.set_value("Publisher", &"BBGGVP5").map_err(reg_err)?;
     uninstall
-        .set_value("DisplayIcon", &install_dir.join(APP_EXE).to_string_lossy().to_string())
+        .set_value("DisplayName", &PRODUCT_NAME)
         .map_err(reg_err)?;
     uninstall
-        .set_value("InstallLocation", &install_dir.to_string_lossy().to_string())
+        .set_value("DisplayVersion", &PRODUCT_VERSION)
+        .map_err(reg_err)?;
+    uninstall
+        .set_value("Publisher", &"BBGGVP5")
+        .map_err(reg_err)?;
+    uninstall
+        .set_value(
+            "DisplayIcon",
+            &install_dir.join(APP_EXE).to_string_lossy().to_string(),
+        )
+        .map_err(reg_err)?;
+    uninstall
+        .set_value(
+            "InstallLocation",
+            &install_dir.to_string_lossy().to_string(),
+        )
         .map_err(reg_err)?;
     uninstall
         .set_value(
             "UninstallString",
-            &format!("\"{}\" --uninstall", install_dir.join(UNINSTALL_EXE).display()),
+            &format!(
+                "\"{}\" --uninstall",
+                install_dir.join(UNINSTALL_EXE).display()
+            ),
         )
         .map_err(reg_err)?;
     uninstall.set_value("NoModify", &1u32).map_err(reg_err)?;
@@ -1005,15 +1118,23 @@ fn write_registry(install_dir: &Path) -> Result<(), String> {
     let (protocol, _) = hkcu
         .create_subkey("Software\\Classes\\nimbo")
         .map_err(|e| format!("Не удалось зарегистрировать nimbo://: {e}"))?;
-    protocol.set_value("", &"URL:Nimbo Protocol").map_err(reg_err)?;
+    protocol
+        .set_value("", &"URL:Nimbo Protocol")
+        .map_err(reg_err)?;
     protocol.set_value("URL Protocol", &"").map_err(reg_err)?;
-    let (icon, _) = hkcu.create_subkey("Software\\Classes\\nimbo\\DefaultIcon").map_err(reg_err)?;
-    icon.set_value("", &format!("{},0", install_dir.join(APP_EXE).display())).map_err(reg_err)?;
+    let (icon, _) = hkcu
+        .create_subkey("Software\\Classes\\nimbo\\DefaultIcon")
+        .map_err(reg_err)?;
+    icon.set_value("", &format!("{},0", install_dir.join(APP_EXE).display()))
+        .map_err(reg_err)?;
     let (open, _) = hkcu
         .create_subkey("Software\\Classes\\nimbo\\shell\\open\\command")
         .map_err(reg_err)?;
-    open.set_value("", &format!("\"{}\" \"%1\"", install_dir.join(APP_EXE).display()))
-        .map_err(reg_err)?;
+    open.set_value(
+        "",
+        &format!("\"{}\" \"%1\"", install_dir.join(APP_EXE).display()),
+    )
+    .map_err(reg_err)?;
     Ok(())
 }
 
@@ -1043,7 +1164,9 @@ fn reg_err(error: std::io::Error) -> String {
 
 #[cfg(windows)]
 fn helper_state() -> (bool, bool) {
-    let output = hidden_command("sc.exe").args(["query", SERVICE_NAME]).output();
+    let output = hidden_command("sc.exe")
+        .args(["query", SERVICE_NAME])
+        .output();
     let Ok(output) = output else {
         return (false, false);
     };
@@ -1087,7 +1210,9 @@ fn delete_shortcuts() {
 
 #[cfg(target_os = "linux")]
 fn delete_shortcuts() {
-    if let Some(desktop) = dirs::desktop_dir().or_else(|| dirs::home_dir().map(|home| home.join("Desktop"))) {
+    if let Some(desktop) =
+        dirs::desktop_dir().or_else(|| dirs::home_dir().map(|home| home.join("Desktop")))
+    {
         let _ = fs::remove_file(desktop.join("Nimbo.desktop"));
     }
     if let Ok(applications) = linux_applications_dir() {
@@ -1107,7 +1232,9 @@ fn delete_registry() {
     use winreg::RegKey;
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let _ = hkcu.delete_subkey_all("Software\\Classes\\nimbo");
-    let _ = hkcu.delete_subkey_all(format!("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{APP_ID}"));
+    let _ = hkcu.delete_subkey_all(format!(
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{APP_ID}"
+    ));
     let _ = hkcu.delete_subkey_all(format!("Software\\{APP_ID}"));
 }
 

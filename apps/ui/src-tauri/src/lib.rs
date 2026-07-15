@@ -11,16 +11,17 @@ use crate::commands::{
     disconnect_server, export_app_backup, export_app_proxy_rules_file, export_routing_profile,
     get_app_icon, get_device_info, get_memory_usage, get_preferences, get_routing_profile,
     get_session_traffic, get_status, get_subscription_logo, get_traffic_stats, get_tun_status,
-    get_tunnel_logs, get_user_agent_override, helper_status, import_app_backup, import_routing_profile,
-    inspect_subscription_headers, install_helper, install_tun, list_active_connections,
-    list_app_proxy_rules, list_conflicting_processes, list_installed_apps, list_routing_profiles,
-    list_subscription_app_proxy_rules, list_subscriptions, open_logs_folder, open_routing_folder,
-    pick_app_executable, ping_server, ping_servers, read_clipboard_text, refresh_subscription,
-    refresh_tray_menu, remove_subscription, reapply_runtime_config, reset_builtin_routing_profiles,
-    reset_device_id, reset_traffic_totals, restart_as_admin, set_active_routing_profile,
-    set_active_server, set_active_subscription, set_app_proxy_rules, set_connection_mode,
-    set_preferences, set_proxy_settings, set_user_agent_override, stop_conflicting_processes,
-    uninstall_helper, update_routing_profile, update_subscription_settings, write_clipboard_text,
+    get_tunnel_logs, get_user_agent_override, helper_status, import_app_backup,
+    import_routing_profile, inspect_subscription_headers, install_helper, install_tun,
+    list_active_connections, list_app_proxy_rules, list_conflicting_processes, list_installed_apps,
+    list_routing_profiles, list_subscription_app_proxy_rules, list_subscriptions, open_logs_folder,
+    open_routing_folder, pick_app_executable, ping_server, ping_servers, read_clipboard_text,
+    reapply_runtime_config, refresh_subscription, refresh_tray_menu, remove_subscription,
+    reset_builtin_routing_profiles, reset_device_id, reset_traffic_totals, restart_as_admin,
+    set_active_routing_profile, set_active_server, set_active_subscription, set_app_proxy_rules,
+    set_connection_mode, set_preferences, set_proxy_settings, set_user_agent_override,
+    stop_conflicting_processes, uninstall_helper, update_routing_profile,
+    update_subscription_settings, write_clipboard_text,
 };
 use crate::state::AppState;
 use crate::tray::{tray_menu_action, tray_menu_resize, tray_menu_state};
@@ -53,7 +54,7 @@ fn acquire_single_instance() -> Option<SingleInstanceGuard> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError,
+        CloseHandle, GetLastError, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
     };
     use windows_sys::Win32::System::Threading::CreateMutexW;
 
@@ -174,7 +175,11 @@ pub fn run() {
                 return;
             }
             if let WindowEvent::CloseRequested { api, .. } = event {
-                let preferences = window.app_handle().state::<AppState>().snapshot().preferences;
+                let preferences = window
+                    .app_handle()
+                    .state::<AppState>()
+                    .snapshot()
+                    .preferences;
                 if preferences.minimize_to_tray {
                     api.prevent_close();
                     let _ = window.hide();
@@ -194,7 +199,12 @@ pub fn run() {
             tray::setup_tray(app.handle())?;
             crate::commands::cleanup_disconnected_runtime_on_startup(app.handle());
 
-            if app.state::<AppState>().snapshot().preferences.start_minimized {
+            if app
+                .state::<AppState>()
+                .snapshot()
+                .preferences
+                .start_minimized
+            {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
                 }
@@ -291,12 +301,12 @@ pub fn run() {
     };
 
     app.run(|app_handle, event| match event {
-            RunEvent::ExitRequested { .. } | RunEvent::Exit => {
-                crate::commands::cleanup_runtime_for_exit(app_handle);
-            }
-            RunEvent::Resumed => {
-                crate::commands::reconnect_runtime_after_resume(app_handle);
-            }
-            _ => {}
-        });
+        RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+            crate::commands::cleanup_runtime_for_exit(app_handle);
+        }
+        RunEvent::Resumed => {
+            crate::commands::reconnect_runtime_after_resume(app_handle);
+        }
+        _ => {}
+    });
 }

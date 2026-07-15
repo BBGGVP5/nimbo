@@ -27,7 +27,7 @@ fn acquire_single_instance() -> Option<SingleInstanceGuard> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError,
+        CloseHandle, GetLastError, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
     };
     use windows_sys::Win32::System::Threading::CreateMutexW;
 

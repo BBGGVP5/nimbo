@@ -1,6 +1,6 @@
 use crate::model::Server;
 use crate::parser::{
-    ParseError, b64_decode_str, hysteria2, shadowsocks, trojan, vless, vmess, xray_json,
+    b64_decode_str, hysteria2, shadowsocks, trojan, vless, vmess, xray_json, ParseError,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,8 +37,15 @@ pub fn detect_format(body: &str) -> Format {
         }
     }
 
-    let stripped: String = trimmed.lines().map(|l| l.trim()).collect::<Vec<_>>().join("\n");
-    if stripped.lines().any(|l| !l.is_empty() && looks_like_proxy_url(l)) {
+    let stripped: String = trimmed
+        .lines()
+        .map(|l| l.trim())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if stripped
+        .lines()
+        .any(|l| !l.is_empty() && looks_like_proxy_url(l))
+    {
         return Format::PlainList;
     }
 
@@ -130,12 +137,23 @@ fn has_singbox_marker(v: &serde_json::Value) -> bool {
         return false;
     };
     for o in outs {
-        if let Some(ty) = o.get("type").and_then(|x| x.as_str()) {
-            match ty {
-                "vless" | "vmess" | "trojan" | "shadowsocks" | "hysteria2" | "tuic" | "selector"
-                | "urltest" | "direct" | "block" | "dns" => return true,
-                _ => {}
-            }
+        if matches!(
+            o.get("type").and_then(|x| x.as_str()),
+            Some(
+                "vless"
+                    | "vmess"
+                    | "trojan"
+                    | "shadowsocks"
+                    | "hysteria2"
+                    | "tuic"
+                    | "selector"
+                    | "urltest"
+                    | "direct"
+                    | "block"
+                    | "dns"
+            )
+        ) {
+            return true;
         }
     }
     false

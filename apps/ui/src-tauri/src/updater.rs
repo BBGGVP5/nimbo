@@ -226,21 +226,33 @@ fn os_score(name: &str) -> Option<i32> {
 
     match std::env::consts::OS {
         "windows" => {
-            if name.ends_with(".exe") || name.ends_with(".msi") || name.contains("windows") || name.contains("win") {
+            if name.ends_with(".exe")
+                || name.ends_with(".msi")
+                || name.contains("windows")
+                || name.contains("win")
+            {
                 Some(35)
             } else {
                 None
             }
         }
         "macos" => {
-            if name.ends_with(".dmg") || name.ends_with(".app.tar.gz") || name.contains("mac") || name.contains("darwin") {
+            if name.ends_with(".dmg")
+                || name.ends_with(".app.tar.gz")
+                || name.contains("mac")
+                || name.contains("darwin")
+            {
                 Some(35)
             } else {
                 None
             }
         }
         "linux" => {
-            if name.ends_with(".appimage") || name.ends_with(".deb") || name.ends_with(".rpm") || name.contains("linux") {
+            if name.ends_with(".appimage")
+                || name.ends_with(".deb")
+                || name.ends_with(".rpm")
+                || name.contains("linux")
+            {
                 Some(35)
             } else {
                 None
@@ -262,7 +274,12 @@ fn arch_score(name: &str) -> i32 {
             }
         }
         "x86" => {
-            if contains_any(name, &["x64", "x86_64", "amd64", "64-bit", "64bit", "arm64", "aarch64"]) {
+            if contains_any(
+                name,
+                &[
+                    "x64", "x86_64", "amd64", "64-bit", "64bit", "arm64", "aarch64",
+                ],
+            ) {
                 -100
             } else if contains_any(name, &["x86", "ia32", "i686", "win32", "32-bit", "32bit"]) {
                 45
@@ -284,9 +301,17 @@ fn arch_score(name: &str) -> i32 {
 }
 
 fn extension_score(name: &str) -> i32 {
-    if name.ends_with(".exe") || name.ends_with(".msi") || name.ends_with(".dmg") || name.ends_with(".appimage") {
+    if name.ends_with(".exe")
+        || name.ends_with(".msi")
+        || name.ends_with(".dmg")
+        || name.ends_with(".appimage")
+    {
         20
-    } else if name.ends_with(".zip") || name.ends_with(".tar.gz") || name.ends_with(".deb") || name.ends_with(".rpm") {
+    } else if name.ends_with(".zip")
+        || name.ends_with(".tar.gz")
+        || name.ends_with(".deb")
+        || name.ends_with(".rpm")
+    {
         10
     } else {
         0
@@ -324,7 +349,7 @@ fn current_target_label() -> String {
 fn normalize_version_label(value: &str) -> String {
     value
         .trim()
-        .trim_start_matches(|ch| ch == 'v' || ch == 'V')
+        .trim_start_matches(['v', 'V'])
         .trim()
         .to_string()
 }

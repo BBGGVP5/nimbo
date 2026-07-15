@@ -73,7 +73,11 @@ pub struct Server {
     pub server_description: Option<String>,
     #[serde(default, alias = "hostUuid", alias = "host-uuid")]
     pub host_uuid: Option<String>,
-    #[serde(default, rename = "xrayJsonTemplateUuid", alias = "xray_json_template_uuid")]
+    #[serde(
+        default,
+        rename = "xrayJsonTemplateUuid",
+        alias = "xray_json_template_uuid"
+    )]
     pub xray_json_template_uuid: Option<String>,
     pub protocol: Protocol,
 }

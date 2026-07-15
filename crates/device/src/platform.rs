@@ -1,7 +1,7 @@
 #[cfg(windows)]
 mod imp {
-    use winreg::RegKey;
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ};
+    use winreg::RegKey;
 
     pub fn os_name() -> &'static str {
         "Windows"
@@ -13,15 +13,16 @@ mod imp {
         }
 
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-        let key = match hklm.open_subkey_with_flags(
-            r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
-            KEY_READ,
-        ) {
+        let key = match hklm
+            .open_subkey_with_flags(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", KEY_READ)
+        {
             Ok(k) => k,
             Err(_) => return "unknown".into(),
         };
 
-        let product: String = key.get_value("ProductName").unwrap_or_else(|_| "Windows".into());
+        let product: String = key
+            .get_value("ProductName")
+            .unwrap_or_else(|_| "Windows".into());
         let display: String = key.get_value("DisplayVersion").unwrap_or_default();
         let build: String = key.get_value("CurrentBuildNumber").unwrap_or_default();
         let ubr: u32 = key.get_value("UBR").unwrap_or(0);

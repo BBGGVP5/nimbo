@@ -33,7 +33,9 @@ fn get_tray_icon(connected: bool) -> tauri::Result<Image<'static>> {
     }
 }
 
-fn make_tray_icon_png(connected: bool) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+fn make_tray_icon_png(
+    connected: bool,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     use png::{BitDepth, ColorType};
 
     let png_bytes = include_bytes!("../icons/tray.png");
@@ -292,7 +294,11 @@ pub fn refresh_tray_menu(app: &AppHandle) -> tauri::Result<()> {
 }
 
 fn tray_tooltip(connected: bool) -> &'static str {
-    if connected { "Nimbo — Подключено" } else { "Nimbo" }
+    if connected {
+        "Nimbo — Подключено"
+    } else {
+        "Nimbo"
+    }
 }
 
 /// Lazily create the (hidden) frameless webview that renders the tray menu.
@@ -433,8 +439,8 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
         }
     }
 
-    let needs_admin =
-        matches!(connection_mode, ConnectionMode::Tun | ConnectionMode::Both) && !is_elevated_cached();
+    let needs_admin = matches!(connection_mode, ConnectionMode::Tun | ConnectionMode::Both)
+        && !is_elevated_cached();
 
     TrayMenuState {
         connected: snapshot.connected,
@@ -468,7 +474,9 @@ fn active_provider_theme(snapshot: &PersistedState) -> Option<SubscriptionTheme>
         })
     };
 
-    by_url.or_else(by_server).and_then(|sub| sub.meta.theme.clone())
+    by_url
+        .or_else(by_server)
+        .and_then(|sub| sub.meta.theme.clone())
 }
 
 /// Size the popup to its measured content, then (if a reveal is pending)
@@ -572,7 +580,10 @@ fn position_menu_window(
         top = top.min(max_y - h as f64).max(min_y);
     }
 
-    let _ = window.set_position(PhysicalPosition::new(left.round() as i32, top.round() as i32));
+    let _ = window.set_position(PhysicalPosition::new(
+        left.round() as i32,
+        top.round() as i32,
+    ));
 }
 
 /// Perform a menu action. Most actions dismiss the popup; maintenance actions
@@ -642,7 +653,10 @@ fn refresh_all_subscriptions(app: &AppHandle) {
         let mut ok = 0usize;
         for url in urls {
             let state = app.state::<AppState>();
-            if crate::commands::refresh_subscription(state, url).await.is_ok() {
+            if crate::commands::refresh_subscription(state, url)
+                .await
+                .is_ok()
+            {
                 ok += 1;
             }
         }
@@ -812,8 +826,14 @@ fn apply_rounded_region(
         return;
     };
     unsafe {
-        let region =
-            CreateRoundRectRgn(0, 0, width as i32 + 1, height as i32 + 1, radius * 2, radius * 2);
+        let region = CreateRoundRectRgn(
+            0,
+            0,
+            width as i32 + 1,
+            height as i32 + 1,
+            radius * 2,
+            radius * 2,
+        );
         if !region.is_null() {
             // On success the window takes ownership of the region handle.
             SetWindowRgn(handle.0 as HWND, region, 1);

@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use nimbo_subscription::{Network, Security, StreamSettings};
 
@@ -158,7 +158,11 @@ fn build_http(stream: &StreamSettings) -> Value {
     if let Some(host) = &stream.host {
         h.insert(
             "host".into(),
-            Value::Array(host.split(',').map(|s| Value::String(s.trim().into())).collect()),
+            Value::Array(
+                host.split(',')
+                    .map(|s| Value::String(s.trim().into()))
+                    .collect(),
+            ),
         );
     }
     Value::Object(h)

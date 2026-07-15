@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use url::Url;
 
 use crate::model::{Network, Protocol, Security, Server, StreamSettings, VlessConfig};
-use crate::parser::{ParseError, fingerprint, url_decode};
+use crate::parser::{fingerprint, url_decode, ParseError};
 
 pub fn parse(input: &str) -> Result<Server, ParseError> {
     let url = Url::parse(input).map_err(|e| ParseError::InvalidUrl(e.to_string()))?;
@@ -62,7 +62,7 @@ pub fn parse(input: &str) -> Result<Server, ParseError> {
 
     let name = url
         .fragment()
-        .map(|s| url_decode(s))
+        .map(url_decode)
         .unwrap_or_else(|| format!("vless-{host}:{port}"));
 
     Ok(Server {
@@ -70,7 +70,11 @@ pub fn parse(input: &str) -> Result<Server, ParseError> {
         name,
         server_description: query_param(
             &q,
-            &["serverDescription", "server_description", "server-description"],
+            &[
+                "serverDescription",
+                "server_description",
+                "server-description",
+            ],
         ),
         host_uuid: query_param(&q, &["hostUuid", "host_uuid", "host-uuid"]),
         xray_json_template_uuid: query_param(
@@ -175,6 +179,9 @@ mod tests {
     #[test]
     fn rejects_non_vless() {
         let err = parse("vmess://foo").unwrap_err();
-        assert!(matches!(err, ParseError::InvalidUrl(_) | ParseError::UnsupportedScheme(_)));
+        assert!(matches!(
+            err,
+            ParseError::InvalidUrl(_) | ParseError::UnsupportedScheme(_)
+        ));
     }
 }

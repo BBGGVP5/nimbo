@@ -28,6 +28,10 @@ $asset = $release.assets | Where-Object { $_.name -eq "libxray-android.zip" } | 
 if ($null -eq $asset) {
     throw "В релизе $($release.tag_name) нет libxray-android.zip."
 }
+$expectedSha256 = ([string]$asset.digest -replace '^sha256:', '').ToLowerInvariant()
+if ($expectedSha256 -notmatch '^[0-9a-f]{64}$') {
+    throw "GitHub не предоставил корректную SHA-256 сумму для libxray-android.zip."
+}
 
 $destination = Join-Path $AndroidProjectPath "app\libs\libxray.aar"
 if (-not (Test-Path (Split-Path -Parent $destination))) {
@@ -43,6 +47,10 @@ try {
     Invoke-WebRequest -Headers @{ "User-Agent" = "Nimbo-libXray-updater" } `
         -Uri $asset.browser_download_url `
         -OutFile $archive
+    $actualSha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha256 -ne $expectedSha256) {
+        throw "Контрольная сумма libxray-android.zip не совпала."
+    }
     Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
 
     $aars = @(Get-ChildItem -LiteralPath $unpacked -Recurse -Filter "*.aar")

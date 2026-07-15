@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use nimbo_subscription::{Subscription, dedupe_subscription_servers};
+use nimbo_subscription::{dedupe_subscription_servers, Subscription};
 
 const STORAGE_FILE: &str = "subscriptions.json";
 
@@ -388,7 +388,8 @@ impl Default for AppPreferences {
             subscriptions_auto_update: true,
             subscriptions_update_interval_hours: default_subscriptions_update_interval_hours(),
             subscriptions_notify_expiration: true,
-            subscriptions_expiration_threshold_days: default_subscriptions_expiration_threshold_days(),
+            subscriptions_expiration_threshold_days:
+                default_subscriptions_expiration_threshold_days(),
             subscriptions_notify_updates: true,
             subscriptions_update_on_launch: false,
             subscriptions_ping_after_update: false,
@@ -400,47 +401,32 @@ impl Default for AppPreferences {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeMode {
+    #[default]
     System,
     Dark,
     Black,
     Light,
 }
 
-impl Default for ThemeMode {
-    fn default() -> Self {
-        Self::System
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AccentMode {
     System,
+    #[default]
     Preset,
     Custom,
 }
 
-impl Default for AccentMode {
-    fn default() -> Self {
-        Self::Preset
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Language {
+    #[default]
     Ru,
     En,
     System,
-}
-
-impl Default for Language {
-    fn default() -> Self {
-        Self::Ru
-    }
 }
 
 impl Language {
@@ -487,10 +473,11 @@ pub enum AppProxyMode {
     Direct,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectionMode {
     SystemProxy,
+    #[default]
     Tun,
     Both,
 }
@@ -502,12 +489,6 @@ impl ConnectionMode {
 
     pub fn uses_tun(self) -> bool {
         matches!(self, Self::Tun | Self::Both)
-    }
-}
-
-impl Default for ConnectionMode {
-    fn default() -> Self {
-        Self::Tun
     }
 }
 
@@ -612,10 +593,7 @@ impl AppState {
         F: FnOnce(&mut PersistedState) -> R,
     {
         let result = {
-            let mut guard = self
-                .inner
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
+            let mut guard = self.inner.lock().unwrap_or_else(|error| error.into_inner());
             f(&mut guard)
         };
         self.persist()?;
@@ -672,7 +650,7 @@ fn backup_corrupted_state(path: &Path) -> anyhow::Result<PathBuf> {
 fn replace_file(source: &Path, target: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
-        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
     };
 
     let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
@@ -716,12 +694,13 @@ mod tests {
         assert!(state.snapshot().subscriptions.is_empty());
         let saved: PersistedState = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert!(saved.subscriptions.is_empty());
-        assert!(
-            std::fs::read_dir(&dir)
-                .unwrap()
-                .filter_map(Result::ok)
-                .any(|entry| entry.file_name().to_string_lossy().starts_with("subscriptions.corrupt-"))
-        );
+        assert!(std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("subscriptions.corrupt-")));
         assert!(!path.with_extension("json.tmp").exists());
 
         std::fs::remove_dir_all(dir).unwrap();

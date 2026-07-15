@@ -22,11 +22,17 @@ pub enum Command {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Response {
-    Pong { service_version: String, protocol: u32 },
+    Pong {
+        service_version: String,
+        protocol: u32,
+    },
     Status(ServiceStatus),
     KillReport(KillReport),
     Ok,
-    Error { code: ErrorCode, message: String },
+    Error {
+        code: ErrorCode,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,11 +110,10 @@ pub enum IpcError {
 pub mod framing {
     use std::io::{Read, Write};
 
-    use super::{FRAME_LENGTH_BYTES, FRAME_MAX_BYTES, IpcError};
+    use super::{IpcError, FRAME_LENGTH_BYTES, FRAME_MAX_BYTES};
 
     pub fn write_frame<W: Write>(writer: &mut W, payload: &[u8]) -> Result<(), IpcError> {
-        let length = u32::try_from(payload.len())
-            .map_err(|_| IpcError::FrameTooLarge(u32::MAX))?;
+        let length = u32::try_from(payload.len()).map_err(|_| IpcError::FrameTooLarge(u32::MAX))?;
         if length > FRAME_MAX_BYTES {
             return Err(IpcError::FrameTooLarge(length));
         }
@@ -176,7 +181,9 @@ mod tests {
 
     #[test]
     fn connect_roundtrip() {
-        let cmd = Command::Connect { server_id: "srv-1".into() };
+        let cmd = Command::Connect {
+            server_id: "srv-1".into(),
+        };
         let s = serde_json::to_string(&cmd).unwrap();
         let back: Command = serde_json::from_str(&s).unwrap();
         match back {
@@ -207,7 +214,9 @@ mod tests {
 
     #[test]
     fn kill_processes_roundtrip() {
-        let cmd = Command::KillProcesses { pids: vec![1, 2, 3] };
+        let cmd = Command::KillProcesses {
+            pids: vec![1, 2, 3],
+        };
         let bytes = encode_command(&cmd).unwrap();
         let back = decode_command(&bytes).unwrap();
         match back {
@@ -220,7 +229,10 @@ mod tests {
     fn kill_report_roundtrip() {
         let resp = Response::KillReport(KillReport {
             killed: vec![10],
-            failed: vec![KillFailure { pid: 20, message: "denied".into() }],
+            failed: vec![KillFailure {
+                pid: 20,
+                message: "denied".into(),
+            }],
         });
         let bytes = encode_response(&resp).unwrap();
         let back = decode_response(&bytes).unwrap();

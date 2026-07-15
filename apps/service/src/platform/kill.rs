@@ -5,7 +5,7 @@ use std::io;
 use tracing::debug;
 use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_TERMINATE, TerminateProcess, WaitForSingleObject,
+    OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_TERMINATE,
 };
 
 pub fn kill_pids(pids: &[u32]) -> (Vec<u32>, Vec<(u32, String)>) {
@@ -28,7 +28,10 @@ pub fn kill_pids(pids: &[u32]) -> (Vec<u32>, Vec<(u32, String)>) {
 
 fn terminate_one(pid: u32) -> Result<(), io::Error> {
     if pid == 0 {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "pid 0 rejected"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "pid 0 rejected",
+        ));
     }
     let handle = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
     if handle.is_null() {
