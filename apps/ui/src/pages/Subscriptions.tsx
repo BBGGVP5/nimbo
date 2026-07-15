@@ -490,13 +490,13 @@ function ProfileCard({
                 disabled={removing}
               />
               {menuOpen && (
-                <div className="absolute right-0 top-11 z-20 w-52 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[#221f2b] shadow-[0_18px_42px_rgba(0,0,0,0.36)]">
+                <div className="server-row-menu subscription-action-menu">
                   <button
                     onClick={() => {
                       setMenuOpen(false);
                       setSettingsOpen(true);
                     }}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-semibold text-white hover:bg-[var(--color-glass-bg)]"
+                    className="subscription-action-menu-item"
                   >
                     <SettingsIcon />
                     {m.profiles.subscriptionSettings}
@@ -506,7 +506,7 @@ function ProfileCard({
                       setMenuOpen(false);
                       void onRemoveClick();
                     }}
-                    className="flex w-full items-center gap-3 border-t border-[var(--color-border)] px-4 py-3 text-left text-sm font-semibold text-[var(--color-status-error)] hover:bg-[rgba(244,67,54,0.10)]"
+                    className="subscription-action-menu-item server-row-menu-danger"
                   >
                     <TrashIcon pulse={removing} />
                     {m.profiles.delete}

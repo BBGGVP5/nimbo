@@ -75,13 +75,15 @@ function Install-XrayPayload([string]$TargetTriple) {
   }
 
   Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDir -Force
-  $xrayBinary = Get-ChildItem -LiteralPath $extractDir -Recurse -File -Filter "xray.exe" |
-    Select-Object -First 1
-  if (-not $xrayBinary) {
-    throw "The verified Xray archive does not contain xray.exe: $archiveName"
+  foreach ($runtimeFile in @("xray.exe", "geoip.dat", "geosite.dat")) {
+    $runtimeAsset = Get-ChildItem -LiteralPath $extractDir -Recurse -File -Filter $runtimeFile |
+      Select-Object -First 1
+    if (-not $runtimeAsset) {
+      throw "The verified Xray archive does not contain ${runtimeFile}: $archiveName"
+    }
+    Copy-Item -LiteralPath $runtimeAsset.FullName -Destination (Join-Path $payloadDir $runtimeFile) -Force
   }
-  Copy-Item -LiteralPath $xrayBinary.FullName -Destination $payloadPath -Force
-  Write-Host "Embedded Xray: $payloadPath"
+  Write-Host "Embedded Xray runtime: $payloadPath"
 }
 
 function Get-MsvcArchFolder([string]$TargetTriple) {

@@ -4223,6 +4223,10 @@ body[data-theme="light"] .dark-input {
   white-space: nowrap;
 }
 
+body[data-theme="light"] .server-profile-title {
+  color: var(--color-text);
+}
+
 .server-profile-description {
   min-width: 0;
   margin-top: 3px;
@@ -4398,6 +4402,34 @@ body[data-theme="light"] .dark-input {
 
 .server-row-menu-danger:hover {
   background: rgba(255, 92, 100, 0.11) !important;
+}
+
+.subscription-action-menu {
+  min-width: 208px;
+}
+
+.subscription-action-menu .server-row-menu-danger {
+  margin-top: 4px;
+  border-top: 1px solid var(--color-border);
+  border-radius: 10px;
+}
+
+body[data-theme="light"] .server-row-menu {
+  border-color: rgba(28, 24, 48, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 249, 253, 0.98)),
+    #ffffff;
+  box-shadow:
+    0 18px 44px rgba(42, 35, 64, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+body[data-theme="light"] .server-row-menu button {
+  color: var(--color-text);
+}
+
+body[data-theme="light"] .server-row-menu .server-row-menu-danger {
+  color: #c93d4b !important;
 }
 
 @keyframes server-menu-in {

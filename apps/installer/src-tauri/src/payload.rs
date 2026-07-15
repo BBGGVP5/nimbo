@@ -130,8 +130,26 @@ const XRAY_BYTES: &[u8] = include_bytes!(concat!(
     env!("NIMBO_TARGET_TRIPLE"),
     "/xray.exe"
 ));
+#[cfg(all(windows, not(debug_assertions)))]
+const GEOIP_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../target/xray/",
+    env!("NIMBO_TARGET_TRIPLE"),
+    "/geoip.dat"
+));
+#[cfg(all(windows, not(debug_assertions)))]
+const GEOSITE_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../target/xray/",
+    env!("NIMBO_TARGET_TRIPLE"),
+    "/geosite.dat"
+));
 #[cfg(all(windows, debug_assertions))]
 const XRAY_BYTES: &[u8] = &[];
+#[cfg(all(windows, debug_assertions))]
+const GEOIP_BYTES: &[u8] = &[];
+#[cfg(all(windows, debug_assertions))]
+const GEOSITE_BYTES: &[u8] = &[];
 #[cfg(windows)]
 const ICON_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -353,6 +371,8 @@ fn install_blocking_windows(
     replace_payload(&tun_dir.join("wintun.dll"), WINTUN_BYTES)?;
     if !XRAY_BYTES.is_empty() {
         replace_payload(&tun_dir.join("xray.exe"), XRAY_BYTES)?;
+        replace_payload(&tun_dir.join("geoip.dat"), GEOIP_BYTES)?;
+        replace_payload(&tun_dir.join("geosite.dat"), GEOSITE_BYTES)?;
     }
     run_status(&install_dir.join(APP_EXE), &["--install-tun"])
         .map_err(|e| format!("TUN-компоненты не установились: {e}"))?;
@@ -542,6 +562,8 @@ fn perform_uninstall(
     let _ = fs::remove_file(tun_dir.join("tun2socks.exe"));
     let _ = fs::remove_file(tun_dir.join("wintun.dll"));
     let _ = fs::remove_file(tun_dir.join("xray.exe"));
+    let _ = fs::remove_file(tun_dir.join("geoip.dat"));
+    let _ = fs::remove_file(tun_dir.join("geosite.dat"));
     let _ = fs::remove_dir(&tun_dir);
 
     #[cfg(windows)]
@@ -1213,6 +1235,8 @@ fn cleanup_old_tun_binaries(tun_dir: &Path) {
         "wintun.dll.old",
         "wintun.exe.old",
         "xray.exe.old",
+        "geoip.dat.old",
+        "geosite.dat.old",
     ] {
         let _ = fs::remove_file(tun_dir.join(name));
     }
