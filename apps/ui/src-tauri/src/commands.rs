@@ -933,9 +933,12 @@ pub async fn list_conflicting_processes() -> Result<Vec<ConflictingProcess>, Str
 
 #[tauri::command]
 pub async fn stop_conflicting_processes(
-    #[cfg(windows)] app: AppHandle,
+    app: AppHandle,
     pids: Option<Vec<u32>>,
 ) -> Result<Vec<ConflictingProcess>, String> {
+    #[cfg(not(windows))]
+    let _ = app;
+
     tokio::task::spawn_blocking(move || {
         #[cfg(windows)]
         {
@@ -994,7 +997,14 @@ fn stop_conflicting_processes_blocking(
         }
     }
 
+    #[cfg(windows)]
     let mut remaining = stop_conflicts_with_retries(
+        &target_names,
+        safe_pids.clone(),
+        stop_conflicting_process_ids,
+    )?;
+    #[cfg(not(windows))]
+    let remaining = stop_conflicts_with_retries(
         &target_names,
         safe_pids.clone(),
         stop_conflicting_process_ids,
