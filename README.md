@@ -5,8 +5,7 @@
 <h1 align="center">Nimbo</h1>
 
 <p align="center">
-  Официальные открытые исходники Nimbo — лёгкого VPN-клиента для подписок,
-  маршрутов и защищённого подключения.
+  Лёгкий VPN-клиент: подписки, серверы и маршруты — в одном понятном приложении.
 </p>
 
 <p align="center">
@@ -19,16 +18,32 @@
 <p align="center">
   <a href="https://nimboapp.pw">Официальный сайт</a> ·
   <a href="https://github.com/BBGGVP5/nimbo/releases/latest">Скачать последнюю версию</a> ·
-  <a href="#платформы">Платформы</a> ·
+  <a href="#о-приложении">О приложении</a> ·
   <a href="#возможности">Возможности</a> ·
-  <a href="#структура-исходников">Структура</a> ·
-  <a href="#сборка">Сборка</a> ·
-  <a href="./docs/RELEASE.md">Выпуск</a>
+  <a href="#платформы">Платформы</a> ·
+  <a href="#официальные-каналы">Контакты</a>
 </p>
 
 <p align="center">
   <img src="./nimbo-poster-ru.png" alt="Постер Nimbo" />
 </p>
+
+## О приложении
+
+Nimbo объединяет VPN-подписки, серверы и правила маршрутизации в одном интерфейсе. Добавьте ссылку от провайдера, выберите сервер — и подключайтесь через TUN, системный прокси или оба режима без ручной настройки конфигов.
+
+Приложение работает с подписками Remnawave, Marzban, 3x-ui и другими панелями, которые выдают `vless://`, `vmess://`, `trojan://`, `ss://` или `hysteria2://`.
+
+За новостями, документацией и актуальными релизами — на [nimboapp.pw](https://nimboapp.pw).
+
+## Возможности
+
+- импорт подписки по ссылке или deep link: серверы, лимит трафика и срок действия считываются автоматически;
+- VLESS (Reality, XHTTP, WebSocket, gRPC), VMess, Trojan, Shadowsocks и Hysteria2;
+- TUN, системный прокси и комбинированный режим;
+- выбор серверов, проверка задержки, пользовательские маршруты и split tunneling;
+- русская и английская локализация desktop-интерфейса;
+- QR-импорт, уведомления и быстрая панель на Android.
 
 ## Платформы
 
@@ -38,20 +53,7 @@
 | Linux x64 / arm64 | экспериментальная сборка | Tauri 2, React, Rust, AppImage/deb/RPM |
 | Android 10+ | поддерживается | Kotlin, Jetpack Compose, `VpnService`, libXray |
 
-Nimbo работает с подписками Remnawave, Marzban, 3x-ui и другими панелями, которые выдают `vless://`, `vmess://`, `trojan://`, `ss://` или `hysteria2://`.
-
-Официальный сайт проекта — [nimboapp.pw](https://nimboapp.pw). Там находятся пользовательская документация, дорожная карта и ссылки на актуальные релизы. Этот репозиторий — официальная открытая кодовая база Nimbo.
-
-## Возможности
-
-- VLESS (Reality, XHTTP, WebSocket, gRPC), VMess, Trojan, Shadowsocks и Hysteria2;
-- системный прокси, TUN и комбинированный режим;
-- подписки, серверы, пинг, пользовательские маршруты и split tunneling;
-- русская и английская локализация desktop-интерфейса;
-- QR-импорт, уведомления и быстрая панель на Android;
-- регулярная проверка зависимостей через Dependabot и CI для Linux/Android.
-
-Desktop автоматически получает официальный текущий Xray-core для Windows и Linux на x64, x86 и arm64, если пользователь не предоставил путь через `NIMBO_XRAY_PATH`. Архив проверяется по SHA-256 до установки. Android содержит официальный `libXray 26.7.11`; его обновление описано в [apps/android/README.md](./apps/android/README.md).
+Desktop-клиент автоматически получает актуальный Xray-core для Windows и Linux; Android использует libXray. Пользователь может указать собственный путь к ядру через `NIMBO_XRAY_PATH`.
 
 ## Структура исходников
 
@@ -69,30 +71,13 @@ nimbo/
 
 Подробности — в [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
 
-## Сборка
+## Для разработчиков
 
-### Android
+Здесь находится официальная открытая кодовая база Nimbo. Состав проекта описан в [архитектуре](./docs/ARCHITECTURE.md); инструкции по сборке и выпуску находятся в [документации для Linux](./docs/build/linux.md), [Android README](./apps/android/README.md) и [чек-листе релиза](./docs/RELEASE.md).
 
-```powershell
-cd apps/android
-.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
-```
+## Официальные каналы
 
-Для распространяемого APK нужен собственный keystore. Инструкция и безопасная конфигурация подписи находятся в [apps/android/README.md](./apps/android/README.md).
+- Сайт: [nimboapp.pw](https://nimboapp.pw)
+- Исходный код и релизы: [BBGGVP5/nimbo](https://github.com/BBGGVP5/nimbo)
 
-### Windows и Linux
-
-Нужны Rust 1.80+, Node.js 20+ и зависимости Tauri. Для Linux:
-
-```bash
-sudo apt install libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev build-essential patchelf rpm
-cd apps/ui
-npm ci
-npm run build:linux
-```
-
-Для Windows используйте `apps/ui` и `npm run build:installer`. Сборка Linux должна выполняться на Linux (или в WSL2); она создаёт AppImage, DEB и RPM. Подробная инструкция — в [docs/build/linux.md](./docs/build/linux.md), полный чек-лист перед публикацией — в [docs/RELEASE.md](./docs/RELEASE.md).
-
-## Лицензирование и авторство
-
-Nimbo представлен как единое приложение для Windows, Android и Linux. Официальная информация публикуется на [nimboapp.pw](https://nimboapp.pw), а исходники и релизы — в [BBGGVP5/nimbo](https://github.com/BBGGVP5/nimbo). История desktop-исходников и исходное авторство сохранены.
+История desktop-исходников и исходное авторство сохранены.
