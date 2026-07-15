@@ -237,6 +237,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return templateConfig ?: profile.rawConfig?.takeIf { it.isNotBlank() }
     }
 
+    private fun xrayConfigDisplayName(config: String?): String? {
+        val text = config?.trim()?.takeIf { it.startsWith("{") && it.endsWith("}") } ?: return null
+        return runCatching { JSONObject(text) }.getOrNull()
+            ?.let { json ->
+                listOf("remarks", "remark", "name")
+                    .firstNotNullOfOrNull { key -> json.optString(key).trim().takeIf { it.isNotBlank() } }
+            }
+    }
+
     /**
      * Converts Remnawave's balancing and virtual routes from one Xray JSON response
      * into selectable rows. The normal link parser intentionally ignores loopback
@@ -1582,13 +1591,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ?: result.configType
                         ?: "xray"
                     val pingTarget = extractPingTargetFromXrayJson(result.rawConfig)
+                    val configDisplayName = xrayConfigDisplayName(result.rawConfig)
                     parsedFromResponse.add(
                         Server(
-                            name = "🌐 ${result.username ?: "Remote Config"}",
+                            name = "🌐 ${configDisplayName ?: result.username ?: "Remote Config"}",
                             host = "API",
                             port = 0,
                             uuid = "remote",
                             protocol = detectedProtocol,
+                            serverDescription = configDisplayName,
                             profileUrl = url,
                             pingHost = pingTarget?.host,
                             pingPort = pingTarget?.port
