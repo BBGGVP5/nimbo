@@ -36,9 +36,15 @@ function normalizeBody(rawUrl: string): { action: string; tail: string; params: 
   const rawAction = slashIndex >= 0 ? normalized.slice(0, slashIndex) : normalized;
   const rawTail = slashIndex >= 0 ? normalized.slice(slashIndex + 1) : "";
 
+  // A subscription URL often contains its own query string (for example,
+  // `?token=...`). When it is carried in the path form
+  // `nimbo://add/https://…`, keep that query string as part of the source.
+  // Query-only deep links, such as `nimbo://add?url=…`, still use `params`.
+  const tail = rawTail && queryPart ? `${rawTail}?${queryPart}` : rawTail;
+
   return {
     action: decodeValue(rawAction).trim().toLowerCase(),
-    tail: rawTail,
+    tail,
     params: new URLSearchParams(queryPart),
   };
 }
