@@ -257,7 +257,7 @@ export function Settings() {
 
   const updateConnectionMode = async (nextMode: ConnectionMode) => {
     try {
-      if (nextMode === "tun") {
+      if (nextMode === "tun" || nextMode === "both") {
         const status = await api.getTunStatus();
         if (!status.installed) {
           if (!status.can_install) {
@@ -278,9 +278,10 @@ export function Settings() {
         }
       }
       await api.setConnectionMode(nextMode);
-      await hydrate();
     } catch (e) {
       notifyError(String(e));
+    } finally {
+      await hydrate().catch(() => undefined);
     }
   };
 

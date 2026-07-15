@@ -25,7 +25,6 @@ type ServerEntry = { server: Server; sub: Subscription };
 type SortMode = "default" | "name" | "ping" | "protocol";
 type SpeedSample = { upload: number; download: number; at: number };
 
-const SPEED_HISTORY_LIMIT = 60;
 const MEMORY_HISTORY_LIMIT = 60;
 
 function preferenceSortMode(value: string): SortMode {
@@ -231,18 +230,18 @@ export function Home() {
   const setServerPing = useAppStore((s) => s.setServerPing);
 
   const preferences = useAppStore((s) => s.preferences);
+  const trafficStats = useAppStore((s) => s.trafficStats);
+  const trafficHistory = useAppStore((s) => s.trafficHistory);
+  const trafficMonitoringAvailable = useAppStore((s) => s.trafficMonitoringAvailable);
+  const sessionStartedAt = useAppStore((s) => s.sessionStartedAt);
 
   const [refreshingUrl, setRefreshingUrl] = useState<string | null>(null);
   const [pinging, setPinging] = useState(false);
   const [pingingServerIds, setPingingServerIds] = useState<Set<string>>(() => new Set());
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
-  const [connectedAt, setConnectedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [sessionTraffic, setSessionTraffic] = useState({ upload: 0, download: 0 });
-  const [speedSamples, setSpeedSamples] = useState<SpeedSample[]>([]);
   const [memorySamples, setMemorySamples] = useState<number[]>([]);
   const [currentMemoryBytes, setCurrentMemoryBytes] = useState(0);
-  const previousTrafficRef = useRef<{ upload: number; download: number; at: number } | null>(null);
 
   // Server list features
   const [sortMode, setSortMode] = useState<SortMode>(() => preferenceSortMode(preferences.servers_sorting));
@@ -380,60 +379,20 @@ export function Home() {
 
   useEffect(() => {
     if (!connected) {
-      setConnectedAt(null);
       setElapsedSeconds(0);
-      setSessionTraffic({ upload: 0, download: 0 });
-      setSpeedSamples([]);
       setMemorySamples([]);
       setCurrentMemoryBytes(0);
-      previousTrafficRef.current = null;
-      return;
     }
-    setConnectedAt((current) => current ?? Date.now());
   }, [connected]);
 
   useEffect(() => {
-    if (!connected || connectedAt == null) return;
+    if (!connected || sessionStartedAt == null) return;
     const tick = () =>
-      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - connectedAt) / 1000)));
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000)));
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [connected, connectedAt]);
-
-  useEffect(() => {
-    if (!connected) return;
-    let cancelled = false;
-    const loadTraffic = async () => {
-      try {
-        const traffic = await api.getSessionTraffic();
-        if (cancelled) return;
-        setSessionTraffic(traffic);
-        const now = Date.now();
-        const prev = previousTrafficRef.current;
-        previousTrafficRef.current = { upload: traffic.upload, download: traffic.download, at: now };
-        if (prev) {
-          const elapsed = Math.max(0.001, (now - prev.at) / 1000);
-          const uploadDelta = Math.max(0, traffic.upload - prev.upload);
-          const downloadDelta = Math.max(0, traffic.download - prev.download);
-          const uploadBps = uploadDelta / elapsed;
-          const downloadBps = downloadDelta / elapsed;
-          setSpeedSamples((current) => {
-            const next = [...current, { upload: uploadBps, download: downloadBps, at: now }];
-            return next.length > SPEED_HISTORY_LIMIT ? next.slice(-SPEED_HISTORY_LIMIT) : next;
-          });
-        }
-      } catch {
-        if (!cancelled) setSessionTraffic((current) => current);
-      }
-    };
-    void loadTraffic();
-    const timer = window.setInterval(() => void loadTraffic(), 1000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [connected]);
+  }, [connected, sessionStartedAt]);
 
   useEffect(() => {
     if (!connected || !preferences.show_memory_usage) return;
@@ -671,11 +630,15 @@ export function Home() {
               {!widgetsCollapsed && (
                 <>
                   {preferences.show_speed_chart && (
-                    <NetworkSpeedChart samples={speedSamples} labels={m} />
+                    <NetworkSpeedChart
+                      samples={trafficHistory}
+                      labels={m}
+                      available={trafficMonitoringAvailable}
+                    />
                   )}
                   <SessionTrafficBlocks
-                    upload={sessionTraffic.upload}
-                    download={sessionTraffic.download}
+                    upload={trafficStats?.session_upload ?? 0}
+                    download={trafficStats?.session_download ?? 0}
                   />
                   {preferences.show_memory_usage && (
                     <MemoryUsageCard
@@ -1557,9 +1520,11 @@ function formatSpeed(bytesPerSecond: number): string {
 function NetworkSpeedChart({
   samples,
   labels,
+  available,
 }: {
   samples: SpeedSample[];
   labels: Messages;
+  available: boolean;
 }) {
   const latest = samples[samples.length - 1];
   const uploadBps = latest?.upload ?? 0;
@@ -1602,10 +1567,10 @@ function NetworkSpeedChart({
         </div>
         <div className="speed-chart-values">
           <span className="speed-chart-value-up">
-            <UploadIcon /> {formatSpeed(uploadBps)}
+            <UploadIcon /> {available ? formatSpeed(uploadBps) : "—"}
           </span>
           <span className="speed-chart-value-down">
-            <DownloadIcon /> {formatSpeed(downloadBps)}
+            <DownloadIcon /> {available ? formatSpeed(downloadBps) : "—"}
           </span>
         </div>
       </div>

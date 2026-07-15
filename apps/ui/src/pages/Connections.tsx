@@ -247,7 +247,10 @@ export function Connections() {
                 <div key={connection.id} className="connections-live-row">
                   <div className="connections-endpoint">
                     <span className="connections-target">{connection.destination}</span>
-                    <span>{connection.protocol} · {connection.remote_port}</span>
+                    <span>
+                      {connection.protocol}
+                      {connection.remote_port > 0 ? ` · ${connection.remote_port}` : ""}
+                    </span>
                   </div>
                   <div className="connections-process">
                     <span title={processTitle(connection)}>{displayProcessName(connection)}</span>

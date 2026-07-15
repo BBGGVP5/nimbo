@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { api, formatBytes } from "../lib/api";
 import { useMessages } from "../lib/i18n";
@@ -13,54 +12,13 @@ export function Statistics() {
 
   const stats = useAppStore((s) => s.trafficStats);
   const speed = useAppStore((s) => s.trafficSpeed);
+  const speedAvailable = useAppStore((s) => s.trafficMonitoringAvailable);
   const sessionStartedAt = useAppStore((s) => s.sessionStartedAt);
   const setTrafficStats = useAppStore((s) => s.setTrafficStats);
-  const setTrafficSpeed = useAppStore((s) => s.setTrafficSpeed);
-  const setTrafficSample = useAppStore((s) => s.setTrafficSample);
-  const setSessionStartedAt = useAppStore((s) => s.setSessionStartedAt);
-
-  useEffect(() => {
-    if (!connected) return;
-    if (useAppStore.getState().sessionStartedAt == null) {
-      setSessionStartedAt(Date.now());
-    }
-  }, [connected, setSessionStartedAt]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const next = await api.getTrafficStats();
-        if (cancelled) return;
-        setTrafficStats(next);
-        const now = Date.now();
-        const prev = useAppStore.getState().trafficSample;
-        setTrafficSample({ upload: next.session_upload, download: next.session_download, at: now });
-        if (prev && connected) {
-          const dt = Math.max(0.001, (now - prev.at) / 1000);
-          setTrafficSpeed({
-            upload: Math.max(0, (next.session_upload - prev.upload) / dt),
-            download: Math.max(0, (next.session_download - prev.download) / dt),
-          });
-        } else if (!connected) {
-          setTrafficSpeed({ upload: 0, download: 0 });
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-    void tick();
-    const timer = window.setInterval(() => void tick(), 1000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [connected, setTrafficStats, setTrafficSample, setTrafficSpeed]);
 
   const handleReset = async () => {
     try {
       await api.resetTrafficTotals();
-      setTrafficSample(null);
       const next = await api.getTrafficStats().catch(() => null);
       if (next) setTrafficStats(next);
       notifyInfo(m.statistics.totalsReset);
@@ -92,14 +50,14 @@ export function Statistics() {
       <div className="statistics-speed-grid">
         <SpeedCard
           label={m.statistics.uploaded}
-          value={formatSpeed(speed.upload)}
+          value={speedAvailable ? formatSpeed(speed.upload) : "—"}
           tint="up"
           icon={<ArrowUpIcon />}
           total={stats ? formatBytes(stats.session_upload) : "0 B"}
         />
         <SpeedCard
           label={m.statistics.received}
-          value={formatSpeed(speed.download)}
+          value={speedAvailable ? formatSpeed(speed.download) : "—"}
           tint="down"
           icon={<ArrowDownIcon />}
           total={stats ? formatBytes(stats.session_download) : "0 B"}

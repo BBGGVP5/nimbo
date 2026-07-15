@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
@@ -28,12 +28,13 @@ use nimbo_xray_config::{
 
 use crate::state::{
     AppPreferences, AppProxyMode, AppProxyRule, AppState, ConnectionMode, PersistedState,
-    RoutingProfile, SystemProxySnapshot, TrafficTotals, TunRuntimeSnapshot,
+    RoutingProfile, SystemProxySnapshot, TrafficRuntimeSample, TrafficTotals, TunRuntimeSnapshot,
 };
 
 const TUN_INTERFACE_NAME: &str = "wintun";
 const TUN_ADDRESS: &str = "198.18.0.1";
 const TUN_GATEWAY_CIDR: &str = "198.18.0.1/24";
+const TUN_IPV6_GATEWAY_CIDR: &str = "fdfe:dcba:9876::1/64";
 const TUN_DNS_PRIMARY: &str = "1.1.1.1";
 const TUN_DNS_SECONDARY: &str = "8.8.8.8";
 const DEFAULT_XRAY_TEMPLATE_KEY: &str = "default";
@@ -50,10 +51,12 @@ const SUBSCRIPTION_LOGO_CACHE_BYTES: usize = 4 * 1024 * 1024;
 const SUBSCRIPTION_LOGO_CACHE_DIR: &str = "subscription-logos";
 const MAX_RUNTIME_LOG_BYTES: u64 = 5 * 1024 * 1024;
 static RESUME_RECONNECT_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static XRAY_STATS_QUERY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppStatus {
     pub state: ConnectionState,
+    pub connected_at: Option<u64>,
     pub active_server_id: Option<String>,
     pub active_subscription_url: Option<String>,
     pub subscription_count: usize,
@@ -433,6 +436,9 @@ fn count_rules(profile: &RoutingProfile) -> u32 {
 pub struct TrafficStats {
     pub session_upload: u64,
     pub session_download: u64,
+    pub upload_speed: f64,
+    pub download_speed: f64,
+    pub speed_available: bool,
     pub all_time_upload: u64,
     pub all_time_download: u64,
     pub monthly_upload: u64,
@@ -501,6 +507,7 @@ pub fn get_status(state: State<'_, AppState>) -> AppStatus {
         } else {
             ConnectionState::Disconnected
         },
+        connected_at: snapshot.connected_at,
         active_server_id: snapshot.active_server_id,
         active_subscription_url: snapshot.active_subscription_url,
         subscription_count: snapshot.subscriptions.len(),
@@ -586,6 +593,7 @@ struct AppBackup {
 pub fn export_app_backup(state: State<'_, AppState>) -> Result<String, String> {
     let mut snapshot = state.snapshot();
     snapshot.connected = false;
+    snapshot.connected_at = None;
     snapshot.pending_system_proxy_snapshot = None;
     snapshot.pending_tun_snapshot = None;
     let exported_at = std::time::SystemTime::now()
@@ -614,6 +622,7 @@ pub fn import_app_backup(
         .map_err(|e| format!("Не удалось применить резервную копию: {e}"))?;
     imported.normalize_runtime_defaults();
     imported.connected = false;
+    imported.connected_at = None;
     imported.pending_system_proxy_snapshot = None;
     imported.pending_tun_snapshot = None;
 
@@ -2286,14 +2295,51 @@ pub fn set_app_proxy_rules(
 }
 
 #[tauri::command]
-pub fn set_connection_mode(
+pub async fn set_connection_mode(
+    app: AppHandle,
     state: State<'_, AppState>,
     mode: ConnectionMode,
 ) -> Result<PersistedState, String> {
+    let snapshot = state.snapshot();
+    if snapshot.connection_mode == mode {
+        return Ok(snapshot);
+    }
+
+    if !snapshot.connected {
+        state
+            .mutate(|s| s.connection_mode = mode)
+            .map_err(|e| format!("Не удалось сохранить режим подключения: {e}"))?;
+        return Ok(state.snapshot());
+    }
+
+    let server_id = snapshot
+        .active_server_id
+        .clone()
+        .ok_or_else(|| "Активный сервер для переподключения не найден".to_string())?;
+
+    if mode.uses_tun() {
+        let status = ensure_tun_dependencies(&app)
+            .await
+            .map_err(|e| format!("Новый режим не применён: не удалось подготовить TUN: {e}"))?;
+        if !status.installed {
+            return Err(format!("Новый режим не применён: {}", status.message));
+        }
+        if !is_running_as_admin() {
+            return Err(
+                "Новый режим не применён: для TUN перезапусти Nimbo от имени администратора."
+                    .into(),
+            );
+        }
+    }
+
+    disconnect_server(app.clone(), app.state::<AppState>()).await?;
     state
         .mutate(|s| s.connection_mode = mode)
         .map_err(|e| format!("Не удалось сохранить режим подключения: {e}"))?;
-    Ok(state.snapshot())
+
+    let result = connect_server(app.clone(), app.state::<AppState>(), server_id).await;
+    let _ = crate::tray::refresh_tray_menu(&app);
+    result.map_err(|e| format!("Режим подключения сохранён, но переподключиться не удалось: {e}"))
 }
 
 #[tauri::command]
@@ -2489,7 +2535,7 @@ fn process_memory_by_pid(_pid: u32) -> u64 {
 
 #[cfg(windows)]
 #[derive(Debug, Deserialize)]
-struct PowershellTcpConnection {
+struct PowershellNetworkConnection {
     #[serde(rename = "Protocol")]
     protocol: String,
     #[serde(rename = "State")]
@@ -2573,7 +2619,7 @@ function Get-ProcessMeta([uint32]$processId) {
   return $processCache[$processId]
 }
 
-$connections = @(
+$tcpConnections = @(
   Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue |
     Where-Object {
       $null -ne $_.RemotePort -and
@@ -2582,29 +2628,55 @@ $connections = @(
       @("0.0.0.0", "::", "*") -notcontains [string]$_.RemoteAddress
     }
 )
-$pids = @($connections | ForEach-Object { [uint32]$_.OwningProcess } | Sort-Object -Unique)
-foreach ($pid in $pids) {
-  [void](Get-ProcessMeta $pid)
+$udpEndpoints = @(
+  Get-NetUDPEndpoint -ErrorAction SilentlyContinue |
+    Where-Object {
+      [uint32]$_.OwningProcess -ne 0 -and
+      [uint32]$_.LocalPort -ne 0
+    }
+)
+$pids = @(
+  $tcpConnections | ForEach-Object { [uint32]$_.OwningProcess }
+  $udpEndpoints | ForEach-Object { [uint32]$_.OwningProcess }
+) | Sort-Object -Unique
+foreach ($processIdValue in $pids) {
+  [void](Get-ProcessMeta $processIdValue)
 }
 
-$items = foreach ($c in $connections) {
-  if ($null -eq $c.RemotePort -or [uint32]$c.RemotePort -eq 0) { continue }
-  if ([string]::IsNullOrWhiteSpace($c.RemoteAddress)) { continue }
-  if (@("0.0.0.0", "::", "*") -contains [string]$c.RemoteAddress) { continue }
-  $state = $c.State.ToString()
-  $meta = Get-ProcessMeta ([uint32]$c.OwningProcess)
-  [PSCustomObject]@{
-    Protocol = "tcp"
-    State = $state
-    LocalAddress = [string]$c.LocalAddress
-    LocalPort = [uint32]$c.LocalPort
-    RemoteAddress = [string]$c.RemoteAddress
-    RemotePort = [uint32]$c.RemotePort
-    Pid = [uint32]$c.OwningProcess
-    ProcessName = $meta.Name
-    Path = $meta.Path
+$items = @(
+  foreach ($c in $tcpConnections) {
+    if ($null -eq $c.RemotePort -or [uint32]$c.RemotePort -eq 0) { continue }
+    if ([string]::IsNullOrWhiteSpace($c.RemoteAddress)) { continue }
+    if (@("0.0.0.0", "::", "*") -contains [string]$c.RemoteAddress) { continue }
+    $state = $c.State.ToString()
+    $meta = Get-ProcessMeta ([uint32]$c.OwningProcess)
+    [PSCustomObject]@{
+      Protocol = "tcp"
+      State = $state
+      LocalAddress = [string]$c.LocalAddress
+      LocalPort = [uint32]$c.LocalPort
+      RemoteAddress = [string]$c.RemoteAddress
+      RemotePort = [uint32]$c.RemotePort
+      Pid = [uint32]$c.OwningProcess
+      ProcessName = $meta.Name
+      Path = $meta.Path
+    }
   }
-}
+  foreach ($u in $udpEndpoints) {
+    $meta = Get-ProcessMeta ([uint32]$u.OwningProcess)
+    [PSCustomObject]@{
+      Protocol = "udp"
+      State = "Bound"
+      LocalAddress = [string]$u.LocalAddress
+      LocalPort = [uint32]$u.LocalPort
+      RemoteAddress = "*"
+      RemotePort = 0
+      Pid = [uint32]$u.OwningProcess
+      ProcessName = $meta.Name
+      Path = $meta.Path
+    }
+  }
+)
 [Console]::Out.Write((ConvertTo-Json -InputObject @($items) -Compress -Depth 4))
 "#;
 
@@ -2635,9 +2707,9 @@ $items = foreach ($c in $connections) {
     let raw = match json {
         serde_json::Value::Array(items) => items
             .into_iter()
-            .filter_map(|value| serde_json::from_value::<PowershellTcpConnection>(value).ok())
+            .filter_map(|value| serde_json::from_value::<PowershellNetworkConnection>(value).ok())
             .collect::<Vec<_>>(),
-        serde_json::Value::Object(_) => serde_json::from_value::<PowershellTcpConnection>(json)
+        serde_json::Value::Object(_) => serde_json::from_value::<PowershellNetworkConnection>(json)
             .map(|item| vec![item])
             .unwrap_or_default(),
         _ => Vec::new(),
@@ -2645,6 +2717,9 @@ $items = foreach ($c in $connections) {
 
     let ports = ProxyPorts::default();
     let profile_rules = xray_routing_profile_rules(snapshot, &[]);
+    let app_rules = active_server
+        .map(|server| combined_app_proxy_rules(snapshot, server))
+        .unwrap_or_default();
 
     let mut out = Vec::new();
     for item in raw {
@@ -2679,7 +2754,7 @@ $items = foreach ($c in $connections) {
             snapshot,
             active_server,
             tunnel_server_ips,
-            &[],
+            &app_rules,
             &profile_rules,
             &process,
             process_path.as_deref(),
@@ -2688,6 +2763,7 @@ $items = foreach ($c in $connections) {
             ports,
         );
 
+        let udp_endpoint = item.protocol.eq_ignore_ascii_case("udp") && item.remote_port == 0;
         out.push(ActiveConnection {
             id: format!(
                 "{}:{}-{}:{}-{}",
@@ -2700,7 +2776,11 @@ $items = foreach ($c in $connections) {
             protocol: item.protocol.to_ascii_uppercase(),
             state: item.state,
             source: format!("{}:{}", item.local_address, item.local_port),
-            destination: format!("{}:{}", item.remote_address, item.remote_port),
+            destination: if udp_endpoint {
+                "*".into()
+            } else {
+                format!("{}:{}", item.remote_address, item.remote_port)
+            },
             remote_address: item.remote_address,
             remote_port: item.remote_port,
             process,
@@ -3398,6 +3478,14 @@ fn current_month_period() -> String {
     format!("{:04}-{:02}", year, month)
 }
 
+fn unix_timestamp_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u64::MAX as u128) as u64
+}
+
 fn days_to_year_month(mut days: i64) -> (i32, u32) {
     let mut year: i32 = 1970;
     loop {
@@ -3443,31 +3531,84 @@ pub async fn get_traffic_stats(
         totals.monthly_download = 0;
     }
 
-    let session = if snapshot.connected {
+    let (session, upload_speed, download_speed, speed_available) = if snapshot.connected {
         let xray_running = state.runtime(|runtime| runtime.xray.is_some());
         if xray_running {
-            match ensure_xray_binary(&app).await {
-                Ok(xray_path) => query_xray_session_traffic(xray_path, ProxyPorts::default())
-                    .await
-                    .unwrap_or_default(),
-                Err(_) => SessionTraffic::default(),
-            }
+            let xray_path = ensure_xray_binary(&app).await?;
+            let session = query_xray_session_traffic(xray_path, ProxyPorts::default()).await?;
+            let rate = state.runtime(|runtime| {
+                record_traffic_sample(
+                    &mut runtime.traffic_samples,
+                    std::time::Instant::now(),
+                    &session,
+                )
+            });
+            let (upload_speed, download_speed, speed_available) = rate
+                .map(|(upload, download)| (upload, download, true))
+                .unwrap_or((0.0, 0.0, false));
+            (session, upload_speed, download_speed, speed_available)
         } else {
-            SessionTraffic::default()
+            state.runtime(|runtime| runtime.traffic_samples.clear());
+            (SessionTraffic::default(), 0.0, 0.0, false)
         }
     } else {
-        SessionTraffic::default()
+        state.runtime(|runtime| runtime.traffic_samples.clear());
+        (SessionTraffic::default(), 0.0, 0.0, false)
     };
 
     Ok(TrafficStats {
         session_upload: session.upload,
         session_download: session.download,
+        upload_speed,
+        download_speed,
+        speed_available,
         all_time_upload: totals.all_time_upload.saturating_add(session.upload),
         all_time_download: totals.all_time_download.saturating_add(session.download),
         monthly_upload: totals.monthly_upload.saturating_add(session.upload),
         monthly_download: totals.monthly_download.saturating_add(session.download),
         monthly_period: current,
     })
+}
+
+const TRAFFIC_RATE_WINDOW: Duration = Duration::from_secs(4);
+
+fn record_traffic_sample(
+    samples: &mut VecDeque<TrafficRuntimeSample>,
+    at: std::time::Instant,
+    traffic: &SessionTraffic,
+) -> Option<(f64, f64)> {
+    if samples.back().is_some_and(|previous| {
+        traffic.upload < previous.upload || traffic.download < previous.download
+    }) {
+        samples.clear();
+    }
+
+    samples.push_back(TrafficRuntimeSample {
+        at,
+        upload: traffic.upload,
+        download: traffic.download,
+    });
+    while samples.len() > 2
+        && samples
+            .front()
+            .is_some_and(|sample| at.duration_since(sample.at) > TRAFFIC_RATE_WINDOW)
+    {
+        samples.pop_front();
+    }
+    traffic_rate(samples)
+}
+
+fn traffic_rate(samples: &VecDeque<TrafficRuntimeSample>) -> Option<(f64, f64)> {
+    let first = samples.front()?;
+    let last = samples.back()?;
+    let elapsed = last.at.duration_since(first.at).as_secs_f64();
+    if elapsed < 0.25 || last.upload < first.upload || last.download < first.download {
+        return None;
+    }
+    Some((
+        (last.upload - first.upload) as f64 / elapsed,
+        (last.download - first.download) as f64 / elapsed,
+    ))
 }
 
 #[tauri::command]
@@ -3700,6 +3841,9 @@ async fn query_xray_session_traffic(
     ports: ProxyPorts,
 ) -> Result<SessionTraffic, String> {
     tokio::task::spawn_blocking(move || {
+        let _query_guard = XRAY_STATS_QUERY_LOCK
+            .lock()
+            .map_err(|_| "Блокировка статистики Xray повреждена".to_string())?;
         let mut command = hidden_output_path_command(&xray_path);
         command
             .arg("api")
@@ -4032,11 +4176,13 @@ pub async fn connect_server(
         }
     }
 
+    let connected_at = snap.connected_at.unwrap_or_else(unix_timestamp_millis);
     state
         .mutate(|s| {
             s.active_server_id = Some(server_id);
             s.active_subscription_url = Some(subscription_url);
             s.connected = true;
+            s.connected_at = Some(connected_at);
         })
         .map_err(|e| format!("Не удалось сохранить статус подключения: {e}"))?;
     Ok(state.snapshot())
@@ -4069,6 +4215,7 @@ pub async fn disconnect_server(
     state
         .mutate(|s| {
             s.connected = false;
+            s.connected_at = None;
             if s.traffic_totals.monthly_period != current_period {
                 s.traffic_totals.monthly_period = current_period.clone();
                 s.traffic_totals.monthly_upload = 0;
@@ -5079,25 +5226,12 @@ async fn connect_tun(
 
     let ports = ProxyPorts::default();
     let default_route = current_default_ipv4_route();
-    let physical_ipv4 = default_route
-        .as_ref()
-        .and_then(|route| current_physical_ipv4(route.interface_index));
     let mut config = build_runtime_xray_config(&server, snapshot, ports)?;
-    if let Some(ip) = physical_ipv4.as_deref() {
-        patch_freedom_outbounds_send_through(&mut config, ip);
-    }
     add_native_tun_inbound(&mut config);
     let config_path = write_xray_config(&config)?;
     let xray_path = ensure_xray_binary(app).await?;
     prepare_tun_runtime_files(app)?;
     let bypass_ips = resolve_server_ipv4s(&server).await;
-    if bypass_ips.is_empty() {
-        let (host, _) = server_endpoint(&server);
-        return Err(format!(
-            "Не удалось получить реальный IPv4 для сервера {host}. Если включен другой TUN/FakeDNS клиент, выключи его перед подключением Nimbo."
-        ));
-    }
-
     let mut xray = spawn_xray(&xray_path, &config_path)?;
     if let Err(error) = wait_for_xray_port(&mut xray, ports.socks) {
         let _ = xray.kill();
@@ -5186,65 +5320,6 @@ fn current_default_ipv4_route() -> Option<DefaultIpv4Route> {
     })
 }
 
-// Local IPv4 of the physical interface that owns the default route. Used as
-// `sendThrough` on the freedom outbound so direct traffic bypasses the TUN
-// adapter — without this, xray's "direct" sockets get re-captured by the
-// 0.0.0.0/1 + 128.0.0.0/1 routes pointing at the TUN, creating an infinite loop.
-#[cfg(windows)]
-fn current_physical_ipv4(interface_index: u32) -> Option<String> {
-    let cmd = format!(
-        "$ip = Get-NetIPAddress -InterfaceIndex {interface_index} -AddressFamily IPv4 -ErrorAction SilentlyContinue | \
-         Where-Object {{ $_.IPAddress -and $_.IPAddress -notlike '169.254.*' }} | \
-         Select-Object -First 1; \
-         if ($ip) {{ Write-Output $ip.IPAddress }}"
-    );
-    let output = hidden_output_command("powershell")
-        .arg("-NoProfile")
-        .arg("-ExecutionPolicy")
-        .arg("Bypass")
-        .arg("-Command")
-        .arg(cmd)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if ip.is_empty() || ip.starts_with("198.18.") {
-        None
-    } else {
-        Some(ip)
-    }
-}
-
-#[cfg(not(windows))]
-fn current_physical_ipv4(_interface_index: u32) -> Option<String> {
-    None
-}
-
-// Set `sendThrough` on every outbound that uses the `freedom` protocol (i.e. the
-// "direct" path). Bypasses TUN by binding the socket to the physical adapter IP.
-fn patch_freedom_outbounds_send_through(config: &mut serde_json::Value, send_through: &str) {
-    let Some(outbounds) = config
-        .get_mut("outbounds")
-        .and_then(serde_json::Value::as_array_mut)
-    else {
-        return;
-    };
-    for outbound in outbounds {
-        let Some(obj) = outbound.as_object_mut() else {
-            continue;
-        };
-        if obj.get("protocol").and_then(serde_json::Value::as_str) != Some("freedom") {
-            continue;
-        }
-        obj.insert(
-            "sendThrough".into(),
-            serde_json::Value::String(send_through.to_string()),
-        );
-    }
-}
-
 fn add_native_tun_inbound(config: &mut serde_json::Value) {
     let Some(inbounds) = config
         .get_mut("inbounds")
@@ -5267,10 +5342,10 @@ fn add_native_tun_inbound(config: &mut serde_json::Value) {
             "settings": {
                 "name": TUN_INTERFACE_NAME,
                 "mtu": 1500,
-                "gateway": [TUN_GATEWAY_CIDR],
+                "gateway": [TUN_GATEWAY_CIDR, TUN_IPV6_GATEWAY_CIDR],
                 "dns": [TUN_DNS_PRIMARY, TUN_DNS_SECONDARY],
                 "userLevel": 0,
-                "autoSystemRoutingTable": ["0.0.0.0/1", "128.0.0.0/1"],
+                "autoSystemRoutingTable": ["0.0.0.0/0", "::/0"],
                 "autoOutboundsInterface": "auto"
             },
             "sniffing": {
@@ -6108,7 +6183,14 @@ fn xray_app_rule_target(path: &str) -> String {
     if trimmed.starts_with(APP_DOMAIN_ENTRY_PREFIX) {
         return trimmed.to_string();
     }
-    canonical_app_rule_key(trimmed)
+    let normalized = trimmed.replace('\\', "/");
+    normalized
+        .rsplit('/')
+        .next()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(trimmed)
+        .to_string()
 }
 
 fn combined_app_proxy_rules(snapshot: &PersistedState, server: &Server) -> Vec<AppProxyRule> {
@@ -6492,9 +6574,8 @@ fn verify_xray_archive_digest(bytes: &[u8], digest_file: &str) -> Result<(), Str
         .filter_map(|line| line.trim().split_once('='))
         .find_map(|(algorithm, value)| {
             let algorithm = algorithm.trim();
-            (algorithm.eq_ignore_ascii_case("SHA256")
-                || algorithm.eq_ignore_ascii_case("SHA2-256"))
-            .then(|| value.trim())
+            (algorithm.eq_ignore_ascii_case("SHA256") || algorithm.eq_ignore_ascii_case("SHA2-256"))
+                .then(|| value.trim())
         })
         .filter(|value| value.len() == 64 && value.chars().all(|ch| ch.is_ascii_hexdigit()))
         .ok_or_else(|| "В .dgst Xray нет корректной SHA-256 суммы.".to_string())?;
@@ -6691,6 +6772,7 @@ fn recent_xray_log_suffix() -> String {
 fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
     let pending = state.snapshot();
     let (tun_snapshot, proxy_snapshot) = state.runtime(|runtime| {
+        runtime.traffic_samples.clear();
         if let Some(mut child) = runtime.tun2socks.take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -6749,7 +6831,10 @@ pub fn cleanup_runtime_for_exit(app: &AppHandle) {
     if let Err(error) = stop_runtime(&state) {
         tracing::warn!(?error, "failed to clean runtime during app exit");
     }
-    if let Err(error) = state.mutate(|s| s.connected = false) {
+    if let Err(error) = state.mutate(|s| {
+        s.connected = false;
+        s.connected_at = None;
+    }) {
         tracing::warn!(
             ?error,
             "failed to persist disconnected state during app exit"
@@ -6777,7 +6862,10 @@ pub fn reconnect_runtime_after_resume(app: &AppHandle) {
         if let Err(error) = result {
             tracing::warn!(?error, "failed to reconnect runtime after resume");
             let state = app_handle.state::<AppState>();
-            let _ = state.mutate(|s| s.connected = false);
+            let _ = state.mutate(|s| {
+                s.connected = false;
+                s.connected_at = None;
+            });
         }
         let _ = crate::tray::refresh_tray_menu(&app_handle);
         RESUME_RECONNECT_IN_FLIGHT.store(false, Ordering::SeqCst);
@@ -6786,8 +6874,10 @@ pub fn reconnect_runtime_after_resume(app: &AppHandle) {
 
 #[cfg(windows)]
 fn cleanup_tun(snapshot: Option<TunRuntimeSnapshot>) -> Result<(), String> {
+    let _ = delete_tun_route("0.0.0.0/0");
     let _ = delete_tun_route("0.0.0.0/1");
     let _ = delete_tun_route("128.0.0.0/1");
+    let _ = delete_tun_ipv6_route("::/0");
     if let Some(snapshot) = snapshot {
         if let Some(gateway) = snapshot.gateway {
             for ip in snapshot.bypass_ips {
@@ -6836,6 +6926,22 @@ fn delete_tun_route(prefix: &str) -> Result<(), String> {
             format!("prefix={prefix}"),
             format!("interface={TUN_INTERFACE_NAME}"),
             format!("nexthop={TUN_ADDRESS}"),
+        ],
+    )
+}
+
+#[cfg(windows)]
+fn delete_tun_ipv6_route(prefix: &str) -> Result<(), String> {
+    run_hidden(
+        "netsh",
+        &[
+            "interface".into(),
+            "ipv6".into(),
+            "delete".into(),
+            "route".into(),
+            format!("prefix={prefix}"),
+            format!("interface={TUN_INTERFACE_NAME}"),
+            "store=active".into(),
         ],
     )
 }
@@ -7725,6 +7831,41 @@ mod tests {
         );
     }
 
+    #[test]
+    fn native_tun_captures_ipv4_and_ipv6_default_routes() {
+        let mut config = serde_json::json!({ "inbounds": [] });
+        add_native_tun_inbound(&mut config);
+        let settings = &config["inbounds"][0]["settings"];
+
+        assert_eq!(
+            settings["gateway"],
+            serde_json::json!([TUN_GATEWAY_CIDR, TUN_IPV6_GATEWAY_CIDR])
+        );
+        assert_eq!(
+            settings["autoSystemRoutingTable"],
+            serde_json::json!(["0.0.0.0/0", "::/0"])
+        );
+    }
+
+    #[test]
+    fn traffic_rate_uses_the_oldest_sample_in_the_window() {
+        let start = std::time::Instant::now();
+        let samples = std::collections::VecDeque::from([
+            TrafficRuntimeSample {
+                at: start,
+                upload: 100,
+                download: 200,
+            },
+            TrafficRuntimeSample {
+                at: start + std::time::Duration::from_secs(2),
+                upload: 2_100,
+                download: 4_200,
+            },
+        ]);
+
+        assert_eq!(traffic_rate(&samples), Some((1_000.0, 2_000.0)));
+    }
+
     fn test_server() -> Server {
         Server {
             id: "server-1".into(),
@@ -7874,6 +8015,21 @@ mod tests {
         }]);
 
         assert_eq!(rules[0].process, "opera.exe");
+        assert_eq!(rules[0].mode, XrayAppRoutingMode::Proxy);
+        assert!(rules[0].enabled);
+    }
+
+    #[test]
+    fn external_drive_telegram_rule_matches_the_process_name() {
+        let rules = xray_app_rules(&[AppProxyRule {
+            id: "telegram-proxy".into(),
+            name: "Telegram".into(),
+            executable_path: r"E:\Portable\Telegram Desktop\Telegram.exe".into(),
+            mode: AppProxyMode::Proxy,
+            enabled: true,
+        }]);
+
+        assert_eq!(rules[0].process, "Telegram.exe");
         assert_eq!(rules[0].mode, XrayAppRoutingMode::Proxy);
         assert!(rules[0].enabled);
     }

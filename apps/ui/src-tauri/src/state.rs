@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +25,8 @@ pub struct PersistedState {
     pub app_proxy_rules: Vec<AppProxyRule>,
     #[serde(default)]
     pub connected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connected_at: Option<u64>,
     #[serde(default)]
     pub connection_mode: ConnectionMode,
     #[serde(default = "default_socks_username")]
@@ -501,12 +503,20 @@ fn default_socks_password() -> String {
     format!("nmb-{}", &id[..16])
 }
 
+#[derive(Debug, Clone)]
+pub struct TrafficRuntimeSample {
+    pub at: Instant,
+    pub upload: u64,
+    pub download: u64,
+}
+
 #[derive(Default)]
 pub struct RuntimeState {
     pub xray: Option<Child>,
     pub tun2socks: Option<Child>,
     pub system_proxy_snapshot: Option<SystemProxySnapshot>,
     pub tun_snapshot: Option<TunRuntimeSnapshot>,
+    pub traffic_samples: VecDeque<TrafficRuntimeSample>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -571,6 +581,7 @@ impl AppState {
         };
         inner.normalize_runtime_defaults();
         inner.connected = false;
+        inner.connected_at = None;
         let state = Self {
             inner: Mutex::new(inner),
             runtime: Mutex::new(RuntimeState::default()),

@@ -45,11 +45,12 @@ interface AppStoreState {
   error: string | null;
   trafficStats: TrafficStats | null;
   trafficSpeed: TrafficSpeed;
-  trafficSample: TrafficSample | null;
+  trafficHistory: TrafficSample[];
+  trafficMonitoringAvailable: boolean;
   sessionStartedAt: number | null;
   setTrafficStats: (stats: TrafficStats) => void;
-  setTrafficSpeed: (speed: TrafficSpeed) => void;
-  setTrafficSample: (sample: TrafficSample | null) => void;
+  recordTrafficStats: (stats: TrafficStats, at?: number) => void;
+  setTrafficMonitoringAvailable: (available: boolean) => void;
   setSessionStartedAt: (at: number | null) => void;
   resetTrafficSession: () => void;
   hydrate: () => Promise<void>;
@@ -99,17 +100,46 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   error: null,
   trafficStats: null,
   trafficSpeed: { upload: 0, download: 0 },
-  trafficSample: null,
+  trafficHistory: [],
+  trafficMonitoringAvailable: false,
   sessionStartedAt: null,
 
   setTrafficStats: (stats) => set({ trafficStats: stats }),
-  setTrafficSpeed: (speed) => set({ trafficSpeed: speed }),
-  setTrafficSample: (sample) => set({ trafficSample: sample }),
+  recordTrafficStats: (stats, at = Date.now()) =>
+    set((state) => {
+      const connected = state.status?.state === "connected";
+      if (!connected) {
+        return {
+          trafficStats: stats,
+          trafficSpeed: { upload: 0, download: 0 },
+          trafficHistory: [],
+          trafficMonitoringAvailable: false,
+        };
+      }
+
+      const trafficSpeed = {
+        upload: stats.upload_speed,
+        download: stats.download_speed,
+      };
+      const trafficHistory = stats.speed_available
+        ? [...state.trafficHistory, { ...trafficSpeed, at }].slice(-60)
+        : state.trafficHistory;
+      return {
+        trafficStats: stats,
+        trafficSpeed,
+        trafficHistory,
+        trafficMonitoringAvailable: stats.speed_available,
+      };
+    }),
+  setTrafficMonitoringAvailable: (trafficMonitoringAvailable) =>
+    set({ trafficMonitoringAvailable }),
   setSessionStartedAt: (at) => set({ sessionStartedAt: at }),
   resetTrafficSession: () =>
     set({
+      trafficStats: null,
       trafficSpeed: { upload: 0, download: 0 },
-      trafficSample: null,
+      trafficHistory: [],
+      trafficMonitoringAvailable: false,
       sessionStartedAt: null,
     }),
 
@@ -121,15 +151,30 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         api.getStatus(),
         api.getPreferences(),
       ]);
-      set({
-        subscriptions: subs,
-        status,
-        activeServerId: status.active_server_id,
-        activeSubscriptionUrl: status.active_subscription_url,
-        serverPings: status.server_pings ?? {},
-        preferences,
-        disconnecting: false,
-        loading: false,
+      set((current) => {
+        const sessionStartedAt = status.state === "connected"
+          ? status.connected_at ?? current.sessionStartedAt ?? Date.now()
+          : null;
+        const sessionChanged = sessionStartedAt !== current.sessionStartedAt;
+        return {
+          subscriptions: subs,
+          status,
+          activeServerId: status.active_server_id,
+          activeSubscriptionUrl: status.active_subscription_url,
+          serverPings: status.server_pings ?? {},
+          preferences,
+          disconnecting: false,
+          loading: false,
+          sessionStartedAt,
+          ...(sessionChanged
+            ? {
+                trafficStats: null,
+                trafficSpeed: { upload: 0, download: 0 },
+                trafficHistory: [],
+                trafficMonitoringAvailable: false,
+              }
+            : {}),
+        };
       });
       void api.refreshTrayMenu();
     } catch (e) {
@@ -148,6 +193,18 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         activeServerId: status.active_server_id,
         activeSubscriptionUrl: status.active_subscription_url ?? s.activeSubscriptionUrl,
         serverPings: status.server_pings ?? s.serverPings,
+        sessionStartedAt: status.state === "connected"
+          ? status.connected_at ?? s.sessionStartedAt ?? Date.now()
+          : null,
+        ...(status.state !== "connected" ||
+        (status.connected_at != null && status.connected_at !== s.sessionStartedAt)
+          ? {
+              trafficStats: null,
+              trafficSpeed: { upload: 0, download: 0 },
+              trafficHistory: [],
+              trafficMonitoringAvailable: false,
+            }
+          : {}),
       }));
     } catch {
       // Transient backend hiccup; the next event or hydrate will reconcile.
@@ -249,10 +306,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         activeSubscriptionUrl: persisted.active_subscription_url ?? null,
         serverPings: persisted.server_pings ?? {},
         connectingServerId: null,
+        sessionStartedAt: persisted.connected_at ?? Date.now(),
         status: s.status
           ? {
               ...s.status,
               state: "connected",
+              connected_at: persisted.connected_at ?? Date.now(),
               active_server_id: persisted.active_server_id,
               active_subscription_url: persisted.active_subscription_url ?? null,
             }
@@ -385,10 +444,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         connectingServerId: null,
         disconnecting: false,
         trafficSpeed: { upload: 0, download: 0 },
-        trafficSample: null,
+        trafficHistory: [],
+        trafficMonitoringAvailable: false,
         sessionStartedAt: null,
         status: s.status
-          ? { ...s.status, state: "disconnected", active_server_id: persisted.active_server_id }
+          ? {
+              ...s.status,
+              state: "disconnected",
+              connected_at: null,
+              active_server_id: persisted.active_server_id,
+            }
           : s.status,
       }));
       await get().hydrate();

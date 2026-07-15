@@ -10,6 +10,7 @@ export type ConnectionState =
 
 export interface AppStatus {
   state: ConnectionState;
+  connected_at: number | null;
   active_server_id: string | null;
   active_subscription_url: string | null;
   subscription_count: number;
@@ -151,6 +152,7 @@ export interface PersistedState {
   user_agent_override?: string | null;
   app_proxy_rules?: AppProxyRule[];
   connected?: boolean;
+  connected_at?: number | null;
   connection_mode?: ConnectionMode;
   socks_username?: string;
   socks_password?: string;
@@ -349,6 +351,9 @@ export interface RoutingProfileList {
 export interface TrafficStats {
   session_upload: number;
   session_download: number;
+  upload_speed: number;
+  download_speed: number;
+  speed_available: boolean;
   all_time_upload: number;
   all_time_download: number;
   monthly_upload: number;
@@ -652,6 +657,7 @@ function browserPersistedState(): PersistedState {
     user_agent_override: stored?.user_agent_override ?? null,
     app_proxy_rules: Array.isArray(stored?.app_proxy_rules) ? stored.app_proxy_rules : [],
     connected: Boolean(stored?.connected),
+    connected_at: typeof stored?.connected_at === "number" ? stored.connected_at : null,
     connection_mode: stored?.connection_mode ?? "tun",
     socks_username: nonEmptyString(stored?.socks_username, DEFAULT_SOCKS_USERNAME),
     socks_password: nonEmptyString(stored?.socks_password, DEFAULT_SOCKS_PASSWORD),
@@ -985,6 +991,9 @@ function browserTrafficStats(): TrafficStats {
   return {
     session_upload: session.upload,
     session_download: session.download,
+    upload_speed: 0,
+    download_speed: 0,
+    speed_available: true,
     all_time_upload: totals.all_time_upload + session.upload,
     all_time_download: totals.all_time_download + session.download,
     monthly_upload: (valid ? totals.monthly_upload : 0) + session.upload,
@@ -1238,6 +1247,7 @@ export const api = {
           const serverCount = state.subscriptions.reduce((sum, sub) => sum + sub.servers.length, 0);
           return {
             state: state.connected ? "connected" : "disconnected",
+            connected_at: state.connected ? state.connected_at ?? Date.now() : null,
             active_server_id: state.active_server_id,
             active_subscription_url: state.active_subscription_url ?? null,
             subscription_count: state.subscriptions.length,
@@ -1686,6 +1696,7 @@ export const api = {
             ...current,
             active_server_id: serverId,
             connected: true,
+            connected_at: Date.now(),
           });
         })()),
   disconnectServer: () =>
@@ -1696,6 +1707,7 @@ export const api = {
           return writeBrowserPersistedState({
             ...current,
             connected: false,
+            connected_at: null,
           });
         })()),
 };

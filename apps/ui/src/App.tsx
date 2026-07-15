@@ -68,6 +68,8 @@ export default function App() {
   const helperInstalling = useAppStore((s) => s.helperInstalling);
   const helperError = useAppStore((s) => s.helperError);
   const installHelper = useAppStore((s) => s.installHelper);
+  const recordTrafficStats = useAppStore((s) => s.recordTrafficStats);
+  const setTrafficMonitoringAvailable = useAppStore((s) => s.setTrafficMonitoringAvailable);
   const launchedActions = useRef(false);
   const onboardingChecked = useRef(false);
   const sidebarWidth = useResizableSidebar();
@@ -113,6 +115,40 @@ export default function App() {
     // Notify the backend that the React frontend has mounted and is ready
     void api.appReady().catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!status) return;
+
+    const connected = status.state === "connected";
+    let cancelled = false;
+    let timer: number | null = null;
+    let consecutiveFailures = 0;
+
+    const tick = async () => {
+      try {
+        const stats = await api.getTrafficStats();
+        if (cancelled) return;
+        consecutiveFailures = 0;
+        recordTrafficStats(stats);
+      } catch {
+        if (cancelled) return;
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 2) {
+          setTrafficMonitoringAvailable(false);
+        }
+      } finally {
+        if (!cancelled && connected) {
+          timer = window.setTimeout(() => void tick(), 1000);
+        }
+      }
+    };
+
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, [status?.state, recordTrafficStats, setTrafficMonitoringAvailable]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
