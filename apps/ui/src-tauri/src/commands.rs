@@ -3879,26 +3879,65 @@ fn command_output_with_timeout(
     mut command: Command,
     timeout: std::time::Duration,
 ) -> Result<std::process::Output, String> {
+    use std::io::Read;
+
     let mut child = command
         .spawn()
         .map_err(|e| format!("процесс не запустился: {e}"))?;
+    let stdout_reader = child.stdout.take().map(|mut stdout| {
+        std::thread::spawn(move || {
+            let mut buffer = Vec::new();
+            stdout.read_to_end(&mut buffer).map(|_| buffer)
+        })
+    });
+    let stderr_reader = child.stderr.take().map(|mut stderr| {
+        std::thread::spawn(move || {
+            let mut buffer = Vec::new();
+            stderr.read_to_end(&mut buffer).map(|_| buffer)
+        })
+    });
     let start = std::time::Instant::now();
     loop {
         match child.try_wait() {
-            Ok(Some(_)) => {
-                return child
-                    .wait_with_output()
-                    .map_err(|e| format!("не удалось прочитать вывод: {e}"));
+            Ok(Some(status)) => {
+                let stdout = join_command_output_reader(stdout_reader, "stdout")?;
+                let stderr = join_command_output_reader(stderr_reader, "stderr")?;
+                return Ok(std::process::Output {
+                    status,
+                    stdout,
+                    stderr,
+                });
             }
             Ok(None) if start.elapsed() >= timeout => {
                 let _ = child.kill();
                 let _ = child.wait();
+                let _ = join_command_output_reader(stdout_reader, "stdout");
+                let _ = join_command_output_reader(stderr_reader, "stderr");
                 return Err("таймаут".into());
             }
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(80)),
-            Err(e) => return Err(format!("не удалось дождаться процесса: {e}")),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = join_command_output_reader(stdout_reader, "stdout");
+                let _ = join_command_output_reader(stderr_reader, "stderr");
+                return Err(format!("не удалось дождаться процесса: {e}"));
+            }
         }
     }
+}
+
+fn join_command_output_reader(
+    reader: Option<std::thread::JoinHandle<std::io::Result<Vec<u8>>>>,
+    stream_name: &str,
+) -> Result<Vec<u8>, String> {
+    let Some(reader) = reader else {
+        return Ok(Vec::new());
+    };
+    reader
+        .join()
+        .map_err(|_| format!("поток чтения {stream_name} аварийно завершился"))?
+        .map_err(|e| format!("не удалось прочитать {stream_name}: {e}"))
 }
 
 fn parse_xray_stats_output(output: &str) -> SessionTraffic {
@@ -7864,6 +7903,25 @@ mod tests {
         ]);
 
         assert_eq!(traffic_rate(&samples), Some((1_000.0, 2_000.0)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn command_timeout_reader_drains_large_powershell_output() {
+        let mut command = hidden_output_command("powershell");
+        command
+            .arg("-NoProfile")
+            .arg("-Command")
+            .arg("[Console]::Out.Write(('x' * 262144))")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let output = command_output_with_timeout(command, std::time::Duration::from_secs(5))
+            .expect("large piped output must not deadlock");
+
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), 262_144);
+        assert!(output.stderr.is_empty());
     }
 
     fn test_server() -> Server {

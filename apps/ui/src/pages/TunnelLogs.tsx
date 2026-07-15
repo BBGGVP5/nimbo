@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { api, type TunnelLogEntry } from "../lib/api";
 import { useMessages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
@@ -7,6 +15,14 @@ import { BackButton } from "../components/BackButton";
 type LevelFilter = "all" | "info" | "warn" | "error" | "debug";
 type LogLevel = Exclude<LevelFilter, "all">;
 type SourceFilter = "all" | string;
+type FilterTone = LogLevel | "neutral";
+
+type FilterOption<T extends string> = {
+  value: T;
+  label: string;
+  tone?: FilterTone;
+  meta?: string;
+};
 
 const LOG_LEVELS: LogLevel[] = ["info", "warn", "error", "debug"];
 
@@ -139,26 +155,29 @@ export function TunnelLogs() {
               className="tunnel-logs-search-input"
             />
           </div>
-          <select
+          <LogFilterSelect<LevelFilter>
             value={level}
-            onChange={(e) => setLevel(e.target.value as LevelFilter)}
+            onChange={setLevel}
+            ariaLabel={m.tunnelLogs.levelAll}
             className="tunnel-logs-select"
-          >
-            <option value="all">{m.tunnelLogs.levelAll}</option>
-            <option value="info">INFO</option>
-            <option value="warn">WARN</option>
-            <option value="error">ERROR</option>
-            <option value="debug">DEBUG</option>
-          </select>
-          <select
+            options={[
+              { value: "all", label: m.tunnelLogs.levelAll, tone: "neutral", meta: String(entries.length) },
+              { value: "info", label: "INFO", tone: "info", meta: String(levelCounts.info) },
+              { value: "warn", label: "WARN", tone: "warn", meta: String(levelCounts.warn) },
+              { value: "error", label: "ERROR", tone: "error", meta: String(levelCounts.error) },
+              { value: "debug", label: "DEBUG", tone: "debug", meta: String(levelCounts.debug) },
+            ]}
+          />
+          <LogFilterSelect<SourceFilter>
             value={source}
-            onChange={(e) => setSource(e.target.value)}
+            onChange={setSource}
             className="tunnel-logs-select tunnel-logs-source-select"
-            aria-label={m.tunnelLogs.sourceAll}
-          >
-            <option value="all">{m.tunnelLogs.sourceAll}</option>
-            {sources.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
+            ariaLabel={m.tunnelLogs.sourceAll}
+            options={[
+              { value: "all", label: m.tunnelLogs.sourceAll, tone: "neutral" },
+              ...sources.map((item) => ({ value: item, label: item })),
+            ]}
+          />
           <button
             type="button"
             className="tunnel-logs-icon-btn"
@@ -251,6 +270,164 @@ export function TunnelLogs() {
         </div>
       </div>
     </div>
+  );
+}
+
+function LogFilterSelect<T extends string>({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+  className,
+}: {
+  value: T;
+  options: FilterOption<T>[];
+  onChange: (value: T) => void;
+  ariaLabel: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const listboxId = useId();
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const selected = options[selectedIndex] ?? options[0];
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    setActiveIndex(selectedIndex);
+    const frame = window.requestAnimationFrame(() => optionRefs.current[selectedIndex]?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, selectedIndex]);
+
+  const closeAndFocus = () => {
+    setOpen(false);
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+
+  const choose = (option: FilterOption<T>) => {
+    onChange(option.value);
+    closeAndFocus();
+  };
+
+  const openAt = (index: number) => {
+    setActiveIndex(index);
+    setOpen(true);
+  };
+
+  const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const next = event.key === "ArrowDown"
+        ? selectedIndex
+        : Math.max(0, selectedIndex || options.length - 1);
+      openAt(next);
+    }
+  };
+
+  const onOptionKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeAndFocus();
+      return;
+    }
+    if (event.key === "Tab") {
+      setOpen(false);
+      return;
+    }
+
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowDown") nextIndex = (activeIndex + 1) % options.length;
+    if (event.key === "ArrowUp") nextIndex = (activeIndex - 1 + options.length) % options.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = options.length - 1;
+    if (nextIndex !== null) {
+      event.preventDefault();
+      setActiveIndex(nextIndex);
+      optionRefs.current[nextIndex]?.focus();
+    }
+  };
+
+  if (!selected) return null;
+
+  return (
+    <div ref={rootRef} className={className}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={["tunnel-logs-select-trigger", open ? "is-open" : ""].join(" ")}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listboxId}
+        onClick={() => open ? setOpen(false) : openAt(selectedIndex)}
+        onKeyDown={onTriggerKeyDown}
+      >
+        <span className={["tunnel-logs-select-dot", `is-${selected.tone ?? "source"}`].join(" ")} aria-hidden="true" />
+        <span className="tunnel-logs-select-value">{selected.label}</span>
+        <ChevronIcon />
+      </button>
+
+      {open && (
+        <div id={listboxId} className="tunnel-logs-select-menu" role="listbox" aria-label={ariaLabel}>
+          {options.map((option, index) => {
+            const isSelected = option.value === value;
+            return (
+              <button
+                key={option.value}
+                ref={(node) => { optionRefs.current[index] = node; }}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                tabIndex={index === activeIndex ? 0 : -1}
+                className={[
+                  "tunnel-logs-select-option",
+                  isSelected ? "is-selected" : "",
+                  index === activeIndex ? "is-active" : "",
+                ].join(" ")}
+                onFocus={() => setActiveIndex(index)}
+                onKeyDown={onOptionKeyDown}
+                onClick={() => choose(option)}
+              >
+                <span className={["tunnel-logs-select-dot", `is-${option.tone ?? "source"}`].join(" ")} aria-hidden="true" />
+                <span className="tunnel-logs-select-option-label">{option.label}</span>
+                {option.meta !== undefined && <span className="tunnel-logs-select-meta">{option.meta}</span>}
+                <span className="tunnel-logs-select-check" aria-hidden="true">
+                  {isSelected && <CheckIcon />}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChevronIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="tunnel-logs-select-chevron" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m7 9.5 5 5 5-5" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m4 10 3.5 3.5L16 5.5" />
+    </svg>
   );
 }
 
