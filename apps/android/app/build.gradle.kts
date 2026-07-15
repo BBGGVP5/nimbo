@@ -1,3 +1,4 @@
+import com.android.build.api.variant.FilterConfiguration
 import java.util.Properties
 
 val signingProperties = Properties().apply {
@@ -159,58 +160,20 @@ android {
     }
 }
 
-val renameBuiltApks by tasks.registering {
-    doLast {
-        val version = android.defaultConfig.versionName ?: "1.0.0"
-
-        listOf("debug", "release").forEach { buildType ->
-            val outputDir = project.layout.buildDirectory.dir("outputs/apk/$buildType").get().asFile
-            if (!outputDir.exists()) return@forEach
-
-            // AGP может оставлять рядом служебные/устаревшие *.apk. Их нельзя
-            // подхватывать по маске: небольшой split способен перезаписать
-            // полноценный universal APK. Берём только известные финальные имена.
-            // Неподписанный release получает суффикс -unsigned от AGP. Оба
-            // варианта должны иметь читаемое имя Nimbo, но unsigned нельзя
-            // маскировать под готовый к распространению подписанный APK.
-            val finalOutputs = listOf(
-                "app-universal-$buildType-unsigned.apk" to "universal",
-                "app-arm64-v8a-$buildType-unsigned.apk" to "arm64_v8a",
-                "app-armeabi-v7a-$buildType-unsigned.apk" to "armeabi_v7a",
-                "app-$buildType-unsigned.apk" to "universal",
-                "app-universal-$buildType.apk" to "universal",
-                "app-arm64-v8a-$buildType.apk" to "arm64_v8a",
-                "app-armeabi-v7a-$buildType.apk" to "armeabi_v7a",
-                // Проекты без ABI-splits используют это имя для одного universal APK.
-                "app-$buildType.apk" to "universal"
-            )
-
-            finalOutputs.forEach { (sourceName, abi) ->
-                val source = outputDir.resolve(sourceName)
-                if (!source.isFile) return@forEach
-                val unsignedSuffix = if (sourceName.endsWith("-unsigned.apk")) "_unsigned" else ""
-                val target = outputDir.resolve("Nimbo_v${version}_${abi}_${buildType}${unsignedSuffix}.apk")
-                if (source.absolutePath != target.absolutePath) {
-                    source.copyTo(target, overwrite = true)
-                }
-            }
+// Устанавливаем имя до упаковки, через публичный Variant API AGP. Поэтому
+// Generate Signed APK в Android Studio и Gradle создают сразу нужные файлы,
+// а не штатные app-*.apk с дополнительными копиями рядом.
+androidComponents {
+    val version = android.defaultConfig.versionName ?: "1.0.0"
+    onVariants(selector().all()) { variant ->
+        variant.outputs.forEach { output ->
+            val abi = output.filters
+                .firstOrNull { it.filterType == FilterConfiguration.FilterType.ABI }
+                ?.identifier
+                ?.replace('-', '_')
+                ?: "universal"
+            output.outputFileName.set("Nimbo_v${version}_${abi}_${variant.buildType}.apk")
         }
-    }
-}
-
-tasks.configureEach {
-    val taskName = name.lowercase()
-    // Для обычного Run/InstallDebug штатное app-debug.apk сохраняем без изменений.
-    // Мастер Android Studio «Generate Signed APK» запускает packageRelease,
-    // минуя assembleRelease, поэтому release-пакет также должен финализировать
-    // переименование результата.
-    val buildsApk = taskName.startsWith("assemble") &&
-        (taskName.endsWith("debug") || taskName.endsWith("release"))
-    val packagesReleaseApk = taskName == "packagerelease" ||
-        taskName == "packagereleaseuniversalapk"
-
-    if (buildsApk || packagesReleaseApk) {
-        finalizedBy(renameBuiltApks)
     }
 }
 
