@@ -6491,10 +6491,10 @@ fn verify_xray_archive_digest(bytes: &[u8], digest_file: &str) -> Result<(), Str
         .lines()
         .filter_map(|line| line.trim().split_once('='))
         .find_map(|(algorithm, value)| {
-            algorithm
-                .trim()
-                .eq_ignore_ascii_case("SHA256")
-                .then(|| value.trim())
+            let algorithm = algorithm.trim();
+            (algorithm.eq_ignore_ascii_case("SHA256")
+                || algorithm.eq_ignore_ascii_case("SHA2-256"))
+            .then(|| value.trim())
         })
         .filter(|value| value.len() == 64 && value.chars().all(|ch| ch.is_ascii_hexdigit()))
         .ok_or_else(|| "В .dgst Xray нет корректной SHA-256 суммы.".to_string())?;
@@ -7695,6 +7695,11 @@ mod tests {
         verify_xray_archive_digest(
             b"nimbo",
             "SHA256= fae4ccc83b91d0f3d002cc9799e33d28a11fd847ab1aa9adf60061ddcde09105",
+        )
+        .unwrap();
+        verify_xray_archive_digest(
+            b"nimbo",
+            "SHA2-256= fae4ccc83b91d0f3d002cc9799e33d28a11fd847ab1aa9adf60061ddcde09105",
         )
         .unwrap();
         assert!(verify_xray_archive_digest(
