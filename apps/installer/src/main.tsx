@@ -171,7 +171,7 @@ const resizeHandles: Array<{ direction: ResizeDirection; className: string }> = 
 
 const previewProbe: InstallerProbe = {
   default_install_dir: "C:\\Users\\User\\AppData\\Local\\Programs\\Nimbo",
-  product_version: "1.0.0",
+  product_version: "1.0.1",
   product_arch: "Windows x64",
   platform: "windows",
   existing_install: false,
@@ -181,7 +181,7 @@ const previewProbe: InstallerProbe = {
 
 const previewUninstallProbe: UninstallerProbe = {
   install_dir: "C:\\Users\\User\\AppData\\Local\\Programs\\Nimbo",
-  product_version: "1.0.0",
+  product_version: "1.0.1",
   product_arch: "Windows x64",
   platform: "windows",
   helper_installed: true,

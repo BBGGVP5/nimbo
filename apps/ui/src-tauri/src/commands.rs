@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
-use std::net::{IpAddr, Ipv4Addr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -2534,25 +2534,16 @@ fn process_memory_by_pid(_pid: u32) -> u64 {
 }
 
 #[cfg(windows)]
-#[derive(Debug, Deserialize)]
-struct PowershellNetworkConnection {
-    #[serde(rename = "Protocol")]
+#[derive(Debug)]
+struct WindowsNetworkConnection {
     protocol: String,
-    #[serde(rename = "State")]
     state: String,
-    #[serde(rename = "LocalAddress")]
     local_address: String,
-    #[serde(rename = "LocalPort")]
     local_port: u16,
-    #[serde(rename = "RemoteAddress")]
     remote_address: String,
-    #[serde(rename = "RemotePort")]
     remote_port: u16,
-    #[serde(rename = "Pid")]
     pid: u32,
-    #[serde(rename = "ProcessName")]
     process_name: Option<String>,
-    #[serde(rename = "Path")]
     path: Option<String>,
 }
 
@@ -2598,122 +2589,8 @@ fn platform_active_connections(
     active_server: Option<&Server>,
     tunnel_server_ips: &[String],
 ) -> Result<Vec<ActiveConnection>, String> {
-    let script = r#"
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
-$processCache = @{}
-function Get-ProcessMeta([uint32]$processId) {
-  if (-not $processCache.ContainsKey($processId)) {
-    $name = ""
-    $path = $null
-    try {
-      $p = Get-Process -Id $processId -ErrorAction Stop
-      $name = $p.ProcessName
-      if (-not [string]::IsNullOrWhiteSpace($name) -and -not $name.ToLowerInvariant().EndsWith(".exe")) {
-        $name = "$name.exe"
-      }
-      try { $path = $p.Path } catch {}
-    } catch {}
-    $processCache[$processId] = [PSCustomObject]@{ Name = $name; Path = $path }
-  }
-  return $processCache[$processId]
-}
-
-$tcpConnections = @(
-  Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue |
-    Where-Object {
-      $null -ne $_.RemotePort -and
-      [uint32]$_.RemotePort -ne 0 -and
-      -not [string]::IsNullOrWhiteSpace($_.RemoteAddress) -and
-      @("0.0.0.0", "::", "*") -notcontains [string]$_.RemoteAddress
-    }
-)
-$udpEndpoints = @(
-  Get-NetUDPEndpoint -ErrorAction SilentlyContinue |
-    Where-Object {
-      [uint32]$_.OwningProcess -ne 0 -and
-      [uint32]$_.LocalPort -ne 0
-    }
-)
-$pids = @(
-  $tcpConnections | ForEach-Object { [uint32]$_.OwningProcess }
-  $udpEndpoints | ForEach-Object { [uint32]$_.OwningProcess }
-) | Sort-Object -Unique
-foreach ($processIdValue in $pids) {
-  [void](Get-ProcessMeta $processIdValue)
-}
-
-$items = @(
-  foreach ($c in $tcpConnections) {
-    if ($null -eq $c.RemotePort -or [uint32]$c.RemotePort -eq 0) { continue }
-    if ([string]::IsNullOrWhiteSpace($c.RemoteAddress)) { continue }
-    if (@("0.0.0.0", "::", "*") -contains [string]$c.RemoteAddress) { continue }
-    $state = $c.State.ToString()
-    $meta = Get-ProcessMeta ([uint32]$c.OwningProcess)
-    [PSCustomObject]@{
-      Protocol = "tcp"
-      State = $state
-      LocalAddress = [string]$c.LocalAddress
-      LocalPort = [uint32]$c.LocalPort
-      RemoteAddress = [string]$c.RemoteAddress
-      RemotePort = [uint32]$c.RemotePort
-      Pid = [uint32]$c.OwningProcess
-      ProcessName = $meta.Name
-      Path = $meta.Path
-    }
-  }
-  foreach ($u in $udpEndpoints) {
-    $meta = Get-ProcessMeta ([uint32]$u.OwningProcess)
-    [PSCustomObject]@{
-      Protocol = "udp"
-      State = "Bound"
-      LocalAddress = [string]$u.LocalAddress
-      LocalPort = [uint32]$u.LocalPort
-      RemoteAddress = "*"
-      RemotePort = 0
-      Pid = [uint32]$u.OwningProcess
-      ProcessName = $meta.Name
-      Path = $meta.Path
-    }
-  }
-)
-[Console]::Out.Write((ConvertTo-Json -InputObject @($items) -Compress -Depth 4))
-"#;
-
-    let mut command = hidden_output_command("powershell");
-    command
-        .arg("-NoProfile")
-        .arg("-ExecutionPolicy")
-        .arg("Bypass")
-        .arg("-Command")
-        .arg(script)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let output = command_output_with_timeout(command, std::time::Duration::from_secs(6))
+    let raw = windows_network_connections()
         .map_err(|e| format!("Не удалось получить активные соединения: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "Не удалось получить активные соединения: {}",
-            output.status
-        ));
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if text.is_empty() {
-        return Ok(Vec::new());
-    }
-    let json: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| format!("Не удалось прочитать список соединений: {e}"))?;
-    let raw = match json {
-        serde_json::Value::Array(items) => items
-            .into_iter()
-            .filter_map(|value| serde_json::from_value::<PowershellNetworkConnection>(value).ok())
-            .collect::<Vec<_>>(),
-        serde_json::Value::Object(_) => serde_json::from_value::<PowershellNetworkConnection>(json)
-            .map(|item| vec![item])
-            .unwrap_or_default(),
-        _ => Vec::new(),
-    };
 
     let ports = ProxyPorts::default();
     let profile_rules = xray_routing_profile_rules(snapshot, &[]);
@@ -2801,6 +2678,277 @@ $items = @(
             .then_with(|| a.destination.cmp(&b.destination))
     });
     Ok(out)
+}
+
+#[cfg(windows)]
+#[derive(Clone, Copy)]
+enum WindowsNetworkTable {
+    Tcp,
+    Udp,
+}
+
+#[cfg(windows)]
+fn windows_network_connections() -> Result<Vec<WindowsNetworkConnection>, String> {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        MIB_TCP6ROW_OWNER_PID, MIB_TCPROW_OWNER_PID, MIB_TCP_STATE_ESTAB, MIB_UDP6ROW_OWNER_PID,
+        MIB_UDPROW_OWNER_PID,
+    };
+
+    const AF_INET: u32 = 2;
+    const AF_INET6: u32 = 23;
+
+    let mut connections = Vec::new();
+    let mut errors = Vec::new();
+    let mut successful_tables = 0usize;
+
+    match windows_ip_helper_table(WindowsNetworkTable::Tcp, AF_INET) {
+        Ok(buffer) => {
+            successful_tables += 1;
+            for row in windows_table_rows::<MIB_TCPROW_OWNER_PID>(&buffer)? {
+                if row.dwState != MIB_TCP_STATE_ESTAB as u32 {
+                    continue;
+                }
+                let remote_address = Ipv4Addr::from(row.dwRemoteAddr.to_ne_bytes());
+                let remote_port = windows_network_port(row.dwRemotePort);
+                if remote_address.is_unspecified() || remote_port == 0 {
+                    continue;
+                }
+                connections.push(WindowsNetworkConnection {
+                    protocol: "tcp".into(),
+                    state: "Established".into(),
+                    local_address: Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes()).to_string(),
+                    local_port: windows_network_port(row.dwLocalPort),
+                    remote_address: remote_address.to_string(),
+                    remote_port,
+                    pid: row.dwOwningPid,
+                    process_name: None,
+                    path: None,
+                });
+            }
+        }
+        Err(error) => errors.push(format!("TCP/IPv4: {error}")),
+    }
+
+    match windows_ip_helper_table(WindowsNetworkTable::Tcp, AF_INET6) {
+        Ok(buffer) => {
+            successful_tables += 1;
+            for row in windows_table_rows::<MIB_TCP6ROW_OWNER_PID>(&buffer)? {
+                if row.dwState != MIB_TCP_STATE_ESTAB as u32 {
+                    continue;
+                }
+                let remote_address = Ipv6Addr::from(row.ucRemoteAddr);
+                let remote_port = windows_network_port(row.dwRemotePort);
+                if remote_address.is_unspecified() || remote_port == 0 {
+                    continue;
+                }
+                connections.push(WindowsNetworkConnection {
+                    protocol: "tcp".into(),
+                    state: "Established".into(),
+                    local_address: Ipv6Addr::from(row.ucLocalAddr).to_string(),
+                    local_port: windows_network_port(row.dwLocalPort),
+                    remote_address: remote_address.to_string(),
+                    remote_port,
+                    pid: row.dwOwningPid,
+                    process_name: None,
+                    path: None,
+                });
+            }
+        }
+        Err(error) => errors.push(format!("TCP/IPv6: {error}")),
+    }
+
+    match windows_ip_helper_table(WindowsNetworkTable::Udp, AF_INET) {
+        Ok(buffer) => {
+            successful_tables += 1;
+            for row in windows_table_rows::<MIB_UDPROW_OWNER_PID>(&buffer)? {
+                let local_port = windows_network_port(row.dwLocalPort);
+                if row.dwOwningPid == 0 || local_port == 0 {
+                    continue;
+                }
+                connections.push(WindowsNetworkConnection {
+                    protocol: "udp".into(),
+                    state: "Bound".into(),
+                    local_address: Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes()).to_string(),
+                    local_port,
+                    remote_address: "*".into(),
+                    remote_port: 0,
+                    pid: row.dwOwningPid,
+                    process_name: None,
+                    path: None,
+                });
+            }
+        }
+        Err(error) => errors.push(format!("UDP/IPv4: {error}")),
+    }
+
+    match windows_ip_helper_table(WindowsNetworkTable::Udp, AF_INET6) {
+        Ok(buffer) => {
+            successful_tables += 1;
+            for row in windows_table_rows::<MIB_UDP6ROW_OWNER_PID>(&buffer)? {
+                let local_port = windows_network_port(row.dwLocalPort);
+                if row.dwOwningPid == 0 || local_port == 0 {
+                    continue;
+                }
+                connections.push(WindowsNetworkConnection {
+                    protocol: "udp".into(),
+                    state: "Bound".into(),
+                    local_address: Ipv6Addr::from(row.ucLocalAddr).to_string(),
+                    local_port,
+                    remote_address: "*".into(),
+                    remote_port: 0,
+                    pid: row.dwOwningPid,
+                    process_name: None,
+                    path: None,
+                });
+            }
+        }
+        Err(error) => errors.push(format!("UDP/IPv6: {error}")),
+    }
+
+    if successful_tables == 0 {
+        return Err(errors.join("; "));
+    }
+
+    let mut process_cache: HashMap<u32, (Option<String>, Option<String>)> = HashMap::new();
+    for connection in &mut connections {
+        let metadata = process_cache
+            .entry(connection.pid)
+            .or_insert_with(|| windows_process_metadata(connection.pid));
+        connection.process_name = metadata.0.clone();
+        connection.path = metadata.1.clone();
+    }
+
+    Ok(connections)
+}
+
+#[cfg(windows)]
+fn windows_ip_helper_table(kind: WindowsNetworkTable, family: u32) -> Result<Vec<u32>, String> {
+    use std::ffi::c_void;
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetExtendedTcpTable, GetExtendedUdpTable, TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID,
+    };
+
+    const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
+    let mut size = 0u32;
+    let mut result = unsafe {
+        match kind {
+            WindowsNetworkTable::Tcp => GetExtendedTcpTable(
+                std::ptr::null_mut(),
+                &mut size,
+                0,
+                family,
+                TCP_TABLE_OWNER_PID_ALL,
+                0,
+            ),
+            WindowsNetworkTable::Udp => GetExtendedUdpTable(
+                std::ptr::null_mut(),
+                &mut size,
+                0,
+                family,
+                UDP_TABLE_OWNER_PID,
+                0,
+            ),
+        }
+    };
+    if result != 0 && result != ERROR_INSUFFICIENT_BUFFER {
+        return Err(format!("Windows API вернул код {result}"));
+    }
+
+    for _ in 0..3 {
+        let word_count = (size as usize).div_ceil(std::mem::size_of::<u32>()).max(1);
+        let mut buffer = vec![0u32; word_count];
+        let mut actual_size = (buffer.len() * std::mem::size_of::<u32>()) as u32;
+        result = unsafe {
+            match kind {
+                WindowsNetworkTable::Tcp => GetExtendedTcpTable(
+                    buffer.as_mut_ptr().cast::<c_void>(),
+                    &mut actual_size,
+                    0,
+                    family,
+                    TCP_TABLE_OWNER_PID_ALL,
+                    0,
+                ),
+                WindowsNetworkTable::Udp => GetExtendedUdpTable(
+                    buffer.as_mut_ptr().cast::<c_void>(),
+                    &mut actual_size,
+                    0,
+                    family,
+                    UDP_TABLE_OWNER_PID,
+                    0,
+                ),
+            }
+        };
+        if result == 0 {
+            return Ok(buffer);
+        }
+        if result != ERROR_INSUFFICIENT_BUFFER {
+            return Err(format!("Windows API вернул код {result}"));
+        }
+        size = actual_size;
+    }
+
+    Err("таблица соединений постоянно меняется".into())
+}
+
+#[cfg(windows)]
+fn windows_table_rows<T: Copy>(buffer: &[u32]) -> Result<Vec<T>, String> {
+    let count = buffer.first().copied().unwrap_or_default() as usize;
+    let required = std::mem::size_of::<u32>()
+        .checked_add(
+            count
+                .checked_mul(std::mem::size_of::<T>())
+                .ok_or_else(|| "слишком большая таблица соединений".to_string())?,
+        )
+        .ok_or_else(|| "слишком большая таблица соединений".to_string())?;
+    if required > std::mem::size_of_val(buffer) {
+        return Err("Windows API вернул неполную таблицу соединений".into());
+    }
+
+    let first = unsafe {
+        buffer
+            .as_ptr()
+            .cast::<u8>()
+            .add(std::mem::size_of::<u32>())
+            .cast::<T>()
+    };
+    Ok((0..count)
+        .map(|index| unsafe { first.add(index).read_unaligned() })
+        .collect())
+}
+
+#[cfg(windows)]
+fn windows_network_port(value: u32) -> u16 {
+    u16::from_be(value as u16)
+}
+
+#[cfg(windows)]
+fn windows_process_metadata(pid: u32) -> (Option<String>, Option<String>) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return (None, None);
+        }
+        let mut path_buffer = vec![0u16; 32_768];
+        let mut path_length = path_buffer.len() as u32;
+        let success =
+            QueryFullProcessImageNameW(handle, 0, path_buffer.as_mut_ptr(), &mut path_length);
+        CloseHandle(handle);
+        if success == 0 || path_length == 0 {
+            return (None, None);
+        }
+        path_buffer.truncate(path_length as usize);
+        let path = String::from_utf16_lossy(&path_buffer);
+        let name = Path::new(&path)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .map(ToOwned::to_owned);
+        (name, Some(path))
+    }
 }
 
 #[cfg(not(windows))]
@@ -7922,6 +8070,20 @@ mod tests {
         assert!(output.status.success());
         assert_eq!(output.stdout.len(), 262_144);
         assert!(output.stderr.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_windows_connection_table_does_not_depend_on_powershell() {
+        let started = std::time::Instant::now();
+        let connections = windows_network_connections()
+            .expect("Windows IP Helper API must return the connection table");
+
+        assert!(started.elapsed() < std::time::Duration::from_secs(3));
+        assert!(connections.iter().all(|connection| {
+            connection.local_port > 0
+                && (connection.protocol == "udp" || connection.remote_port > 0)
+        }));
     }
 
     fn test_server() -> Server {

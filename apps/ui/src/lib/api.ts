@@ -409,7 +409,7 @@ export interface AppUpdateInfo {
 const BROWSER_PERSISTED_STATE_KEY = "nimbo.persistedState";
 const DEFAULT_SOCKS_USERNAME = "nimbo";
 const DEFAULT_SOCKS_PASSWORD = "nmb-preview-password";
-export const APP_VERSION = typeof uiPackage.version === "string" ? uiPackage.version : "1.0.0";
+export const APP_VERSION = typeof uiPackage.version === "string" ? uiPackage.version : "1.0.1";
 
 function nonEmptyString(value: string | null | undefined, fallback: string): string {
   const trimmed = value?.trim();

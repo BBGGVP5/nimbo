@@ -20,7 +20,7 @@ import {
   type AppearanceState,
 } from "./lib/appearance";
 import { useAppStore } from "./store";
-import { api, isTauriRuntime, type AppUpdateInfo, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
+import { APP_VERSION, api, isTauriRuntime, type AppUpdateInfo, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
 import { cachedSubscriptionTheme } from "./lib/subscriptionTheme";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initNimboDeepLinks } from "./lib/deepLinks";
@@ -458,7 +458,7 @@ export default function App() {
             ))}
           </nav>
           <div className="app-build px-5 py-4 text-[10px] text-[var(--color-text-faint)] font-mono uppercase tracking-wider">
-            v1.0.0
+            v{APP_VERSION}
           </div>
         </div>
       </aside>
