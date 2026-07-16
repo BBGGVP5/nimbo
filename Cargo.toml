@@ -35,7 +35,7 @@ url = "2.5"
 base64 = "0.22"
 percent-encoding = "2.3"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli"] }
-dirs = "5.0"
+dirs = "6.0"
 sha2 = "0.10"
 
 [profile.release]
