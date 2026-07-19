@@ -9,7 +9,7 @@ activityCompose = "1.13.0"
 kotlin = "2.2.10"
 composeBom = "2024.09.00"
 window = "1.5.1"
-foundation = "1.10.5"
+foundation = "1.11.4"
 uiTest = "1.10.5"
 
 [libraries]
