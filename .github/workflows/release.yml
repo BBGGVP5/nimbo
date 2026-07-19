@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Получить исходники
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Установить Rust
         uses: dtolnay/rust-toolchain@stable
@@ -68,7 +68,7 @@ jobs:
 
     steps:
       - name: Получить исходники
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Установить системные зависимости
         shell: bash
