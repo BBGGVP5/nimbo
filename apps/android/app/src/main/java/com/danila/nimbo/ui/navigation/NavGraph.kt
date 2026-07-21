@@ -489,7 +489,7 @@ fun NavGraph(
                 } catch (e: Exception) {
                     encodedUrl
                 }
-
+                
                 DeviceManagementScreen(
                     mainViewModel = mainViewModel,
                     subscriptionUrl = profileUrl,

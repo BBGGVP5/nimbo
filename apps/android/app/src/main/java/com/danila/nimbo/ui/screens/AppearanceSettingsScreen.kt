@@ -70,7 +70,7 @@ fun AppearanceSettingsScreen(
     var showVersionInHeader by remember { mutableStateOf(preferencesManager.showVersionInHeader) }
     var gradientEffectsEnabled by remember { mutableStateOf(preferencesManager.gradientEffectsEnabled) }
     var glowEffectsEnabled by remember { mutableStateOf(preferencesManager.glowEffectsEnabled) }
-
+    
     var customGradientCount by remember { mutableIntStateOf(preferencesManager.customGradientCount) }
     var customGradColor1 by remember { mutableStateOf(Color(preferencesManager.customGradientColor1)) }
     var customGradColor2 by remember { mutableStateOf(Color(preferencesManager.customGradientColor2)) }
@@ -90,7 +90,7 @@ fun AppearanceSettingsScreen(
     var useSubscriptionTheme by remember { mutableStateOf(preferencesManager.useSubscriptionTheme) }
     var showSubscriptionLogo by remember { mutableStateOf(preferencesManager.showSubscriptionLogo) }
     var activeGradientColorIndex by remember { mutableIntStateOf(1) }
-
+    
     val systemDarkTheme = isSystemInDarkTheme()
     val colorIndex = colorTheme.mod(9)
     val isDarkTheme = when (themeMode) {
@@ -151,7 +151,7 @@ fun AppearanceSettingsScreen(
             ) {
                 // ПРЕВЬЮ ТЕМЫ
                 ThemePreviewCard(
-                    isDarkTheme,
+                    isDarkTheme, 
                     nebulaColors.accent,
                     if (gradientEffectsEnabled) {
                         listOf(
@@ -221,7 +221,7 @@ fun AppearanceSettingsScreen(
                     Column(modifier = Modifier.padding(vertical = 8.dp)) {
                         // СИСТЕМНЫЙ ЦВЕТ (MATERIAL YOU)
                         if (AndroidBuild.VERSION.SDK_INT >= AndroidBuild.VERSION_CODES.S) {
-                            val systemColor = if (isDarkTheme) dynamicDarkColorScheme(LocalContext.current).primary
+                            val systemColor = if (isDarkTheme) dynamicDarkColorScheme(LocalContext.current).primary 
                                              else dynamicLightColorScheme(LocalContext.current).primary
                             AccentColorItem(
                                 color = systemColor,
@@ -256,16 +256,16 @@ fun AppearanceSettingsScreen(
                                 color = nebulaColors.onSurface.copy(alpha = 0.1f)
                             )
                         }
-
+                        
                         // КАСТОМНЫЙ ЦВЕТ
                         AccentColorItem(
                             color = customGradColor1,
                             name = "Свой цвет",
                             description = "Настройте палитру и градиенты под себя",
                             isSelected = isCustomAccent,
-                            onClick = {
+                            onClick = { 
                                 useDynamicColor = false
-                                isCustomAccent = true
+                                isCustomAccent = true 
                             }
                         )
 
@@ -286,8 +286,8 @@ fun AppearanceSettingsScreen(
                                 ) {
                                     listOf(1, 2, 3).forEach { count ->
                                         Surface(
-                                            onClick = {
-                                                customGradientCount = count
+                                            onClick = { 
+                                                customGradientCount = count 
                                                 if (activeGradientColorIndex > count) activeGradientColorIndex = 1
                                             },
                                             modifier = Modifier
@@ -367,13 +367,13 @@ fun AppearanceSettingsScreen(
                                     fontSize = 13.sp,
                                     modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp)
                                 )
-
+                                
                                 val swatchColors = listOf(
-                                    Color(0xFF7C5DFA), Color(0xFF00B4D8), Color(0xFF00C853), Color(0xFFFF5252),
-                                    Color(0xFFFF9800), Color(0xFFDB2777), Color(0xFF0891B2), Color(0xFF65A30D),
+                                    Color(0xFF7C5DFA), Color(0xFF00B4D8), Color(0xFF00C853), Color(0xFFFF5252), 
+                                    Color(0xFFFF9800), Color(0xFFDB2777), Color(0xFF0891B2), Color(0xFF65A30D), 
                                     Color(0xFFF59E0B), Color(0xFF6366F1), Color(0xFFCBD5E1), Color(0xFF1E293B)
                                 )
-
+                                
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -401,7 +401,7 @@ fun AppearanceSettingsScreen(
                                                         }
                                                     }
                                                     .border(
-                                                        2.dp,
+                                                        2.dp, 
                                                         if (isSelected) Color.White else Color.Transparent,
                                                         RoundedCornerShape(8.dp)
                                                     ),
@@ -434,7 +434,7 @@ fun AppearanceSettingsScreen(
                                                         }
                                                     }
                                                     .border(
-                                                        2.dp,
+                                                        2.dp, 
                                                         if (isSelected) Color.White else Color.Transparent,
                                                         RoundedCornerShape(8.dp)
                                                     ),
@@ -511,7 +511,7 @@ fun AppearanceSettingsScreen(
                                         2 -> customGradColor2
                                         else -> customGradColor3
                                     },
-                                    onColorSelect = {
+                                    onColorSelect = { 
                                         when(activeGradientColorIndex) {
                                             1 -> { customGradColor1 = it; customAccentColor = it }
                                             2 -> customGradColor2 = it
@@ -944,8 +944,8 @@ fun AppearanceSettingsScreen(
                         }
                         Slider(
                             value = globalCorners,
-                            onValueChange = { globalCorners = it.coerceIn(0.25f, 4.0f) },
-                            valueRange = 0.25f..4.0f,
+                            onValueChange = { globalCorners = it.coerceIn(0.25f, 2.0f) },
+                            valueRange = 0.25f..2.0f,
                             colors = SliderDefaults.colors(
                                 thumbColor = nebulaColors.accent,
                                 activeTrackColor = nebulaColors.accent,
@@ -1500,7 +1500,7 @@ fun ThemePreviewCard(isDark: Boolean, accent: Color, gradientColors: List<Color>
                         }
                     )
             )
-
+            
             // Дополнительный "мягкий" слой для эффекта глубины
             Box(
                 modifier = Modifier
@@ -1516,7 +1516,7 @@ fun ThemePreviewCard(isDark: Boolean, accent: Color, gradientColors: List<Color>
                         )
                     )
             )
-
+            
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1573,7 +1573,7 @@ fun ThemeModeItem(
         shape = RoundedCornerShape(16.dp),
         color = bgColor,
         border = BorderStroke(
-            1.dp,
+            1.dp, 
             if (isSelected) nebulaColors.accent.copy(alpha = 0.3f) else Color.Transparent
         )
     ) {
@@ -1598,7 +1598,7 @@ fun AccentColorItem(
     onClick: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
-
+    
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -1749,7 +1749,7 @@ fun HsvSlider(
     currentColor: Color = Color.White
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-
+    
     Slider(
         value = value,
         onValueChange = onValueChange,
@@ -1776,8 +1776,8 @@ fun HsvSlider(
                     .fillMaxWidth()
                     .height(12.dp)
                     .border(
-                        1.dp,
-                        Color.White.copy(alpha = 0.1f),
+                        1.dp, 
+                        Color.White.copy(alpha = 0.1f), 
                         CircleShape
                     )
                     .clip(CircleShape)
@@ -1970,3 +1970,4 @@ private fun subscriptionPreviewColors(themeSpec: String?, fallback: Color): List
         androidx.compose.ui.graphics.lerp(fallback, Color.White, 0.28f)
     )
 }
+

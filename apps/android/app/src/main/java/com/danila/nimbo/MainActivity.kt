@@ -27,7 +27,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.danila.nimbo.model.Server
 import com.danila.nimbo.network.SubscriptionManager
 import com.danila.nimbo.service.SubscriptionUpdateScheduler
+import com.danila.nimbo.network.UpdateWorkScheduler
 import com.danila.nimbo.ui.LocalPreferencesManager
+import com.danila.nimbo.ui.components.NotificationType
 import com.danila.nimbo.ui.screens.MainScreen
 import com.danila.nimbo.ui.theme.DEFAULT_COLOR_THEME_INDEX
 import com.danila.nimbo.ui.theme.NebulaGuardTheme
@@ -35,6 +37,7 @@ import com.danila.nimbo.utils.AppIconManager
 import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.vpn.MyVpnService
 import com.danila.nimbo.vpn.VpnManager
+import com.danila.nimbo.vpn.VpnTunPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -75,6 +78,9 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         Log.d("MainActivity", "Notification permission granted=$granted")
+        if (granted) {
+            UpdateWorkScheduler.enqueueImmediate(this)
+        }
     }
 
     private val vpnPermissionLauncher = registerForActivityResult(
@@ -187,7 +193,7 @@ class MainActivity : ComponentActivity() {
 
                     MainScreen(
                         initialScreen = intent.getStringExtra("OPEN_SCREEN"),
-                        onConnect = ::connectWithPermission,
+                        onConnect = { server -> connectWithPermission(server, viewModel) },
                         onDisconnect = ::disconnectVpn,
                         onSubscriptionAdded = { url ->
                             viewModel.addSubscription(url)
@@ -277,7 +283,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun connectWithPermission(server: Server) {
+    private fun connectWithPermission(server: Server, viewModel: MainViewModel) {
+        if (!hasUsableVpnOnlySelection()) {
+            pendingVpnServer = null
+            val isEnglish = resources.configuration.locales[0].language == "en"
+            viewModel.showTopNotification(
+                message = if (isEnglish) {
+                    "Select at least one installed app for VPN"
+                } else {
+                    "Выберите хотя бы одно установленное приложение для VPN"
+                },
+                type = NotificationType.ERROR
+            )
+            return
+        }
+
         pendingVpnServer = server
         VpnManager.selectedServer = server
         server.profileUrl?.let { preferencesManager.saveLastSelectedProfileUrl(it) }
@@ -290,6 +310,19 @@ class MainActivity : ComponentActivity() {
             pendingVpnServer = null
         }
     }
+
+    private fun hasUsableVpnOnlySelection(): Boolean =
+        VpnTunPolicy.hasUsableVpnOnlySelection(
+            proxyByApp = preferencesManager.proxyByApp,
+            ownPackage = packageName,
+            selectedPackages = preferencesManager.getAppVpnOnlyList(),
+            isInstalled = { candidate ->
+                runCatching {
+                    @Suppress("DEPRECATION")
+                    packageManager.getApplicationInfo(candidate, 0)
+                }.isSuccess
+            }
+        )
 
     private fun startVpnService(server: Server) {
         val intent = MyVpnService.createConnectIntent(this, server)

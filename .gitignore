@@ -44,6 +44,8 @@ apps/android/**/build/
 apps/android/local.properties
 apps/android/app/signing.properties
 apps/android/app/libs/libbox_unpacked/
+apps/android/app/debug/
+apps/android/app/release/
 *.apk
 *.aab
 

@@ -103,20 +103,28 @@ object XrayManager {
     private fun establishTun(vpnService: VpnService): Int {
         val prefs = PreferencesManager(NebulaGuardApplication.instance)
         val useIpv6 = prefs.vpnIpType.equals("dual", ignoreCase = true)
+        val tunPolicy = VpnTunPolicy.forProxyMode(prefs.proxyByApp)
         val builder = vpnService.Builder()
-            .setSession("NebulaGuard")
+            .setSession("Nimbo")
             .addAddress("172.19.0.1", 30)
             .addRoute("0.0.0.0", 0)
-            .addDnsServer("1.1.1.1")
-            .addDnsServer("8.8.8.8")
             .setBlocking(false)
+
+        if (tunPolicy.publishTunnelDns) {
+            builder
+                .addDnsServer("1.1.1.1")
+                .addDnsServer("8.8.8.8")
+        }
 
         if (useIpv6) {
             builder
                 .addAddress("fdfe:dcba:9876::1", 126)
                 .addRoute("::", 0)
-                .addDnsServer("2606:4700:4700::1111")
-                .addDnsServer("2001:4860:4860::8888")
+            if (tunPolicy.publishTunnelDns) {
+                builder
+                    .addDnsServer("2606:4700:4700::1111")
+                    .addDnsServer("2001:4860:4860::8888")
+            }
         }
 
         if (prefs.packetFragmentationEnabled) {
@@ -299,7 +307,11 @@ object XrayManager {
             val protocol = inbound.optString("protocol")
             if (tag == "tun-in" || protocol == "tun") {
                 hasTunInbound = true
-                if (prefs.trafficSniffingEnabled) {
+                if (RoutingRuntimePolicy.shouldEnableSniffing(
+                        userEnabled = prefs.trafficSniffingEnabled,
+                        routingEnabled = prefs.isRoutingEnabled
+                    )
+                ) {
                     inbound.put("sniffing", buildSniffingConfig())
                 } else {
                     inbound.remove("sniffing")
@@ -309,6 +321,7 @@ object XrayManager {
         if (!hasTunInbound) {
             inbounds.put(buildTunInbound())
         }
+        LocalProxyConfig.ensureInbound(inbounds)
 
         val outbounds = json.optJSONArray("outbounds") ?: JSONArray().also { json.put("outbounds", it) }
         val routing = json.optJSONObject("routing") ?: JSONObject().also { json.put("routing", it) }
@@ -483,9 +496,26 @@ object XrayManager {
                     .put("outboundTag", "proxy")
             )
         }
-        routing.put("rules", finalRules)
+        val probeOutboundTag = selectedOutboundTag
+            ?: if (balancerTag.isNullOrBlank()) LocalProxyConfig.firstProxyOutboundTag(outbounds) else null
+        val routedRules = LocalProxyConfig.prependRoute(
+            rules = finalRules,
+            outboundTag = probeOutboundTag,
+            balancerTag = if (probeOutboundTag.isNullOrBlank()) balancerTag else null
+        )
+        routing.put("rules", routedRules)
 
         applyGeneratedNetworkPreferences(json)
+        // Routing profiles prepend their own rules. Re-assert the tagged health route
+        // afterwards so no catch-all/direct rule can make a probe bypass the candidate.
+        routing.put(
+            "rules",
+            LocalProxyConfig.prependRoute(
+                rules = routing.optJSONArray("rules") ?: JSONArray(),
+                outboundTag = probeOutboundTag,
+                balancerTag = if (probeOutboundTag.isNullOrBlank()) balancerTag else null
+            )
+        )
         applyTlsFragment(json)
         applyConnectionPolicy(json)
 
@@ -738,7 +768,11 @@ object XrayManager {
                 put("name", "tun0")
                 put("MTU", if (prefs.packetFragmentationEnabled) 1280 else 1400)
             })
-            if (prefs.trafficSniffingEnabled) {
+            if (RoutingRuntimePolicy.shouldEnableSniffing(
+                    userEnabled = prefs.trafficSniffingEnabled,
+                    routingEnabled = prefs.isRoutingEnabled
+                )
+            ) {
                 put("sniffing", buildSniffingConfig())
             }
         }
@@ -810,7 +844,10 @@ object XrayManager {
         val root = JSONObject().apply {
             put("log", JSONObject().put("loglevel", "warning"))
             put("dns", JSONObject().put("servers", buildGeneratedDnsServers(routingProfile)))
-            put("inbounds", JSONArray().put(buildTunInbound()))
+            put(
+                "inbounds",
+                JSONArray().put(buildTunInbound()).also(LocalProxyConfig::ensureInbound)
+            )
             put("outbounds", JSONArray().apply {
                 put(outbound)
                 put(
@@ -823,7 +860,14 @@ object XrayManager {
             })
             put("routing", JSONObject().apply {
                 put("domainStrategy", routingProfile?.domainStrategy?.takeIf { it.isNotBlank() } ?: "IPIfNonMatch")
-                put("rules", buildGeneratedRoutingRules(routingProfile))
+                put(
+                    "rules",
+                    LocalProxyConfig.prependRoute(
+                        rules = buildGeneratedRoutingRules(routingProfile),
+                        outboundTag = "proxy",
+                        balancerTag = null
+                    )
+                )
             })
         }
 

@@ -116,6 +116,32 @@ class VpnRecoveryPolicyTest {
     }
 
     @Test
+    fun networkHandoff_rebuildsAnIntentionalConnectionWithoutRetrySetting() {
+        val active = State(desiredConnected = true, phase = Phase.CONNECTED)
+
+        val result = VpnRecoveryPolicy.reduce(active, Event.NetworkHandoff(hasServer = true))
+
+        assertEquals(Phase.WAITING_FOR_NETWORK, result.state.phase)
+        assertEquals(
+            listOf(Command.CancelRetry, Command.RebuildTunnelForNetwork),
+            result.commands
+        )
+    }
+
+    @Test
+    fun networkHandoff_afterManualDisconnectDoesNothing() {
+        val stopped = VpnRecoveryPolicy.reduce(
+            State(desiredConnected = true, phase = Phase.CONNECTED),
+            Event.ManualDisconnect
+        )
+
+        val result = VpnRecoveryPolicy.reduce(stopped.state, Event.NetworkHandoff(hasServer = true))
+
+        assertTrue(result.commands.isEmpty())
+        assertFalse(result.state.desiredConnected)
+    }
+
+    @Test
     fun stickyRestore_doesNotResumeWhileScreenIsStillOff() {
         val paused = State(
             desiredConnected = true,

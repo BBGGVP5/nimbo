@@ -73,3 +73,4 @@ class DeviceStatsQuickSettingsTileService : TileService() {
         qsTile.updateTile()
     }
 }
+

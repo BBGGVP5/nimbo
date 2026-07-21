@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import com.danila.nimbo.ui.theme.ElementStyleMode
 import com.danila.nimbo.ui.theme.LocalElementStyleMode
 import com.danila.nimbo.ui.theme.LocalNebulaColors
+import com.danila.nimbo.ui.i18n.t
 
 enum class NotificationType { PING, UPDATE, SUCCESS, ERROR, NORMAL }
 
@@ -119,7 +120,7 @@ private fun NotificationCard(
         animateIcon = true,
         showProgress = data.type == NotificationType.UPDATE || data.type == NotificationType.PING,
         actionIcon = Icons.Default.Close,
-        actionDescription = "Закрыть уведомление",
+        actionDescription = t("Закрыть уведомление", "Dismiss notification"),
         onAction = onDismiss
     )
 }
@@ -147,10 +148,10 @@ fun NotificationSurface(
         else -> nebulaColors.accent
     }
     val title = when (type) {
-        NotificationType.UPDATE -> "ОБНОВЛЕНИЕ"
-        NotificationType.PING -> "ПРОВЕРКА СЕТИ"
-        NotificationType.SUCCESS -> "ГОТОВО"
-        NotificationType.ERROR -> "НУЖНО ВНИМАНИЕ"
+        NotificationType.UPDATE -> t("ОБНОВЛЕНИЕ", "UPDATE")
+        NotificationType.PING -> t("ПРОВЕРКА СЕТИ", "NETWORK CHECK")
+        NotificationType.SUCCESS -> t("ГОТОВО", "DONE")
+        NotificationType.ERROR -> t("НУЖНО ВНИМАНИЕ", "ACTION NEEDED")
         NotificationType.NORMAL -> "NIMBO"
     }
     val shape = when (elementStyle) {

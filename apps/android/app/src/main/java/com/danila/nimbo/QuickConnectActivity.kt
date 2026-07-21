@@ -57,7 +57,7 @@ class QuickConnectActivity : Activity() {
             @Suppress("DEPRECATION")
             (intent.getSerializableExtra(MyVpnService.EXTRA_SERVER) as? Server)
         }
-
+        
         if (selectedServer != null) {
             Logger.d("QuickConnect", "✓ Loaded full server from EXTRA_SERVER: ${selectedServer.name}")
         } else {
@@ -118,7 +118,7 @@ class QuickConnectActivity : Activity() {
 
         if (selectedServer != null) {
             Logger.d("QuickConnect", "Final server: ${selectedServer!!.name} (${selectedServer!!.host}:${selectedServer!!.port})")
-
+            
             // Запрашиваем разрешение на VPN
             val vpnIntent = VpnService.prepare(this)
             if (vpnIntent != null) {
@@ -193,3 +193,4 @@ class QuickConnectActivity : Activity() {
         }, 500)
     }
 }
+

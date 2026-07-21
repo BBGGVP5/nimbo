@@ -66,6 +66,7 @@ import com.danila.nimbo.ui.i18n.formatRussianCount
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.utils.PreferencesManager
+import com.danila.nimbo.vpn.RoutingConfigurationApplier
 import com.google.gson.Gson
 
 private data class RoutingPreset(
@@ -118,10 +119,22 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
     val decodeErrorMessage = t("Не удалось прочитать профиль", "Could not read the profile")
     val emptyClipboardMessage = t("Буфер обмена пуст", "Clipboard is empty")
     val copiedMessage = t("Ссылка скопирована", "Link copied")
+    val routingAppliedMessage = t(
+        "Применяем правила: VPN переподключается",
+        "Applying rules: VPN is reconnecting"
+    )
+
+    fun applyRoutingChange() {
+        if (RoutingConfigurationApplier.applyToActiveTunnel(context)) {
+            Toast.makeText(context, routingAppliedMessage, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val activate: (RoutingPreset) -> Unit = { preset ->
         activeProfile = preferencesManager.activateBuiltinRoutingProfile(preset.id)
         activeBuiltinId = preset.id
         builtinProfiles = preferencesManager.builtinRoutingProfiles()
+        applyRoutingChange()
     }
 
     fun importRoutingLink(rawText: String): Boolean {
@@ -146,6 +159,7 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
             preferencesManager.saveImportedRoutingProfile(newProfile)
             activeProfile = newProfile
             activeBuiltinId = null
+            applyRoutingChange()
             Toast.makeText(context, importedMessage, Toast.LENGTH_SHORT).show()
             true
         }.getOrElse {
@@ -197,13 +211,19 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
             onSave = { edited ->
                 val saved = preferencesManager.saveBuiltinRoutingProfile(edited)
                 builtinProfiles = preferencesManager.builtinRoutingProfiles()
-                if (activeBuiltinId == saved.id) activeProfile = saved
+                if (activeBuiltinId == saved.id) {
+                    activeProfile = saved
+                    applyRoutingChange()
+                }
                 editingProfile = null
             },
             onReset = {
                 val reset = preferencesManager.resetBuiltinRoutingProfile(profile.id.orEmpty())
                 builtinProfiles = preferencesManager.builtinRoutingProfiles()
-                if (activeBuiltinId == reset.id) activeProfile = reset
+                if (activeBuiltinId == reset.id) {
+                    activeProfile = reset
+                    applyRoutingChange()
+                }
                 editingProfile = null
             }
         )
@@ -222,10 +242,12 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
             headerIcon = Icons.Default.Delete,
             headerIconTint = Color(0xFFE85D75),
             onConfirm = {
+                val wasActive = activeBuiltinId == profile.id
                 preferencesManager.deleteBuiltinRoutingProfile(profile.id.orEmpty())
                 builtinProfiles = preferencesManager.builtinRoutingProfiles()
                 activeBuiltinId = preferencesManager.activeBuiltinRoutingProfileId()
                 activeProfile = preferencesManager.loadRoutingProfile()
+                if (wasActive) applyRoutingChange()
                 deletingProfile = null
             }
         )

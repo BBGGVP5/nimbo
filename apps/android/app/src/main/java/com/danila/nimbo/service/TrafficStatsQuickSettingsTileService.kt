@@ -78,3 +78,4 @@ class TrafficStatsQuickSettingsTileService : TileService() {
         qsTile.updateTile()
     }
 }
+

@@ -36,6 +36,12 @@ object VpnRecoveryPolicy {
             val autoRecoveryEnabled: Boolean,
             val hasServer: Boolean
         ) : Event
+        /**
+         * Android reports this when the usable transport changes (for example,
+         * Wi-Fi to mobile data) while the VPN is intentionally connected.
+         * This is a tunnel handoff, not a retry policy decision.
+         */
+        data class NetworkHandoff(val hasServer: Boolean) : Event
         data class ConnectFailed(
             val retryable: Boolean,
             val autoRecoveryEnabled: Boolean,
@@ -50,6 +56,7 @@ object VpnRecoveryPolicy {
         data object StartConnection : Command
         data object StopTunnelForScreen : Command
         data object StopTunnelForNetwork : Command
+        data object RebuildTunnelForNetwork : Command
         data object StopService : Command
         data object CancelRetry : Command
         data class ScheduleRetry(val delayMs: Long) : Command
@@ -183,6 +190,21 @@ object VpnRecoveryPolicy {
                 )
             } else {
                 Result(state.copy(networkAvailable = true))
+            }
+        }
+
+        is Event.NetworkHandoff -> {
+            if (!state.desiredConnected || state.screenPaused || !event.hasServer) {
+                Result(state)
+            } else {
+                Result(
+                    state.copy(
+                        phase = Phase.WAITING_FOR_NETWORK,
+                        networkAvailable = true,
+                        connectPending = false
+                    ),
+                    listOf(Command.CancelRetry, Command.RebuildTunnelForNetwork)
+                )
             }
         }
 

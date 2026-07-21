@@ -118,6 +118,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.VpnLock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -288,6 +289,7 @@ import com.danila.nimbo.utils.formatBytes
 import com.danila.nimbo.vpn.VpnManager
 import com.danila.nimbo.vpn.VpnRecoveryStatus
 import com.danila.nimbo.vpn.VpnState
+import com.danila.nimbo.vpn.RoutingConfigurationApplier
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -468,12 +470,12 @@ fun NimboMiniApp(
         val throttleMs = 6 * 60 * 60 * 1000L
         if (now - preferencesManager.lastUpdateCheckTime < throttleMs) return@LaunchedEffect
 
-        val info = runCatching { UpdateManager.checkUpdate() }.getOrNull()
+        val info = runCatching { UpdateManager.checkUpdate(context) }.getOrNull()
         preferencesManager.lastUpdateCheckTime = System.currentTimeMillis()
-        // checkUpdate() возвращает объект только для реально более нового релиза.
+        // Это может быть новая версия или исправленный APK той же версии.
         if (info != null) {
-            val skipped = preferencesManager.updateDialogSkippedVersion
-            if (skipped == null || skipped != info.versionName || info.forceUpdate) {
+            val skipped = preferencesManager.updateDialogSkippedArtifactId
+            if (skipped == null || skipped != info.artifactId || info.forceUpdate) {
                 pendingUpdateInfo = info
             }
         }
@@ -957,6 +959,7 @@ fun NimboMiniApp(
                 updateInfo = info,
                 onDismiss = {
                     preferencesManager.updateDialogSkippedVersion = info.versionName
+                    preferencesManager.updateDialogSkippedArtifactId = info.artifactId
                     pendingUpdateInfo = null
                 },
                 onUpdate = {
@@ -1169,7 +1172,7 @@ private fun NimboHomeScreen(
     val targetServer = selectedServer ?: profile?.servers?.firstOrNull()
     val isPinging by mainViewModel.isPinging.collectAsState()
     val activePingKeys by mainViewModel.activePingKeys.collectAsState()
-    val targetPinging = targetServer != null && activePingKeys.contains(targetServer.pingKey())
+    val targetPinging = targetServer != null && activePingKeys.contains(targetServer.pingMeasurementKey())
     val vpnState = VpnManager.state.value
     val recoveryStatus = VpnManager.recoveryStatus.value
     val recoveryAttempt = VpnManager.recoveryAttempt.value
@@ -1194,7 +1197,7 @@ private fun NimboHomeScreen(
         label = "home-server-gap"
     )
 
-    LaunchedEffect(targetServer?.pingKey(), vpnState) {
+    LaunchedEffect(targetServer?.pingMeasurementKey(), vpnState) {
         val server = targetServer
         if (server != null && server.ping == null && vpnState == VpnState.DISCONNECTED && !isPinging) {
             mainViewModel.pingSingleServer(server)
@@ -1207,7 +1210,7 @@ private fun NimboHomeScreen(
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 14.dp)
-            .padding(top = 12.dp, bottom = 112.dp),
+            .padding(top = 12.dp, bottom = 140.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (profile != null) {
@@ -3319,7 +3322,7 @@ private fun ProxyList(
                         displayName = serverUiTitle(preferencesManager, server),
                         selected = index == selectedIndex,
                         isFavorite = pinnedServerKeys.contains(serverKey),
-                        isPinging = isPinging && activePingKeys.contains(server.pingKey()),
+                        isPinging = isPinging && activePingKeys.contains(server.pingMeasurementKey()),
                         pingDisplayMode = pingDisplayMode,
                         showDivider = !isLast,
                         showJsonBadge = showJsonBadge,
@@ -3887,7 +3890,7 @@ private fun WindowsProfilesList(
                         displayName = serverUiTitle(preferencesManager, server),
                         selected = selectedServer?.matchesSelection(server) == true,
                         isFavorite = pinnedServerKeys.contains(serverKey),
-                        isPinging = isPinging && activePingKeys.contains(serverKey),
+                        isPinging = isPinging && activePingKeys.contains(server.pingMeasurementKey()),
                         pingDisplayMode = pingDisplayMode,
                         showDivider = !isLast,
                         showJsonBadge = profile.supportsJsonResponse == true,
@@ -4980,6 +4983,7 @@ private fun MiniModeSwitch(
     mainViewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var rulesMode by remember { mutableStateOf(preferencesManager.isRoutingEnabled) }
     MiniSegmented(
         left = "Правила",
@@ -4988,11 +4992,13 @@ private fun MiniModeSwitch(
         onLeft = {
             rulesMode = true
             preferencesManager.isRoutingEnabled = true
+            RoutingConfigurationApplier.applyToActiveTunnel(context)
             mainViewModel.showTopNotification("Режим правил включен")
         },
         onRight = {
             rulesMode = false
             preferencesManager.isRoutingEnabled = false
+            RoutingConfigurationApplier.applyToActiveTunnel(context)
             mainViewModel.showTopNotification("Глобальный режим включен")
         },
         modifier = modifier
@@ -9670,6 +9676,10 @@ private fun GlassPanel(
     val nebulaColors = LocalNebulaColors.current
     val isLight = nebulaColors.isLight
     val cornerScale = LocalGlobalCornerRadius.current
+    val reducedTransparency = LocalReducedTransparencyEnabled.current
+    val glassBlur = if (reducedTransparency) 0.dp else LocalGlobalBlurRadius.current
+        .coerceIn(0f, 80f)
+        .dp
     val resolvedShape = scaleRoundedCornerShape(shape, cornerScale)
 
     // Flat surfaces (no glassmorphism): solid fill + thin hairline border, matching
@@ -9703,6 +9713,24 @@ private fun GlassPanel(
                 .matchParentSize()
                 .background(fill)
         )
+        // Keep the effect behind content: the blur slider changes every main glass
+        // surface while text and controls remain sharp and accessible.
+        if (!forceOpaque && !reducedTransparency) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(resolvedShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                nebulaColors.accent.copy(alpha = if (isLight) 0.07f else 0.13f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+                    .blur(glassBlur)
+            )
+        }
         Box(modifier = Modifier.fillMaxWidth()) {
             content()
         }
@@ -10064,17 +10092,18 @@ private fun currentPingSettingsLabel(preferencesManager: PreferencesManager): St
     val protocol by preferencesManager.pingProtocolState
     val displayMode by preferencesManager.pingDisplayModeState
     val throughProxy by preferencesManager.pingThroughProxyState
-    val protocolText = when (protocol) {
+    val protocolText = if (throughProxy) {
+        t("Через VPN", "Through VPN")
+    } else when (protocol) {
         4 -> "ICMP"
-        1, 2, 3 -> "HTTP"
-        else -> "TCP"
+        1, 2, 3 -> t("HTTP напрямую", "Direct HTTP")
+        else -> t("TCP до ноды", "TCP to node")
     }
     val displayText = when (displayMode) {
         2 -> t("индикатор", "indicator")
         else -> "ms"
     }
-    val proxyText = if (throughProxy) t("прокси", "proxy") else t("напрямую", "direct")
-    return "$protocolText · $displayText · $proxyText"
+    return "$protocolText · $displayText"
 }
 
 @Composable
@@ -10083,7 +10112,7 @@ private fun NimboPingSettingsScreen(
     mainViewModel: MainViewModel,
     onBack: () -> Unit
 ) {
-    NimboSubPageScaffold(title = t("Пинг", "Ping"), onBack = onBack) {
+    NimboSubPageScaffold(title = t("Задержка", "Latency"), onBack = onBack) {
         PingSettingsSection(preferencesManager, mainViewModel)
     }
 }
@@ -10098,10 +10127,14 @@ private fun ColumnScope.PingSettingsSection(
     val pingProtocol by preferencesManager.pingProtocolState
     val pingTimeout by preferencesManager.pingTimeoutState
     val pingDisplayMode by preferencesManager.pingDisplayModeState
+    val pingThroughProxy by preferencesManager.pingThroughProxyState
 
     AppearanceSectionHeader(
         title = t("Проверка задержки", "Latency check"),
-        subtitle = t("Настройки и метод измерения задержки серверов", "Configure latency check options")
+        subtitle = t(
+            "Отдельно измеряйте прямой путь до ноды и HTTP-запрос через активный VPN",
+            "Measure the direct node path and HTTP through the active VPN separately"
+        )
     )
     Spacer(Modifier.height(14.dp))
 
@@ -10133,18 +10166,35 @@ private fun ColumnScope.PingSettingsSection(
                 PingSettingsHint(
                     when (pingProtocol) {
                         1, 2, 3 -> t(
-                            "HTTP — измеряет время полного HTTP-запроса. Ближе к реальной скорости загрузки, но немного медленнее.",
-                            "HTTP — measures a full HTTP request. Closer to real download speed, but a bit slower."
+                            "HTTP — измеряет запрос до контрольного URL. Маршрут зависит от переключателя «Через VPN» ниже.",
+                            "HTTP measures a request to the health URL. Its route is controlled by the Through VPN switch below."
                         )
                         4 -> t(
-                            "ICMP — обычный ping. Самый быстрый способ, но часть сетей и серверов его блокируют.",
-                            "ICMP — a regular ping. The fastest method, but some networks and servers block it."
+                            "ICMP — прямой системный ping до ноды. Он не измеряет задержку трафика внутри VPN.",
+                            "ICMP is a direct system ping to the node. It does not measure traffic inside the VPN."
                         )
                         else -> t(
-                            "TCP — измеряет, как быстро сервер принимает подключение. Работает почти везде, поэтому выбран по умолчанию.",
-                            "TCP — measures how quickly the server accepts a connection. Works almost everywhere, so it is the default."
+                            "TCP до ноды — прямой Socket.connect к host:port. Это доступность ноды, а не скорость интернета через VPN.",
+                            "TCP to node is a direct Socket.connect to host:port. It measures node reachability, not VPN internet speed."
                         )
                     }
+                )
+            }
+            PingSettingsDivider()
+            PingSettingsWideRow(
+                title = t("Через VPN", "Through VPN"),
+                subtitle = if (pingThroughProxy) t(
+                    "End-to-end HTTP до контрольного URL через выбранный outbound. Требуется активный VPN.",
+                    "End-to-end HTTP to the health URL through the selected outbound. An active VPN is required."
+                ) else t(
+                    "Выключено: TCP и ICMP идут напрямую до ноды; HTTP — напрямую до контрольного URL.",
+                    "Off: TCP and ICMP go directly to the node; HTTP goes directly to the health URL."
+                ),
+                icon = Icons.Default.VpnLock
+            ) {
+                Switch(
+                    checked = pingThroughProxy,
+                    onCheckedChange = { preferencesManager.pingThroughProxy = it }
                 )
             }
             PingSettingsDivider()
@@ -10566,10 +10616,10 @@ private fun PingSwitchRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = nebulaColors.background,
+                checkedThumbColor = if (nebulaColors.background.luminance() > 0.5f) Color.White else nebulaColors.background,
                 checkedTrackColor = nebulaColors.accent,
-                uncheckedThumbColor = nebulaColors.textSecondary,
-                uncheckedTrackColor = Color.Transparent,
+                uncheckedThumbColor = if (nebulaColors.background.luminance() > 0.5f) Color.White else nebulaColors.textSecondary,
+                uncheckedTrackColor = nebulaColors.textSecondary.copy(alpha = if (nebulaColors.background.luminance() > 0.5f) 0.48f else 0.2f),
                 uncheckedBorderColor = nebulaColors.textSecondary.copy(alpha = 0.55f)
             )
         )
@@ -10735,6 +10785,7 @@ private fun ColumnScope.ThemeSettingsSection(
         ) {
         androidx.compose.foundation.layout.FlowRow(
             modifier = Modifier.fillMaxWidth(),
+            maxItemsInEachRow = 3,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -10742,7 +10793,8 @@ private fun ColumnScope.ThemeSettingsSection(
                 BackgroundPresetTile(
                     label = preset.second,
                     selected = backgroundStyle == preset.first,
-                    onClick = { preferencesManager.backgroundStyle = preset.first }
+                    onClick = { preferencesManager.backgroundStyle = preset.first },
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
@@ -10918,7 +10970,7 @@ private fun ColumnScope.ThemeSettingsSection(
             Slider(
                 value = globalCorners,
                 onValueChange = { preferencesManager.globalCorners = it },
-                valueRange = 0.25f..4.0f,
+                valueRange = 0.25f..2.0f,
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = 14.dp),
@@ -12041,7 +12093,8 @@ private fun backgroundStylePresets(): List<Pair<Int, String>> = listOf(
 private fun BackgroundPresetTile(
     label: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
     val shape = RoundedCornerShape(16.dp)
@@ -12049,8 +12102,7 @@ private fun BackgroundPresetTile(
     val fill = if (selected) nebulaColors.accent.copy(alpha = 0.14f) else nebulaColors.surface
     val border = if (selected) nebulaColors.accent.copy(alpha = 0.62f) else windowsBorder(nebulaColors)
     Column(
-        modifier = Modifier
-            .width(112.dp)
+        modifier = modifier
             .height(112.dp)
             .clip(shape)
             .background(fill)
@@ -12541,10 +12593,10 @@ private fun ThemeSwitchRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = nebulaColors.background,
+                checkedThumbColor = if (nebulaColors.background.luminance() > 0.5f) Color.White else nebulaColors.background,
                 checkedTrackColor = nebulaColors.accent,
-                uncheckedThumbColor = nebulaColors.textSecondary,
-                uncheckedTrackColor = Color.Transparent,
+                uncheckedThumbColor = if (nebulaColors.background.luminance() > 0.5f) Color.White else nebulaColors.textSecondary,
+                uncheckedTrackColor = nebulaColors.textSecondary.copy(alpha = if (nebulaColors.background.luminance() > 0.5f) 0.48f else 0.2f),
                 uncheckedBorderColor = nebulaColors.textSecondary.copy(alpha = 0.55f)
             )
         )

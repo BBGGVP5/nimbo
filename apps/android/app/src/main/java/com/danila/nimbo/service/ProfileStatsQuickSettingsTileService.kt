@@ -73,3 +73,4 @@ class ProfileStatsQuickSettingsTileService : TileService() {
         qsTile.updateTile()
     }
 }
+

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.utils.Logger
+import com.danila.nimbo.network.UpdateWorkScheduler
 import com.danila.nimbo.vpn.MyVpnService
 
 internal enum class VpnRestoreTrigger {
@@ -32,6 +33,13 @@ class BootRestoreReceiver : BroadcastReceiver() {
             else -> return
         }
 
+        if (action != Intent.ACTION_LOCKED_BOOT_COMPLETED) {
+            UpdateWorkScheduler.schedulePeriodic(context)
+            if (UpdateWorkScheduler.shouldEnqueueImmediate(action)) {
+                UpdateWorkScheduler.enqueueImmediate(context)
+            }
+        }
+
         val prefs = PreferencesManager(context)
         if (!shouldRestoreVpnAfterSystemEvent(trigger, prefs.autoConnect, prefs.vpnConnectionDesired)) {
             Logger.d(TAG, "Skip VPN restore after $action: policy declined")
@@ -52,3 +60,4 @@ class BootRestoreReceiver : BroadcastReceiver() {
         private const val TAG = "BootRestoreReceiver"
     }
 }
+

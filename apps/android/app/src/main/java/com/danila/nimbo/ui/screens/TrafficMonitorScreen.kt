@@ -349,3 +349,4 @@ private fun formatTrafficBytes(bytes: Long): String {
         String.format(java.util.Locale.US, "%.1f %s", value, units[unitIndex]).replace('.', ',')
     }
 }
+

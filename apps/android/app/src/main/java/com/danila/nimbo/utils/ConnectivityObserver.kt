@@ -54,3 +54,4 @@ fun observeInternetConnection(context: Context): Flow<Boolean> = callbackFlow {
         runCatching { manager.unregisterNetworkCallback(callback) }
     }
 }.conflate()
+

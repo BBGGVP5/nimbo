@@ -70,7 +70,7 @@ object SubscriptionUpdateScheduler {
             updateRequest
         )
     }
-
+    
     /**
      * Отмена автообновления
      */
@@ -78,7 +78,7 @@ object SubscriptionUpdateScheduler {
         Log.d(TAG, "Cancelling auto-update")
         WorkManager.getInstance(context).cancelUniqueWork(WORK_TAG)
     }
-
+    
     /**
      * Перепланирование при изменении настроек
      */
@@ -87,3 +87,4 @@ object SubscriptionUpdateScheduler {
         schedule(context)
     }
 }
+

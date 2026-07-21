@@ -71,3 +71,4 @@ internal object QuickSettingsStatsProvider {
         }
     }
 }
+

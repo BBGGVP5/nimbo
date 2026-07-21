@@ -80,7 +80,7 @@ fun EditModeTopBar(
                         modifier = Modifier.size(18.dp)
                     )
                 }
-
+                
                 Text(
                     text = "Редактирование",
                     style = MaterialTheme.typography.titleMedium,
@@ -120,9 +120,9 @@ fun EditModeTopBar(
                     )
                 }
             }
-
+            
             Spacer(Modifier.width(4.dp))
-
+            
             // Кнопка сохранения
             AnimatedVisibility(
                 visible = hasChanges,
@@ -344,9 +344,9 @@ fun EditableWidgetCard(
                         }
                     },
                     shape = RoundedCornerShape(10.dp),
-                    color = if (canRemove)
-                        StatusDisconnected.copy(alpha = 0.15f)
-                    else
+                    color = if (canRemove) 
+                        StatusDisconnected.copy(alpha = 0.15f) 
+                    else 
                         Color.Transparent,
                     enabled = canRemove
                 ) {
@@ -403,23 +403,23 @@ fun EditableWidgetsList(
                 isEditMode = isEditMode,
                 canRemove = !config.isSystem,
                 onRemove = { onWidgetHide(widget.id) },
-                onDragStart = {
+                onDragStart = { 
                     draggedIndex = currentIndex
                     lastDragY = 0f
                 },
-                onDragStop = {
+                onDragStop = { 
                     draggedIndex = null
                     lastDragY = 0f
                 },
                 onDrag = { dragAmount ->
                     val deltaY = dragAmount.y - lastDragY
                     lastDragY = dragAmount.y
-
+                    
                     // Порог для перемещения (100 пикселей)
                     if (Math.abs(deltaY) > 100) {
                         val direction = if (deltaY > 0) 1 else -1
                         val newIndex = (currentIndex + direction).coerceIn(0, widgets.size - 1)
-
+                        
                         if (newIndex != currentIndex) {
                             onMoveWidget(currentIndex, newIndex)
                             lastDragY = 0f
@@ -616,3 +616,4 @@ private fun AvailableWidgetItem(
         }
     }
 }
+

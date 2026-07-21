@@ -17,6 +17,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.os.PowerManager.WakeLock
+import android.os.SystemClock
 import android.util.Log
 import com.danila.nimbo.model.Server
 import com.danila.nimbo.network.SubscriptionManager
@@ -38,8 +39,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -55,6 +59,7 @@ class MyVpnService : VpnService() {
         const val ACTION_CONNECT = "com.danila.nimbo.vpn.CONNECT"
         const val ACTION_DISCONNECT = "com.danila.nimbo.vpn.DISCONNECT"
         const val ACTION_PAUSE = "com.danila.nimbo.vpn.PAUSE"
+        const val ACTION_RELOAD_CONFIGURATION = "com.danila.nimbo.vpn.RELOAD_CONFIGURATION"
         const val EXTRA_SERVER = "server"
 
         const val EXTRA_SERVER_HOST = "server_host"
@@ -86,11 +91,9 @@ class MyVpnService : VpnService() {
 
         private const val TAG = "MyVpnService"
         private const val FORCE_LOCAL_MANUAL_ROUTING_TEST = false
-        private const val AUTO_BALANCER_MAX_CONNECT_ATTEMPTS = 2
         private const val AUTO_BALANCER_RETRY_DELAY_MS = 350L
-        private const val CANDIDATE_CONNECT_TIMEOUT_MS = 25_000L
-        private const val POST_CONNECT_STABILIZATION_MS = 650L
-        private const val WAKE_LOCK_TIMEOUT_MS = 10L * 60L * 1000L
+        private const val POST_CONNECT_STABILIZATION_MS = 250L
+        private const val UNDERLYING_NETWORK_SETTLE_MS = 750L
         private const val BACKGROUND_MAINTENANCE_INTERVAL_TICKS = 30
         private const val NOTIFICATION_UPDATE_INTERVAL_TICKS = 1
 
@@ -150,6 +153,25 @@ class MyVpnService : VpnService() {
                 }.onFailure { Logger.e(TAG, "Fallback QuickConnect launch failed", it) }
             }
         }
+
+        /** Rebuilds the native core and TUN only when a VPN session is already active. */
+        fun requestConfigurationReload(context: Context): Boolean {
+            if (!RoutingRuntimePolicy.shouldReloadTunnel(VpnManager.state.value)) return false
+
+            val intent = Intent(context, MyVpnService::class.java).apply {
+                action = ACTION_RELOAD_CONFIGURATION
+            }
+            return runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                true
+            }.onFailure { error ->
+                Logger.e(TAG, "Не удалось применить новые правила маршрутизации", error)
+            }.getOrDefault(false)
+        }
     }
 
     private var isConnected = false
@@ -159,6 +181,7 @@ class MyVpnService : VpnService() {
     private var currentServer: Server? = null
     private var currentProfileName: String? = null
     private var currentProfileLogoBitmap: android.graphics.Bitmap? = null
+    private var connectionStatusOverride: String? = null
 
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
@@ -174,10 +197,11 @@ class MyVpnService : VpnService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var connectionTimeoutRunnable: Runnable? = null
-
+    
     private lateinit var customNotificationManager: com.danila.nimbo.utils.NotificationManager
     private lateinit var preferencesManager: PreferencesManager
     private var lastConnectedServer: Server? = null
+    private val candidateFailedAtMs = mutableMapOf<String, Long>()
 
     // WakeLock для работы в фоне
     private var wakeLock: WakeLock? = null
@@ -231,11 +255,6 @@ class MyVpnService : VpnService() {
                 // перехватывает DNS у программ, которые должны остаться direct.
                 if (!hasSelectedVpnOnlyApplication()) {
                     Logger.w(TAG, "VPN-only mode has no installed selected apps; tunnel was not started to keep direct DNS working")
-                    android.widget.Toast.makeText(
-                        applicationContext,
-                        "Выберите хотя бы одно приложение для VPN",
-                        android.widget.Toast.LENGTH_LONG
-                    ).show()
                     requestManualStop("vpn-only app list is empty")
                     return START_NOT_STICKY
                 }
@@ -313,6 +332,17 @@ class MyVpnService : VpnService() {
             ACTION_PAUSE -> {
                 requestManualStop("paused")
             }
+            ACTION_RELOAD_CONFIGURATION -> {
+                val target = currentServer
+                    ?: VpnManager.selectedServer
+                    ?: preferencesManager.loadLastSelectedServer()
+                if (target == null || (!isConnected && !isConnecting)) {
+                    Logger.i(TAG, "Правила маршрутизации сохранены и будут применены при следующем подключении")
+                } else {
+                    Logger.i(TAG, "Применяем новые правила маршрутизации")
+                    switchServer(target)
+                }
+            }
             else -> {
                 restoreStickyService()
             }
@@ -327,18 +357,17 @@ class MyVpnService : VpnService() {
      * не активирует allow-list, если ни один пакет фактически не был добавлен.
      */
     private fun hasSelectedVpnOnlyApplication(): Boolean {
-        if (preferencesManager.proxyByApp != 2) return true
-        val ownPackage = packageName
-        return preferencesManager.getAppVpnOnlyList()
-            .asSequence()
-            .map(String::trim)
-            .filter { it.isNotBlank() && it != ownPackage }
-            .any { candidate ->
+        return VpnTunPolicy.hasUsableVpnOnlySelection(
+            proxyByApp = preferencesManager.proxyByApp,
+            ownPackage = packageName,
+            selectedPackages = preferencesManager.getAppVpnOnlyList(),
+            isInstalled = { candidate ->
                 runCatching {
                     @Suppress("DEPRECATION")
                     packageManager.getApplicationInfo(candidate, 0)
                 }.isSuccess
             }
+        )
     }
 
     /**
@@ -380,9 +409,21 @@ class MyVpnService : VpnService() {
                 }
 
                 val effectiveServer = resolveServerForConnect(server)
+                val cycleDeadlineMs = SystemClock.elapsedRealtime() +
+                    ConnectionAttemptPolicy.TOTAL_CYCLE_BUDGET_MS
                 val selectedIsAutoBalancer = isAutoBalancerServer(effectiveServer)
-                val autoRotationEnabled = preferencesManager.autoRotationEnabled && !selectedIsAutoBalancer
-                val networkRestricted = isNetworkRestrictedForBypass()
+                val autoRotationPreferenceEnabled = preferencesManager.autoRotationEnabled
+                val autoRotationEnabled = autoRotationPreferenceEnabled && !selectedIsAutoBalancer
+                val networkRestricted = if (
+                    ConnectionAttemptPolicy.shouldDetectRestrictedNetwork(
+                        autoRotationEnabled = autoRotationPreferenceEnabled,
+                        selectedIsAutoBalancer = selectedIsAutoBalancer
+                    )
+                ) {
+                    isNetworkRestrictedForBypass()
+                } else {
+                    false
+                }
                 val candidates = buildConnectionCandidates(
                     baseServer = effectiveServer,
                     autoRotationEnabled = autoRotationEnabled,
@@ -391,7 +432,7 @@ class MyVpnService : VpnService() {
                 val probeBypassOnly = !selectedIsAutoBalancer &&
                     shouldRunBypassLocationProbing(candidates, networkRestricted)
                 val orderedCandidates = if (probeBypassOnly) {
-                    rankBypassCandidatesByServiceReachability(candidates)
+                    rankBypassCandidatesByServiceReachability(candidates, cycleDeadlineMs)
                 } else {
                     candidates
                 }
@@ -401,39 +442,61 @@ class MyVpnService : VpnService() {
                         "Auto-balancer selected: skip bypass pre-probe and server rotation for faster connect"
                     )
                 }
-                val bypassBlockedByDomain = false
-                val userSelectedKey = connectionCandidateKey(effectiveServer)
                 var connected = false
                 var connectedServer: Server? = null
+                val explicitSelectionKey = connectionCandidateKey(effectiveServer)
 
                 for ((index, candidate) in orderedCandidates.withIndex()) {
-                    // Never block the server the user explicitly picked — only filter
-                    // auto-rotation alternatives. Otherwise selecting a .ru server while
-                    // the control domain is reachable leaves the user with nothing to try.
-                    val isUserSelected = connectionCandidateKey(candidate) == userSelectedKey
-                    val shouldBlockBypass = bypassBlockedByDomain &&
-                        isBypassServer(candidate) &&
-                        !isAutoBalancerServer(candidate) &&
-                        !isUserSelected
-                    if (shouldBlockBypass) {
-                        Log.w(TAG, "Bypass server ${candidate.name} blocked: domain is reachable")
+                    val nowMs = SystemClock.elapsedRealtime()
+                    val remainingMs = cycleDeadlineMs - nowMs
+                    if (remainingMs <= 0L) {
+                        Logger.w(TAG, "Общий лимит подключения исчерпан")
+                        break
+                    }
+                    val candidateKey = connectionCandidateKey(candidate)
+                    val explicitSelection = candidateKey == explicitSelectionKey
+                    if (ConnectionAttemptPolicy.isCoolingDown(
+                            failedAtMs = candidateFailedAtMs[candidateKey],
+                            nowMs = nowMs,
+                            explicitSelection = explicitSelection
+                        )
+                    ) {
+                        Logger.i(TAG, "Пропускаем ${candidate.name}: сервер временно в cooldown после ошибки")
                         continue
                     }
-
                     Log.d(
                         TAG,
                         "Connecting candidate ${index + 1}/${orderedCandidates.size}: ${candidate.name} (${candidate.host}:${candidate.port})"
                     )
-                    Logger.i(TAG, "Подключение к серверу: ${candidate.name}")
-                    connected = connectCandidate(candidate)
+                    Logger.i(
+                        TAG,
+                        if (index == 0) {
+                            "Подключение к серверу: ${candidate.name}"
+                        } else {
+                            "Переходим на резервный сервер: ${candidate.name}"
+                        }
+                    )
+                    currentServerName = candidate.name
+                    val isEnglish = preferencesManager.appLanguage == "en"
+                    connectionStatusOverride = if (index == 0) {
+                        if (isEnglish) "Checking server: ${candidate.name}" else "Проверяем сервер: ${candidate.name}"
+                    } else {
+                        if (isEnglish) "Switching to fallback: ${candidate.name}" else "Переход на резервный сервер: ${candidate.name}"
+                    }
+                    refreshForegroundNotification()
+                    connected = connectCandidate(candidate, cycleDeadlineMs = cycleDeadlineMs)
                     if (connected) {
                         connectedServer = candidate
+                        candidateFailedAtMs.remove(candidateKey)
+                    } else {
+                        candidateFailedAtMs[candidateKey] = SystemClock.elapsedRealtime()
                     }
 
                     if (connected) break
                 }
 
                 if (!connected) {
+                    connectionStatusOverride = null
                     val rawError = XrayManager.connectionError
                     val userFacingError = buildUserFacingConnectionError(rawError)
                     Logger.e(TAG, userFacingError)
@@ -448,6 +511,7 @@ class MyVpnService : VpnService() {
                 this@MyVpnService.currentServer = finalServer
                 currentServerName = finalServer.name
                 currentServerHost = finalServer.host
+                connectionStatusOverride = null
                 VpnManager.state.value = VpnState.CONNECTED
                 VpnManager.connectedServer.value = finalServer
                 VpnManager.selectedServer = finalServer
@@ -491,6 +555,7 @@ class MyVpnService : VpnService() {
                 Log.d(TAG, "Connection job cancelled, skipping teardown")
                 throw e
             } catch (e: Exception) {
+                connectionStatusOverride = null
                 Logger.e(TAG, buildUserFacingConnectionError(e.message))
                 handleConnectionFailure(e.message ?: e::class.java.simpleName, retryable = true)
             }
@@ -653,6 +718,21 @@ class MyVpnService : VpnService() {
         refreshForegroundNotification()
     }
 
+    private fun rebuildTunnelForNetwork() {
+        if (!preferencesManager.vpnConnectionDesired || preferencesManager.vpnPausedByScreen) return
+        VpnManager.recoveryStatus.value = VpnRecoveryStatus.WAITING_FOR_NETWORK
+        cancelRecoveryJob()
+        teardownTunnel(cancelConnectionJob = true)
+        Logger.i(TAG, "Underlying network changed; rebuilding VPN tunnel")
+        refreshForegroundNotification()
+        serviceScope.launch {
+            delay(UNDERLYING_NETWORK_SETTLE_MS)
+            if (preferencesManager.vpnConnectionDesired && hasUsableUnderlyingNetwork()) {
+                startRecoveryConnection()
+            }
+        }
+    }
+
     private fun teardownTunnel(cancelConnectionJob: Boolean) {
         connectionTimeoutRunnable?.let { handler.removeCallbacks(it) }
         connectionTimeoutRunnable = null
@@ -756,6 +836,7 @@ class MyVpnService : VpnService() {
                 VpnRecoveryPolicy.Command.StartConnection -> startRecoveryConnection()
                 VpnRecoveryPolicy.Command.StopTunnelForScreen -> pauseTunnelForScreen()
                 VpnRecoveryPolicy.Command.StopTunnelForNetwork -> pauseTunnelForNetwork()
+                VpnRecoveryPolicy.Command.RebuildTunnelForNetwork -> rebuildTunnelForNetwork()
                 VpnRecoveryPolicy.Command.StopService -> requestManualStop("policy stop")
                 VpnRecoveryPolicy.Command.CancelRetry -> cancelRecoveryJob()
                 is VpnRecoveryPolicy.Command.ScheduleRetry -> scheduleRecovery(command.delayMs)
@@ -835,8 +916,13 @@ class MyVpnService : VpnService() {
 
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
+                val usable = isUsableUnderlyingNetwork(connectivityManager, network)
                 synchronized(availableUnderlyingNetworks) {
-                    availableUnderlyingNetworks.add(network)
+                    if (usable) {
+                        availableUnderlyingNetworks.add(network)
+                    } else {
+                        availableUnderlyingNetworks.remove(network)
+                    }
                 }
                 scheduleUnderlyingNetworkEvaluation()
             }
@@ -894,8 +980,14 @@ class MyVpnService : VpnService() {
             val snapshot = synchronized(availableUnderlyingNetworks) {
                 availableUnderlyingNetworks.toList()
             }
-            val available = snapshot.isNotEmpty()
-            val handle = snapshot.firstOrNull()?.networkHandle
+            val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+            val selectedNetwork = connectivityManager.activeNetwork
+                ?.takeIf { network -> isUsableUnderlyingNetwork(connectivityManager, network) }
+                ?: snapshot.firstOrNull { network ->
+                    isUsableUnderlyingNetwork(connectivityManager, network)
+                }
+            val available = selectedNetwork != null
+            val handle = selectedNetwork?.networkHandle
             val previousHandle = lastUnderlyingNetworkHandle
             lastUnderlyingNetworkHandle = handle
             val transportChanged = available &&
@@ -906,19 +998,15 @@ class MyVpnService : VpnService() {
             if (
                 transportChanged &&
                 isConnected &&
-                preferencesManager.autoReconnect &&
                 preferencesManager.vpnConnectionDesired &&
                 !preferencesManager.vpnPausedByScreen
             ) {
-                Logger.i(TAG, "Underlying network changed; rebuilding VPN tunnel")
-                recoveryState = recoveryState.copy(
-                    phase = VpnRecoveryPolicy.Phase.WAITING_FOR_NETWORK,
-                    networkAvailable = true,
-                    connectPending = false
+                applyRecoveryResult(
+                    VpnRecoveryPolicy.reduce(
+                        recoveryState,
+                        VpnRecoveryPolicy.Event.NetworkHandoff(recoveryServer() != null)
+                    )
                 )
-                pauseTunnelForNetwork()
-                delay(250)
-                startRecoveryConnection()
                 return@launch
             }
 
@@ -1156,7 +1244,10 @@ class MyVpnService : VpnService() {
         }.also { wakeLock = it }
 
         if (!lock.isHeld) {
-            lock.acquire(WAKE_LOCK_TIMEOUT_MS)
+            // The user explicitly enabled "Keep device active". A timed lock can
+            // expire while the device is idle, after which the service may never
+            // get CPU time to renew it. The tunnel teardown always releases it.
+            lock.acquire()
             Log.d(TAG, "WakeLock acquired")
         }
     }
@@ -1204,7 +1295,7 @@ class MyVpnService : VpnService() {
     private fun createNotification(): android.app.Notification {
         val isEn = preferencesManager.appLanguage == "en"
         val recoveryStatus = VpnManager.recoveryStatus.value
-        val statusOverride = when (recoveryStatus) {
+        val statusOverride = connectionStatusOverride ?: when (recoveryStatus) {
             VpnRecoveryStatus.PAUSED_BY_SCREEN ->
                 if (isEn) "Paused until screen turns on" else "Пауза до включения экрана"
             VpnRecoveryStatus.WAITING_FOR_NETWORK ->
@@ -1229,12 +1320,6 @@ class MyVpnService : VpnService() {
                 ?.takeIf { preferencesManager.showSubscriptionLogo }
         )
     }
-
-    private data class ServiceProbeTarget(
-        val name: String,
-        val url: String,
-        val weight: Int
-    )
 
     private data class BypassProbeReport(
         val server: Server,
@@ -1276,6 +1361,7 @@ class MyVpnService : VpnService() {
 
     private suspend fun connectCandidate(
         candidate: Server,
+        cycleDeadlineMs: Long,
         maxAttemptsOverride: Int? = null,
         probeMode: Boolean = false
     ): Boolean {
@@ -1295,23 +1381,33 @@ class MyVpnService : VpnService() {
                 TAG,
                 "Using template/remote config for server: ${candidate.name} (templateUuid=${candidate.templateUuid ?: "-"}, templateName=${candidate.templateName ?: "-"})"
             )
-            runCatching { resolveRemoteConfig(candidate) }
-                .onFailure {
-                    remoteConfigError = it
-                    Log.w(TAG, "Remote/template config is unavailable: ${it.message}")
-                }
-                            .getOrNull()
-                    } else {
-                        Log.i(
-                            TAG,
-                            if (FORCE_LOCAL_MANUAL_ROUTING_TEST) {
-                                "FORCED TEST MODE: using local manual routing template for ${candidate.name}"
-                            } else {
-                                "Using local config generation for protocol: ${candidate.protocol}"
-                            }
-                        )
-                        null
+            val resolveBudgetMs = ConnectionAttemptPolicy.attemptTimeoutMs(
+                cycleDeadlineMs - SystemClock.elapsedRealtime()
+            )
+            if (resolveBudgetMs <= 0L) return false
+            val resolvedConfig = withTimeoutOrNull(resolveBudgetMs) {
+                runCatching { resolveRemoteConfig(candidate) }
+                    .onFailure {
+                        remoteConfigError = it
+                        Log.w(TAG, "Remote/template config is unavailable: ${it.message}")
                     }
+                    .getOrNull()
+            }
+            if (resolvedConfig == null && remoteConfigError == null) {
+                remoteConfigError = IllegalStateException("template config request timed out")
+            }
+            resolvedConfig
+        } else {
+            Log.i(
+                TAG,
+                if (FORCE_LOCAL_MANUAL_ROUTING_TEST) {
+                    "FORCED TEST MODE: using local manual routing template for ${candidate.name}"
+                } else {
+                    "Using local config generation for protocol: ${candidate.protocol}"
+                }
+            )
+            null
+        }
 
         if (useRemoteConfig &&
             config.isNullOrBlank() &&
@@ -1338,27 +1434,49 @@ class MyVpnService : VpnService() {
         }
 
         var lastTriedConfig: String? = config
-        val defaultAttempts = if (autoBalancerCandidate) AUTO_BALANCER_MAX_CONNECT_ATTEMPTS else 3
+        val defaultAttempts = if (probeMode) {
+            ConnectionAttemptPolicy.PROBE_MAX_ATTEMPTS
+        } else {
+            ConnectionAttemptPolicy.NORMAL_MAX_ATTEMPTS
+        }
         val maxAttempts = (maxAttemptsOverride ?: defaultAttempts).coerceAtLeast(1)
         for (attempt in 0 until maxAttempts) {
+            var remainingCycleMs = cycleDeadlineMs - SystemClock.elapsedRealtime()
+            if (remainingCycleMs <= 0L) break
+
             if (attempt > 0) {
                 Log.w(
                     TAG,
                     "Connection retry ${attempt + 1}/$maxAttempts for ${candidate.name}${if (probeMode) " [probe]" else ""}..."
                 )
                 XrayManager.disconnect()
-                delay(if (autoBalancerCandidate) AUTO_BALANCER_RETRY_DELAY_MS else 1000L * (attempt + 1))
+                val retryDelayMs = if (autoBalancerCandidate) {
+                    AUTO_BALANCER_RETRY_DELAY_MS
+                } else {
+                    1000L * (attempt + 1)
+                }
+                if (remainingCycleMs <= retryDelayMs) break
+                delay(retryDelayMs)
             }
 
             if (useRemoteConfig && attempt > 0 && (!autoBalancerCandidate || lastTriedConfig.isNullOrBlank())) {
-                runCatching {
-                    lastTriedConfig = resolveRemoteConfig(candidate)
-                }.onFailure {
-                    Log.w(TAG, "Failed to refresh remote config on retry ${attempt + 1}: ${it.message}")
+                val refreshBudgetMs = ConnectionAttemptPolicy.attemptTimeoutMs(
+                    cycleDeadlineMs - SystemClock.elapsedRealtime()
+                )
+                if (refreshBudgetMs <= 0L) break
+                withTimeoutOrNull(refreshBudgetMs) {
+                    runCatching {
+                        lastTriedConfig = resolveRemoteConfig(candidate)
+                    }.onFailure {
+                        Log.w(TAG, "Failed to refresh remote config on retry ${attempt + 1}: ${it.message}")
+                    }
                 }
             }
 
-            val connected = withTimeoutOrNull(CANDIDATE_CONNECT_TIMEOUT_MS) {
+            remainingCycleMs = cycleDeadlineMs - SystemClock.elapsedRealtime()
+            val attemptTimeoutMs = ConnectionAttemptPolicy.attemptTimeoutMs(remainingCycleMs)
+            if (attemptTimeoutMs <= 0L) break
+            val connected = withTimeoutOrNull(attemptTimeoutMs) {
                 XrayManager.connect(
                     context = this@MyVpnService,
                     server = candidate,
@@ -1371,12 +1489,26 @@ class MyVpnService : VpnService() {
                 XrayManager.disconnect()
                 false
             }
-            if (connected && verifyStartedTunnel(candidate)) return true
+            if (connected) {
+                val verificationBudgetMs = cycleDeadlineMs - SystemClock.elapsedRealtime()
+                val verified = if (verificationBudgetMs > 0L) {
+                    withTimeoutOrNull(verificationBudgetMs) {
+                        verifyStartedTunnel(candidate, verifyTraffic = !probeMode)
+                    } ?: false
+                } else {
+                    false
+                }
+                if (verified) return true
+                XrayManager.disconnect()
+            }
+            if (!ConnectionAttemptPolicy.shouldRetry(XrayManager.connectionError, attempt, maxAttempts)) {
+                break
+            }
         }
         return false
     }
 
-    private suspend fun verifyStartedTunnel(candidate: Server): Boolean {
+    private suspend fun verifyStartedTunnel(candidate: Server, verifyTraffic: Boolean): Boolean {
         delay(POST_CONNECT_STABILIZATION_MS)
         if (!XrayManager.isConnected) {
             Logger.w(TAG, "Xray core stopped right after start for ${candidate.name}")
@@ -1387,32 +1519,27 @@ class MyVpnService : VpnService() {
             XrayManager.disconnect()
             return false
         }
+        if (!verifyTraffic) return true
+
+        if (!hasHealthySelectedOutbound(TunnelHealthPolicy.healthTargets)) {
+            Logger.w(TAG, "Туннель запущен, но контрольный HTTPS-запрос через ${candidate.name} не прошёл")
+            XrayManager.disconnect()
+            return false
+        }
+        Logger.i(TAG, "Туннель ${candidate.name} подтверждён end-to-end запросом через VPN")
         return true
     }
 
     private suspend fun runBypassServiceProbeSuite(server: Server): BypassProbeReport {
-        val targets = listOf(
-            ServiceProbeTarget("Google", "https://www.google.com/generate_204", 4),
-            ServiceProbeTarget("Google CDN", "https://www.gstatic.com/generate_204", 3),
-            ServiceProbeTarget("Telegram", "https://telegram.org/", 4),
-            ServiceProbeTarget("YouTube", "https://www.youtube.com/", 4),
-            ServiceProbeTarget("Cloudflare", "https://1.1.1.1/", 2)
-        )
+        val targets = TunnelHealthPolicy.serviceTargets
+        val latencies = probeThroughSelectedOutbound(targets)
 
         var score = 0
         var successCount = 0
         var latencySum = 0
 
-        for (target in targets) {
-            val latency = runCatching {
-                PingManager.pingHttp(
-                    urlString = target.url,
-                    method = "GET",
-                    timeoutMs = 3500,
-                    useProxy = false
-                )
-            }.getOrDefault(-1)
-
+        targets.forEachIndexed { index, target ->
+            val latency = latencies.getOrElse(index) { -1 }
             if (latency >= 0) {
                 successCount++
                 latencySum += latency
@@ -1431,25 +1558,68 @@ class MyVpnService : VpnService() {
         )
     }
 
-    private suspend fun rankBypassCandidatesByServiceReachability(candidates: List<Server>): List<Server> {
+    private suspend fun probeThroughSelectedOutbound(
+        targets: List<TunnelProbeTarget>
+    ): List<Int> = coroutineScope {
+        targets.map { target ->
+            async { probeTargetThroughSelectedOutbound(target) }
+        }.awaitAll()
+    }
+
+    private suspend fun hasHealthySelectedOutbound(targets: List<TunnelProbeTarget>): Boolean {
+        for (target in targets) {
+            if (probeTargetThroughSelectedOutbound(target) >= 0) return true
+        }
+        return false
+    }
+
+    private suspend fun probeTargetThroughSelectedOutbound(target: TunnelProbeTarget): Int =
+        runCatching {
+            PingManager.pingHttp(
+                urlString = target.url,
+                method = "GET",
+                timeoutMs = TunnelHealthPolicy.REQUEST_TIMEOUT_MS,
+                useProxy = true,
+                proxyPort = LocalProxyConfig.PORT
+            )
+        }.getOrDefault(-1)
+
+    private suspend fun rankBypassCandidatesByServiceReachability(
+        candidates: List<Server>,
+        cycleDeadlineMs: Long
+    ): List<Server> {
         val bypassCandidates = candidates.filter(::isBypassServer)
             .distinctBy { "${it.host}:${it.port}:${it.uuid}" }
         if (bypassCandidates.size < 2) return candidates
-        val bypassBlockedByDomain = false
 
         Logger.i(TAG, "Проверяем обходные локации по сервисам (Google/Telegram/YouTube)...")
         val reports = mutableListOf<BypassProbeReport>()
 
-        for (candidate in bypassCandidates.take(8)) {
-            if (bypassBlockedByDomain && !isAutoBalancerServer(candidate)) continue
+        for (candidate in bypassCandidates.take(ConnectionAttemptPolicy.MAX_RANKING_CANDIDATES)) {
+            val remainingCycleMs = cycleDeadlineMs - SystemClock.elapsedRealtime()
+            if (!ConnectionAttemptPolicy.canStartRankingProbe(remainingCycleMs)) {
+                Logger.i(TAG, "Останавливаем предварительную проверку: резервируем время на подключение")
+                break
+            }
+            val candidateKey = connectionCandidateKey(candidate)
+            if (ConnectionAttemptPolicy.isCoolingDown(
+                    failedAtMs = candidateFailedAtMs[candidateKey],
+                    nowMs = SystemClock.elapsedRealtime(),
+                    explicitSelection = false
+                )
+            ) {
+                continue
+            }
             Log.i(TAG, "Bypass probe start: ${candidate.name} (${candidate.host}:${candidate.port})")
 
             val connected = connectCandidate(
                 candidate = candidate,
-                maxAttemptsOverride = 2,
+                cycleDeadlineMs = cycleDeadlineMs,
+                maxAttemptsOverride = ConnectionAttemptPolicy.PROBE_MAX_ATTEMPTS,
                 probeMode = true
             )
             if (!connected) {
+                candidateFailedAtMs[candidateKey] = SystemClock.elapsedRealtime()
                 reports += BypassProbeReport(
                     server = candidate,
                     successCount = 0,
@@ -1461,6 +1631,11 @@ class MyVpnService : VpnService() {
 
             val report = runBypassServiceProbeSuite(candidate)
             reports += report
+            if (report.successCount == 0) {
+                candidateFailedAtMs[candidateKey] = SystemClock.elapsedRealtime()
+            } else {
+                candidateFailedAtMs.remove(candidateKey)
+            }
             Log.i(
                 TAG,
                 "Bypass probe result: ${candidate.name}, success=${report.successCount}/5, avg=${if (report.averageLatencyMs == Int.MAX_VALUE) "-1" else report.averageLatencyMs}ms, score=${report.score}"
@@ -1537,7 +1712,43 @@ class MyVpnService : VpnService() {
     }
 
     private suspend fun isNetworkRestrictedForBypass(): Boolean {
-        return false
+        if (!preferencesManager.autoBypassByNetwork) return false
+
+        val (baseline, targetServices) = coroutineScope {
+            val baselineProbe = async {
+                probeDirectReachability(ConnectionAttemptPolicy.baselineTargets)
+            }
+            val serviceProbe = async {
+                probeDirectReachability(ConnectionAttemptPolicy.restrictedServiceTargets)
+            }
+            baselineProbe.await() to serviceProbe.await()
+        }
+        val restricted = ConnectionAttemptPolicy.isRestricted(baseline, targetServices)
+        Log.i(
+            TAG,
+            "Restricted-network check: baseline=$baseline, targetServices=$targetServices, restricted=$restricted"
+        )
+        if (restricted) {
+            Logger.i(TAG, "Обнаружены сетевые ограничения; приоритет отдан обходным локациям")
+        }
+        return restricted
+    }
+
+    private suspend fun probeDirectReachability(
+        targets: List<TunnelProbeTarget>
+    ): List<Boolean> = coroutineScope {
+        targets.map { target ->
+            async {
+                runCatching {
+                    PingManager.pingHttp(
+                        urlString = target.url,
+                        method = "GET",
+                        timeoutMs = ConnectionAttemptPolicy.DIRECT_REACHABILITY_TIMEOUT_MS,
+                        useProxy = false
+                    ) >= 0
+                }.getOrDefault(false)
+            }
+        }.awaitAll()
     }
 
     private fun resolveServerForConnect(server: Server): Server {

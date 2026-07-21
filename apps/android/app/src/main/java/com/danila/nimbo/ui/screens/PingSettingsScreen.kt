@@ -33,7 +33,7 @@ fun PingSettingsScreen(
     mainViewModel: MainViewModel
 ) {
     val nebulaColors = LocalNebulaColors.current
-
+    
     val pingProtocol by preferencesManager.pingProtocolState
     val pingUrl by preferencesManager.pingUrlState
     val pingTimeout by preferencesManager.pingTimeoutState
@@ -88,41 +88,41 @@ fun PingSettingsScreen(
                 // Section: Protocol
                 GlassSection(title = "Протокол пинга", icon = Icons.AutoMirrored.Filled.CompareArrows) {
                     ProtocolItem(
-                        title = "TCP Connect",
-                        subtitle = "Проверяет, как быстро сервер принимает подключение (рекомендуется)",
+                        title = "TCP до ноды",
+                        subtitle = "Прямой Socket.connect к host:port; это не задержка интернета через VPN",
                         selected = pingProtocol == 0,
                         onClick = { preferencesManager.pingProtocol = 0 }
                     )
-
+                    
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         color = nebulaColors.textTertiary.copy(alpha = 0.1f)
                     )
-
+                    
                     ProtocolItem(
                         title = "HTTP GET",
                         subtitle = "Запрос GET (более точный для веб)",
                         selected = pingProtocol == 1,
                         onClick = { preferencesManager.pingProtocol = 1 }
                     )
-
+                    
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         color = nebulaColors.textTertiary.copy(alpha = 0.1f)
                     )
-
+                    
                     ProtocolItem(
                         title = "HTTP HEAD",
                         subtitle = "Запрос HEAD (быстрее чем GET)",
                         selected = pingProtocol == 2,
                         onClick = { preferencesManager.pingProtocol = 2 }
                     )
-
+                    
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         color = nebulaColors.textTertiary.copy(alpha = 0.1f)
                     )
-
+                    
                     ProtocolItem(
                         title = "HTTPS Strict",
                         subtitle = "TLS + HTTP ответ, лучше ловит блокировки CDN",
@@ -152,7 +152,7 @@ fun PingSettingsScreen(
                             color = nebulaColors.textTertiary,
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
-
+                        
                         NebulaInputField(
                             value = pingUrl,
                             onValueChange = { preferencesManager.pingUrl = it },
@@ -161,9 +161,9 @@ fun PingSettingsScreen(
                             singleLine = true,
                             leadingIcon = { Icon(Icons.Default.Language, null, tint = nebulaColors.accent) }
                         )
-
+                        
                         Spacer(Modifier.height(12.dp))
-
+                        
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -178,9 +178,9 @@ fun PingSettingsScreen(
                                 preferencesManager.pingUrl = "https://captive.apple.com/hotspot-detect.html"
                             }
                         }
-
+                        
                         Spacer(Modifier.height(20.dp))
-
+                        
                         // Timeout Control
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -191,7 +191,7 @@ fun PingSettingsScreen(
                                 Text("Таймаут ожидания", color = nebulaColors.textPrimary, style = MaterialTheme.typography.bodyLarge)
                                 Text("Максимум 10 секунд", style = MaterialTheme.typography.bodySmall, color = nebulaColors.textTertiary)
                             }
-
+                            
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
@@ -204,7 +204,7 @@ fun PingSettingsScreen(
                                 ) {
                                     Icon(Icons.Default.Remove, null, tint = nebulaColors.textPrimary, modifier = Modifier.size(16.dp))
                                 }
-
+                                
                                 Text(
                                     "$pingTimeout с",
                                     color = nebulaColors.textPrimary,
@@ -212,7 +212,7 @@ fun PingSettingsScreen(
                                     modifier = Modifier.padding(horizontal = 12.dp),
                                     style = MaterialTheme.typography.bodyMedium
                                 )
-
+                                
                                 IconButton(
                                     onClick = { if (pingTimeout < 10) preferencesManager.pingTimeout += 1 },
                                     modifier = Modifier.size(32.dp)
@@ -222,16 +222,16 @@ fun PingSettingsScreen(
                             }
                         }
                     }
-
+                    
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         color = nebulaColors.textTertiary.copy(alpha = 0.1f)
                     )
-
+                    
                     SettingsSwitch(
                         icon = Icons.Default.VpnLock,
-                        title = "Пинг через прокси",
-                        subtitle = "Проверять через активный туннель",
+                        title = "Через VPN",
+                        subtitle = "End-to-end HTTP до контрольного URL через выбранный outbound; требуется активный VPN",
                         checked = pingThroughProxy,
                         onCheckedChange = { preferencesManager.pingThroughProxy = it }
                     )
@@ -242,7 +242,7 @@ fun PingSettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
+                            .clickable { 
                                 preferencesManager.pingDisplayMode = (pingDisplayMode + 1) % 3
                             }
                             .padding(16.dp),
@@ -263,9 +263,9 @@ fun PingSettingsScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-
+                        
                         Spacer(Modifier.width(16.dp))
-
+                        
                         Surface(
                             color = nebulaColors.accent.copy(alpha = 0.1f),
                             shape = RoundedCornerShape(10.dp),
@@ -319,7 +319,7 @@ fun ProtocolItem(
             Text(title, color = nebulaColors.textPrimary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = nebulaColors.textTertiary)
         }
-
+        
         Box(
             modifier = Modifier
                 .size(24.dp)
@@ -360,3 +360,4 @@ fun PresetButton(text: String, selected: Boolean, modifier: Modifier = Modifier,
         )
     }
 }
+

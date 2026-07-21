@@ -59,7 +59,7 @@ fun DeviceManagementScreen(
     val profiles by mainViewModel.profilesState.collectAsState()
     val devices by mainViewModel.devicesState.collectAsState()
     val isRefreshing by mainViewModel.isRefreshingDevices.collectAsState()
-
+    
     val profile = remember(profiles, subscriptionUrl) { profiles.find { it.url == subscriptionUrl } }
     val deviceLimit = profile?.deviceLimit ?: 0
     val onlineCount = devices.size
@@ -69,11 +69,11 @@ fun DeviceManagementScreen(
     var showDeleteAllDialog by remember { mutableStateOf(false) }
     var showDeleteSelectedDialog by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
-
+    
     // Множественный выбор и режим
     var isSelectionMode by remember { mutableStateOf(false) }
     val selectedIds = remember { mutableStateListOf<String>() }
-
+    
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
 
     LaunchedEffect(subscriptionUrl) {
@@ -95,7 +95,7 @@ fun DeviceManagementScreen(
             GlassHeader(
                 title = "Устройства",
                 subtitle = if (isSelectionMode) "Выбрано: ${selectedIds.size}" else {
-                    if (deviceLimit > 0) "$onlineCount шт / $deviceLimit"
+                    if (deviceLimit > 0) "$onlineCount шт / $deviceLimit" 
                     else "$onlineCount шт / ∞"
                 },
                 icon = Icons.Default.Devices,
@@ -114,7 +114,7 @@ fun DeviceManagementScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // ───── REFINED MORPHIC BUTTONS ─────
-
+                        
                         // Кнопка "Выбрать всё / Снять выбор" (Появляется в режиме выбора)
                         AnimatedVisibility(
                             visible = isSelectionMode,
@@ -125,7 +125,7 @@ fun DeviceManagementScreen(
                             MorphicHeaderButton(
                                 icon = if (allSelected) Icons.Default.CheckBoxOutlineBlank else Icons.Default.SelectAll,
                                 tint = nebulaColors.accent,
-                                onClick = {
+                                onClick = { 
                                     if (allSelected) {
                                         selectedIds.clear()
                                     } else {
@@ -140,7 +140,7 @@ fun DeviceManagementScreen(
                         MorphicHeaderButton(
                             icon = if (isSelectionMode && selectedIds.isNotEmpty()) Icons.Default.DeleteSweep else Icons.Default.Delete,
                             color = Color(0xFFFF5252),
-                            onClick = {
+                            onClick = { 
                                 if (isSelectionMode) {
                                     if (selectedIds.isNotEmpty()) {
                                         showDeleteSelectedDialog = true
@@ -165,8 +165,8 @@ fun DeviceManagementScreen(
                                 if (targetSelectionMode) {
                                     MorphicHeaderButton(
                                         icon = Icons.Default.Close,
-                                        onClick = {
-                                            isSelectionMode = false
+                                        onClick = { 
+                                            isSelectionMode = false 
                                             selectedIds.clear()
                                         }
                                     )
@@ -225,11 +225,11 @@ fun DeviceManagementScreen(
                     // Фильтруем дубликаты по ID для безопасности (защита от краша LazyColumn)
                     val uniqueDevices = devices.distinctBy { it.id }
                     val customNames = mainViewModel.preferencesManager.getCustomDeviceNames()
-
+                    
                     items(uniqueDevices, key = { it.id }) { device ->
                         ReorderableItem(reorderableState, key = device.id) { isDragging ->
                             val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp)
-
+                            
                             val isSelected = selectedIds.contains(device.id)
                             DeviceItem(
                                 device = device,
@@ -255,9 +255,9 @@ fun DeviceManagementScreen(
                                         // Обычное поведение (например, детали, если были бы)
                                     }
                                 },
-                                onRename = {
+                                onRename = { 
                                     newName = device.name
-                                    showRenameDialog = device
+                                    showRenameDialog = device 
                                 },
                                 onDelete = { showDeleteDialog = device }
                             )
@@ -366,14 +366,14 @@ fun DeviceItem(
     val deviceIcon = remember(device.name) {
         val name = device.name.lowercase()
         when {
-            name.contains("windows") || name.contains("macos") || name.contains("linux") ||
+            name.contains("windows") || name.contains("macos") || name.contains("linux") || 
             name.contains("pc") || name.contains("desktop") || name.contains("macbook") -> Icons.Default.Computer
-            name.contains("android") || name.contains("iphone") || name.contains("ios") ||
+            name.contains("android") || name.contains("iphone") || name.contains("ios") || 
             name.contains("mobile") || name.contains("phone") || name.contains("ipad") -> Icons.Default.Smartphone
             else -> Icons.Default.Devices
         }
     }
-
+    
     val scale by animateFloatAsState(
         targetValue = if (isDragging) 1.03f else 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
@@ -472,7 +472,7 @@ fun DeviceItem(
                             .background(nebulaColors.accent.copy(alpha = pulseAlpha), RoundedCornerShape(12.dp))
                     )
                 }
-
+                
                 Box(
                     modifier = Modifier
                         .size(42.dp)
@@ -509,7 +509,7 @@ fun DeviceItem(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
-
+                    
                     if (isCustomName) {
                         Spacer(Modifier.width(8.dp))
                         Surface(
@@ -533,16 +533,16 @@ fun DeviceItem(
                         }
                     }
                 }
-
+                
                 Spacer(Modifier.height(2.dp))
-
+                
                 Text(
                     "Активен: $lastSeen",
                     color = nebulaColors.textTertiary,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1
                 )
-
+                
                 if (device.hwid != null) {
                     Text(
                         "HWID: ${device.hwid.take(12)}...",
@@ -572,7 +572,7 @@ fun DeviceItem(
             } else {
                 Spacer(Modifier.width(8.dp))
             }
-
+            
             // Actions
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MorphicSmallButton(Icons.Outlined.Edit, onRename, nebulaColors.accent)
@@ -591,7 +591,7 @@ fun MorphicSmallButton(icon: ImageVector, onClick: () -> Unit, tint: Color) {
         shape = RoundedCornerShape(12.dp),
         color = nebulaColors.textPrimary.copy(alpha = 0.08f),
         border = androidx.compose.foundation.BorderStroke(
-            1.dp,
+            1.dp, 
             Brush.verticalGradient(listOf(nebulaColors.textPrimary.copy(alpha = 0.15f), Color.Transparent))
         )
     ) {
@@ -653,7 +653,7 @@ fun MorphicHeaderButton(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val rotation by animateFloatAsState(
-        targetValue = if (isLoading) 3600f else 0f,
+        targetValue = if (isLoading) 3600f else 0f, 
         animationSpec = if (isLoading) infiniteRepeatable(
             animation = tween(10000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
@@ -682,3 +682,4 @@ fun MorphicHeaderButton(
         }
     }
 }
+

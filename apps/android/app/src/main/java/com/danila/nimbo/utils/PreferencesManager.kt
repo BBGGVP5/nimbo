@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import com.danila.nimbo.BuildConfig
 import com.danila.nimbo.model.BuiltinRoutingProfiles
 import com.danila.nimbo.model.RoutingProfile
+import com.danila.nimbo.model.UpdateChannel
 import com.danila.nimbo.ui.screens.SubscriptionProfile
 import com.danila.nimbo.model.HomeWidget
 import com.danila.nimbo.model.WidgetRegistry
@@ -74,6 +75,15 @@ class PreferencesManager(context: Context) {
         private const val KEY_LAST_UPDATE_NOTIFICATION_TIME = "last_update_notification_time"
         private const val KEY_UPDATE_DIALOG_SKIPPED_VERSION = "update_dialog_skipped_version"
         private const val KEY_LAST_UPDATE_CHECK_TIME = "last_update_check_time"
+        private const val KEY_UPDATE_CHANNEL = "update_channel"
+        private const val KEY_INSTALLED_UPDATE_ARTIFACT_ID = "installed_update_artifact_id"
+        private const val KEY_LAST_UPDATE_NOTIFIED_ARTIFACT_ID = "last_update_notified_artifact_id"
+        private const val KEY_UPDATE_DIALOG_SKIPPED_ARTIFACT_ID = "update_dialog_skipped_artifact_id"
+        private const val KEY_PENDING_UPDATE_ARTIFACT_ID = "pending_update_artifact_id"
+        private const val KEY_PENDING_UPDATE_VERSION_NAME = "pending_update_version_name"
+        private const val KEY_PENDING_UPDATE_VERSION_CODE = "pending_update_version_code"
+        private const val KEY_PENDING_UPDATE_STARTED_AT = "pending_update_started_at"
+        private const val KEY_PENDING_UPDATE_PACKAGE_TIME = "pending_update_package_time"
         private const val KEY_PING_TYPE = "ping_type"
         private const val KEY_NOTIFICATION_HISTORY = "notification_history"
         private const val KEY_LAST_PING_TIME = "last_ping_time"
@@ -215,7 +225,7 @@ class PreferencesManager(context: Context) {
     val globalBrightnessState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_BRIGHTNESS, 1.0f).coerceIn(0.5f, 2.0f))
     val globalTransparencyState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_TRANSPARENCY, 0.0f).coerceIn(0.0f, 1.0f))
     val globalBlurState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_BLUR, 25.0f).coerceIn(0.0f, 80.0f))
-    val globalCornersState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 4.0f))
+    val globalCornersState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f))
 
     val pingProtocolState = mutableStateOf(sharedPreferences.getInt(KEY_PING_PROTOCOL, 0))
     val pingUrlState = mutableStateOf(sharedPreferences.getString(KEY_PING_URL, "https://www.gstatic.com/generate_204") ?: "https://www.gstatic.com/generate_204")
@@ -480,7 +490,7 @@ class PreferencesManager(context: Context) {
             KEY_GLOBAL_BRIGHTNESS -> globalBrightnessState.value = prefs.getFloat(KEY_GLOBAL_BRIGHTNESS, 1.0f).coerceIn(0.5f, 2.0f)
             KEY_GLOBAL_TRANSPARENCY -> globalTransparencyState.value = prefs.getFloat(KEY_GLOBAL_TRANSPARENCY, 0.0f).coerceIn(0.0f, 1.0f)
             KEY_GLOBAL_BLUR -> globalBlurState.value = prefs.getFloat(KEY_GLOBAL_BLUR, 25.0f).coerceIn(0.0f, 80.0f)
-            KEY_GLOBAL_CORNERS -> globalCornersState.value = prefs.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 4.0f)
+            KEY_GLOBAL_CORNERS -> globalCornersState.value = prefs.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f)
             KEY_PING_PROTOCOL -> pingProtocolState.value = prefs.getInt(KEY_PING_PROTOCOL, 0)
             KEY_PING_URL -> pingUrlState.value = prefs.getString(KEY_PING_URL, "https://www.gstatic.com/generate_204") ?: "https://www.gstatic.com/generate_204"
             KEY_PING_TIMEOUT -> pingTimeoutState.value = prefs.getInt(KEY_PING_TIMEOUT, 3)
@@ -535,7 +545,7 @@ class PreferencesManager(context: Context) {
         globalBrightnessState.value = sharedPreferences.getFloat(KEY_GLOBAL_BRIGHTNESS, 1.0f).coerceIn(0.5f, 2.0f)
         globalTransparencyState.value = sharedPreferences.getFloat(KEY_GLOBAL_TRANSPARENCY, 0.0f).coerceIn(0.0f, 1.0f)
         globalBlurState.value = sharedPreferences.getFloat(KEY_GLOBAL_BLUR, 25.0f).coerceIn(0.0f, 80.0f)
-        globalCornersState.value = sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 4.0f)
+        globalCornersState.value = sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f)
 
         pingProtocolState.value = sharedPreferences.getInt(KEY_PING_PROTOCOL, 0)
         pingUrlState.value = sharedPreferences.getString(KEY_PING_URL, "https://www.gstatic.com/generate_204") ?: "https://www.gstatic.com/generate_204"
@@ -812,7 +822,7 @@ class PreferencesManager(context: Context) {
                     } else {
                         server
                     }
-                    val key = keyServer.pingKey()
+                    val key = keyServer.pingMeasurementKey()
                     val value = SavedServerPing(
                         ping = ping,
                         timestamp = server.pingTimestamp ?: now
@@ -847,7 +857,8 @@ class PreferencesManager(context: Context) {
                 } else {
                     server
                 }
-                val saved = cache[keyServer.pingKey()] ?: cache[server.pingKey()]
+                val saved = cache[keyServer.pingMeasurementKey()]
+                    ?: cache[server.pingMeasurementKey()]
                 if (saved != null && saved.ping >= 0) {
                     changed = true
                     server.copy(ping = saved.ping, pingTimestamp = saved.timestamp)
@@ -1150,6 +1161,52 @@ class PreferencesManager(context: Context) {
     var lastUpdateCheckTime: Long
         get() = sharedPreferences.getLong(KEY_LAST_UPDATE_CHECK_TIME, 0L)
         set(value) = sharedPreferences.edit().putLong(KEY_LAST_UPDATE_CHECK_TIME, value).apply()
+
+    var updateChannel: UpdateChannel
+        get() = UpdateChannel.fromPreference(sharedPreferences.getString(KEY_UPDATE_CHANNEL, null))
+        set(value) = sharedPreferences.edit().putString(KEY_UPDATE_CHANNEL, value.preferenceValue).apply()
+
+    var installedUpdateArtifactId: String?
+        get() = sharedPreferences.getString(KEY_INSTALLED_UPDATE_ARTIFACT_ID, null)
+        set(value) = sharedPreferences.edit().putString(KEY_INSTALLED_UPDATE_ARTIFACT_ID, value).apply()
+
+    var lastUpdateNotifiedArtifactId: String?
+        get() = sharedPreferences.getString(KEY_LAST_UPDATE_NOTIFIED_ARTIFACT_ID, null)
+        set(value) = sharedPreferences.edit().putString(KEY_LAST_UPDATE_NOTIFIED_ARTIFACT_ID, value).apply()
+
+    var updateDialogSkippedArtifactId: String?
+        get() = sharedPreferences.getString(KEY_UPDATE_DIALOG_SKIPPED_ARTIFACT_ID, null)
+        set(value) = sharedPreferences.edit().putString(KEY_UPDATE_DIALOG_SKIPPED_ARTIFACT_ID, value).apply()
+
+    var pendingUpdateArtifactId: String?
+        get() = sharedPreferences.getString(KEY_PENDING_UPDATE_ARTIFACT_ID, null)
+        set(value) = sharedPreferences.edit().putString(KEY_PENDING_UPDATE_ARTIFACT_ID, value).apply()
+
+    var pendingUpdateVersionName: String?
+        get() = sharedPreferences.getString(KEY_PENDING_UPDATE_VERSION_NAME, null)
+        set(value) = sharedPreferences.edit().putString(KEY_PENDING_UPDATE_VERSION_NAME, value).apply()
+
+    var pendingUpdateVersionCode: Int
+        get() = sharedPreferences.getInt(KEY_PENDING_UPDATE_VERSION_CODE, 0)
+        set(value) = sharedPreferences.edit().putInt(KEY_PENDING_UPDATE_VERSION_CODE, value).apply()
+
+    var pendingUpdateStartedAt: Long
+        get() = sharedPreferences.getLong(KEY_PENDING_UPDATE_STARTED_AT, 0L)
+        set(value) = sharedPreferences.edit().putLong(KEY_PENDING_UPDATE_STARTED_AT, value).apply()
+
+    var pendingUpdatePackageTime: Long
+        get() = sharedPreferences.getLong(KEY_PENDING_UPDATE_PACKAGE_TIME, 0L)
+        set(value) = sharedPreferences.edit().putLong(KEY_PENDING_UPDATE_PACKAGE_TIME, value).apply()
+
+    fun clearPendingUpdate() {
+        sharedPreferences.edit()
+            .remove(KEY_PENDING_UPDATE_ARTIFACT_ID)
+            .remove(KEY_PENDING_UPDATE_VERSION_NAME)
+            .remove(KEY_PENDING_UPDATE_VERSION_CODE)
+            .remove(KEY_PENDING_UPDATE_STARTED_AT)
+            .remove(KEY_PENDING_UPDATE_PACKAGE_TIME)
+            .apply()
+    }
 
     fun isOnboardingComplete(): Boolean {
         val result = sharedPreferences.getBoolean(KEY_ONBOARDING_COMPLETE, false)
@@ -2060,9 +2117,9 @@ class PreferencesManager(context: Context) {
         }
 
     var globalCorners: Float
-        get() = sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 4.0f)
+        get() = sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f)
         set(value) {
-            val safe = value.coerceIn(0.25f, 4.0f)
+            val safe = value.coerceIn(0.25f, 2.0f)
             sharedPreferences.edit().putFloat(KEY_GLOBAL_CORNERS, safe).apply()
             globalCornersState.value = safe
         }
