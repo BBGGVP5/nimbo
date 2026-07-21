@@ -60,6 +60,7 @@ import com.danila.nimbo.ui.components.GlassHeader
 import com.danila.nimbo.ui.components.NebulaInputField
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.utils.PreferencesManager
+import com.danila.nimbo.vpn.LocalProxyConfig
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CompletableDeferred
@@ -249,7 +250,8 @@ fun PingToolScreen(onNavigateBack: () -> Unit) {
                 protocol = preferencesManager.pingProtocol.toPingProtocol(),
                 testUrl = "https://${parsed.host}/",
                 timeoutMs = preferencesManager.pingTimeout.coerceIn(1, 10) * 1000,
-                useProxy = preferencesManager.pingThroughProxy
+                useProxy = preferencesManager.pingThroughProxy,
+                proxyPort = LocalProxyConfig.PORT
             )
             val attempts = mutableListOf<Int>()
             repeat(4) { index ->
@@ -1339,3 +1341,4 @@ private fun smoothSpeed(previous: Float, next: Double): Float {
 }
 
 private fun Double.formatOne(): String = String.format(java.util.Locale.US, "%.1f", this).replace('.', ',')
+

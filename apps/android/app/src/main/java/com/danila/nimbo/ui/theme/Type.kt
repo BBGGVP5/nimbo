@@ -124,3 +124,4 @@ fun scaledTypography(scale: Float): Typography = Typography(
     labelMedium = Typography.labelMedium.scaledBy(scale),
     labelSmall = Typography.labelSmall.scaledBy(scale)
 )
+

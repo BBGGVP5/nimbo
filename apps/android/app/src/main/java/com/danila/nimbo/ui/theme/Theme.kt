@@ -441,7 +441,7 @@ fun getNebulaColors(
             else -> AccentBlue
         }
     }
-
+    
     val textSecondaryAlpha = if (highContrastUi) 0.86f else 0.66f
     val textTertiaryAlpha = if (highContrastUi) 0.72f else 0.42f
     val cardAlpha = when {

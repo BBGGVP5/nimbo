@@ -187,7 +187,7 @@ class HomeWidgetViewModel(application: Application) : AndroidViewModel(applicati
         _hiddenWidgets.value = hiddenList
 
         val activeList = _activeWidgets.value.toMutableList()
-
+        
         // Восстанавливаем на сохранённую позицию или в конец
         val restorePosition = widget.position.coerceIn(0, activeList.size)
         activeList.add(restorePosition, widget.copy(isVisible = true))
@@ -205,7 +205,7 @@ class HomeWidgetViewModel(application: Application) : AndroidViewModel(applicati
         // Проверяем есть ли скрытый виджет этого типа
         val hiddenWidget = _hiddenWidgets.value.find { it.type == type }
         val position = hiddenWidget?.position ?: _activeWidgets.value.size
-
+        
         val hiddenList = _hiddenWidgets.value.toMutableList()
         hiddenList.removeAll { it.id == widgetId }
         _hiddenWidgets.value = hiddenList
@@ -224,3 +224,4 @@ class HomeWidgetViewModel(application: Application) : AndroidViewModel(applicati
         _activeWidgets.value.find { it.id == widgetId }
             ?: _hiddenWidgets.value.find { it.id == widgetId }
 }
+

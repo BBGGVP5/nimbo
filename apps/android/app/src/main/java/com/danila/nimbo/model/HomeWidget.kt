@@ -168,3 +168,4 @@ object WidgetRegistry {
         return result.mapIndexed { index, w -> w.copy(position = index) }
     }
 }
+

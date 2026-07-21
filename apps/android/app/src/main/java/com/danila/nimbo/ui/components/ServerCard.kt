@@ -61,18 +61,18 @@ private fun leadingCountryToken(name: String): MatchResult? {
 fun extractFlagEmoji(name: String): String {
     val trimmed = name.trimStart()
     if (trimmed.isEmpty()) return ""
-
+    
     // Флаги состоят из 2 региональных индикаторов (каждый - суррогатная пара)
     // В строке это 4 Char или 2 codePoint
     val firstCodePoint = trimmed.codePointAt(0)
-
+    
     // Проверяем, является ли первый codePoint региональным индикатором
     // Regional Indicator Symbols: U+1F1E6 - U+1F1FF
     if (firstCodePoint in 0x1F1E6..0x1F1FF) {
         val secondCodePoint = if (Character.charCount(firstCodePoint) < trimmed.length) {
             trimmed.codePointAt(Character.charCount(firstCodePoint))
         } else -1
-
+        
         if (secondCodePoint in 0x1F1E6..0x1F1FF) {
             // Возвращаем оба символа флага
             return String(Character.toChars(firstCodePoint)) + String(Character.toChars(secondCodePoint))
@@ -129,7 +129,7 @@ fun ServerCard(server: Server, ping: Int? = null, onClick: () -> Unit, onPing: (
         ElementStyleMode.OUTLINED -> Color.Transparent
         ElementStyleMode.SOFT_NEO -> nebulaColors.surface.copy(alpha = 0.76f)
     }
-
+    
     Card(
         onClick = onClick,
         modifier = Modifier
@@ -252,3 +252,4 @@ fun ServerCard(server: Server, ping: Int? = null, onClick: () -> Unit, onPing: (
         }
     }
 }
+

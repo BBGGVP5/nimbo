@@ -264,12 +264,12 @@ fun AboutScreen(
                             Spacer(Modifier.width(10.dp))
                             Text("Устройство", style = MaterialTheme.typography.titleMedium, color = nebulaColors.textPrimary)
                         }
-
+                        
                         HorizontalDivider(
                             modifier = Modifier.padding(horizontal = 14.dp),
                             color = nebulaColors.textTertiary.copy(alpha = 0.1f)
                         )
-
+                        
                         val hwid = com.danila.nimbo.utils.AppVersionManager.getHWID(context)
 
                         AboutInfoRow(
@@ -277,7 +277,7 @@ fun AboutScreen(
                             label = "ОС",
                             value = "Android ${android.os.Build.VERSION.RELEASE}"
                         )
-
+                        
                         HorizontalDivider(
                             modifier = Modifier.padding(horizontal = 14.dp),
                             color = nebulaColors.textTertiary.copy(alpha = 0.1f)
@@ -309,7 +309,7 @@ fun AboutScreen(
                                     Text(hwid, style = MaterialTheme.typography.bodySmall, color = nebulaColors.textTertiary)
                                 }
                             }
-                            IconButton(onClick = {
+                            IconButton(onClick = { 
                                 clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText("HWID", hwid))
                                 android.widget.Toast.makeText(context, "Скопировано", android.widget.Toast.LENGTH_SHORT).show()
                             }) {

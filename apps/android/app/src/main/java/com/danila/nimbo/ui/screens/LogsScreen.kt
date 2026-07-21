@@ -47,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import com.danila.nimbo.model.LogEntry
 import com.danila.nimbo.model.LogLevel
 import com.danila.nimbo.ui.i18n.t
+import com.danila.nimbo.ui.i18n.LogPresentation
 import com.danila.nimbo.ui.components.NebulaMorphicDialog
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.ui.theme.NebulaColors
@@ -90,6 +92,10 @@ fun LogsScreen(onNavigateBack: () -> Unit) {
     val nebulaColors = LocalNebulaColors.current
     val liveLogs by Logger.logEntries.collectAsState()
     val context = LocalContext.current
+    val isEnglish = LocalConfiguration.current.locales[0].language == "en"
+    val tagMapper: (String) -> String = remember(isEnglish) {
+        { tag -> LogPresentation.source(tag, isEnglish) }
+    }
     val copiedMessage = t("Логи скопированы", "Logs copied")
     val exportedMessage = t("Диагностика сохранена", "Diagnostics saved")
     val exportErrorMessage = t("Не удалось сохранить диагностику", "Could not save diagnostics")
@@ -133,7 +139,7 @@ fun LogsScreen(onNavigateBack: () -> Unit) {
     val q = query.trim().lowercase()
     val filtered = source.filter { e ->
         (levelFilter == null || e.level == levelFilter) &&
-            (q.isBlank() || e.message.lowercase().contains(q) || e.tag.lowercase().contains(q))
+            (q.isBlank() || e.message.lowercase().contains(q) || tagMapper(e.tag).lowercase().contains(q))
     }
     // Бейджи должны описывать текущий список на экране. Раньше они считались
     // от полного журнала и могли показывать, например, INFO 12 при «Показано 0».
@@ -251,7 +257,7 @@ fun LogsScreen(onNavigateBack: () -> Unit) {
             ) {
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(
-                    ClipData.newPlainText("Nimbo diagnostics", Logger.getLogsAsText(filtered))
+                    ClipData.newPlainText("Nimbo diagnostics", Logger.getLogsAsText(filtered, tagMapper))
                 )
                 Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
             }
@@ -260,7 +266,7 @@ fun LogsScreen(onNavigateBack: () -> Unit) {
                 label = t("Сохранить", "Save"),
                 modifier = Modifier.weight(1f)
             ) {
-                pendingExport = Logger.buildDiagnosticReport(context, filtered)
+                pendingExport = Logger.buildDiagnosticReport(context, filtered, tagMapper)
                 exportLauncher.launch("Nimbo_diagnostics_${System.currentTimeMillis()}.txt")
             }
             LogsActionTile(
@@ -270,7 +276,7 @@ fun LogsScreen(onNavigateBack: () -> Unit) {
             ) {
                 shareDiagnosticReport(
                     context = context,
-                    report = Logger.buildDiagnosticReport(context, filtered),
+                    report = Logger.buildDiagnosticReport(context, filtered, tagMapper),
                     chooserTitle = shareTitle,
                     errorMessage = shareErrorMessage
                 )
@@ -329,7 +335,7 @@ fun LogsScreen(onNavigateBack: () -> Unit) {
                     contentPadding = PaddingValues(vertical = 4.dp)
                 ) {
                     itemsIndexed(filtered, key = { _, it -> it.id }) { index, log ->
-                        LogRow(log, showDivider = index < filtered.lastIndex)
+                        LogRow(log, tagMapper(log.tag), showDivider = index < filtered.lastIndex)
                     }
                 }
             }
@@ -575,7 +581,7 @@ private fun LogsCheck(label: String, checked: Boolean, onToggle: () -> Unit) {
 }
 
 @Composable
-private fun LogRow(log: LogEntry, showDivider: Boolean) {
+private fun LogRow(log: LogEntry, source: String, showDivider: Boolean) {
     val nebulaColors = LocalNebulaColors.current
     val levelColor = logLevelColor(log.level)
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -599,7 +605,7 @@ private fun LogRow(log: LogEntry, showDivider: Boolean) {
             Spacer(Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = log.tag,
+                    text = source,
                     color = levelColor.copy(alpha = 0.86f),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,

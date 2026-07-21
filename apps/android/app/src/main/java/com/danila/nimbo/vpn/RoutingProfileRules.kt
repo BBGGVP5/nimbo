@@ -36,18 +36,42 @@ object RoutingProfileRules {
         ips: List<String>?,
         outboundTag: String
     ) {
-        val normalizedDomains = domains.orEmpty().map(String::trim).filter(String::isNotBlank)
-        val normalizedIps = ips.orEmpty().map(String::trim).filter(String::isNotBlank)
-        if (normalizedDomains.isEmpty() && normalizedIps.isEmpty()) return
-
-        put(JSONObject().apply {
-            put("type", "field")
-            put("inboundTag", JSONArray().put("tun-in"))
-            if (normalizedDomains.isNotEmpty()) put("domain", JSONArray(normalizedDomains))
-            if (normalizedIps.isNotEmpty()) put("ip", JSONArray(normalizedIps))
-            put("outboundTag", outboundTag)
-        })
+        val rawDomains = domains.orEmpty().map(String::trim).filter(String::isNotBlank)
+        val normalizedDomains = rawDomains.filterNot(::isIpSelector)
+        val normalizedIps = (ips.orEmpty() + rawDomains.filter(::isIpSelector))
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+        if (normalizedDomains.isNotEmpty()) {
+            addDomainRule(normalizedDomains, outboundTag)
+        }
+        if (normalizedIps.isNotEmpty()) {
+            addIpRule(normalizedIps, outboundTag)
+        }
     }
+
+    private fun JSONArray.addDomainRule(domains: List<String>, outboundTag: String) {
+        put(
+            JSONObject()
+                .put("type", "field")
+                .put("inboundTag", JSONArray().put("tun-in"))
+                .put("domain", JSONArray(domains))
+                .put("outboundTag", outboundTag)
+        )
+    }
+
+    private fun JSONArray.addIpRule(ips: List<String>, outboundTag: String) {
+        put(
+            JSONObject()
+                .put("type", "field")
+                .put("inboundTag", JSONArray().put("tun-in"))
+                .put("ip", JSONArray(ips))
+                .put("outboundTag", outboundTag)
+        )
+    }
+
+    private fun isIpSelector(value: String): Boolean =
+        value.startsWith("geoip:", ignoreCase = true)
 
     private enum class RuleKind { BLOCK, PROXY, DIRECT }
 }

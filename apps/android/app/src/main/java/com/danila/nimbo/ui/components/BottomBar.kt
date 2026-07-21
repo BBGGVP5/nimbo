@@ -125,7 +125,7 @@ fun BottomBar(navController: NavController) {
             }
         }
     }
-
+    
     // Анимация ширины панели
     val panelWidth by animateFloatAsState(
         targetValue = if (hasSelectedWithText) 0.95f else 0.6f,
@@ -181,7 +181,7 @@ fun BottomBar(navController: NavController) {
                     panelShape
                 )
         )
-
+        
         // Основная панель с кнопками и анимированным фоном
         Row(
             modifier = Modifier
@@ -250,7 +250,7 @@ fun BottomBar(navController: NavController) {
                 modifier = Modifier.weight(1f)
             )
         }
-
+        
         // Верхний блик для эффекта стекла
         Box(
             modifier = Modifier

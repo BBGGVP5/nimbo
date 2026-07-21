@@ -44,3 +44,4 @@ val StatusConnecting = AccentBlue
 // Shadow colors
 val GlowCyan = Color(0x407C5DFA)
 val GlowPurple = Color(0x409B8DF5)
+

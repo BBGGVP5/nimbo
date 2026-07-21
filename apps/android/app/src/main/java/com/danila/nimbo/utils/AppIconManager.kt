@@ -207,3 +207,4 @@ object AppIconManager {
         }
     }
 }
+

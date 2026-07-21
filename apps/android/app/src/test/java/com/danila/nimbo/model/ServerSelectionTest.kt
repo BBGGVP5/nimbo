@@ -56,6 +56,30 @@ class ServerSelectionTest {
         assertNotEquals(lastPing.pingKey(), leastLoaded.pingKey())
     }
 
+    @Test
+    fun pingMeasurementsRemainIndependentForNamedNodesOnSameEndpoint() {
+        val cdnA = Server(
+            name = "CDN A",
+            host = "shared.example.com",
+            port = 443,
+            uuid = "shared-user-id",
+            protocol = "vless",
+            profileUrl = "https://example.com/sub",
+            network = "tcp"
+        )
+        val cdnB = cdnA.copy(name = "CDN B")
+
+        assertNotEquals(cdnA.pingMeasurementKey(), cdnB.pingMeasurementKey())
+    }
+
+    @Test
+    fun remoteTemplatesWithDifferentRoutesHaveIndependentPingMeasurements() {
+        val routeA = remoteServer(templateUuid = "route-a", templateName = "CDN A")
+        val routeB = remoteServer(templateUuid = "route-b", templateName = "CDN B")
+
+        assertNotEquals(routeA.pingMeasurementKey(), routeB.pingMeasurementKey())
+    }
+
     private fun remoteServer(
         templateUuid: String,
         templateName: String

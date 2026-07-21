@@ -95,3 +95,4 @@ fun Modifier.bounceScrollAnimation(): Modifier = composed(
         .nestedScroll(nestedScrollConnection)
         .graphicsLayer { scaleX = scale.value; scaleY = scale.value }
 }
+

@@ -9,3 +9,4 @@ data class NotificationItem(
     val timestamp: Long = System.currentTimeMillis(),
     val type: NotificationType = NotificationType.NORMAL
 )
+

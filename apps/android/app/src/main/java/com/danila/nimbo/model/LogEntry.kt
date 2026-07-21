@@ -18,3 +18,4 @@ enum class LogLevel {
     WARNING,
     ERROR
 }
+

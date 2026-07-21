@@ -62,15 +62,15 @@ fun NebulaMorphicDialog(
     val configuration = LocalConfiguration.current
     val maxDialogHeight = (configuration.screenHeightDp * 0.86f).dp
     var isVisible by remember { mutableStateOf(false) }
-
+    
     val cornerScale = LocalGlobalCornerRadius.current
     val blurRadius = LocalGlobalBlurRadius.current
     val reducedTransparency = LocalReducedTransparencyEnabled.current
-
+    
     val baseShape = RoundedCornerShape(32.dp)
     val resolvedShape = scaleRoundedCornerShape(baseShape, cornerScale)
     val finalBlur = if (reducedTransparency) 0.dp else blurRadius.dp
-
+    
     LaunchedEffect(Unit) {
         isVisible = true
     }
@@ -242,3 +242,4 @@ fun NebulaMorphicDialog(
         }
     }
 }
+

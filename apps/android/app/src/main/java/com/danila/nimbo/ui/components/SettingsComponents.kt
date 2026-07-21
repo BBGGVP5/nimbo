@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -102,6 +103,7 @@ fun SettingsSwitch(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val elementStyle = LocalElementStyleMode.current
+    val isLight = nebulaColors.background.luminance() > 0.5f
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -159,22 +161,22 @@ fun SettingsSwitch(
             enabled = enabled,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = nebulaColors.accent,
+                checkedThumbColor = if (isLight) Color.White else nebulaColors.accent,
                 checkedTrackColor = when (elementStyle) {
-                    ElementStyleMode.MATERIAL3 -> nebulaColors.accent.copy(alpha = 0.45f)
-                    ElementStyleMode.NOTHING_DOTS -> nebulaColors.accent.copy(alpha = 0.25f)
+                    ElementStyleMode.MATERIAL3 -> nebulaColors.accent.copy(alpha = if (isLight) 0.92f else 0.45f)
+                    ElementStyleMode.NOTHING_DOTS -> nebulaColors.accent.copy(alpha = if (isLight) 0.86f else 0.25f)
                     ElementStyleMode.OUTLINED -> Color.Transparent
-                    ElementStyleMode.SOFT_NEO -> nebulaColors.accent.copy(alpha = 0.34f)
-                    else -> nebulaColors.accent.copy(alpha = 0.3f)
+                    ElementStyleMode.SOFT_NEO -> nebulaColors.accent.copy(alpha = if (isLight) 0.88f else 0.34f)
+                    else -> nebulaColors.accent.copy(alpha = if (isLight) 0.9f else 0.3f)
                 },
-                uncheckedThumbColor = if (elementStyle == ElementStyleMode.OUTLINED) nebulaColors.onSurface.copy(alpha = 0.55f) else nebulaColors.textTertiary,
+                uncheckedThumbColor = if (isLight) Color.White else if (elementStyle == ElementStyleMode.OUTLINED) nebulaColors.onSurface.copy(alpha = 0.55f) else nebulaColors.textTertiary,
                 uncheckedTrackColor = when (elementStyle) {
                     ElementStyleMode.OUTLINED -> Color.Transparent
-                    ElementStyleMode.SOFT_NEO -> nebulaColors.onSurface.copy(alpha = 0.14f)
-                    else -> nebulaColors.textTertiary.copy(alpha = 0.2f)
+                    ElementStyleMode.SOFT_NEO -> nebulaColors.onSurface.copy(alpha = if (isLight) 0.32f else 0.14f)
+                    else -> nebulaColors.textTertiary.copy(alpha = if (isLight) 0.48f else 0.2f)
                 },
-                checkedBorderColor = if (elementStyle == ElementStyleMode.OUTLINED) nebulaColors.accent.copy(alpha = 0.5f) else Color.Transparent,
-                uncheckedBorderColor = if (elementStyle == ElementStyleMode.OUTLINED) nebulaColors.onSurface.copy(alpha = 0.3f) else Color.Transparent
+                checkedBorderColor = if (elementStyle == ElementStyleMode.OUTLINED || isLight) nebulaColors.accent.copy(alpha = 0.6f) else Color.Transparent,
+                uncheckedBorderColor = if (elementStyle == ElementStyleMode.OUTLINED || isLight) nebulaColors.textSecondary.copy(alpha = 0.6f) else Color.Transparent
             )
         )
     }
@@ -488,3 +490,4 @@ private fun settingsRowBackground(
         )
     )
 }
+

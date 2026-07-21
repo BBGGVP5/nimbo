@@ -18,36 +18,36 @@ object SecureStorage {
     // ВРЕМЕННО: Токен хранится в зашифрованном виде (Base64)
     // В продакшене используйте Android Keystore
     private const val ENCRYPTED_TOKEN = "" // Вставьте зашифрованный токен здесь
-
+    
     // ВРЕМЕННО: API URL
     private const val API_BASE_URL = "" // Вставьте URL вашей панели Remnawave
-
+    
     fun getRemnawaveToken(): String? {
         return if (ENCRYPTED_TOKEN.isNotEmpty()) {
             // Здесь должна быть дешифровка
             ENCRYPTED_TOKEN
         } else null
     }
-
+    
     fun getRemnawaveApiUrl(): String? {
         return if (API_BASE_URL.isNotEmpty()) {
             API_BASE_URL
         } else null
     }
-
+    
     // Для первоначальной настройки
     fun saveToken(context: Context, token: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val encrypted = encrypt(token, context)
         prefs.edit().putString(KEY_ALIAS, encrypted).apply()
     }
-
+    
     fun getToken(context: Context): String? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val encrypted = prefs.getString(KEY_ALIAS, null) ?: return null
         return decrypt(encrypted, context)
     }
-
+    
     private fun encrypt(data: String, context: Context): String {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val key = getOrCreateKey(context)
@@ -57,7 +57,7 @@ object SecureStorage {
         val encrypted = cipher.doFinal(data.toByteArray())
         return Base64.encodeToString(iv + encrypted, Base64.DEFAULT)
     }
-
+    
     private fun decrypt(data: String, context: Context): String {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val key = getOrCreateKey(context)
@@ -68,11 +68,11 @@ object SecureStorage {
         cipher.init(Cipher.DECRYPT_MODE, key, spec)
         return String(cipher.doFinal(encrypted))
     }
-
+    
     private fun getOrCreateKey(context: Context): SecretKey {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val encodedKey = prefs.getString("aes_key", null)
-
+        
         return if (encodedKey != null) {
             val keyBytes = Base64.decode(encodedKey, Base64.DEFAULT)
             javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
@@ -85,3 +85,4 @@ object SecureStorage {
         }
     }
 }
+

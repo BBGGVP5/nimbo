@@ -2,16 +2,10 @@ package com.danila.nimbo
 
 import android.app.Application
 import android.util.Log
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
-import com.danila.nimbo.network.UpdateWorker
+import com.danila.nimbo.network.UpdateManager
+import com.danila.nimbo.network.UpdateWorkScheduler
 import com.danila.nimbo.utils.NotificationManager
 import com.danila.nimbo.utils.Logger
-import java.util.concurrent.TimeUnit
 
 class NebulaGuardApplication : Application() {
 
@@ -50,26 +44,10 @@ class NebulaGuardApplication : Application() {
         instance = this
         preferencesManager = com.danila.nimbo.utils.PreferencesManager(this)
         Logger.init(this)
+        UpdateManager.confirmPendingInstallation(this)
         ensureXrayCoreLoaded()
         NotificationManager.createNotificationChannels(this)
-        scheduleUpdateCheck()
-    }
-
-    private fun scheduleUpdateCheck() {
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
-
-        val updateWorkRequest = PeriodicWorkRequestBuilder<UpdateWorker>(1, TimeUnit.HOURS)
-            .setConstraints(constraints)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.HOURS)
-            .build()
-
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "update_check",
-            ExistingPeriodicWorkPolicy.UPDATE,
-            updateWorkRequest
-        )
-        Log.d(TAG, "Scheduled periodic update check every 1 hour")
+        UpdateWorkScheduler.schedulePeriodic(this)
+        Log.d(TAG, "Ensured periodic background update check")
     }
 }
