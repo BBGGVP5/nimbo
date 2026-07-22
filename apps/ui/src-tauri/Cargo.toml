@@ -45,7 +45,7 @@ tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-deep-link = "2"
 arboard = "3.6"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
-png = "0.17"
+png = "0.18"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
