@@ -44,7 +44,7 @@ uuid.workspace = true
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-deep-link = "2"
 arboard = "3.6"
-zip = { version = "2.4", default-features = false, features = ["deflate"] }
+zip = { version = "8.6", default-features = false, features = ["deflate"] }
 png = "0.17"
 
 [target.'cfg(windows)'.dependencies]
