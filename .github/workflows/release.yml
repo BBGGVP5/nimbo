@@ -54,7 +54,7 @@ jobs:
         run: powershell -NoProfile -ExecutionPolicy Bypass -File apps/installer/build-custom-installer.ps1 -All
 
       - name: Сохранить фирменные Windows-установщики
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nimbo-windows-custom
           path: target/release/bundle/custom/windows/*
@@ -132,7 +132,7 @@ jobs:
           fi
 
       - name: Сохранить Linux-пакеты
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nimbo-linux-${{ matrix.asset_arch }}
           path: release-normalized/*
