@@ -6,6 +6,7 @@ import android.content.Intent
 import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.utils.Logger
 import com.danila.nimbo.network.UpdateWorkScheduler
+import com.danila.nimbo.service.SubscriptionUpdateScheduler
 import com.danila.nimbo.vpn.MyVpnService
 
 internal enum class VpnRestoreTrigger {
@@ -35,6 +36,7 @@ class BootRestoreReceiver : BroadcastReceiver() {
 
         if (action != Intent.ACTION_LOCKED_BOOT_COMPLETED) {
             UpdateWorkScheduler.schedulePeriodic(context)
+            SubscriptionUpdateScheduler.schedule(context)
             if (UpdateWorkScheduler.shouldEnqueueImmediate(action)) {
                 UpdateWorkScheduler.enqueueImmediate(context)
             }

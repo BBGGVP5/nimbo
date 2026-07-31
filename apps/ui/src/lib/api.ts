@@ -471,6 +471,13 @@ export interface AppUpdateInstallResult {
   rollback_supported: boolean;
 }
 
+export interface AppUpdateProgress {
+  downloaded_bytes: number;
+  total_bytes: number;
+  percent: number;
+  stage: "downloading" | "verifying" | "ready";
+}
+
 export interface AppPostUpdateInfo {
   version: string;
   release_notes?: string | null;

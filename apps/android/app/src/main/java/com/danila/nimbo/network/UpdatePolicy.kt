@@ -107,6 +107,15 @@ internal object UpdatePolicy {
         return remoteVersion.compareTo(localVersion) > 0
     }
 
+    fun compareVersions(left: String, right: String): Int {
+        val leftVersion = parseSemanticVersion(normalizedVersionTag(left))
+        val rightVersion = parseSemanticVersion(normalizedVersionTag(right))
+        return when {
+            leftVersion != null && rightVersion != null -> leftVersion.compareTo(rightVersion)
+            else -> normalizedVersionTag(left).compareTo(normalizedVersionTag(right), ignoreCase = true)
+        }
+    }
+
     fun normalizedVersionTag(value: String): String {
         val semanticVersion = Regex("""[vV]?(\d+(?:\.\d+){0,2}(?:[-+][0-9A-Za-z.-]+)?)""")
             .find(value.trim())

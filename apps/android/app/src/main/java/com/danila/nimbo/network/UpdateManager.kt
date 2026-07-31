@@ -41,6 +41,25 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
+enum class UpdateDownloadStage {
+    DOWNLOADING,
+    VERIFYING,
+    READY
+}
+
+data class UpdateDownloadProgress(
+    val downloadedBytes: Long,
+    val totalBytes: Long,
+    val stage: UpdateDownloadStage
+) {
+    val fraction: Float
+        get() = if (totalBytes > 0L) {
+            (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+}
+
 object UpdateManager {
     private const val TAG = "UpdateManager"
     private const val RELEASES_API_URL = "https://api.github.com/repos/BBGGVP5/nimbo/releases?per_page=20"
@@ -58,6 +77,9 @@ object UpdateManager {
     private val _downloadProgress = MutableStateFlow<Float?>(null)
     val downloadProgress = _downloadProgress.asStateFlow()
 
+    private val _downloadStatus = MutableStateFlow<UpdateDownloadProgress?>(null)
+    val downloadStatus = _downloadStatus.asStateFlow()
+
     private val _isDownloading = MutableStateFlow(false)
     val isDownloading = _isDownloading.asStateFlow()
 
@@ -73,7 +95,8 @@ object UpdateManager {
             val candidate = releases
                 .asSequence()
                 .mapNotNull { parseReleaseCandidate(it, Build.SUPPORTED_ABIS.toList()) }
-                .firstOrNull { UpdatePolicy.acceptsChannel(it, channel) }
+                .filter { UpdatePolicy.acceptsChannel(it, channel) }
+                .maxWithOrNull { left, right -> UpdatePolicy.compareVersions(left.tagName, right.tagName) }
                 ?: return@withContext null
 
             if (prefs.installedUpdateArtifactId == null && candidate.asset.sha256 != null) {
@@ -264,8 +287,12 @@ object UpdateManager {
 
     internal fun normalizedVersionTag(value: String): String = UpdatePolicy.normalizedVersionTag(value)
 
-    /** Keeps shared changes and Android APK details while hiding desktop-only release lines. */
+    /** Returns only user-facing Android notes and never exposes raw GitHub release markup. */
     internal fun releaseNotesForAndroid(releaseBody: String): String {
+        extractPlatformSection(releaseBody, "android")?.let(::sanitizeReleaseNotes)?.let { notes ->
+            if (notes.isNotBlank()) return notes
+        }
+
         var pendingAssetHeading: String? = null
         val visibleLines = mutableListOf<String>()
 
@@ -274,17 +301,56 @@ object UpdateManager {
                 pendingAssetHeading = line
                 return@forEach
             }
-            if (isDesktopOnlyReleaseLine(line)) return@forEach
+            if (isDesktopOnlyReleaseLine(line) || isRawReleaseDecoration(line)) return@forEach
             if (pendingAssetHeading != null && line.isBlank()) return@forEach
 
-            pendingAssetHeading?.let { heading ->
-                if (isAndroidReleaseLine(line)) visibleLines += heading
-                pendingAssetHeading = null
-            }
-            visibleLines += line
+            pendingAssetHeading = null
+            if (!isReleaseAssetLine(line)) visibleLines += line
         }
 
-        return visibleLines.joinToString("\n").replace(Regex("\\n{3,}"), "\n\n").trim()
+        return sanitizeReleaseNotes(visibleLines.joinToString("\n"))
+    }
+
+    private fun extractPlatformSection(body: String, platform: String): String? {
+        val marker = Regex(
+            "<!--\\s*nimbo:$platform:start\\s*-->(.*?)<!--\\s*nimbo:$platform:end\\s*-->",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        )
+        return marker.find(body)?.groupValues?.getOrNull(1)
+    }
+
+    private fun sanitizeReleaseNotes(value: String): String {
+        val withoutComments = value.replace(
+            Regex("<!--.*?-->", setOf(RegexOption.DOT_MATCHES_ALL)),
+            ""
+        )
+        return withoutComments
+            .lineSequence()
+            .map { line ->
+                line
+                    .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+                    .replace(Regex("<[^>]+>"), "")
+                    .replace(Regex("!\\[([^]]*)]\\([^)]+\\)"), "")
+                    .replace(Regex("\\[([^]]+)]\\([^)]+\\)"), "$1")
+                    .replace("&amp;", "&")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .trimEnd()
+            }
+            .flatMap { it.lineSequence() }
+            .map { it.trimEnd() }
+            .filterNot { line ->
+                val trimmed = line.trim()
+                trimmed.startsWith("|") ||
+                    trimmed.matches(Regex("^:?-{3,}:?(\\s*\\|.*)?$")) ||
+                    trimmed.matches(Regex("^>\\s*\\[![A-Z]+].*$", RegexOption.IGNORE_CASE)) ||
+                    isReleaseAssetLine(trimmed)
+            }
+            .joinToString("\n")
+            .replace(Regex("(?m)^>\\s?"), "")
+            .replace(Regex("[ \\t]+$", RegexOption.MULTILINE), "")
+            .replace(Regex("\n{3,}"), "\n\n")
+            .trim()
     }
 
     private fun isReleaseAssetHeading(line: String): Boolean {
@@ -300,6 +366,22 @@ object UpdateManager {
     private fun isAndroidReleaseLine(line: String): Boolean {
         val value = line.lowercase()
         return value.contains(".apk") || value.contains("android")
+    }
+
+    private fun isReleaseAssetLine(line: String): Boolean {
+        val value = line.lowercase()
+        val hasPackage = listOf(".apk", ".exe", ".msi", ".dmg", ".appimage", ".deb", ".rpm", ".sha256")
+            .any(value::contains)
+        return hasPackage && (
+            value.contains("http://") ||
+                value.contains("https://") ||
+                value.trimStart('-', '*', ' ', '|').startsWith("nimbo")
+            )
+    }
+
+    private fun isRawReleaseDecoration(line: String): Boolean {
+        val value = line.trim().lowercase()
+        return value.startsWith("<") || value.startsWith("![") || value.startsWith("<!-- versioncode")
     }
 
     private fun isDesktopOnlyReleaseLine(line: String): Boolean {
@@ -352,6 +434,11 @@ object UpdateManager {
 
         _isDownloading.value = true
         _downloadProgress.value = 0.01f
+        _downloadStatus.value = UpdateDownloadProgress(
+            downloadedBytes = 0L,
+            totalBytes = updateInfo.fileSize,
+            stage = UpdateDownloadStage.DOWNLOADING
+        )
         _downloadError.value = null
 
         val identityHash = Integer.toHexString(updateInfo.artifactId.hashCode())
@@ -378,6 +465,11 @@ object UpdateManager {
                 } else {
                     _downloadProgress.value = 1f
                 }
+                _downloadStatus.value = UpdateDownloadProgress(
+                    downloadedBytes = partialFile.length(),
+                    totalBytes = updateInfo.fileSize,
+                    stage = UpdateDownloadStage.VERIFYING
+                )
                 val checked = try {
                     verifyDownloadedApk(context, partialFile, updateInfo)
                 } catch (e: Exception) {
@@ -396,11 +488,17 @@ object UpdateManager {
 
             recordPendingInstallation(context, updateInfo, verified)
             _downloadProgress.value = 1f
+            _downloadStatus.value = UpdateDownloadProgress(
+                downloadedBytes = verifiedFile.length(),
+                totalBytes = updateInfo.fileSize.takeIf { it > 0L } ?: verifiedFile.length(),
+                stage = UpdateDownloadStage.READY
+            )
             withContext(Dispatchers.Main) { installApk(context, verifiedFile) }
         } catch (e: Exception) {
             Log.e(TAG, "Secure update download failed", e)
             _downloadError.value = e.message ?: "Не удалось проверить обновление"
             _downloadProgress.value = null
+            _downloadStatus.value = null
         } finally {
             _isDownloading.value = false
         }
@@ -436,11 +534,11 @@ object UpdateManager {
 
     private fun isWifiConnected(context: Context): Boolean {
         val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        return manager.allNetworks.any { network ->
-            val capabilities = manager.getNetworkCapabilities(network) ?: return@any false
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
-                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        }
+        val activeNetwork = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(activeNetwork) ?: return false
+        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
     private fun downloadToFile(updateInfo: UpdateInfo, target: File) {
@@ -457,6 +555,9 @@ object UpdateManager {
         client.newCall(request).execute().use { response ->
             if (response.code == 416 && expectedBytes > 0L && target.length() == expectedBytes) {
                 _downloadProgress.value = 1f
+                _downloadStatus.value = UpdateDownloadProgress(
+                    target.length(), expectedBytes, UpdateDownloadStage.VERIFYING
+                )
                 return
             }
             if (!response.isSuccessful) throw IllegalStateException("Download failed: HTTP ${response.code}")
@@ -485,9 +586,14 @@ object UpdateManager {
                         output.write(buffer, 0, count)
                         downloaded += count
                         if (totalBytes > 0L) {
+                            val completed = completedBeforeResponse + downloaded
                             _downloadProgress.value =
-                                ((completedBeforeResponse + downloaded).toFloat() / totalBytes.toFloat())
-                                    .coerceIn(0f, 1f)
+                                (completed.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                            _downloadStatus.value = UpdateDownloadProgress(
+                                completed,
+                                totalBytes,
+                                UpdateDownloadStage.DOWNLOADING
+                            )
                         }
                     }
                     output.fd.sync()
@@ -734,13 +840,23 @@ object UpdateManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.icon_notification)
+            .setSmallIcon(R.drawable.icon_notification_nimbo_blue)
+            .setColor(0xFF2869D4.toInt())
             .setContentTitle(title)
             .setContentText(content)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
+            .setSubText(if (isEnglish) "Nimbo update" else "Обновление Nimbo")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setOnlyAlertOnce(true)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(
+                R.drawable.icon_notification_nimbo_blue,
+                if (isEnglish) "View" else "Посмотреть",
+                pendingIntent
+            )
             .build()
         notificationManager.notify(NOTIFICATION_ID, notification)
         // Record delivery only after Android accepted the notification call. If the

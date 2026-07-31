@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.danila.nimbo.network.SubscriptionManager
+import com.danila.nimbo.network.SubscriptionRefreshPolicy
+import com.danila.nimbo.utils.NotificationManager
 import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.utils.Logger
 import com.danila.nimbo.utils.SubscriptionLogoCache
@@ -24,6 +26,10 @@ class SubscriptionUpdateWorker(
     private val preferencesManager = PreferencesManager(applicationContext)
 
     override suspend fun doWork(): Result {
+        if (!preferencesManager.subscriptionAutoUpdate) {
+            Log.d(TAG, "Auto-update was disabled before the worker started")
+            return Result.success()
+        }
         Log.d(TAG, "Starting subscription auto-update")
         Logger.d(TAG, "Starting subscription auto-update")
 
@@ -40,6 +46,8 @@ class SubscriptionUpdateWorker(
             }
 
             var updatedCount = 0
+            var failedCount = 0
+            val successfulServerCounts = mutableListOf<Int>()
             val updatedProfiles = mutableListOf<com.danila.nimbo.ui.screens.SubscriptionProfile>()
 
             for (profile in profiles) {
@@ -98,6 +106,7 @@ class SubscriptionUpdateWorker(
 
                     updatedProfiles.add(updatedProfile)
                     updatedCount++
+                    successfulServerCounts += updatedProfile.servers.size
                     Log.d(TAG, "Updated profile: ${profile.name}")
 
                 } catch (e: Exception) {
@@ -105,6 +114,7 @@ class SubscriptionUpdateWorker(
                     Logger.e(TAG, "Error updating profile ${profile.name}: ${e.message}")
                     // При ошибке сохраняем старый профиль без изменений
                     updatedProfiles.add(profile)
+                    failedCount++
                 }
             }
 
@@ -116,6 +126,13 @@ class SubscriptionUpdateWorker(
 
             Log.d(TAG, "Auto-update completed. Updated $updatedCount profiles")
             Logger.d(TAG, "Auto-update completed. Updated $updatedCount profiles")
+
+            if (preferencesManager.notifyOnSubscriptionUpdate) {
+                NotificationManager.showSubscriptionUpdateNotification(
+                    applicationContext,
+                    SubscriptionRefreshPolicy.summarize(successfulServerCounts, failedCount)
+                )
+            }
 
             return Result.success()
 

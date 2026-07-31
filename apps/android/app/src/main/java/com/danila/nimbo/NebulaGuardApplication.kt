@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.danila.nimbo.network.UpdateManager
 import com.danila.nimbo.network.UpdateWorkScheduler
+import com.danila.nimbo.service.SubscriptionUpdateScheduler
 import com.danila.nimbo.utils.NotificationManager
 import com.danila.nimbo.utils.Logger
 
@@ -48,6 +49,7 @@ class NebulaGuardApplication : Application() {
         ensureXrayCoreLoaded()
         NotificationManager.createNotificationChannels(this)
         UpdateWorkScheduler.schedulePeriodic(this)
+        SubscriptionUpdateScheduler.schedule(this)
         Log.d(TAG, "Ensured periodic background update check")
     }
 }

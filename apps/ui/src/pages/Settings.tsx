@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   api,
   APP_VERSION,
@@ -8,8 +9,10 @@ import {
   DEFAULT_ACCENT_PALETTE,
   defaultAppPreferences,
   formatBytes,
+  isTauriRuntime,
   type AppPreferences,
   type AppUpdateInfo,
+  type AppUpdateProgress,
   type ConnectButtonStyle,
   type ConnectionMode,
   type DeviceInfo,
@@ -121,6 +124,7 @@ export function Settings() {
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<AppUpdateProgress | null>(null);
   const [appVersion, setAppVersion] = useState(APP_VERSION);
   const connectionMode = status?.connection_mode ?? "tun";
   const previewSubscription =
@@ -150,6 +154,22 @@ export function Settings() {
       .catch(() => undefined);
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let active = true;
+    let unlisten: UnlistenFn | null = null;
+    void listen<AppUpdateProgress>("nimbo:update-progress", (event) => {
+      if (active) setUpdateProgress(event.payload);
+    }).then((dispose) => {
+      if (active) unlisten = dispose;
+      else dispose();
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+      unlisten?.();
     };
   }, []);
 
@@ -252,6 +272,7 @@ export function Settings() {
 
   const downloadUpdate = async (info: AppUpdateInfo) => {
     setInstallingUpdate(true);
+    setUpdateProgress({ downloaded_bytes: 0, total_bytes: info.asset?.size ?? 0, percent: 0, stage: "downloading" });
     try {
       const result = await api.installAppUpdate(info);
       notifyInfo(
@@ -426,6 +447,7 @@ export function Settings() {
               appVersion={appVersion}
               checking={checkingUpdates}
               installing={installingUpdate}
+              progress={updateProgress}
               onChange={updatePreferences}
               onCheck={checkForUpdates}
               onDownload={downloadUpdate}
@@ -1654,6 +1676,7 @@ function UpdatesSection({
   appVersion,
   checking,
   installing,
+  progress,
   onChange,
   onCheck,
   onDownload,
@@ -1663,74 +1686,107 @@ function UpdatesSection({
   appVersion: string;
   checking: boolean;
   installing: boolean;
+  progress: AppUpdateProgress | null;
   onChange: (patch: Partial<AppPreferences>) => Promise<void>;
   onCheck: () => Promise<void>;
   onDownload: (info: AppUpdateInfo) => Promise<void>;
 }) {
   const m = useMessages();
-  const versionValue = updateInfo
-    ? `${updateInfo.current_version} -> ${updateInfo.latest_version}`
-    : appVersion;
-  const assetValue = updateInfo?.asset
-    ? `${updateInfo.asset.name}${updateInfo.asset.size ? ` · ${formatBytes(updateInfo.asset.size)}` : ""}`
-    : updateInfo?.available
-      ? m.settings.updateNoAsset
-      : "—";
-  const reasonValue = updateInfo?.reason === "reissued"
-    ? m.settings.updateReasonReissued
-    : updateInfo?.reason === "new_version"
-      ? m.settings.updateReasonNewVersion
-      : "—";
-  const assetUpdatedValue = updateInfo?.asset?.updated_at
-    ? new Date(updateInfo.asset.updated_at).toLocaleString()
-    : "—";
-  const verificationValue = updateInfo?.asset?.digest
-    ? m.settings.updateVerificationSha256
-    : updateInfo?.asset
-      ? m.settings.updateDigestMissing
-      : "—";
-  const releaseNotes = updateInfo?.release_notes?.trim() || (updateInfo ? m.settings.updateFallbackNotes : "—");
+  const releaseNotes = updateInfo?.release_notes?.trim() || m.settings.updateFallbackNotes;
+  const totalBytes = progress?.total_bytes || updateInfo?.asset?.size || 0;
+  const downloadedBytes = Math.min(progress?.downloaded_bytes ?? 0, totalBytes || Number.MAX_SAFE_INTEGER);
+  const percent = Math.max(0, Math.min(100, progress?.percent ?? 0));
+  const platformLabel = updateInfo?.target?.toLowerCase().includes("linux") ? "Linux" : "Windows";
 
   return (
     <Section title={m.settings.updates}>
-      <SettingsCard>
-        <div className="settings-row settings-row-block">
-          <div>
-            <div className="settings-row-title">{m.settings.appUpdates}</div>
-            <div className="settings-row-description">{m.settings.appUpdatesDescription}</div>
+      <SettingsCard className="update-center-card">
+        <div className="update-center-hero">
+          <div className="update-center-heading">
+            <div className="update-center-icon" aria-hidden="true"><DownloadIcon /></div>
+            <div className="update-center-title-wrap">
+              <span className="update-center-eyebrow">{platformLabel} · Nimbo</span>
+              <h3>{updateInfo?.available ? m.settings.updateAvailable : m.settings.appUpdates}</h3>
+              <p>{updateInfo?.available
+                ? `v${updateInfo.latest_version} · ${updateInfo.reason === "reissued" ? m.settings.updateReasonReissued : m.settings.updateReasonNewVersion}`
+                : `${m.settings.version} ${appVersion}`}</p>
+            </div>
+            <span className="update-center-status">
+              {preferences.update_channel === "beta" ? m.settings.updateChannelBeta : m.settings.updateChannelStable}
+            </span>
           </div>
-          <button
-            disabled={checking}
-            onClick={() => void onCheck()}
-            className="settings-action"
-          >
-            {checking ? m.settings.checkingUpdates : m.settings.checkForUpdates}
-          </button>
+
+          {updateInfo && (
+            <div className="update-center-content">
+              <div className="update-center-notes">
+                <span className="update-center-label">{m.settings.updateReleaseNotes}</span>
+                <UpdateReleaseNotes content={releaseNotes} />
+              </div>
+              <div className="update-center-facts">
+                <span>{updateInfo.asset?.size ? formatBytes(updateInfo.asset.size) : m.settings.updateNoAsset}</span>
+                <span>{updateInfo.asset?.digest ? m.settings.updateVerificationSha256 : m.settings.updateDigestMissing}</span>
+                <span>{updateInfo.target}</span>
+              </div>
+            </div>
+          )}
+
+          {installing && (
+            <div className="update-progress-card" aria-live="polite">
+              <div className="update-progress-heading">
+                <div>
+                  <strong>{progress?.stage === "verifying" ? m.settings.verifyingUpdate : m.settings.downloadUpdate}</strong>
+                  <span>{m.settings.updateDownloadProtection}</span>
+                </div>
+                <b>{percent}%</b>
+              </div>
+              <div className="update-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+                <span style={{ width: `${Math.max(percent, 1)}%` }} />
+              </div>
+              <div className="update-progress-meta">
+                <span>{formatBytes(downloadedBytes)}</span>
+                <span>{totalBytes > 0 ? formatBytes(totalBytes) : "—"}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="update-center-actions">
+            {updateInfo?.release_url && (
+              <a className="settings-action" href={updateInfo.release_url} target="_blank" rel="noreferrer">
+                {m.settings.releasePage}
+              </a>
+            )}
+            <button disabled={checking || installing} onClick={() => void onCheck()} className="settings-action">
+              {checking ? m.settings.checkingUpdates : m.settings.checkForUpdates}
+            </button>
+            {updateInfo?.available && (
+              <button
+                disabled={!updateInfo.asset?.digest || installing}
+                onClick={() => void onDownload(updateInfo)}
+                className="settings-action settings-action-primary"
+              >
+                {installing ? m.settings.verifyingUpdate : m.settings.downloadUpdate}
+              </button>
+            )}
+          </div>
         </div>
-        <div className="settings-row settings-row-block">
+
+        <div className="settings-row update-channel-row">
           <div>
             <div className="settings-row-title">{m.settings.updateChannel}</div>
             <div className="settings-row-description">{m.settings.updateChannelDescription}</div>
           </div>
-          <div className="settings-choice-control" role="radiogroup" aria-label={m.settings.updateChannel}>
-            {(["stable", "beta"] as const).map((channel) => (
-              <button
-                key={channel}
-                type="button"
-                role="radio"
-                aria-checked={preferences.update_channel === channel}
-                className={[
-                  "settings-choice-button",
-                  preferences.update_channel === channel ? "settings-choice-button-active" : "",
-                ].join(" ")}
-                onClick={() => onChange({ update_channel: channel })}
-              >
-                <span className="settings-choice-label">
-                  {channel === "stable" ? m.settings.updateChannelStable : m.settings.updateChannelBeta}
-                </span>
-              </button>
-            ))}
-          </div>
+          <label className="update-channel-select-wrap">
+            <select
+              className="update-channel-select"
+              value={preferences.update_channel}
+              onChange={(event) => void onChange({ update_channel: event.target.value as AppPreferences["update_channel"] })}
+              aria-label={m.settings.updateChannel}
+            >
+              <option value="stable">{m.settings.updateChannelStable}</option>
+              <option value="beta">{m.settings.updateChannelBeta}</option>
+            </select>
+            <span aria-hidden="true">⌄</span>
+          </label>
         </div>
         <ToggleRow
           label={m.settings.checkUpdatesOnLaunch}
@@ -1746,33 +1802,26 @@ function UpdatesSection({
           onToggle={(update_wifi_only) => onChange({ update_wifi_only })}
           icon={<DownloadIcon />}
         />
-        <div className="settings-row settings-row-block">
+        <div className="settings-row settings-row-block update-protection-copy">
           <div className="settings-row-description">{m.settings.updateDownloadProtection}</div>
         </div>
-        <ValueRow label={m.settings.version} value={versionValue} icon={<InfoIcon />} />
-        <ValueRow label={m.settings.systemTarget} value={updateInfo?.target ?? "—"} icon={<InfoIcon />} />
-        <ValueRow label={m.settings.latestVersion} value={updateInfo?.latest_version ?? "—"} icon={<InfoIcon />} />
-        <ValueRow label={m.settings.updateReason} value={reasonValue} icon={<InfoIcon />} />
-        <ValueRow label={m.settings.releaseAsset} value={assetValue} mono={Boolean(updateInfo?.asset)} icon={<InfoIcon />} />
-        <ValueRow label={m.settings.updateAssetTime} value={assetUpdatedValue} icon={<InfoIcon />} />
-        <ValueRow label={m.settings.updateVerification} value={verificationValue} icon={<ShieldIcon />} />
-        <ValueRow label={m.settings.updateReleaseNotes} value={releaseNotes} icon={<ListIcon />} />
-        {updateInfo && (
-          <div className="settings-row justify-end gap-3">
-            <a className="settings-action" href={updateInfo.release_url} target="_blank" rel="noreferrer">
-              {m.settings.releasePage}
-            </a>
-            <button
-              disabled={!updateInfo.available || !updateInfo.asset?.digest || installing}
-              onClick={() => void onDownload(updateInfo)}
-              className="settings-action settings-action-primary"
-            >
-              {installing ? m.settings.verifyingUpdate : m.settings.downloadUpdate}
-            </button>
-          </div>
-        )}
       </SettingsCard>
     </Section>
+  );
+}
+
+function UpdateReleaseNotes({ content }: { content: string }) {
+  const lines = content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return (
+    <div className="update-release-notes">
+      {lines.map((line, index) => {
+        const heading = line.match(/^#{1,6}\s+(.+)/)?.[1];
+        if (heading) return <strong key={`${heading}-${index}`}>{heading}</strong>;
+        const bullet = line.match(/^[-*•]\s+(.+)/)?.[1];
+        if (bullet) return <p key={`${bullet}-${index}`}><span aria-hidden="true" />{bullet}</p>;
+        return <p key={`${line}-${index}`}>{line}</p>;
+      })}
+    </div>
   );
 }
 

@@ -6,7 +6,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 const DEFAULT_RELEASE_API_URL: &str =
     "https://api.github.com/repos/BBGGVP5/nimbo/releases?per_page=20";
@@ -64,6 +64,14 @@ pub struct AppUpdateInstallResult {
     pub digest: String,
     pub local_path: String,
     pub rollback_supported: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AppUpdateProgress {
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    pub percent: u8,
+    pub stage: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -186,9 +194,7 @@ pub async fn check_app_update(
     let release_notes = release
         .body
         .as_deref()
-        .map(str::trim)
-        .filter(|notes| !notes.is_empty())
-        .map(str::to_string)
+        .and_then(release_notes_for_desktop)
         .or_else(|| {
             bundled_release_notes(
                 &latest_version,
@@ -270,13 +276,37 @@ pub async fn install_app_update(
     let cached_is_valid = target.is_file()
         && (asset.size == 0 || target.metadata().map(|meta| meta.len()).unwrap_or(0) == asset.size)
         && verify_sha256_file(&target, &expected_digest).is_ok();
+    if cached_is_valid {
+        emit_update_progress(
+            &app,
+            target
+                .metadata()
+                .map(|meta| meta.len())
+                .unwrap_or(asset.size),
+            asset.size,
+            "verifying",
+        );
+    }
     if !cached_is_valid {
         if target.exists() {
             std::fs::remove_file(&target)
                 .map_err(|e| format!("Не удалось удалить повреждённый файл обновления: {e}"))?;
         }
         normalize_partial_file(&partial, asset.size)?;
-        download_asset_to_file(&asset.download_url, &partial, asset.size, wifi_address).await?;
+        download_asset_to_file(
+            &app,
+            &asset.download_url,
+            &partial,
+            asset.size,
+            wifi_address,
+        )
+        .await?;
+        emit_update_progress(
+            &app,
+            partial.metadata().map(|meta| meta.len()).unwrap_or(0),
+            asset.size,
+            "verifying",
+        );
         verify_downloaded_file(&partial, asset.size, &expected_digest)?;
         if target.exists() {
             std::fs::remove_file(&target)
@@ -289,9 +319,7 @@ pub async fn install_app_update(
     let release_notes = release
         .body
         .as_deref()
-        .map(str::trim)
-        .filter(|notes| !notes.is_empty())
-        .map(str::to_string)
+        .and_then(release_notes_for_desktop)
         .or_else(|| {
             bundled_release_notes(
                 &latest_version,
@@ -307,6 +335,7 @@ pub async fn install_app_update(
         true,
     )?;
     write_receipt(&app, "pending.json", &receipt)?;
+    emit_update_progress(&app, asset.size, asset.size, "ready");
     open_verified_package(&target)?;
 
     Ok(AppUpdateInstallResult {
@@ -430,6 +459,76 @@ fn release_matches_channel(release: &GithubRelease, channel: UpdateChannel) -> b
         }
 }
 
+fn release_notes_for_desktop(body: &str) -> Option<String> {
+    let tagged = extract_platform_section(body, "desktop");
+    let source = tagged.unwrap_or(body);
+    let legacy = tagged.is_none();
+    let mut lines = Vec::new();
+
+    for raw_line in source.lines() {
+        let trimmed = raw_line.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if trimmed.starts_with("<!--")
+            || trimmed.starts_with("<")
+            || trimmed.starts_with("![")
+            || trimmed.starts_with('|')
+            || lower.starts_with("> [!")
+        {
+            continue;
+        }
+        if legacy
+            && lower.contains("android")
+            && !lower.contains("windows")
+            && !lower.contains("linux")
+        {
+            continue;
+        }
+        if is_release_asset_line(&lower) {
+            continue;
+        }
+        lines.push(trimmed.trim_start_matches('>').trim_start().to_string());
+    }
+
+    let mut compact = Vec::new();
+    for line in lines {
+        if line.is_empty() && compact.last().is_some_and(|last: &String| last.is_empty()) {
+            continue;
+        }
+        compact.push(line);
+    }
+    let result = compact.join("\n").trim().to_string();
+    (!result.is_empty()).then_some(result)
+}
+
+fn extract_platform_section<'a>(body: &'a str, platform: &str) -> Option<&'a str> {
+    let start = format!("<!-- nimbo:{platform}:start -->");
+    let end = format!("<!-- nimbo:{platform}:end -->");
+    let start_index = body.find(&start)? + start.len();
+    let end_index = body[start_index..].find(&end)? + start_index;
+    Some(&body[start_index..end_index])
+}
+
+fn is_release_asset_line(lower: &str) -> bool {
+    let has_package = [
+        ".apk",
+        ".exe",
+        ".msi",
+        ".dmg",
+        ".appimage",
+        ".deb",
+        ".rpm",
+        ".sha256",
+    ]
+    .iter()
+    .any(|extension| lower.contains(extension));
+    has_package
+        && (lower.contains("http://")
+            || lower.contains("https://")
+            || lower
+                .trim_start_matches(['-', '*', ' ', '|'])
+                .starts_with("nimbo"))
+}
+
 #[derive(Debug, Clone, Copy)]
 enum FetchMode {
     Direct,
@@ -504,19 +603,28 @@ async fn fetch_release_text_with_client(
 }
 
 async fn download_asset_to_file(
+    app: &AppHandle,
     url: &str,
     target: &Path,
     expected_bytes: u64,
     wifi_address: Option<IpAddr>,
 ) -> Result<(), String> {
+    let on_progress =
+        |downloaded, total| emit_update_progress(app, downloaded, total, "downloading");
     let mut direct_builder = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(180))
         .no_proxy();
     if let Some(address) = wifi_address {
         direct_builder = direct_builder.local_address(address);
     }
-    let direct =
-        download_asset_to_file_with_builder(direct_builder, url, target, expected_bytes).await;
+    let direct = download_asset_to_file_with_builder(
+        direct_builder,
+        url,
+        target,
+        expected_bytes,
+        &on_progress,
+    )
+    .await;
     if direct.is_ok() {
         return Ok(());
     }
@@ -533,6 +641,7 @@ async fn download_asset_to_file(
         url,
         target,
         expected_bytes,
+        &on_progress,
     )
     .await
     .map_err(|proxy_error| {
@@ -548,8 +657,10 @@ async fn download_asset_to_file_with_builder(
     url: &str,
     target: &Path,
     expected_bytes: u64,
+    on_progress: &(dyn Fn(u64, u64) + Send + Sync),
 ) -> Result<(), String> {
     let existing_bytes = target.metadata().map(|meta| meta.len()).unwrap_or(0);
+    on_progress(existing_bytes, expected_bytes);
     if expected_bytes > 0 && existing_bytes == expected_bytes {
         return Ok(());
     }
@@ -615,6 +726,8 @@ async fn download_asset_to_file_with_builder(
         output
             .write_all(&chunk)
             .map_err(|e| format!("Не удалось записать обновление на диск: {e}"))?;
+        let downloaded = output.metadata().map(|meta| meta.len()).unwrap_or(0);
+        on_progress(downloaded, expected_bytes);
     }
     output
         .sync_all()
@@ -630,6 +743,28 @@ async fn download_asset_to_file_with_builder(
         ));
     }
     Ok(())
+}
+
+fn emit_update_progress(
+    app: &AppHandle,
+    downloaded_bytes: u64,
+    total_bytes: u64,
+    stage: &'static str,
+) {
+    let percent = if total_bytes > 0 {
+        ((downloaded_bytes.saturating_mul(100) / total_bytes).min(100)) as u8
+    } else {
+        0
+    };
+    let _ = app.emit(
+        "nimbo:update-progress",
+        AppUpdateProgress {
+            downloaded_bytes,
+            total_bytes,
+            percent,
+            stage,
+        },
+    );
 }
 
 fn normalize_partial_file(path: &Path, expected_bytes: u64) -> Result<(), String> {
@@ -1416,6 +1551,45 @@ mod tests {
     }
 
     #[test]
+    fn desktop_release_notes_use_only_tagged_desktop_section() {
+        let body = r#"
+<!-- nimbo:android:start -->
+## Android
+- Новый экран APK.
+<!-- nimbo:android:end -->
+<!-- nimbo:desktop:start -->
+## Windows и Linux
+- Загрузка показывает процент и размер.
+<!-- nimbo:desktop:end -->
+"#;
+
+        let notes = release_notes_for_desktop(body).unwrap();
+        assert!(notes.contains("Windows и Linux"));
+        assert!(notes.contains("процент и размер"));
+        assert!(!notes.contains("Android"));
+        assert!(!notes.contains("APK"));
+    }
+
+    #[test]
+    fn desktop_release_notes_hide_legacy_html_tables_and_android_assets() {
+        let body = r#"
+<!-- versionCode: 5 -->
+<div align="center"><img src="logo.png"></div>
+| Платформа | Скачать |
+|:--|:--|
+| Android | [APK](https://example.test/Nimbo.apk) |
+> [!IMPORTANT]
+## Улучшения
+- Исправлено фоновое обновление.
+"#;
+
+        assert_eq!(
+            release_notes_for_desktop(body).as_deref(),
+            Some("## Улучшения\n- Исправлено фоновое обновление.")
+        );
+    }
+
+    #[test]
     fn skips_newer_releases_without_a_compatible_asset() {
         let releases = vec![
             release_with_assets(
@@ -1595,6 +1769,7 @@ mod tests {
             &format!("http://{address}/Nimbo.exe"),
             &target,
             10,
+            &|_, _| {},
         )
         .await;
         server.await.unwrap();

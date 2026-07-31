@@ -1335,7 +1335,7 @@ class PreferencesManager(context: Context) {
 
     // Уведомлять об успешном обновлении подписки
     var notifyOnSubscriptionUpdate: Boolean
-        get() = sharedPreferences.getBoolean(KEY_NOTIFY_ON_SUBSCRIPTION_UPDATE, false)
+        get() = sharedPreferences.getBoolean(KEY_NOTIFY_ON_SUBSCRIPTION_UPDATE, true)
         set(value) = sharedPreferences.edit().putBoolean(KEY_NOTIFY_ON_SUBSCRIPTION_UPDATE, value).apply()
 
     // === Постоянный учёт трафика (за всё время + за текущий месяц) ===

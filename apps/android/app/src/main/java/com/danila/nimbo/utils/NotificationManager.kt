@@ -1,17 +1,22 @@
 package com.danila.nimbo.utils
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationCompat.BigTextStyle
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.danila.nimbo.MainActivity
 import com.danila.nimbo.R
+import com.danila.nimbo.network.SubscriptionRefreshSummary
 
 /**
  * Менеджер уведомлений для VPN сервиса
@@ -20,8 +25,10 @@ object NotificationManager {
 
     const val CHANNEL_ID_VPN = "nebula_vpn_channel"
     const val CHANNEL_ID_GENERAL = "nebula_general_channel"
+    const val CHANNEL_ID_SUBSCRIPTIONS = "nimbo_subscription_updates"
     const val NOTIFICATION_ID_VPN = 1001
     const val NOTIFICATION_ID_GENERAL = 1002
+    const val NOTIFICATION_ID_SUBSCRIPTIONS = 1004
 
     /**
      * Создание каналов уведомлений
@@ -54,8 +61,22 @@ object NotificationManager {
                 setShowBadge(true)
             }
 
+            val subscriptionChannel = NotificationChannel(
+                CHANNEL_ID_SUBSCRIPTIONS,
+                if (isEn) "Subscription updates" else "Обновления подписок",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = if (isEn) {
+                    "Background subscription refresh results"
+                } else {
+                    "Результаты фонового обновления подписок"
+                }
+                setShowBadge(true)
+            }
+
             notificationManager.createNotificationChannel(vpnChannel)
             notificationManager.createNotificationChannel(generalChannel)
+            notificationManager.createNotificationChannel(subscriptionChannel)
         }
     }
 
@@ -64,6 +85,67 @@ object NotificationManager {
         val minutes = (seconds % 3600) / 60
         val remainingSeconds = seconds % 60
         return "%02d:%02d:%02d".format(hours, minutes, remainingSeconds)
+    }
+
+    fun showSubscriptionUpdateNotification(
+        context: Context,
+        summary: SubscriptionRefreshSummary
+    ): Boolean {
+        if (summary.updatedSubscriptions + summary.failedSubscriptions <= 0) return false
+
+        val permissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        val notifications = NotificationManagerCompat.from(context)
+        if (!permissionGranted || !notifications.areNotificationsEnabled()) return false
+
+        val systemManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = systemManager.getNotificationChannel(CHANNEL_ID_SUBSCRIPTIONS)
+            if (channel == null) {
+                createNotificationChannels(context)
+            } else if (channel.importance == NotificationManager.IMPORTANCE_NONE) {
+                return false
+            }
+        }
+
+        val isEn = PreferencesManager(context).appLanguage == "en"
+        val title = when {
+            summary.failedSubscriptions == 0 && isEn -> "Subscriptions updated"
+            summary.failedSubscriptions == 0 -> "Подписки обновлены"
+            isEn -> "Subscription refresh completed"
+            else -> "Обновление подписок завершено"
+        }
+        val message = if (isEn) {
+            "Updated: ${summary.updatedSubscriptions} · Failed: ${summary.failedSubscriptions} · Servers: ${summary.totalServers}"
+        } else {
+            "Обновлено: ${summary.updatedSubscriptions} · Ошибок: ${summary.failedSubscriptions} · Серверов: ${summary.totalServers}"
+        }
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("OPEN_SCREEN", "profiles")
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            NOTIFICATION_ID_SUBSCRIPTIONS,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID_SUBSCRIPTIONS)
+            .setSmallIcon(getNotificationSmallIconRes())
+            .setColor(0xFF2869D4.toInt())
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(BigTextStyle().bigText(message))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        notifications.notify(NOTIFICATION_ID_SUBSCRIPTIONS, notification)
+        return true
     }
 
     /**

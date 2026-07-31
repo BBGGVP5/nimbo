@@ -35,7 +35,7 @@ class UpdateManagerTest {
     }
 
     @Test
-    fun releaseNotesForAndroid_keepsChangesAndApkButDropsDesktopInstallers() {
+    fun releaseNotesForAndroid_keepsChangesAndDropsRawInstallerMarkup() {
         val notes = """
             ## What's new
             - Faster connection recovery
@@ -47,9 +47,47 @@ class UpdateManagerTest {
         val filtered = UpdateManager.releaseNotesForAndroid(notes)
 
         assertTrue(filtered.contains("Faster connection recovery"))
-        assertTrue(filtered.contains("arm64-v8a.apk"))
+        assertFalse(filtered.contains("arm64-v8a.apk"))
         assertFalse(filtered.contains(".exe"))
         assertFalse(filtered.contains("Windows"))
+    }
+
+    @Test
+    fun releaseNotesForAndroid_readsOnlyTaggedAndroidSection() {
+        val notes = """
+            <!-- nimbo:android:start -->
+            ## Android
+            - Красивый экран загрузки с процентами.
+            <!-- nimbo:android:end -->
+            <!-- nimbo:desktop:start -->
+            ## Windows и Linux
+            - Обновлён установщик Windows.
+            <!-- nimbo:desktop:end -->
+        """.trimIndent()
+
+        val filtered = UpdateManager.releaseNotesForAndroid(notes)
+
+        assertTrue(filtered.contains("Красивый экран загрузки"))
+        assertFalse(filtered.contains("Windows"))
+        assertFalse(filtered.contains("установщик"))
+    }
+
+    @Test
+    fun releaseNotesForAndroid_removesGithubHtmlTablesAndDirectives() {
+        val notes = """
+            <!-- versionCode: 5 -->
+            <div align="center"><img src="logo.png"><h1>Nimbo</h1></div>
+            | Платформа | Скачать |
+            |:--|:--|
+            | Android | [APK](https://example.test/Nimbo.apk) |
+            > [!IMPORTANT]
+            ## Улучшения
+            - Исправлено фоновое обновление.
+        """.trimIndent()
+
+        val filtered = UpdateManager.releaseNotesForAndroid(notes)
+
+        assertEquals("## Улучшения\n- Исправлено фоновое обновление.", filtered)
     }
 
     @Test

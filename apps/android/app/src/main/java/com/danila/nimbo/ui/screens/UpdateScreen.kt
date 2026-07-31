@@ -36,6 +36,8 @@ import com.danila.nimbo.model.UpdateInfo
 import com.danila.nimbo.model.UpdateChannel
 import com.danila.nimbo.model.UpdateKind
 import com.danila.nimbo.network.UpdateManager
+import com.danila.nimbo.network.UpdateDownloadProgress
+import com.danila.nimbo.network.UpdateDownloadStage
 import com.danila.nimbo.ui.components.ExpressiveCircularLoader
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.theme.*
@@ -90,7 +92,7 @@ internal fun ColumnScope.UpdatesSettingsContent() {
     var updateChannel by remember { mutableStateOf(preferencesManager.updateChannel) }
     var updateWifiOnly by remember { mutableStateOf(preferencesManager.updateWifiOnly) }
 
-    val downloadProgress by UpdateManager.downloadProgress.collectAsState()
+    val downloadStatus by UpdateManager.downloadStatus.collectAsState()
     val isDownloading by UpdateManager.isDownloading.collectAsState()
     val downloadError by UpdateManager.downloadError.collectAsState()
 
@@ -128,7 +130,7 @@ internal fun ColumnScope.UpdatesSettingsContent() {
                 .replaceFirst(Regex("^v+", RegexOption.IGNORE_CASE), "")
                 .trim(),
             isDownloading = isDownloading,
-            downloadProgress = downloadProgress,
+            downloadStatus = downloadStatus,
             downloadError = downloadError,
             updateInfo = updateInfo,
             onCheck = { scope.launch { refreshData() } },
@@ -180,56 +182,94 @@ internal fun ColumnScope.UpdatesSettingsContent() {
                         }
                     }
                     Spacer(Modifier.height(14.dp))
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        UpdateChannel.entries.forEachIndexed { index, channel ->
-                            SegmentedButton(
-                                selected = updateChannel == channel,
-                                onClick = {
-                                    if (updateChannel != channel) {
-                                        updateChannel = channel
-                                        preferencesManager.updateChannel = channel
-                                        preferencesManager.lastUpdateCheckTime = 0L
-                                        scope.launch { refreshData() }
-                                    }
-                                },
-                                shape = SegmentedButtonDefaults.itemShape(index, UpdateChannel.entries.size),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(
-                                    when (channel) {
-                                        UpdateChannel.STABLE -> t("Стабильный", "Stable")
-                                        UpdateChannel.BETA -> t("Бета", "Beta")
+                    var channelMenuExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = channelMenuExpanded,
+                        onExpandedChange = { channelMenuExpanded = it }
+                    ) {
+                        val channelLabel = when (updateChannel) {
+                            UpdateChannel.STABLE -> t("Стабильный", "Stable")
+                            UpdateChannel.BETA -> t("Бета", "Beta")
+                        }
+                        OutlinedTextField(
+                            value = channelLabel,
+                            onValueChange = {},
+                            readOnly = true,
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Default.Update, null) },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(channelMenuExpanded) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = nebulaColors.accent,
+                                unfocusedBorderColor = nebulaColors.textPrimary.copy(alpha = 0.16f),
+                                focusedContainerColor = nebulaColors.accent.copy(alpha = 0.08f),
+                                unfocusedContainerColor = nebulaColors.textPrimary.copy(alpha = 0.035f),
+                                focusedTextColor = nebulaColors.textPrimary,
+                                unfocusedTextColor = nebulaColors.textPrimary,
+                                focusedLeadingIconColor = nebulaColors.accent,
+                                unfocusedLeadingIconColor = nebulaColors.accent
+                            ),
+                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier
+                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = true)
+                                .fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = channelMenuExpanded,
+                            onDismissRequest = { channelMenuExpanded = false },
+                            containerColor = nebulaColors.surface
+                        ) {
+                            UpdateChannel.entries.forEach { channel ->
+                                val label = when (channel) {
+                                    UpdateChannel.STABLE -> t("Стабильный", "Stable")
+                                    UpdateChannel.BETA -> t("Бета", "Beta")
+                                }
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    leadingIcon = {
+                                        Icon(
+                                            if (channel == updateChannel) Icons.Default.Check else Icons.Default.Update,
+                                            null,
+                                            tint = if (channel == updateChannel) nebulaColors.accent else nebulaColors.textSecondary
+                                        )
+                                    },
+                                    onClick = {
+                                        channelMenuExpanded = false
+                                        if (updateChannel != channel) {
+                                            updateChannel = channel
+                                            preferencesManager.updateChannel = channel
+                                            preferencesManager.lastUpdateCheckTime = 0L
+                                            scope.launch { refreshData() }
+                                        }
                                     }
                                 )
                             }
                         }
                     }
-                    Spacer(Modifier.height(14.dp))
-                    HorizontalDivider(color = nebulaColors.textPrimary.copy(alpha = 0.08f))
-                    SettingsSwitch(
-                        icon = Icons.Default.Wifi,
-                        title = t("Скачивать только по Wi‑Fi", "Download over Wi-Fi only"),
-                        subtitle = t(
-                            "Мобильная сеть не будет использоваться для APK",
-                            "Mobile data will not be used for APK files"
-                        ),
-                        checked = updateWifiOnly,
-                        onCheckedChange = {
-                            updateWifiOnly = it
-                            preferencesManager.updateWifiOnly = it
-                        }
-                    )
-                    HorizontalDivider(color = nebulaColors.textPrimary.copy(alpha = 0.08f))
-                    Spacer(Modifier.height(14.dp))
-                    Text(
-                        t(
-                            "APK проверяется по SHA-256 и сертификату. Если загрузка или установка завершится с ошибкой, Android сохранит текущую версию.",
-                            "The APK is checked by SHA-256 and signing certificate. If download or installation fails, Android keeps the current version."
-                        ),
-                        color = nebulaColors.textTertiary,
-                        style = MaterialTheme.typography.bodySmall
-                    )
                 }
+                HorizontalDivider(color = nebulaColors.textPrimary.copy(alpha = 0.08f))
+                SettingsSwitch(
+                    icon = Icons.Default.Wifi,
+                    title = t("Скачивать только по Wi‑Fi", "Download over Wi-Fi only"),
+                    subtitle = t(
+                        "Не начинать загрузку через мобильную сеть",
+                        "Do not start downloads over mobile data"
+                    ),
+                    checked = updateWifiOnly,
+                    onCheckedChange = {
+                        updateWifiOnly = it
+                        preferencesManager.updateWifiOnly = it
+                    }
+                )
+                HorizontalDivider(color = nebulaColors.textPrimary.copy(alpha = 0.08f))
+                Text(
+                    t(
+                        "Файл проверяется по SHA-256 и сертификату приложения. При ошибке текущая версия останется установленной.",
+                        "The file is checked by SHA-256 and the app certificate. Your current version stays installed if anything fails."
+                    ),
+                    color = nebulaColors.textTertiary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(20.dp)
+                )
             }
         }
 
@@ -299,7 +339,7 @@ private fun UpdateStatusCard(
     hasUpdate: Boolean,
     currentVersion: String,
     isDownloading: Boolean,
-    downloadProgress: Float?,
+    downloadStatus: UpdateDownloadProgress?,
     downloadError: String?,
     updateInfo: UpdateInfo?,
     onCheck: () -> Unit,
@@ -447,35 +487,85 @@ private fun UpdateStatusCard(
             Spacer(Modifier.height(18.dp))
 
             if (isDownloading) {
-                Column {
+                val progress = downloadStatus
+                val fraction = progress?.fraction ?: 0f
+                val percent = (fraction * 100).toInt().coerceIn(0, 100)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(nebulaColors.accent.copy(alpha = 0.075f))
+                        .border(1.dp, nebulaColors.accent.copy(alpha = 0.20f), RoundedCornerShape(20.dp))
+                        .padding(16.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = when (progress?.stage) {
+                                    UpdateDownloadStage.VERIFYING -> t("Проверяем файл", "Verifying file")
+                                    UpdateDownloadStage.READY -> t("Готово к установке", "Ready to install")
+                                    else -> t("Загружаем обновление", "Downloading update")
+                                },
+                                color = nebulaColors.textPrimary,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = t("Загрузку можно продолжить после обрыва", "Download resumes after an interruption"),
+                                color = nebulaColors.textTertiary,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(nebulaColors.accent.copy(alpha = 0.18f))
+                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                        ) {
+                            Text(
+                                "$percent%",
+                                color = nebulaColors.accent,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(nebulaColors.textPrimary.copy(alpha = 0.06f))
+                            .height(14.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(nebulaColors.textPrimary.copy(alpha = 0.08f))
                     ) {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(downloadProgress ?: 0f)
+                                .fillMaxWidth(fraction.coerceAtLeast(0.01f))
                                 .fillMaxHeight()
+                                .clip(RoundedCornerShape(7.dp))
                                 .background(
                                     Brush.horizontalGradient(
-                                        listOf(nebulaColors.accent, nebulaColors.accent.copy(alpha = 0.6f))
+                                        listOf(nebulaColors.accent.copy(alpha = 0.72f), nebulaColors.accent)
                                     )
                                 )
                         )
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = t(
-                            "Загрузка: ${(downloadProgress?.let { (it * 100).toInt() } ?: 0)}%",
-                            "Downloading: ${(downloadProgress?.let { (it * 100).toInt() } ?: 0)}%"
-                        ),
-                        color = nebulaColors.accent,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Spacer(Modifier.height(9.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(
+                            formatUpdateBytes(progress?.downloadedBytes ?: 0L),
+                            color = nebulaColors.textSecondary,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        Text(
+                            t(
+                                "из ${formatUpdateBytes(progress?.totalBytes ?: updateInfo?.fileSize ?: 0L)}",
+                                "of ${formatUpdateBytes(progress?.totalBytes ?: updateInfo?.fileSize ?: 0L)}"
+                            ),
+                            color = nebulaColors.textTertiary,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
                 }
             } else {
                 val (label, icon) = when {
@@ -493,6 +583,12 @@ private fun UpdateStatusCard(
             }
         }
     }
+}
+
+private fun formatUpdateBytes(bytes: Long): String = when {
+    bytes <= 0L -> "0 МБ"
+    bytes < 1024L * 1024L -> "%.1f КБ".format(bytes / 1024.0)
+    else -> "%.1f МБ".format(bytes / (1024.0 * 1024.0))
 }
 
 private fun formatReleaseDate(value: String?): String? = runCatching {

@@ -21,7 +21,7 @@ import {
   type AppearanceState,
 } from "./lib/appearance";
 import { useAppStore } from "./store";
-import { APP_VERSION, api, isTauriRuntime, type AppPostUpdateInfo, type AppUpdateInfo, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
+import { APP_VERSION, api, formatBytes, isTauriRuntime, type AppPostUpdateInfo, type AppUpdateInfo, type AppUpdateProgress, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
 import { cachedSubscriptionTheme } from "./lib/subscriptionTheme";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initNimboDeepLinks } from "./lib/deepLinks";
@@ -250,7 +250,12 @@ export default function App() {
     if (preferences.subscriptions_update_on_launch) {
       const remoteSubscriptions = subscriptions.filter((sub) => /^https?:\/\//i.test(sub.url));
       void Promise.allSettled(remoteSubscriptions.map((sub) => refreshSubscription(sub.url)))
-        .then(async () => {
+        .then(async (results) => {
+          const failed = results.filter((result) => result.status === "rejected").length;
+          const success = results.length - failed;
+          if (preferences.subscriptions_notify_updates && results.length > 0) {
+            notifyInfo(fillTemplate(m.settings.subscriptionBackgroundUpdated, { success, failed }));
+          }
           if (!preferences.subscriptions_ping_after_update) return;
           const refreshedIds = useAppStore
             .getState()
@@ -306,7 +311,7 @@ export default function App() {
         .catch(() => undefined);
     }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [hydrate, preferences.subscriptions_auto_update, preferences.subscriptions_ping_after_update, preferences.subscriptions_update_interval_hours, refreshSubscription]);
+  }, [hydrate, m.settings.subscriptionBackgroundUpdated, preferences.subscriptions_auto_update, preferences.subscriptions_notify_updates, preferences.subscriptions_ping_after_update, preferences.subscriptions_update_interval_hours, refreshSubscription]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -568,11 +573,18 @@ function UpdateDialog({
   const canDownload = Boolean(update.available && update.asset?.digest);
   const [installing, setInstalling] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<AppUpdateProgress | null>(null);
   const notes = update.release_notes?.trim() || m.settings.updateFallbackNotes;
 
   const install = async () => {
     if (!canDownload || installing) return;
     setInstalling(true);
+    setProgress({
+      downloaded_bytes: 0,
+      total_bytes: update.asset?.size ?? 0,
+      percent: 0,
+      stage: "downloading",
+    });
     setInstallError(null);
     try {
       await onDownload();
@@ -590,6 +602,22 @@ function UpdateDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let active = true;
+    let unlisten: UnlistenFn | null = null;
+    void listen<AppUpdateProgress>("nimbo:update-progress", (event) => {
+      if (active) setProgress(event.payload);
+    }).then((dispose) => {
+      if (active) unlisten = dispose;
+      else dispose();
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
   return (
     <div className="update-dialog-backdrop" role="presentation" onClick={onClose}>
       <div
@@ -600,13 +628,18 @@ function UpdateDialog({
         aria-describedby="update-dialog-text"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="update-dialog-art">
-          <div className="update-dialog-orbit">
-            <img src={nimboLogo} alt="" className="update-dialog-logo" aria-hidden="true" />
+        <div className="update-dialog-header">
+          <div className="update-dialog-art">
+            <div className="update-dialog-orbit">
+              <img src={nimboLogo} alt="" className="update-dialog-logo" aria-hidden="true" />
+            </div>
+          </div>
+          <div className="update-dialog-heading-copy">
+            <span className="update-dialog-platform">{update.target.toLowerCase().includes("linux") ? "Linux" : "Windows"}</span>
+            <h2 id="update-dialog-title" className="update-dialog-title">{m.settings.updateAvailable}</h2>
+            <div className="update-dialog-version">v{update.latest_version}</div>
           </div>
         </div>
-        <h2 id="update-dialog-title" className="update-dialog-title">{m.settings.updateAvailable}</h2>
-        <div className="update-dialog-version">v{update.latest_version}</div>
         <p id="update-dialog-text" className="update-dialog-text">
           {fillTemplate(
             update.reason === "reissued" ? m.settings.updateReissued : m.settings.updateReady,
@@ -621,7 +654,7 @@ function UpdateDialog({
         </p>
         <div className="update-dialog-notes">
           <strong>{m.settings.updateReleaseNotes}</strong>
-          <span>{notes}</span>
+          <DialogReleaseNotes content={notes} />
           {!update.release_notes && update.target_commitish && (
             <small>{fillTemplate(m.settings.updateCommit, { commit: update.target_commitish })}</small>
           )}
@@ -629,6 +662,30 @@ function UpdateDialog({
         {update.asset?.updated_at && (
           <div className="update-dialog-meta">
             {m.settings.updateAssetTime}: {new Date(update.asset.updated_at).toLocaleString()}
+          </div>
+        )}
+        {update.asset && (
+          <div className="update-dialog-badges">
+            <span>{formatBytes(update.asset.size)}</span>
+            <span>{update.asset.digest ? m.settings.updateVerificationSha256 : m.settings.updateDigestMissing}</span>
+          </div>
+        )}
+        {installing && (
+          <div className="update-progress-card update-dialog-progress" aria-live="polite">
+            <div className="update-progress-heading">
+              <div>
+                <strong>{progress?.stage === "verifying" ? m.settings.verifyingUpdate : m.settings.downloadUpdate}</strong>
+                <span>{m.settings.updateDownloadProtection}</span>
+              </div>
+              <b>{Math.max(0, Math.min(100, progress?.percent ?? 0))}%</b>
+            </div>
+            <div className="update-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress?.percent ?? 0}>
+              <span style={{ width: `${Math.max(1, progress?.percent ?? 0)}%` }} />
+            </div>
+            <div className="update-progress-meta">
+              <span>{formatBytes(progress?.downloaded_bytes ?? 0)}</span>
+              <span>{formatBytes(progress?.total_bytes || update.asset?.size || 0)}</span>
+            </div>
           </div>
         )}
         {installError && <div className="update-dialog-error">{installError}</div>}
@@ -644,6 +701,21 @@ function UpdateDialog({
           {m.common.later}
         </button>
       </div>
+    </div>
+  );
+}
+
+function DialogReleaseNotes({ content }: { content: string }) {
+  const lines = content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return (
+    <div className="update-release-notes update-dialog-release-notes">
+      {lines.map((line, index) => {
+        const heading = line.match(/^#{1,6}\s+(.+)/)?.[1];
+        if (heading) return <strong key={`${heading}-${index}`}>{heading}</strong>;
+        const bullet = line.match(/^[-*•]\s+(.+)/)?.[1];
+        if (bullet) return <p key={`${bullet}-${index}`}><span aria-hidden="true" />{bullet}</p>;
+        return <p key={`${line}-${index}`}>{line}</p>;
+      })}
     </div>
   );
 }

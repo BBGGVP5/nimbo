@@ -4043,18 +4043,37 @@ body[data-theme="light"] .update-dialog-backdrop {
 }
 
 .update-dialog {
-  width: min(380px, calc(100vw - 36px));
+  width: min(460px, calc(100vw - 36px));
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   border: 1px solid var(--color-border);
   border-radius: var(--ui-radius-lg);
   background: var(--ui-panel-bg);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
   padding: 24px 24px 20px;
-  text-align: center;
+  text-align: left;
   backdrop-filter: var(--ui-backdrop-filter);
   -webkit-backdrop-filter: var(--ui-backdrop-filter);
+}
+
+.update-dialog-header {
+  display: grid;
+  grid-template-columns: 66px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.update-dialog-heading-copy {
+  min-width: 0;
+}
+
+.update-dialog-platform {
+  color: var(--color-accent-bright);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
 }
 
 body[data-theme="light"] .update-dialog {
@@ -4067,7 +4086,7 @@ body[data-theme="light"] .update-dialog {
   height: 74px;
   display: grid;
   place-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .update-dialog-orbit {
@@ -4120,7 +4139,8 @@ body[data-theme="light"] .update-dialog {
 }
 
 .update-dialog-version {
-  margin-top: 10px;
+  width: fit-content;
+  margin-top: 5px;
   border: 0;
   border-radius: 6px;
   background: color-mix(in srgb, var(--color-accent) 14%, transparent);
@@ -4138,7 +4158,7 @@ body[data-theme="light"] .update-dialog-version {
 }
 
 .update-dialog-text {
-  max-width: 326px;
+  max-width: none;
   margin: 12px 0 14px;
   color: var(--color-text-dim);
   font-size: 13.5px;
@@ -4159,7 +4179,33 @@ body[data-theme="light"] .update-dialog-version {
   text-align: left;
   font-size: 12px;
   line-height: 1.45;
-  white-space: pre-line;
+  white-space: normal;
+}
+
+.update-dialog-release-notes {
+  max-height: 170px;
+  margin-top: 2px;
+}
+
+.update-dialog-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0 0 12px;
+}
+
+.update-dialog-badges span {
+  padding: 5px 8px;
+  border-radius: 9px;
+  color: var(--color-text-faint);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.update-dialog-progress {
+  width: 100%;
+  margin-bottom: 12px;
 }
 
 .update-dialog-notes strong {
@@ -5543,6 +5589,264 @@ body[data-theme="light"] .settings-input {
 
 .settings-toggle-readonly {
   cursor: default;
+}
+
+.update-center-card {
+  overflow: hidden;
+}
+
+.update-center-hero {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  border-bottom: 1px solid var(--color-settings-divider);
+  background:
+    radial-gradient(90% 100% at 100% 0%, color-mix(in srgb, var(--color-accent) 15%, transparent), transparent 62%),
+    color-mix(in srgb, var(--color-accent) 3%, transparent);
+}
+
+.update-center-heading {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.update-center-icon {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 34%, var(--color-border));
+  border-radius: 18px;
+  color: var(--color-accent-bright);
+  background: color-mix(in srgb, var(--color-accent) 13%, transparent);
+}
+
+.update-center-icon svg {
+  width: 25px;
+  height: 25px;
+}
+
+.update-center-title-wrap {
+  min-width: 0;
+}
+
+.update-center-eyebrow,
+.update-center-label {
+  display: block;
+  color: var(--color-accent-bright);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.update-center-title-wrap h3 {
+  margin: 2px 0 1px;
+  color: var(--color-text);
+  font-size: 20px;
+  line-height: 1.22;
+  letter-spacing: -.025em;
+}
+
+.update-center-title-wrap p {
+  margin: 0;
+  color: var(--color-text-dim);
+  font-size: 13px;
+}
+
+.update-center-status {
+  padding: 7px 11px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-accent-bright);
+  background: color-mix(in srgb, var(--color-accent) 9%, transparent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.update-center-content {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--ui-control-bg) 86%, transparent);
+}
+
+.update-release-notes {
+  display: grid;
+  gap: 7px;
+  max-height: 190px;
+  margin-top: 9px;
+  overflow: auto;
+  color: var(--color-text-dim);
+  font-size: 13px;
+  line-height: 1.48;
+}
+
+.update-release-notes strong {
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.update-release-notes p {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+}
+
+.update-release-notes p > span {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  margin-top: .58em;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.update-center-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.update-center-facts span {
+  padding: 5px 8px;
+  border-radius: 9px;
+  color: var(--color-text-faint);
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.update-progress-card {
+  display: grid;
+  gap: 11px;
+  padding: 15px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 27%, var(--color-border));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+}
+
+.update-progress-heading,
+.update-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.update-progress-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.update-progress-heading strong {
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+.update-progress-heading span,
+.update-progress-meta {
+  color: var(--color-text-faint);
+  font-size: 11px;
+}
+
+.update-progress-heading b {
+  padding: 6px 9px;
+  border-radius: 10px;
+  color: var(--color-accent-bright);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.update-progress-track {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+.update-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--color-accent) 72%, transparent), var(--color-accent));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--color-accent) 35%, transparent);
+  transition: width 220ms ease;
+}
+
+.update-center-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.update-channel-select-wrap {
+  position: relative;
+  width: min(230px, 42vw);
+}
+
+.update-channel-select {
+  width: 100%;
+  height: 42px;
+  appearance: none;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 14px;
+  padding: 0 38px 0 13px;
+  outline: none;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--ui-control-bg) 92%, transparent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.update-channel-select:focus {
+  border-color: color-mix(in srgb, var(--color-accent) 65%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 13%, transparent);
+}
+
+.update-channel-select-wrap > span {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  pointer-events: none;
+  color: var(--color-accent-bright);
+  transform: translateY(-55%);
+}
+
+.update-protection-copy {
+  background: color-mix(in srgb, var(--color-accent) 4%, transparent);
+}
+
+@media (max-width: 680px) {
+  .update-center-heading {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .update-center-status {
+    grid-column: 1 / -1;
+    width: fit-content;
+  }
+
+  .update-channel-row {
+    align-items: stretch;
+  }
+
+  .update-channel-select-wrap {
+    width: 100%;
+  }
+
+  .update-center-actions > * {
+    flex: 1 1 140px;
+    text-align: center;
+  }
 }
 
 .settings-segment {

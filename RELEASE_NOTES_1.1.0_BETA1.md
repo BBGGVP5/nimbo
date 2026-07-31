@@ -9,8 +9,8 @@
 | Платформа | Скачать |
 |:--|:--|
 | 🤖 **Android** | [![ARM64](https://img.shields.io/badge/ARM64--V8A-APK-00a844?style=for-the-badge&logo=android&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_v1.1.0-beta.1_arm64_v8a_release.apk) [![UNIVERSAL](https://img.shields.io/badge/UNIVERSAL-APK-4b5563?style=for-the-badge&logo=android&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_v1.1.0-beta.1_universal_release.apk) [![ARMV7](https://img.shields.io/badge/ARMEABI--V7A-APK-4b5563?style=for-the-badge&logo=android&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_v1.1.0-beta.1_armeabi_v7a_release.apk) |
-| 🪟 **Windows** | [![WINDOWS X64](https://img.shields.io/badge/УСТАНОВЩИК-EXE-00a844?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_windows_x64_setup.exe) |
-| 🐧 **Linux** | [![APPIMAGE X64](https://img.shields.io/badge/APPIMAGE-X64-00a844?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_linux_x64.AppImage) [![DEB X64](https://img.shields.io/badge/DEB-X64-4b5563?style=for-the-badge&logo=debian&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_linux_x64.deb) [![RPM X64](https://img.shields.io/badge/RPM-X64-4b5563?style=for-the-badge&logo=fedora&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_linux_x64.rpm) <br> [![APPIMAGE ARM64](https://img.shields.io/badge/APPIMAGE-ARM64-4b5563?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_linux_arm64.AppImage) [![DEB ARM64](https://img.shields.io/badge/DEB-ARM64-4b5563?style=for-the-badge&logo=debian&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_linux_arm64.deb) [![RPM ARM64](https://img.shields.io/badge/RPM-ARM64-4b5563?style=for-the-badge&logo=fedora&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_linux_arm64.rpm) |
+| 🪟 **Windows** | [![WINDOWS X64](https://img.shields.io/badge/УСТАНОВЩИК-X64-00a844?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/NimboSetup_1.1.0-beta.1_x64.exe) [![WINDOWS X86](https://img.shields.io/badge/УСТАНОВЩИК-X86-4b5563?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/NimboSetup_1.1.0-beta.1_x86.exe) [![WINDOWS ARM64](https://img.shields.io/badge/УСТАНОВЩИК-ARM64-4b5563?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/NimboSetup_1.1.0-beta.1_arm64.exe) |
+| 🐧 **Linux** | [![INSTALLER X64](https://img.shields.io/badge/УСТАНОВЩИК-X64-00a844?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/NimboSetup_1.1.0-beta.1_x64) [![APPIMAGE X64](https://img.shields.io/badge/APPIMAGE-X64-4b5563?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_linux_x64.AppImage) [![DEB X64](https://img.shields.io/badge/DEB-X64-4b5563?style=for-the-badge&logo=debian&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_linux_x64.deb) [![RPM X64](https://img.shields.io/badge/RPM-X64-4b5563?style=for-the-badge&logo=fedora&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_linux_x64.rpm) <br> [![APPIMAGE ARM64](https://img.shields.io/badge/APPIMAGE-ARM64-4b5563?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_linux_arm64.AppImage) [![DEB ARM64](https://img.shields.io/badge/DEB-ARM64-4b5563?style=for-the-badge&logo=debian&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_linux_arm64.deb) [![RPM ARM64](https://img.shields.io/badge/RPM-ARM64-4b5563?style=for-the-badge&logo=fedora&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.1/Nimbo_1.1.0-beta.1_linux_arm64.rpm) |
 
 <div align="center">
   🛡️ Для каждого установочного файла приложена отдельная контрольная сумма <code>.sha256</code>.
@@ -18,6 +18,29 @@
 
 > [!IMPORTANT]
 > Это первая бета-версия Nimbo 1.1.0. Она доступна на Android, Windows и Linux. Если вам важнее максимальная предсказуемость, оставайтесь на стабильном канале; для получения этой версии выберите канал «Бета».
+
+<!-- nimbo:android:start -->
+# 🤖 Что нового на Android
+
+- Полностью обновлены экран и окно установки новой версии: стало проще увидеть процент загрузки, скачанный и полный размер файла, а также текущий этап проверки.
+- Канал обновлений теперь выбирается из понятного списка. «Стабильный» показывает только готовые версии, а «Бета» — и тестовые, и готовые релизы.
+- Описание обновления внутри приложения показывает только изменения Android — без установщиков и нововведений Windows или Linux.
+- Исправлена настройка «Скачивать только по Wi‑Fi»: она стала аккуратнее выглядеть и не позволит начать загрузку через мобильную сеть.
+- Загрузку можно продолжить после обрыва. Перед установкой Nimbo проверяет размер файла, контрольную сумму и подпись приложения.
+- Уведомления о новых версиях стали понятнее и ведут прямо к экрану обновления.
+- Если включено автообновление подписок, Nimbo обновляет их в фоне и сообщает, сколько подписок и серверов было обновлено.
+<!-- nimbo:android:end -->
+
+<!-- nimbo:desktop:start -->
+# 🖥️ Что нового на Windows и Linux
+
+- Полностью обновлены центр обновлений и всплывающее окно: появился аккуратный прогресс с процентами, скачанным и полным размером файла.
+- Канал обновлений теперь выбирается из выпадающего списка. «Стабильный» получает только готовые версии, а «Бета» — и тестовые, и готовые релизы.
+- Описание внутри Nimbo показывает только изменения Windows и Linux — без APK и нововведений Android.
+- Прерванная загрузка продолжается с места остановки, а перед запуском установщик проверяется по контрольной сумме.
+- Настройка загрузки только по Wi‑Fi стала понятнее и больше не нарушает разметку экрана.
+- При включённом автообновлении подписки обновляются в фоне, а результат показывается аккуратным уведомлением Nimbo.
+<!-- nimbo:desktop:end -->
 
 # 🔄 Телефон и компьютер теперь работают вместе
 
@@ -93,7 +116,7 @@
 - Улучшена работа с несколькими подписками и выбор активного сервера.
 - Реальные адреса серверов не показываются вместо названий в интерфейсе.
 - Улучшено обнаружение программ, которые могут мешать VPN, и сообщения о таких конфликтах.
-- Для Linux доступны AppImage, DEB и RPM; для Windows — обычный установщик.
+- Для Windows доступны фирменные установщики x64, x86 и ARM64; для Linux — фирменный x64-установщик, AppImage, DEB и RPM.
 
 # 🔔 Небольшие, но заметные улучшения
 
