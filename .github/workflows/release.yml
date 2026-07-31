@@ -66,8 +66,16 @@ jobs:
           if-no-files-found: error
 
   linux:
-    name: Linux x64
-    runs-on: ubuntu-22.04
+    name: Linux ${{ matrix.asset_arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            asset_arch: x64
+          - runner: ubuntu-22.04-arm
+            asset_arch: arm64
 
     steps:
       - name: Получить исходники
@@ -78,7 +86,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential file patchelf pkg-config rpm \
+            build-essential file patchelf pkg-config rpm xdg-utils \
             libwebkit2gtk-4.1-dev libssl-dev \
             libayatana-appindicator3-dev librsvg2-dev
 
@@ -106,6 +114,7 @@ jobs:
       - name: Подготовить понятные имена файлов
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
         shell: bash
         run: |
           set -euo pipefail
@@ -115,14 +124,14 @@ jobs:
           deb="$(find target/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
           rpm="$(find target/release/bundle/rpm -maxdepth 1 -type f -name '*.rpm' -print -quit)"
           test -n "$appimage" && test -n "$deb" && test -n "$rpm"
-          cp "$appimage" "release-normalized/Nimbo_${version}_linux_x64.AppImage"
-          cp "$deb" "release-normalized/Nimbo_${version}_linux_x64.deb"
-          cp "$rpm" "release-normalized/Nimbo_${version}_linux_x64.rpm"
+          cp "$appimage" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.AppImage"
+          cp "$deb" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.deb"
+          cp "$rpm" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.rpm"
 
       - name: Сохранить Linux-пакеты
         uses: actions/upload-artifact@v4
         with:
-          name: nimbo-linux-x64
+          name: nimbo-linux-${{ matrix.asset_arch }}
           path: release-normalized/*
           if-no-files-found: error
 
