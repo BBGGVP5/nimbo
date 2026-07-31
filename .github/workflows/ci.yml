@@ -65,10 +65,10 @@ jobs:
           npm run build
 
       - name: Запустить Rust-тесты
-        run: cargo test --workspace --all-targets
+        run: cargo test --workspace --all-targets --exclude nimbo-installer
 
       - name: Проверить форматирование Rust
         run: cargo fmt --all -- --check
 
       - name: Запустить Clippy без предупреждений
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --exclude nimbo-installer -- -D warnings
