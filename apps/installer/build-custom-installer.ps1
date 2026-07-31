@@ -46,6 +46,25 @@ function Get-XrayArchiveName([string]$TargetTriple) {
   }
 }
 
+function Invoke-DownloadWithRetry(
+  [string]$Uri,
+  [string]$Destination,
+  [hashtable]$Headers,
+  [int]$MaxAttempts = 3
+) {
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+      Invoke-WebRequest -Uri $Uri -OutFile $Destination -Headers $Headers
+      return
+    } catch {
+      if ($attempt -ge $MaxAttempts) { throw }
+      Write-Warning "Download attempt $attempt/$MaxAttempts failed for $Uri. Retrying..."
+      Start-Sleep -Seconds (2 * $attempt)
+    }
+  }
+}
+
 function Install-XrayPayload([string]$TargetTriple) {
   $archiveName = Get-XrayArchiveName $TargetTriple
   $downloadBase = "https://github.com/XTLS/Xray-core/releases/latest/download"
@@ -59,8 +78,8 @@ function Install-XrayPayload([string]$TargetTriple) {
   New-Item -ItemType Directory -Force -Path $workDir, $extractDir, $payloadDir | Out-Null
   Write-Host "Downloading verified Xray payload for $TargetTriple..."
   $headers = @{ "User-Agent" = "Nimbo installer build" }
-  Invoke-WebRequest -Uri "$downloadBase/$archiveName" -OutFile $archivePath -Headers $headers
-  Invoke-WebRequest -Uri "$downloadBase/$archiveName.dgst" -OutFile $digestPath -Headers $headers
+  Invoke-DownloadWithRetry -Uri "$downloadBase/$archiveName" -Destination $archivePath -Headers $headers
+  Invoke-DownloadWithRetry -Uri "$downloadBase/$archiveName.dgst" -Destination $digestPath -Headers $headers
 
   $digestText = Get-Content -Raw -LiteralPath $digestPath
   $digestMatch = [regex]::Match($digestText, '(?im)^\s*(?:SHA256|SHA2-256)\s*=\s*([0-9a-f]{64})\s*$')
