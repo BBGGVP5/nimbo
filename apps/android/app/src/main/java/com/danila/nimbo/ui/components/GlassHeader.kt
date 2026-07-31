@@ -31,21 +31,21 @@ fun GlassHeader(
     val nebulaColors = LocalNebulaColors.current
     val elementStyle = LocalElementStyleMode.current
     val shape = when (elementStyle) {
-        ElementStyleMode.MORPHISM -> RoundedCornerShape(22.dp)
-        ElementStyleMode.MATERIAL3 -> RoundedCornerShape(16.dp)
+        ElementStyleMode.LIQUID_GLASS -> RoundedCornerShape(26.dp)
+        ElementStyleMode.MATERIAL_EXPRESSIVE -> RoundedCornerShape(26.dp)
         ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape(14.dp)
         ElementStyleMode.OUTLINED -> RoundedCornerShape(12.dp)
         ElementStyleMode.SOFT_NEO -> RoundedCornerShape(20.dp)
     }
     val headerBackground = when (elementStyle) {
-        ElementStyleMode.MORPHISM -> Brush.linearGradient(
+        ElementStyleMode.LIQUID_GLASS -> Brush.linearGradient(
             listOf(
                 nebulaColors.onSurface.copy(alpha = 0.12f),
                 nebulaColors.onSurface.copy(alpha = 0.04f)
             )
         )
 
-        ElementStyleMode.MATERIAL3 -> Brush.verticalGradient(
+        ElementStyleMode.MATERIAL_EXPRESSIVE -> Brush.verticalGradient(
             listOf(
                 nebulaColors.surface.copy(alpha = 0.95f),
                 nebulaColors.surface.copy(alpha = 0.82f)
@@ -75,19 +75,26 @@ fun GlassHeader(
         )
     }
 
-    Surface(
-        modifier = Modifier
+    val baseModifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .padding(top = 12.dp, bottom = 6.dp)
             .statusBarsPadding()
+    val styledModifier = if (elementStyle == ElementStyleMode.LIQUID_GLASS) {
+        baseModifier.liquidGlassSurface(shape, LiquidGlassDepth.FLOATING)
+    } else {
+        baseModifier
             .clip(shape)
             .background(headerBackground)
             .then(
                 if (elementStyle == ElementStyleMode.NOTHING_DOTS) {
                     Modifier.dotPatternOverlay(nebulaColors.textPrimary, spacing = 11.dp, radius = 0.8.dp, alpha = 0.14f)
                 } else Modifier
-            ),
+            )
+    }
+
+    Surface(
+        modifier = styledModifier,
         color = Color.Transparent
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -117,7 +124,7 @@ fun GlassHeader(
                             .size(40.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(
-                                if (elementStyle == ElementStyleMode.MATERIAL3) {
+                                if (elementStyle == ElementStyleMode.MATERIAL_EXPRESSIVE) {
                                     Brush.linearGradient(
                                         listOf(
                                             nebulaColors.accent.copy(alpha = 0.14f),
@@ -204,3 +211,5 @@ fun GlassHeader(
         }
     }
 }
+
+

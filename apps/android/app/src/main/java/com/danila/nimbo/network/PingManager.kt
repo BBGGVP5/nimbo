@@ -2,6 +2,7 @@ package com.danila.nimbo.network
 
 import android.util.Log
 import com.danila.nimbo.BuildConfig
+import com.danila.nimbo.vpn.LocalProxyConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -27,7 +28,7 @@ data class PingConfig(
     val testUrl: String = "https://www.gstatic.com/generate_204",
     val timeoutMs: Int = 3000,
     val useProxy: Boolean = false,
-    val proxyPort: Int = 2080
+    val proxyPort: Int = LocalProxyConfig.PORT
 )
 
 enum class PingProtocol {
@@ -46,17 +47,75 @@ object PingManager {
         host: String,
         port: Int = 443,
         config: PingConfig = PingConfig()
+    ): Int = pingNode(host, port, serverProtocol = null, network = null, config = config)
+
+    suspend fun pingNode(
+        host: String,
+        port: Int,
+        serverProtocol: String?,
+        network: String?,
+        config: PingConfig
     ): Int {
-        return when (config.protocol) {
-            PingProtocol.TCP -> pingTcp(host, port, config.timeoutMs)
-            PingProtocol.HTTP_GET -> pingHttp(resolveHttpUrl(host, port, config.testUrl), "GET", config.timeoutMs, config.useProxy, config.proxyPort)
-            PingProtocol.HTTP_HEAD -> pingHttp(resolveHttpUrl(host, port, config.testUrl), "HEAD", config.timeoutMs, config.useProxy, config.proxyPort)
-            PingProtocol.HTTPS_STRICT -> pingHttpsStrict(host, port, config.timeoutMs, config.useProxy, config.proxyPort)
-            PingProtocol.ICMP -> pingIcmp(host, config.timeoutMs)
+        for (protocol in protocolAttempts(config, serverProtocol, network)) {
+            val result = when (protocol) {
+                PingProtocol.TCP -> pingTcp(host, port, config.timeoutMs)
+                PingProtocol.HTTP_GET -> pingHttp(resolveHttpUrl(host, port, config.testUrl), "GET", config.timeoutMs, config.useProxy, config.proxyPort)
+                PingProtocol.HTTP_HEAD -> pingHttp(resolveHttpUrl(host, port, config.testUrl), "HEAD", config.timeoutMs, config.useProxy, config.proxyPort)
+                PingProtocol.HTTPS_STRICT -> pingHttpsStrict(host, port, config.timeoutMs, config.useProxy, config.proxyPort)
+                PingProtocol.ICMP -> pingIcmp(host, config.timeoutMs)
+            }
+            if (result >= 0) return result
+        }
+        return -1
+    }
+
+    /**
+     * A loopback HTTP proxy cannot carry raw TCP-connect or ICMP measurements to a
+     * node. Proxy mode therefore always measures the configured HTTP health endpoint
+     * through the active Xray outbound.
+     */
+    internal fun effectiveProtocol(config: PingConfig): PingProtocol {
+        if (!config.useProxy) return config.protocol
+        return if (config.protocol == PingProtocol.HTTP_GET) {
+            PingProtocol.HTTP_GET
+        } else {
+            PingProtocol.HTTP_HEAD
         }
     }
 
-    private fun resolveHttpUrl(host: String, port: Int, templateUrl: String): String {
+    internal fun protocolAttempts(
+        config: PingConfig,
+        serverProtocol: String?,
+        network: String?
+    ): List<PingProtocol> {
+        val primary = effectiveProtocol(config)
+        if (config.useProxy) return listOf(primary)
+
+        val protocolName = serverProtocol?.trim()?.lowercase().orEmpty()
+        val networkName = network?.trim()?.lowercase().orEmpty()
+        val udpOnlyTransport = listOf(protocolName, networkName).any { value ->
+            value.contains("hysteria") ||
+                value == "hy2" ||
+                value.contains("tuic") ||
+                value.contains("quic")
+        }
+
+        return when {
+            primary == PingProtocol.TCP && udpOnlyTransport -> listOf(PingProtocol.ICMP, PingProtocol.TCP)
+            primary == PingProtocol.TCP -> listOf(PingProtocol.TCP, PingProtocol.ICMP)
+            primary == PingProtocol.ICMP -> listOf(PingProtocol.ICMP, PingProtocol.TCP)
+            else -> listOf(primary)
+        }
+    }
+
+    internal fun timeoutBudgetMs(
+        config: PingConfig,
+        serverProtocol: String?,
+        network: String?
+    ): Long = config.timeoutMs.coerceAtLeast(250).toLong() *
+        protocolAttempts(config, serverProtocol, network).size + 250L
+
+    internal fun resolveHttpUrl(host: String, port: Int, templateUrl: String): String {
         val trimmed = templateUrl.trim()
         if (trimmed.isEmpty()) return "https://$host:$port/"
 
@@ -66,17 +125,9 @@ object PingManager {
                 .replace("{port}", port.toString())
         }
 
-        // По умолчанию HTTP-пинг должен проверять именно локацию сервера, а не общий внешний URL.
-        val lower = trimmed.lowercase()
-        if (
-            lower.contains("generate_204") ||
-            lower.contains("gstatic.com") ||
-            lower.contains("cloudflare.com") ||
-            lower.contains("captive.apple.com")
-        ) {
-            return "https://$host:$port/"
-        }
-
+        // A configured URL is a health endpoint. Proxy transports such as
+        // VLESS/XHTTP intentionally do not expose a regular HTTP origin on
+        // their server port, so rewriting this URL would make HTTP ping hang.
         return trimmed
     }
 
@@ -169,37 +220,43 @@ object PingManager {
         method: String,
         timeoutMs: Int,
         useProxy: Boolean = false,
-        proxyPort: Int = 2080
+        proxyPort: Int = LocalProxyConfig.PORT
     ): Int {
         return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
             try {
                 val start = System.currentTimeMillis()
                 val url = URL(urlString)
-
+                
                 val proxy = if (useProxy) {
-                    Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", proxyPort))
+                    Proxy(Proxy.Type.HTTP, InetSocketAddress(LocalProxyConfig.HOST, proxyPort))
                 } else null
 
-                val connection = (if (proxy != null) url.openConnection(proxy) else url.openConnection()) as HttpURLConnection
-                connection.requestMethod = method
-                connection.connectTimeout = timeoutMs
-                connection.readTimeout = timeoutMs
-                connection.instanceFollowRedirects = false
-
+                val httpConnection =
+                    (if (proxy != null) url.openConnection(proxy) else url.openConnection()) as HttpURLConnection
+                connection = httpConnection
+                httpConnection.requestMethod = method
+                httpConnection.connectTimeout = timeoutMs
+                httpConnection.readTimeout = timeoutMs
+                httpConnection.instanceFollowRedirects = false
+                
                 // Чтобы избежать полной загрузки тела при GET
                 if (method == "GET") {
-                    connection.setRequestProperty("Range", "bytes=0-0")
+                    httpConnection.setRequestProperty("Range", "bytes=0-0")
                 }
 
-                connection.connect()
-                val code = connection.responseCode
+                httpConnection.connect()
+                val code = httpConnection.responseCode
                 val duration = (System.currentTimeMillis() - start).toInt()
-                connection.disconnect()
-
+                
                 if (code in 200..399) duration else -1
             } catch (e: Exception) {
                 Log.w(TAG, "HTTP $method Ping failed: ${e.message}")
                 -1
+            } finally {
+                runCatching { connection?.inputStream?.close() }
+                runCatching { connection?.errorStream?.close() }
+                connection?.disconnect()
             }
         }
     }
@@ -212,7 +269,7 @@ object PingManager {
         port: Int,
         timeoutMs: Int,
         useProxy: Boolean = false,
-        proxyPort: Int = 2080
+        proxyPort: Int = LocalProxyConfig.PORT
     ): Int {
         return withContext(Dispatchers.IO) {
             try {
@@ -220,7 +277,7 @@ object PingManager {
                 val safeHost = if (host.contains(":") && !host.startsWith("[")) "[$host]" else host
                 val url = URL(if (port == 443) "https://$safeHost/" else "https://$safeHost:$port/")
                 val proxy = if (useProxy) {
-                    Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", proxyPort))
+                    Proxy(Proxy.Type.HTTP, InetSocketAddress(LocalProxyConfig.HOST, proxyPort))
                 } else null
 
                 val connection = (if (proxy != null) url.openConnection(proxy) else url.openConnection()) as HttpURLConnection
@@ -251,10 +308,11 @@ object PingManager {
             try {
                 val start = System.currentTimeMillis()
                 // На Android Process(ping) обычно стабильнее чем isReachable
-                val process = Runtime.getRuntime().exec("ping -c 1 -W ${timeoutMs / 1000} $host")
+                val timeoutSeconds = (timeoutMs / 1000).coerceAtLeast(1)
+                val process = Runtime.getRuntime().exec("ping -c 1 -W $timeoutSeconds $host")
                 val result = process.waitFor()
                 val duration = (System.currentTimeMillis() - start).toInt()
-
+                
                 if (result == 0) duration else {
                     // Fallback to isReachable
                     if (InetAddress.getByName(host).isReachable(timeoutMs)) {

@@ -15,7 +15,7 @@ suspend fun getExternalIpAddress(): String? = withContext(Dispatchers.IO) {
             "https://ifconfig.me/ip",
             "https://icanhazip.com"
         )
-
+        
         for (url in urls) {
             try {
                 val connection = URL(url).openConnection()
@@ -40,26 +40,26 @@ suspend fun getExternalIpAddress(): String? = withContext(Dispatchers.IO) {
  */
 suspend fun getCountryFromIp(ip: String?): Pair<String?, String?> {
     if (ip == null) return null to null
-
+    
     // Локальные адреса
-    if (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.") ||
+    if (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.") || 
         ip.startsWith("127.") || ip.startsWith("0.0.0.0")) {
         return "Локальная сеть" to "🏠"
     }
-
+    
     // Пытаемся получить информацию через API
     return try {
         val apiUrl = "https://ipapi.co/$ip/json/"
         val connection = URL(apiUrl).openConnection()
         connection.connectTimeout = 3000
         connection.readTimeout = 3000
-
+        
         val response = connection.inputStream.bufferedReader().readText()
         val json = JSONObject(response)
-
+        
         val country = json.optNullableString("country_name")
         val countryCode = json.optString("country_code", "")
-
+        
         if (country != null && country.isNotBlank()) {
             val flag = getFlagEmoji(countryCode)
             country to flag
@@ -69,12 +69,12 @@ suspend fun getCountryFromIp(ip: String?): Pair<String?, String?> {
     } catch (e: Exception) {
         // Fallback - определяем по первым октетам (очень приблизительно)
         val fallbackCountry = when {
-            ip.startsWith("77.") || ip.startsWith("85.") || ip.startsWith("95.") ||
+            ip.startsWith("77.") || ip.startsWith("85.") || ip.startsWith("95.") || 
             ip.startsWith("176.") || ip.startsWith("178.") || ip.startsWith("185.") ||
             ip.startsWith("188.") || ip.startsWith("212.") || ip.startsWith("213.") ||
             ip.startsWith("217.") || ip.startsWith("46.") || ip.startsWith("62.") ||
             ip.startsWith("91.") || ip.startsWith("92.") || ip.startsWith("93.") ||
-            ip.startsWith("94.") || ip.startsWith("109.") || ip.startsWith("176.") ->
+            ip.startsWith("94.") || ip.startsWith("109.") || ip.startsWith("176.") -> 
                 "Россия" to "🇷🇺"
             ip.startsWith("31.") || ip.startsWith("45.") || ip.startsWith("51.") ||
             ip.startsWith("78.") || ip.startsWith("80.") || ip.startsWith("81.") ||
@@ -148,7 +148,7 @@ private fun JSONObject.optNullableString(key: String): String? {
  */
 private fun getFlagEmoji(countryCode: String): String {
     if (countryCode.length < 2) return "🌐"
-
+    
     val code = countryCode.uppercase()
     return code.map { char ->
         Character.codePointAt("$char", 0) - 0x41 + 0x1F1E6
@@ -176,10 +176,11 @@ fun formatTime(sec: Int): String {
     val hours = sec / 3600
     val minutes = (sec % 3600) / 60
     val secs = sec % 60
-
+    
     return when {
         hours > 0 -> String.format("%02d:%02d:%02d", hours, minutes, secs)
         minutes > 0 -> String.format("%02d:%02d", minutes, secs)
         else -> String.format("%02d", secs)
     }
 }
+

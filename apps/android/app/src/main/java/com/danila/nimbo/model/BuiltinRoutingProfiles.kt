@@ -105,7 +105,7 @@ object BuiltinRoutingProfiles {
             globalProxy = false,
             ruleOrder = "block-direct-proxy",
             localDnsIp = "77.88.8.8",
-            directSites = listOf("domain:ru", "geoip:ru"),
+            directSites = listOf("domain:ru"),
             directIp = listOf("geoip:ru", "geoip:private"),
             proxySites = listOf(
                 "domain:openai.com",

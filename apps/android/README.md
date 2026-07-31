@@ -5,7 +5,7 @@ Android-клиент Nimbo написан на Kotlin и Jetpack Compose. Он �
 ## Что включено
 
 - Android 10+ (`minSdk 29`), ARM64 и armeabi-v7a;
-- libXray `26.7.11` с TUN-интерфейсом, geoip/geosite и защитой сокетов через `VpnService.protect`;
+- libXray `26.7.28` с TUN-интерфейсом, geoip/geosite и защитой сокетов через `VpnService.protect`;
 - R8 и сжатие ресурсов в release-варианте;
 - unit-тесты и lint в GitHub Actions;
 - безопасная release-конфигурация: debug-ключ никогда не используется для публикации.

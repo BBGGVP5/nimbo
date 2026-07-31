@@ -116,6 +116,53 @@ class VpnRecoveryPolicyTest {
     }
 
     @Test
+    fun networkHandoff_rebuildsAnIntentionalConnectionWithoutRetrySetting() {
+        val active = State(desiredConnected = true, phase = Phase.CONNECTED)
+
+        val result = VpnRecoveryPolicy.reduce(active, Event.NetworkHandoff(hasServer = true))
+
+        assertEquals(Phase.WAITING_FOR_NETWORK, result.state.phase)
+        assertEquals(
+            listOf(Command.CancelRetry, Command.RebuildTunnelForNetwork),
+            result.commands
+        )
+    }
+
+    @Test
+    fun networkHandoff_whileConnectingRebuildsAndResetsServerRetryBudget() {
+        val connecting = State(
+            desiredConnected = true,
+            phase = Phase.CONNECTING,
+            networkAvailable = true,
+            retryAttempt = 6,
+            connectPending = true
+        )
+
+        val result = VpnRecoveryPolicy.reduce(connecting, Event.NetworkHandoff(hasServer = true))
+
+        assertEquals(Phase.WAITING_FOR_NETWORK, result.state.phase)
+        assertEquals(0, result.state.retryAttempt)
+        assertFalse(result.state.connectPending)
+        assertEquals(
+            listOf(Command.CancelRetry, Command.RebuildTunnelForNetwork),
+            result.commands
+        )
+    }
+
+    @Test
+    fun networkHandoff_afterManualDisconnectDoesNothing() {
+        val stopped = VpnRecoveryPolicy.reduce(
+            State(desiredConnected = true, phase = Phase.CONNECTED),
+            Event.ManualDisconnect
+        )
+
+        val result = VpnRecoveryPolicy.reduce(stopped.state, Event.NetworkHandoff(hasServer = true))
+
+        assertTrue(result.commands.isEmpty())
+        assertFalse(result.state.desiredConnected)
+    }
+
+    @Test
     fun stickyRestore_doesNotResumeWhileScreenIsStillOff() {
         val paused = State(
             desiredConnected = true,
@@ -146,6 +193,31 @@ class VpnRecoveryPolicyTest {
         assertEquals(2_000L, VpnRecoveryPolicy.retryDelayMs(2))
         assertEquals(30_000L, VpnRecoveryPolicy.retryDelayMs(6))
         assertEquals(30_000L, VpnRecoveryPolicy.retryDelayMs(99))
+    }
+
+    @Test
+    fun retryAttempt_keepsCountingAfterDelayReachesItsCap() {
+        var state = State(
+            desiredConnected = true,
+            phase = Phase.CONNECTING,
+            networkAvailable = true,
+            connectPending = true
+        )
+
+        repeat(8) {
+            val failed = VpnRecoveryPolicy.reduce(
+                state,
+                Event.ConnectFailed(
+                    retryable = true,
+                    autoRecoveryEnabled = true,
+                    hasServer = true
+                )
+            )
+            state = VpnRecoveryPolicy.reduce(failed.state, Event.RetryElapsed).state
+        }
+
+        assertEquals(8, state.retryAttempt)
+        assertEquals(30_000L, VpnRecoveryPolicy.retryDelayMs(state.retryAttempt))
     }
 
     @Test

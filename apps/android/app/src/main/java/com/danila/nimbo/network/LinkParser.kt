@@ -106,11 +106,13 @@ object LinkParser {
 
     private fun decodeQueryValue(value: String): String {
         // Важно: не превращаем '+' в пробел, иначе ломаются ключи (например pbk в Reality).
-        return try {
-            Uri.decode(value)
-        } catch (_: Exception) {
-            value
+        val androidDecoded = runCatching { Uri.decode(value) }.getOrNull()
+        if (androidDecoded != null && (androidDecoded != value || !value.contains('%'))) {
+            return androidDecoded
         }
+        return runCatching {
+            java.net.URLDecoder.decode(value.replace("+", "%2B"), Charsets.UTF_8.name())
+        }.getOrDefault(value)
     }
 
     private fun parseQueryParams(queryPart: String): Map<String, String> {
@@ -126,9 +128,10 @@ object LinkParser {
 
     private fun decodeName(rawName: String, fallback: String = "Server"): String {
         val candidate = rawName.takeIf { it.isNotBlank() && !it.contains("://") } ?: fallback
-        return try {
-            Uri.decode(candidate)
-        } catch (_: Exception) {
+        val decoded = decodeQueryValue(candidate)
+        return if (decoded != candidate || candidate.contains('%')) {
+            decoded
+        } else {
             maybeDecodeBase64Text(candidate) ?: candidate
         }
     }
@@ -192,7 +195,7 @@ object LinkParser {
     fun parse(link: String): Server {
         val uri = try { Uri.parse(link) } catch (e: Exception) { null }
         val protocol = link.substringBefore("://", "vless").lowercase()
-
+        
         return when (protocol) {
             "vless" -> parseVless(link, uri)
             "vmess" -> parseVmess(uri, link)
@@ -210,7 +213,7 @@ object LinkParser {
         val hostPort = mainPart.substringAfter("@", "")
         val host = hostPort.substringBefore(":", hostPort)
         val port = hostPort.substringAfter(":", "443").toIntOrNull() ?: 443
-
+        
         // Извлекаем фрагмент (имя) - ищем ПОСЛЕДНИЙ #. Remnawave может дописать во fragment
         // хвост "?serverDescription=<base64>" — отделяем его, иначе имя обнулялось до "Server".
         val rawFragment = link.substringAfterLast("#", "")
@@ -225,7 +228,7 @@ object LinkParser {
         val queryPart = if (link.contains("?")) {
             link.substringAfter("?").substringBefore("#")
         } else ""
-
+        
         val params = parseQueryParams(queryPart)
 
         val security = params["security"] ?: uri?.getQueryParameter("security")
@@ -383,14 +386,14 @@ object LinkParser {
         val mainPart = link.substringAfter("ss://").substringBefore("#")
         val userInfo = mainPart.substringBefore("@", "")
         val hostPort = mainPart.substringAfter("@", "")
-
+        
         val decodedUserInfo = try {
             val decoded = Base64.decode(userInfo, Base64.DEFAULT)
             String(decoded)
         } catch (e: Exception) {
             userInfo
         }
-
+        
         val method = decodedUserInfo.substringBefore(":", "chacha20-poly1305")
         val password = decodedUserInfo.substringAfter(":", "")
         val rawFragment = link.substringAfterLast("#", "")

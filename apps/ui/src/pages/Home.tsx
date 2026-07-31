@@ -574,7 +574,7 @@ export function Home() {
           />
         </div>
 
-        <div className="home-middle">
+        <div className="home-middle network-glass-home">
           <ConnectionButton
             connected={connected}
             connecting={connecting || switching}

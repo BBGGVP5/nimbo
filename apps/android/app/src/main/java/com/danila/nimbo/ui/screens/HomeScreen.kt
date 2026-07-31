@@ -72,6 +72,7 @@ import com.danila.nimbo.ui.components.SubscriptionInfoCard
 import com.danila.nimbo.ui.components.TopBarMorphIcon
 import com.danila.nimbo.ui.components.cleanServerName
 import com.danila.nimbo.ui.components.extractFlagEmoji
+import com.danila.nimbo.ui.components.rememberHapticSliderValueChange
 import com.danila.nimbo.ui.theme.*
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.ui.viewmodel.HomeWidgetViewModel
@@ -378,7 +379,7 @@ fun HomeScreen(
 
     val serverPings = remember(effectiveServers) {
         effectiveServers
-            .groupBy { it.pingKey() }
+            .groupBy { it.pingMeasurementKey() }
             .mapValues { (_, variants) ->
                 val bestFresh = variants
                     .filter { it.isPingValid() }
@@ -1960,7 +1961,7 @@ fun AvailableWidgetsPanelHome(
                         color = nebulaColors.textTertiary
                     )
                 }
-
+                
                 Surface(
                     onClick = { onDismiss() },
                     shape = CircleShape,
@@ -2141,7 +2142,10 @@ fun AvailableWidgetsPanelHome(
                             Spacer(Modifier.height(6.dp))
                             Slider(
                                 value = connectButtonSizeScale,
-                                onValueChange = { preferencesManager.connectButtonSizeScale = it },
+                                onValueChange = rememberHapticSliderValueChange(
+                                    value = connectButtonSizeScale,
+                                    valueRange = 0.50f..2.00f
+                                ) { preferencesManager.connectButtonSizeScale = it },
                                 valueRange = 0.50f..2.00f
                             )
                         }
@@ -2235,7 +2239,7 @@ fun WidgetPreviewItem(
     onClick: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
-
+    
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(24.dp),
@@ -2988,7 +2992,7 @@ fun ServerSelectorWidget(
             }
 
                 // Пинг
-                val selectedServerPing = selectedServer?.pingKey()?.let { serverPings[it] } ?: -1
+                val selectedServerPing = selectedServer?.pingMeasurementKey()?.let { serverPings[it] } ?: -1
                 val showLoading = isPinging && selectedServerPing == -1
 
                 if (showLoading || selectedServerPing != -1) {
@@ -3035,7 +3039,7 @@ fun ServerSelectorWidget(
                             )
                         } else {
                             Text(
-                                text = if (showLoading) "..."
+                                text = if (showLoading) "..." 
                                        else if (pingDisplayMode == 1) {
                                            if (selectedServerPing == -1) "Ошибка" else "Доступен"
                                        } else {
@@ -3251,9 +3255,9 @@ fun ServerSelectorWidget(
                                         }
                                     }
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        val ping = serverPings[server.pingKey()] ?: -1
+                                        val ping = serverPings[server.pingMeasurementKey()] ?: -1
                                         val showLoading = isPinging && ping == -1
-
+                                        
                                         val pingColor = when {
                                             showLoading -> nebulaColors.textTertiary.copy(alpha = 0.5f)
                                             ping == -1 -> nebulaColors.statusDisconnected
@@ -3296,7 +3300,7 @@ fun ServerSelectorWidget(
                                                 )
                                             } else {
                                                 Text(
-                                                    text = if (showLoading) "..."
+                                                    text = if (showLoading) "..." 
                                                            else if (pingDisplayMode == 1) {
                                                                if (ping == -1) "Ошибка" else "Доступен"
                                                            } else {
@@ -3385,7 +3389,7 @@ fun IPInfoWidget(
             )
             .clickable {
                 // Копируем IP или просто даем фидбек
-                onRefresh()
+                onRefresh() 
             }
             .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
@@ -4156,9 +4160,9 @@ fun ComboStatsWidget(profile: SubscriptionProfile) {
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.CloudDownload,
-                            null,
-                            tint = nebulaColors.textTertiary,
+                            Icons.Default.CloudDownload, 
+                            null, 
+                            tint = nebulaColors.textTertiary, 
                             modifier = Modifier.size(12.dp)
                         )
                         Spacer(Modifier.width(4.dp))
@@ -4549,3 +4553,8 @@ private fun SettingsToggleCard(
         }
     }
 }
+
+
+
+
+

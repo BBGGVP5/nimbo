@@ -16,6 +16,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -48,6 +49,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -111,6 +113,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Grain
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
@@ -118,6 +121,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.VpnLock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -163,9 +167,11 @@ import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
@@ -187,9 +193,12 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
@@ -229,6 +238,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -242,6 +252,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -254,6 +265,14 @@ import com.danila.nimbo.network.UpdateManager
 import com.danila.nimbo.ui.components.DeleteProfileDialog
 import com.danila.nimbo.ui.components.ExpressiveCircularLoader
 import com.danila.nimbo.ui.components.ExpressiveLoadingPane
+import com.danila.nimbo.ui.components.EdgeBurstSource
+import com.danila.nimbo.ui.components.EdgeBurstSourceShape
+import com.danila.nimbo.ui.components.EdgeBurstSnapshot
+import com.danila.nimbo.ui.components.EdgeBurstTrigger
+import com.danila.nimbo.ui.components.LiquidGlassDepth
+import com.danila.nimbo.ui.components.LiquidInteractionPolicy
+import com.danila.nimbo.ui.components.LocalNetworkEdgeBurstEmitter
+import com.danila.nimbo.ui.components.NetworkEdgeBurstOverlay
 import com.danila.nimbo.ui.components.NotificationType
 import com.danila.nimbo.ui.components.QrCodeDisplayBottomSheet
 import com.danila.nimbo.ui.components.QrScannerScreen
@@ -261,8 +280,15 @@ import com.danila.nimbo.ui.components.SubscriptionBrandLogo
 import com.danila.nimbo.ui.screens.SubscriptionProfileMetadata
 import com.danila.nimbo.ui.screens.toMetadata
 import com.danila.nimbo.ui.components.UpdateDialog
+import com.danila.nimbo.ui.components.PostUpdateDialog
 import com.danila.nimbo.ui.components.cleanServerName
+import com.danila.nimbo.ui.components.confirm
 import com.danila.nimbo.ui.components.extractFlagEmoji
+import com.danila.nimbo.ui.components.liquidGlassSurface
+import com.danila.nimbo.ui.components.liquidTouchDeformation
+import com.danila.nimbo.ui.components.rememberNetworkEdgeBurstController
+import com.danila.nimbo.ui.components.rememberHapticSliderValueChange
+import com.danila.nimbo.ui.components.tick
 import com.danila.nimbo.ui.theme.BackgroundStyleMode
 import com.danila.nimbo.ui.theme.DEFAULT_COLOR_THEME_INDEX
 import com.danila.nimbo.ui.theme.LocalBackgroundAnimationEnabled
@@ -288,7 +314,10 @@ import com.danila.nimbo.utils.formatBytes
 import com.danila.nimbo.vpn.VpnManager
 import com.danila.nimbo.vpn.VpnRecoveryStatus
 import com.danila.nimbo.vpn.VpnState
+import com.danila.nimbo.vpn.RoutingConfigurationApplier
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -296,16 +325,19 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private enum class MiniDestination {
     Home, Subscription, AppAccess, Settings,
     Theme, Language, PingSettings, About, Disclaimer, ConnectionId, Notifications, Updates, Logs,
-    Routing, Connections, Statistics, Firewall;
+    Routing, Connections, Statistics, Firewall, WhitelistCheck, WhitelistPing, WhitelistHistory,
+    CrossPlatformSync;
 
     fun isSettingsSubPage(): Boolean = when (this) {
         Theme, Language, PingSettings, About, ConnectionId, Notifications, Updates, Logs,
-        Routing, Connections, Statistics, Firewall -> true
+        Routing, Connections, Statistics, Firewall, WhitelistCheck, WhitelistPing, WhitelistHistory,
+        CrossPlatformSync -> true
         else -> false
     }
 
@@ -323,6 +355,7 @@ private enum class MiniDestination {
         Updates -> 0.70f
         About -> 0.78f
         Logs -> 0.86f
+        WhitelistCheck, WhitelistPing, WhitelistHistory, CrossPlatformSync -> 0.50f
         else -> 0.5f
     }
 
@@ -343,7 +376,7 @@ private enum class MiniSubscriptionTab { Proxies, Profiles }
 // Open — просто открыть; Paste/File — открыть и сразу выполнить метод (как одноимённые
 // кнопки в самом диалоге); Qr — сразу открыть сканер (без диалога).
 private enum class AddProfileAction { Open, Paste, File, Qr }
-private enum class InterfacePreviewKind { Nebula, MaterialYou }
+private enum class InterfacePreviewKind { IosLiquidGlass, MaterialYou }
 
 @Composable
 fun NimboMiniApp(
@@ -361,6 +394,19 @@ fun NimboMiniApp(
     // палитры/фона публикуется в NebulaGuardTheme в тот же кадр.
     val preferencesManager = LocalPreferencesManager.current
     val profilesMetadata by mainViewModel.profilesMetadataState.collectAsState()
+    val isPinging by mainViewModel.isPinging.collectAsState()
+    val edgeBurstController = rememberNetworkEdgeBurstController(
+        EdgeBurstSnapshot(
+            vpnState = VpnManager.state.value,
+            isPinging = isPinging,
+            isRefreshing = profiles.any { it.isLoading }
+        )
+    )
+    val edgeBurstEmitter: (EdgeBurstTrigger, EdgeBurstSource?) -> Unit = remember(edgeBurstController) {
+        { trigger, source -> edgeBurstController.emit(trigger, source) }
+    }
+    val statusParticlesEnabled by preferencesManager.statusParticlesEnabledState
+    val edgeBurstAnimationsEnabled = LocalBackgroundAnimationEnabled.current && statusParticlesEnabled
 
     var destination by rememberSaveable {
         mutableStateOf(
@@ -391,6 +437,9 @@ fun NimboMiniApp(
     var showTvSheetUrl by remember { mutableStateOf<String?>(null) }
     var showDisclaimer by remember { mutableStateOf(false) }
     var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+    var showPostUpdatePrompt by remember {
+        mutableStateOf(preferencesManager.showPostUpdateChangelog)
+    }
     val destinationHistory = remember { mutableStateListOf<MiniDestination>() }
 
     fun navigateTo(target: MiniDestination) {
@@ -468,12 +517,12 @@ fun NimboMiniApp(
         val throttleMs = 6 * 60 * 60 * 1000L
         if (now - preferencesManager.lastUpdateCheckTime < throttleMs) return@LaunchedEffect
 
-        val info = runCatching { UpdateManager.checkUpdate() }.getOrNull()
+        val info = runCatching { UpdateManager.checkUpdate(context) }.getOrNull()
         preferencesManager.lastUpdateCheckTime = System.currentTimeMillis()
-        // checkUpdate() возвращает объект только для реально более нового релиза.
+        // Это может быть новая версия или исправленный APK той же версии.
         if (info != null) {
-            val skipped = preferencesManager.updateDialogSkippedVersion
-            if (skipped == null || skipped != info.versionName || info.forceUpdate) {
+            val skipped = preferencesManager.updateDialogSkippedArtifactId
+            if (skipped == null || skipped != info.artifactId || info.forceUpdate) {
                 pendingUpdateInfo = info
             }
         }
@@ -671,6 +720,8 @@ fun NimboMiniApp(
     val onRoutingClickRemembered = remember { { navigateTo(MiniDestination.Routing) } }
     val onConnectionsClickRemembered = remember { { navigateTo(MiniDestination.Connections) } }
     val onStatsClickRemembered = remember { { navigateTo(MiniDestination.Statistics) } }
+    val onWhitelistClickRemembered = remember { { navigateTo(MiniDestination.WhitelistCheck) } }
+    val onCrossSyncClickRemembered = remember { { navigateTo(MiniDestination.CrossPlatformSync) } }
     val onScrollResetRemembered = remember { { shouldScrollToSelectedServer = false } }
 
     // Shared snapshot of the backdrop + current page. The floating bottom bar redraws
@@ -678,6 +729,7 @@ fun NimboMiniApp(
     // behind it (true glass) rather than getting an opaque fill or an extra glow layer.
     val backdropLayer = rememberGraphicsLayer()
 
+    CompositionLocalProvider(LocalNetworkEdgeBurstEmitter provides edgeBurstEmitter) {
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
@@ -784,6 +836,8 @@ fun NimboMiniApp(
                     onRoutingClick = onRoutingClickRemembered,
                     onConnectionsClick = onConnectionsClickRemembered,
                     onStatsClick = onStatsClickRemembered,
+                    onWhitelistClick = onWhitelistClickRemembered,
+                    onCrossSyncClick = onCrossSyncClickRemembered,
                     onRefreshFirstProfile = onProfileRefresh,
                     onShowTvQr = onShowTvQrRemembered
                 )
@@ -791,6 +845,12 @@ fun NimboMiniApp(
                 MiniDestination.AppAccess -> AppProxySettingsScreen(
                     onNavigateBack = { navigateBackInMiniApp() },
                     showBack = false
+                )
+
+                MiniDestination.CrossPlatformSync -> CrossPlatformSyncScreen(
+                    preferencesManager = preferencesManager,
+                    mainViewModel = mainViewModel,
+                    onBack = { navigateBackInMiniApp() }
                 )
 
                 MiniDestination.Theme -> NimboThemeScreen(
@@ -874,6 +934,20 @@ fun NimboMiniApp(
                         preferencesManager = preferencesManager
                     )
                 }
+
+                MiniDestination.WhitelistCheck -> ConnectivityDiagnosticsScreen(
+                    onNavigateBack = { navigateBackInMiniApp() },
+                    onNavigateToHistory = { navigateTo(MiniDestination.WhitelistHistory) },
+                    onNavigateToPingTool = { navigateTo(MiniDestination.WhitelistPing) }
+                )
+
+                MiniDestination.WhitelistPing -> PingToolScreen(
+                    onNavigateBack = { navigateBackInMiniApp() }
+                )
+
+                MiniDestination.WhitelistHistory -> ConnectivityDiagnosticsHistoryScreen(
+                    onNavigateBack = { navigateBackInMiniApp() }
+                )
             }
         }
         }
@@ -894,6 +968,12 @@ fun NimboMiniApp(
                 }
             )
         }
+
+        NetworkEdgeBurstOverlay(
+            event = edgeBurstController.event,
+            enabled = edgeBurstAnimationsEnabled,
+            modifier = Modifier.fillMaxSize()
+        )
 
         val activity = context as? android.app.Activity
         if (showDisclaimer) {
@@ -957,6 +1037,7 @@ fun NimboMiniApp(
                 updateInfo = info,
                 onDismiss = {
                     preferencesManager.updateDialogSkippedVersion = info.versionName
+                    preferencesManager.updateDialogSkippedArtifactId = info.artifactId
                     pendingUpdateInfo = null
                 },
                 onUpdate = {
@@ -965,6 +1046,22 @@ fun NimboMiniApp(
                 }
             )
         }
+
+        if (showPostUpdatePrompt) {
+            PostUpdateDialog(
+                versionName = preferencesManager.lastInstalledUpdateVersion.orEmpty(),
+                onDismiss = {
+                    preferencesManager.showPostUpdateChangelog = false
+                    showPostUpdatePrompt = false
+                },
+                onShowChanges = {
+                    preferencesManager.showPostUpdateChangelog = false
+                    showPostUpdatePrompt = false
+                    navigateTo(MiniDestination.Updates)
+                }
+            )
+        }
+    }
     }
 }
 
@@ -1169,7 +1266,7 @@ private fun NimboHomeScreen(
     val targetServer = selectedServer ?: profile?.servers?.firstOrNull()
     val isPinging by mainViewModel.isPinging.collectAsState()
     val activePingKeys by mainViewModel.activePingKeys.collectAsState()
-    val targetPinging = targetServer != null && activePingKeys.contains(targetServer.pingKey())
+    val targetPinging = targetServer != null && activePingKeys.contains(targetServer.pingMeasurementKey())
     val vpnState = VpnManager.state.value
     val recoveryStatus = VpnManager.recoveryStatus.value
     val recoveryAttempt = VpnManager.recoveryAttempt.value
@@ -1194,7 +1291,7 @@ private fun NimboHomeScreen(
         label = "home-server-gap"
     )
 
-    LaunchedEffect(targetServer?.pingKey(), vpnState) {
+    LaunchedEffect(targetServer?.pingMeasurementKey(), vpnState) {
         val server = targetServer
         if (server != null && server.ping == null && vpnState == VpnState.DISCONNECTED && !isPinging) {
             mainViewModel.pingSingleServer(server)
@@ -1207,7 +1304,7 @@ private fun NimboHomeScreen(
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 14.dp)
-            .padding(top = 12.dp, bottom = 112.dp),
+            .padding(top = 12.dp, bottom = 140.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (profile != null) {
@@ -1692,7 +1789,7 @@ private fun AddSubscriptionPrimaryAction(onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.985f else 1f,
+        targetValue = if (pressed && !nebulaColors.isLiquidGlass) 0.985f else 1f,
         animationSpec = if (miniMotionEnabled) tween(110, easing = FastOutSlowInEasing) else snap(),
         label = "add-subscription-action-scale"
     )
@@ -1702,6 +1799,13 @@ private fun AddSubscriptionPrimaryAction(onClick: () -> Unit) {
             .fillMaxWidth()
             .height(56.dp)
             .scale(scale)
+            .then(
+                if (nebulaColors.isLiquidGlass) {
+                    Modifier.liquidTouchDeformation(LiquidGlassDepth.CONTROL)
+                } else {
+                    Modifier
+                }
+            )
             .clip(RoundedCornerShape(17.dp))
             .background(
                 Brush.horizontalGradient(
@@ -1765,7 +1869,7 @@ private fun AddMethodChip(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
+        targetValue = if (pressed && !nebulaColors.isLiquidGlass) 0.97f else 1f,
         animationSpec = if (miniMotionEnabled) tween(100, easing = FastOutSlowInEasing) else snap(),
         label = "add-method-scale"
     )
@@ -1773,6 +1877,13 @@ private fun AddMethodChip(
         modifier = modifier
             .height(62.dp)
             .scale(scale)
+            .then(
+                if (nebulaColors.isLiquidGlass) {
+                    Modifier.liquidTouchDeformation(LiquidGlassDepth.CONTROL)
+                } else {
+                    Modifier
+                }
+            )
             .clip(RoundedCornerShape(16.dp))
             .background(nebulaColors.accent.copy(alpha = 0.08f))
             .border(1.dp, nebulaColors.accent.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
@@ -1851,6 +1962,9 @@ private fun WindowsConnectionButton(
     val connecting = state == VpnState.CONNECTING
     val accent = nebulaColors.accent
     val miniMotionEnabled = rememberMiniMotionEnabled()
+    val edgeBurstEmitter = LocalNetworkEdgeBurstEmitter.current
+    var edgeBurstSource by remember { mutableStateOf<EdgeBurstSource?>(null) }
+    val edgeBurstOutsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { 5.dp.toPx() }
     val ringColor = if (connected || connecting) accent else if (isLight) Color(0xFFCFCDD9) else Color.White
     val idleFill = if (isLight) Color.White.copy(alpha = 0.96f) else Color(0xFF151520).copy(alpha = 0.96f)
     val idleBorder = if (connecting) accent.copy(alpha = 0.24f) else if (isLight) Color(0xFFDAD8E3) else Color.White.copy(alpha = 0.08f)
@@ -1872,7 +1986,7 @@ private fun WindowsConnectionButton(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
+        targetValue = if (pressed && !nebulaColors.isLiquidGlass) 0.97f else 1f,
         animationSpec = if (miniMotionEnabled) tween(110, easing = FastOutSlowInEasing) else snap(),
         label = "windows-connect-scale"
     )
@@ -1880,7 +1994,28 @@ private fun WindowsConnectionButton(
     Box(
         modifier = modifier
             .size(216.dp)
-            .scale(scale),
+            .scale(scale)
+            .then(
+                if (nebulaColors.isLiquidGlass) {
+                    Modifier.liquidTouchDeformation(LiquidGlassDepth.CONTROL)
+                } else {
+                    Modifier
+                }
+            )
+            .onGloballyPositioned { coordinates ->
+                val topLeft = coordinates.positionInRoot()
+                edgeBurstSource = EdgeBurstSource(
+                    center = topLeft + Offset(
+                        coordinates.size.width / 2f,
+                        coordinates.size.height / 2f
+                    ),
+                    halfWidth = coordinates.size.width / 2f,
+                    halfHeight = coordinates.size.height / 2f,
+                    shape = EdgeBurstSourceShape.CIRCLE,
+                    densityMultiplier = 1.5f,
+                    outsetPx = edgeBurstOutsetPx
+                )
+            },
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -1961,6 +2096,10 @@ private fun WindowsConnectionButton(
                     indication = if (materialYou) LocalIndication.current else null,
                     interactionSource = interactionSource,
                     onClick = {
+                        edgeBurstEmitter(
+                            if (connected || connecting) EdgeBurstTrigger.DISCONNECTED else EdgeBurstTrigger.CONNECTING,
+                            edgeBurstSource
+                        )
                         haptic.performHapticFeedback(
                             if (connected) HapticFeedbackType.LongPress
                             else HapticFeedbackType.TextHandleMove
@@ -2023,6 +2162,9 @@ private fun WindowsConnectionButtonCompact(
     val connecting = state == VpnState.CONNECTING
     val accent = nebulaColors.accent
     val miniMotionEnabled = rememberMiniMotionEnabled()
+    val edgeBurstEmitter = LocalNetworkEdgeBurstEmitter.current
+    var edgeBurstSource by remember { mutableStateOf<EdgeBurstSource?>(null) }
+    val edgeBurstOutsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { 3.dp.toPx() }
     val cornerScale = LocalGlobalCornerRadius.current
     val shape = RoundedCornerShape(20.dp * cornerScale)
     val chipShape = RoundedCornerShape(14.dp * cornerScale)
@@ -2030,7 +2172,7 @@ private fun WindowsConnectionButtonCompact(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.98f else 1f,
+        targetValue = if (pressed && !nebulaColors.isLiquidGlass) 0.98f else 1f,
         animationSpec = if (miniMotionEnabled) tween(110, easing = FastOutSlowInEasing) else snap(),
         label = "compact-connect-scale"
     )
@@ -2068,11 +2210,18 @@ private fun WindowsConnectionButtonCompact(
     }
     val textColor = if (connected || connecting) accent else nebulaColors.textPrimary
 
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .height(66.dp)
             .scale(scale)
+            .then(
+                if (nebulaColors.isLiquidGlass) {
+                    Modifier.liquidTouchDeformation(LiquidGlassDepth.CONTROL)
+                } else {
+                    Modifier
+                }
+            )
             .clip(shape)
             .background(panelFill)
             .border(1.dp, panelBorder, shape)
@@ -2080,15 +2229,37 @@ private fun WindowsConnectionButtonCompact(
                 indication = if (materialYou) LocalIndication.current else null,
                 interactionSource = interactionSource,
                 onClick = {
+                    edgeBurstEmitter(
+                        if (connected || connecting) EdgeBurstTrigger.DISCONNECTED else EdgeBurstTrigger.CONNECTING,
+                        edgeBurstSource
+                    )
                     haptic.performHapticFeedback(
                         if (connected) HapticFeedbackType.LongPress else HapticFeedbackType.TextHandleMove
                     )
                     onClick()
                 }
             )
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .onGloballyPositioned { coordinates ->
+                val topLeft = coordinates.positionInRoot()
+                edgeBurstSource = EdgeBurstSource(
+                    center = topLeft + Offset(
+                        coordinates.size.width / 2f,
+                        coordinates.size.height / 2f
+                    ),
+                    halfWidth = coordinates.size.width / 2f,
+                    halfHeight = coordinates.size.height / 2f,
+                    shape = EdgeBurstSourceShape.ROUNDED_RECT,
+                    densityMultiplier = 1.2f,
+                    outsetPx = edgeBurstOutsetPx
+                )
+            }
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         Box(
             modifier = Modifier
                 .size(46.dp)
@@ -2136,15 +2307,16 @@ private fun WindowsConnectionButtonCompact(
             }
         }
         Spacer(Modifier.width(14.dp))
-        Text(
-            text = connectionStatusText(state, connectedSeconds, recoveryStatus, recoveryAttempt),
-            color = textColor,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.ExtraBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
+            Text(
+                text = connectionStatusText(state, connectedSeconds, recoveryStatus, recoveryAttempt),
+                color = textColor,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 
@@ -2615,22 +2787,49 @@ private fun MiniSquareIconButton(
     active: Boolean = false,
     forceOpaque: Boolean = false
 ) {
+    val edgeBurstEmitter = LocalNetworkEdgeBurstEmitter.current
+    var edgeBurstSource by remember { mutableStateOf<EdgeBurstSource?>(null) }
+    val edgeBurstOutsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { 3.dp.toPx() }
+    val buttonShape = RoundedCornerShape(size * 0.30f)
+    val onClickWithBurst: () -> Unit = {
+        when (motion) {
+            MiniIconMotion.Ping -> edgeBurstEmitter(EdgeBurstTrigger.PING, edgeBurstSource)
+            MiniIconMotion.Refresh -> edgeBurstEmitter(EdgeBurstTrigger.REFRESH, edgeBurstSource)
+            MiniIconMotion.None -> Unit
+        }
+        onClick()
+    }
     GlassPanel(
         // Radius scales with size so small (36–40dp) buttons read as rounded squares
         // rather than circles, consistent with the larger control buttons.
-        modifier = Modifier.size(size),
-        shape = RoundedCornerShape(size * 0.30f),
+        modifier = Modifier
+            .size(size)
+            .onGloballyPositioned { coordinates ->
+                val topLeft = coordinates.positionInRoot()
+                edgeBurstSource = EdgeBurstSource(
+                    center = topLeft + Offset(
+                        coordinates.size.width / 2f,
+                        coordinates.size.height / 2f
+                    ),
+                    halfWidth = coordinates.size.width / 2f,
+                    halfHeight = coordinates.size.height / 2f,
+                    shape = EdgeBurstSourceShape.ROUNDED_RECT,
+                    outsetPx = edgeBurstOutsetPx
+                )
+            },
+        shape = buttonShape,
         borderColor = Color.White.copy(alpha = 0.10f),
         forceOpaque = forceOpaque
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             MiniIconButton(
                 icon = icon,
-                onClick = onClick,
+                onClick = onClickWithBurst,
                 size = size,
                 iconSize = iconSize,
                 motion = motion,
-                active = active
+                active = active,
+                shape = buttonShape
             )
         }
     }
@@ -3319,7 +3518,7 @@ private fun ProxyList(
                         displayName = serverUiTitle(preferencesManager, server),
                         selected = index == selectedIndex,
                         isFavorite = pinnedServerKeys.contains(serverKey),
-                        isPinging = isPinging && activePingKeys.contains(server.pingKey()),
+                        isPinging = isPinging && activePingKeys.contains(server.pingMeasurementKey()),
                         pingDisplayMode = pingDisplayMode,
                         showDivider = !isLast,
                         showJsonBadge = showJsonBadge,
@@ -3853,7 +4052,7 @@ private fun WindowsProfilesList(
                     text = t(
                         serverCountRu(servers.size),
                         serverCountEn(servers.size)
-                    ).uppercase(Locale.getDefault()),
+                    ).uppercase(Locale.ROOT),
                     color = nebulaColors.textTertiary,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.ExtraBold,
@@ -3887,7 +4086,7 @@ private fun WindowsProfilesList(
                         displayName = serverUiTitle(preferencesManager, server),
                         selected = selectedServer?.matchesSelection(server) == true,
                         isFavorite = pinnedServerKeys.contains(serverKey),
-                        isPinging = isPinging && activePingKeys.contains(serverKey),
+                        isPinging = isPinging && activePingKeys.contains(server.pingMeasurementKey()),
                         pingDisplayMode = pingDisplayMode,
                         showDivider = !isLast,
                         showJsonBadge = profile.supportsJsonResponse == true,
@@ -4258,17 +4457,12 @@ private fun WindowsProfileServerLine(
                 DropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
-                    modifier = Modifier
-                        .width(230.dp)
-                        .background(
-                            color = windowsPanelFill(nebulaColors),
-                            shape = RoundedCornerShape(16.dp)
-                        ),
+                    modifier = Modifier.width(230.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = Color.Transparent,
+                    containerColor = windowsMenuFill(nebulaColors),
                     tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
-                    border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.14f))
+                    shadowElevation = 8.dp,
+                    border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.22f))
                 ) {
                     ProfileMenuItem(
                         t(
@@ -4336,7 +4530,7 @@ private fun WindowsProfileServerLine(
 }
 
 @Composable
-private fun WindowsFlatPanel(
+internal fun WindowsFlatPanel(
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = RoundedCornerShape(18.dp),
     content: @Composable () -> Unit
@@ -4344,18 +4538,28 @@ private fun WindowsFlatPanel(
     val nebulaColors = LocalNebulaColors.current
     val cornerScale = LocalGlobalCornerRadius.current
     val resolvedShape = scaleRoundedCornerShape(shape, cornerScale)
+    val useLiquidGlass = nebulaColors.isLiquidGlass
     val fill = windowsPanelFill(nebulaColors)
-    Box(
-        modifier = modifier
+    val panelModifier = if (useLiquidGlass) {
+        modifier
+            .fillMaxWidth()
+            .liquidGlassSurface(resolvedShape, LiquidGlassDepth.PANEL)
+    } else {
+        modifier
             .fillMaxWidth()
             .clip(resolvedShape)
             .border(1.dp, windowsBorder(nebulaColors), resolvedShape)
+    }
+    Box(
+        modifier = panelModifier
     ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(fill)
-        )
+        if (!useLiquidGlass) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(fill)
+            )
+        }
         Box(modifier = Modifier.fillMaxWidth()) {
             content()
         }
@@ -4871,6 +5075,7 @@ private fun ProfileMenuItem(
     onClick: () -> Unit
 ) {
     val accent = LocalNebulaColors.current.accent
+    val haptic = LocalHapticFeedback.current
     DropdownMenuItem(
         text = {
             Text(
@@ -4903,7 +5108,10 @@ private fun ProfileMenuItem(
             leadingIconColor = color,
             trailingIconColor = accent
         ),
-        onClick = onClick
+        onClick = {
+            haptic.tick()
+            onClick()
+        }
     )
 }
 
@@ -4980,6 +5188,7 @@ private fun MiniModeSwitch(
     mainViewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var rulesMode by remember { mutableStateOf(preferencesManager.isRoutingEnabled) }
     MiniSegmented(
         left = "Правила",
@@ -4988,11 +5197,13 @@ private fun MiniModeSwitch(
         onLeft = {
             rulesMode = true
             preferencesManager.isRoutingEnabled = true
+            RoutingConfigurationApplier.applyToActiveTunnel(context)
             mainViewModel.showTopNotification("Режим правил включен")
         },
         onRight = {
             rulesMode = false
             preferencesManager.isRoutingEnabled = false
+            RoutingConfigurationApplier.applyToActiveTunnel(context)
             mainViewModel.showTopNotification("Глобальный режим включен")
         },
         modifier = modifier
@@ -5015,6 +5226,8 @@ private fun NimboSettingsScreen(
     onRoutingClick: () -> Unit,
     onConnectionsClick: () -> Unit,
     onStatsClick: () -> Unit,
+    onWhitelistClick: () -> Unit,
+    onCrossSyncClick: () -> Unit,
     onRefreshFirstProfile: (String) -> Unit,
     onShowTvQr: (String) -> Unit
 ) {
@@ -5045,6 +5258,8 @@ private fun NimboSettingsScreen(
                 onNotificationsClick = onNotificationsClick,
                 onStatsClick = onStatsClick,
                 onLogsClick = onLogsClick,
+                onWhitelistClick = onWhitelistClick,
+                onCrossSyncClick = onCrossSyncClick,
                 notificationCount = preferencesManager.getNotificationHistory().size
             )
             Spacer(Modifier.height(22.dp))
@@ -5087,6 +5302,13 @@ private fun ColumnScope.GeneralSettingsSection(
     var memoryMonitoring by remember { mutableStateOf(preferencesManager.memoryMonitoring) }
     var memoryLimitDisabled by remember { mutableStateOf(preferencesManager.memoryLimitDisabled) }
     var memoryLimitMb by remember { mutableStateOf(preferencesManager.memoryLimitMb) }
+    val hapticFeedbackEnabled by preferencesManager.hapticFeedbackEnabledState
+    val hapticFeedbackStrength by preferencesManager.hapticFeedbackStrengthState
+    var hapticStrengthExpanded by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(hapticFeedbackEnabled) {
+        if (!hapticFeedbackEnabled) hapticStrengthExpanded = false
+    }
 
     SettingsGroupLabel(t("ОБЩИЕ", "GENERAL"))
     ConnectionStabilityCard(
@@ -5117,6 +5339,23 @@ private fun ColumnScope.GeneralSettingsSection(
     )
     Spacer(Modifier.height(12.dp))
     SettingsCompactCard {
+        SettingsToggleRow(
+            title = t("Виброотклик", "Haptic feedback"),
+            subtitle = t(
+                "Короткая вибрация при навигации, ползунках и действиях",
+                "Short vibration for navigation, sliders, and actions"
+            ),
+            checked = hapticFeedbackEnabled,
+            onCheckedChange = { preferencesManager.hapticFeedbackEnabled = it },
+            icon = Icons.Default.Vibration
+        )
+        SettingsHapticStrengthButton(
+            strength = hapticFeedbackStrength,
+            expanded = hapticStrengthExpanded,
+            enabled = hapticFeedbackEnabled,
+            onExpandedChange = { hapticStrengthExpanded = it },
+            onStrengthChange = { preferencesManager.hapticFeedbackStrength = it }
+        )
         SettingsToggleRow(
             title = t("Обновлять подписки при запуске", "Update subscriptions on launch"),
             subtitle = t("Проверяет подписки при старте приложения", "Checks subscriptions when the app starts"),
@@ -5257,11 +5496,14 @@ private fun ColumnScope.GeneralSettingsSection(
             Spacer(Modifier.height(8.dp))
             Slider(
                 value = memoryLimitMb.toFloat(),
-                onValueChange = { value ->
-                    val limit = value.toInt().coerceIn(40, 300)
-                    memoryLimitMb = limit
-                    preferencesManager.memoryLimitMb = limit
-                },
+                onValueChange = rememberHapticSliderValueChange(
+                    value = memoryLimitMb.toFloat(),
+                    valueRange = 40f..300f
+                ) { value ->
+                        val limit = value.toInt().coerceIn(40, 300)
+                        memoryLimitMb = limit
+                        preferencesManager.memoryLimitMb = limit
+                    },
                 valueRange = 40f..300f,
                 enabled = !memoryLimitDisabled,
                 colors = SliderDefaults.colors(
@@ -6285,7 +6527,7 @@ private fun ConnectionMetaChip(label: String, value: String, modifier: Modifier 
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Text(
-            text = label.uppercase(Locale.getDefault()),
+            text = label.uppercase(Locale.ROOT),
             color = nebulaColors.textTertiary,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.ExtraBold
@@ -7853,6 +8095,8 @@ private fun SettingsActionGrid(
     onNotificationsClick: () -> Unit,
     onStatsClick: () -> Unit,
     onLogsClick: () -> Unit,
+    onWhitelistClick: () -> Unit,
+    onCrossSyncClick: () -> Unit,
     notificationCount: Int = 0
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -7885,10 +8129,24 @@ private fun SettingsActionGrid(
                 modifier = Modifier.weight(1f)
             )
             SettingsActionTile(
+                icon = Icons.Default.Public,
+                title = t("Проверка БС", "Allowlist check"),
+                onClick = onWhitelistClick,
+                modifier = Modifier.weight(1f)
+            )
+            SettingsActionTile(
                 icon = Icons.Default.Description,
                 title = t("Логи", "Logs"),
                 onClick = onLogsClick,
                 modifier = Modifier.weight(1f)
+            )
+        }
+        Row {
+            SettingsActionTile(
+                icon = Icons.Default.Sync,
+                title = t("Синхронизация", "Synchronization"),
+                onClick = onCrossSyncClick,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
@@ -7950,6 +8208,7 @@ private fun SettingsSectionTab(
     onClick: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(12.dp)
     Row(
         modifier = Modifier
@@ -7959,7 +8218,10 @@ private fun SettingsSectionTab(
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
-                onClick = onClick
+                onClick = {
+                    if (!selected) haptic.tick()
+                    onClick()
+                }
             )
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -7999,10 +8261,18 @@ private fun SettingsActionTile(
     badgeCount: Int = 0
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val haptic = LocalHapticFeedback.current
     GlassPanel(
         modifier = modifier
             .height(104.dp)
-            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onClick),
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = {
+                    haptic.tick()
+                    onClick()
+                }
+            ),
         shape = RoundedCornerShape(18.dp),
         borderColor = Color.White.copy(alpha = 0.10f)
     ) {
@@ -8534,6 +8804,7 @@ private fun SettingsStepperControl(
     onValueChange: (Int) -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(14.dp)
     Row(
         modifier = Modifier
@@ -8544,7 +8815,10 @@ private fun SettingsStepperControl(
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(
-            onClick = { onValueChange((value - step).coerceAtLeast(min)) },
+            onClick = {
+                haptic.tick()
+                onValueChange((value - step).coerceAtLeast(min))
+            },
             enabled = value > min,
             modifier = Modifier.size(42.dp)
         ) {
@@ -8565,7 +8839,10 @@ private fun SettingsStepperControl(
             modifier = Modifier.widthIn(min = 46.dp)
         )
         IconButton(
-            onClick = { onValueChange((value + step).coerceAtMost(max)) },
+            onClick = {
+                haptic.tick()
+                onValueChange((value + step).coerceAtMost(max))
+            },
             enabled = value < max,
             modifier = Modifier.size(42.dp)
         ) {
@@ -8590,6 +8867,7 @@ private fun SettingsToggleRow(
     enabled: Boolean = true
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val haptic = LocalHapticFeedback.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -8632,7 +8910,14 @@ private fun SettingsToggleRow(
         Spacer(Modifier.width(12.dp))
         Switch(
             checked = checked,
-            onCheckedChange = if (enabled) onCheckedChange else null,
+            onCheckedChange = if (enabled) {
+                {
+                    haptic.tick()
+                    onCheckedChange(it)
+                }
+            } else {
+                null
+            },
             enabled = enabled,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
@@ -8642,6 +8927,162 @@ private fun SettingsToggleRow(
                 uncheckedBorderColor = Color.Transparent
             )
         )
+    }
+    if (showDivider) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(windowsDivider(nebulaColors))
+        )
+    }
+}
+
+@Composable
+private fun SettingsHapticStrengthButton(
+    strength: Int,
+    expanded: Boolean,
+    enabled: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onStrengthChange: (Int) -> Unit,
+    showDivider: Boolean = true
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val haptic = LocalHapticFeedback.current
+    val labels = listOf(
+        t("Лёгкая", "Light"),
+        t("Средняя", "Medium"),
+        t("Сильная", "Strong")
+    )
+    val safeStrength = strength.coerceIn(0, labels.lastIndex)
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "haptic_strength_arrow"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 68.dp)
+                .alpha(if (enabled) 1f else 0.46f)
+                .clickable(
+                    enabled = enabled,
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ) {
+                    haptic.tick()
+                    onExpandedChange(!expanded)
+                }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Tune,
+                contentDescription = null,
+                tint = nebulaColors.accent,
+                modifier = Modifier
+                    .padding(end = 12.dp)
+                    .size(24.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = t("Сила вибрации", "Vibration strength"),
+                    color = nebulaColors.textPrimary,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = if (enabled) {
+                        t(
+                            "Текущий уровень: ${labels[safeStrength]}",
+                            "Current level: ${labels[safeStrength]}"
+                        )
+                    } else {
+                        t(
+                            "Сначала включите виброотклик",
+                            "Enable haptic feedback first"
+                        )
+                    },
+                    color = nebulaColors.textSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = if (expanded) {
+                    t("Скрыть настройку", "Hide setting")
+                } else {
+                    t("Показать настройку", "Show setting")
+                },
+                tint = nebulaColors.textSecondary,
+                modifier = Modifier
+                    .size(24.dp)
+                    .rotate(arrowRotation)
+            )
+        }
+
+        AnimatedVisibility(
+            visible = enabled && expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+            ) {
+                Slider(
+                    value = safeStrength.toFloat(),
+                    onValueChange = rememberHapticSliderValueChange(
+                        value = safeStrength.toFloat(),
+                        valueRange = 0f..2f,
+                        steps = 1
+                    ) { value ->
+                        onStrengthChange(value.roundToInt().coerceIn(0, 2))
+                    },
+                    valueRange = 0f..2f,
+                    steps = 1,
+                    colors = SliderDefaults.colors(
+                        thumbColor = nebulaColors.accent,
+                        activeTrackColor = nebulaColors.accent,
+                        inactiveTrackColor = nebulaColors.textSecondary.copy(alpha = 0.24f),
+                        activeTickColor = Color.White.copy(alpha = 0.72f),
+                        inactiveTickColor = nebulaColors.textSecondary.copy(alpha = 0.52f)
+                    )
+                )
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    labels.forEachIndexed { index, label ->
+                        Text(
+                            text = label,
+                            color = if (index == safeStrength) {
+                                nebulaColors.accent
+                            } else {
+                                nebulaColors.textTertiary
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (index == safeStrength) {
+                                FontWeight.ExtraBold
+                            } else {
+                                FontWeight.SemiBold
+                            },
+                            textAlign = when (index) {
+                                0 -> TextAlign.Start
+                                labels.lastIndex -> TextAlign.End
+                                else -> TextAlign.Center
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        }
     }
     if (showDivider) {
         Box(
@@ -8675,11 +9116,19 @@ private fun SettingsRow(
     showDivider: Boolean = true
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val haptic = LocalHapticFeedback.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(if (subtitle == null) 44.dp else 56.dp)
-            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onClick),
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = {
+                    haptic.tick()
+                    onClick()
+                }
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -8761,17 +9210,34 @@ private fun BoxScope.NimboBottomControls(
     val materialYou = nebulaColors.isMaterialYou
     val cornerScale = LocalGlobalCornerRadius.current
     val blurRadius = LocalGlobalBlurRadius.current
+    val haptic = LocalHapticFeedback.current
+    val selectDestination: (MiniDestination) -> Unit = { target ->
+        if (target != destination) {
+            haptic.tick()
+            onDestinationChange(target)
+        }
+    }
 
     if (materialYou) {
         val panelShape = RoundedCornerShape(32.dp * cornerScale)
-        val outlineColor = nebulaColors.accent.copy(alpha = 0.45f)
-        // Accent-tinted Material You surface over the frosted backdrop: primaryContainer is the
-        // accent tonal container, and extra accent is mixed on top so the bar clearly reads as the
-        // accent colour. Brightness rides on nebulaColors.accent, transparency on panelFill's alpha,
-        // so the bar still reacts to the brightness/transparency/blur sliders.
-        val tintColor = nebulaColors.accent.copy(alpha = 0.32f)
-            .compositeOver(MaterialTheme.colorScheme.primaryContainer)
-            .copy(alpha = (windowsPanelFill(nebulaColors).alpha * 0.78f).coerceIn(0.16f, 0.94f))
+        val isLight = nebulaColors.isLight
+        val outlineColor = nebulaColors.accent.copy(alpha = if (isLight) 0.45f else 0.24f)
+        // primaryContainer is intentionally bright and looked washed-out in a dark scheme.
+        // Keep it for the light theme, but anchor the dark bar to the lowest surface tier and
+        // add only a restrained accent tint.
+        val tintBase = if (isLight) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLowest
+        }
+        val tintColor = nebulaColors.accent
+            .copy(alpha = if (isLight) 0.32f else 0.10f)
+            .compositeOver(tintBase)
+            .copy(
+                alpha = (
+                    windowsPanelFill(nebulaColors).alpha * if (isLight) 0.78f else 0.90f
+                ).coerceIn(if (isLight) 0.16f else 0.24f, if (isLight) 0.94f else 0.92f)
+            )
 
         Box(
             modifier = Modifier
@@ -8796,39 +9262,52 @@ private fun BoxScope.NimboBottomControls(
                     selected = destination == MiniDestination.Home,
                     icon = Icons.Default.Bolt,
                     label = t("Главная", "Home"),
-                    onClick = { onDestinationChange(MiniDestination.Home) },
+                    onClick = { selectDestination(MiniDestination.Home) },
                     modifier = Modifier.weight(1f)
                 )
                 WindowsBottomNavItem(
                     selected = destination == MiniDestination.Subscription,
                     icon = Icons.Default.Public,
                     label = t("Профили", "Profiles"),
-                    onClick = { onDestinationChange(MiniDestination.Subscription) },
+                    onClick = { selectDestination(MiniDestination.Subscription) },
                     modifier = Modifier.weight(1f)
                 )
                 WindowsBottomNavItem(
                     selected = destination == MiniDestination.AppAccess,
                     icon = Icons.Default.Smartphone,
                     label = t("Приложения", "Apps"),
-                    onClick = { onDestinationChange(MiniDestination.AppAccess) },
+                    onClick = { selectDestination(MiniDestination.AppAccess) },
                     modifier = Modifier.weight(1f)
                 )
                 WindowsBottomNavItem(
                     selected = destination == MiniDestination.Settings,
                     icon = Icons.Default.Settings,
                     label = t("Настройки", "Settings"),
-                    onClick = { onDestinationChange(MiniDestination.Settings) },
+                    onClick = { selectDestination(MiniDestination.Settings) },
                     modifier = Modifier.weight(1f)
                 )
             }
         }
     } else {
         val panelShape = RoundedCornerShape(32.dp * cornerScale)
-        val outlineColor = if (nebulaColors.isLight) Color.Black.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.18f)
+        val liquidGlass = nebulaColors.isLiquidGlass
+        val outlineColor = if (liquidGlass) {
+            Color.Transparent
+        } else if (nebulaColors.isLight) {
+            Color.Black.copy(alpha = 0.12f)
+        } else {
+            Color.White.copy(alpha = 0.18f)
+        }
         // Tint laid over the frosted backdrop. Its alpha tracks the transparency slider
         // (via panelFill's alpha), so the bar goes from near-solid to barely-there glass.
         val tintColor = nebulaColors.surface
-            .copy(alpha = (windowsPanelFill(nebulaColors).alpha * 0.62f).coerceIn(0.10f, 0.82f))
+            .copy(
+                alpha = if (liquidGlass) {
+                    (windowsPanelFill(nebulaColors).alpha * 0.26f).coerceIn(0.06f, 0.30f)
+                } else {
+                    (windowsPanelFill(nebulaColors).alpha * 0.62f).coerceIn(0.10f, 0.82f)
+                }
+            )
 
         Box(
             modifier = Modifier
@@ -8842,41 +9321,429 @@ private fun BoxScope.NimboBottomControls(
         ) {
             Box(Modifier.matchParentSize().frostedBackdrop(backdropLayer, panelShape, blurRadius))
             Box(Modifier.matchParentSize().background(tintColor))
+            if (liquidGlass) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .liquidGlassSurface(panelShape, LiquidGlassDepth.FLOATING)
+                )
+            }
+            if (liquidGlass) {
+                LiquidGlassBottomNavRow(
+                    destination = destination,
+                    onDestinationChange = onDestinationChange,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp)
+                )
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    WindowsBottomNavItem(
+                        selected = destination == MiniDestination.Home,
+                        icon = Icons.Default.Bolt,
+                        label = t("Главная", "Home"),
+                        onClick = { selectDestination(MiniDestination.Home) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    WindowsBottomNavItem(
+                        selected = destination == MiniDestination.Subscription,
+                        icon = Icons.Default.Public,
+                        label = t("Профили", "Profiles"),
+                        onClick = { selectDestination(MiniDestination.Subscription) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    WindowsBottomNavItem(
+                        selected = destination == MiniDestination.AppAccess,
+                        icon = Icons.Default.Smartphone,
+                        label = t("Приложения", "Apps"),
+                        onClick = { selectDestination(MiniDestination.AppAccess) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    WindowsBottomNavItem(
+                        selected = destination == MiniDestination.Settings,
+                        icon = Icons.Default.Settings,
+                        label = t("Настройки", "Settings"),
+                        onClick = { selectDestination(MiniDestination.Settings) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiquidGlassBottomNavRow(
+    destination: MiniDestination,
+    onDestinationChange: (MiniDestination) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val items = listOf(
+        Triple(MiniDestination.Home, Icons.Default.Bolt, t("Главная", "Home")),
+        Triple(MiniDestination.Subscription, Icons.Default.Public, t("Профили", "Profiles")),
+        Triple(MiniDestination.AppAccess, Icons.Default.Smartphone, t("Приложения", "Apps")),
+        Triple(MiniDestination.Settings, Icons.Default.Settings, t("Настройки", "Settings"))
+    )
+    val selectedIndex = items.indexOfFirst { it.first == destination }.coerceAtLeast(0)
+    val haptic = LocalHapticFeedback.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val cornerScale = LocalGlobalCornerRadius.current
+    val nebulaColors = LocalNebulaColors.current
+    val miniMotionEnabled = rememberMiniMotionEnabled()
+    var barWidthPx by remember { mutableFloatStateOf(0f) }
+    var dragging by remember { mutableStateOf(false) }
+    var dragIndex by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
+    var restingIndex by remember { mutableIntStateOf(selectedIndex) }
+    var lastPreviewIndex by remember { mutableIntStateOf(selectedIndex) }
+    val bubblePosition = remember { Animatable(selectedIndex.toFloat()) }
+    val landingImpact = remember { Animatable(0f) }
+    val landingWave = remember { Animatable(1f) }
+    var landingEpoch by remember { mutableIntStateOf(0) }
+    var preparedLandingEpoch by remember { mutableIntStateOf(0) }
+    var landingFromIndex by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
+    var landingVelocityIndex by remember { mutableFloatStateOf(0f) }
+    var landingImpactStrength by remember { mutableFloatStateOf(0f) }
+
+    fun requestLanding(
+        fromIndex: Float,
+        targetIndex: Int,
+        velocityIndexPerSecond: Float,
+        travelDistance: Float,
+        plop: Boolean = true
+    ) {
+        restingIndex = targetIndex
+        landingFromIndex = fromIndex
+        landingVelocityIndex = velocityIndexPerSecond
+        landingImpactStrength = if (plop) {
+            LiquidInteractionPolicy.landingImpact(velocityIndexPerSecond, travelDistance)
+        } else {
+            0f
+        }
+        landingEpoch += 1
+    }
+
+    LaunchedEffect(selectedIndex) {
+        if (selectedIndex != restingIndex) {
+            val fromIndex = if (dragging) dragIndex else bubblePosition.value
+            requestLanding(
+                fromIndex = fromIndex,
+                targetIndex = selectedIndex,
+                velocityIndexPerSecond = 0f,
+                travelDistance = kotlin.math.abs(selectedIndex - fromIndex)
+            )
+        }
+    }
+
+    LaunchedEffect(landingEpoch, miniMotionEnabled, dragging) {
+        if (dragging) {
+            landingImpact.snapTo(0f)
+            landingWave.snapTo(1f)
+            return@LaunchedEffect
+        }
+        if (landingEpoch == 0) return@LaunchedEffect
+        val currentEpoch = landingEpoch
+        val target = restingIndex.toFloat()
+        val remainingDistance = kotlin.math.abs(target - landingFromIndex)
+        bubblePosition.snapTo(landingFromIndex)
+        preparedLandingEpoch = currentEpoch
+
+        if (!miniMotionEnabled) {
+            bubblePosition.snapTo(target)
+            landingImpact.snapTo(0f)
+            landingWave.snapTo(1f)
+            return@LaunchedEffect
+        }
+
+        val contactDelay = LiquidInteractionPolicy.landingDelayMillis(remainingDistance)
+        coroutineScope {
+            launch {
+                bubblePosition.animateTo(
+                    targetValue = target,
+                    animationSpec = spring(
+                        dampingRatio = 0.56f,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    initialVelocity = landingVelocityIndex * 0.58f
+                )
+            }
+            if (landingImpactStrength > 0f) {
+                launch {
+                    delay(contactDelay)
+                    haptic.confirm()
+                    landingImpact.snapTo(0f)
+                    landingImpact.animateTo(
+                        targetValue = landingImpactStrength,
+                        animationSpec = tween(72, easing = FastOutSlowInEasing)
+                    )
+                    landingImpact.animateTo(
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = 0.48f,
+                            stiffness = Spring.StiffnessMedium
+                        )
+                    )
+                }
+                launch {
+                    delay(contactDelay + 18L)
+                    landingWave.snapTo(0f)
+                    landingWave.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(430, easing = FastOutSlowInEasing)
+                    )
+                }
+            } else {
+                landingImpact.snapTo(0f)
+                landingWave.snapTo(1f)
+            }
+        }
+    }
+
+    val followedDragIndex by animateFloatAsState(
+        targetValue = dragIndex,
+        animationSpec = if (miniMotionEnabled) {
+            spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessHigh)
+        } else {
+            snap()
+        },
+        label = "liquid_tab_drag_follow"
+    )
+    val bubbleIndex = when {
+        dragging -> followedDragIndex
+        landingEpoch > 0 && preparedLandingEpoch != landingEpoch -> landingFromIndex
+        else -> bubblePosition.value
+    }
+    val previewIndex = if (dragging) {
+        LiquidInteractionPolicy.nearestTabIndex(dragIndex, items.size)
+    } else {
+        restingIndex
+    }
+    val stretch = if (dragging) LiquidInteractionPolicy.bubbleStretch(followedDragIndex) else 0f
+    val bubbleScaleX by animateFloatAsState(
+        targetValue = if (dragging) 1.10f + stretch * 0.30f else 1f,
+        animationSpec = if (miniMotionEnabled) {
+            spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMedium)
+        } else {
+            snap()
+        },
+        label = "liquid_tab_bubble_scale_x"
+    )
+    val bubbleScaleY by animateFloatAsState(
+        targetValue = if (dragging) 0.95f - stretch * 0.06f else 1f,
+        animationSpec = if (miniMotionEnabled) {
+            spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMedium)
+        } else {
+            snap()
+        },
+        label = "liquid_tab_bubble_scale_y"
+    )
+
+    fun updateDragPosition(x: Float) {
+        val newIndex = LiquidInteractionPolicy.continuousTabIndex(x, barWidthPx, items.size)
+        dragIndex = newIndex
+        val nearest = LiquidInteractionPolicy.nearestTabIndex(newIndex, items.size)
+        if (nearest != lastPreviewIndex) {
+            lastPreviewIndex = nearest
+            haptic.tick()
+        }
+    }
+
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { barWidthPx = it.width.toFloat() }
+                .pointerInput(barWidthPx, selectedIndex, haptic) {
+                    if (barWidthPx <= 0f) return@pointerInput
+                    var dragStartIndex = selectedIndex.toFloat()
+                    var lastDragX = 0f
+                    var lastDragTimeMillis = 0L
+                    var smoothedVelocityPx = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { offset ->
+                            dragging = true
+                            lastPreviewIndex = selectedIndex
+                            dragStartIndex = bubbleIndex
+                            lastDragX = offset.x
+                            lastDragTimeMillis = 0L
+                            smoothedVelocityPx = 0f
+                            updateDragPosition(offset.x)
+                        },
+                        onHorizontalDrag = { change, _ ->
+                            change.consume()
+                            if (lastDragTimeMillis > 0L) {
+                                val elapsedMillis = (change.uptimeMillis - lastDragTimeMillis)
+                                    .coerceAtLeast(1L)
+                                val instantaneousVelocity =
+                                    (change.position.x - lastDragX) * 1000f / elapsedMillis
+                                smoothedVelocityPx =
+                                    smoothedVelocityPx * 0.68f + instantaneousVelocity * 0.32f
+                            }
+                            lastDragX = change.position.x
+                            lastDragTimeMillis = change.uptimeMillis
+                            updateDragPosition(change.position.x)
+                        },
+                        onDragEnd = {
+                            val itemWidthPx = barWidthPx / items.size
+                            val velocityIndex = LiquidInteractionPolicy.landingVelocity(
+                                velocityPxPerSecond = smoothedVelocityPx,
+                                itemWidthPx = itemWidthPx
+                            )
+                            val targetIndex = LiquidInteractionPolicy.landingTargetIndex(
+                                continuousIndex = dragIndex,
+                                velocityIndexPerSecond = velocityIndex,
+                                itemCount = items.size
+                            )
+                            val landingFrom = followedDragIndex
+                            requestLanding(
+                                fromIndex = landingFrom,
+                                targetIndex = targetIndex,
+                                velocityIndexPerSecond = velocityIndex,
+                                travelDistance = kotlin.math.abs(targetIndex - dragStartIndex)
+                            )
+                            dragging = false
+                            if (targetIndex != selectedIndex) {
+                                onDestinationChange(items[targetIndex].first)
+                            }
+                        },
+                        onDragCancel = {
+                            requestLanding(
+                                fromIndex = followedDragIndex,
+                                targetIndex = selectedIndex,
+                                velocityIndexPerSecond = 0f,
+                                travelDistance = 0f,
+                                plop = false
+                            )
+                            dragging = false
+                        }
+                    )
+                }
+        ) {
+            if (barWidthPx > 0f) {
+                val itemWidthPx = barWidthPx / items.size
+                val itemWidth = with(density) { itemWidthPx.toDp() }
+                val bubbleShape = RoundedCornerShape(
+                    (24.dp + 4.dp * landingImpact.value) * cornerScale
+                )
+                if (landingWave.value < 0.999f) {
+                    val waveProgress = landingWave.value.coerceIn(0f, 1f)
+                    Box(
+                        modifier = Modifier
+                            .offset {
+                                IntOffset(
+                                    x = (restingIndex * itemWidthPx).roundToInt(),
+                                    y = 0
+                                )
+                            }
+                            .width(itemWidth)
+                            .fillMaxHeight()
+                            .padding(horizontal = 5.dp, vertical = 8.dp)
+                            .graphicsLayer {
+                                scaleX = 0.92f + waveProgress * 0.64f
+                                scaleY = 0.84f + waveProgress * 0.30f
+                                alpha = (1f - waveProgress) * 0.48f
+                            }
+                            .clip(bubbleShape)
+                            .background(
+                                Brush.radialGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.18f),
+                                        nebulaColors.accent.copy(alpha = 0.26f),
+                                        Color.Transparent
+                                    )
+                                )
+                            )
+                            .border(
+                                1.25.dp,
+                                Brush.sweepGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.62f),
+                                        nebulaColors.accent.copy(alpha = 0.74f),
+                                        Color.White.copy(alpha = 0.24f),
+                                        nebulaColors.accent.copy(alpha = 0.54f),
+                                        Color.White.copy(alpha = 0.62f)
+                                    )
+                                ),
+                                bubbleShape
+                            )
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(
+                                x = (bubbleIndex * itemWidthPx).roundToInt(),
+                                y = 0
+                            )
+                        }
+                        .width(itemWidth)
+                        .fillMaxHeight()
+                        .padding(horizontal = 3.dp, vertical = 6.dp)
+                        .graphicsLayer {
+                            scaleX = bubbleScaleX * (1f + landingImpact.value * 0.18f)
+                            scaleY = bubbleScaleY * (1f - landingImpact.value * 0.12f)
+                            translationY = with(density) { (landingImpact.value * 1.5f).dp.toPx() }
+                        }
+                        .liquidGlassSurface(
+                            shape = bubbleShape,
+                            depth = LiquidGlassDepth.CONTROL,
+                            interactive = false
+                        )
+                ) {
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        Color.White.copy(
+                                            alpha = 0.13f + landingImpact.value * 0.10f
+                                        ),
+                                        nebulaColors.accent.copy(
+                                            alpha = 0.20f + landingImpact.value * 0.16f
+                                        ),
+                                        Color.White.copy(
+                                            alpha = 0.06f + landingImpact.value * 0.06f
+                                        )
+                                    )
+                                )
+                            )
+                    )
+                }
+            }
+
             Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 8.dp),
+                modifier = Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                WindowsBottomNavItem(
-                    selected = destination == MiniDestination.Home,
-                    icon = Icons.Default.Bolt,
-                    label = t("Главная", "Home"),
-                    onClick = { onDestinationChange(MiniDestination.Home) },
-                    modifier = Modifier.weight(1f)
-                )
-                WindowsBottomNavItem(
-                    selected = destination == MiniDestination.Subscription,
-                    icon = Icons.Default.Public,
-                    label = t("Профили", "Profiles"),
-                    onClick = { onDestinationChange(MiniDestination.Subscription) },
-                    modifier = Modifier.weight(1f)
-                )
-                WindowsBottomNavItem(
-                    selected = destination == MiniDestination.AppAccess,
-                    icon = Icons.Default.Smartphone,
-                    label = t("Приложения", "Apps"),
-                    onClick = { onDestinationChange(MiniDestination.AppAccess) },
-                    modifier = Modifier.weight(1f)
-                )
-                WindowsBottomNavItem(
-                    selected = destination == MiniDestination.Settings,
-                    icon = Icons.Default.Settings,
-                    label = t("Настройки", "Settings"),
-                    onClick = { onDestinationChange(MiniDestination.Settings) },
-                    modifier = Modifier.weight(1f)
-                )
+                items.forEachIndexed { index, item ->
+                    WindowsBottomNavItem(
+                        selected = index == previewIndex,
+                        icon = item.second,
+                        label = item.third,
+                        onClick = {
+                            if (index != selectedIndex) {
+                                val fromIndex = bubblePosition.value
+                                requestLanding(
+                                    fromIndex = fromIndex,
+                                    targetIndex = index,
+                                    velocityIndexPerSecond = 0f,
+                                    travelDistance = kotlin.math.abs(index - fromIndex)
+                                )
+                                haptic.tick()
+                                onDestinationChange(item.first)
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        externalSelection = true
+                    )
+                }
             }
         }
     }
@@ -8888,7 +9755,8 @@ private fun WindowsBottomNavItem(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    externalSelection: Boolean = false
 ) {
     val nebulaColors = LocalNebulaColors.current
     val materialYou = nebulaColors.isMaterialYou
@@ -8898,7 +9766,9 @@ private fun WindowsBottomNavItem(
     val shape = RoundedCornerShape(14.dp * cornerScale)
 
     if (materialYou) {
-        val activeIndicatorColor = nebulaColors.accent.copy(alpha = 0.22f)
+        val activeIndicatorColor = nebulaColors.accent.copy(
+            alpha = if (nebulaColors.isLight) 0.22f else 0.16f
+        )
         val iconColor = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
         val textColor = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -8987,11 +9857,13 @@ private fun WindowsBottomNavItem(
         }
     } else {
         val selectedFill = when {
+            externalSelection -> Color.Transparent
             nebulaColors.isMaterialYou -> MaterialTheme.colorScheme.secondaryContainer
             nebulaColors.isLight -> Color.Transparent
             else -> Color.White.copy(alpha = 0.075f)
         }
         val selectedBorder = when {
+            externalSelection -> Color.Transparent
             nebulaColors.isMaterialYou -> Color.Transparent
             nebulaColors.isLight -> Color.Transparent
             else -> Color.White.copy(alpha = 0.16f)
@@ -9123,7 +9995,7 @@ private fun NimboVpnFab(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
-        targetValue = if (pressed) 0.9f else 1f,
+        targetValue = if (pressed && !nebulaColors.isLiquidGlass) 0.9f else 1f,
         animationSpec = if (miniMotionEnabled) {
             spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessHigh)
         } else {
@@ -9203,6 +10075,13 @@ private fun NimboVpnFab(
             modifier = Modifier
                 .size(70.dp)
                 .scale(pressScale)
+                .then(
+                    if (nebulaColors.isLiquidGlass) {
+                        Modifier.liquidTouchDeformation(LiquidGlassDepth.CONTROL)
+                    } else {
+                        Modifier
+                    }
+                )
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
@@ -9522,7 +10401,8 @@ private fun MiniIconButton(
     size: Dp = 46.dp,
     iconSize: Dp = 26.dp,
     motion: MiniIconMotion = MiniIconMotion.None,
-    active: Boolean = false
+    active: Boolean = false,
+    shape: Shape = CircleShape
 ) {
     val nebulaColors = LocalNebulaColors.current
     val haptic = LocalHapticFeedback.current
@@ -9565,7 +10445,7 @@ private fun MiniIconButton(
         label = "mini_refresh_click_rotation"
     )
     val buttonScale by animateFloatAsState(
-        targetValue = if (pressed) 0.90f else 1f,
+        targetValue = if (pressed && !nebulaColors.isLiquidGlass) 0.90f else 1f,
         animationSpec = if (miniMotionEnabled) {
             spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessHigh)
         } else {
@@ -9584,7 +10464,7 @@ private fun MiniIconButton(
         modifier = Modifier
             .size(size)
             .scale(buttonScale)
-            .clip(CircleShape)
+            .clip(shape)
             .clickable(
                 indication = null,
                 interactionSource = interactionSource,
@@ -9621,6 +10501,15 @@ private fun Modifier.nimboClickable(
     val materialYou = nebulaColors.isMaterialYou
     return if (materialYou) {
         this.clickable(enabled = enabled, onClick = onClick)
+    } else if (nebulaColors.isLiquidGlass) {
+        this
+            .liquidTouchDeformation(depth = LiquidGlassDepth.CONTROL, interactive = enabled)
+            .clickable(
+                enabled = enabled,
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = onClick
+            )
     } else {
         this.clickable(
             enabled = enabled,
@@ -9637,6 +10526,23 @@ private val NebulaColors.isLight: Boolean
     get() = background.luminance() > 0.5f
 
 private fun windowsPanelFill(colors: NebulaColors): Color = colors.panelFill
+
+/**
+ * Popup menus cannot use the same translucent fill as in-layout glass panels:
+ * Compose renders them in a separate window without our backdrop blur, so the
+ * content underneath otherwise competes with menu labels. Keep the theme tint,
+ * but resolve it over the page background to guarantee an opaque, readable popup.
+ */
+private fun windowsMenuFill(colors: NebulaColors): Color {
+    val minimumAlpha = when {
+        colors.isMaterialYou -> 0.98f
+        colors.isLight -> 0.94f
+        else -> 0.92f
+    }
+    return colors.panelFill
+        .copy(alpha = maxOf(colors.panelFill.alpha, minimumAlpha))
+        .compositeOver(colors.background)
+}
 
 private fun windowsControlFill(colors: NebulaColors): Color = colors.controlFill
 
@@ -9670,7 +10576,12 @@ private fun GlassPanel(
     val nebulaColors = LocalNebulaColors.current
     val isLight = nebulaColors.isLight
     val cornerScale = LocalGlobalCornerRadius.current
+    val reducedTransparency = LocalReducedTransparencyEnabled.current
+    val glassBlur = if (reducedTransparency) 0.dp else LocalGlobalBlurRadius.current
+        .coerceIn(0f, 80f)
+        .dp
     val resolvedShape = scaleRoundedCornerShape(shape, cornerScale)
+    val useLiquidGlass = nebulaColors.isLiquidGlass && !forceOpaque
 
     // Flat surfaces (no glassmorphism): solid fill + thin hairline border, matching
     // the Windows app's .panel. Selected/active panels get a subtle accent tint.
@@ -9693,16 +10604,54 @@ private fun GlassPanel(
             Color.Black.copy(alpha = (borderColor.alpha + 0.05f).coerceAtMost(0.22f))
         else -> borderColor
     }
-    Box(
-        modifier = modifier
+    val panelModifier = if (useLiquidGlass) {
+        modifier.liquidGlassSurface(
+            shape = resolvedShape,
+            depth = if (accentFill) LiquidGlassDepth.CONTROL else LiquidGlassDepth.PANEL
+        )
+    } else {
+        modifier
             .clip(resolvedShape)
             .border(1.dp, resolvedBorder, resolvedShape)
-    ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(fill)
-        )
+    }
+    Box(modifier = panelModifier) {
+        if (!useLiquidGlass) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(fill)
+            )
+        } else if (accentFill) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(nebulaColors.accent.copy(alpha = if (isLight) 0.08f else 0.10f))
+            )
+        }
+        // Keep the effect behind content: the blur slider changes every main glass
+        // surface while text and controls remain sharp and accessible.
+        if (!forceOpaque && !reducedTransparency) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(resolvedShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                nebulaColors.accent.copy(
+                                    alpha = if (useLiquidGlass) {
+                                        if (isLight) 0.06f else 0.10f
+                                    } else {
+                                        if (isLight) 0.07f else 0.13f
+                                    }
+                                ),
+                                Color.Transparent
+                            )
+                        )
+                    )
+                    .blur(glassBlur)
+            )
+        }
         Box(modifier = Modifier.fillMaxWidth()) {
             content()
         }
@@ -10064,17 +11013,18 @@ private fun currentPingSettingsLabel(preferencesManager: PreferencesManager): St
     val protocol by preferencesManager.pingProtocolState
     val displayMode by preferencesManager.pingDisplayModeState
     val throughProxy by preferencesManager.pingThroughProxyState
-    val protocolText = when (protocol) {
+    val protocolText = if (throughProxy) {
+        t("Через VPN", "Through VPN")
+    } else when (protocol) {
         4 -> "ICMP"
-        1, 2, 3 -> "HTTP"
-        else -> "TCP"
+        1, 2, 3 -> t("HTTP напрямую", "Direct HTTP")
+        else -> t("TCP до ноды", "TCP to node")
     }
     val displayText = when (displayMode) {
         2 -> t("индикатор", "indicator")
         else -> "ms"
     }
-    val proxyText = if (throughProxy) t("прокси", "proxy") else t("напрямую", "direct")
-    return "$protocolText · $displayText · $proxyText"
+    return "$protocolText · $displayText"
 }
 
 @Composable
@@ -10083,7 +11033,7 @@ private fun NimboPingSettingsScreen(
     mainViewModel: MainViewModel,
     onBack: () -> Unit
 ) {
-    NimboSubPageScaffold(title = t("Пинг", "Ping"), onBack = onBack) {
+    NimboSubPageScaffold(title = t("Задержка", "Latency"), onBack = onBack) {
         PingSettingsSection(preferencesManager, mainViewModel)
     }
 }
@@ -10098,10 +11048,14 @@ private fun ColumnScope.PingSettingsSection(
     val pingProtocol by preferencesManager.pingProtocolState
     val pingTimeout by preferencesManager.pingTimeoutState
     val pingDisplayMode by preferencesManager.pingDisplayModeState
+    val pingThroughProxy by preferencesManager.pingThroughProxyState
 
     AppearanceSectionHeader(
         title = t("Проверка задержки", "Latency check"),
-        subtitle = t("Настройки и метод измерения задержки серверов", "Configure latency check options")
+        subtitle = t(
+            "Отдельно измеряйте прямой путь до ноды и HTTP-запрос через активный VPN",
+            "Measure the direct node path and HTTP through the active VPN separately"
+        )
     )
     Spacer(Modifier.height(14.dp))
 
@@ -10133,18 +11087,35 @@ private fun ColumnScope.PingSettingsSection(
                 PingSettingsHint(
                     when (pingProtocol) {
                         1, 2, 3 -> t(
-                            "HTTP — измеряет время полного HTTP-запроса. Ближе к реальной скорости загрузки, но немного медленнее.",
-                            "HTTP — measures a full HTTP request. Closer to real download speed, but a bit slower."
+                            "HTTP — измеряет запрос до контрольного URL. Маршрут зависит от переключателя «Через VPN» ниже.",
+                            "HTTP measures a request to the health URL. Its route is controlled by the Through VPN switch below."
                         )
                         4 -> t(
-                            "ICMP — обычный ping. Самый быстрый способ, но часть сетей и серверов его блокируют.",
-                            "ICMP — a regular ping. The fastest method, but some networks and servers block it."
+                            "ICMP — прямой системный ping до ноды. Он не измеряет задержку трафика внутри VPN.",
+                            "ICMP is a direct system ping to the node. It does not measure traffic inside the VPN."
                         )
                         else -> t(
-                            "TCP — измеряет, как быстро сервер принимает подключение. Работает почти везде, поэтому выбран по умолчанию.",
-                            "TCP — measures how quickly the server accepts a connection. Works almost everywhere, so it is the default."
+                            "TCP до ноды — прямой Socket.connect к host:port. Это доступность ноды, а не скорость интернета через VPN.",
+                            "TCP to node is a direct Socket.connect to host:port. It measures node reachability, not VPN internet speed."
                         )
                     }
+                )
+            }
+            PingSettingsDivider()
+            PingSettingsWideRow(
+                title = t("Через VPN", "Through VPN"),
+                subtitle = if (pingThroughProxy) t(
+                    "End-to-end HTTP до контрольного URL через выбранный outbound. Требуется активный VPN.",
+                    "End-to-end HTTP to the health URL through the selected outbound. An active VPN is required."
+                ) else t(
+                    "Выключено: TCP и ICMP идут напрямую до ноды; HTTP — напрямую до контрольного URL.",
+                    "Off: TCP and ICMP go directly to the node; HTTP goes directly to the health URL."
+                ),
+                icon = Icons.Default.VpnLock
+            ) {
+                Switch(
+                    checked = pingThroughProxy,
+                    onCheckedChange = { preferencesManager.pingThroughProxy = it }
                 )
             }
             PingSettingsDivider()
@@ -10439,6 +11410,7 @@ private fun PingSegmentedControl(
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val haptic = LocalHapticFeedback.current
     val fill = windowsControlFill(nebulaColors)
     val border = windowsBorder(nebulaColors, 0.11f)
     Row(
@@ -10457,7 +11429,12 @@ private fun PingSegmentedControl(
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(11.dp))
                     .background(if (selected) nebulaColors.accent else Color.Transparent)
-                    .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
+                    .clickable(
+                        enabled = !selected,
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) {
+                        haptic.tick()
                         onSelect(index)
                     },
                 contentAlignment = Alignment.Center
@@ -10566,10 +11543,10 @@ private fun PingSwitchRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = nebulaColors.background,
+                checkedThumbColor = if (nebulaColors.background.luminance() > 0.5f) Color.White else nebulaColors.background,
                 checkedTrackColor = nebulaColors.accent,
-                uncheckedThumbColor = nebulaColors.textSecondary,
-                uncheckedTrackColor = Color.Transparent,
+                uncheckedThumbColor = if (nebulaColors.background.luminance() > 0.5f) Color.White else nebulaColors.textSecondary,
+                uncheckedTrackColor = nebulaColors.textSecondary.copy(alpha = if (nebulaColors.background.luminance() > 0.5f) 0.48f else 0.2f),
                 uncheckedBorderColor = nebulaColors.textSecondary.copy(alpha = 0.55f)
             )
         )
@@ -10623,6 +11600,8 @@ private fun ColumnScope.ThemeSettingsSection(
     val elementStyle by preferencesManager.elementStyleState
     val backgroundStyle by preferencesManager.backgroundStyleState
     val backgroundAnimationEnabled by preferencesManager.backgroundAnimationEnabledState
+    val statusParticlesEnabled by preferencesManager.statusParticlesEnabledState
+    val liquidRefractionEnabled by preferencesManager.liquidRefractionEnabledState
     val connectButtonStyle by preferencesManager.connectButtonStyleState
     val globalBrightness by preferencesManager.globalBrightnessState
     val globalTransparency by preferencesManager.globalTransparencyState
@@ -10684,8 +11663,8 @@ private fun ColumnScope.ThemeSettingsSection(
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             InterfaceStylePreviewCard(
                 title = "Nimbo Glass",
-                subtitle = t("Стеклянные панели и мягкий контур", "Glass panels and soft outlines"),
-                kind = InterfacePreviewKind.Nebula,
+                subtitle = "iOS Liquid Glass",
+                kind = InterfacePreviewKind.IosLiquidGlass,
                 selected = elementStyle == 0,
                 onClick = { preferencesManager.elementStyle = 0 },
                 modifier = Modifier.weight(1f)
@@ -10735,6 +11714,7 @@ private fun ColumnScope.ThemeSettingsSection(
         ) {
         androidx.compose.foundation.layout.FlowRow(
             modifier = Modifier.fillMaxWidth(),
+            maxItemsInEachRow = 3,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -10742,7 +11722,8 @@ private fun ColumnScope.ThemeSettingsSection(
                 BackgroundPresetTile(
                     label = preset.second,
                     selected = backgroundStyle == preset.first,
-                    onClick = { preferencesManager.backgroundStyle = preset.first }
+                    onClick = { preferencesManager.backgroundStyle = preset.first },
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
@@ -10762,6 +11743,30 @@ private fun ColumnScope.ThemeSettingsSection(
             expanded = isSectionExpanded(ThemeSettingsSectionId.StyleDetails),
             onExpandedChange = { setSectionExpanded(ThemeSettingsSectionId.StyleDetails, it) }
         ) {
+        ThemeSwitchRow(
+            title = t("Статусные частицы", "Status particles"),
+            subtitle = t(
+                "Вылетают из кнопок при подключении, ping и обновлении",
+                "Launch from buttons during connection, ping and refresh"
+            ),
+            icon = Icons.Default.Grain,
+            checked = statusParticlesEnabled,
+            onCheckedChange = { preferencesManager.statusParticlesEnabled = it }
+        )
+        Spacer(Modifier.height(18.dp))
+        if (elementStyle == 0) {
+            ThemeSwitchRow(
+                title = t("Блики и преломление", "Highlights and refraction"),
+                subtitle = t(
+                    "Свет на стекле следует за наклоном устройства",
+                    "Glass lighting follows device tilt"
+                ),
+                icon = Icons.Default.LightMode,
+                checked = liquidRefractionEnabled,
+                onCheckedChange = { preferencesManager.liquidRefractionEnabled = it }
+            )
+            Spacer(Modifier.height(18.dp))
+        }
         Spacer(Modifier.height(12.dp))
         Text(
             text = t("Яркость панелей", "Panel brightness"),
@@ -10776,7 +11781,10 @@ private fun ColumnScope.ThemeSettingsSection(
         ) {
             Slider(
                 value = globalBrightness,
-                onValueChange = { preferencesManager.globalBrightness = it },
+                onValueChange = rememberHapticSliderValueChange(
+                    value = globalBrightness,
+                    valueRange = 0.5f..2.0f
+                ) { preferencesManager.globalBrightness = it },
                 valueRange = 0.5f..2.0f,
                 modifier = Modifier
                     .weight(1f)
@@ -10811,11 +11819,24 @@ private fun ColumnScope.ThemeSettingsSection(
 
         Spacer(Modifier.height(12.dp))
         Text(
-            text = t("Прозрачность элементов", "Element transparency"),
+            text = if (elementStyle == 0) {
+                t("Прозрачность стекла", "Glass transparency")
+            } else {
+                t("Прозрачность элементов", "Element transparency")
+            },
             color = nebulaColors.textSecondary,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(start = 2.dp)
+        )
+        Text(
+            text = t(
+                "0% — плотное стекло, 100% — максимально прозрачное",
+                "0% is dense glass, 100% is maximum transparency"
+            ),
+            color = nebulaColors.textTertiary,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(start = 2.dp, top = 2.dp)
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -10823,7 +11844,10 @@ private fun ColumnScope.ThemeSettingsSection(
         ) {
             Slider(
                 value = globalTransparency,
-                onValueChange = { preferencesManager.globalTransparency = it },
+                onValueChange = rememberHapticSliderValueChange(
+                    value = globalTransparency,
+                    valueRange = 0.0f..1.0f
+                ) { preferencesManager.globalTransparency = it },
                 valueRange = 0.0f..1.0f,
                 modifier = Modifier
                     .weight(1f)
@@ -10870,7 +11894,10 @@ private fun ColumnScope.ThemeSettingsSection(
         ) {
             Slider(
                 value = globalBlur,
-                onValueChange = { preferencesManager.globalBlur = it },
+                onValueChange = rememberHapticSliderValueChange(
+                    value = globalBlur,
+                    valueRange = 0.0f..80.0f
+                ) { preferencesManager.globalBlur = it },
                 valueRange = 0.0f..80.0f,
                 modifier = Modifier
                     .weight(1f)
@@ -10917,8 +11944,11 @@ private fun ColumnScope.ThemeSettingsSection(
         ) {
             Slider(
                 value = globalCorners,
-                onValueChange = { preferencesManager.globalCorners = it },
-                valueRange = 0.25f..4.0f,
+                onValueChange = rememberHapticSliderValueChange(
+                    value = globalCorners,
+                    valueRange = 0.25f..2.0f
+                ) { preferencesManager.globalCorners = it },
+                valueRange = 0.25f..2.0f,
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = 14.dp),
@@ -10950,7 +11980,12 @@ private fun ColumnScope.ThemeSettingsSection(
             }
         }
 
-        val isAnyDeflected = globalBrightness != 1.0f || globalTransparency != 0.0f || globalBlur != 25.0f || globalCorners != 1.0f
+        val isAnyDeflected =
+            globalBrightness != 1.0f ||
+                globalTransparency != 0.0f ||
+                globalBlur != 25.0f ||
+                globalCorners != 1.0f ||
+                (elementStyle == 0 && !liquidRefractionEnabled)
         AnimatedVisibility(
             visible = isAnyDeflected,
             enter = expandVertically() + fadeIn(),
@@ -10963,6 +11998,7 @@ private fun ColumnScope.ThemeSettingsSection(
                     preferencesManager.globalTransparency = 0.0f
                     preferencesManager.globalBlur = 25.0f
                     preferencesManager.globalCorners = 1.0f
+                    preferencesManager.liquidRefractionEnabled = true
                 }
             }
         }
@@ -11241,10 +12277,14 @@ private fun ColumnScope.ThemeSettingsSection(
         ) {
             Slider(
                 value = textScale,
-                onValueChange = {
-                    textScalingEnabled = true
-                    preferencesManager.textScale = it
-                },
+                onValueChange = rememberHapticSliderValueChange(
+                    value = textScale,
+                    valueRange = 0.85f..1.25f,
+                    steps = 7
+                ) {
+                        textScalingEnabled = true
+                        preferencesManager.textScale = it
+                    },
                 valueRange = 0.85f..1.25f,
                 steps = 7,
                 modifier = Modifier
@@ -11394,6 +12434,7 @@ private fun InterfaceStylePreviewCard(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val isMaterialPreview = kind == InterfacePreviewKind.MaterialYou
+    val isLiquidPreview = kind == InterfacePreviewKind.IosLiquidGlass
     val shape = RoundedCornerShape(18.dp)
     val cardFill by animateColorAsState(
         targetValue = if (selected) nebulaColors.accent.copy(alpha = 0.13f) else nebulaColors.surface,
@@ -11408,19 +12449,18 @@ private fun InterfaceStylePreviewCard(
     val previewBase = if (isMaterialPreview) {
         if (nebulaColors.isLight) Color(0xFFF2ECF6) else Color(0xFF17131D)
     } else {
-        if (nebulaColors.isLight) Color(0xFFF8F8FC) else Color(0xFF11121A)
+        if (nebulaColors.isLight) Color(0xFFEAF4FF) else Color(0xFF0A1024)
     }
     val panel = if (isMaterialPreview) {
         nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.18f else 0.24f)
             .compositeOver(previewBase)
     } else {
-        Color.White.copy(alpha = if (nebulaColors.isLight) 0.72f else 0.10f)
-            .compositeOver(previewBase)
+        Color.White.copy(alpha = if (nebulaColors.isLight) 0.52f else 0.16f)
     }
     val soft = if (isMaterialPreview) {
         nebulaColors.accent.copy(alpha = 0.32f).compositeOver(previewBase)
     } else {
-        nebulaColors.accent.copy(alpha = 0.18f).compositeOver(previewBase)
+        nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.32f else 0.38f)
     }
 
     // A miniature of the actual app home screen rendered inside a phone shell, so the
@@ -11433,10 +12473,35 @@ private fun InterfaceStylePreviewCard(
     val navFill = if (isMaterialPreview) {
         nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.20f else 0.30f).compositeOver(previewBase)
     } else {
-        Color.White.copy(alpha = if (nebulaColors.isLight) 0.70f else 0.09f).compositeOver(previewBase)
+        Color.White.copy(alpha = if (nebulaColors.isLight) 0.46f else 0.14f)
     }
-    val navBorder = Color.White.copy(alpha = if (nebulaColors.isLight) 0.50f else 0.16f)
-    val chipFill = panel.copy(alpha = if (isMaterialPreview) 1f else 0.9f)
+    val navBorder = Color.White.copy(
+        alpha = if (isLiquidPreview) {
+            if (nebulaColors.isLight) 0.82f else 0.38f
+        } else {
+            if (nebulaColors.isLight) 0.50f else 0.16f
+        }
+    )
+    val chipFill = panel.copy(alpha = if (isMaterialPreview) 1f else panel.alpha)
+    val screenBrush = if (isMaterialPreview) {
+        Brush.verticalGradient(
+            listOf(
+                soft.copy(alpha = 0.92f),
+                previewBase,
+                previewBase
+            )
+        )
+    } else {
+        Brush.linearGradient(
+            listOf(
+                if (nebulaColors.isLight) Color(0xFFB9E8FF) else Color(0xFF143D7A),
+                nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.62f else 0.72f)
+                    .compositeOver(previewBase),
+                if (nebulaColors.isLight) Color(0xFFE9C9FF) else Color(0xFF441E67),
+                previewBase
+            )
+        )
+    }
 
     Column(
         modifier = modifier
@@ -11460,16 +12525,24 @@ private fun InterfaceStylePreviewCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(screenShape)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                soft.copy(alpha = if (isMaterialPreview) 0.92f else 0.55f),
-                                previewBase,
-                                previewBase
-                            )
-                        )
-                    )
+                    .background(screenBrush)
             ) {
+                if (isLiquidPreview) {
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.radialGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.24f),
+                                        Color.Transparent
+                                    ),
+                                    center = Offset(18f, 4f),
+                                    radius = 150f
+                                )
+                            )
+                    )
+                }
                 // Accent glow behind the connect button
                 Box(
                     modifier = Modifier
@@ -11544,8 +12617,15 @@ private fun InterfaceStylePreviewCard(
                         Box(
                             Modifier
                                 .size(13.dp)
-                                .clip(if (isMaterialPreview) CircleShape else RoundedCornerShape(5.dp))
+                                .clip(if (isMaterialPreview || isLiquidPreview) CircleShape else RoundedCornerShape(5.dp))
                                 .background(panel)
+                                .then(
+                                    if (isLiquidPreview) {
+                                        Modifier.border(1.dp, navBorder, CircleShape)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
                         )
                     }
 
@@ -11581,8 +12661,17 @@ private fun InterfaceStylePreviewCard(
                                     modifier = Modifier
                                         .size(44.dp)
                                         .clip(CircleShape)
-                                        .background(nebulaColors.accent.copy(alpha = 0.12f))
-                                        .border(3.dp, nebulaColors.accent.copy(alpha = 0.92f), CircleShape),
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    Color.White.copy(alpha = 0.34f),
+                                                    nebulaColors.accent.copy(alpha = 0.18f),
+                                                    Color.White.copy(alpha = 0.10f)
+                                                )
+                                            )
+                                        )
+                                        .border(1.dp, navBorder, CircleShape)
+                                        .border(3.dp, nebulaColors.accent.copy(alpha = 0.62f), CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Box(
@@ -11600,8 +12689,19 @@ private fun InterfaceStylePreviewCard(
                                         Modifier
                                             .width(30.dp)
                                             .height(11.dp)
-                                            .clip(RoundedCornerShape(if (isMaterialPreview) 7.dp else 4.dp))
+                                            .clip(RoundedCornerShape(if (isMaterialPreview || isLiquidPreview) 7.dp else 4.dp))
                                             .background(chipFill)
+                                            .then(
+                                                if (isLiquidPreview) {
+                                                    Modifier.border(
+                                                        1.dp,
+                                                        navBorder.copy(alpha = navBorder.alpha * 0.72f),
+                                                        RoundedCornerShape(7.dp)
+                                                    )
+                                                } else {
+                                                    Modifier
+                                                }
+                                            )
                                     )
                                 }
                             }
@@ -11613,11 +12713,15 @@ private fun InterfaceStylePreviewCard(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(24.dp)
-                            .clip(RoundedCornerShape(if (isMaterialPreview) 13.dp else 11.dp))
+                            .clip(RoundedCornerShape(if (isMaterialPreview || isLiquidPreview) 13.dp else 11.dp))
                             .background(navFill)
                             .then(
                                 if (isMaterialPreview) Modifier
-                                else Modifier.border(1.dp, navBorder, RoundedCornerShape(11.dp))
+                                else Modifier.border(
+                                    1.dp,
+                                    navBorder,
+                                    RoundedCornerShape(if (isLiquidPreview) 13.dp else 11.dp)
+                                )
                             )
                             .padding(horizontal = 9.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -12041,7 +13145,8 @@ private fun backgroundStylePresets(): List<Pair<Int, String>> = listOf(
 private fun BackgroundPresetTile(
     label: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
     val shape = RoundedCornerShape(16.dp)
@@ -12049,8 +13154,7 @@ private fun BackgroundPresetTile(
     val fill = if (selected) nebulaColors.accent.copy(alpha = 0.14f) else nebulaColors.surface
     val border = if (selected) nebulaColors.accent.copy(alpha = 0.62f) else windowsBorder(nebulaColors)
     Column(
-        modifier = Modifier
-            .width(112.dp)
+        modifier = modifier
             .height(112.dp)
             .clip(shape)
             .background(fill)
@@ -12508,6 +13612,7 @@ private fun AccentPresetCard(
 @Composable
 private fun ThemeSwitchRow(
     title: String,
+    subtitle: String? = null,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     icon: ImageVector? = null,
@@ -12530,21 +13635,29 @@ private fun ThemeSwitchRow(
             )
         }
         if (icon != null) Spacer(Modifier.width(12.dp))
-        Text(
-            text = title,
-            color = nebulaColors.textSecondary,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.weight(1f)
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = nebulaColors.textSecondary,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    color = nebulaColors.textTertiary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = nebulaColors.background,
+                checkedThumbColor = if (nebulaColors.background.luminance() > 0.5f) Color.White else nebulaColors.background,
                 checkedTrackColor = nebulaColors.accent,
-                uncheckedThumbColor = nebulaColors.textSecondary,
-                uncheckedTrackColor = Color.Transparent,
+                uncheckedThumbColor = if (nebulaColors.background.luminance() > 0.5f) Color.White else nebulaColors.textSecondary,
+                uncheckedTrackColor = nebulaColors.textSecondary.copy(alpha = if (nebulaColors.background.luminance() > 0.5f) 0.48f else 0.2f),
                 uncheckedBorderColor = nebulaColors.textSecondary.copy(alpha = 0.55f)
             )
         )
@@ -13156,11 +14269,14 @@ private fun CustomThemeColorDialog(
                         )
                         Slider(
                             value = currentHsv[0],
-                            onValueChange = {
-                                val newHsv = currentHsv.clone()
-                                newHsv[0] = it
-                                updateActiveColor(newHsv, currentAlpha)
-                            },
+                            onValueChange = rememberHapticSliderValueChange(
+                                value = currentHsv[0],
+                                valueRange = 0f..360f
+                            ) {
+                                    val newHsv = currentHsv.clone()
+                                    newHsv[0] = it
+                                    updateActiveColor(newHsv, currentAlpha)
+                                },
                             valueRange = 0f..360f,
                             colors = SliderDefaults.colors(
                                 thumbColor = Color.White,
@@ -13178,11 +14294,14 @@ private fun CustomThemeColorDialog(
                         )
                         Slider(
                             value = currentHsv[1],
-                            onValueChange = {
-                                val newHsv = currentHsv.clone()
-                                newHsv[1] = it
-                                updateActiveColor(newHsv, currentAlpha)
-                            },
+                            onValueChange = rememberHapticSliderValueChange(
+                                value = currentHsv[1],
+                                valueRange = 0f..1f
+                            ) {
+                                    val newHsv = currentHsv.clone()
+                                    newHsv[1] = it
+                                    updateActiveColor(newHsv, currentAlpha)
+                                },
                             valueRange = 0f..1f,
                             colors = SliderDefaults.colors(
                                 thumbColor = Color.White,
@@ -13200,11 +14319,14 @@ private fun CustomThemeColorDialog(
                         )
                         Slider(
                             value = currentHsv[2],
-                            onValueChange = {
-                                val newHsv = currentHsv.clone()
-                                newHsv[2] = it
-                                updateActiveColor(newHsv, currentAlpha)
-                            },
+                            onValueChange = rememberHapticSliderValueChange(
+                                value = currentHsv[2],
+                                valueRange = 0f..1f
+                            ) {
+                                    val newHsv = currentHsv.clone()
+                                    newHsv[2] = it
+                                    updateActiveColor(newHsv, currentAlpha)
+                                },
                             valueRange = 0f..1f,
                             colors = SliderDefaults.colors(
                                 thumbColor = Color.White,
@@ -13222,9 +14344,12 @@ private fun CustomThemeColorDialog(
                         )
                         Slider(
                             value = currentAlpha,
-                            onValueChange = {
-                                updateActiveColor(currentHsv, it)
-                            },
+                            onValueChange = rememberHapticSliderValueChange(
+                                value = currentAlpha,
+                                valueRange = 0f..1f
+                            ) {
+                                    updateActiveColor(currentHsv, it)
+                                },
                             valueRange = 0f..1f,
                             colors = SliderDefaults.colors(
                                 thumbColor = Color.White,
@@ -13624,7 +14749,7 @@ private fun ColumnScope.AboutSettingsContent() {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrNull() ?: "—"
     }
-    val xrayVersion = "26.7.11"
+    val libXrayVersion = BuildConfig.LIBXRAY_VERSION
     val deviceName = remember { "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim() }
     val systemName = remember { "Android ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})" }
 
@@ -13686,7 +14811,7 @@ private fun ColumnScope.AboutSettingsContent() {
     Spacer(Modifier.height(20.dp))
     SettingsCompactCard {
         AboutValueRow(t("Версия", "Version"), version, icon = Icons.Default.Info)
-        AboutValueRow(t("Движок", "Engine"), "Xray-core $xrayVersion", icon = Icons.Default.Memory)
+        AboutValueRow(t("Движок", "Engine"), "libXray $libXrayVersion", icon = Icons.Default.Memory)
         AboutValueRow(t("Разработчик", "Developer"), "Danila", icon = Icons.Default.SupportAgent)
         AboutValueRow(t("Система", "System"), systemName, icon = Icons.Default.Settings)
         AboutValueRow(t("Устройство", "Device"), deviceName.ifBlank { "—" }, showDivider = false, icon = Icons.Default.Smartphone)
@@ -13698,6 +14823,7 @@ private fun ColumnScope.AboutSettingsContent() {
         AboutLinkRow(t("Сайт", "Website"), "https://nimboapp.pw", icon = Icons.Default.Public) { openUrl(context, it) }
         AboutLinkRow(t("Проект", "Project"), "https://github.com/BBGGVP5/nimbo", icon = Icons.Default.Public) { openUrl(context, it) }
         AboutLinkRow(t("Канал", "Channel"), "https://t.me/nebulaguard_channel", icon = Icons.Default.Language) { openUrl(context, it) }
+        AboutLinkRow(t("Библиотека", "Library"), "https://github.com/XTLS/libXray", icon = Icons.Default.Memory) { openUrl(context, it) }
         AboutLinkRow(t("Ядро", "Core"), "https://github.com/XTLS/Xray-core", showDivider = false, icon = Icons.Default.Description) { openUrl(context, it) }
     }
 }

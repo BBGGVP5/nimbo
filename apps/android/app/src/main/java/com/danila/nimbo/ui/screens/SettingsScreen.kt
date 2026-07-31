@@ -85,6 +85,7 @@ import com.danila.nimbo.ui.components.GlassCard
 import com.danila.nimbo.ui.components.GlassHeader
 import com.danila.nimbo.ui.components.GlassSection
 import com.danila.nimbo.ui.components.TopBarMorphIcon
+import com.danila.nimbo.ui.components.rememberHapticSliderValueChange
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.utils.PreferencesManager
 
@@ -100,7 +101,8 @@ fun SettingsScreen(
     onNavigateToBackup: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateToUpdates: () -> Unit,
-    onNavigateToNotificationHistory: () -> Unit
+    onNavigateToNotificationHistory: () -> Unit,
+    onNavigateToConnectivityDiagnostics: () -> Unit
 ) {
     val context = LocalContext.current
     val application = context.applicationContext as Application
@@ -347,6 +349,13 @@ fun SettingsScreen(
                     )
                     HorizontalDivider(color = nebulaColors.textTertiary.copy(alpha = 0.08f))
                     ModernNavigationRow(
+                        icon = Icons.Default.Public,
+                        title = "Проверка БС",
+                        subtitle = "Доступность доменов и история проверок",
+                        onClick = onNavigateToConnectivityDiagnostics
+                    )
+                    HorizontalDivider(color = nebulaColors.textTertiary.copy(alpha = 0.08f))
+                    ModernNavigationRow(
                         icon = Icons.Default.BugReport,
                         title = "Логи",
                         subtitle = "Просмотр и экспорт логов",
@@ -572,7 +581,11 @@ private fun MemoryLimitCard(
             Spacer(Modifier.height(6.dp))
             Slider(
                 value = sliderValue,
-                onValueChange = { onLimitChange(it.toInt().coerceIn(40, 300)) },
+                onValueChange = rememberHapticSliderValueChange(
+                    value = sliderValue,
+                    valueRange = 40f..300f,
+                    steps = 25
+                ) { onLimitChange(it.toInt().coerceIn(40, 300)) },
                 valueRange = 40f..300f,
                 enabled = !memoryLimitDisabled,
                 steps = 25,

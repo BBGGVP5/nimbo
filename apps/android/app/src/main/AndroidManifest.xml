@@ -9,7 +9,7 @@
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK"/>
-
+    
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -21,6 +21,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR"/>
@@ -53,7 +54,7 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES"/>
             </intent-filter>
-
+            
             <!-- URL схема для добавления подписок -->
             <!-- Формат: nimbo://add/https://example.com/subscription (nebula:// — старая схема, поддерживается для совместимости) -->
             <intent-filter>
@@ -74,7 +75,7 @@
                 <data android:scheme="nimbo"/>
                 <data android:host="subscription"/>
             </intent-filter>
-
+            
             <!-- Ярлыки приложения -->
             <meta-data
                 android:name="android.app.shortcuts"
@@ -347,7 +348,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity-alias>
-
+        
         <!-- Ярлык для быстрого подключения -->
         <activity
             android:name=".QuickConnectActivity"
@@ -404,7 +405,7 @@
                 android:value="true"/>
         </service>
 
-        <!--
+        <!-- 
         Убраны по просьбе пользователя для чистоты быстрой панели шторки:
         .service.DeviceStatsQuickSettingsTileService
         .service.TrafficStatsQuickSettingsTileService
@@ -424,3 +425,6 @@
     </application>
 
 </manifest>
+
+
+

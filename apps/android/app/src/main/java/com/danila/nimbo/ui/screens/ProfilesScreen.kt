@@ -477,14 +477,14 @@ fun ProfileCard(
     val visibleServersCount = profile.serversCount
     val pingPulseScale = remember { Animatable(1f) }
     var menuExpanded by remember { mutableStateOf(false) }
-
+    
     suspend fun performPingPulse() {
         repeat(3) {
             pingPulseScale.animateTo(1.3f, tween(600, easing = FastOutSlowInEasing))
             pingPulseScale.animateTo(1f, tween(600, easing = FastOutSlowInEasing))
         }
     }
-
+    
     val updateRotation = remember { Animatable(0f) }
     LaunchedEffect(profile.isLoading) {
         if (profile.isLoading) {
@@ -565,33 +565,33 @@ fun ProfileCard(
                         }
                     }
                 }
-
+                
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("$visibleServersCount серв.", color = nebulaColors.textTertiary, style = MaterialTheme.typography.bodySmall)
-
+                    
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         GlassIconButton(
-                            icon = Icons.Default.Speed,
+                            icon = Icons.Default.Speed, 
                             color = nebulaColors.accent,
                             iconModifier = Modifier.scale(pingPulseScale.value)
                         ) {
                             scope.launch { performPingPulse() }
                             mainViewModel.pingAllServers()
                         }
-
+                        
                         GlassIconButton(
-                            icon = Icons.Default.Refresh,
+                            icon = Icons.Default.Refresh, 
                             color = nebulaColors.accent,
                             iconModifier = Modifier.rotate(updateRotation.value),
                             onClick = onRefresh
                         )
-
+                        
                         GlassIconButton(
-                            icon = Icons.Outlined.Delete,
-                            color = Color(0xFFFF5252),
+                            icon = Icons.Outlined.Delete, 
+                            color = Color(0xFFFF5252), 
                             onClick = onDelete
                         )
                     }
@@ -607,7 +607,7 @@ fun ProfileCard(
                 // Трафик
                 val used = formatBytes(profile.downloadTotal + profile.uploadTotal)
                 val total = if (profile.totalTraffic > 0) formatBytes(profile.totalTraffic) else "∞"
-
+                
                 Surface(
                     modifier = Modifier.weight(1.1f),
                     shape = RoundedCornerShape(12.dp),

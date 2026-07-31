@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Тег для GitHub Release, например v1.0.1"
+        description: "Тег GitHub Release, например v1.1.0-beta.1"
         required: true
         type: string
 
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   windows:
-    name: Windows setup
+    name: Windows x64
     runs-on: windows-latest
 
     steps:
@@ -47,24 +47,35 @@ jobs:
           npm ci
           npm run build:installer:current
 
+      - name: Подготовить понятное имя файла
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        shell: powershell
+        run: |
+          $version = $env:TAG -replace '^v', ''
+          $source = Get-ChildItem -LiteralPath target/release/bundle/nsis -Filter '*.exe' | Select-Object -First 1
+          if (-not $source) { throw 'Windows installer was not produced' }
+          New-Item -ItemType Directory -Force -Path release-normalized | Out-Null
+          Copy-Item -LiteralPath $source.FullName -Destination "release-normalized/Nimbo_${version}_windows_x64_setup.exe"
+
       - name: Сохранить Windows setup
         uses: actions/upload-artifact@v4
         with:
-          name: nimbo-windows
-          path: target/release/bundle/nsis/*.exe
+          name: nimbo-windows-x64
+          path: release-normalized/*
           if-no-files-found: error
 
   linux:
-    name: Linux (${{ matrix.architecture }})
+    name: Linux ${{ matrix.asset_arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - architecture: x64
-            runner: ubuntu-22.04
-          - architecture: arm64
-            runner: ubuntu-22.04-arm
+          - runner: ubuntu-22.04
+            asset_arch: x64
+          - runner: ubuntu-22.04-arm
+            asset_arch: arm64
 
     steps:
       - name: Получить исходники
@@ -92,23 +103,36 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            apps/ui/package-lock.json
-            apps/installer/package-lock.json
+          cache-dependency-path: apps/ui/package-lock.json
 
-      - name: Собрать все Linux-артефакты
-        working-directory: apps/installer
-        run: npm run build:release:linux
+      - name: Собрать AppImage, DEB и RPM
+        working-directory: apps/ui
+        run: |
+          npm ci
+          npm run build:linux
 
-      - name: Сохранить Linux-артефакты
+      - name: Подготовить понятные имена файлов
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          mkdir -p release-normalized
+          appimage="$(find target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          deb="$(find target/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          rpm="$(find target/release/bundle/rpm -maxdepth 1 -type f -name '*.rpm' -print -quit)"
+          test -n "$appimage" && test -n "$deb" && test -n "$rpm"
+          cp "$appimage" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.AppImage"
+          cp "$deb" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.deb"
+          cp "$rpm" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.rpm"
+
+      - name: Сохранить Linux-пакеты
         uses: actions/upload-artifact@v4
         with:
-          name: nimbo-linux-${{ matrix.architecture }}
-          path: |
-            target/release/bundle/appimage/*.AppImage
-            target/release/bundle/deb/*.deb
-            target/release/bundle/rpm/*.rpm
-            target/release/bundle/custom/linux/NimboSetup_*
+          name: nimbo-linux-${{ matrix.asset_arch }}
+          path: release-normalized/*
           if-no-files-found: error
 
   publish:
@@ -117,24 +141,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Скачать Windows setup
+      - name: Скачать собранные файлы
         uses: actions/download-artifact@v4
         with:
-          name: nimbo-windows
-          path: release-assets/windows
-
-      - name: Скачать Linux-артефакты
-        uses: actions/download-artifact@v4
-        with:
-          pattern: nimbo-linux-*
-          path: release-assets/linux
+          pattern: nimbo-*
+          path: release-assets
           merge-multiple: true
 
-      - name: Опубликовать файлы
+      - name: Добавить контрольные суммы и загрузить файлы
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
         shell: bash
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            if [[ "$TAG" =~ -(alpha|beta|rc)(\.|-)?[0-9]*$ ]]; then
+              gh release create "$TAG" --prerelease --generate-notes
+            else
+              gh release create "$TAG" --generate-notes
+            fi
+          fi
+          while IFS= read -r -d '' file; do
+            hash="$(sha256sum "$file" | awk '{print $1}')"
+            printf '%s  %s\n' "$hash" "$(basename "$file")" > "${file}.sha256"
+          done < <(find release-assets -type f ! -name '*.sha256' -print0)
           find release-assets -type f -print0 | xargs -0 gh release upload "$TAG" --clobber

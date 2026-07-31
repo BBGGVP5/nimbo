@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.danila.nimbo.model.UpdateInfo
+import com.danila.nimbo.model.UpdateKind
+import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.screens.MarkdownChangelog
 import com.danila.nimbo.ui.theme.*
 import kotlinx.coroutines.delay
@@ -44,7 +46,7 @@ fun UpdateDialog(
 ) {
     val nebulaColors = LocalNebulaColors.current
     var isVisible by remember { mutableStateOf(false) }
-
+    
     LaunchedEffect(Unit) {
         isVisible = true
     }
@@ -120,16 +122,16 @@ fun UpdateDialog(
                                 iconScale.snapTo(1f)
                                 arrowOffset.snapTo(-50f)
                                 launch { iconAlpha.animateTo(1f, tween(200)) }
-
+                                
                                 // 2. Быстрое "падение" точно в центр
                                 arrowOffset.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.6f))
-
+                                
                                 // 3. Моментальное превращение в галочку + "Бэмс"
                                 isCheckmark = true
                                 launch { iconScale.animateTo(1.3f, tween(100)) }
                                 delay(100)
                                 iconScale.animateTo(1f, spring(stiffness = Spring.StiffnessMedium, dampingRatio = Spring.DampingRatioMediumBouncy))
-
+                                
                                 // 4. Пауза и постепенное исчезновение
                                 delay(3000)
                                 iconAlpha.animateTo(0f, tween(400))
@@ -161,11 +163,11 @@ fun UpdateDialog(
                                         .background(nebulaColors.accent.copy(alpha = 0.4f))
                                 )
                             }
-
+                            
                             // Анимированный контент (Стрелка -> Галочка)
                             Box(
                                 modifier = Modifier
-                                    .graphicsLayer {
+                                    .graphicsLayer { 
                                          alpha = iconAlpha.value
                                          scaleX = iconScale.value
                                          scaleY = iconScale.value
@@ -176,7 +178,7 @@ fun UpdateDialog(
                                 AnimatedContent(
                                     targetState = isCheckmark,
                                     transitionSpec = {
-                                        (fadeIn(tween(400)) + scaleIn(initialScale = 0.6f)) togetherWith
+                                        (fadeIn(tween(400)) + scaleIn(initialScale = 0.6f)) togetherWith 
                                         (fadeOut(tween(400)) + scaleOut(targetScale = 0.6f))
                                     },
                                     label = "iconTransform"
@@ -186,7 +188,7 @@ fun UpdateDialog(
                                         animationSpec = spring(stiffness = Spring.StiffnessLow, dampingRatio = 0.6f),
                                         label = "iconRotation"
                                     )
-
+                                    
                                     Icon(
                                         imageVector = if (checked) Icons.Default.Check else Icons.Default.ArrowDownward,
                                         contentDescription = null,
@@ -202,15 +204,19 @@ fun UpdateDialog(
                         Spacer(Modifier.height(28.dp))
 
                         Text(
-                            "Доступна новая версия ✨",
+                            if (updateInfo.kind == UpdateKind.REPAIR) {
+                                t("Доступно исправление версии", "Version repair available")
+                            } else {
+                                t("Доступна новая версия ✨", "A new version is available ✨")
+                            },
                             color = nebulaColors.textPrimary,
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.ExtraBold,
                             textAlign = TextAlign.Center
                         )
-
+                        
                         val displayVersion = "v" + updateInfo.versionName.replaceFirst(Regex("^v+", RegexOption.IGNORE_CASE), "").trim()
-
+                        
                         Text(
                             "Nimbo $displayVersion",
                             color = nebulaColors.accent,
@@ -235,7 +241,11 @@ fun UpdateDialog(
                                 Icon(Icons.Default.Info, null, tint = nebulaColors.accent, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(10.dp))
                                 Text(
-                                    "ЧТО НОВОГО:",
+                                    if (updateInfo.kind == UpdateKind.REPAIR) {
+                                        t("ИСПРАВЛЕНИЯ:", "FIXES:")
+                                    } else {
+                                        t("ЧТО НОВОГО:", "WHAT'S NEW:")
+                                    },
                                     color = nebulaColors.textTertiary,
                                     fontWeight = FontWeight.Bold,
                                     style = MaterialTheme.typography.labelMedium,
@@ -243,14 +253,17 @@ fun UpdateDialog(
                                 )
                             }
                             Spacer(Modifier.height(12.dp))
-
+                            
                             val scrollState = rememberScrollState()
                             Column(
                                 modifier = Modifier.verticalScroll(scrollState)
                             ) {
                                 MarkdownChangelog(
                                     content = updateInfo.changelog
-                                        ?: "Улучшения производительности и исправление ошибок.",
+                                        ?: t(
+                                            "Исправления ошибок и улучшения стабильности.",
+                                            "Bug fixes and stability improvements."
+                                        ),
                                     color = nebulaColors.textSecondary
                                 )
                             }
@@ -276,7 +289,7 @@ fun UpdateDialog(
                                     ),
                                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
                                 ) {
-                                    Text("Позже", fontWeight = FontWeight.Medium)
+                                    Text(t("Позже", "Later"), fontWeight = FontWeight.Medium)
                                 }
                             }
 
@@ -297,7 +310,15 @@ fun UpdateDialog(
                                     hoveredElevation = 0.dp
                                 )
                             ) {
-                                Text("ОБНОВИТЬ", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    if (updateInfo.kind == UpdateKind.REPAIR) {
+                                        t("УСТАНОВИТЬ ИСПРАВЛЕНИЕ", "INSTALL FIX")
+                                    } else {
+                                        t("ОБНОВИТЬ", "UPDATE")
+                                    },
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
                             }
                         }
                     }

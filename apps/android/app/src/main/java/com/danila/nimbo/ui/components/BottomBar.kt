@@ -1,8 +1,7 @@
 package com.danila.nimbo.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.EaseIn
-import androidx.compose.animation.core.EaseOut
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -23,10 +22,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -36,89 +33,95 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
-import com.danila.nimbo.ui.theme.*
+import com.danila.nimbo.ui.i18n.t
+import com.danila.nimbo.ui.theme.ElementStyleMode
+import com.danila.nimbo.ui.theme.LocalBackgroundAnimationEnabled
+import com.danila.nimbo.ui.theme.LocalElementStyleMode
+import com.danila.nimbo.ui.theme.LocalGlobalCornerRadius
+import com.danila.nimbo.ui.theme.LocalNebulaColors
+import com.danila.nimbo.ui.theme.LocalReducedTransparencyEnabled
 
-@OptIn(ExperimentalMaterial3Api::class)
+private data class BottomDestination(
+    val route: String,
+    val label: String,
+    val selectedIcon: ImageVector,
+    val icon: ImageVector
+)
+
 @Composable
 fun BottomBar(navController: NavController) {
-    val backStackEntry = navController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry.value?.destination?.route
-    val nebulaColors = LocalNebulaColors.current
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    val colors = LocalNebulaColors.current
     val elementStyle = LocalElementStyleMode.current
-    val reducedTransparencyEnabled = LocalReducedTransparencyEnabled.current
-    val backgroundAnimationEnabled = LocalBackgroundAnimationEnabled.current
-    val globalBlurRadius = LocalGlobalBlurRadius.current
-    val globalCornerRadius = LocalGlobalCornerRadius.current
-    val panelShape = when (elementStyle) {
-        ElementStyleMode.MORPHISM -> RoundedCornerShape((28 * globalCornerRadius).dp)
-        ElementStyleMode.MATERIAL3 -> RoundedCornerShape((18 * globalCornerRadius).dp)
-        ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape((14 * globalCornerRadius).dp)
-        ElementStyleMode.OUTLINED -> RoundedCornerShape((12 * globalCornerRadius).dp)
-        ElementStyleMode.SOFT_NEO -> RoundedCornerShape((24 * globalCornerRadius).dp)
-    }
-    val panelBackground = when (elementStyle) {
-        ElementStyleMode.MORPHISM -> listOf(
-            nebulaColors.textPrimary.copy(alpha = if (reducedTransparencyEnabled) 0.44f else 0.15f),
-            nebulaColors.textPrimary.copy(alpha = if (reducedTransparencyEnabled) 0.34f else 0.06f)
+    val reducedTransparency = LocalReducedTransparencyEnabled.current
+    val animateBackground = LocalBackgroundAnimationEnabled.current && !reducedTransparency
+    val cornerScale = LocalGlobalCornerRadius.current
+    val destinations = listOf(
+        BottomDestination("home", t("Главная", "Home"), Icons.Filled.Home, Icons.Outlined.Home),
+        BottomDestination("profiles", t("Профили", "Profiles"), Icons.Filled.Person, Icons.Outlined.Person),
+        BottomDestination("settings", t("Настройки", "Settings"), Icons.Filled.Settings, Icons.Outlined.Settings)
+    )
+    val panelShape = RoundedCornerShape(
+        when (elementStyle) {
+            ElementStyleMode.LIQUID_GLASS -> (34 * cornerScale).dp
+            ElementStyleMode.MATERIAL_EXPRESSIVE -> (32 * cornerScale).dp
+            ElementStyleMode.NOTHING_DOTS -> (18 * cornerScale).dp
+            ElementStyleMode.OUTLINED -> (16 * cornerScale).dp
+            ElementStyleMode.SOFT_NEO -> (28 * cornerScale).dp
+        }
+    )
+    val lightProgress = if (animateBackground && elementStyle == ElementStyleMode.LIQUID_GLASS) {
+        val transition = rememberInfiniteTransition(label = "liquidNavigationLight")
+        val value by transition.animateFloat(
+            initialValue = -0.35f,
+            targetValue = 1.35f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(9_000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "liquidNavigationLightProgress"
         )
-
-        ElementStyleMode.MATERIAL3 -> listOf(
-            nebulaColors.surface.copy(alpha = if (reducedTransparencyEnabled) 1f else 0.94f),
-            nebulaColors.surface.copy(alpha = if (reducedTransparencyEnabled) 0.98f else 0.82f)
-        )
-
-        ElementStyleMode.NOTHING_DOTS -> listOf(
-            nebulaColors.surface.copy(alpha = if (reducedTransparencyEnabled) 1f else 0.92f),
-            nebulaColors.surface.copy(alpha = if (reducedTransparencyEnabled) 0.96f else 0.75f)
-        )
-
-        ElementStyleMode.OUTLINED -> listOf(
-            nebulaColors.surface.copy(alpha = if (reducedTransparencyEnabled) 0.94f else 0.55f),
-            nebulaColors.surface.copy(alpha = if (reducedTransparencyEnabled) 0.9f else 0.48f)
-        )
-
-        ElementStyleMode.SOFT_NEO -> listOf(
-            nebulaColors.onSurface.copy(alpha = if (reducedTransparencyEnabled) 0.28f else 0.12f),
-            nebulaColors.surface.copy(alpha = if (reducedTransparencyEnabled) 0.94f else 0.78f)
-        )
+        value
+    } else {
+        -1f
     }
 
-    // Проверяем есть ли выбранные элементы (с текстом)
-    val hasSelectedWithText = currentRoute in listOf("home", "profiles", "settings")
-
-    fun navigateToTopLevel(route: String) {
+    fun navigate(route: String) {
         if (currentRoute == route) return
-        val restoredFromBackStack = navController.popBackStack(route, inclusive = false)
-        if (!restoredFromBackStack) {
+        if (!navController.popBackStack(route, inclusive = false)) {
             navController.navigate(route) {
                 launchSingleTop = true
                 restoreState = true
@@ -126,274 +129,200 @@ fun BottomBar(navController: NavController) {
         }
     }
 
-    // Анимация ширины панели
-    val panelWidth by animateFloatAsState(
-        targetValue = if (hasSelectedWithText) 0.95f else 0.6f,
-        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
-        label = "panelWidth"
-    )
-
-    val animateGradient = backgroundAnimationEnabled &&
-        !reducedTransparencyEnabled &&
-        elementStyle == ElementStyleMode.MORPHISM
-    val gradientOffset = if (animateGradient) {
-        val animatedGradient = rememberInfiniteTransition(label = "gradient")
-        val offset by animatedGradient.animateFloat(
-            initialValue = 0f,
-            targetValue = 1000f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(16000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "gradientOffset"
-        )
-        offset
-    } else {
-        0f
-    }
-
-    // Плавающая панель с эффектом морфизм (iOS style)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding(),
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         contentAlignment = Alignment.BottomCenter
     ) {
-        // Блюрная обводка для эффекта преломления света (фон)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(panelWidth)
-                .padding(horizontal = 16.dp, vertical = 10.dp)
-                .clip(panelShape)
-                .background(nebulaColors.surface.copy(alpha = if (reducedTransparencyEnabled) 0.92f else 0.24f))
-                .blur(if (reducedTransparencyEnabled) 0.dp else globalBlurRadius.dp)
-                .border(
-                    if (reducedTransparencyEnabled) 1.dp else 2.dp,
-                    Brush.linearGradient(
-                        colors = listOf(
-                            nebulaColors.textPrimary.copy(alpha = if (reducedTransparencyEnabled) 0.22f else 0.5f),
-                            nebulaColors.textPrimary.copy(alpha = if (reducedTransparencyEnabled) 0.14f else 0.15f),
-                            nebulaColors.textPrimary.copy(alpha = if (reducedTransparencyEnabled) 0.1f else 0.05f),
-                            nebulaColors.textPrimary.copy(alpha = if (reducedTransparencyEnabled) 0.14f else 0.15f),
-                            nebulaColors.textPrimary.copy(alpha = if (reducedTransparencyEnabled) 0.22f else 0.5f)
-                        )
-                    ),
-                    panelShape
-                )
-        )
+        val basePanelModifier = Modifier
+            .fillMaxWidth()
+            .height(72.dp)
 
-        // Основная панель с кнопками и анимированным фоном
-        Row(
-            modifier = Modifier
-                .fillMaxWidth(panelWidth)
-                .padding(horizontal = 16.dp, vertical = 10.dp)
-                .clip(panelShape)
-                .background(
-                    Brush.linearGradient(
-                        colors = panelBackground,
-                        start = Offset(0f, gradientOffset),
-                        end = Offset(1000f, gradientOffset + 500f)
+        val styledPanelModifier = when (elementStyle) {
+            ElementStyleMode.LIQUID_GLASS -> basePanelModifier
+                .liquidGlassSurface(panelShape, LiquidGlassDepth.FLOATING)
+                .drawWithCache {
+                    val sweep = Brush.linearGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.White.copy(alpha = 0.18f),
+                            colors.accent.copy(alpha = 0.10f),
+                            Color.Transparent
+                        ),
+                        start = Offset(size.width * lightProgress - size.width * 0.24f, 0f),
+                        end = Offset(size.width * lightProgress + size.width * 0.24f, size.height)
                     )
+                    onDrawBehind { drawRect(sweep) }
+                }
+
+            ElementStyleMode.MATERIAL_EXPRESSIVE -> basePanelModifier
+                .shadow(
+                    elevation = 8.dp,
+                    shape = panelShape,
+                    ambientColor = Color.Black.copy(alpha = 0.14f),
+                    spotColor = Color.Black.copy(alpha = 0.18f)
                 )
-                .then(
-                    if (elementStyle == ElementStyleMode.NOTHING_DOTS) {
-                        Modifier.dotPatternOverlay(nebulaColors.textPrimary, spacing = 13.dp, radius = 0.9.dp, alpha = 0.13f)
-                    } else Modifier
-                )
+                .clip(panelShape)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .border(
                     1.dp,
-                    Brush.linearGradient(
-                        colors = listOf(
-                            nebulaColors.textPrimary.copy(alpha = if (reducedTransparencyEnabled) 0.24f else 0.35f),
-                            nebulaColors.textPrimary.copy(alpha = if (reducedTransparencyEnabled) 0.18f else 0.15f)
-                        )
-                    ),
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.52f),
                     panelShape
                 )
-                .padding(horizontal = 4.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ){
-            BottomNavItem(
-                icon = Icons.Default.Home,
-                unselectedIcon = Icons.Outlined.Home,
-                label = "Главная",
-                selected = currentRoute == "home",
-                enabled = currentRoute != "home",
-                onClick = {
-                    navigateToTopLevel("home")
-                },
-                modifier = Modifier.weight(1f)
-            )
 
-            BottomNavItem(
-                icon = Icons.Default.Person,
-                unselectedIcon = Icons.Outlined.Person,
-                label = "Профили",
-                selected = currentRoute == "profiles",
-                enabled = currentRoute != "profiles",
-                onClick = {
-                    navigateToTopLevel("profiles")
-                },
-                modifier = Modifier.weight(1f)
-            )
-
-            BottomNavItem(
-                icon = Icons.Default.Settings,
-                unselectedIcon = Icons.Outlined.Settings,
-                label = "Настройки",
-                selected = currentRoute == "settings",
-                enabled = currentRoute != "settings",
-                onClick = {
-                    navigateToTopLevel("settings")
-                },
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        // Верхний блик для эффекта стекла
-        Box(
-            modifier = Modifier
-                .width(IntrinsicSize.Max)
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+            else -> basePanelModifier
                 .clip(panelShape)
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(
-                            nebulaColors.textPrimary.copy(alpha = if (reducedTransparencyEnabled) 0.03f else 0.15f),
-                            Color.Transparent
-                        ),
-                        startY = 0f,
-                        endY = 100f
+                        listOf(
+                            colors.surface.copy(alpha = if (reducedTransparency) 0.98f else 0.90f),
+                            colors.surface.copy(alpha = if (reducedTransparency) 0.94f else 0.76f)
+                        )
                     )
                 )
-        )
+                .border(1.dp, colors.panelBorder, panelShape)
+        }
+
+        Row(
+            modifier = styledPanelModifier.padding(7.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            destinations.forEach { destination ->
+                BottomNavItem(
+                    icon = destination.selectedIcon,
+                    unselectedIcon = destination.icon,
+                    label = destination.label,
+                    selected = destination.route == currentRoute,
+                    onClick = { navigate(destination.route) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
     }
 }
 
 @Composable
-fun BottomNavItem(
+private fun BottomNavItem(
     icon: ImageVector,
     unselectedIcon: ImageVector,
     label: String,
     selected: Boolean,
-    enabled: Boolean = true,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val nebulaColors = LocalNebulaColors.current
+    val colors = LocalNebulaColors.current
     val elementStyle = LocalElementStyleMode.current
-    val reducedTransparencyEnabled = LocalReducedTransparencyEnabled.current
-    val globalCornerRadius = LocalGlobalCornerRadius.current
-    val isDarkUi = nebulaColors.background.luminance() < 0.5f
-    val itemShape = when (elementStyle) {
-        ElementStyleMode.MORPHISM -> RoundedCornerShape((16 * globalCornerRadius).dp)
-        ElementStyleMode.MATERIAL3 -> RoundedCornerShape((12 * globalCornerRadius).dp)
-        ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape((10 * globalCornerRadius).dp)
-        ElementStyleMode.OUTLINED -> RoundedCornerShape((10 * globalCornerRadius).dp)
-        ElementStyleMode.SOFT_NEO -> RoundedCornerShape((14 * globalCornerRadius).dp)
-    }
-    val iconColor = when {
-        selected -> nebulaColors.accent
-        reducedTransparencyEnabled -> nebulaColors.textPrimary.copy(alpha = 0.9f)
-        else -> nebulaColors.textSecondary
-    }
-
-    // Оптимизированная анимация масштаба для иконки
-    val iconScale by animateFloatAsState(
-        targetValue = if (selected) 1.15f else 1.0f,
-        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
-        label = "iconScale"
-    )
-
+    val reducedTransparency = LocalReducedTransparencyEnabled.current
+    val haptic = LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val haptic = LocalHapticFeedback.current
-
     val pressedScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.92f else 1f,
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium),
-        label = "pressedScale"
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "navigationPressedScale"
     )
+    val iconScale by animateFloatAsState(
+        targetValue = if (selected) 1.08f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "navigationIconScale"
+    )
+    val itemShape = RoundedCornerShape(if (elementStyle == ElementStyleMode.MATERIAL_EXPRESSIVE) 26.dp else 24.dp)
+    val itemBackground = when {
+        !selected -> Color.Transparent
+        elementStyle == ElementStyleMode.MATERIAL_EXPRESSIVE -> MaterialTheme.colorScheme.primaryContainer
+        elementStyle == ElementStyleMode.LIQUID_GLASS -> colors.accent.copy(
+            alpha = if (reducedTransparency) 0.26f else 0.16f
+        )
+        else -> colors.accent.copy(alpha = 0.16f)
+    }
+    val itemBorder = when {
+        !selected || elementStyle == ElementStyleMode.MATERIAL_EXPRESSIVE -> Color.Transparent
+        elementStyle == ElementStyleMode.LIQUID_GLASS -> Color.White.copy(
+            alpha = if (reducedTransparency) 0.18f else 0.30f
+        )
+        else -> colors.accent.copy(alpha = 0.28f)
+    }
+    val contentColor = when {
+        selected && elementStyle == ElementStyleMode.MATERIAL_EXPRESSIVE ->
+            MaterialTheme.colorScheme.onPrimaryContainer
+        selected -> colors.accent
+        elementStyle == ElementStyleMode.MATERIAL_EXPRESSIVE ->
+            MaterialTheme.colorScheme.onSurfaceVariant
+        else -> colors.textSecondary
+    }
 
     Box(
         modifier = modifier
-            .width(105.dp)  // Увеличили ширину с 100.dp до 105.dp для большего пространства
-            .height(52.dp)
-            .padding(horizontal = 2.dp)
+            .height(58.dp)
+            .scale(pressedScale)
             .clip(itemShape)
+            .background(itemBackground)
+            .border(1.dp, itemBorder, itemShape)
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            )
+            .semantics {
+                role = Role.Tab
+                this.selected = selected
+                contentDescription = label
+            }
             .clickable(
-                enabled = enabled,
+                enabled = !selected,
                 interactionSource = interactionSource,
-                indication = null,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onClick()
-                }
-            )
-            .then(
-                Modifier
-            )
-            .then(
-                if (selected) {
-                    Modifier
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    nebulaColors.accent.copy(alpha = if (reducedTransparencyEnabled) 0.26f else 0.20f),
-                                    nebulaColors.accent.copy(alpha = if (reducedTransparencyEnabled) 0.14f else 0.08f)
-                                )
-                            )
-                        )
-                        .then(
-                            if (elementStyle == ElementStyleMode.NOTHING_DOTS) {
-                                Modifier.dotPatternOverlay(nebulaColors.textPrimary, spacing = 10.dp, radius = 0.8.dp, alpha = 0.15f)
-                            } else Modifier
-                        )
-                        .border(
-                            if (reducedTransparencyEnabled) 1.dp else 0.5.dp,
-                            nebulaColors.accent.copy(alpha = if (reducedTransparencyEnabled) 0.72f else 0.4f),
-                            itemShape
-                        )
-                } else Modifier
-            )
-            .scale(pressedScale),
+                indication = null
+            ) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            },
         contentAlignment = Alignment.Center
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 2.dp),  // Уменьшили отступ для большего пространства тексту
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
-
             Icon(
                 imageVector = if (selected) icon else unselectedIcon,
-                contentDescription = label,
-                tint = iconColor,
+                contentDescription = null,
+                tint = contentColor,
                 modifier = Modifier
                     .size(24.dp)
                     .scale(iconScale)
             )
-
             AnimatedVisibility(
                 visible = selected,
                 enter = expandHorizontally(
-                    expandFrom = Alignment.CenterHorizontally,
-                    animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow)
-                ) + fadeIn(animationSpec = tween(150)),
+                    expandFrom = Alignment.Start,
+                    animationSpec = spring(stiffness = Spring.StiffnessLow)
+                ) + fadeIn(tween(180)),
                 exit = shrinkHorizontally(
-                    shrinkTowards = Alignment.CenterHorizontally,
-                    animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium)
-                ) + fadeOut(animationSpec = tween(100))
+                    shrinkTowards = Alignment.Start,
+                    animationSpec = spring(stiffness = Spring.StiffnessMedium)
+                ) + fadeOut(tween(100))
             ) {
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = iconColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = label,
+                        color = contentColor,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }

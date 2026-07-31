@@ -11,7 +11,7 @@ data class Server(
     @SerializedName("protocol") val protocol: String,
     @SerializedName("serverDescription") val serverDescription: String? = null,
     @SerializedName("profileUrl") val profileUrl: String? = null,
-
+    
     // Дополнительные параметры для VLESS/VMess/Reality
     @SerializedName("flow") val flow: String? = null,
     @SerializedName("security") val security: String? = null,
@@ -23,16 +23,16 @@ data class Server(
     @SerializedName("fingerprint") val fingerprint: String? = null,
     @SerializedName("alpn") val alpn: String? = null,
     @SerializedName("allowInsecure") val allowInsecure: Boolean? = null,
-
+    
     // Reality специфичные поля
     @SerializedName("tls") val tls: Boolean? = null,
     @SerializedName("publicKey") val publicKey: String? = null,
     @SerializedName("shortId") val shortId: String? = null,
     @SerializedName("spiderX") val spiderX: String? = null,
-
+    
     // VMess специфичные поля
     @SerializedName("alterId") val alterId: Int? = null,
-
+    
     // Shadowsocks
     @SerializedName("method") val method: String? = null,
 
@@ -148,6 +148,20 @@ data class Server(
         val profilePart = profileUrl?.hashCode()?.toString(16) ?: "null"
         return "${host}_${port}_${stableId}_${transportId}${pingTargetPart}_$profilePart"
     }
+
+    /**
+     * Identity used only for measured latency. Node names and remote-template
+     * hints deliberately stay in this key: two nodes may share host:port while
+     * selecting different CDN edges, outbounds, or routing strategies.
+     */
+    fun pingMeasurementKey(): String = listOf(
+        pingKey(),
+        normalized(name),
+        normalized(templateUuid),
+        normalized(templateName),
+        normalized(remoteBalancerTag),
+        normalized(remoteOutboundTag)
+    ).joinToString("|")
 
     fun isPingValid(): Boolean {
         // Пинг хранится как "последний известный" результат и остается видимым

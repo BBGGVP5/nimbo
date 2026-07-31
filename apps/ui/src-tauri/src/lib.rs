@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod cross_sync;
 #[cfg(windows)]
 pub mod helper;
 pub mod logging;
@@ -23,9 +24,16 @@ use crate::commands::{
     stop_conflicting_processes, uninstall_helper, update_routing_profile,
     update_subscription_settings, write_clipboard_text,
 };
+use crate::cross_sync::{
+    cross_sync_accept_import, cross_sync_approve, cross_sync_cancel, cross_sync_reject,
+    cross_sync_start, cross_sync_status, CrossSyncManager,
+};
 use crate::state::AppState;
 use crate::tray::{tray_menu_action, tray_menu_resize, tray_menu_state};
-use crate::updater::{check_app_update, open_update_download};
+use crate::updater::{
+    check_app_update, dismiss_post_update_info, get_post_update_info, install_app_update,
+    open_update_download,
+};
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 
@@ -90,15 +98,23 @@ fn acquire_single_instance() -> Option<SingleInstanceGuard> {
 }
 
 pub fn handle_cli_args() -> bool {
-    if !std::env::args().any(|arg| arg == "--install-tun") {
-        return false;
+    if std::env::args().any(|arg| arg == "--update-health-check") {
+        if let Err(error) = crate::updater::run_update_health_check() {
+            eprintln!("update health check failed: {error}");
+            std::process::exit(1);
+        }
+        return true;
     }
 
-    if let Err(error) = crate::commands::install_tun_dependencies_for_installer() {
-        eprintln!("failed to install TUN dependencies: {error}");
-        std::process::exit(1);
+    if std::env::args().any(|arg| arg == "--install-tun") {
+        if let Err(error) = crate::commands::install_tun_dependencies_for_installer() {
+            eprintln!("failed to install TUN dependencies: {error}");
+            std::process::exit(1);
+        }
+        return true;
     }
-    true
+
+    false
 }
 
 #[cfg(windows)]
@@ -162,6 +178,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .manage(app_state)
+        .manage(CrossSyncManager::default())
         .manage(single_instance_guard)
         .on_window_event(|window, event| {
             // The custom tray popup is a transient flyout: hide it as soon as it
@@ -268,7 +285,10 @@ pub fn run() {
             connect_server,
             disconnect_server,
             check_app_update,
+            install_app_update,
             open_update_download,
+            get_post_update_info,
+            dismiss_post_update_info,
             helper_status,
             install_helper,
             uninstall_helper,
@@ -286,6 +306,12 @@ pub fn run() {
             get_tunnel_logs,
             clear_tunnel_logs,
             open_logs_folder,
+            cross_sync_start,
+            cross_sync_status,
+            cross_sync_approve,
+            cross_sync_reject,
+            cross_sync_accept_import,
+            cross_sync_cancel,
             tray_menu_state,
             tray_menu_resize,
             tray_menu_action,

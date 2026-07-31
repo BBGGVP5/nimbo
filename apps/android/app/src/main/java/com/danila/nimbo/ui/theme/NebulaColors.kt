@@ -21,12 +21,13 @@ data class NebulaColors(
     val primaryGradientStart: Color,
     val primaryGradientMiddle: Color,
     val primaryGradientEnd: Color = Color(0xFF5D4A8A),
-    // ===== Element style (Nimbo Glass vs Material You) =====
+    // ===== Element style (Liquid Glass vs Material You) =====
     // When [isMaterialYou] is true, the panel/control/border/divider colors below
     // hold tonal Material 3 values; the windows* helpers in the UI switch to them so
-    // the whole interface re-skins. For Nimbo Glass these stay at the glass defaults
+    // the whole interface re-skins. For Liquid Glass these stay at the glass defaults
     // and the helpers compute their own flat-glass colors.
     val isMaterialYou: Boolean = false,
+    val isLiquidGlass: Boolean = true,
     val panelFill: Color = DarkSurface,
     val controlFill: Color = Color.White.copy(alpha = 0.035f),
     val softFill: Color = Color.White.copy(alpha = 0.08f),

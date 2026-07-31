@@ -103,19 +103,19 @@ object NotificationManager {
      */
     fun getServerFlag(serverName: String): String {
         if (serverName.isEmpty()) return ""
-
+        
         // 1. Сначала пробуем извлечь флаг (2 региональных индикатора)
         val flagRegex = Regex("^[🇦-🇿]{2}")
         val flagMatch = flagRegex.find(serverName)
         if (flagMatch != null) return flagMatch.value
-
+        
         // 2. Затем пробуем извлечь любой другой спецсимвол или emoji в начале
         val firstCodePoint = serverName.codePointAt(0)
         // Если это не буква, не цифра и не пробел - вероятно это emoji или иконка
         if (!Character.isLetterOrDigit(firstCodePoint) && !Character.isWhitespace(firstCodePoint)) {
             return String(Character.toChars(firstCodePoint))
         }
-
+        
         return ""
     }
 
@@ -189,7 +189,7 @@ object NotificationManager {
         // Получаем флаг и отображаемое название сервера
         val serverFlag = getServerFlag(serverName)
         val serverDisplayName = getServerDisplayName(serverName)
-
+        
         // Формируем полное название с флагом (только один флаг в начале)
         val fullServerName = if (serverFlag.isNotEmpty()) {
             "$serverFlag $serverDisplayName"

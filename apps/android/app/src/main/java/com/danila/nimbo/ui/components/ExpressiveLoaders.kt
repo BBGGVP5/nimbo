@@ -39,7 +39,7 @@ fun ExpressiveCircularLoader(
     strokeWidth: Dp = 5.dp
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "expressive-loader")
-
+    
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 470f,
@@ -49,7 +49,7 @@ fun ExpressiveCircularLoader(
         ),
         label = "expressive-loader-rotation"
     )
-
+    
     val sweepPhase by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -98,26 +98,26 @@ fun ExpressiveCircularLoader(
         val sweep = sweepAngleTarget
         val segments = 72 // Beautiful crisp rendering
         val activePath = Path()
-
+        
         repeat(segments + 1) { index ->
             val t = index / segments.toFloat()
             val currentAngleDeg = startAngle + sweep * t
             val angleRad = Math.toRadians(currentAngleDeg.toDouble())
-
+            
             // Premium, organic scalloped wave (6 waves around a full circle)
             // It has smooth, rounded flowing peaks and valleys matching Android 15/16/17 wavy seekbar
             val angleInPeriod = currentAngleDeg * (6f / 360f) * 2f * Math.PI
             val wave = sin(angleInPeriod - sweepPhase * 2f * Math.PI).toFloat()
-
+            
             // Dampen near the tips so the line meets the main circle nicely
             val easingBulge = sin(t * PI).toFloat()
             val r = radius + wave * stroke * 0.55f * easingBulge
-
+            
             val point = Offset(
                 x = center.x + cos(angleRad).toFloat() * r,
                 y = center.y + sin(angleRad).toFloat() * r
             )
-
+            
             if (index == 0) {
                 activePath.moveTo(point.x, point.y)
             } else {

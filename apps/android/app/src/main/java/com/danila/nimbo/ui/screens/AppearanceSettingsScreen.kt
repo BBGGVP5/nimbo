@@ -44,6 +44,7 @@ import com.danila.nimbo.utils.AppIconManager
 import com.danila.nimbo.R
 import androidx.compose.ui.text.style.TextOverflow
 import com.danila.nimbo.ui.components.SubscriptionBrandLogo
+import com.danila.nimbo.ui.components.rememberHapticSliderValueChange
 import com.danila.nimbo.ui.theme.LocalGlobalCornerRadius
 import com.danila.nimbo.ui.LocalPreferencesManager
 
@@ -70,7 +71,7 @@ fun AppearanceSettingsScreen(
     var showVersionInHeader by remember { mutableStateOf(preferencesManager.showVersionInHeader) }
     var gradientEffectsEnabled by remember { mutableStateOf(preferencesManager.gradientEffectsEnabled) }
     var glowEffectsEnabled by remember { mutableStateOf(preferencesManager.glowEffectsEnabled) }
-
+    
     var customGradientCount by remember { mutableIntStateOf(preferencesManager.customGradientCount) }
     var customGradColor1 by remember { mutableStateOf(Color(preferencesManager.customGradientColor1)) }
     var customGradColor2 by remember { mutableStateOf(Color(preferencesManager.customGradientColor2)) }
@@ -80,6 +81,7 @@ fun AppearanceSettingsScreen(
     var backgroundStyle by remember { mutableIntStateOf(preferencesManager.backgroundStyle) }
     var elementStyle by remember { mutableIntStateOf(preferencesManager.elementStyle) }
     var backgroundAnimationEnabled by remember { mutableStateOf(preferencesManager.backgroundAnimationEnabled) }
+    var statusParticlesEnabled by remember { mutableStateOf(preferencesManager.statusParticlesEnabled) }
     var highContrastUi by remember { mutableStateOf(preferencesManager.highContrastUi) }
     var reducedTransparency by remember { mutableStateOf(preferencesManager.reducedTransparency) }
     var splashScreenEnabled by remember { mutableStateOf(preferencesManager.splashScreenEnabled) }
@@ -90,7 +92,7 @@ fun AppearanceSettingsScreen(
     var useSubscriptionTheme by remember { mutableStateOf(preferencesManager.useSubscriptionTheme) }
     var showSubscriptionLogo by remember { mutableStateOf(preferencesManager.showSubscriptionLogo) }
     var activeGradientColorIndex by remember { mutableIntStateOf(1) }
-
+    
     val systemDarkTheme = isSystemInDarkTheme()
     val colorIndex = colorTheme.mod(9)
     val isDarkTheme = when (themeMode) {
@@ -99,7 +101,7 @@ fun AppearanceSettingsScreen(
         else -> systemDarkTheme
     }
 
-    LaunchedEffect(colorTheme, themeMode, textScale, isCustomAccent, customAccentColor, showVersionInHeader, gradientEffectsEnabled, glowEffectsEnabled, customGradientCount, customGradColor1, customGradColor2, customGradColor3, useDynamicColor, selectedAppIcon, backgroundStyle, elementStyle, backgroundAnimationEnabled, highContrastUi, reducedTransparency, splashScreenEnabled, globalBrightness, globalTransparency, globalBlur, globalCorners, useSubscriptionTheme, showSubscriptionLogo) {
+    LaunchedEffect(colorTheme, themeMode, textScale, isCustomAccent, customAccentColor, showVersionInHeader, gradientEffectsEnabled, glowEffectsEnabled, customGradientCount, customGradColor1, customGradColor2, customGradColor3, useDynamicColor, selectedAppIcon, backgroundStyle, elementStyle, backgroundAnimationEnabled, statusParticlesEnabled, highContrastUi, reducedTransparency, splashScreenEnabled, globalBrightness, globalTransparency, globalBlur, globalCorners, useSubscriptionTheme, showSubscriptionLogo) {
         preferencesManager.colorTheme = if (isDarkTheme) colorIndex else colorIndex + 9
         preferencesManager.themeMode = themeMode
         preferencesManager.textScale = textScale
@@ -117,6 +119,7 @@ fun AppearanceSettingsScreen(
         preferencesManager.backgroundStyle = backgroundStyle
         preferencesManager.elementStyle = elementStyle
         preferencesManager.backgroundAnimationEnabled = backgroundAnimationEnabled
+        preferencesManager.statusParticlesEnabled = statusParticlesEnabled
         preferencesManager.highContrastUi = highContrastUi
         preferencesManager.reducedTransparency = reducedTransparency
         preferencesManager.splashScreenEnabled = splashScreenEnabled
@@ -151,7 +154,7 @@ fun AppearanceSettingsScreen(
             ) {
                 // ПРЕВЬЮ ТЕМЫ
                 ThemePreviewCard(
-                    isDarkTheme,
+                    isDarkTheme, 
                     nebulaColors.accent,
                     if (gradientEffectsEnabled) {
                         listOf(
@@ -221,7 +224,7 @@ fun AppearanceSettingsScreen(
                     Column(modifier = Modifier.padding(vertical = 8.dp)) {
                         // СИСТЕМНЫЙ ЦВЕТ (MATERIAL YOU)
                         if (AndroidBuild.VERSION.SDK_INT >= AndroidBuild.VERSION_CODES.S) {
-                            val systemColor = if (isDarkTheme) dynamicDarkColorScheme(LocalContext.current).primary
+                            val systemColor = if (isDarkTheme) dynamicDarkColorScheme(LocalContext.current).primary 
                                              else dynamicLightColorScheme(LocalContext.current).primary
                             AccentColorItem(
                                 color = systemColor,
@@ -256,16 +259,16 @@ fun AppearanceSettingsScreen(
                                 color = nebulaColors.onSurface.copy(alpha = 0.1f)
                             )
                         }
-
+                        
                         // КАСТОМНЫЙ ЦВЕТ
                         AccentColorItem(
                             color = customGradColor1,
                             name = "Свой цвет",
                             description = "Настройте палитру и градиенты под себя",
                             isSelected = isCustomAccent,
-                            onClick = {
+                            onClick = { 
                                 useDynamicColor = false
-                                isCustomAccent = true
+                                isCustomAccent = true 
                             }
                         )
 
@@ -286,8 +289,8 @@ fun AppearanceSettingsScreen(
                                 ) {
                                     listOf(1, 2, 3).forEach { count ->
                                         Surface(
-                                            onClick = {
-                                                customGradientCount = count
+                                            onClick = { 
+                                                customGradientCount = count 
                                                 if (activeGradientColorIndex > count) activeGradientColorIndex = 1
                                             },
                                             modifier = Modifier
@@ -367,13 +370,13 @@ fun AppearanceSettingsScreen(
                                     fontSize = 13.sp,
                                     modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp)
                                 )
-
+                                
                                 val swatchColors = listOf(
-                                    Color(0xFF7C5DFA), Color(0xFF00B4D8), Color(0xFF00C853), Color(0xFFFF5252),
-                                    Color(0xFFFF9800), Color(0xFFDB2777), Color(0xFF0891B2), Color(0xFF65A30D),
+                                    Color(0xFF7C5DFA), Color(0xFF00B4D8), Color(0xFF00C853), Color(0xFFFF5252), 
+                                    Color(0xFFFF9800), Color(0xFFDB2777), Color(0xFF0891B2), Color(0xFF65A30D), 
                                     Color(0xFFF59E0B), Color(0xFF6366F1), Color(0xFFCBD5E1), Color(0xFF1E293B)
                                 )
-
+                                
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -401,7 +404,7 @@ fun AppearanceSettingsScreen(
                                                         }
                                                     }
                                                     .border(
-                                                        2.dp,
+                                                        2.dp, 
                                                         if (isSelected) Color.White else Color.Transparent,
                                                         RoundedCornerShape(8.dp)
                                                     ),
@@ -434,7 +437,7 @@ fun AppearanceSettingsScreen(
                                                         }
                                                     }
                                                     .border(
-                                                        2.dp,
+                                                        2.dp, 
                                                         if (isSelected) Color.White else Color.Transparent,
                                                         RoundedCornerShape(8.dp)
                                                     ),
@@ -511,7 +514,7 @@ fun AppearanceSettingsScreen(
                                         2 -> customGradColor2
                                         else -> customGradColor3
                                     },
-                                    onColorSelect = {
+                                    onColorSelect = { 
                                         when(activeGradientColorIndex) {
                                             1 -> { customGradColor1 = it; customAccentColor = it }
                                             2 -> customGradColor2 = it
@@ -601,6 +604,16 @@ fun AppearanceSettingsScreen(
                         options = elementStyleOptions(),
                         onSelect = { elementStyle = it }
                     )
+                    Text(
+                        text = when (elementStyle) {
+                            0 -> "Жидкое стекло: прозрачные поверхности, преломляющий свет контур и мягкая глубина"
+                            1 -> "Material 3 Expressive для Android 17: тональные поверхности, крупные формы и выразительная навигация"
+                            else -> "Альтернативный стиль элементов Nimbo"
+                        },
+                        color = nebulaColors.textTertiary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
                     StylePreviewCard(
                         title = "Превью элементов",
                         style = elementStyle,
@@ -647,6 +660,33 @@ fun AppearanceSettingsScreen(
                             reducedTransparency = preset.reducedTransparencyEnabled
                         }
                     )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = nebulaColors.onSurface.copy(alpha = 0.1f)
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { statusParticlesEnabled = !statusParticlesEnabled }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Статусные частицы", color = nebulaColors.textPrimary, fontWeight = FontWeight.Bold)
+                            Text("Эффекты из кнопок подключения, ping и обновления", color = nebulaColors.textTertiary, fontSize = 12.sp)
+                        }
+                        Switch(
+                            checked = statusParticlesEnabled,
+                            onCheckedChange = { statusParticlesEnabled = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = nebulaColors.accent,
+                                checkedTrackColor = nebulaColors.accent.copy(alpha = 0.3f)
+                            )
+                        )
+                    }
 
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
@@ -757,7 +797,11 @@ fun AppearanceSettingsScreen(
                         }
                         Slider(
                             value = textScale,
-                            onValueChange = { textScale = it.coerceIn(0.85f, 1.25f) },
+                            onValueChange = rememberHapticSliderValueChange(
+                                value = textScale,
+                                valueRange = 0.85f..1.25f,
+                                steps = 7
+                            ) { textScale = it.coerceIn(0.85f, 1.25f) },
                             valueRange = 0.85f..1.25f,
                             steps = 7,
                             colors = SliderDefaults.colors(
@@ -804,7 +848,10 @@ fun AppearanceSettingsScreen(
                         }
                         Slider(
                             value = globalBrightness,
-                            onValueChange = { globalBrightness = it.coerceIn(0.5f, 2.0f) },
+                            onValueChange = rememberHapticSliderValueChange(
+                                value = globalBrightness,
+                                valueRange = 0.5f..2.0f
+                            ) { globalBrightness = it.coerceIn(0.5f, 2.0f) },
                             valueRange = 0.5f..2.0f,
                             colors = SliderDefaults.colors(
                                 thumbColor = nebulaColors.accent,
@@ -851,7 +898,10 @@ fun AppearanceSettingsScreen(
                         }
                         Slider(
                             value = globalTransparency,
-                            onValueChange = { globalTransparency = it.coerceIn(0.0f, 1.0f) },
+                            onValueChange = rememberHapticSliderValueChange(
+                                value = globalTransparency,
+                                valueRange = 0.0f..1.0f
+                            ) { globalTransparency = it.coerceIn(0.0f, 1.0f) },
                             valueRange = 0.0f..1.0f,
                             colors = SliderDefaults.colors(
                                 thumbColor = nebulaColors.accent,
@@ -897,7 +947,10 @@ fun AppearanceSettingsScreen(
                         }
                         Slider(
                             value = globalBlur,
-                            onValueChange = { globalBlur = it.coerceIn(0.0f, 80.0f) },
+                            onValueChange = rememberHapticSliderValueChange(
+                                value = globalBlur,
+                                valueRange = 0.0f..80.0f
+                            ) { globalBlur = it.coerceIn(0.0f, 80.0f) },
                             valueRange = 0.0f..80.0f,
                             colors = SliderDefaults.colors(
                                 thumbColor = nebulaColors.accent,
@@ -944,8 +997,11 @@ fun AppearanceSettingsScreen(
                         }
                         Slider(
                             value = globalCorners,
-                            onValueChange = { globalCorners = it.coerceIn(0.25f, 4.0f) },
-                            valueRange = 0.25f..4.0f,
+                            onValueChange = rememberHapticSliderValueChange(
+                                value = globalCorners,
+                                valueRange = 0.25f..2.0f
+                            ) { globalCorners = it.coerceIn(0.25f, 2.0f) },
+                            valueRange = 0.25f..2.0f,
                             colors = SliderDefaults.colors(
                                 thumbColor = nebulaColors.accent,
                                 activeTrackColor = nebulaColors.accent,
@@ -1219,7 +1275,7 @@ private fun VisualStyleSelector(
 }
 
 private fun backgroundStyleOptions(): List<Pair<Int, String>> = listOf(
-    0 to "Morphism",
+    0 to "Liquid Glass Aura",
     1 to "Material 3",
     2 to "Nothing Dots",
     3 to "Aurora",
@@ -1237,8 +1293,8 @@ private fun backgroundStyleOptions(): List<Pair<Int, String>> = listOf(
 )
 
 private fun elementStyleOptions(): List<Pair<Int, String>> = listOf(
-    0 to "Morphism",
-    1 to "Material 3",
+    0 to "Liquid Glass",
+    1 to "Material You · Android 17",
     2 to "Nothing Dots",
     3 to "Outlined",
     4 to "Soft Neo"
@@ -1258,8 +1314,8 @@ private data class StylePreset(
 
 private fun stylePresets(): List<StylePreset> = listOf(
     StylePreset(
-        title = "Neo Glass",
-        subtitle = "Мягкий морфизм",
+        title = "Liquid Glass",
+        subtitle = "Стекло в стиле iOS",
         backgroundStyle = 0,
         elementStyle = 0,
         gradientEnabled = true,
@@ -1269,8 +1325,8 @@ private fun stylePresets(): List<StylePreset> = listOf(
         reducedTransparencyEnabled = false
     ),
     StylePreset(
-        title = "Material You",
-        subtitle = "Чистый Material 3",
+        title = "Material You · 17",
+        subtitle = "Material 3 Expressive",
         backgroundStyle = 1,
         elementStyle = 1,
         gradientEnabled = false,
@@ -1303,7 +1359,7 @@ private fun stylePresets(): List<StylePreset> = listOf(
     ),
     StylePreset(
         title = "Deep Ocean",
-        subtitle = "Mesh + Мофизм",
+        subtitle = "Mesh + Liquid Glass",
         backgroundStyle = 5,
         elementStyle = 0,
         gradientEnabled = true,
@@ -1500,7 +1556,7 @@ fun ThemePreviewCard(isDark: Boolean, accent: Color, gradientColors: List<Color>
                         }
                     )
             )
-
+            
             // Дополнительный "мягкий" слой для эффекта глубины
             Box(
                 modifier = Modifier
@@ -1516,7 +1572,7 @@ fun ThemePreviewCard(isDark: Boolean, accent: Color, gradientColors: List<Color>
                         )
                     )
             )
-
+            
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1573,7 +1629,7 @@ fun ThemeModeItem(
         shape = RoundedCornerShape(16.dp),
         color = bgColor,
         border = BorderStroke(
-            1.dp,
+            1.dp, 
             if (isSelected) nebulaColors.accent.copy(alpha = 0.3f) else Color.Transparent
         )
     ) {
@@ -1598,7 +1654,7 @@ fun AccentColorItem(
     onClick: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
-
+    
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -1749,10 +1805,15 @@ fun HsvSlider(
     currentColor: Color = Color.White
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-
+    val hapticOnValueChange = rememberHapticSliderValueChange(
+        value = value,
+        valueRange = valueRange,
+        onValueChange = onValueChange
+    )
+    
     Slider(
         value = value,
-        onValueChange = onValueChange,
+        onValueChange = hapticOnValueChange,
         valueRange = valueRange,
         interactionSource = interactionSource,
         colors = SliderDefaults.colors(
@@ -1776,8 +1837,8 @@ fun HsvSlider(
                     .fillMaxWidth()
                     .height(12.dp)
                     .border(
-                        1.dp,
-                        Color.White.copy(alpha = 0.1f),
+                        1.dp, 
+                        Color.White.copy(alpha = 0.1f), 
                         CircleShape
                     )
                     .clip(CircleShape)
@@ -1970,3 +2031,4 @@ private fun subscriptionPreviewColors(themeSpec: String?, fallback: Color): List
         androidx.compose.ui.graphics.lerp(fallback, Color.White, 0.28f)
     )
 }
+

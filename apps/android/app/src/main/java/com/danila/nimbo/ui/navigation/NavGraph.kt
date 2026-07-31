@@ -325,6 +325,9 @@ fun NavGraph(
                     },
                     onNavigateToNotificationHistory = {
                         navController.navigate("notification_history")
+                    },
+                    onNavigateToConnectivityDiagnostics = {
+                        navController.navigate("connectivity_diagnostics")
                     }
                 )
             }
@@ -443,9 +446,7 @@ fun NavGraph(
                                 ConnectivityDiagnosticsScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToHistory = { navController.navigate("connectivity_diagnostics_history") },
-                    onNavigateToPingTool = { navController.navigate("ping_tool") },
-                    onNavigateToSpeedTest = { navController.navigate("speed_test") },
-                    onNavigateToTrafficMonitor = { navController.navigate("traffic_monitor") }
+                    onNavigateToPingTool = { navController.navigate("ping_tool") }
                 )
             }
 
@@ -489,7 +490,7 @@ fun NavGraph(
                 } catch (e: Exception) {
                     encodedUrl
                 }
-
+                
                 DeviceManagementScreen(
                     mainViewModel = mainViewModel,
                     subscriptionUrl = profileUrl,

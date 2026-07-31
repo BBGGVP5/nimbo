@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import com.danila.nimbo.BuildConfig
 import com.danila.nimbo.model.BuiltinRoutingProfiles
 import com.danila.nimbo.model.RoutingProfile
+import com.danila.nimbo.model.UpdateChannel
 import com.danila.nimbo.ui.screens.SubscriptionProfile
 import com.danila.nimbo.model.HomeWidget
 import com.danila.nimbo.model.WidgetRegistry
@@ -64,6 +65,14 @@ class PreferencesManager(context: Context) {
         private const val KEY_SUPPORT_URL = "support_url"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_TEXT_SCALE = "text_scale"
+        private const val KEY_HAPTIC_FEEDBACK_ENABLED = "haptic_feedback_enabled"
+        private const val KEY_HAPTIC_FEEDBACK_STRENGTH = "haptic_feedback_strength"
+        private const val KEY_CROSS_SYNC_SUBSCRIPTIONS = "cross_sync_subscriptions"
+        private const val KEY_CROSS_SYNC_APPEARANCE = "cross_sync_appearance"
+        private const val KEY_CROSS_SYNC_CONNECTION = "cross_sync_connection"
+        private const val KEY_CROSS_SYNC_AUTOMATION = "cross_sync_automation"
+        private const val KEY_CROSS_SYNC_LAST_AT = "cross_sync_last_at"
+        private const val KEY_CROSS_SYNC_LAST_DEVICE = "cross_sync_last_device"
         private const val KEY_LAST_SELECTED_SERVER = "last_selected_server"
         private const val KEY_LAST_SELECTED_PROFILE_URL = "last_selected_profile_url"
         private const val KEY_HOME_WIDGETS = "home_widgets"
@@ -74,6 +83,22 @@ class PreferencesManager(context: Context) {
         private const val KEY_LAST_UPDATE_NOTIFICATION_TIME = "last_update_notification_time"
         private const val KEY_UPDATE_DIALOG_SKIPPED_VERSION = "update_dialog_skipped_version"
         private const val KEY_LAST_UPDATE_CHECK_TIME = "last_update_check_time"
+        private const val KEY_UPDATE_CHANNEL = "update_channel"
+        private const val KEY_UPDATE_WIFI_ONLY = "update_wifi_only"
+        private const val KEY_INSTALLED_UPDATE_ARTIFACT_ID = "installed_update_artifact_id"
+        private const val KEY_LAST_UPDATE_NOTIFIED_ARTIFACT_ID = "last_update_notified_artifact_id"
+        private const val KEY_UPDATE_DIALOG_SKIPPED_ARTIFACT_ID = "update_dialog_skipped_artifact_id"
+        private const val KEY_PENDING_UPDATE_ARTIFACT_ID = "pending_update_artifact_id"
+        private const val KEY_PENDING_UPDATE_VERSION_NAME = "pending_update_version_name"
+        private const val KEY_PENDING_UPDATE_VERSION_CODE = "pending_update_version_code"
+        private const val KEY_PENDING_UPDATE_STARTED_AT = "pending_update_started_at"
+        private const val KEY_PENDING_UPDATE_PACKAGE_TIME = "pending_update_package_time"
+        private const val KEY_PENDING_UPDATE_CHANGELOG = "pending_update_changelog"
+        private const val KEY_PENDING_UPDATE_RELEASE_URL = "pending_update_release_url"
+        private const val KEY_LAST_INSTALLED_UPDATE_VERSION = "last_installed_update_version"
+        private const val KEY_LAST_INSTALLED_UPDATE_CHANGELOG = "last_installed_update_changelog"
+        private const val KEY_LAST_INSTALLED_UPDATE_RELEASE_URL = "last_installed_update_release_url"
+        private const val KEY_SHOW_POST_UPDATE_CHANGELOG = "show_post_update_changelog"
         private const val KEY_PING_TYPE = "ping_type"
         private const val KEY_NOTIFICATION_HISTORY = "notification_history"
         private const val KEY_LAST_PING_TIME = "last_ping_time"
@@ -120,6 +145,8 @@ class PreferencesManager(context: Context) {
         private const val KEY_BACKGROUND_STYLE = "background_style"
         private const val KEY_ELEMENT_STYLE = "element_style"
         private const val KEY_BACKGROUND_ANIMATION_ENABLED = "background_animation_enabled"
+        private const val KEY_STATUS_PARTICLES_ENABLED = "status_particles_enabled"
+        private const val KEY_LIQUID_REFRACTION_ENABLED = "liquid_refraction_enabled"
         private const val KEY_HIGH_CONTRAST_UI = "high_contrast_ui"
         private const val KEY_REDUCED_TRANSPARENCY = "reduced_transparency"
         private const val KEY_PURE_BLACK_MODE = "pure_black_mode"
@@ -186,6 +213,8 @@ class PreferencesManager(context: Context) {
     val colorThemeState = mutableStateOf(sharedPreferences.getInt(KEY_COLOR_THEME, DEFAULT_COLOR_THEME_INDEX))
     val themeModeState = mutableStateOf(sharedPreferences.getInt(KEY_THEME_MODE, sharedPreferences.getInt("theme_mode_override", 0)).coerceIn(0, 2))
     val textScaleState = mutableStateOf(sharedPreferences.getFloat(KEY_TEXT_SCALE, 1f).coerceIn(0.85f, 1.25f))
+    val hapticFeedbackEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_HAPTIC_FEEDBACK_ENABLED, true))
+    val hapticFeedbackStrengthState = mutableStateOf(sharedPreferences.getInt(KEY_HAPTIC_FEEDBACK_STRENGTH, 1).coerceIn(0, 2))
     val showSpeedState = mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_SPEED, true))
     val tlsFragmentState = mutableStateOf(sharedPreferences.getBoolean(KEY_TLS_FRAGMENT, false))
     val showSubscriptionLogoState = mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_SUBSCRIPTION_LOGO, true))
@@ -208,6 +237,8 @@ class PreferencesManager(context: Context) {
     val backgroundStyleState = mutableStateOf(sharedPreferences.getInt(KEY_BACKGROUND_STYLE, 0))
     val elementStyleState = mutableStateOf(sharedPreferences.getInt(KEY_ELEMENT_STYLE, 0))
     val backgroundAnimationEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true))
+    val statusParticlesEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true))
+    val liquidRefractionEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_LIQUID_REFRACTION_ENABLED, true))
     val highContrastUiState = mutableStateOf(sharedPreferences.getBoolean(KEY_HIGH_CONTRAST_UI, false))
     val reducedTransparencyState = mutableStateOf(sharedPreferences.getBoolean(KEY_REDUCED_TRANSPARENCY, false))
     val pureBlackModeState = mutableStateOf(sharedPreferences.getBoolean(KEY_PURE_BLACK_MODE, false))
@@ -215,7 +246,7 @@ class PreferencesManager(context: Context) {
     val globalBrightnessState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_BRIGHTNESS, 1.0f).coerceIn(0.5f, 2.0f))
     val globalTransparencyState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_TRANSPARENCY, 0.0f).coerceIn(0.0f, 1.0f))
     val globalBlurState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_BLUR, 25.0f).coerceIn(0.0f, 80.0f))
-    val globalCornersState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 4.0f))
+    val globalCornersState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f))
 
     val pingProtocolState = mutableStateOf(sharedPreferences.getInt(KEY_PING_PROTOCOL, 0))
     val pingUrlState = mutableStateOf(sharedPreferences.getString(KEY_PING_URL, "https://www.gstatic.com/generate_204") ?: "https://www.gstatic.com/generate_204")
@@ -472,7 +503,13 @@ class PreferencesManager(context: Context) {
             KEY_CUSTOM_APP_ICON_BASE64 -> customAppIconBase64State.value = prefs.getString(KEY_CUSTOM_APP_ICON_BASE64, null)
             KEY_BACKGROUND_STYLE -> backgroundStyleState.value = prefs.getInt(KEY_BACKGROUND_STYLE, prefs.getInt(KEY_VISUAL_STYLE, 0))
             KEY_ELEMENT_STYLE -> elementStyleState.value = prefs.getInt(KEY_ELEMENT_STYLE, prefs.getInt(KEY_VISUAL_STYLE, 0))
+            KEY_HAPTIC_FEEDBACK_ENABLED -> hapticFeedbackEnabledState.value =
+                prefs.getBoolean(KEY_HAPTIC_FEEDBACK_ENABLED, true)
+            KEY_HAPTIC_FEEDBACK_STRENGTH -> hapticFeedbackStrengthState.value =
+                prefs.getInt(KEY_HAPTIC_FEEDBACK_STRENGTH, 1).coerceIn(0, 2)
             KEY_BACKGROUND_ANIMATION_ENABLED -> backgroundAnimationEnabledState.value = prefs.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true)
+            KEY_STATUS_PARTICLES_ENABLED -> statusParticlesEnabledState.value = prefs.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true)
+            KEY_LIQUID_REFRACTION_ENABLED -> liquidRefractionEnabledState.value = prefs.getBoolean(KEY_LIQUID_REFRACTION_ENABLED, true)
             KEY_HIGH_CONTRAST_UI -> highContrastUiState.value = prefs.getBoolean(KEY_HIGH_CONTRAST_UI, false)
             KEY_REDUCED_TRANSPARENCY -> reducedTransparencyState.value = prefs.getBoolean(KEY_REDUCED_TRANSPARENCY, false)
             KEY_PURE_BLACK_MODE -> pureBlackModeState.value = prefs.getBoolean(KEY_PURE_BLACK_MODE, false)
@@ -480,7 +517,7 @@ class PreferencesManager(context: Context) {
             KEY_GLOBAL_BRIGHTNESS -> globalBrightnessState.value = prefs.getFloat(KEY_GLOBAL_BRIGHTNESS, 1.0f).coerceIn(0.5f, 2.0f)
             KEY_GLOBAL_TRANSPARENCY -> globalTransparencyState.value = prefs.getFloat(KEY_GLOBAL_TRANSPARENCY, 0.0f).coerceIn(0.0f, 1.0f)
             KEY_GLOBAL_BLUR -> globalBlurState.value = prefs.getFloat(KEY_GLOBAL_BLUR, 25.0f).coerceIn(0.0f, 80.0f)
-            KEY_GLOBAL_CORNERS -> globalCornersState.value = prefs.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 4.0f)
+            KEY_GLOBAL_CORNERS -> globalCornersState.value = prefs.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f)
             KEY_PING_PROTOCOL -> pingProtocolState.value = prefs.getInt(KEY_PING_PROTOCOL, 0)
             KEY_PING_URL -> pingUrlState.value = prefs.getString(KEY_PING_URL, "https://www.gstatic.com/generate_204") ?: "https://www.gstatic.com/generate_204"
             KEY_PING_TIMEOUT -> pingTimeoutState.value = prefs.getInt(KEY_PING_TIMEOUT, 3)
@@ -528,6 +565,8 @@ class PreferencesManager(context: Context) {
         backgroundStyleState.value = sharedPreferences.getInt(KEY_BACKGROUND_STYLE, legacyStyle)
         elementStyleState.value = sharedPreferences.getInt(KEY_ELEMENT_STYLE, legacyStyle)
         backgroundAnimationEnabledState.value = sharedPreferences.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true)
+        statusParticlesEnabledState.value = sharedPreferences.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true)
+        liquidRefractionEnabledState.value = sharedPreferences.getBoolean(KEY_LIQUID_REFRACTION_ENABLED, true)
         highContrastUiState.value = sharedPreferences.getBoolean(KEY_HIGH_CONTRAST_UI, false)
         reducedTransparencyState.value = sharedPreferences.getBoolean(KEY_REDUCED_TRANSPARENCY, false)
         pureBlackModeState.value = sharedPreferences.getBoolean(KEY_PURE_BLACK_MODE, false)
@@ -535,7 +574,7 @@ class PreferencesManager(context: Context) {
         globalBrightnessState.value = sharedPreferences.getFloat(KEY_GLOBAL_BRIGHTNESS, 1.0f).coerceIn(0.5f, 2.0f)
         globalTransparencyState.value = sharedPreferences.getFloat(KEY_GLOBAL_TRANSPARENCY, 0.0f).coerceIn(0.0f, 1.0f)
         globalBlurState.value = sharedPreferences.getFloat(KEY_GLOBAL_BLUR, 25.0f).coerceIn(0.0f, 80.0f)
-        globalCornersState.value = sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 4.0f)
+        globalCornersState.value = sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f)
 
         pingProtocolState.value = sharedPreferences.getInt(KEY_PING_PROTOCOL, 0)
         pingUrlState.value = sharedPreferences.getString(KEY_PING_URL, "https://www.gstatic.com/generate_204") ?: "https://www.gstatic.com/generate_204"
@@ -633,7 +672,7 @@ class PreferencesManager(context: Context) {
             customAppIconBase64State.value = value
         }
 
-    // 0 = Morphism, 1 = Material 3, 2 = Nothing Dots
+    // 0 = Liquid Glass, 1 = Material You Expressive, 2 = Nothing Dots
     var backgroundStyle: Int
         get() = sharedPreferences.getInt(KEY_BACKGROUND_STYLE, sharedPreferences.getInt(KEY_VISUAL_STYLE, 0))
         set(value) {
@@ -655,6 +694,20 @@ class PreferencesManager(context: Context) {
         set(value) {
             sharedPreferences.edit().putBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, value).apply()
             backgroundAnimationEnabledState.value = value
+        }
+
+    var statusParticlesEnabled: Boolean
+        get() = sharedPreferences.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true)
+        set(value) {
+            sharedPreferences.edit().putBoolean(KEY_STATUS_PARTICLES_ENABLED, value).apply()
+            statusParticlesEnabledState.value = value
+        }
+
+    var liquidRefractionEnabled: Boolean
+        get() = sharedPreferences.getBoolean(KEY_LIQUID_REFRACTION_ENABLED, true)
+        set(value) {
+            sharedPreferences.edit().putBoolean(KEY_LIQUID_REFRACTION_ENABLED, value).apply()
+            liquidRefractionEnabledState.value = value
         }
 
     var highContrastUi: Boolean
@@ -812,7 +865,7 @@ class PreferencesManager(context: Context) {
                     } else {
                         server
                     }
-                    val key = keyServer.pingKey()
+                    val key = keyServer.pingMeasurementKey()
                     val value = SavedServerPing(
                         ping = ping,
                         timestamp = server.pingTimestamp ?: now
@@ -847,7 +900,8 @@ class PreferencesManager(context: Context) {
                 } else {
                     server
                 }
-                val saved = cache[keyServer.pingKey()] ?: cache[server.pingKey()]
+                val saved = cache[keyServer.pingMeasurementKey()]
+                    ?: cache[server.pingMeasurementKey()]
                 if (saved != null && saved.ping >= 0) {
                     changed = true
                     server.copy(ping = saved.ping, pingTimestamp = saved.timestamp)
@@ -906,6 +960,21 @@ class PreferencesManager(context: Context) {
         set(value) {
             sharedPreferences.edit().putBoolean(KEY_SHOW_SPEED, value).apply()
             showSpeedState.value = value
+        }
+
+    var hapticFeedbackEnabled: Boolean
+        get() = sharedPreferences.getBoolean(KEY_HAPTIC_FEEDBACK_ENABLED, true)
+        set(value) {
+            sharedPreferences.edit().putBoolean(KEY_HAPTIC_FEEDBACK_ENABLED, value).apply()
+            hapticFeedbackEnabledState.value = value
+        }
+
+    var hapticFeedbackStrength: Int
+        get() = sharedPreferences.getInt(KEY_HAPTIC_FEEDBACK_STRENGTH, 1).coerceIn(0, 2)
+        set(value) {
+            val safeValue = value.coerceIn(0, 2)
+            sharedPreferences.edit().putInt(KEY_HAPTIC_FEEDBACK_STRENGTH, safeValue).apply()
+            hapticFeedbackStrengthState.value = safeValue
         }
 
     // TLS Fragment (opt-in DPI bypass that splits the TLS ClientHello so SNI is not contiguous).
@@ -1150,6 +1219,82 @@ class PreferencesManager(context: Context) {
     var lastUpdateCheckTime: Long
         get() = sharedPreferences.getLong(KEY_LAST_UPDATE_CHECK_TIME, 0L)
         set(value) = sharedPreferences.edit().putLong(KEY_LAST_UPDATE_CHECK_TIME, value).apply()
+
+    var updateChannel: UpdateChannel
+        get() = UpdateChannel.fromPreference(sharedPreferences.getString(KEY_UPDATE_CHANNEL, null))
+        set(value) = sharedPreferences.edit().putString(KEY_UPDATE_CHANNEL, value.preferenceValue).apply()
+
+    var updateWifiOnly: Boolean
+        get() = sharedPreferences.getBoolean(KEY_UPDATE_WIFI_ONLY, false)
+        set(value) = sharedPreferences.edit().putBoolean(KEY_UPDATE_WIFI_ONLY, value).apply()
+
+    var installedUpdateArtifactId: String?
+        get() = sharedPreferences.getString(KEY_INSTALLED_UPDATE_ARTIFACT_ID, null)
+        set(value) = sharedPreferences.edit().putString(KEY_INSTALLED_UPDATE_ARTIFACT_ID, value).apply()
+
+    var lastUpdateNotifiedArtifactId: String?
+        get() = sharedPreferences.getString(KEY_LAST_UPDATE_NOTIFIED_ARTIFACT_ID, null)
+        set(value) = sharedPreferences.edit().putString(KEY_LAST_UPDATE_NOTIFIED_ARTIFACT_ID, value).apply()
+
+    var updateDialogSkippedArtifactId: String?
+        get() = sharedPreferences.getString(KEY_UPDATE_DIALOG_SKIPPED_ARTIFACT_ID, null)
+        set(value) = sharedPreferences.edit().putString(KEY_UPDATE_DIALOG_SKIPPED_ARTIFACT_ID, value).apply()
+
+    var pendingUpdateArtifactId: String?
+        get() = sharedPreferences.getString(KEY_PENDING_UPDATE_ARTIFACT_ID, null)
+        set(value) = sharedPreferences.edit().putString(KEY_PENDING_UPDATE_ARTIFACT_ID, value).apply()
+
+    var pendingUpdateVersionName: String?
+        get() = sharedPreferences.getString(KEY_PENDING_UPDATE_VERSION_NAME, null)
+        set(value) = sharedPreferences.edit().putString(KEY_PENDING_UPDATE_VERSION_NAME, value).apply()
+
+    var pendingUpdateVersionCode: Int
+        get() = sharedPreferences.getInt(KEY_PENDING_UPDATE_VERSION_CODE, 0)
+        set(value) = sharedPreferences.edit().putInt(KEY_PENDING_UPDATE_VERSION_CODE, value).apply()
+
+    var pendingUpdateStartedAt: Long
+        get() = sharedPreferences.getLong(KEY_PENDING_UPDATE_STARTED_AT, 0L)
+        set(value) = sharedPreferences.edit().putLong(KEY_PENDING_UPDATE_STARTED_AT, value).apply()
+
+    var pendingUpdatePackageTime: Long
+        get() = sharedPreferences.getLong(KEY_PENDING_UPDATE_PACKAGE_TIME, 0L)
+        set(value) = sharedPreferences.edit().putLong(KEY_PENDING_UPDATE_PACKAGE_TIME, value).apply()
+
+    var pendingUpdateChangelog: String?
+        get() = sharedPreferences.getString(KEY_PENDING_UPDATE_CHANGELOG, null)
+        set(value) = sharedPreferences.edit().putString(KEY_PENDING_UPDATE_CHANGELOG, value).apply()
+
+    var pendingUpdateReleaseUrl: String?
+        get() = sharedPreferences.getString(KEY_PENDING_UPDATE_RELEASE_URL, null)
+        set(value) = sharedPreferences.edit().putString(KEY_PENDING_UPDATE_RELEASE_URL, value).apply()
+
+    var lastInstalledUpdateVersion: String?
+        get() = sharedPreferences.getString(KEY_LAST_INSTALLED_UPDATE_VERSION, null)
+        set(value) = sharedPreferences.edit().putString(KEY_LAST_INSTALLED_UPDATE_VERSION, value).apply()
+
+    var lastInstalledUpdateChangelog: String?
+        get() = sharedPreferences.getString(KEY_LAST_INSTALLED_UPDATE_CHANGELOG, null)
+        set(value) = sharedPreferences.edit().putString(KEY_LAST_INSTALLED_UPDATE_CHANGELOG, value).apply()
+
+    var lastInstalledUpdateReleaseUrl: String?
+        get() = sharedPreferences.getString(KEY_LAST_INSTALLED_UPDATE_RELEASE_URL, null)
+        set(value) = sharedPreferences.edit().putString(KEY_LAST_INSTALLED_UPDATE_RELEASE_URL, value).apply()
+
+    var showPostUpdateChangelog: Boolean
+        get() = sharedPreferences.getBoolean(KEY_SHOW_POST_UPDATE_CHANGELOG, false)
+        set(value) = sharedPreferences.edit().putBoolean(KEY_SHOW_POST_UPDATE_CHANGELOG, value).apply()
+
+    fun clearPendingUpdate() {
+        sharedPreferences.edit()
+            .remove(KEY_PENDING_UPDATE_ARTIFACT_ID)
+            .remove(KEY_PENDING_UPDATE_VERSION_NAME)
+            .remove(KEY_PENDING_UPDATE_VERSION_CODE)
+            .remove(KEY_PENDING_UPDATE_STARTED_AT)
+            .remove(KEY_PENDING_UPDATE_PACKAGE_TIME)
+            .remove(KEY_PENDING_UPDATE_CHANGELOG)
+            .remove(KEY_PENDING_UPDATE_RELEASE_URL)
+            .apply()
+    }
 
     fun isOnboardingComplete(): Boolean {
         val result = sharedPreferences.getBoolean(KEY_ONBOARDING_COMPLETE, false)
@@ -1902,6 +2047,8 @@ class PreferencesManager(context: Context) {
             backgroundStyleState.value = sharedPreferences.getInt(KEY_BACKGROUND_STYLE, legacyStyle)
             elementStyleState.value = sharedPreferences.getInt(KEY_ELEMENT_STYLE, legacyStyle)
             backgroundAnimationEnabledState.value = sharedPreferences.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true)
+            statusParticlesEnabledState.value = sharedPreferences.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true)
+            liquidRefractionEnabledState.value = sharedPreferences.getBoolean(KEY_LIQUID_REFRACTION_ENABLED, true)
             highContrastUiState.value = sharedPreferences.getBoolean(KEY_HIGH_CONTRAST_UI, false)
             reducedTransparencyState.value = sharedPreferences.getBoolean(KEY_REDUCED_TRANSPARENCY, false)
             splashScreenEnabledState.value = sharedPreferences.getBoolean(KEY_SPLASH_SCREEN_ENABLED, true)
@@ -2060,10 +2207,34 @@ class PreferencesManager(context: Context) {
         }
 
     var globalCorners: Float
-        get() = sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 4.0f)
+        get() = sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f)
         set(value) {
-            val safe = value.coerceIn(0.25f, 4.0f)
+            val safe = value.coerceIn(0.25f, 2.0f)
             sharedPreferences.edit().putFloat(KEY_GLOBAL_CORNERS, safe).apply()
             globalCornersState.value = safe
         }
+
+    var crossSyncSubscriptions: Boolean
+        get() = sharedPreferences.getBoolean(KEY_CROSS_SYNC_SUBSCRIPTIONS, true)
+        set(value) = sharedPreferences.edit().putBoolean(KEY_CROSS_SYNC_SUBSCRIPTIONS, value).apply()
+
+    var crossSyncAppearance: Boolean
+        get() = sharedPreferences.getBoolean(KEY_CROSS_SYNC_APPEARANCE, true)
+        set(value) = sharedPreferences.edit().putBoolean(KEY_CROSS_SYNC_APPEARANCE, value).apply()
+
+    var crossSyncConnection: Boolean
+        get() = sharedPreferences.getBoolean(KEY_CROSS_SYNC_CONNECTION, true)
+        set(value) = sharedPreferences.edit().putBoolean(KEY_CROSS_SYNC_CONNECTION, value).apply()
+
+    var crossSyncAutomation: Boolean
+        get() = sharedPreferences.getBoolean(KEY_CROSS_SYNC_AUTOMATION, true)
+        set(value) = sharedPreferences.edit().putBoolean(KEY_CROSS_SYNC_AUTOMATION, value).apply()
+
+    var crossSyncLastAt: Long
+        get() = sharedPreferences.getLong(KEY_CROSS_SYNC_LAST_AT, 0L)
+        set(value) = sharedPreferences.edit().putLong(KEY_CROSS_SYNC_LAST_AT, value).apply()
+
+    var crossSyncLastDevice: String
+        get() = sharedPreferences.getString(KEY_CROSS_SYNC_LAST_DEVICE, "").orEmpty()
+        set(value) = sharedPreferences.edit().putString(KEY_CROSS_SYNC_LAST_DEVICE, value.take(120)).apply()
 }

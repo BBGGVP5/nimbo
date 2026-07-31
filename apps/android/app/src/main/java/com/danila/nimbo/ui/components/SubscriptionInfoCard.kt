@@ -100,7 +100,7 @@ fun SubscriptionInfoCard(
         )
     )
     val fillColor = if (isMaterialYou) MaterialTheme.colorScheme.surfaceContainer else Color.Transparent
-
+    
     val borderBrush = if (isMaterialYou) null else Brush.verticalGradient(
         listOf(
             nebulaColors.accent.copy(alpha = 0.35f),
@@ -130,7 +130,7 @@ fun SubscriptionInfoCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment = Alignment.CenterVertically, 
                     modifier = Modifier.weight(1f)
                 ) {
                     Box(
@@ -146,9 +146,9 @@ fun SubscriptionInfoCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            Icons.Default.Cloud,
-                            null,
-                            tint = nebulaColors.accent,
+                            Icons.Default.Cloud, 
+                            null, 
+                            tint = nebulaColors.accent, 
                             modifier = Modifier.size(26.dp)
                         )
                     }
@@ -407,7 +407,7 @@ fun SubscriptionInfoCard(
 
                     // External Links: Profile Buttons
                     val finalWebsiteUrl = websiteUrl ?: "https://t.me/nebulaguardd_bot"
-
+                    
                     Spacer(Modifier.height(22.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -534,7 +534,7 @@ private fun StatItem(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val materialYou = nebulaColors.isMaterialYou
-
+    
     val containerColor = if (materialYou) MaterialTheme.colorScheme.surfaceContainerLow else nebulaColors.textPrimary.copy(alpha = 0.04f)
     val borderStroke = if (materialYou) null else androidx.compose.foundation.BorderStroke(
         1.dp,
@@ -721,7 +721,7 @@ private fun ActionBlock(
         animationSpec = tween(durationMillis = 140),
         label = "action_block_bg"
     )
-
+    
     val containerColor = when {
         materialYou && isPressed -> MaterialTheme.colorScheme.surfaceVariant
         materialYou -> MaterialTheme.colorScheme.surfaceContainerHigh
@@ -772,11 +772,11 @@ private fun ActionBlock(
 private fun LinkButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val nebulaColors = LocalNebulaColors.current
     val materialYou = nebulaColors.isMaterialYou
-
+    
     val containerColor = if (materialYou) MaterialTheme.colorScheme.secondaryContainer else nebulaColors.accent.copy(alpha = 0.14f)
     val contentColor = if (materialYou) MaterialTheme.colorScheme.onSecondaryContainer else nebulaColors.accent
     val borderStroke = if (materialYou) null else androidx.compose.foundation.BorderStroke(1.dp, nebulaColors.accent.copy(alpha = 0.3f))
-
+    
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(14.dp),
@@ -826,3 +826,4 @@ private fun openUrl(context: Context, url: String) {
         Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
     }
 }
+

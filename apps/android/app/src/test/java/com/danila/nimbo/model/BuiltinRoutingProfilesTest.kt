@@ -22,4 +22,11 @@ class BuiltinRoutingProfilesTest {
     fun `legacy RosKomVPN spelling resolves to its stable id`() {
         assertEquals(BuiltinRoutingProfiles.ROSCOMVPN, BuiltinRoutingProfiles.idForLegacyName("RosKomVPN"))
     }
+
+    @Test
+    fun `built in site lists do not contain GeoIP selectors`() {
+        assertTrue(BuiltinRoutingProfiles.defaults().all { profile ->
+            profile.directSites.orEmpty().none { it.startsWith("geoip:", ignoreCase = true) }
+        })
+    }
 }

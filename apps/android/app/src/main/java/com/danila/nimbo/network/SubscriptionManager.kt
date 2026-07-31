@@ -1053,7 +1053,8 @@ object SubscriptionManager {
                     buildList {
                         for (i in 0 until array.length()) {
                             val outbound = array.optJSONObject(i) ?: continue
-                            val link = xrayHysteriaLinkFromOutbound(outbound)
+                            val link = xrayVlessLinkFromOutbound(outbound)
+                                ?: xrayHysteriaLinkFromOutbound(outbound)
                                 ?: singBoxHysteriaLinkFromOutbound(outbound)
                                 ?: continue
                             add(link)
@@ -1072,6 +1073,44 @@ object SubscriptionManager {
         }.getOrElse {
             emptyList()
         }
+    }
+
+    /**
+     * Normalizes an Xray VLESS client outbound into a regular VLESS share link so
+     * all imported configurations use the same [LinkParser] path as subscriptions.
+     */
+    private fun xrayVlessLinkFromOutbound(outbound: JSONObject): String? {
+        if (!outbound.cleanString("protocol").orEmpty().equals("vless", ignoreCase = true)) return null
+
+        val node = outbound.optJSONObject("settings")
+            ?.optJSONArray("vnext")
+            ?.optJSONObject(0)
+            ?: return null
+        val user = node.optJSONArray("users")?.optJSONObject(0) ?: return null
+        val host = node.cleanString("address") ?: return null
+        val port = node.cleanInt("port") ?: return null
+        val id = user.cleanString("id") ?: return null
+
+        val stream = outbound.optJSONObject("streamSettings") ?: JSONObject()
+        val tls = stream.optJSONObject("tlsSettings")
+        val xhttp = stream.optJSONObject("xhttpSettings")
+        val params = linkedMapOf(
+            "encryption" to (user.cleanString("encryption") ?: "none"),
+            "type" to (stream.cleanString("network") ?: "tcp"),
+            "security" to (stream.cleanString("security") ?: "none"),
+            "sni" to tls?.cleanString("serverName"),
+            "fp" to tls?.cleanString("fingerprint"),
+            "alpn" to tls?.cleanStringArray("alpn"),
+            "allowInsecure" to tls?.cleanBoolean("allowInsecure")?.toString(),
+            "path" to xhttp?.cleanString("path")
+        ).filterValues { !it.isNullOrBlank() }
+
+        val query = params.entries.joinToString("&") { (key, value) ->
+            "${encodeUriComponent(key)}=${encodeUriComponent(value.orEmpty())}"
+        }
+        val safeHost = if (host.contains(':') && !host.startsWith('[')) "[$host]" else host
+        val tag = outbound.cleanString("remarks", "remark", "name", "tag") ?: "VLESS $host"
+        return "vless://${encodeUriComponent(id)}@$safeHost:$port?$query#${encodeUriComponent(tag)}"
     }
 
     internal fun detectPrimaryProxyProtocolFromJsonConfig(jsonText: String?): String? {

@@ -411,3 +411,4 @@ private fun getSubtitleForState(splashState: SplashState, vpnState: VpnState): S
         else -> "Готово к работе"
     }
 }
+

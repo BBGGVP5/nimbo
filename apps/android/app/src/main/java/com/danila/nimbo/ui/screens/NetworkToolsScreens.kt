@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -58,8 +59,10 @@ import com.danila.nimbo.ui.components.ExpressiveCircularLoader
 import com.danila.nimbo.ui.components.GlassCard
 import com.danila.nimbo.ui.components.GlassHeader
 import com.danila.nimbo.ui.components.NebulaInputField
+import com.danila.nimbo.ui.components.tick
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.utils.PreferencesManager
+import com.danila.nimbo.vpn.LocalProxyConfig
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CompletableDeferred
@@ -225,6 +228,7 @@ private val speedHttpClient = OkHttpClient.Builder()
 @Composable
 fun PingToolScreen(onNavigateBack: () -> Unit) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val application = context.applicationContext as Application
     val preferencesManager = remember { PreferencesManager(application) }
     val nebulaColors = LocalNebulaColors.current
@@ -242,6 +246,7 @@ fun PingToolScreen(onNavigateBack: () -> Unit) {
             error = "Введите домен или IP-адрес"
             return
         }
+        haptic.tick()
         isRunning = true
         error = null
         scope.launch {
@@ -249,7 +254,8 @@ fun PingToolScreen(onNavigateBack: () -> Unit) {
                 protocol = preferencesManager.pingProtocol.toPingProtocol(),
                 testUrl = "https://${parsed.host}/",
                 timeoutMs = preferencesManager.pingTimeout.coerceIn(1, 10) * 1000,
-                useProxy = preferencesManager.pingThroughProxy
+                useProxy = preferencesManager.pingThroughProxy,
+                proxyPort = LocalProxyConfig.PORT
             )
             val attempts = mutableListOf<Int>()
             repeat(4) { index ->
@@ -261,64 +267,50 @@ fun PingToolScreen(onNavigateBack: () -> Unit) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedGradientBackground()
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-        ) {
-            GlassHeader(
-                title = "Пинг",
-                icon = Icons.Default.Language,
-                iconColor = nebulaColors.accent,
-                onBack = onNavigateBack
-            )
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 112.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                ToolHero(icon = Icons.Default.Language, title = "Проверка пинга", subtitle = "Введите домен или IP-адрес")
-                GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        NebulaInputField(
-                            value = targetText,
-                            onValueChange = { targetText = it },
-                            label = "Домен или IP-адрес",
-                            leadingIcon = { Icon(Icons.Default.Dns, null) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        error?.let {
-                            Spacer(Modifier.height(8.dp))
-                            Text(it, color = Color(0xFFE75555), style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
+    NimboSubPageScaffold(
+        title = "Проверка пинга",
+        subtitle = "Отдельный замер домена или IP-адреса",
+        onBack = onNavigateBack
+    ) {
+        WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                NebulaInputField(
+                    value = targetText,
+                    onValueChange = { targetText = it },
+                    label = "Домен или IP-адрес",
+                    leadingIcon = { Icon(Icons.Default.Dns, null) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                error?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, color = Color(0xFFE75555), style = MaterialTheme.typography.bodySmall)
                 }
-                Button(
-                    onClick = ::startPing,
-                    enabled = !isRunning,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = nebulaColors.accent.copy(alpha = 0.82f))
-                ) {
-                    if (isRunning) {
-                        ExpressiveCircularLoader(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = nebulaColors.textPrimary)
-                        Spacer(Modifier.width(10.dp))
-                    }
-                    Text(if (isRunning) "Пингуем..." else "Запустить пинг", color = nebulaColors.textPrimary, fontWeight = FontWeight.Bold)
-                }
-                PingResultCard(result)
             }
         }
+        Spacer(Modifier.height(14.dp))
+        Button(
+            onClick = ::startPing,
+            enabled = !isRunning,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = nebulaColors.accent.copy(alpha = 0.82f))
+        ) {
+            if (isRunning) {
+                ExpressiveCircularLoader(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = nebulaColors.textPrimary)
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(if (isRunning) "Пингуем..." else "Запустить пинг", color = nebulaColors.textPrimary, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(14.dp))
+        PingResultCard(result)
+        Spacer(Modifier.height(32.dp))
     }
 }
 
 @Composable
 fun SpeedTestScreen(onNavigateBack: () -> Unit) {
     val nebulaColors = LocalNebulaColors.current
+    val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     var isRunning by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
@@ -355,6 +347,7 @@ fun SpeedTestScreen(onNavigateBack: () -> Unit) {
 
     fun startSpeedTest() {
         if (isRunning) return
+        haptic.tick()
         isRunning = true
         progress = 0f
         liveSpeed = 0f
@@ -596,7 +589,7 @@ private fun ToolHero(icon: androidx.compose.ui.graphics.vector.ImageVector, titl
 @Composable
 private fun PingResultCard(result: PingToolResult?) {
     val nebulaColors = LocalNebulaColors.current
-    GlassCard(modifier = Modifier.fillMaxWidth().height(176.dp)) {
+    WindowsFlatPanel(modifier = Modifier.height(176.dp), shape = RoundedCornerShape(18.dp)) {
         Box(modifier = Modifier.fillMaxSize().padding(18.dp), contentAlignment = Alignment.Center) {
             if (result == null) {
                 Text("Введите адрес сервера и нажмите кнопку проверки.", color = nebulaColors.textSecondary, textAlign = TextAlign.Center)
@@ -1339,3 +1332,4 @@ private fun smoothSpeed(previous: Float, next: Double): Float {
 }
 
 private fun Double.formatOne(): String = String.format(java.util.Locale.US, "%.1f", this).replace('.', ',')
+

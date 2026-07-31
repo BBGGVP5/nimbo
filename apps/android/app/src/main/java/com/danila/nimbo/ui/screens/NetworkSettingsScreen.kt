@@ -172,7 +172,8 @@ fun NetworkSettingsScreen(
                         subtitle = when (pingProtocol) {
                             1 -> "HTTP GET"
                             2 -> "HTTP HEAD"
-                            3 -> "ICMP"
+                            3 -> "HTTPS Strict"
+                            4 -> "ICMP"
                             else -> "TCP Connect"
                         },
                         onClick = onNavigateToPingSettings
@@ -640,3 +641,4 @@ fun SocksSettingsScreen(
         }
     }
 }
+

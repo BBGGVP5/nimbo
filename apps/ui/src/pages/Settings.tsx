@@ -119,6 +119,7 @@ export function Settings() {
   const [savingUa, setSavingUa] = useState(false);
   const [refreshingSubscriptions, setRefreshingSubscriptions] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [appVersion, setAppVersion] = useState(APP_VERSION);
   const connectionMode = status?.connection_mode ?? "tun";
@@ -229,14 +230,17 @@ export function Settings() {
   const checkForUpdates = async () => {
     setCheckingUpdates(true);
     try {
-      const info = await api.checkAppUpdate();
+      const info = await api.checkAppUpdate(preferences.update_channel);
       setUpdateInfo(info);
       if (info.available) {
         showAppUpdateDialog(info);
       }
       notifyInfo(
         info.available
-          ? fillTemplate(m.settings.updateReady, { version: info.latest_version })
+          ? fillTemplate(
+              info.reason === "reissued" ? m.settings.updateReissued : m.settings.updateReady,
+              { version: info.latest_version },
+            )
           : m.settings.updateCurrent,
       );
     } catch (e) {
@@ -247,11 +251,18 @@ export function Settings() {
   };
 
   const downloadUpdate = async (info: AppUpdateInfo) => {
-    const url = info.download_url ?? info.release_url;
+    setInstallingUpdate(true);
     try {
-      await api.openUpdateDownload(url);
+      const result = await api.installAppUpdate(info);
+      notifyInfo(
+        result.rollback_supported
+          ? m.settings.updateVerified
+          : m.settings.updateVerifiedNoRollback,
+      );
     } catch (e) {
       notifyError(String(e));
+    } finally {
+      setInstallingUpdate(false);
     }
   };
 
@@ -414,6 +425,7 @@ export function Settings() {
               updateInfo={updateInfo}
               appVersion={appVersion}
               checking={checkingUpdates}
+              installing={installingUpdate}
               onChange={updatePreferences}
               onCheck={checkForUpdates}
               onDownload={downloadUpdate}
@@ -1641,6 +1653,7 @@ function UpdatesSection({
   updateInfo,
   appVersion,
   checking,
+  installing,
   onChange,
   onCheck,
   onDownload,
@@ -1649,6 +1662,7 @@ function UpdatesSection({
   updateInfo: AppUpdateInfo | null;
   appVersion: string;
   checking: boolean;
+  installing: boolean;
   onChange: (patch: Partial<AppPreferences>) => Promise<void>;
   onCheck: () => Promise<void>;
   onDownload: (info: AppUpdateInfo) => Promise<void>;
@@ -1662,6 +1676,20 @@ function UpdatesSection({
     : updateInfo?.available
       ? m.settings.updateNoAsset
       : "—";
+  const reasonValue = updateInfo?.reason === "reissued"
+    ? m.settings.updateReasonReissued
+    : updateInfo?.reason === "new_version"
+      ? m.settings.updateReasonNewVersion
+      : "—";
+  const assetUpdatedValue = updateInfo?.asset?.updated_at
+    ? new Date(updateInfo.asset.updated_at).toLocaleString()
+    : "—";
+  const verificationValue = updateInfo?.asset?.digest
+    ? m.settings.updateVerificationSha256
+    : updateInfo?.asset
+      ? m.settings.updateDigestMissing
+      : "—";
+  const releaseNotes = updateInfo?.release_notes?.trim() || (updateInfo ? m.settings.updateFallbackNotes : "—");
 
   return (
     <Section title={m.settings.updates}>
@@ -1679,6 +1707,31 @@ function UpdatesSection({
             {checking ? m.settings.checkingUpdates : m.settings.checkForUpdates}
           </button>
         </div>
+        <div className="settings-row settings-row-block">
+          <div>
+            <div className="settings-row-title">{m.settings.updateChannel}</div>
+            <div className="settings-row-description">{m.settings.updateChannelDescription}</div>
+          </div>
+          <div className="settings-choice-control" role="radiogroup" aria-label={m.settings.updateChannel}>
+            {(["stable", "beta"] as const).map((channel) => (
+              <button
+                key={channel}
+                type="button"
+                role="radio"
+                aria-checked={preferences.update_channel === channel}
+                className={[
+                  "settings-choice-button",
+                  preferences.update_channel === channel ? "settings-choice-button-active" : "",
+                ].join(" ")}
+                onClick={() => onChange({ update_channel: channel })}
+              >
+                <span className="settings-choice-label">
+                  {channel === "stable" ? m.settings.updateChannelStable : m.settings.updateChannelBeta}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
         <ToggleRow
           label={m.settings.checkUpdatesOnLaunch}
           description={m.settings.checkUpdatesOnLaunchDescription}
@@ -1686,21 +1739,35 @@ function UpdatesSection({
           onToggle={(check_updates_on_launch) => onChange({ check_updates_on_launch })}
           icon={<DownloadIcon />}
         />
+        <ToggleRow
+          label={m.settings.updateWifiOnly}
+          description={m.settings.updateWifiOnlyDescription}
+          enabled={preferences.update_wifi_only}
+          onToggle={(update_wifi_only) => onChange({ update_wifi_only })}
+          icon={<DownloadIcon />}
+        />
+        <div className="settings-row settings-row-block">
+          <div className="settings-row-description">{m.settings.updateDownloadProtection}</div>
+        </div>
         <ValueRow label={m.settings.version} value={versionValue} icon={<InfoIcon />} />
         <ValueRow label={m.settings.systemTarget} value={updateInfo?.target ?? "—"} icon={<InfoIcon />} />
         <ValueRow label={m.settings.latestVersion} value={updateInfo?.latest_version ?? "—"} icon={<InfoIcon />} />
+        <ValueRow label={m.settings.updateReason} value={reasonValue} icon={<InfoIcon />} />
         <ValueRow label={m.settings.releaseAsset} value={assetValue} mono={Boolean(updateInfo?.asset)} icon={<InfoIcon />} />
+        <ValueRow label={m.settings.updateAssetTime} value={assetUpdatedValue} icon={<InfoIcon />} />
+        <ValueRow label={m.settings.updateVerification} value={verificationValue} icon={<ShieldIcon />} />
+        <ValueRow label={m.settings.updateReleaseNotes} value={releaseNotes} icon={<ListIcon />} />
         {updateInfo && (
           <div className="settings-row justify-end gap-3">
             <a className="settings-action" href={updateInfo.release_url} target="_blank" rel="noreferrer">
               {m.settings.releasePage}
             </a>
             <button
-              disabled={!updateInfo.download_url && !updateInfo.release_url}
+              disabled={!updateInfo.available || !updateInfo.asset?.digest || installing}
               onClick={() => void onDownload(updateInfo)}
               className="settings-action settings-action-primary"
             >
-              {m.settings.downloadUpdate}
+              {installing ? m.settings.verifyingUpdate : m.settings.downloadUpdate}
             </button>
           </div>
         )}
@@ -2577,6 +2644,11 @@ function InterfaceStyleOption({
           <span className="settings-interface-preview-pill" />
           <span className="settings-interface-preview-line" />
           <span className="settings-interface-preview-line settings-interface-preview-line-sm" />
+        </span>
+        <span className="settings-interface-preview-nav">
+          <span />
+          <span className="is-active" />
+          <span />
         </span>
       </span>
       <span className="settings-interface-card-copy">

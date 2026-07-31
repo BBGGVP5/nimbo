@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.sp
 import com.danila.nimbo.BuildConfig
 import androidx.compose.material3.pulltorefresh.*
 import com.danila.nimbo.model.UpdateInfo
+import com.danila.nimbo.model.UpdateChannel
+import com.danila.nimbo.model.UpdateKind
 import com.danila.nimbo.network.UpdateManager
 import com.danila.nimbo.ui.components.ExpressiveCircularLoader
 import com.danila.nimbo.ui.i18n.t
@@ -43,6 +45,9 @@ import android.app.Application
 import androidx.compose.animation.core.tween
 import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.ui.components.SettingsSwitch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun UpdateScreen(onBack: () -> Unit) {
@@ -61,22 +66,43 @@ internal fun ColumnScope.UpdatesSettingsContent() {
     val scope = rememberCoroutineScope()
 
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
-    var currentInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+    var currentInfo by remember {
+        mutableStateOf(
+            preferencesManager.lastInstalledUpdateChangelog
+                ?.takeIf { it.isNotBlank() }
+                ?.let { changelog ->
+                    UpdateInfo(
+                        versionCode = BuildConfig.VERSION_CODE,
+                        versionName = preferencesManager.lastInstalledUpdateVersion
+                            ?: BuildConfig.VERSION_NAME,
+                        changelog = changelog,
+                        downloadUrl = "",
+                        releaseUrl = preferencesManager.lastInstalledUpdateReleaseUrl.orEmpty()
+                    )
+                }
+        )
+    }
     var isChecking by remember { mutableStateOf(false) }
     var hasChecked by remember { mutableStateOf(false) }
 
     // Новая настройка автопроверки
     var showUpdateDialog by remember { mutableStateOf(preferencesManager.showUpdateDialog) }
+    var updateChannel by remember { mutableStateOf(preferencesManager.updateChannel) }
+    var updateWifiOnly by remember { mutableStateOf(preferencesManager.updateWifiOnly) }
 
     val downloadProgress by UpdateManager.downloadProgress.collectAsState()
     val isDownloading by UpdateManager.isDownloading.collectAsState()
+    val downloadError by UpdateManager.downloadError.collectAsState()
 
     // Функция обновления данных
     val refreshData = suspend {
         isChecking = true
         // Параллельно проверяем обнову и историю
-        val updateJob = scope.launch { updateInfo = UpdateManager.checkUpdate() }
-        val historyJob = scope.launch { currentInfo = UpdateManager.getReleaseInfoForTag("v${BuildConfig.VERSION_NAME}") }
+        val updateJob = scope.launch { updateInfo = UpdateManager.checkUpdate(context) }
+        val historyJob = scope.launch {
+            UpdateManager.getReleaseInfoForTag("v${BuildConfig.VERSION_NAME}")
+                ?.let { currentInfo = it }
+        }
         updateJob.join()
         historyJob.join()
         isChecking = false
@@ -103,6 +129,7 @@ internal fun ColumnScope.UpdatesSettingsContent() {
                 .trim(),
             isDownloading = isDownloading,
             downloadProgress = downloadProgress,
+            downloadError = downloadError,
             updateInfo = updateInfo,
             onCheck = { scope.launch { refreshData() } },
             onInstall = {
@@ -117,13 +144,93 @@ internal fun ColumnScope.UpdatesSettingsContent() {
         SubPageSectionHeader(t("Настройки", "Settings"), icon = Icons.Default.Settings)
         Spacer(Modifier.height(8.dp))
         NimboGlassSection {
-            SettingsSwitch(
-                icon = Icons.Default.NotificationsActive,
-                title = t("Автопроверка обновлений", "Auto-check for updates"),
-                subtitle = t("Показывать диалог при запуске", "Show dialog on launch"),
-                checked = showUpdateDialog,
-                onCheckedChange = { showUpdateDialog = it }
-            )
+            Column {
+                SettingsSwitch(
+                    icon = Icons.Default.NotificationsActive,
+                    title = t("Автопроверка обновлений", "Auto-check for updates"),
+                    subtitle = t("Показывать диалог при запуске", "Show dialog on launch"),
+                    checked = showUpdateDialog,
+                    onCheckedChange = { showUpdateDialog = it }
+                )
+                HorizontalDivider(color = nebulaColors.textPrimary.copy(alpha = 0.08f))
+                Column(Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Tune,
+                            contentDescription = null,
+                            tint = nebulaColors.accent,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                t("Канал обновлений", "Update channel"),
+                                color = nebulaColors.textPrimary,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                t(
+                                    "Бета включает предварительные сборки",
+                                    "Beta includes prerelease builds"
+                                ),
+                                color = nebulaColors.textSecondary,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        UpdateChannel.entries.forEachIndexed { index, channel ->
+                            SegmentedButton(
+                                selected = updateChannel == channel,
+                                onClick = {
+                                    if (updateChannel != channel) {
+                                        updateChannel = channel
+                                        preferencesManager.updateChannel = channel
+                                        preferencesManager.lastUpdateCheckTime = 0L
+                                        scope.launch { refreshData() }
+                                    }
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(index, UpdateChannel.entries.size),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    when (channel) {
+                                        UpdateChannel.STABLE -> t("Стабильный", "Stable")
+                                        UpdateChannel.BETA -> t("Бета", "Beta")
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    HorizontalDivider(color = nebulaColors.textPrimary.copy(alpha = 0.08f))
+                    SettingsSwitch(
+                        icon = Icons.Default.Wifi,
+                        title = t("Скачивать только по Wi‑Fi", "Download over Wi-Fi only"),
+                        subtitle = t(
+                            "Мобильная сеть не будет использоваться для APK",
+                            "Mobile data will not be used for APK files"
+                        ),
+                        checked = updateWifiOnly,
+                        onCheckedChange = {
+                            updateWifiOnly = it
+                            preferencesManager.updateWifiOnly = it
+                        }
+                    )
+                    HorizontalDivider(color = nebulaColors.textPrimary.copy(alpha = 0.08f))
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        t(
+                            "APK проверяется по SHA-256 и сертификату. Если загрузка или установка завершится с ошибкой, Android сохранит текущую версию.",
+                            "The APK is checked by SHA-256 and signing certificate. If download or installation fails, Android keeps the current version."
+                        ),
+                        color = nebulaColors.textTertiary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
         }
 
         Spacer(Modifier.height(24.dp))
@@ -153,13 +260,35 @@ internal fun ColumnScope.UpdatesSettingsContent() {
 @Composable
 private fun NimboGlassSection(content: @Composable () -> Unit) {
     val nebulaColors = LocalNebulaColors.current
+    val reducedTransparency = LocalReducedTransparencyEnabled.current
+    val glassBlur = if (reducedTransparency) 0.dp else LocalGlobalBlurRadius.current
+        .coerceIn(0f, 80f)
+        .dp
+    val shape = RoundedCornerShape(18.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(nebulaColors.surface)
-            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(18.dp))
+            .clip(shape)
+            .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
     ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(nebulaColors.surface)
+        )
+        if (!reducedTransparency) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(shape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(nebulaColors.accent.copy(alpha = 0.10f), Color.Transparent)
+                        )
+                    )
+                    .blur(glassBlur)
+            )
+        }
         content()
     }
 }
@@ -171,6 +300,7 @@ private fun UpdateStatusCard(
     currentVersion: String,
     isDownloading: Boolean,
     downloadProgress: Float?,
+    downloadError: String?,
     updateInfo: UpdateInfo?,
     onCheck: () -> Unit,
     onInstall: () -> Unit
@@ -207,13 +337,15 @@ private fun UpdateStatusCard(
                     Text(
                         text = when {
                             isChecking -> t("Проверяем обновления", "Checking for updates")
+                            updateInfo?.kind == UpdateKind.REPAIR ->
+                                t("Исправление текущей версии", "Repair for current version")
                             hasUpdate -> t("Доступно обновление", "Update available")
                             else -> t("У вас последняя версия", "You're up to date")
                         },
                         color = nebulaColors.textPrimary,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
+                        maxLines = 2
                     )
                     val subtitleText = when {
                         hasUpdate -> "Nimbo " + (updateInfo?.versionName
@@ -265,6 +397,51 @@ private fun UpdateStatusCard(
                         style = MaterialTheme.typography.labelMedium
                     )
                 }
+                if (updateInfo.assetName.isNotBlank()) {
+                    Text(
+                        text = t(
+                            "Выбран APK: ${updateInfo.assetName}",
+                            "Selected APK: ${updateInfo.assetName}"
+                        ),
+                        color = nebulaColors.textTertiary,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+
+                Spacer(Modifier.height(10.dp))
+                val updatedAt = formatReleaseDate(updateInfo.assetUpdatedAt)
+                val channelLabel = when (updateInfo.channel) {
+                    UpdateChannel.STABLE -> t("Стабильный", "Stable")
+                    UpdateChannel.BETA -> t("Бета", "Beta")
+                }
+                Text(
+                    text = buildString {
+                        append(t("Канал: $channelLabel", "Channel: $channelLabel"))
+                        if (updatedAt != null) append(t(" • Файл обновлён: $updatedAt", " • File updated: $updatedAt"))
+                    },
+                    color = nebulaColors.textTertiary,
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Text(
+                    text = if (updateInfo.sha256 != null) {
+                        t("Проверка: SHA-256 + сертификат APK", "Verification: SHA-256 + APK certificate")
+                    } else {
+                        t("Проверка: сертификат APK", "Verification: APK certificate")
+                    },
+                    color = nebulaColors.accent,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+
+            if (!downloadError.isNullOrBlank()) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = downloadError,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
 
             Spacer(Modifier.height(18.dp))
@@ -317,6 +494,14 @@ private fun UpdateStatusCard(
         }
     }
 }
+
+private fun formatReleaseDate(value: String?): String? = runCatching {
+    value?.takeIf(String::isNotBlank)?.let {
+        DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
+            .withZone(ZoneId.systemDefault())
+            .format(Instant.parse(it))
+    }
+}.getOrNull()
 
 @Composable
 private fun NimboUpdateButton(

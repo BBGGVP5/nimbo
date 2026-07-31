@@ -2,7 +2,12 @@ Unicode true
 SetCompressor /SOLID lzma
 
 !define PRODUCT_NAME "Nimbo"
-!define PRODUCT_VERSION "0.1.0"
+!ifndef PRODUCT_VERSION
+  !define PRODUCT_VERSION "0.1.0"
+!endif
+!ifndef PRODUCT_FILE_VERSION
+  !define PRODUCT_FILE_VERSION "0.1.0.0"
+!endif
 !define PRODUCT_PUBLISHER "BBGGVP5"
 !define PRODUCT_EXE "Nimbo.exe"
 !define APP_ID "Nimbo"
@@ -40,7 +45,7 @@ RequestExecutionLevel user
 
 Icon "${TAURI_DIR}\icons\icon.ico"
 UninstallIcon "${TAURI_DIR}\icons\icon.ico"
-VIProductVersion "0.1.0.0"
+VIProductVersion "${PRODUCT_FILE_VERSION}"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey "CompanyName" "${PRODUCT_PUBLISHER}"
 VIAddVersionKey "FileDescription" "Установщик ${PRODUCT_NAME}"
@@ -93,6 +98,11 @@ LangString DESC_SecDesktop ${LANG_RUSSIAN} "Добавить ярлык Nimbo н
 Section "!Nimbo" SEC_APP
   SectionIn RO
 
+  StrCpy $R7 ""
+  StrCpy $R8 "0"
+  StrCpy $R9 "0"
+  ReadRegStr $R7 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}" "DisplayVersion"
+
   ; --- Upgrade-safe extraction. ---
   ; Running Nimbo would normally lock Nimbo.exe; the helper service locks
   ; nimbo-svc.exe. Windows allows *renaming* a running .exe even when it
@@ -103,6 +113,7 @@ Section "!Nimbo" SEC_APP
   ; All subprocesses are spawned via nsExec::Exec (CREATE_NO_WINDOW),
   ; and nimbo-svc.exe is windows-subsystem — no console flash.
   ${If} ${FileExists} "$INSTDIR\${PRODUCT_EXE}"
+    StrCpy $R8 "1"
     nsExec::Exec 'taskkill.exe /F /IM ${PRODUCT_EXE} /T'
     Pop $0
     Sleep 300
@@ -116,6 +127,7 @@ Section "!Nimbo" SEC_APP
     ${EndIf}
   ${EndIf}
   ${If} ${FileExists} "$INSTDIR\nimbo-svc.exe"
+    StrCpy $R9 "1"
     Delete "$INSTDIR\nimbo-svc.exe.old"
     Rename "$INSTDIR\nimbo-svc.exe" "$INSTDIR\nimbo-svc.exe.old"
     ${If} ${Errors}
@@ -166,7 +178,8 @@ Section "!Nimbo" SEC_APP
   DetailPrint "Установка TUN-компонентов..."
   ExecWait '"$INSTDIR\${PRODUCT_EXE}" --install-tun' $0
   ${If} $0 != 0
-    DetailPrint "Установка TUN-компонентов завершилась с кодом $0"
+    DetailPrint "Установка TUN-компонентов завершилась с кодом $0 — выполняется откат"
+    Goto rollback_update
   ${EndIf}
 
   ; Installer already runs admin (RequestExecutionLevel admin), so the
@@ -175,8 +188,53 @@ Section "!Nimbo" SEC_APP
   DetailPrint "Регистрация вспомогательного сервиса Nimbo..."
   ExecWait '"$INSTDIR\nimbo-svc.exe" --install' $1
   ${If} $1 != 0
-    DetailPrint "Установка хелпер-сервиса завершилась с кодом $1"
+    DetailPrint "Установка хелпер-сервиса завершилась с кодом $1 — выполняется откат"
+    Goto rollback_update
   ${EndIf}
+
+  ; The new executable must be able to load and persist application state.
+  ; Only after this check succeeds is the pending asset fingerprint promoted
+  ; to installed.json, allowing same-version re-uploads to be detected later.
+  DetailPrint "Проверка работоспособности новой версии..."
+  ExecWait '"$INSTDIR\${PRODUCT_EXE}" --update-health-check' $2
+  ${If} $2 != 0
+    DetailPrint "Новая версия не прошла проверку (код $2) — выполняется откат"
+    Goto rollback_update
+  ${EndIf}
+
+  Delete "$INSTDIR\${PRODUCT_EXE}.old"
+  Delete "$INSTDIR\nimbo-svc.exe.old"
+  Goto update_complete
+
+  rollback_update:
+    ; Best-effort stop of a newly registered helper before putting the old
+    ; binary back. The installer is elevated at this point.
+    ${If} ${FileExists} "$INSTDIR\nimbo-svc.exe"
+      ExecWait '"$INSTDIR\nimbo-svc.exe" --uninstall' $3
+    ${EndIf}
+    nsExec::Exec 'taskkill.exe /F /IM ${PRODUCT_EXE} /T'
+    Pop $3
+    Sleep 300
+    Delete "$INSTDIR\${PRODUCT_EXE}"
+    Delete "$INSTDIR\nimbo-svc.exe"
+
+    ${If} $R8 == "1"
+      Rename "$INSTDIR\${PRODUCT_EXE}.old" "$INSTDIR\${PRODUCT_EXE}"
+    ${EndIf}
+    ${If} $R9 == "1"
+      Rename "$INSTDIR\nimbo-svc.exe.old" "$INSTDIR\nimbo-svc.exe"
+      ExecWait '"$INSTDIR\nimbo-svc.exe" --install' $4
+    ${EndIf}
+    ${If} $R7 != ""
+      WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}" "DisplayVersion" "$R7"
+    ${EndIf}
+
+    MessageBox MB_OK|MB_ICONSTOP \
+      "Обновление не прошло проверку. Предыдущая версия Nimbo восстановлена автоматически."
+    SetErrorLevel 1
+    Abort
+
+  update_complete:
 SectionEnd
 
 Section "Ярлык в меню Пуск" SEC_START_MENU
@@ -293,4 +351,3 @@ Function CheckHelperServiceRunning
   ${EndIf}
   Push $4
 FunctionEnd
-

@@ -10,6 +10,17 @@ $appDir = Resolve-Path (Join-Path $scriptDir "..\..")
 $repoRoot = Resolve-Path (Join-Path $scriptDir "..\..\..\..")
 $installerDir = Join-Path $repoRoot "target\release\bundle\nsis"
 $installerScript = Join-Path $scriptDir "nimbo-installer.nsi"
+$tauriConfigPath = Join-Path $scriptDir "..\tauri.conf.json"
+$version = (Get-Content -Raw -LiteralPath $tauriConfigPath | ConvertFrom-Json).version
+
+if (-not $version) {
+  throw "Unable to read application version from $tauriConfigPath."
+}
+
+if ($version -notmatch '^(\d+)\.(\d+)\.(\d+)') {
+  throw "Application version '$version' is not valid SemVer."
+}
+$fileVersion = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
 
 function Find-CommandPath([string]$Name, [string[]]$Candidates) {
   $command = (Get-Command $Name -ErrorAction SilentlyContinue).Source
@@ -100,8 +111,7 @@ foreach ($target in $Targets) {
   }
 
   $arch = Resolve-ArchName $target
-  $tauriConfig = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\\tauri.conf.json') -Raw | ConvertFrom-Json
-  $outputFile = Join-Path $installerDir "Nimbo_$($tauriConfig.version)_${arch}-setup.exe"
+  $outputFile = Join-Path $installerDir "Nimbo_${version}_${arch}-setup.exe"
 
   Write-Host ""
   Write-Host "Building Nimbo for $target ($arch)..."
@@ -160,6 +170,8 @@ foreach ($target in $Targets) {
     "/INPUTCHARSET" `
     "UTF8" `
     "/DPRODUCT_ARCH=$arch" `
+    "/DPRODUCT_VERSION=$version" `
+    "/DPRODUCT_FILE_VERSION=$fileVersion" `
     "/DRELEASE_EXE=$releaseExe" `
     "/DHELPER_EXE=$helperExe" `
     "/DOUT_FILE=$outputFile" `

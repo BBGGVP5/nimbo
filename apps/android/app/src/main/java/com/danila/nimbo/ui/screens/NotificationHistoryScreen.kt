@@ -515,7 +515,7 @@ private fun NotificationDayHeader(dayStart: Long, count: Int) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = dayLabel(dayStart).uppercase(Locale.getDefault()),
+            text = dayLabel(dayStart).uppercase(Locale.ROOT),
             color = nebulaColors.textSecondary,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.ExtraBold
@@ -681,8 +681,8 @@ private fun notificationPanelBrush(accent: Color): Brush {
 
 private fun notificationShape(elementStyle: ElementStyleMode, large: Boolean): RoundedCornerShape {
     val radius = when (elementStyle) {
-        ElementStyleMode.MORPHISM -> if (large) 26.dp else 22.dp
-        ElementStyleMode.MATERIAL3 -> if (large) 22.dp else 18.dp
+        ElementStyleMode.LIQUID_GLASS -> if (large) 26.dp else 22.dp
+        ElementStyleMode.MATERIAL_EXPRESSIVE -> if (large) 22.dp else 18.dp
         ElementStyleMode.NOTHING_DOTS -> if (large) 16.dp else 13.dp
         ElementStyleMode.OUTLINED -> if (large) 14.dp else 11.dp
         ElementStyleMode.SOFT_NEO -> if (large) 24.dp else 20.dp
@@ -726,3 +726,4 @@ private fun relativeNotificationTime(timestamp: Long): String {
         else -> SimpleDateFormat("dd.MM.yy", Locale.getDefault()).format(Date(timestamp))
     }
 }
+

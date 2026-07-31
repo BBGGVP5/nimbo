@@ -168,7 +168,7 @@ fun QrCodeDisplayBottomSheet(
                     color = Color.White.copy(alpha = 0.03f),
                     shape = RoundedCornerShape(20.dp),
                     border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
+                        1.dp, 
                         Color.White.copy(alpha = 0.08f)
                     )
                 ) {
@@ -184,7 +184,7 @@ fun QrCodeDisplayBottomSheet(
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
-
+                        
                         IconButton(
                             onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -197,8 +197,8 @@ fun QrCodeDisplayBottomSheet(
                             }
                         ) {
                             Icon(
-                                Icons.Default.ContentCopy,
-                                null,
+                                Icons.Default.ContentCopy, 
+                                null, 
                                 tint = nebulaColors.accent,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -235,7 +235,7 @@ fun QrCodeDisplayBottomSheet(
                         Spacer(Modifier.width(8.dp))
                         Text(t("Поделиться", "Share"), fontWeight = FontWeight.Bold)
                     }
-
+                    
                     OutlinedButton(
                         onClick = onDismiss,
                         modifier = Modifier
@@ -243,7 +243,7 @@ fun QrCodeDisplayBottomSheet(
                             .height(actionHeight),
                         shape = RoundedCornerShape(18.dp),
                         border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
+                            1.dp, 
                             nebulaColors.textTertiary.copy(alpha = 0.3f)
                         )
                     ) {

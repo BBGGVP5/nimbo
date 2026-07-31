@@ -14,6 +14,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.danila.nimbo.ui.components.LiquidGlassTilt
+import com.danila.nimbo.ui.components.rememberLiquidGlassTilt
 
 enum class BackgroundStyleMode {
     MORPHISM,
@@ -33,20 +36,14 @@ enum class BackgroundStyleMode {
     BLOSSOM
 }
 
-enum class ElementStyleMode {
-    MORPHISM,
-    MATERIAL3,
-    NOTHING_DOTS,
-    OUTLINED,
-    SOFT_NEO
-}
-
 val LocalBackgroundStyleMode = staticCompositionLocalOf { BackgroundStyleMode.MORPHISM }
-val LocalElementStyleMode = staticCompositionLocalOf { ElementStyleMode.MORPHISM }
+val LocalElementStyleMode = staticCompositionLocalOf { ElementStyleMode.LIQUID_GLASS }
 val LocalBackgroundAnimationEnabled = staticCompositionLocalOf { true }
 val LocalReducedTransparencyEnabled = staticCompositionLocalOf { false }
 val LocalGlobalBlurRadius = compositionLocalOf { 25.0f }
 val LocalGlobalCornerRadius = compositionLocalOf { 1.0f }
+val LocalLiquidRefractionEnabled = staticCompositionLocalOf { true }
+val LocalLiquidGlassTilt = compositionLocalOf { LiquidGlassTilt.Zero }
 
 
 // ==================== ТЁМНЫЕ ТЕМЫ ====================
@@ -441,7 +438,7 @@ fun getNebulaColors(
             else -> AccentBlue
         }
     }
-
+    
     val textSecondaryAlpha = if (highContrastUi) 0.86f else 0.66f
     val textTertiaryAlpha = if (highContrastUi) 0.72f else 0.42f
     val cardAlpha = when {
@@ -463,24 +460,41 @@ fun getNebulaColors(
     // Material You ("Expressive"): tonal, accent-tinted surfaces and no glass hairline.
     // surfaceColorAtElevation tints surface toward the (dynamic or accent) primary, so
     // panels visibly lift off the background and the look clearly differs from glass.
-    val isMaterialYou = elementStyle == 1
-    val m3PanelFill = resolvedColorScheme.surfaceColorAtElevation(6.dp)
-    val m3ControlFill = resolvedColorScheme.surfaceColorAtElevation(12.dp)
-    val m3SoftFill = resolvedColorScheme.surfaceColorAtElevation(2.dp)
+    val isMaterialYou = elementStyle == ElementStyleMode.MATERIAL_EXPRESSIVE.persistedValue
+    val isLiquidGlass = elementStyle == ElementStyleMode.LIQUID_GLASS.persistedValue
+    val m3PanelFill = resolvedColorScheme.surfaceContainer
+    val m3ControlFill = resolvedColorScheme.surfaceContainerHigh
+    val m3SoftFill = resolvedColorScheme.surfaceContainerLow
     val m3Divider = resolvedColorScheme.outlineVariant
 
     // Determine target raw colors based on style
-    val resolvedPanelFill = if (isMaterialYou) m3PanelFill else {
-        if (isDark) DarkSurface.copy(alpha = 0.94f) else Color.White.copy(alpha = 0.96f)
+    val resolvedPanelFill = when {
+        isMaterialYou -> m3PanelFill
+        isLiquidGlass -> if (isDark) {
+            DarkSurface.copy(alpha = if (reducedTransparency) 0.90f else 0.42f)
+        } else {
+            Color.White.copy(alpha = if (reducedTransparency) 0.94f else 0.62f)
+        }
+        else -> if (isDark) DarkSurface.copy(alpha = 0.94f) else Color.White.copy(alpha = 0.96f)
     }
-    val resolvedControlFill = if (isMaterialYou) m3ControlFill else {
-        if (isDark) Color.White.copy(alpha = 0.035f) else Color(0xFFF6F5FB)
+    val resolvedControlFill = when {
+        isMaterialYou -> m3ControlFill
+        isLiquidGlass -> if (isDark) {
+            Color.White.copy(alpha = if (reducedTransparency) 0.11f else 0.045f)
+        } else {
+            Color.White.copy(alpha = if (reducedTransparency) 0.78f else 0.42f)
+        }
+        else -> if (isDark) Color.White.copy(alpha = 0.035f) else Color(0xFFF6F5FB)
     }
-    val resolvedSoftFill = if (isMaterialYou) m3SoftFill else {
-        if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFF1F0F7)
+    val resolvedSoftFill = when {
+        isMaterialYou -> m3SoftFill
+        isLiquidGlass -> if (isDark) Color.White.copy(alpha = 0.055f) else Color.White.copy(alpha = 0.50f)
+        else -> if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFF1F0F7)
     }
-    val resolvedPanelBorder = if (isMaterialYou) Color.Transparent else {
-        if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFE2E0EA)
+    val resolvedPanelBorder = when {
+        isMaterialYou -> Color.Transparent
+        isLiquidGlass -> if (isDark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.82f)
+        else -> if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFE2E0EA)
     }
     val resolvedDivider = if (isMaterialYou) m3Divider else {
         if (isDark) Color.White.copy(alpha = 0.075f) else Color(0xFFE7E5EE)
@@ -509,6 +523,7 @@ fun getNebulaColors(
         surface = finalSurface,
         cardBackground = finalCardBackground,
         isMaterialYou = isMaterialYou,
+        isLiquidGlass = isLiquidGlass,
         panelFill = finalPanelFill,
         controlFill = finalControlFill,
         softFill = finalSoftFill,
@@ -757,6 +772,7 @@ fun NebulaGuardTheme(
     globalTransparency: Float = 0.0f,
     globalBlur: Float = 25.0f,
     globalCorners: Float = 1.0f,
+    liquidRefractionEnabled: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -827,12 +843,50 @@ fun NebulaGuardTheme(
         14 -> BackgroundStyleMode.BLOSSOM
         else -> BackgroundStyleMode.MORPHISM
     }
-    val elementMode = when (elementStyle) {
-        1 -> ElementStyleMode.MATERIAL3
-        2 -> ElementStyleMode.NOTHING_DOTS
-        3 -> ElementStyleMode.OUTLINED
-        4 -> ElementStyleMode.SOFT_NEO
-        else -> ElementStyleMode.MORPHISM
+    val elementMode = ElementStyleMode.fromPersistedValue(elementStyle)
+    val refractionEffectsEnabled =
+        elementMode == ElementStyleMode.LIQUID_GLASS &&
+            liquidRefractionEnabled &&
+            !reducedTransparency
+    val liquidGlassTilt = rememberLiquidGlassTilt(
+        enabled = refractionEffectsEnabled && backgroundAnimationEnabled
+    )
+    val componentShapes = when (elementMode) {
+        ElementStyleMode.LIQUID_GLASS -> Shapes(
+            extraSmall = RoundedCornerShape(12.dp),
+            small = RoundedCornerShape(16.dp),
+            medium = RoundedCornerShape(22.dp),
+            large = RoundedCornerShape(28.dp),
+            extraLarge = RoundedCornerShape(36.dp)
+        )
+        ElementStyleMode.MATERIAL_EXPRESSIVE -> Shapes(
+            extraSmall = RoundedCornerShape(12.dp),
+            small = RoundedCornerShape(18.dp),
+            medium = RoundedCornerShape(24.dp),
+            large = RoundedCornerShape(30.dp),
+            extraLarge = RoundedCornerShape(40.dp)
+        )
+        ElementStyleMode.NOTHING_DOTS -> Shapes(
+            extraSmall = RoundedCornerShape(6.dp),
+            small = RoundedCornerShape(10.dp),
+            medium = RoundedCornerShape(14.dp),
+            large = RoundedCornerShape(18.dp),
+            extraLarge = RoundedCornerShape(22.dp)
+        )
+        ElementStyleMode.OUTLINED -> Shapes(
+            extraSmall = RoundedCornerShape(6.dp),
+            small = RoundedCornerShape(10.dp),
+            medium = RoundedCornerShape(12.dp),
+            large = RoundedCornerShape(16.dp),
+            extraLarge = RoundedCornerShape(20.dp)
+        )
+        ElementStyleMode.SOFT_NEO -> Shapes(
+            extraSmall = RoundedCornerShape(12.dp),
+            small = RoundedCornerShape(18.dp),
+            medium = RoundedCornerShape(24.dp),
+            large = RoundedCornerShape(32.dp),
+            extraLarge = RoundedCornerShape(40.dp)
+        )
     }
 
     val view = LocalView.current
@@ -856,12 +910,16 @@ fun NebulaGuardTheme(
         LocalBackgroundAnimationEnabled provides backgroundAnimationEnabled,
         LocalReducedTransparencyEnabled provides reducedTransparency,
         LocalGlobalBlurRadius provides globalBlur,
-        LocalGlobalCornerRadius provides globalCorners
+        LocalGlobalCornerRadius provides globalCorners,
+        LocalLiquidRefractionEnabled provides refractionEffectsEnabled,
+        LocalLiquidGlassTilt provides liquidGlassTilt
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = scaledTypography(textScale),
+            shapes = componentShapes,
             content = content
         )
     }
 }
+

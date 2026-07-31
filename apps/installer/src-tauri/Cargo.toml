@@ -17,10 +17,8 @@ tauri-build = { version = "2", features = [] }
 serde.workspace = true
 serde_json.workspace = true
 dirs.workspace = true
-tauri = { version = "2", features = [] }
-
-[target.'cfg(not(target_os = "linux"))'.dependencies]
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
+tauri = { version = "2", features = [] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

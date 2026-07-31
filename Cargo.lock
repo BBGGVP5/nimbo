@@ -997,6 +997,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "futures-channel"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2062,7 +2072,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nimbo-device"
-version = "1.0.1"
+version = "1.1.0-beta.1"
 dependencies = [
  "dirs 5.0.1",
  "serde",
@@ -2075,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-installer"
-version = "1.0.1"
+version = "1.1.0-beta.1"
 dependencies = [
  "dirs 5.0.1",
  "rfd",
@@ -2089,7 +2099,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-ipc"
-version = "1.0.1"
+version = "1.1.0-beta.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2098,7 +2108,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-subscription"
-version = "1.0.1"
+version = "1.1.0-beta.1"
 dependencies = [
  "base64 0.22.1",
  "nimbo-device",
@@ -2114,7 +2124,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-svc"
-version = "1.0.1"
+version = "1.1.0-beta.1"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -2129,17 +2139,21 @@ dependencies = [
 
 [[package]]
 name = "nimbo-ui"
-version = "1.0.1"
+version = "1.1.0-beta.1"
 dependencies = [
  "anyhow",
  "arboard",
+ "base64 0.22.1",
  "dirs 5.0.1",
+ "fs2",
  "nimbo-device",
  "nimbo-ipc",
  "nimbo-subscription",
  "nimbo-xray-config",
  "png 0.17.16",
  "reqwest 0.12.28",
+ "ring",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -2161,7 +2175,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-xray-config"
-version = "1.0.1"
+version = "1.1.0-beta.1"
 dependencies = [
  "base64 0.22.1",
  "nimbo-subscription",

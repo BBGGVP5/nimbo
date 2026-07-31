@@ -80,7 +80,7 @@ fun EditModeTopBar(
                         modifier = Modifier.size(18.dp)
                     )
                 }
-
+                
                 Text(
                     text = "Редактирование",
                     style = MaterialTheme.typography.titleMedium,
@@ -120,9 +120,9 @@ fun EditModeTopBar(
                     )
                 }
             }
-
+            
             Spacer(Modifier.width(4.dp))
-
+            
             // Кнопка сохранения
             AnimatedVisibility(
                 visible = hasChanges,
@@ -157,12 +157,12 @@ fun EditModeTopBar(
         },
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = when (elementStyle) {
-                ElementStyleMode.MATERIAL3 -> nebulaColors.surface.copy(alpha = 0.86f)
+                ElementStyleMode.MATERIAL_EXPRESSIVE -> nebulaColors.surface.copy(alpha = 0.86f)
                 ElementStyleMode.OUTLINED -> Color.Transparent
                 else -> Color.Transparent
             },
             scrolledContainerColor = when (elementStyle) {
-                ElementStyleMode.MATERIAL3 -> nebulaColors.surface.copy(alpha = 0.9f)
+                ElementStyleMode.MATERIAL_EXPRESSIVE -> nebulaColors.surface.copy(alpha = 0.9f)
                 ElementStyleMode.OUTLINED -> Color.Transparent
                 else -> Color.Transparent
             }
@@ -231,8 +231,8 @@ fun EditableWidgetCard(
     }
 
     val cardShape = if (widget.type == WidgetType.VPN_BUTTON) CircleShape else when (elementStyle) {
-        ElementStyleMode.MORPHISM -> RoundedCornerShape(20.dp)
-        ElementStyleMode.MATERIAL3 -> RoundedCornerShape(14.dp)
+        ElementStyleMode.LIQUID_GLASS -> RoundedCornerShape(20.dp)
+        ElementStyleMode.MATERIAL_EXPRESSIVE -> RoundedCornerShape(14.dp)
         ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape(10.dp)
         ElementStyleMode.OUTLINED -> RoundedCornerShape(8.dp)
         ElementStyleMode.SOFT_NEO -> RoundedCornerShape(18.dp)
@@ -344,9 +344,9 @@ fun EditableWidgetCard(
                         }
                     },
                     shape = RoundedCornerShape(10.dp),
-                    color = if (canRemove)
-                        StatusDisconnected.copy(alpha = 0.15f)
-                    else
+                    color = if (canRemove) 
+                        StatusDisconnected.copy(alpha = 0.15f) 
+                    else 
                         Color.Transparent,
                     enabled = canRemove
                 ) {
@@ -403,23 +403,23 @@ fun EditableWidgetsList(
                 isEditMode = isEditMode,
                 canRemove = !config.isSystem,
                 onRemove = { onWidgetHide(widget.id) },
-                onDragStart = {
+                onDragStart = { 
                     draggedIndex = currentIndex
                     lastDragY = 0f
                 },
-                onDragStop = {
+                onDragStop = { 
                     draggedIndex = null
                     lastDragY = 0f
                 },
                 onDrag = { dragAmount ->
                     val deltaY = dragAmount.y - lastDragY
                     lastDragY = dragAmount.y
-
+                    
                     // Порог для перемещения (100 пикселей)
                     if (Math.abs(deltaY) > 100) {
                         val direction = if (deltaY > 0) 1 else -1
                         val newIndex = (currentIndex + direction).coerceIn(0, widgets.size - 1)
-
+                        
                         if (newIndex != currentIndex) {
                             onMoveWidget(currentIndex, newIndex)
                             lastDragY = 0f
@@ -461,7 +461,7 @@ fun AvailableWidgetsPanel(
                 .wrapContentHeight()
                 .align(Alignment.BottomCenter),
             shape = when (elementStyle) {
-                ElementStyleMode.MATERIAL3 -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                ElementStyleMode.MATERIAL_EXPRESSIVE -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
                 ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
                 ElementStyleMode.OUTLINED -> RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)
                 else -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
@@ -528,8 +528,8 @@ private fun AvailableWidgetItem(
     Surface(
         onClick = onClick,
         shape = when (elementStyle) {
-            ElementStyleMode.MORPHISM -> RoundedCornerShape(14.dp)
-            ElementStyleMode.MATERIAL3 -> RoundedCornerShape(12.dp)
+            ElementStyleMode.LIQUID_GLASS -> RoundedCornerShape(14.dp)
+            ElementStyleMode.MATERIAL_EXPRESSIVE -> RoundedCornerShape(12.dp)
             ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape(10.dp)
             ElementStyleMode.OUTLINED -> RoundedCornerShape(8.dp)
             ElementStyleMode.SOFT_NEO -> RoundedCornerShape(16.dp)
@@ -616,3 +616,5 @@ private fun AvailableWidgetItem(
         }
     }
 }
+
+

@@ -5,6 +5,8 @@ import com.danila.nimbo.BuildConfig
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,14 +18,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.NetworkPing
 import androidx.compose.material.icons.filled.Public
@@ -35,7 +37,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,18 +46,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.danila.nimbo.ui.components.AnimatedGradientBackground
 import com.danila.nimbo.ui.components.ExpressiveCircularLoader
-import com.danila.nimbo.ui.components.GlassCard
-import com.danila.nimbo.ui.components.GlassHeader
-import com.danila.nimbo.ui.components.GlassSection
+import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.utils.PreferencesManager
 import kotlinx.coroutines.Dispatchers
@@ -81,6 +78,7 @@ private const val CONNECTIVITY_HISTORY_KEY = "connectivity_diagnostics_history"
 private enum class CheckGroup(val title: String) {
     INTERNATIONAL("Международные сервисы"),
     LOCAL("Локальные сервисы"),
+    TELEMETRY("Сервисы статистики"),
     INFRA("DNS и инфраструктура")
 }
 
@@ -96,7 +94,8 @@ private data class CheckTarget(
     val group: CheckGroup,
     val probeType: ProbeType = ProbeType.HTTPS,
     val url: String = "https://$host/",
-    val requiredBodyMarkers: List<String> = emptyList()
+    val requiredBodyMarkers: List<String> = emptyList(),
+    val acceptClientErrors: Boolean = false
 )
 
 private data class HostCheckResult(
@@ -140,9 +139,7 @@ private data class ConnectivityDiagnosticResult(
 fun ConnectivityDiagnosticsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToHistory: () -> Unit,
-    onNavigateToPingTool: () -> Unit,
-    onNavigateToSpeedTest: () -> Unit,
-    onNavigateToTrafficMonitor: () -> Unit
+    onNavigateToPingTool: () -> Unit
 ) {
     val context = LocalContext.current
     val application = context.applicationContext as Application
@@ -161,131 +158,88 @@ fun ConnectivityDiagnosticsScreen(
         scope.launch {
             val newResult = runConnectivityDiagnostics()
             result = newResult
-            history = (listOf(newResult) + history).take(8)
+            history = (listOf(newResult) + history).take(20)
             saveConnectivityHistory(preferencesManager, history)
             showDetails = true
             isRunning = false
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedGradientBackground()
+    NimboSubPageScaffold(
+        title = t("Проверка БС", "Allowlist check"),
+        subtitle = t(
+            "Доступность контрольных доменов в текущей сети",
+            "Reachability of reference domains on the current network"
+        ),
+        onBack = onNavigateBack
+    ) {
+        DiagnosticsHero()
+        Spacer(Modifier.height(14.dp))
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            GlassHeader(
-                title = "Проверка БС",
-                icon = Icons.Default.CellTower,
-                iconColor = nebulaColors.accent,
-                onBack = onNavigateBack
+            ToolNavButton(
+                title = t("История", "History"),
+                icon = Icons.Default.History,
+                onClick = onNavigateToHistory,
+                modifier = Modifier.weight(1f)
             )
+            ToolNavButton(
+                title = t("Проверка пинга", "Ping check"),
+                icon = Icons.Default.NetworkPing,
+                onClick = onNavigateToPingTool,
+                modifier = Modifier.weight(1f),
+                accent = true
+            )
+        }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 112.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                DiagnosticsHero()
-
-                Button(
-                    onClick = ::startCheck,
-                    enabled = !isRunning,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = nebulaColors.accent.copy(alpha = 0.82f),
-                        disabledContainerColor = nebulaColors.textPrimary.copy(alpha = 0.10f)
-                    )
-                ) {
-                    if (isRunning) {
-                        ExpressiveCircularLoader(
-                            modifier = Modifier.size(22.dp),
-                            strokeWidth = 2.dp,
-                            color = nebulaColors.textPrimary
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text("Проверка...", color = nebulaColors.textPrimary, fontWeight = FontWeight.Bold)
-                    } else {
-                        Text("Начать проверку", color = nebulaColors.textPrimary, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                TextButton(
-                    onClick = onNavigateToHistory,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .border(1.dp, nebulaColors.textTertiary.copy(alpha = 0.40f), RoundedCornerShape(14.dp)),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.History,
-                        contentDescription = null,
-                        tint = nebulaColors.accent,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "История",
-                        color = nebulaColors.accent,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    ToolNavButton(
-                        title = "Пинг домена/IP",
-                        icon = Icons.Default.NetworkPing,
-                        onClick = onNavigateToPingTool,
-                        modifier = Modifier.weight(1f)
-                    )
-                    ToolNavButton(
-                        title = "Тест скорости",
-                        icon = Icons.Default.Speed,
-                        onClick = onNavigateToSpeedTest,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                ToolNavButton(
-                    title = "Трафик подключений",
-                    icon = Icons.Default.Public,
-                    onClick = onNavigateToTrafficMonitor,
-                    modifier = Modifier.fillMaxWidth()
+        Spacer(Modifier.height(14.dp))
+        Button(
+            onClick = ::startCheck,
+            enabled = !isRunning,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = nebulaColors.accent.copy(alpha = 0.82f),
+                disabledContainerColor = nebulaColors.textPrimary.copy(alpha = 0.10f)
+            )
+        ) {
+            if (isRunning) {
+                ExpressiveCircularLoader(
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.dp,
+                    color = nebulaColors.textPrimary
                 )
-
-                result?.let { current ->
-                    ResultSummaryCard(current)
-                    TextButton(
-                        onClick = { showDetails = !showDetails },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .border(1.dp, nebulaColors.textTertiary.copy(alpha = 0.40f), RoundedCornerShape(14.dp)),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Text(
-                            text = if (showDetails) "Скрыть элементы" else "Показать элементы",
-                            color = nebulaColors.accent,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    AnimatedVisibility(visible = showDetails) {
-                        ResultDetails(current)
-                    }
-                } ?: EmptyStateCard()
-
+                Spacer(Modifier.width(10.dp))
+                Text(t("Проверка…", "Checking…"), color = nebulaColors.textPrimary, fontWeight = FontWeight.Bold)
+            } else {
+                Text(t("Начать проверку", "Start check"), color = nebulaColors.textPrimary, fontWeight = FontWeight.Bold)
             }
         }
+
+        Spacer(Modifier.height(16.dp))
+        result?.let { current ->
+            ResultSummaryCard(current)
+            Spacer(Modifier.height(12.dp))
+            ToolNavButton(
+                title = if (showDetails) t("Скрыть результаты", "Hide results") else t("Показать результаты", "Show results"),
+                icon = if (showDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                onClick = { showDetails = !showDetails },
+                modifier = Modifier.fillMaxWidth()
+            )
+            AnimatedVisibility(visible = showDetails) {
+                Column {
+                    Spacer(Modifier.height(16.dp))
+                    ResultDetails(current)
+                }
+            }
+        } ?: EmptyStateCard()
+
+        Spacer(Modifier.height(32.dp))
     }
 }
 
@@ -294,28 +248,42 @@ private fun ToolNavButton(
     title: String,
     icon: ImageVector,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    accent: Boolean = false
 ) {
-    val nebulaColors = LocalNebulaColors.current
-    TextButton(
-        onClick = onClick,
+    val colors = LocalNebulaColors.current
+    val shape = RoundedCornerShape(14.dp)
+    Row(
         modifier = modifier
             .height(58.dp)
-            .border(1.dp, nebulaColors.accent.copy(alpha = 0.32f), RoundedCornerShape(14.dp)),
-        shape = RoundedCornerShape(14.dp)
+            .clip(shape)
+            .background(if (accent) colors.accent.copy(alpha = 0.14f) else colors.controlFill)
+            .border(
+                1.dp,
+                if (accent) colors.accent.copy(alpha = 0.48f) else colors.panelBorder,
+                shape
+            )
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = onClick
+            )
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = nebulaColors.accent,
+            tint = if (accent) colors.accent else colors.textSecondary,
             modifier = Modifier.size(20.dp)
         )
         Spacer(Modifier.width(8.dp))
         Text(
             text = title,
-            color = nebulaColors.accent,
+            color = if (accent) colors.accent else colors.textPrimary,
             style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.ExtraBold,
             maxLines = 2,
             textAlign = TextAlign.Center
         )
@@ -330,80 +298,55 @@ fun ConnectivityDiagnosticsHistoryScreen(
     val application = context.applicationContext as Application
     val preferencesManager = remember { PreferencesManager(application) }
     val history = remember { loadConnectivityHistory(preferencesManager) }
-    val nebulaColors = LocalNebulaColors.current
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedGradientBackground()
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-        ) {
-            GlassHeader(
-                title = "История БС",
-                icon = Icons.Default.History,
-                iconColor = nebulaColors.accent,
-                onBack = onNavigateBack
-            )
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 112.dp)
-            ) {
-                if (history.isEmpty()) {
-                    EmptyHistoryCard()
-                } else {
-                    HistorySection(history = history)
-                }
-            }
+    NimboSubPageScaffold(
+        title = t("История проверок", "Check history"),
+        subtitle = t("Последние результаты проверки БС", "Recent allowlist check results"),
+        onBack = onNavigateBack
+    ) {
+        if (history.isEmpty()) {
+            EmptyHistoryCard()
+        } else {
+            HistorySection(history = history)
         }
+        Spacer(Modifier.height(32.dp))
     }
 }
 
 @Composable
 private fun DiagnosticsHero() {
-    val nebulaColors = LocalNebulaColors.current
-    GlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(178.dp)
-    ) {
-        Box(
+    val colors = LocalNebulaColors.current
+    WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            nebulaColors.accent.copy(alpha = 0.28f),
-                            nebulaColors.accent.copy(alpha = 0.10f)
-                        )
-                    )
-                ),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = Icons.Default.CellTower,
-                    contentDescription = null,
-                    tint = nebulaColors.textPrimary,
-                    modifier = Modifier.size(48.dp)
-                )
-                Spacer(Modifier.height(14.dp))
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(colors.accent.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.CellTower, null, tint = colors.accent, modifier = Modifier.size(27.dp))
+            }
+            Spacer(Modifier.width(13.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Проверить соединение",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = nebulaColors.textPrimary,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
+                    text = t("Контроль доступности", "Reachability check"),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.ExtraBold
                 )
                 Text(
-                    text = "Анализ доступности ключевых хостов",
+                    text = t(
+                        "Google, Яндекс, сервисы статистики и DNS",
+                        "Google, Yandex, analytics services and DNS"
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = nebulaColors.textSecondary,
-                    textAlign = TextAlign.Center
+                    color = colors.textSecondary,
+                    modifier = Modifier.padding(top = 3.dp)
                 )
             }
         }
@@ -413,9 +356,12 @@ private fun DiagnosticsHero() {
 @Composable
 private fun EmptyStateCard() {
     val nebulaColors = LocalNebulaColors.current
-    GlassCard(modifier = Modifier.fillMaxWidth()) {
+    WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
         Text(
-            text = "Нажмите кнопку, чтобы проверить, есть ли ограничения связи. Приложение оценит доступность международных, локальных и DNS-хостов.",
+            text = t(
+                "Запустите проверку, чтобы увидеть, какие группы сайтов доступны в текущей сети. Результат показывает возможные ограничения, но не гарантирует работу всех сервисов.",
+                "Run the check to see which site groups are reachable on the current network. The result indicates possible restrictions but cannot guarantee every service."
+            ),
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 28.dp),
             style = MaterialTheme.typography.bodyLarge,
             color = nebulaColors.textSecondary,
@@ -428,7 +374,7 @@ private fun EmptyStateCard() {
 private fun ResultSummaryCard(result: ConnectivityDiagnosticResult) {
     val nebulaColors = LocalNebulaColors.current
     val color = result.verdict.color()
-    GlassCard(modifier = Modifier.fillMaxWidth()) {
+    WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -468,18 +414,23 @@ private fun ResultSummaryCard(result: ConnectivityDiagnosticResult) {
 
 @Composable
 private fun ResultDetails(result: ConnectivityDiagnosticResult) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         CheckGroup.entries.forEach { group ->
             val groupChecks = result.checks.filter { it.target.group == group }
             if (groupChecks.isNotEmpty()) {
-                GlassSection(title = group.title, icon = group.icon()) {
-                    groupChecks.forEachIndexed { index, check ->
-                        HostResultRow(check)
-                        if (index != groupChecks.lastIndex) {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                color = LocalNebulaColors.current.textTertiary.copy(alpha = 0.1f)
-                            )
+                Column {
+                    SubPageSectionHeader(text = group.title, icon = group.icon())
+                    WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
+                        Column {
+                            groupChecks.forEachIndexed { index, check ->
+                                HostResultRow(check)
+                                if (index != groupChecks.lastIndex) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(horizontal = 16.dp),
+                                        color = LocalNebulaColors.current.textTertiary.copy(alpha = 0.1f)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -534,7 +485,7 @@ private fun HostResultRow(check: HostCheckResult) {
 @Composable
 private fun EmptyHistoryCard() {
     val nebulaColors = LocalNebulaColors.current
-    GlassCard(modifier = Modifier.fillMaxWidth()) {
+    WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
         Text(
             text = "История пока пустая. Запустите проверку, и результат появится здесь.",
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 28.dp),
@@ -548,45 +499,62 @@ private fun EmptyHistoryCard() {
 @Composable
 private fun HistorySection(history: List<ConnectivityDiagnosticResult>) {
     val nebulaColors = LocalNebulaColors.current
-    GlassSection(title = "История", icon = Icons.Default.History) {
-        history.forEachIndexed { index, item ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = item.verdict.icon(),
-                    contentDescription = null,
-                    tint = item.verdict.color(),
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = formatHistoryTime(item.checkedAt),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = nebulaColors.textSecondary
-                    )
-                    Text(
-                        text = item.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = nebulaColors.textPrimary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "Доступно ${item.availableCount}/${item.checkedCount}, пинг ${item.averagePingMs?.let { "$it мс" } ?: "-"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = nebulaColors.textTertiary
-                    )
+    Column {
+        SubPageSectionHeader(text = t("История", "History"), icon = Icons.Default.History)
+        WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
+            Column {
+                history.forEachIndexed { index, item ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = item.verdict.icon(),
+                            contentDescription = null,
+                            tint = item.verdict.color(),
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = formatHistoryTime(item.checkedAt),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = nebulaColors.textSecondary
+                            )
+                            Text(
+                                text = item.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = nebulaColors.textPrimary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Доступно ${item.availableCount}/${item.checkedCount}, пинг ${item.averagePingMs?.let { "$it мс" } ?: "-"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = nebulaColors.textTertiary
+                            )
+                            item.checks
+                                .filterNot { it.isAvailable }
+                                .map { it.target.name }
+                                .filterNot { it == "История" }
+                                .takeIf { it.isNotEmpty() }
+                                ?.let { unavailable ->
+                                    Text(
+                                        text = "Недоступны: ${unavailable.joinToString()}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFFE75555)
+                                    )
+                                }
+                        }
+                    }
+                    if (index != history.lastIndex) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = nebulaColors.textTertiary.copy(alpha = 0.1f)
+                        )
+                    }
                 }
-            }
-            if (index != history.lastIndex) {
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    color = nebulaColors.textTertiary.copy(alpha = 0.1f)
-                )
             }
         }
     }
@@ -608,6 +576,7 @@ private fun ConnectivityVerdict.color(): Color = when (this) {
 private fun CheckGroup.icon(): ImageVector = when (this) {
     CheckGroup.INTERNATIONAL -> Icons.Default.Public
     CheckGroup.LOCAL -> Icons.Default.CellTower
+    CheckGroup.TELEMETRY -> Icons.Default.Speed
     CheckGroup.INFRA -> Icons.Default.Dns
 }
 
@@ -619,12 +588,45 @@ private suspend fun runConnectivityDiagnostics(): ConnectivityDiagnosticResult =
             "speed.cloudflare.com",
             group = CheckGroup.INTERNATIONAL,
             url = "https://speed.cloudflare.com/cdn-cgi/trace",
-            requiredBodyMarkers = listOf("colo=", "loc=", "http=http/2")
+            requiredBodyMarkers = listOf("colo=", "loc=")
         ),
         CheckTarget("GitHub", "github.com", group = CheckGroup.INTERNATIONAL, url = "https://github.com/"),
         CheckTarget("Telegram", "telegram.org", group = CheckGroup.INTERNATIONAL, url = "https://telegram.org/"),
         CheckTarget("Yandex", "ya.ru", group = CheckGroup.LOCAL, url = "https://ya.ru/"),
         CheckTarget("VK", "vk.com", group = CheckGroup.LOCAL, url = "https://vk.com/"),
+        CheckTarget(
+            "Google Analytics",
+            "www.google-analytics.com",
+            group = CheckGroup.TELEMETRY,
+            url = "https://www.google-analytics.com/g/collect",
+            acceptClientErrors = true
+        ),
+        CheckTarget(
+            "Google Tag Manager",
+            "www.googletagmanager.com",
+            group = CheckGroup.TELEMETRY,
+            url = "https://www.googletagmanager.com/gtm.js?id=GTM-NIMBO",
+            acceptClientErrors = true
+        ),
+        CheckTarget(
+            "Google Static",
+            "www.gstatic.com",
+            group = CheckGroup.TELEMETRY,
+            url = "https://www.gstatic.com/generate_204"
+        ),
+        CheckTarget(
+            "Яндекс Метрика",
+            "mc.yandex.ru",
+            group = CheckGroup.TELEMETRY,
+            url = "https://mc.yandex.ru/watch/0",
+            acceptClientErrors = true
+        ),
+        CheckTarget(
+            "Яндекс Static",
+            "yastatic.net",
+            group = CheckGroup.TELEMETRY,
+            url = "https://yastatic.net/"
+        ),
         CheckTarget("DNS Google", "8.8.8.8", port = 53, group = CheckGroup.INFRA, probeType = ProbeType.TCP),
         CheckTarget("DNS Cloudflare", "1.1.1.1", port = 53, group = CheckGroup.INFRA, probeType = ProbeType.TCP)
     )
@@ -638,9 +640,10 @@ private suspend fun runConnectivityDiagnostics(): ConnectivityDiagnosticResult =
     val internationalAvailable = checks.any { it.target.group == CheckGroup.INTERNATIONAL && it.isAvailable }
     val localAvailable = checks.any { it.target.group == CheckGroup.LOCAL && it.isAvailable }
     val anyAvailable = checks.any { it.isAvailable }
+    val availableRate = checks.count { it.isAvailable }.toFloat() / checks.size.coerceAtLeast(1)
     val verdict = when {
         !anyAvailable -> ConnectivityVerdict.NO_INTERNET
-        internationalAvailable && localAvailable && checks.count { it.isAvailable } >= 6 -> ConnectivityVerdict.NORMAL
+        internationalAvailable && localAvailable && availableRate >= 0.7f -> ConnectivityVerdict.NORMAL
         else -> ConnectivityVerdict.RESTRICTED
     }
 
@@ -678,7 +681,8 @@ private fun checkHttpsTarget(target: CheckTarget): HostCheckResult {
                 ""
             }
             val bodyLooksRight = target.requiredBodyMarkers.all { marker -> body.contains(marker) }
-            val available = code in 200..399 && (target.requiredBodyMarkers.isEmpty() || bodyLooksRight)
+            val acceptedCode = code in 200..399 || (target.acceptClientErrors && code in 400..499)
+            val available = acceptedCode && (target.requiredBodyMarkers.isEmpty() || bodyLooksRight)
             runCatching { connection.errorStream?.close() }
             if (available) {
                 HostCheckResult(target, isAvailable = true, latencyMs = elapsedMs, pingMs = elapsedMs, error = null)
@@ -729,11 +733,16 @@ private fun loadConnectivityHistory(preferencesManager: PreferencesManager): Lis
                 val checked = item.optInt("checked", 0)
                 val available = item.optInt("available", 0)
                 val average = item.optLong("average", -1L).takeIf { it >= 0L }
+                val savedChecks = item.optJSONArray("checks")
+                    ?.let(::parseHistoryChecks)
+                    .orEmpty()
                 add(
                     ConnectivityDiagnosticResult(
                         checkedAt = item.optLong("checkedAt", 0L),
                         verdict = verdict,
-                        checks = buildHistoryChecks(checked, available, average)
+                        checks = savedChecks.ifEmpty {
+                            buildHistoryChecks(checked, available, average)
+                        }
                     )
                 )
             }
@@ -747,7 +756,7 @@ private fun saveConnectivityHistory(
     history: List<ConnectivityDiagnosticResult>
 ) {
     val array = JSONArray()
-    history.take(8).forEach { item ->
+    history.take(20).forEach { item ->
         array.put(
             JSONObject()
                 .put("checkedAt", item.checkedAt)
@@ -755,9 +764,55 @@ private fun saveConnectivityHistory(
                 .put("checked", item.checkedCount)
                 .put("available", item.availableCount)
                 .put("average", item.averagePingMs ?: -1L)
+                .put(
+                    "checks",
+                    JSONArray().apply {
+                        item.checks.forEach { check ->
+                            put(
+                                JSONObject()
+                                    .put("name", check.target.name)
+                                    .put("host", check.target.host)
+                                    .put("port", check.target.port)
+                                    .put("group", check.target.group.name)
+                                    .put("probeType", check.target.probeType.name)
+                                    .put("available", check.isAvailable)
+                                    .put("ping", check.pingMs ?: -1L)
+                                    .put("error", check.error ?: JSONObject.NULL)
+                            )
+                        }
+                    }
+                )
         )
     }
     preferencesManager.setString(CONNECTIVITY_HISTORY_KEY, array.toString())
+}
+
+private fun parseHistoryChecks(array: JSONArray): List<HostCheckResult> = buildList {
+    for (index in 0 until array.length()) {
+        val item = array.optJSONObject(index) ?: continue
+        val group = runCatching { CheckGroup.valueOf(item.optString("group")) }
+            .getOrDefault(CheckGroup.INFRA)
+        val probeType = runCatching { ProbeType.valueOf(item.optString("probeType")) }
+            .getOrDefault(ProbeType.HTTPS)
+        val ping = item.optLong("ping", -1L).takeIf { it >= 0L }
+        val error = item.optString("error")
+            .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+        add(
+            HostCheckResult(
+                target = CheckTarget(
+                    name = item.optString("name", "Хост"),
+                    host = item.optString("host", "-"),
+                    port = item.optInt("port", 443).coerceIn(1, 65535),
+                    group = group,
+                    probeType = probeType
+                ),
+                isAvailable = item.optBoolean("available", false),
+                latencyMs = ping,
+                pingMs = ping,
+                error = error
+            )
+        )
+    }
 }
 
 private fun buildHistoryChecks(

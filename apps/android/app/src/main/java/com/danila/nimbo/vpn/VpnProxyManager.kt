@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
 object VpnProxyManager {
 
     private const val TAG = "VpnProxyManager"
-
+    
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
@@ -66,9 +66,9 @@ object VpnProxyManager {
      */
     suspend fun selectBestServer(servers: List<Server>): Server? {
         if (servers.isEmpty()) return null
-
+        
         val availableServers = mutableListOf<Pair<Server, Long>>()
-
+        
         // Проверяем сервера параллельно
         servers.forEach { server ->
             val startTime = System.currentTimeMillis()
@@ -77,7 +77,7 @@ object VpnProxyManager {
                 availableServers.add(server to ping)
             }
         }
-
+        
         // Возвращаем сервер с минимальным пингом
         return availableServers.minByOrNull { it.second }?.first
     }
@@ -125,3 +125,4 @@ object VpnProxyManager {
         }
     }
 }
+

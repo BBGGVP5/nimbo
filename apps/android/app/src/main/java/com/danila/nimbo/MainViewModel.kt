@@ -9,14 +9,16 @@ import com.danila.nimbo.network.LinkParser
 import com.danila.nimbo.network.PingManager
 import com.danila.nimbo.network.PingConfig
 import com.danila.nimbo.network.PingProtocol
+import com.danila.nimbo.network.PingWorkCandidate
+import com.danila.nimbo.network.PingWorkPlanner
 import com.danila.nimbo.network.RemnawaveApiClient
 import com.danila.nimbo.network.RemnawaveSubscriptionTemplate
 import com.danila.nimbo.network.SubscriptionManager
+import com.danila.nimbo.network.SubscriptionRefreshPolicy
 import com.danila.nimbo.ui.screens.SubscriptionProfile
 import com.danila.nimbo.ui.screens.SubscriptionTemplateCache
 import com.danila.nimbo.ui.screens.SubscriptionProfileMetadata
 import com.danila.nimbo.ui.screens.toMetadata
-import com.danila.nimbo.ui.i18n.loc
 import com.danila.nimbo.ui.i18n.serverCountEn
 import com.danila.nimbo.ui.i18n.serverCountRu
 import kotlinx.coroutines.flow.map
@@ -44,6 +46,7 @@ import java.net.URL
 import com.danila.nimbo.vpn.VpnManager
 import com.danila.nimbo.vpn.VpnState
 import com.danila.nimbo.vpn.XrayManager
+import com.danila.nimbo.vpn.LocalProxyConfig
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
@@ -54,6 +57,9 @@ import java.util.concurrent.ConcurrentHashMap
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val preferencesManager = PreferencesManager(application)
+
+    private fun userText(ru: String, en: String): String =
+        if (preferencesManager.appLanguage == "en") en else ru
 
     private val _profilesState = MutableStateFlow<List<SubscriptionProfile>>(emptyList())
     val profilesState: StateFlow<List<SubscriptionProfile>> = _profilesState.asStateFlow()
@@ -511,12 +517,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         pingJob?.cancel()
         pingJob = null
         _isPinging.value = false
-
+        
         // Отменяем все активные загрузки подписок
         subscriptionJobs.values.forEach { it.cancel() }
         subscriptionJobs.clear()
         _isRefreshingSubscriptions.value = false
-
+        
         // Сбрасываем статус загрузки у всех профилей
         _profilesState.value = _profilesState.value.map { it.copy(isLoading = false) }
     }
@@ -601,9 +607,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Единая реализация пинга. [targetServers] == null означает "пинговать все
-     * сервера всех подписок". Сервера группируются по реальной цели (host:port),
-     * поэтому одинаковые инбаунды пингуются один раз, а результат применяется ко
-     * всем серверам с этим адресом (раньше пинг дублировался). Несколько локаций
+     * сервера всех подписок". Каждая нода измеряется отдельно: одинаковый
+     * host:port не означает одинаковый CDN, outbound или маршрут. Несколько нод
      * пингуются пачками параллельно, результат каждой сразу летит в UI и в кеш.
      */
     private fun launchPing(
@@ -625,7 +630,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             try {
-                if (!silent) showTopNotification(customStartMessage ?: "Пинг серверов...", type)
+                if (!silent) showTopNotification(customStartMessage ?: userText("Пинг серверов...", "Checking servers..."), type)
 
                 val profiles = _profilesState.value
                 // (профиль, сервер) — для запрошенных серверов или для всех сразу.
@@ -633,7 +638,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     profiles.flatMap { p -> p.servers.map { p to it } }
                 } else {
                     targetServers.mapNotNull { s ->
-                        val owner = profiles.firstOrNull { p -> p.servers.any { it.pingKey() == s.pingKey() } }
+                        val owner = profiles.firstOrNull { p ->
+                            p.servers.any { it.pingMeasurementKey() == s.pingMeasurementKey() }
+                        }
                             ?: profiles.firstOrNull { it.url == s.profileUrl }
                         owner?.let { it to s }
                     }
@@ -643,53 +650,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val pingConfig = buildPingConfig()
                 val batchSize = 5
-                // Адрес -> уже измеренный пинг: не пингуем один и тот же инбаунд дважды.
-                val measuredTargets = ConcurrentHashMap<Pair<String, Int>, Int>()
-
                 // Сразу помечаем ВСЕ сервера как "пингуются" — анимация идёт у всех,
                 // а реально пингуем волной по 5 сверху вниз: значение появляется, как
                 // только волна дошла до сервера, и анимация на нём гаснет.
                 if (isCurrentPingRun(runId)) {
-                    _activePingKeys.update { keys -> keys + ownedServers.map { (_, s) -> s.pingKey() } }
+                    _activePingKeys.update { keys ->
+                        keys + ownedServers.map { (_, server) -> server.pingMeasurementKey() }
+                    }
                 }
 
                 for (chunk in ownedServers.chunked(batchSize)) {
                     if (!isCurrentPingRun(runId)) break
 
                     // Резолвим адреса лениво, по ходу пачки (не готовим весь список сразу).
-                    val newByTarget = LinkedHashMap<Pair<String, Int>, MutableList<Server>>()
-                    val unresolved = mutableListOf<String>()
-                    for ((profile, server) in chunk) {
-                        val target = resolvePingTarget(profile, server)
-                        if (target == null) {
-                            unresolved.add(server.pingKey())
-                        } else {
-                            val cached = measuredTargets[target]
-                            if (cached != null) {
-                                enqueuePingResults(listOf(server.pingKey()), cached)
-                            } else {
-                                newByTarget.getOrPut(target) { mutableListOf() }.add(server)
-                            }
+                    val plan = PingWorkPlanner.build(
+                        chunk.map { (profile, server) ->
+                            PingWorkCandidate(
+                                resultKey = server.pingMeasurementKey(),
+                                target = resolvePingTarget(profile, server),
+                                serverProtocol = server.protocol,
+                                network = server.network
+                            )
                         }
-                    }
+                    )
                     // С серверов без цели снимаем анимацию — их не пингуем.
-                    if (unresolved.isNotEmpty()) _activePingKeys.update { it - unresolved.toSet() }
-                    if (newByTarget.isEmpty()) continue
+                    if (plan.unresolvedKeys.isNotEmpty()) {
+                        _activePingKeys.update { it - plan.unresolvedKeys }
+                    }
+                    if (plan.items.isEmpty()) continue
 
                     coroutineScope {
-                        newByTarget.entries.map { (target, servers) ->
+                        plan.items.map { item ->
                             launch {
                                 val pingValue = withContext(Dispatchers.IO) {
                                     runCatching {
-                                        withTimeoutOrNull(pingConfig.timeoutMs.toLong() + 100L) {
-                                            PingManager.ping(target.first, target.second, pingConfig)
+                                        withTimeoutOrNull(
+                                            PingManager.timeoutBudgetMs(
+                                                pingConfig,
+                                                item.serverProtocol,
+                                                item.network
+                                            )
+                                        ) {
+                                            PingManager.pingNode(
+                                                host = item.host,
+                                                port = item.port,
+                                                serverProtocol = item.serverProtocol,
+                                                network = item.network,
+                                                config = pingConfig
+                                            )
                                         } ?: -1
                                     }.getOrDefault(-1)
                                 }
-                                measuredTargets[target] = pingValue
                                 if (isCurrentPingRun(runId)) {
                                     // Кладём результат в очередь — флашер применит его пачкой.
-                                    enqueuePingResults(servers.map { it.pingKey() }, pingValue)
+                                    enqueuePingResults(listOf(item.resultKey), pingValue)
                                 }
                             }
                         }.joinAll()
@@ -702,7 +716,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 preferencesManager.saveProfiles(_profilesState.value)
                 Log.d("MainViewModel", "All pings completed and saved to persistent storage")
                 if (!silent) {
-                    showTopNotification("Пинг завершен", com.danila.nimbo.ui.components.NotificationType.SUCCESS)
+                    showTopNotification(userText("Пинг завершен", "Ping completed"), com.danila.nimbo.ui.components.NotificationType.SUCCESS)
                 }
             } finally {
                 flusher.cancel()
@@ -741,7 +755,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun pingSingleServer(server: Server, silent: Boolean = true) {
         val ownerProfile = _profilesState.value.firstOrNull { p ->
-            p.servers.any { it.pingKey() == server.pingKey() }
+            p.servers.any { it.pingMeasurementKey() == server.pingMeasurementKey() }
         } ?: _profilesState.value.firstOrNull { it.url == server.profileUrl }
         val pingTarget = (ownerProfile?.let { resolvePingTarget(it, server) })
             ?: server.pingTargetOrNull()
@@ -752,35 +766,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         pingJob = viewModelScope.launch {
             _isPinging.value = true
             if (isCurrentPingRun(runId)) {
-                _activePingKeys.value = setOf(server.pingKey())
+                _activePingKeys.value = setOf(server.pingMeasurementKey())
             }
             try {
                 if (!silent) {
-                    showTopNotification("Пинг ${server.name}...", com.danila.nimbo.ui.components.NotificationType.PING)
+                    showTopNotification(userText("Пинг ${server.name}...", "Checking ${server.name}..."), com.danila.nimbo.ui.components.NotificationType.PING)
                 }
                 val pingValue = withContext(Dispatchers.IO) {
                     runCatching {
                         val pingConfig = buildPingConfig()
-                        withTimeoutOrNull(pingConfig.timeoutMs.toLong() + 100L) {
-                            PingManager.ping(pingTarget.first, pingTarget.second, pingConfig)
+                        withTimeoutOrNull(
+                            PingManager.timeoutBudgetMs(pingConfig, server.protocol, server.network)
+                        ) {
+                            PingManager.pingNode(
+                                host = pingTarget.first,
+                                port = pingTarget.second,
+                                serverProtocol = server.protocol,
+                                network = server.network,
+                                config = pingConfig
+                            )
                         } ?: -1
                     }.getOrDefault(-1)
                 }
                 if (isCurrentPingRun(runId)) {
-                    // Применяем результат ко всем серверам с тем же адресом (host:port),
-                    // чтобы у одинаковых инбаундов не расходился пинг.
-                    val sharedKeys = _profilesState.value
-                        .flatMap { it.servers }
-                        .filter { it.pingTargetOrNull() == pingTarget }
-                        .map { it.pingKey() }
-                        .toMutableSet()
-                        .apply { add(server.pingKey()) }
-                    updateServersPings(sharedKeys.associateWith { pingValue })
+                    updateServersPings(mapOf(server.pingMeasurementKey() to pingValue))
                     maybePersistPingCache()
                 }
                 preferencesManager.saveProfiles(_profilesState.value)
                 if (!silent) {
-                    val message = if (pingValue >= 0) "Пинг ${server.name}: ${pingValue}мс" else "Пинг ${server.name}: ошибка"
+                    val message = if (pingValue >= 0) {
+                        userText("Пинг ${server.name}: ${pingValue} мс", "${server.name}: ${pingValue} ms")
+                    } else {
+                        userText("Пинг ${server.name}: ошибка", "${server.name}: check failed")
+                    }
                     showTopNotification(message, com.danila.nimbo.ui.components.NotificationType.SUCCESS)
                 }
             } finally {
@@ -825,7 +843,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun buildPingConfig(): PingConfig {
-        val pingThroughProxy = preferencesManager.pingThroughProxy && XrayManager.isConnected
+        val pingThroughProxy = preferencesManager.pingThroughProxy
         return PingConfig(
             protocol = when (preferencesManager.pingProtocol) {
                 1 -> PingProtocol.HTTP_GET
@@ -837,7 +855,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             testUrl = preferencesManager.pingUrl,
             timeoutMs = preferencesManager.pingTimeout * 1000,
             useProxy = pingThroughProxy,
-            proxyPort = 2080
+            proxyPort = LocalProxyConfig.PORT
         )
     }
 
@@ -851,21 +869,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         now: Long
     ): Pair<List<SubscriptionProfile>, List<Server>> {
         val updated = current.map { profile ->
-            val hasAnyTarget = profile.servers.any { s -> newPings.containsKey(s.pingKey()) }
+            val hasAnyTarget = profile.servers.any { server ->
+                newPings.containsKey(server.pingMeasurementKey())
+            }
             if (!hasAnyTarget) {
                 profile
             } else {
                 val updatedServers = profile.servers.map { s ->
-                    val key = s.pingKey()
+                    val key = s.pingMeasurementKey()
                     if (newPings.containsKey(key)) {
                         val newPing = newPings[key] ?: -1
-                        // Если новый пинг не удался, не затираем предыдущий успешный результат.
                         if (newPing >= 0) {
                             s.copy(ping = newPing, pingTimestamp = now)
-                        } else if ((s.ping ?: -1) >= 0) {
-                            s
                         } else {
-                            s.copy(ping = -1, pingTimestamp = s.pingTimestamp ?: now)
+                            // Do not keep a stale TCP/ICMP value after the active
+                            // ping method failed (for example, HTTP health check).
+                            s.copy(ping = -1, pingTimestamp = now)
                         }
                     } else s
                 }
@@ -886,13 +905,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun updateServerPing(targetServer: Server, pingValue: Int) {
-        updateServersPings(mapOf(targetServer.pingKey() to pingValue))
+        updateServersPings(mapOf(targetServer.pingMeasurementKey() to pingValue))
         maybePersistPingCache()
     }
 
     private fun refreshSelectedServerPing(changedKeys: Set<String>) {
         val selected = VpnManager.selectedServer ?: return
-        if (selected.pingKey() !in changedKeys) return
+        if (selected.pingMeasurementKey() !in changedKeys) return
         val refreshed = _profilesState.value.asSequence()
             .flatMap { it.servers.asSequence() }
             .firstOrNull { it.matchesSelection(selected) }
@@ -933,11 +952,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val ip = com.danila.nimbo.utils.getExternalIpAddress()
             _currentIpAddress.value = ip
-
+            
             val (country, flag) = com.danila.nimbo.utils.getCountryFromIp(ip)
             _ipCountry.value = country
             _ipCountryFlag.value = flag
-
+            
             Log.d("MainViewModel", "IP Info refreshed: $ip ($country $flag)")
         }
     }
@@ -995,22 +1014,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Log.d("MainViewModel", "Application: ${application.packageName}")
         loadProfiles()
         refreshIPInfo()
-
+        
         // Слушаем сигнал об отмене всех системных задач (из VPN сервиса)
         viewModelScope.launch {
             VpnManager.cancelSystemJobsSignal.collect {
                 cancelAllSystemJobs()
             }
         }
-
+        
         // Оптимизация обновлений и пингов
         val currentTime = System.currentTimeMillis()
         checkAndAutoUpdateSubscriptions()
-
+        
         Log.d("MainViewModel", "Launch ping is controlled by MainActivity cold-start flow")
-
+        
         preferencesManager.lastAppStartTime = currentTime
-
+        
         // Запуск мониторинга доступности для автообхода
         startAutoBypassReachabilityMonitoring()
     }
@@ -1065,7 +1084,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val lastUpdate = preferencesManager.getLastSubscriptionUpdateTime(profile.url)
             val intervalHours = preferencesManager.getSubscriptionUpdateInterval(profile.url)
                 ?: preferencesManager.subscriptionUpdateInterval
-
+            
             val intervalMillis = intervalHours * 60L * 60L * 1000L
 
             if (currentTime - lastUpdate >= intervalMillis) {
@@ -1103,12 +1122,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         if (_profilesState.value.any { it.url.equals(url, ignoreCase = true) }) {
             showTopNotification(
-                "Такая подписка уже существует",
+                userText("Такая подписка уже существует", "This subscription already exists"),
                 com.danila.nimbo.ui.components.NotificationType.ERROR
             )
             return
         }
-
+        
         val newProfile = SubscriptionProfile(
             url = url,
             name = "Загрузка...",
@@ -1136,11 +1155,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun removeSubscription(url: String) {
         // Создаём новый список без удаляемого профиля
         val updatedProfiles = _profilesState.value.filter { it.url != url }
-
+        
         // Обновляем состояние явно через MutableStateFlow
         _profilesState.value = updatedProfiles
         _serversState.value = updatedProfiles.flatMap { it.servers }
-
+        
         // Сохраняем обновлённый список
         preferencesManager.saveProfiles(_profilesState.value)
 
@@ -1149,11 +1168,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshSubscription(url: String) {
         if (subscriptionJobs[url]?.isActive == true) {
-            showTopNotification("Подписка уже обновляется...", com.danila.nimbo.ui.components.NotificationType.UPDATE)
+            showTopNotification(userText("Подписка уже обновляется...", "Subscription is already refreshing..."), com.danila.nimbo.ui.components.NotificationType.UPDATE)
             return
         }
 
-        showTopNotification("Обновление подписки...", com.danila.nimbo.ui.components.NotificationType.UPDATE)
+        showTopNotification(userText("Обновление подписки...", "Refreshing subscription..."), com.danila.nimbo.ui.components.NotificationType.UPDATE)
         _isRefreshingSubscriptions.value = true
         val index = _profilesState.value.indexOfFirst { it.url == url }
         if (index != -1) {
@@ -1168,8 +1187,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshAllSubscriptions() {
         val urls = _profilesState.value.map { it.url }
         if (urls.isEmpty()) return
-
-        showTopNotification("Обновление всех подписок...", com.danila.nimbo.ui.components.NotificationType.UPDATE)
+        
+        showTopNotification(userText("Обновление всех подписок...", "Refreshing all subscriptions..."), com.danila.nimbo.ui.components.NotificationType.UPDATE)
         _isRefreshingSubscriptions.value = true
         val jobs = urls.map { url ->
             val index = _profilesState.value.indexOfFirst { it.url == url }
@@ -1181,29 +1200,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             loadSubscription(url, isRefresh = false, forceNetwork = true)
         }
-
+        
         viewModelScope.launch {
             jobs.joinAll()
 
             val refreshedProfiles = _profilesState.value.filter { it.url in urls }
             val failedCount = refreshedProfiles.count { !it.error.isNullOrBlank() }
-            val updatedCount = refreshedProfiles.size - failedCount
+            val successfulProfiles = refreshedProfiles.filter { it.error.isNullOrBlank() }
+            val summary = SubscriptionRefreshPolicy.summarize(
+                successfulServerCounts = successfulProfiles.map { it.servers.size },
+                failedCount = failedCount
+            )
             when {
-                failedCount == 0 -> showTopNotification(
-                    "Все подписки обновлены · $updatedCount",
+                summary.failedSubscriptions == 0 -> showTopNotification(
+                    userText(
+                        "Обновлено подписок: ${summary.updatedSubscriptions} · ${serverCountRu(summary.totalServers)}",
+                        "Subscriptions updated: ${summary.updatedSubscriptions} · ${serverCountEn(summary.totalServers)}"
+                    ),
                     com.danila.nimbo.ui.components.NotificationType.SUCCESS
                 )
-                updatedCount > 0 -> showTopNotification(
-                    "Обновлено: $updatedCount · с ошибкой: $failedCount",
+                summary.updatedSubscriptions > 0 -> showTopNotification(
+                    userText(
+                        "Обновлено: ${summary.updatedSubscriptions} · ${serverCountRu(summary.totalServers)} · ошибок: ${summary.failedSubscriptions}",
+                        "Updated: ${summary.updatedSubscriptions} · ${serverCountEn(summary.totalServers)} · failed: ${summary.failedSubscriptions}"
+                    ),
                     com.danila.nimbo.ui.components.NotificationType.ERROR
                 )
                 else -> showTopNotification(
-                    "Не удалось обновить подписки",
+                    userText("Не удалось обновить подписки", "Could not refresh subscriptions"),
                     com.danila.nimbo.ui.components.NotificationType.ERROR
                 )
             }
 
-            if (updatedCount > 0 && VpnManager.state.value == VpnState.DISCONNECTED && preferencesManager.pingOnUpdate) {
+            if (summary.updatedSubscriptions > 0 && VpnManager.state.value == VpnState.DISCONNECTED && preferencesManager.pingOnUpdate) {
                 pingAllServers(silent = true)
             } else if (preferencesManager.pingOnUpdate) {
                 Log.d("MainViewModel", "Skip auto ping after refresh: VPN is not disconnected or refresh failed")
@@ -1223,7 +1252,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (existing.isActive) return existing
             subscriptionJobs.remove(url, existing)
         }
-
+        
         val job = viewModelScope.launch {
             try {
                 val index = _profilesState.value.indexOfFirst { it.url == url }
@@ -1625,10 +1654,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val existingProfile = _profilesState.value[currentIndex]
 
                     // Сохраняем кэшированный пинг из старых серверов по стабильному ключу.
-                    val oldServerPings = existingProfile.servers.associateBy { it.pingKey() }
+                    val oldServerPings = existingProfile.servers.associateBy { it.pingMeasurementKey() }
 
                     val updatedServers = parsed.map { server ->
-                        val uniqueKey = server.pingKey()
+                        val uniqueKey = server.pingMeasurementKey()
                         val oldServer = oldServerPings[uniqueKey]
                         // Сохраняем последний известный пинг до следующей проверки.
                         if (oldServer?.ping != null && oldServer.ping >= 0) {
@@ -1650,7 +1679,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                     // Имя профиля - username из подписки (Remnawave передаёт в profile_title)
                     val profileName = result.username ?: "Подписка"
-
+                    
                     // Сохраняем оригинальное имя, если оно пришло новым
                     val originalName = if (profileName != "Подписка") profileName else existingProfile.originalName
                     val existingTemplatesByUuid = existingProfile.templates
@@ -1745,14 +1774,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                     if (showAddResultNotification) {
                         showTopNotification(
-                            "Подписка успешно добавлена",
+                            userText("Подписка успешно добавлена", "Subscription added"),
                             com.danila.nimbo.ui.components.NotificationType.SUCCESS
                         )
                     }
 
                     if (showRefreshResultNotification) {
                         showTopNotification(
-                            loc(
+                            userText(
                                 "${updated.name} обновлена · ${serverCountRu(updated.servers.size)}",
                                 "${updated.name} updated · ${serverCountEn(updated.servers.size)}"
                             ),
@@ -1776,15 +1805,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val safeError = sanitizeSubscriptionError(e.message)
                 updateProfileError(url, safeError)
                 if (showAddResultNotification) {
-                    val reason = safeError.take(120).ifBlank { "неизвестная ошибка" }
+                    val reason = safeError.take(120).ifBlank { userText("неизвестная ошибка", "unknown error") }
                     showTopNotification(
-                        "Не удалось добавить подписку: $reason",
+                        userText("Не удалось добавить подписку: $reason", "Could not add subscription: $reason"),
                         com.danila.nimbo.ui.components.NotificationType.ERROR
                     )
                 }
                 if (showRefreshResultNotification) {
                     showTopNotification(
-                        "Не удалось обновить подписку: ${safeError.take(120)}",
+                        userText(
+                            "Не удалось обновить подписку: ${safeError.take(120)}",
+                            "Could not refresh subscription: ${safeError.take(120)}"
+                        ),
                         com.danila.nimbo.ui.components.NotificationType.ERROR
                     )
                 }
@@ -1882,7 +1914,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun getProfileInfo(url: String): com.danila.nimbo.network.SubscriptionInfo? {
         val profile = _profilesState.value.find { it.url == url } ?: return null
-
+        
         return com.danila.nimbo.network.SubscriptionInfo(
             username = profile.username,
             uploadTotal = profile.uploadTotal,
@@ -1911,7 +1943,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun renameDevice(subscriptionUrl: String, deviceId: String, hwid: String?, newName: String) {
         // 1. Сохраняем локально сразу
         preferencesManager.saveCustomDeviceName(deviceId, newName)
-
+        
         // Если это текущее устройство, также обновляем глобальное имя для заголовков
         val currentHwid = com.danila.nimbo.utils.AppVersionManager.getHWID(getApplication())
         if (hwid == currentHwid) {
@@ -1926,12 +1958,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Обновляем состояние UI немедленно
-        _devicesState.value = _devicesState.value.map {
+        _devicesState.value = _devicesState.value.map { 
             if (it.id == deviceId) it.copy(name = newName) else it
         }
-
+        
         // 2. Уведомляем об успехе
-        showTopNotification("Устройство переименовано", com.danila.nimbo.ui.components.NotificationType.SUCCESS)
+        showTopNotification(userText("Устройство переименовано", "Device renamed"), com.danila.nimbo.ui.components.NotificationType.SUCCESS)
 
     }
 
@@ -1939,7 +1971,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Удаление устройства
      */
     fun deleteDevice(subscriptionUrl: String, device: com.danila.nimbo.network.RemnawaveDevice) {
-        showTopNotification("Управление устройствами через панель отключено", com.danila.nimbo.ui.components.NotificationType.ERROR)
+        showTopNotification(userText("Управление устройствами через панель отключено", "Device management through the panel is unavailable"), com.danila.nimbo.ui.components.NotificationType.ERROR)
     }
 
     /**
@@ -1947,7 +1979,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun deleteDevices(subscriptionUrl: String, devices: List<com.danila.nimbo.network.RemnawaveDevice>) {
         _isRefreshingDevices.value = false
-        showTopNotification("Управление устройствами через панель отключено", com.danila.nimbo.ui.components.NotificationType.ERROR)
+        showTopNotification(userText("Управление устройствами через панель отключено", "Device management through the panel is unavailable"), com.danila.nimbo.ui.components.NotificationType.ERROR)
     }
 
     /**
@@ -1956,12 +1988,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun reorderDevices(from: Int, to: Int) {
         val current = _devicesState.value.toMutableList()
         if (from !in current.indices || to !in current.indices) return
-
+        
         val item = current.removeAt(from)
         current.add(to, item)
-
+        
         _devicesState.value = current
-
+        
         // Сохраняем новый порядок ID
         preferencesManager.saveDeviceOrder(current.map { it.id })
     }

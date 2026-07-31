@@ -84,7 +84,7 @@ impl Default for ApiConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Policy {
     pub system: PolicySystem,
 }

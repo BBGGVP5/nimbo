@@ -25,9 +25,11 @@
       Rename "$INSTDIR\nimbo-svc.exe" "$INSTDIR\nimbo-svc.exe.old"
     ${EndIf}
   ${EndIf}
+
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  StrCpy $R8 "0"
   CreateDirectory "$APPDATA\Nimbo\bin"
 
   ${If} ${FileExists} "$INSTDIR\resources\resources\tun\tun2socks.exe"
@@ -53,6 +55,7 @@
     ExecWait '"$INSTDIR\Nimbo.exe" --install-tun' $0
     ${If} $0 != 0
       DetailPrint "Nimbo TUN dependency installation finished with code $0"
+      StrCpy $R8 "$0"
     ${EndIf}
   ${EndIf}
 
@@ -64,6 +67,37 @@
     ExecWait '"$INSTDIR\nimbo-svc.exe" --install' $1
     ${If} $1 != 0
       DetailPrint "Nimbo helper service install finished with code $1"
+      StrCpy $R8 "$1"
     ${EndIf}
+  ${EndIf}
+
+  ; Validate the freshly installed application before discarding the
+  ; upgrade-safe .old binaries created by NSIS_HOOK_PREINSTALL.
+  ${If} ${FileExists} "$INSTDIR\Nimbo.exe"
+    StrCpy $2 "$R8"
+    ${If} $R8 == "0"
+      DetailPrint "Checking the updated Nimbo build..."
+      ExecWait '"$INSTDIR\Nimbo.exe" --update-health-check' $2
+    ${EndIf}
+    ${If} $2 != 0
+      DetailPrint "Health check failed with code $2; restoring the previous build"
+      ${If} ${FileExists} "$INSTDIR\nimbo-svc.exe"
+        ExecWait '"$INSTDIR\nimbo-svc.exe" --uninstall' $3
+      ${EndIf}
+      Delete "$INSTDIR\Nimbo.exe"
+      Delete "$INSTDIR\nimbo-svc.exe"
+      ${If} ${FileExists} "$INSTDIR\Nimbo.exe.old"
+        Rename "$INSTDIR\Nimbo.exe.old" "$INSTDIR\Nimbo.exe"
+      ${EndIf}
+      ${If} ${FileExists} "$INSTDIR\nimbo-svc.exe.old"
+        Rename "$INSTDIR\nimbo-svc.exe.old" "$INSTDIR\nimbo-svc.exe"
+        ExecWait '"$INSTDIR\nimbo-svc.exe" --install' $4
+      ${EndIf}
+      MessageBox MB_OK|MB_ICONSTOP "Nimbo update failed its health check. The previous version was restored."
+      SetErrorLevel 1
+      Abort
+    ${EndIf}
+    Delete "$INSTDIR\Nimbo.exe.old"
+    Delete "$INSTDIR\nimbo-svc.exe.old"
   ${EndIf}
 !macroend

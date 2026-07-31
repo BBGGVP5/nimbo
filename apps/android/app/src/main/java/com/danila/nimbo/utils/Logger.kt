@@ -113,17 +113,21 @@ object Logger {
         }
     }
 
-    fun getLogsAsText(entries: List<LogEntry> = _logEntries.value): String {
+    fun getLogsAsText(
+        entries: List<LogEntry> = _logEntries.value,
+        tagMapper: (String) -> String = { it }
+    ): String {
         val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
         return entries.joinToString("\n") { entry ->
             val time = formatter.format(Date(entry.timestamp))
-            "$time [${entry.level}] [${entry.tag}] ${entry.message}"
+            "$time [${entry.level}] [${tagMapper(entry.tag)}] ${entry.message}"
         }
     }
 
     fun buildDiagnosticReport(
         context: Context,
-        entries: List<LogEntry> = _logEntries.value
+        entries: List<LogEntry> = _logEntries.value,
+        tagMapper: (String) -> String = { it }
     ): String {
         val appContext = context.applicationContext
         val packageInfo = runCatching {
@@ -151,7 +155,7 @@ object Logger {
             appendLine("Recovery state: ${VpnManager.recoveryStatus.value}")
             appendLine("Entries: ${entries.size}")
             appendLine()
-            append(getLogsAsText(entries))
+            append(getLogsAsText(entries, tagMapper))
         }
     }
 

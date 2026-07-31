@@ -708,7 +708,7 @@ private fun WindowsAppSearchField(
     val nebulaColors = LocalNebulaColors.current
     val isMaterialYou = nebulaColors.isMaterialYou
     val shape = RoundedCornerShape(16.dp)
-
+    
     val containerBg = if (isMaterialYou) {
         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
     } else {
@@ -1185,15 +1185,15 @@ private fun WindowsModeButton(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val isMaterialYou = nebulaColors.isMaterialYou
-
+    
     val cardColor = if (isMaterialYou) {
-        if (active) MaterialTheme.colorScheme.secondaryContainer
+        if (active) MaterialTheme.colorScheme.secondaryContainer 
         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
     } else {
         if (active) nebulaColors.accent.copy(alpha = if (nebulaColors.appsLight) 0.08f else 0.10f) else appPanelFill(nebulaColors)
     }
     val cardBorder = if (isMaterialYou) {
-        if (active) null
+        if (active) null 
         else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     } else {
         BorderStroke(1.dp, if (active) nebulaColors.accent.copy(alpha = 0.72f) else appBorder(nebulaColors))
@@ -1238,7 +1238,7 @@ private fun WindowsAppActionButton(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val isMaterialYou = nebulaColors.isMaterialYou
-
+    
     val containerColor = if (isMaterialYou) {
         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
     } else {
@@ -1292,15 +1292,15 @@ private fun WindowsAppFilterChip(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val isMaterialYou = nebulaColors.isMaterialYou
-
+    
     val chipBg = if (isMaterialYou) {
-        if (active) MaterialTheme.colorScheme.secondaryContainer
+        if (active) MaterialTheme.colorScheme.secondaryContainer 
         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
     } else {
         if (active) nebulaColors.accent.copy(alpha = if (nebulaColors.appsLight) 0.08f else 0.10f) else appSoftFill(nebulaColors)
     }
     val chipBorder = if (isMaterialYou) {
-        if (active) BorderStroke(0.dp, Color.Transparent)
+        if (active) BorderStroke(0.dp, Color.Transparent) 
         else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     } else {
         if (active) BorderStroke(1.dp, nebulaColors.accent.copy(alpha = 0.82f)) else BorderStroke(1.dp, appBorder(nebulaColors))
@@ -1336,7 +1336,7 @@ private fun WindowsAppFilterChip(
 private fun WindowsAppListPanel(content: @Composable ColumnScope.() -> Unit) {
     val nebulaColors = LocalNebulaColors.current
     val isMaterialYou = nebulaColors.isMaterialYou
-
+    
     val fillColor = if (isMaterialYou) {
         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
     } else {

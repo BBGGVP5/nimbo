@@ -196,6 +196,8 @@ pub struct AppPreferences {
     pub minimize_to_tray: bool,
     pub ping_on_launch: bool,
     pub check_updates_on_launch: bool,
+    pub update_channel: UpdateChannel,
+    pub update_wifi_only: bool,
     pub provider_theme: bool,
     pub show_subscription_logo: bool,
     #[serde(default = "default_ui_style")]
@@ -355,6 +357,8 @@ impl Default for AppPreferences {
             minimize_to_tray: true,
             ping_on_launch: true,
             check_updates_on_launch: true,
+            update_channel: UpdateChannel::Stable,
+            update_wifi_only: false,
             provider_theme: true,
             show_subscription_logo: true,
             ui_style: default_ui_style(),
@@ -401,6 +405,14 @@ impl Default for AppPreferences {
             servers_proxy_only_button: false,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateChannel {
+    #[default]
+    Stable,
+    Beta,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -693,6 +705,34 @@ fn storage_path() -> anyhow::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_update_channel_defaults_to_stable() {
+        let preferences: AppPreferences = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(preferences.update_channel, UpdateChannel::Stable);
+    }
+
+    #[test]
+    fn beta_update_channel_round_trips() {
+        let mut preferences = AppPreferences::default();
+        preferences.update_channel = UpdateChannel::Beta;
+        let json = serde_json::to_value(&preferences).unwrap();
+        assert_eq!(json["update_channel"], "beta");
+        let restored: AppPreferences = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.update_channel, UpdateChannel::Beta);
+    }
+
+    #[test]
+    fn update_wifi_only_defaults_to_false_and_round_trips() {
+        let preferences: AppPreferences = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(!preferences.update_wifi_only);
+
+        let mut preferences = AppPreferences::default();
+        preferences.update_wifi_only = true;
+        let restored: AppPreferences =
+            serde_json::from_value(serde_json::to_value(preferences).unwrap()).unwrap();
+        assert!(restored.update_wifi_only);
+    }
 
     #[test]
     fn corrupted_state_is_backed_up_and_replaced_with_valid_json() {

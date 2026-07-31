@@ -1,8 +1,10 @@
 package com.danila.nimbo.vpn
 
 import com.danila.nimbo.model.RoutingProfile
+import com.danila.nimbo.model.BuiltinRoutingProfiles
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RoutingProfileRulesTest {
@@ -44,5 +46,67 @@ class RoutingProfileRulesTest {
         assertEquals(1, rules.length())
         assertEquals("direct", rules.getJSONObject(0).getString("outboundTag"))
         assertEquals("geoip:private", rules.getJSONObject(0).getJSONArray("ip").getString(0))
+    }
+
+    @Test
+    fun `domain and GeoIP direct matches are independent Xray rules`() {
+        val rules = RoutingProfileRules.build(
+            RoutingProfile(
+                bypassLocalIp = "false",
+                directSites = listOf("domain:ru"),
+                directIp = listOf("geoip:ru")
+            ),
+            includeFallback = false
+        )
+
+        assertEquals(2, rules.length())
+        assertEquals("direct", rules.getJSONObject(0).getString("outboundTag"))
+        assertEquals("domain:ru", rules.getJSONObject(0).getJSONArray("domain").getString(0))
+        assertFalse(rules.getJSONObject(0).has("ip"))
+        assertEquals("geoip:ru", rules.getJSONObject(1).getJSONArray("ip").getString(0))
+        assertFalse(rules.getJSONObject(1).has("domain"))
+    }
+
+    @Test
+    fun `GeoIP selector mistakenly stored as a site is emitted as an IP rule`() {
+        val rules = RoutingProfileRules.build(
+            RoutingProfile(
+                bypassLocalIp = "false",
+                directSites = listOf("domain:ru", "geoip:ru")
+            ),
+            includeFallback = false
+        )
+
+        assertEquals("domain:ru", rules.getJSONObject(0).getJSONArray("domain").getString(0))
+        assertEquals("geoip:ru", rules.getJSONObject(1).getJSONArray("ip").getString(0))
+        assertFalse(rules.getJSONObject(1).has("domain"))
+    }
+
+    @Test
+    fun `every built in profile preserves its selectors and fallback destination`() {
+        BuiltinRoutingProfiles.defaults().forEach { profile ->
+            val rules = RoutingProfileRules.build(profile, includeFallback = true)
+            val directDomainSelectors = (0 until rules.length())
+                .map { rules.getJSONObject(it) }
+                .filter { it.optString("outboundTag") == "direct" && it.has("domain") }
+                .flatMap { rule ->
+                    val domains = rule.getJSONArray("domain")
+                    (0 until domains.length()).map(domains::getString)
+                }
+            val directIpSelectors = (0 until rules.length())
+                .map { rules.getJSONObject(it) }
+                .filter { it.optString("outboundTag") == "direct" && it.has("ip") }
+                .flatMap { rule ->
+                    val ips = rule.getJSONArray("ip")
+                    (0 until ips.length()).map(ips::getString)
+                }
+
+            assertTrue(directDomainSelectors.containsAll(profile.directSites.orEmpty()))
+            assertTrue(directIpSelectors.containsAll(profile.directIp.orEmpty()))
+            assertEquals(
+                if (profile.isGlobalProxyEnabled()) "proxy" else "direct",
+                rules.getJSONObject(rules.length() - 1).getString("outboundTag")
+            )
+        }
     }
 }

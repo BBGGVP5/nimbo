@@ -151,8 +151,8 @@ class VpnQuickSettingsTileService : TileService() {
         try {
             val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
             launchIntent?.let {
-                it.flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                          Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                it.flags = Intent.FLAG_ACTIVITY_NEW_TASK or 
+                          Intent.FLAG_ACTIVITY_SINGLE_TOP or 
                           Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                 it.addCategory(Intent.CATEGORY_LAUNCHER)
                 startActivityAndCollapseCompat(it, REQUEST_OPEN_APP)
@@ -224,3 +224,5 @@ class VpnQuickSettingsTileService : TileService() {
         Log.d("VpnTile", "Tile updated: $state")
     }
 }
+
+

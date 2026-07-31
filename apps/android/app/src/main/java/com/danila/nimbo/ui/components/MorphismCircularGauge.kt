@@ -89,7 +89,7 @@ fun MorphismCircularGauge(
                 .padding(12.dp)
         ) {
             val strokeWidth = 10.dp.toPx()
-
+            
             // Фоновый круг
             drawCircle(
                 color = color.copy(alpha = 0.1f),
@@ -121,9 +121,9 @@ fun MorphismCircularGauge(
                 tint = color.copy(alpha = 0.8f),
                 modifier = Modifier.size(24.dp)
             )
-
+            
             Spacer(modifier = Modifier.height(4.dp))
-
+            
             Text(
                 text = centerText,
                 style = MaterialTheme.typography.titleLarge.copy(
@@ -132,7 +132,7 @@ fun MorphismCircularGauge(
                 ),
                 color = nebulaColors.textPrimary
             )
-
+            
             Text(
                 text = subText,
                 style = MaterialTheme.typography.labelSmall,
@@ -141,3 +141,4 @@ fun MorphismCircularGauge(
         }
     }
 }
+

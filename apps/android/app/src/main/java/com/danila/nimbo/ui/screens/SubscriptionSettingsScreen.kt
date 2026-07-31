@@ -250,9 +250,9 @@ fun SubscriptionSettingsScreen(
                         checked = sendHwid,
                         onCheckedChange = { sendHwid = it }
                     )
-
+                    
                     Spacer(Modifier.height(8.dp))
-
+                    
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -426,3 +426,4 @@ private fun MorphismDropdownField(
         }
     }
 }
+

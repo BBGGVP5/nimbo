@@ -182,6 +182,7 @@ export type PreferredIpFamily = "auto" | "ipv4" | "ipv6";
 export type ServerSorting = "provider" | "name" | "ping" | "protocol";
 export type ConnectButtonStyle = "classic" | "compact";
 export type AppRoutingMode = "direct" | "proxy";
+export type UpdateChannel = "stable" | "beta";
 
 export interface AppPreferences {
   launch_at_login: boolean;
@@ -190,6 +191,8 @@ export interface AppPreferences {
   minimize_to_tray: boolean;
   ping_on_launch: boolean;
   check_updates_on_launch: boolean;
+  update_channel: UpdateChannel;
+  update_wifi_only: boolean;
   provider_theme: boolean;
   show_subscription_logo: boolean;
   ui_style: UiStyle;
@@ -233,6 +236,51 @@ export interface AppPreferences {
   servers_connect_button: ConnectButtonStyle;
   servers_ui_scale: number;
   servers_proxy_only_button: boolean;
+}
+
+export interface CrossSyncCategories {
+  subscriptions: boolean;
+  appearance: boolean;
+  connection: boolean;
+  automation: boolean;
+}
+
+export interface CrossSyncInventory {
+  subscriptions: number;
+  has_appearance: boolean;
+  has_connection: boolean;
+  has_automation: boolean;
+}
+
+export interface CrossSyncDeviceInfo {
+  name: string;
+  platform: string;
+  os_name: string;
+  os_version: string | null;
+  app_version: string | null;
+  architecture: string | null;
+}
+
+export type CrossSyncDirection = "desktop_to_android" | "android_to_desktop";
+
+export interface CrossSyncApplyResult {
+  added_subscriptions: string[];
+  applied_categories: string[];
+}
+
+export interface CrossSyncSession {
+  state: string;
+  qr_payload: string | null;
+  comparison_code: string | null;
+  expires_at_ms: number | null;
+  remote_device: string | null;
+  remote_inventory: CrossSyncInventory | null;
+  remote_device_info: CrossSyncDeviceInfo | null;
+  remote_subscriptions: string[];
+  pending_direction: CrossSyncDirection | null;
+  pending_categories: CrossSyncCategories | null;
+  result: CrossSyncApplyResult | null;
+  error: string | null;
 }
 
 export type AppProxyMode = "proxy" | "direct";
@@ -387,26 +435,50 @@ export interface TunInstallStatus {
 }
 
 export interface AppUpdateAsset {
+  id: number;
   name: string;
   download_url: string;
   size: number;
   content_type?: string | null;
+  digest?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  fingerprint: string;
 }
+
+export type AppUpdateReason = "new_version" | "reissued";
 
 export interface AppUpdateInfo {
   available: boolean;
+  reason?: AppUpdateReason | null;
+  channel: UpdateChannel;
   current_version: string;
   latest_version: string;
   release_name: string;
   release_notes?: string | null;
   release_url: string;
   published_at?: string | null;
+  target_commitish: string;
   target: string;
   asset?: AppUpdateAsset | null;
   download_url?: string | null;
 }
 
+export interface AppUpdateInstallResult {
+  verified: boolean;
+  digest: string;
+  local_path: string;
+  rollback_supported: boolean;
+}
+
+export interface AppPostUpdateInfo {
+  version: string;
+  release_notes?: string | null;
+  release_url?: string | null;
+}
+
 const BROWSER_PERSISTED_STATE_KEY = "nimbo.persistedState";
+const BROWSER_POST_UPDATE_KEY = "nimbo.postUpdateInfo";
 const DEFAULT_SOCKS_USERNAME = "nimbo";
 const DEFAULT_SOCKS_PASSWORD = "nmb-preview-password";
 export const APP_VERSION = typeof uiPackage.version === "string" ? uiPackage.version : "1.0.1";
@@ -450,6 +522,8 @@ export const defaultAppPreferences: AppPreferences = {
   minimize_to_tray: true,
   ping_on_launch: true,
   check_updates_on_launch: true,
+  update_channel: "stable",
+  update_wifi_only: false,
   provider_theme: true,
   show_subscription_logo: true,
   ui_style: "nimbo",
@@ -583,6 +657,8 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     minimize_to_tray: value?.minimize_to_tray !== false,
     ping_on_launch: value?.ping_on_launch !== false,
     check_updates_on_launch: value?.check_updates_on_launch !== false,
+    update_channel: value?.update_channel === "beta" ? "beta" : "stable",
+    update_wifi_only: Boolean(value?.update_wifi_only),
     provider_theme: value?.provider_theme !== false,
     show_subscription_logo: value?.show_subscription_logo !== false,
     ui_style: uiStyle,
@@ -643,6 +719,14 @@ function readBrowserJson<T>(key: string, fallback: T): T {
 function writeBrowserJson<T>(key: string, value: T): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* browser storage may be unavailable */
+  }
+}
+
+function removeBrowserValue(key: string): void {
+  try {
+    localStorage.removeItem(key);
   } catch {
     /* browser storage may be unavailable */
   }
@@ -831,24 +915,32 @@ function browserDeviceInfo(): DeviceInfo {
   return device;
 }
 
-function browserUpdateInfo(): AppUpdateInfo {
+function browserUpdateInfo(channel: UpdateChannel = "stable"): AppUpdateInfo {
   const params = new URLSearchParams(window.location.search);
   const mockUpdate = params.has("mockUpdate") || readBrowserJson<boolean>("nimbo.mockUpdate", false);
   if (mockUpdate) {
     return {
       available: true,
+      reason: "new_version",
+      channel,
       current_version: APP_VERSION,
       latest_version: "3.0.33",
       release_name: "3.0.33",
       release_notes: "Демо обновления для браузерного предпросмотра.",
       release_url: "https://github.com/BBGGVP5/nimbo/releases",
       published_at: new Date().toISOString(),
+      target_commitish: "main",
       target: "Windows x64",
       asset: {
+        id: 1,
         name: "Nimbo_3.0.33_x64-setup.exe",
-        download_url: "https://github.com/BBGGVP5/nimbo/releases",
+        download_url: "https://github.com/BBGGVP5/nimbo/releases/download/v3.0.33/Nimbo_3.0.33_x64-setup.exe",
         size: 0,
         content_type: "application/octet-stream",
+        digest: `sha256:${"00".repeat(32)}`,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        fingerprint: "browser-preview",
       },
       download_url: "https://github.com/BBGGVP5/nimbo/releases",
     };
@@ -856,12 +948,15 @@ function browserUpdateInfo(): AppUpdateInfo {
 
   return {
     available: false,
+    reason: null,
+    channel,
     current_version: APP_VERSION,
     latest_version: APP_VERSION,
     release_name: APP_VERSION,
     release_notes: null,
     release_url: "https://github.com/BBGGVP5/nimbo/releases",
     published_at: null,
+    target_commitish: "main",
     target: "Browser preview",
     asset: null,
     download_url: null,
@@ -1263,6 +1358,115 @@ export const api = {
             server_pings: state.server_pings ?? {},
           } satisfies AppStatus;
         })()),
+  crossSyncStart: () =>
+    isTauriRuntime()
+      ? invoke<CrossSyncSession>("cross_sync_start")
+      : Promise.resolve({
+          state: "showing_qr",
+          qr_payload: `nimbo-sync://pair?v=1&host=192.168.1.20&port=42000&sid=browser-preview&key=${"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA"}&exp=${Date.now() + 75_000}&code=382104`,
+          comparison_code: "382104",
+          expires_at_ms: Date.now() + 75_000,
+          remote_device: null,
+          remote_inventory: null,
+          remote_device_info: null,
+          remote_subscriptions: [],
+          pending_direction: null,
+          pending_categories: null,
+          result: null,
+          error: null,
+        } satisfies CrossSyncSession),
+  crossSyncStatus: () =>
+    isTauriRuntime()
+      ? invoke<CrossSyncSession>("cross_sync_status")
+      : Promise.resolve({
+          state: "idle",
+          qr_payload: null,
+          comparison_code: null,
+          expires_at_ms: null,
+          remote_device: null,
+          remote_inventory: null,
+          remote_device_info: null,
+          remote_subscriptions: [],
+          pending_direction: null,
+          pending_categories: null,
+          result: null,
+          error: null,
+        } satisfies CrossSyncSession),
+  crossSyncApprove: (categories: CrossSyncCategories) =>
+    isTauriRuntime()
+      ? invoke<CrossSyncSession>("cross_sync_approve", { categories })
+      : Promise.resolve({
+          state: "paired",
+          qr_payload: null,
+          comparison_code: "382104",
+          expires_at_ms: Date.now() + 60_000,
+          remote_device: "Google Pixel 9",
+          remote_inventory: { subscriptions: 2, has_appearance: true, has_connection: true, has_automation: true },
+          remote_device_info: {
+            name: "Google Pixel 9",
+            platform: "android",
+            os_name: "Android",
+            os_version: "17 · API 37",
+            app_version: APP_VERSION,
+            architecture: "arm64-v8a",
+          },
+          remote_subscriptions: ["Основная", "Резервная"],
+          pending_direction: null,
+          pending_categories: categories,
+          result: null,
+          error: null,
+        } satisfies CrossSyncSession),
+  crossSyncReject: () =>
+    isTauriRuntime()
+      ? invoke<CrossSyncSession>("cross_sync_reject")
+      : Promise.resolve({
+          state: "rejected",
+          qr_payload: null,
+          comparison_code: null,
+          expires_at_ms: null,
+          remote_device: null,
+          remote_inventory: null,
+          remote_device_info: null,
+          remote_subscriptions: [],
+          pending_direction: null,
+          pending_categories: null,
+          result: null,
+          error: "Сопряжение отклонено",
+        } satisfies CrossSyncSession),
+  crossSyncAcceptImport: () =>
+    isTauriRuntime()
+      ? invoke<CrossSyncSession>("cross_sync_accept_import")
+      : Promise.resolve({
+          state: "completed",
+          qr_payload: null,
+          comparison_code: "382104",
+          expires_at_ms: null,
+          remote_device: "Android",
+          remote_inventory: null,
+          remote_device_info: null,
+          remote_subscriptions: [],
+          pending_direction: "android_to_desktop",
+          pending_categories: null,
+          result: { added_subscriptions: [], applied_categories: [] },
+          error: null,
+        } satisfies CrossSyncSession),
+  crossSyncCancel: () =>
+    isTauriRuntime()
+      ? invoke<CrossSyncSession>("cross_sync_cancel")
+      : Promise.resolve({
+          state: "cancelled",
+          qr_payload: null,
+          comparison_code: null,
+          expires_at_ms: null,
+          remote_device: null,
+          remote_inventory: null,
+          remote_device_info: null,
+          remote_subscriptions: [],
+          pending_direction: null,
+          pending_categories: null,
+          result: null,
+          error: null,
+        } satisfies CrossSyncSession),
   getSessionTraffic: () =>
     isTauriRuntime()
       ? invoke<SessionTraffic>("get_session_traffic")
@@ -1510,10 +1714,40 @@ export const api = {
     isTauriRuntime()
       ? invoke<void>("restart_as_admin")
       : Promise.resolve(),
-  checkAppUpdate: () =>
+  checkAppUpdate: (channel: UpdateChannel) =>
     isTauriRuntime()
-      ? invoke<AppUpdateInfo>("check_app_update")
-      : Promise.resolve(browserUpdateInfo()),
+      ? invoke<AppUpdateInfo>("check_app_update", { channel })
+      : Promise.resolve(browserUpdateInfo(channel)),
+  installAppUpdate: (info: AppUpdateInfo) =>
+    isTauriRuntime()
+      ? info.asset
+        ? invoke<AppUpdateInstallResult>("install_app_update", {
+            fingerprint: info.asset.fingerprint,
+            latestVersion: info.latest_version,
+            channel: info.channel,
+          })
+        : Promise.reject(new Error("У релиза нет файла для этой системы."))
+      : Promise.resolve((() => {
+          writeBrowserJson<AppPostUpdateInfo>(BROWSER_POST_UPDATE_KEY, {
+            version: info.latest_version,
+            release_notes: info.release_notes,
+            release_url: info.release_url,
+          });
+          return {
+            verified: true,
+            digest: info.asset?.digest ?? "",
+            local_path: "browser-preview",
+            rollback_supported: false,
+          } satisfies AppUpdateInstallResult;
+        })()),
+  getPostUpdateInfo: () =>
+    isTauriRuntime()
+      ? invoke<AppPostUpdateInfo | null>("get_post_update_info")
+      : Promise.resolve(readBrowserJson<AppPostUpdateInfo | null>(BROWSER_POST_UPDATE_KEY, null)),
+  dismissPostUpdateInfo: () =>
+    isTauriRuntime()
+      ? invoke<void>("dismiss_post_update_info")
+      : Promise.resolve(removeBrowserValue(BROWSER_POST_UPDATE_KEY)),
   openUpdateDownload: (downloadUrl: string) =>
     isTauriRuntime()
       ? invoke<void>("open_update_download", { downloadUrl })

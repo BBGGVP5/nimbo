@@ -31,21 +31,9 @@ desktop.ini
 apps/**/src-tauri/gen/
 apps/ui/src-tauri/target/
 
-# Local agent work files
-.claude/
-.codex-logs/
-
-# Android
-apps/android/.gradle/
-apps/android/.idea/
-apps/android/.kotlin/
-apps/android/build/
-apps/android/**/build/
-apps/android/local.properties
-apps/android/app/signing.properties
-apps/android/app/libs/libbox_unpacked/
-*.apk
-*.aab
-
 # UI design references (not for repo)
 ui-template/
+
+# Local agent workspaces
+.claude/
+.codex-logs/

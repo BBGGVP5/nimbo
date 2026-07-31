@@ -36,8 +36,9 @@ android {
         applicationId = "com.danila.nimbo"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 5
+        versionName = "1.1.0-beta.1"
+        buildConfigField("String", "LIBXRAY_VERSION", "\"26.7.28\"")
 
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -155,7 +156,7 @@ android {
 
     sourceSets {
         getByName("main") {
-
+            
         }
     }
 }
@@ -189,6 +190,7 @@ dependencies {
     implementation(libs.androidx.window)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.ui.test)
+    implementation(libs.androidx.compose.animation)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
@@ -202,7 +204,6 @@ dependencies {
     implementation("com.google.code.gson:gson:2.13.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
-    implementation("androidx.compose.animation:animation:1.10.5")
     implementation("androidx.work:work-runtime-ktx:2.11.1")
     // Per-app language switching via AppCompatDelegate.setApplicationLocales
     implementation("androidx.appcompat:appcompat:1.7.0")

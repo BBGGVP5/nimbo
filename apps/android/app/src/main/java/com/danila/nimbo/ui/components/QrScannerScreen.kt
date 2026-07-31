@@ -39,7 +39,9 @@ import java.util.concurrent.Executors
 @androidx.annotation.OptIn(markerClass = [ExperimentalGetImage::class])
 fun QrScannerScreen(
     onResult: (String) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    title: String? = null,
+    instruction: String? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -140,7 +142,11 @@ fun QrScannerScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
                 }
                 Spacer(Modifier.width(16.dp))
-                Text(t("Сканирование QR", "QR scan"), color = Color.White, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    title ?: t("Сканирование QR", "QR scan"),
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium
+                )
             }
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -160,7 +166,7 @@ fun QrScannerScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    t(
+                    instruction ?: t(
                         "Наведите камеру на QR-код подписки",
                         "Point the camera at a subscription QR code"
                     ),

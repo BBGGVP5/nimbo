@@ -35,6 +35,7 @@ export function applyVisualPreferences(
     providerTheme?.ui_style === "material_you" || providerTheme?.ui_style === "nimbo"
       ? providerTheme.ui_style
       : null;
+  const effectiveUiStyle = themeUiStyle ?? preferences.ui_style;
 
   const media = window.matchMedia("(prefers-color-scheme: light)");
   const apply = () => {
@@ -45,7 +46,7 @@ export function applyVisualPreferences(
     const isBlackTheme = resolvedTheme === "black";
     document.documentElement.lang = resolveLanguage(preferences.language);
     document.body.dataset.theme = resolvedTheme;
-    document.body.dataset.uiStyle = themeUiStyle ?? preferences.ui_style;
+    document.body.dataset.uiStyle = effectiveUiStyle;
 
     const accent = themeAccent
       ?? (preferences.accent_mode === "system"
@@ -76,12 +77,26 @@ export function applyVisualPreferences(
         : `rgba(0, 0, 0, ${overlayStrength.toFixed(3)})`;
     const scaledRadius = (base: number) => `${Math.max(2, Math.round(base * rounding))}px`;
 
-    root.style.setProperty("--ui-panel-alpha-percent", `${100 - transparency}%`);
-    root.style.setProperty("--ui-control-alpha-percent", `${Math.max(20, 100 - Math.round(transparency * 0.84))}%`);
+    const liquidGlass = effectiveUiStyle === "nimbo";
+    const panelAlpha = liquidGlass
+      ? Math.max(24, 72 - Math.round(transparency * 0.6))
+      : 100 - transparency;
+    const controlAlpha = liquidGlass
+      ? Math.max(22, 60 - Math.round(transparency * 0.46))
+      : Math.max(20, 100 - Math.round(transparency * 0.84));
+    const backdropFilter = liquidGlass
+      ? `blur(${blur}px) saturate(185%) contrast(108%)`
+      : `blur(${blur}px) saturate(118%)`;
+    const softBackdropFilter = liquidGlass
+      ? `blur(${Math.round(blur * 0.68)}px) saturate(165%) contrast(105%)`
+      : `blur(${Math.round(blur * 0.65)}px) saturate(112%)`;
+
+    root.style.setProperty("--ui-panel-alpha-percent", `${panelAlpha}%`);
+    root.style.setProperty("--ui-control-alpha-percent", `${controlAlpha}%`);
     root.style.setProperty("--ui-panel-overlay", panelOverlay);
     root.style.setProperty("--ui-blur", `${blur}px`);
-    root.style.setProperty("--ui-backdrop-filter", `blur(${blur}px) saturate(145%)`);
-    root.style.setProperty("--ui-backdrop-filter-soft", `blur(${Math.round(blur * 0.65)}px) saturate(130%)`);
+    root.style.setProperty("--ui-backdrop-filter", backdropFilter);
+    root.style.setProperty("--ui-backdrop-filter-soft", softBackdropFilter);
     root.style.setProperty("--ui-radius-xs", scaledRadius(4));
     root.style.setProperty("--ui-radius-sm", scaledRadius(8));
     root.style.setProperty("--ui-radius-md", scaledRadius(10));

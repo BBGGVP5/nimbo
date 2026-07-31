@@ -23,22 +23,22 @@ fun GlassCard(
     val elementStyle = LocalElementStyleMode.current
 
     val shape = when (elementStyle) {
-        ElementStyleMode.MORPHISM -> RoundedCornerShape(20.dp)
-        ElementStyleMode.MATERIAL3 -> RoundedCornerShape(16.dp)
+        ElementStyleMode.LIQUID_GLASS -> RoundedCornerShape(24.dp)
+        ElementStyleMode.MATERIAL_EXPRESSIVE -> RoundedCornerShape(24.dp)
         ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape(14.dp)
         ElementStyleMode.OUTLINED -> RoundedCornerShape(12.dp)
         ElementStyleMode.SOFT_NEO -> RoundedCornerShape(22.dp)
     }
 
     val backgroundBrush = when (elementStyle) {
-        ElementStyleMode.MORPHISM -> Brush.linearGradient(
+        ElementStyleMode.LIQUID_GLASS -> Brush.linearGradient(
             listOf(
                 nebulaColors.textPrimary.copy(alpha = 0.08f),
                 nebulaColors.textPrimary.copy(alpha = 0.02f)
             )
         )
 
-        ElementStyleMode.MATERIAL3 -> Brush.verticalGradient(
+        ElementStyleMode.MATERIAL_EXPRESSIVE -> Brush.verticalGradient(
             listOf(
                 nebulaColors.surface.copy(alpha = 0.95f),
                 nebulaColors.surface.copy(alpha = 0.86f)
@@ -69,15 +69,17 @@ fun GlassCard(
     }
 
     val borderColor = when (elementStyle) {
-        ElementStyleMode.MORPHISM -> nebulaColors.textPrimary.copy(alpha = 0.12f)
-        ElementStyleMode.MATERIAL3 -> nebulaColors.onSurface.copy(alpha = 0.16f)
+        ElementStyleMode.LIQUID_GLASS -> nebulaColors.textPrimary.copy(alpha = 0.12f)
+        ElementStyleMode.MATERIAL_EXPRESSIVE -> nebulaColors.onSurface.copy(alpha = 0.16f)
         ElementStyleMode.NOTHING_DOTS -> nebulaColors.accent.copy(alpha = 0.18f)
         ElementStyleMode.OUTLINED -> nebulaColors.onSurface.copy(alpha = 0.22f)
         ElementStyleMode.SOFT_NEO -> nebulaColors.accent.copy(alpha = 0.16f)
     }
 
-    Box(
-        modifier = modifier
+    val surfaceModifier = if (elementStyle == ElementStyleMode.LIQUID_GLASS) {
+        Modifier.liquidGlassSurface(shape)
+    } else {
+        Modifier
             .clip(shape)
             .background(backgroundBrush)
             .then(
@@ -85,11 +87,13 @@ fun GlassCard(
                     Modifier.dotPatternOverlay(nebulaColors.textPrimary, spacing = 10.dp, radius = 0.9.dp, alpha = 0.13f)
                 } else Modifier
             )
-            .border(
-                1.dp,
-                borderColor,
-                shape
-            ),
+            .border(1.dp, borderColor, shape)
+    }
+
+    Box(
+        modifier = modifier.then(surfaceModifier),
         content = content
     )
 }
+
+

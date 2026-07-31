@@ -73,17 +73,17 @@ fun ProfileServersScreen(
     val scope = rememberCoroutineScope()
     val preferencesManager = remember { com.danila.nimbo.utils.PreferencesManager(context) }
     var isRefreshing by remember { mutableStateOf(false) }
-
+    
     // Live state from ViewModel
     val profiles by mainViewModel.profilesState.collectAsState()
     val isPinging by mainViewModel.isPinging.collectAsState()
     val activePingKeys by mainViewModel.activePingKeys.collectAsState()
-
+    
     // Find the current live profile to get updated server pings
-    val currentProfile = remember(profiles, profile.url) {
-        profiles.find { it.url == profile.url } ?: profile
+    val currentProfile = remember(profiles, profile.url) { 
+        profiles.find { it.url == profile.url } ?: profile 
     }
-
+    
     val pullToRefreshState = rememberPullToRefreshState()
 
     var searchQuery by remember { mutableStateOf("") }
@@ -115,11 +115,11 @@ fun ProfileServersScreen(
                 !bsOnlyModeActive
         )
     }
-
+    
     // Derived ping map from the live profile servers
     val serverPings = remember(currentProfile.servers) {
         currentProfile.servers
-            .groupBy { it.pingKey() }
+            .groupBy { it.pingMeasurementKey() }
             .mapValues { (_, keyedServers) ->
                 keyedServers.mapNotNull { it.ping?.takeIf { ping -> ping >= 0 } }.minOrNull() ?: -1
             }
@@ -168,7 +168,7 @@ fun ProfileServersScreen(
     val sortedServers = remember(filteredServers, sortOrder, serverPings, pinnedServerKeys) {
         val ordered = when (sortOrder) {
             "PING" -> filteredServers.sortedWith(compareBy<Server> { server ->
-                val key = server.pingKey()
+                val key = server.pingMeasurementKey()
                 val ping = serverPings[key] ?: -1
                 if (ping == -1) Int.MAX_VALUE else ping
             }.thenBy { it.name })
@@ -246,7 +246,7 @@ fun ProfileServersScreen(
                                 )
                             }
                             Spacer(Modifier.width(16.dp))
-
+                            
                             // Profile Name
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
@@ -267,7 +267,7 @@ fun ProfileServersScreen(
                                     )
                                 }
                             }
-
+                            
                             Row(
                                 modifier = Modifier.padding(start = 12.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -312,7 +312,7 @@ fun ProfileServersScreen(
                                 )
                             }
                         }
-
+                        
 
                         val selectedServer = remember(currentProfile.servers, VpnManager.selectedServer) {
                             val active = VpnManager.selectedServer
@@ -323,7 +323,7 @@ fun ProfileServersScreen(
                             }
                         }
                         val selectedServerPing = remember(selectedServer, serverPings) {
-                            selectedServer?.let { serverPings[it.pingKey()] ?: it.ping }
+                            selectedServer?.let { serverPings[it.pingMeasurementKey()] ?: it.ping }
                         }
 
                         SubscriptionInfoCard(
@@ -346,9 +346,9 @@ fun ProfileServersScreen(
                             selectedServer = selectedServer,
                             selectedServerPing = selectedServerPing,
                             pingDisplayMode = preferencesManager.pingDisplayModeState.value,
-                            onRename = {
+                            onRename = { 
                                 renameValue = currentProfile.displayName
-                                showRenameDialog = true
+                                showRenameDialog = true 
                             },
                             onDelete = {
                                 mainViewModel.removeSubscription(currentProfile.url)
@@ -531,7 +531,7 @@ fun ProfileServersScreen(
                     key = { index, server -> "${server.pingKey()}_$index" }
                 ) { _, server ->
 
-                    val key = server.pingKey()
+                    val key = server.pingMeasurementKey()
                     val ping = serverPings[key] ?: -1
                     val selectedServer = VpnManager.selectedServer
                     val isSelected = selectedServer?.matchesSelection(server) == true
@@ -1056,7 +1056,7 @@ private fun StaticPingIndicator(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val badgeShape = RoundedCornerShape(999.dp)
-
+    
     Box {
         Box(
             modifier = Modifier

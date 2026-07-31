@@ -7,6 +7,6 @@
 | `ui/` | Основной интерфейс: React frontend и Rust/Tauri backend | Windows, Linux |
 | `service/` | Служба с повышенными правами для сетевых операций | Windows |
 | `installer/` | Отдельная оболочка установщика и скрипты упаковки | Windows, Linux |
-| `android/` | Kotlin/Jetpack Compose-клиент, `VpnService`, libXray и Gradle-проект | Android 10+ |
+| `android/` | Зарезервированное место будущего Android-клиента | Android |
 
-Не переносите desktop-файлы в `android/`: это самостоятельный Gradle-проект. Общие форматы подписок и конфигурации нужно согласованно развивать в `crates/subscription`, `crates/xray-config` и Android-модуле, чтобы клиенты сохраняли совместимость.
+Не переносите desktop-файлы в `android/`: Android-клиент будет отдельным Gradle-проектом. Общие форматы подписок и конфигурации нужно развивать в `crates/subscription` и `crates/xray-config`, чтобы desktop-клиент сохранял совместимость.

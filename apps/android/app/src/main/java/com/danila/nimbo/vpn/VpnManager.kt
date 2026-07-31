@@ -108,3 +108,4 @@ object VpnManager {
         return _selectedServer
     }
 }
+

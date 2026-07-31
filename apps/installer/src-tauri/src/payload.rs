@@ -83,33 +83,27 @@ const UNINSTALL_EXE: &str = "Uninstall.exe";
 #[cfg(not(windows))]
 const UNINSTALL_EXE: &str = "Uninstall";
 
-// Debug/test builds must remain reproducible without prebuilt desktop payloads.
-// The distributable installer is compiled with --release and embeds them below.
-#[cfg(all(windows, not(debug_assertions)))]
+#[cfg(windows)]
 const MAIN_APP_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
     env!("NIMBO_TARGET_TRIPLE"),
     "/release/nimbo-ui.exe"
 ));
-#[cfg(all(not(windows), not(debug_assertions)))]
+#[cfg(not(windows))]
 const MAIN_APP_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
     env!("NIMBO_TARGET_TRIPLE"),
     "/release/nimbo-ui"
 ));
-#[cfg(debug_assertions)]
-const MAIN_APP_BYTES: &[u8] = &[];
-#[cfg(all(windows, not(debug_assertions)))]
+#[cfg(windows)]
 const HELPER_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
     env!("NIMBO_TARGET_TRIPLE"),
     "/release/nimbo-svc.exe"
 ));
-#[cfg(all(windows, debug_assertions))]
-const HELPER_BYTES: &[u8] = &[];
 #[cfg(windows)]
 const TUN2SOCKS_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -319,7 +313,7 @@ fn install_blocking(app: AppHandle, options: InstallOptions) -> Result<InstallRe
 
     #[cfg(target_os = "linux")]
     {
-        return install_blocking_linux(app, options);
+        install_blocking_linux(app, options)
     }
 
     #[cfg(all(not(windows), not(target_os = "linux")))]

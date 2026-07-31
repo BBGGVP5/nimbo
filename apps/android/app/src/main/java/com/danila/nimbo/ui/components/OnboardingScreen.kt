@@ -410,13 +410,13 @@ fun OnboardingPageContent(
     val nebulaColors = LocalNebulaColors.current
     val floatTransition = rememberInfiniteTransition(label = "onboarding_float")
     val absoluteOffset = kotlin.math.abs(pageOffset)
-
+    
     // Плавное затухание по аналогии с Google
     val alpha = 1f - absoluteOffset.coerceIn(0f, 1f) * 0.6f
-
+    
     // Плавное масштабирование
     val scale = 1f - absoluteOffset.coerceIn(0f, 1f) * 0.15f
-
+    
     // Параллакс эффект для иконки
     val parallaxX = pageOffset * 60f
     val floatY by floatTransition.animateFloat(
@@ -525,3 +525,4 @@ fun OnboardingPageContent(
         }
     }
 }
+

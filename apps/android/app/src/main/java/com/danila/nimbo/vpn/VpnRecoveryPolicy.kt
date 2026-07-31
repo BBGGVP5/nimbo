@@ -7,7 +7,7 @@ package com.danila.nimbo.vpn
 object VpnRecoveryPolicy {
     private const val BASE_RETRY_DELAY_MS = 1_000L
     private const val MAX_RETRY_DELAY_MS = 30_000L
-    private const val MAX_RETRY_ATTEMPT = 6
+    private const val MAX_BACKOFF_ATTEMPT = 6
 
     enum class Phase {
         DISCONNECTED,
@@ -36,6 +36,12 @@ object VpnRecoveryPolicy {
             val autoRecoveryEnabled: Boolean,
             val hasServer: Boolean
         ) : Event
+        /**
+         * Android reports this when the usable transport changes (for example,
+         * Wi-Fi to mobile data) while the VPN is intentionally connected.
+         * This is a tunnel handoff, not a retry policy decision.
+         */
+        data class NetworkHandoff(val hasServer: Boolean) : Event
         data class ConnectFailed(
             val retryable: Boolean,
             val autoRecoveryEnabled: Boolean,
@@ -50,6 +56,7 @@ object VpnRecoveryPolicy {
         data object StartConnection : Command
         data object StopTunnelForScreen : Command
         data object StopTunnelForNetwork : Command
+        data object RebuildTunnelForNetwork : Command
         data object StopService : Command
         data object CancelRetry : Command
         data class ScheduleRetry(val delayMs: Long) : Command
@@ -186,6 +193,22 @@ object VpnRecoveryPolicy {
             }
         }
 
+        is Event.NetworkHandoff -> {
+            if (!state.desiredConnected || state.screenPaused || !event.hasServer) {
+                Result(state)
+            } else {
+                Result(
+                    state.copy(
+                        phase = Phase.WAITING_FOR_NETWORK,
+                        networkAvailable = true,
+                        retryAttempt = 0,
+                        connectPending = false
+                    ),
+                    listOf(Command.CancelRetry, Command.RebuildTunnelForNetwork)
+                )
+            }
+        }
+
         is Event.ConnectFailed -> {
             val canRetry = state.desiredConnected &&
                 !state.screenPaused &&
@@ -201,7 +224,11 @@ object VpnRecoveryPolicy {
                     )
                 )
             } else {
-                val nextAttempt = (state.retryAttempt + 1).coerceAtMost(MAX_RETRY_ATTEMPT)
+                val nextAttempt = if (state.retryAttempt == Int.MAX_VALUE) {
+                    Int.MAX_VALUE
+                } else {
+                    state.retryAttempt + 1
+                }
                 Result(
                     state.copy(
                         phase = Phase.WAITING_FOR_NETWORK,
@@ -262,7 +289,7 @@ object VpnRecoveryPolicy {
     }
 
     fun retryDelayMs(attempt: Int): Long {
-        val normalized = attempt.coerceIn(1, MAX_RETRY_ATTEMPT)
+        val normalized = attempt.coerceIn(1, MAX_BACKOFF_ATTEMPT)
         return (BASE_RETRY_DELAY_MS shl (normalized - 1)).coerceAtMost(MAX_RETRY_DELAY_MS)
     }
 }

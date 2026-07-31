@@ -23,3 +23,4 @@ data class NetworkPreset(
     @SerializedName("createdAtMs") val createdAtMs: Long = System.currentTimeMillis(),
     @SerializedName("updatedAtMs") val updatedAtMs: Long = System.currentTimeMillis()
 )
+

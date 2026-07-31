@@ -3,7 +3,7 @@ package com.danila.nimbo.vpn
 import org.json.JSONObject
 
 /**
- * JSON envelope for libXray 26.7.11+.
+ * JSON envelope for the libXray invoke API v1.
  *
  * The library exposes one native [LibXray.invoke] entry point. Keeping the
  * protocol in one small, testable object avoids coupling application code to

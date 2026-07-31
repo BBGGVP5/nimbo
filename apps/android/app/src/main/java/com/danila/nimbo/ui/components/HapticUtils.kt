@@ -1,23 +1,123 @@
 package com.danila.nimbo.ui.components
 
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.Indication
 
 @Composable
+fun rememberPreferenceAwareHapticFeedback(
+    enabled: Boolean,
+    strength: HapticStrength
+): HapticFeedback {
+    val context = LocalContext.current.applicationContext
+    val platformHaptic = LocalHapticFeedback.current
+    val vibrator = remember(context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            context.getSystemService(VibratorManager::class.java)?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+    }
+    return remember(platformHaptic, vibrator, enabled, strength) {
+        object : HapticFeedback {
+            override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+                if (!enabled) return
+
+                val pulse = if (hapticFeedbackType == HapticFeedbackType.LongPress) {
+                    HapticPulsePolicy.confirmation(strength)
+                } else {
+                    HapticPulsePolicy.tick(strength)
+                }
+                val customHapticSucceeded = runCatching {
+                    val target = vibrator ?: return@runCatching false
+                    if (!target.hasVibrator()) return@runCatching false
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        val amplitude = if (target.hasAmplitudeControl()) {
+                            pulse.amplitude
+                        } else {
+                            VibrationEffect.DEFAULT_AMPLITUDE
+                        }
+                        target.vibrate(VibrationEffect.createOneShot(pulse.durationMs, amplitude))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        target.vibrate(pulse.durationMs)
+                    }
+                    true
+                }.getOrDefault(false)
+
+                if (!customHapticSucceeded) {
+                    platformHaptic.performHapticFeedback(hapticFeedbackType)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun rememberHapticSliderValueChange(
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    steps: Int = 0,
+    onValueChange: (Float) -> Unit
+): (Float) -> Unit {
+    val haptic = LocalHapticFeedback.current
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val initialBucket = HapticFeedbackPolicy.sliderBucket(
+        value = value,
+        rangeStart = valueRange.start,
+        rangeEnd = valueRange.endInclusive,
+        steps = steps
+    )
+    var previousBucket by remember(valueRange.start, valueRange.endInclusive, steps) {
+        mutableIntStateOf(initialBucket)
+    }
+
+    // Keep programmatic value changes in sync without treating them as user gestures.
+    SideEffect {
+        previousBucket = initialBucket
+    }
+
+    return remember(haptic, valueRange.start, valueRange.endInclusive, steps) {
+        { newValue ->
+            val currentBucket = HapticFeedbackPolicy.sliderBucket(
+                value = newValue,
+                rangeStart = valueRange.start,
+                rangeEnd = valueRange.endInclusive,
+                steps = steps
+            )
+            if (HapticFeedbackPolicy.shouldEmitSliderTick(previousBucket, currentBucket)) {
+                haptic.tick()
+            }
+            previousBucket = currentBucket
+            currentOnValueChange(newValue)
+        }
+    }
+}
+
+@Composable
 fun rememberHapticClick(onClick: () -> Unit): () -> Unit {
     val haptic = LocalHapticFeedback.current
-    return remember(onClick) {
+    return remember(haptic, onClick) {
         {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onClick()
@@ -28,7 +128,7 @@ fun rememberHapticClick(onClick: () -> Unit): () -> Unit {
 @Composable
 fun rememberHapticToggle(onToggle: (Boolean) -> Unit): (Boolean) -> Unit {
     val haptic = LocalHapticFeedback.current
-    return remember(onToggle) {
+    return remember(haptic, onToggle) {
         { value: Boolean ->
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onToggle(value)

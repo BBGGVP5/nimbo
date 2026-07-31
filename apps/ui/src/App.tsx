@@ -11,8 +11,9 @@ import { Statistics } from "./pages/Statistics";
 import { TunnelLogs } from "./pages/TunnelLogs";
 import { Settings } from "./pages/Settings";
 import { Notifications } from "./pages/Notifications";
+import { CrossPlatformSync } from "./pages/CrossPlatformSync";
 import { NotificationCenter } from "./components/NotificationCenter";
-import { useNotificationHistory } from "./lib/notify";
+import { notifyInfo, useNotificationHistory } from "./lib/notify";
 import {
   applyAccentGradient,
   loadBackgroundBlob,
@@ -20,12 +21,13 @@ import {
   type AppearanceState,
 } from "./lib/appearance";
 import { useAppStore } from "./store";
-import { APP_VERSION, api, isTauriRuntime, type AppUpdateInfo, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
+import { APP_VERSION, api, isTauriRuntime, type AppPostUpdateInfo, type AppUpdateInfo, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
 import { cachedSubscriptionTheme } from "./lib/subscriptionTheme";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initNimboDeepLinks } from "./lib/deepLinks";
 import { fillTemplate, useMessages, type Messages } from "./lib/i18n";
 import { applyVisualPreferences } from "./lib/visualTheme";
+import { liveNetworkGlassSignal } from "./lib/liveNetworkGlass";
 import nimboLogo from "./assets/nimbo.png";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
@@ -42,6 +44,7 @@ const navItems = [
   { to: "/statistics", key: "statistics", icon: "stats", end: false, compactHide: true },
   { to: "/tunnel-logs", key: "tunnelLogs", icon: "logs", end: false, compactHide: true },
   { to: "/notifications", key: "notifications", icon: "bell", end: false, compactHide: true },
+  { to: "/sync", key: "sync", icon: "sync", end: false, compactHide: false },
   { to: "/settings", key: "settings", icon: "settings", end: false, compactHide: false },
 ];
 
@@ -70,6 +73,11 @@ export default function App() {
   const installHelper = useAppStore((s) => s.installHelper);
   const recordTrafficStats = useAppStore((s) => s.recordTrafficStats);
   const setTrafficMonitoringAvailable = useAppStore((s) => s.setTrafficMonitoringAvailable);
+  const trafficSpeed = useAppStore((s) => s.trafficSpeed);
+  const serverPings = useAppStore((s) => s.serverPings);
+  const connectingServerId = useAppStore((s) => s.connectingServerId);
+  const switchingServerId = useAppStore((s) => s.switchingServerId);
+  const disconnecting = useAppStore((s) => s.disconnecting);
   const launchedActions = useRef(false);
   const onboardingChecked = useRef(false);
   const sidebarWidth = useResizableSidebar();
@@ -81,9 +89,25 @@ export default function App() {
   const lastAwakeTick = useRef(Date.now());
   const resumeReconnectInFlight = useRef(false);
   const [startupUpdate, setStartupUpdate] = useState<AppUpdateInfo | null>(null);
+  const [postUpdateInfo, setPostUpdateInfo] = useState<AppPostUpdateInfo | null>(null);
   const m = useMessages();
   const { unread: unreadNotifications } = useNotificationHistory();
   const appearance = useAppearance();
+  const networkGlassSignal = useMemo(() => {
+    const measuredServerId = connectingServerId || switchingServerId || activeServerId;
+    return liveNetworkGlassSignal({
+      connectionState: status?.state,
+      transitioning: Boolean(connectingServerId || switchingServerId || disconnecting),
+      uploadBytesPerSecond: trafficSpeed.upload,
+      downloadBytesPerSecond: trafficSpeed.download,
+      pingMs: measuredServerId ? serverPings[measuredServerId] : null,
+    });
+  }, [activeServerId, connectingServerId, disconnecting, serverPings, status?.state, switchingServerId, trafficSpeed.download, trafficSpeed.upload]);
+  const networkGlassStyle = useMemo(() => ({
+    "--network-upload-alpha": `${0.014 + networkGlassSignal.uploadLevel * 0.09}`,
+    "--network-download-alpha": `${0.017 + networkGlassSignal.downloadLevel * 0.10}`,
+    "--network-latency": `${networkGlassSignal.latencyLevel}`,
+  }) as React.CSSProperties, [networkGlassSignal]);
 
   const providerTheme = useMemo<SubscriptionTheme | null>(() => {
     if (!preferences.provider_theme) return null;
@@ -114,6 +138,18 @@ export default function App() {
   useEffect(() => {
     // Notify the backend that the React frontend has mounted and is ready
     void api.appReady().catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void api.getPostUpdateInfo()
+      .then((info) => {
+        if (active && info) setPostUpdateInfo(info);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -321,12 +357,12 @@ export default function App() {
       if (updateChecked.current || updateCheckInFlight.current) return;
 
       updateCheckInFlight.current = true;
-      void api.checkAppUpdate()
+      void api.checkAppUpdate(preferences.update_channel)
         .then((update) => {
           if (cancelled) return;
 
           updateChecked.current = true;
-          if (update.available) setStartupUpdate(update);
+          if (isInstallableAppUpdate(update)) setStartupUpdate(update);
         })
         .catch(() => {
           if (cancelled) return;
@@ -348,12 +384,12 @@ export default function App() {
       if (updateRetryTimer.current) clearTimeout(updateRetryTimer.current);
       if (!updateChecked.current) updateStartupScheduled.current = false;
     };
-  }, [preferences.check_updates_on_launch]);
+  }, [preferences.check_updates_on_launch, preferences.update_channel]);
 
   useEffect(() => {
     const onShowUpdateDialog = (event: Event) => {
       const update = (event as AppUpdateDialogEvent).detail;
-      if (update?.available) setStartupUpdate(update);
+      if (isInstallableAppUpdate(update)) setStartupUpdate(update);
     };
     window.addEventListener(APP_UPDATE_DIALOG_EVENT, onShowUpdateDialog);
     return () => window.removeEventListener(APP_UPDATE_DIALOG_EVENT, onShowUpdateDialog);
@@ -383,7 +419,11 @@ export default function App() {
   }, [status, error, preferences.start_minimized]);
 
   return (
-    <div className="app-shell flex h-full">
+    <div
+      className="app-shell flex h-full"
+      data-network-glass={networkGlassSignal.mode}
+      style={networkGlassStyle}
+    >
       <AppBackground appearance={appearance} />
       <DeepLinkBridge />
       <OnboardingRedirect
@@ -395,12 +435,26 @@ export default function App() {
       {startupUpdate && (
         <UpdateDialog
           update={startupUpdate}
-          onDownload={() => {
-            const url = startupUpdate.download_url ?? startupUpdate.release_url;
-            void api.openUpdateDownload(url);
+          onDownload={async () => {
+            const result = await api.installAppUpdate(startupUpdate);
+            notifyInfo(
+              result.rollback_supported
+                ? m.settings.updateVerified
+                : m.settings.updateVerifiedNoRollback,
+            );
             setStartupUpdate(null);
           }}
           onClose={() => setStartupUpdate(null)}
+        />
+      )}
+      {postUpdateInfo && !startupUpdate && (
+        <PostUpdateDialog
+          update={postUpdateInfo}
+          onClose={() => {
+            void api.dismissPostUpdateInfo()
+              .catch(() => undefined)
+              .finally(() => setPostUpdateInfo(null));
+          }}
         />
       )}
       {conflictDialogOpen && (
@@ -420,7 +474,7 @@ export default function App() {
         className="app-sidebar shrink-0 flex flex-col p-3"
         style={{ "--sidebar-width": `${sidebarWidth.width}px` } as React.CSSProperties}
       >
-        <div className="glass rounded-2xl flex-1 flex flex-col overflow-hidden">
+        <div className="glass network-glass-reactive rounded-2xl flex-1 flex flex-col overflow-hidden">
           <div className="app-brand px-5 pt-5 pb-4">
             <div className="app-brand-lockup">
               <img src={nimboLogo} alt="" className="app-brand-logo" aria-hidden="true" />
@@ -483,6 +537,7 @@ export default function App() {
           <Route path="/statistics" element={<Statistics />} />
           <Route path="/tunnel-logs" element={<TunnelLogs />} />
           <Route path="/notifications" element={<Notifications />} />
+          <Route path="/sync" element={<CrossPlatformSync />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
@@ -496,17 +551,36 @@ export function showAppUpdateDialog(update: AppUpdateInfo) {
   window.dispatchEvent(new CustomEvent(APP_UPDATE_DIALOG_EVENT, { detail: update }));
 }
 
+function isInstallableAppUpdate(update: AppUpdateInfo | null | undefined) {
+  return Boolean(update?.available && update.asset?.digest);
+}
+
 function UpdateDialog({
   update,
   onDownload,
   onClose,
 }: {
   update: AppUpdateInfo;
-  onDownload: () => void;
+  onDownload: () => Promise<void>;
   onClose: () => void;
 }) {
   const m = useMessages();
-  const canDownload = Boolean(update.download_url || update.release_url);
+  const canDownload = Boolean(update.available && update.asset?.digest);
+  const [installing, setInstalling] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const notes = update.release_notes?.trim() || m.settings.updateFallbackNotes;
+
+  const install = async () => {
+    if (!canDownload || installing) return;
+    setInstalling(true);
+    setInstallError(null);
+    try {
+      await onDownload();
+    } catch (error) {
+      setInstallError(String(error));
+      setInstalling(false);
+    }
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -534,21 +608,118 @@ function UpdateDialog({
         <h2 id="update-dialog-title" className="update-dialog-title">{m.settings.updateAvailable}</h2>
         <div className="update-dialog-version">v{update.latest_version}</div>
         <p id="update-dialog-text" className="update-dialog-text">
-          {fillTemplate(m.settings.updateReady, { version: update.latest_version })}
+          {fillTemplate(
+            update.reason === "reissued" ? m.settings.updateReissued : m.settings.updateReady,
+            { version: update.latest_version },
+          )}
           <br />
-          {update.asset ? m.settings.updateRecommended : m.settings.updateNoAsset}
+          {!update.asset
+            ? m.settings.updateNoAsset
+            : !update.asset.digest
+              ? m.settings.updateDigestMissing
+              : m.settings.updateRecommended}
         </p>
+        <div className="update-dialog-notes">
+          <strong>{m.settings.updateReleaseNotes}</strong>
+          <span>{notes}</span>
+          {!update.release_notes && update.target_commitish && (
+            <small>{fillTemplate(m.settings.updateCommit, { commit: update.target_commitish })}</small>
+          )}
+        </div>
+        {update.asset?.updated_at && (
+          <div className="update-dialog-meta">
+            {m.settings.updateAssetTime}: {new Date(update.asset.updated_at).toLocaleString()}
+          </div>
+        )}
+        {installError && <div className="update-dialog-error">{installError}</div>}
         <button
           type="button"
           className="update-dialog-download"
-          disabled={!canDownload}
-          onClick={onDownload}
+          disabled={!canDownload || installing}
+          onClick={() => void install()}
         >
-          {m.settings.downloadUpdate}
+          {installing ? m.settings.verifyingUpdate : m.settings.downloadUpdate}
         </button>
         <button type="button" className="update-dialog-later" onClick={onClose}>
           {m.common.later}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function PostUpdateDialog({
+  update,
+  onClose,
+}: {
+  update: AppPostUpdateInfo;
+  onClose: () => void;
+}) {
+  const m = useMessages();
+  const [showChanges, setShowChanges] = useState(false);
+  const notes = update.release_notes?.trim() || m.settings.updateFallbackNotes;
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="update-dialog-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="update-dialog update-dialog-installed"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="post-update-dialog-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="update-dialog-art">
+          <div className="update-dialog-orbit update-dialog-success">
+            <img src={nimboLogo} alt="" className="update-dialog-logo" aria-hidden="true" />
+            <span aria-hidden="true">✓</span>
+          </div>
+        </div>
+        <h2 id="post-update-dialog-title" className="update-dialog-title">
+          {m.settings.updateInstalledTitle}
+        </h2>
+        <div className="update-dialog-version">v{update.version}</div>
+        <p className="update-dialog-text">
+          {fillTemplate(m.settings.updateInstalledText, { version: update.version })}
+        </p>
+        {showChanges && (
+          <div className="update-dialog-notes">
+            <strong>{m.settings.updateReleaseNotes}</strong>
+            <span>{notes}</span>
+            {update.release_url && (
+              <a
+                className="update-dialog-release-link"
+                href={update.release_url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {m.settings.releasePage}
+              </a>
+            )}
+          </div>
+        )}
+        <button
+          type="button"
+          className="update-dialog-download"
+          onClick={() => {
+            if (showChanges) onClose();
+            else setShowChanges(true);
+          }}
+        >
+          {showChanges ? m.settings.updateCloseChanges : m.settings.updateShowChanges}
+        </button>
+        {!showChanges && (
+          <button type="button" className="update-dialog-later" onClick={onClose}>
+            {m.common.later}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -687,6 +858,7 @@ function navLabel(labels: Messages["app"], key: string, short: boolean): string 
   if (key === "statistics") return short ? labels.statisticsShort : labels.statistics;
   if (key === "tunnelLogs") return short ? labels.tunnelLogsShort : labels.tunnelLogs;
   if (key === "notifications") return short ? labels.notificationsShort : labels.notifications;
+  if (key === "sync") return short ? labels.syncShort : labels.sync;
   return labels.settings;
 }
 
@@ -695,6 +867,7 @@ function normalizeTrayRoute(route: unknown): string | null {
   if (route === "/subscriptions") return "/subscriptions";
   if (route === "/statistics") return "/statistics";
   if (route === "/tunnel-logs") return "/tunnel-logs";
+  if (route === "/sync") return "/sync";
   if (route === "/settings") return "/settings";
   return null;
 }
@@ -939,6 +1112,18 @@ function NavIcon({ name }: { name: string }) {
       <svg {...common}>
         <rect x="7" y="3" width="10" height="18" rx="2.2" />
         <path d="M11 17h2" />
+      </svg>
+    );
+  }
+  if (name === "sync") {
+    return (
+      <svg {...common}>
+        <rect x="3" y="5" width="11" height="14" rx="2.2" />
+        <path d="M7 16h3" />
+        <path d="M17 7.5h3.5V4" />
+        <path d="M20.5 7.5A6 6 0 0 0 16 4.1" />
+        <path d="M18 16.5h-3.5V20" />
+        <path d="M14.5 16.5A6 6 0 0 0 19 19.9" />
       </svg>
     );
   }
