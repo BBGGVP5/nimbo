@@ -297,7 +297,12 @@ export default function App() {
         .subscriptions
         .filter((sub) => /^https?:\/\//i.test(sub.url));
       void Promise.allSettled(remoteSubscriptions.map((sub) => refreshSubscription(sub.url)))
-        .then(async () => {
+        .then(async (results) => {
+          const failed = results.filter((result) => result.status === "rejected").length;
+          const success = results.length - failed;
+          if (preferences.subscriptions_notify_updates && results.length > 0) {
+            notifyInfo(fillTemplate(m.settings.subscriptionBackgroundUpdated, { success, failed }));
+          }
           if (!preferences.subscriptions_ping_after_update) return;
           const serverIds = useAppStore
             .getState()
