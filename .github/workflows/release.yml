@@ -24,6 +24,8 @@ jobs:
 
       - name: Установить Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-pc-windows-msvc,aarch64-pc-windows-msvc
 
       - name: Кэш Rust
         uses: Swatinem/rust-cache@v2
@@ -35,34 +37,27 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/ui/package-lock.json
+          cache-dependency-path: |
+            apps/ui/package-lock.json
+            apps/installer/package-lock.json
 
       - name: Установить NSIS
         shell: powershell
         run: choco install nsis --no-progress -y
 
-      - name: Собрать установщик
+      - name: Установить зависимости интерфейса
         working-directory: apps/ui
-        run: |
-          npm ci
-          npm run build:installer:current
+        run: npm ci
 
-      - name: Подготовить понятное имя файла
-        env:
-          TAG: ${{ inputs.tag || github.ref_name }}
+      - name: Собрать фирменные установщики
         shell: powershell
-        run: |
-          $version = $env:TAG -replace '^v', ''
-          $source = Get-ChildItem -LiteralPath target/release/bundle/nsis -Filter '*.exe' | Select-Object -First 1
-          if (-not $source) { throw 'Windows installer was not produced' }
-          New-Item -ItemType Directory -Force -Path release-normalized | Out-Null
-          Copy-Item -LiteralPath $source.FullName -Destination "release-normalized/Nimbo_${version}_windows_x64_setup.exe"
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File apps/installer/build-custom-installer.ps1 -All
 
-      - name: Сохранить Windows setup
+      - name: Сохранить фирменные Windows-установщики
         uses: actions/upload-artifact@v4
         with:
-          name: nimbo-windows-x64
-          path: release-normalized/*
+          name: nimbo-windows-custom
+          path: target/release/bundle/custom/windows/*
           if-no-files-found: error
 
   linux:
@@ -111,6 +106,11 @@ jobs:
           npm ci
           npm run build:linux
 
+      - name: Собрать фирменный Linux-установщик
+        if: matrix.asset_arch == 'x64'
+        shell: bash
+        run: ./apps/installer/build-custom-linux-installer.sh --target x86_64-unknown-linux-gnu
+
       - name: Подготовить понятные имена файлов
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
@@ -127,6 +127,9 @@ jobs:
           cp "$appimage" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.AppImage"
           cp "$deb" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.deb"
           cp "$rpm" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.rpm"
+          if [[ "$ASSET_ARCH" == "x64" ]]; then
+            cp "target/release/bundle/custom/linux/NimboSetup_${version}_x64" release-normalized/
+          fi
 
       - name: Сохранить Linux-пакеты
         uses: actions/upload-artifact@v4
