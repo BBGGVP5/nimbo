@@ -1,6 +1,7 @@
 param(
   [string[]]$Target = @("x86_64-pc-windows-msvc"),
-  [switch]$All
+  [switch]$All,
+  [switch]$ReuseCompiledPayloads
 )
 
 $ErrorActionPreference = "Stop"
@@ -185,44 +186,56 @@ if ($Target.Count -eq 0) {
 
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
-Push-Location $uiDir
-try {
-  & npm run build
-  if ($LASTEXITCODE -ne 0) { throw "npm run build failed for Nimbo UI." }
-} finally {
-  Pop-Location
-}
-
-# Touch tauri.conf.json so tauri-build re-embeds the latest dist/ even if
-# cargo's incremental cache thinks the crate is up to date. Without this,
-# nimbo-ui.exe can ship with a stale (or empty) frontend, causing the
-# installed Nimbo to hit ERR_CONNECTION_REFUSED on 127.0.0.1 because the
-# WebView falls back to the dev URL.
-$tauriConfPath = Join-Path $uiDir "src-tauri\tauri.conf.json"
-(Get-Item -LiteralPath $tauriConfPath).LastWriteTime = Get-Date
-$distIndex = Join-Path $uiDir "dist\index.html"
-if (Test-Path -LiteralPath $distIndex) {
-  (Get-Item -LiteralPath $distIndex).LastWriteTime = Get-Date
-}
-
-Push-Location $repoRoot
-try {
-  foreach ($targetTriple in $Target) {
-    Write-Host "Building app payload for $targetTriple..."
-
-    # `--features custom-protocol` is required for the Tauri runtime to use the
-    # embedded frontend assets. Without it, `tauri::generate_context!` compiles
-    # nimbo-ui in dev mode and the installed app tries to load
-    # http://127.0.0.1:1420 (ERR_CONNECTION_REFUSED). `cargo tauri build`
-    # passes this automatically; this raw `cargo build` does not.
-    & cargo build -p nimbo-ui --release --features custom-protocol --target $targetTriple
-    if ($LASTEXITCODE -ne 0) { throw "cargo build -p nimbo-ui failed for $targetTriple." }
-
-    & cargo build -p nimbo-svc --release --target $targetTriple
-    if ($LASTEXITCODE -ne 0) { throw "cargo build -p nimbo-svc failed for $targetTriple." }
+if (-not $ReuseCompiledPayloads) {
+  Push-Location $uiDir
+  try {
+    & npm run build
+    if ($LASTEXITCODE -ne 0) { throw "npm run build failed for Nimbo UI." }
+  } finally {
+    Pop-Location
   }
-} finally {
-  Pop-Location
+
+  # Touch tauri.conf.json so tauri-build re-embeds the latest dist/ even if
+  # cargo's incremental cache thinks the crate is up to date. Without this,
+  # nimbo-ui.exe can ship with a stale (or empty) frontend, causing the
+  # installed Nimbo to hit ERR_CONNECTION_REFUSED on 127.0.0.1 because the
+  # WebView falls back to the dev URL.
+  $tauriConfPath = Join-Path $uiDir "src-tauri\tauri.conf.json"
+  (Get-Item -LiteralPath $tauriConfPath).LastWriteTime = Get-Date
+  $distIndex = Join-Path $uiDir "dist\index.html"
+  if (Test-Path -LiteralPath $distIndex) {
+    (Get-Item -LiteralPath $distIndex).LastWriteTime = Get-Date
+  }
+
+  Push-Location $repoRoot
+  try {
+    foreach ($targetTriple in $Target) {
+      Write-Host "Building app payload for $targetTriple..."
+
+      # `--features custom-protocol` is required for the Tauri runtime to use the
+      # embedded frontend assets. Without it, `tauri::generate_context!` compiles
+      # nimbo-ui in dev mode and the installed app tries to load
+      # http://127.0.0.1:1420 (ERR_CONNECTION_REFUSED). `cargo tauri build`
+      # passes this automatically; this raw `cargo build` does not.
+      & cargo build -p nimbo-ui --release --features custom-protocol --target $targetTriple
+      if ($LASTEXITCODE -ne 0) { throw "cargo build -p nimbo-ui failed for $targetTriple." }
+
+      & cargo build -p nimbo-svc --release --target $targetTriple
+      if ($LASTEXITCODE -ne 0) { throw "cargo build -p nimbo-svc failed for $targetTriple." }
+    }
+  } finally {
+    Pop-Location
+  }
+} else {
+  foreach ($targetTriple in $Target) {
+    foreach ($payloadName in @("nimbo-ui.exe", "nimbo-svc.exe")) {
+      $payloadPath = Join-Path $repoRoot "target\$targetTriple\release\$payloadName"
+      if (-not (Test-Path -LiteralPath $payloadPath)) {
+        throw "Cannot reuse compiled payload; file is missing: $payloadPath"
+      }
+    }
+  }
+  Write-Host "Reusing previously compiled app payloads after a packaging/download retry."
 }
 
 foreach ($targetTriple in $Target) {
