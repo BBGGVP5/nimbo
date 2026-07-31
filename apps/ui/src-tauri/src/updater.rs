@@ -751,11 +751,11 @@ fn emit_update_progress(
     total_bytes: u64,
     stage: &'static str,
 ) {
-    let percent = if total_bytes > 0 {
-        ((downloaded_bytes.saturating_mul(100) / total_bytes).min(100)) as u8
-    } else {
-        0
-    };
+    let percent = downloaded_bytes
+        .saturating_mul(100)
+        .checked_div(total_bytes)
+        .unwrap_or(0)
+        .min(100) as u8;
     let _ = app.emit(
         "nimbo:update-progress",
         AppUpdateProgress {
@@ -890,8 +890,9 @@ fn active_wifi_address() -> Result<Option<IpAddr>, String> {
                     } else if family == AF_INET6 {
                         let address = unsafe { &*(socket.lpSockaddr.cast::<SOCKADDR_IN6>()) };
                         let ip = Ipv6Addr::from(unsafe { address.sin6_addr.u.Byte });
-                        if !ip.is_loopback() && !ip.is_unspecified() && !ip.is_unicast_link_local()
-                        {
+                        let first = ip.segments()[0];
+                        let is_unicast_link_local = (first & 0xffc0) == 0xfe80;
+                        if !ip.is_loopback() && !ip.is_unspecified() && !is_unicast_link_local {
                             ipv6_fallback = Some(IpAddr::V6(ip));
                         }
                     }

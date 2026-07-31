@@ -714,8 +714,10 @@ mod tests {
 
     #[test]
     fn beta_update_channel_round_trips() {
-        let mut preferences = AppPreferences::default();
-        preferences.update_channel = UpdateChannel::Beta;
+        let preferences = AppPreferences {
+            update_channel: UpdateChannel::Beta,
+            ..AppPreferences::default()
+        };
         let json = serde_json::to_value(&preferences).unwrap();
         assert_eq!(json["update_channel"], "beta");
         let restored: AppPreferences = serde_json::from_value(json).unwrap();
@@ -727,8 +729,10 @@ mod tests {
         let preferences: AppPreferences = serde_json::from_value(serde_json::json!({})).unwrap();
         assert!(!preferences.update_wifi_only);
 
-        let mut preferences = AppPreferences::default();
-        preferences.update_wifi_only = true;
+        let preferences = AppPreferences {
+            update_wifi_only: true,
+            ..AppPreferences::default()
+        };
         let restored: AppPreferences =
             serde_json::from_value(serde_json::to_value(preferences).unwrap()).unwrap();
         assert!(restored.update_wifi_only);
