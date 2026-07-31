@@ -155,15 +155,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             if [[ "$TAG" =~ -(alpha|beta|rc)(\.|-)?[0-9]*$ ]]; then
-              gh release create "$TAG" --prerelease --generate-notes
+              gh release create "$TAG" -R "$GITHUB_REPOSITORY" --prerelease --generate-notes
             else
-              gh release create "$TAG" --generate-notes
+              gh release create "$TAG" -R "$GITHUB_REPOSITORY" --generate-notes
             fi
           fi
           while IFS= read -r -d '' file; do
             hash="$(sha256sum "$file" | awk '{print $1}')"
             printf '%s  %s\n' "$hash" "$(basename "$file")" > "${file}.sha256"
           done < <(find release-assets -type f ! -name '*.sha256' -print0)
-          find release-assets -type f -print0 | xargs -0 gh release upload "$TAG" --clobber
+          find release-assets -type f -print0 | xargs -0 gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber
