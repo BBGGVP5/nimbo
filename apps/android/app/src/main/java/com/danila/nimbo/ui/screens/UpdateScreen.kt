@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -183,40 +184,61 @@ internal fun ColumnScope.UpdatesSettingsContent() {
                     }
                     Spacer(Modifier.height(14.dp))
                     var channelMenuExpanded by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(
-                        expanded = channelMenuExpanded,
-                        onExpandedChange = { channelMenuExpanded = it }
-                    ) {
+                    Box(Modifier.fillMaxWidth()) {
                         val channelLabel = when (updateChannel) {
                             UpdateChannel.STABLE -> t("Стабильный", "Stable")
                             UpdateChannel.BETA -> t("Бета", "Beta")
                         }
-                        OutlinedTextField(
-                            value = channelLabel,
-                            onValueChange = {},
-                            readOnly = true,
-                            singleLine = true,
-                            leadingIcon = { Icon(Icons.Default.Update, null) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(channelMenuExpanded) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = nebulaColors.accent,
-                                unfocusedBorderColor = nebulaColors.textPrimary.copy(alpha = 0.16f),
-                                focusedContainerColor = nebulaColors.accent.copy(alpha = 0.08f),
-                                unfocusedContainerColor = nebulaColors.textPrimary.copy(alpha = 0.035f),
-                                focusedTextColor = nebulaColors.textPrimary,
-                                unfocusedTextColor = nebulaColors.textPrimary,
-                                focusedLeadingIconColor = nebulaColors.accent,
-                                unfocusedLeadingIconColor = nebulaColors.accent
-                            ),
-                            shape = RoundedCornerShape(18.dp),
+                        val channelShape = RoundedCornerShape(18.dp)
+                        Row(
                             modifier = Modifier
-                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = true)
                                 .fillMaxWidth()
-                        )
-                        ExposedDropdownMenu(
+                                .clip(channelShape)
+                                .background(
+                                    if (channelMenuExpanded) {
+                                        nebulaColors.accent.copy(alpha = 0.10f)
+                                    } else {
+                                        nebulaColors.textPrimary.copy(alpha = 0.035f)
+                                    }
+                                )
+                                .border(
+                                    width = if (channelMenuExpanded) 2.dp else 1.dp,
+                                    color = if (channelMenuExpanded) {
+                                        nebulaColors.accent
+                                    } else {
+                                        nebulaColors.textPrimary.copy(alpha = 0.16f)
+                                    },
+                                    shape = channelShape
+                                )
+                                .clickable { channelMenuExpanded = true }
+                                .padding(horizontal = 18.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Update,
+                                contentDescription = null,
+                                tint = nebulaColors.accent
+                            )
+                            Spacer(Modifier.width(14.dp))
+                            Text(
+                                text = channelLabel,
+                                color = nebulaColors.textPrimary,
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Icon(
+                                Icons.Default.KeyboardArrowDown,
+                                contentDescription = t("Выбрать канал", "Choose channel"),
+                                tint = nebulaColors.textSecondary,
+                                modifier = Modifier.rotate(if (channelMenuExpanded) 180f else 0f)
+                            )
+                        }
+                        DropdownMenu(
                             expanded = channelMenuExpanded,
                             onDismissRequest = { channelMenuExpanded = false },
-                            containerColor = nebulaColors.surface
+                            containerColor = nebulaColors.surface,
+                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier.widthIn(min = 240.dp)
                         ) {
                             UpdateChannel.entries.forEach { channel ->
                                 val label = when (channel) {

@@ -1,10 +1,6 @@
 package com.danila.nimbo.service
 
-import android.app.AlarmManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
-import android.os.Build
 import android.util.Log
 import androidx.work.*
 import com.danila.nimbo.utils.PreferencesManager
@@ -16,11 +12,11 @@ import java.util.concurrent.TimeUnit
 object SubscriptionUpdateScheduler {
 
     private const val TAG = "SubscriptionUpdate"
-    private const val WORK_TAG = "subscription_auto_update"
+    private const val WORK_NAME = "subscription_auto_update"
 
     /**
-     * Планирование автообновления подписок
-     * Использует интервал из Remnawave (если доступен) или глобальную настройку
+     * Гарантирует наличие одной следующей фоновой проверки, не сбрасывая её
+     * при каждом открытии Activity.
      */
     fun schedule(context: Context) {
         val preferencesManager = PreferencesManager(context)
@@ -30,43 +26,36 @@ object SubscriptionUpdateScheduler {
             return
         }
 
-        // Получаем интервал авто-обновления из подписки (Remnawave)
-        // Если есть несколько подписок, используем минимальный интервал
-        val profiles = preferencesManager.loadProfiles()
-        val intervalFromSubscription = profiles
-            .mapNotNull { preferencesManager.getSubscriptionUpdateInterval(it.url) }
-            .minOrNull()
+        enqueue(context, ExistingWorkPolicy.KEEP)
+    }
 
-        // Если есть интервал из подписки, используем его, иначе - глобальную настройку
-        val intervalSeconds = intervalFromSubscription?.toLong()
-            ?: preferencesManager.subscriptionUpdateInterval.toLong()
+    internal fun scheduleNext(context: Context) {
+        val preferencesManager = PreferencesManager(context)
+        if (!preferencesManager.subscriptionAutoUpdate) return
+        enqueue(context, ExistingWorkPolicy.APPEND_OR_REPLACE)
+    }
 
-        // Конвертируем часы в минуты (Remnawave передаёт интервал в часах)
-        val intervalMinutes = if (intervalFromSubscription != null) {
-            (intervalSeconds * 60).coerceAtLeast(15) // Минимум 15 минут
-        } else {
-            (intervalSeconds / 60).coerceAtLeast(15) // Минимум 15 минут
-        }
-
-        Log.d(TAG, "Scheduling auto-update every $intervalMinutes minutes (from ${if (intervalFromSubscription != null) "subscription" else "settings"})")
-        if (intervalFromSubscription != null) {
-            Log.d(TAG, "Interval from Remnawave subscription: $intervalFromSubscription hours")
-        }
+    private fun enqueue(context: Context, policy: ExistingWorkPolicy) {
+        val preferencesManager = PreferencesManager(context)
+        val delaySeconds = SubscriptionRefreshSchedulePolicy.delaySeconds(
+            preferencesManager.subscriptionUpdateInterval
+        )
+        Log.d(TAG, "Scheduling subscription refresh in $delaySeconds seconds")
 
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
-        val updateRequest = PeriodicWorkRequestBuilder<SubscriptionUpdateWorker>(
-            intervalMinutes, TimeUnit.MINUTES
-        )
+        val updateRequest = OneTimeWorkRequestBuilder<SubscriptionUpdateWorker>()
+            .setInitialDelay(delaySeconds, TimeUnit.SECONDS)
             .setConstraints(constraints)
-            .addTag(WORK_TAG)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.MINUTES)
+            .addTag(WORK_NAME)
             .build()
 
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            WORK_TAG,
-            ExistingPeriodicWorkPolicy.REPLACE,
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+            WORK_NAME,
+            policy,
             updateRequest
         )
     }
@@ -76,15 +65,18 @@ object SubscriptionUpdateScheduler {
      */
     fun cancel(context: Context) {
         Log.d(TAG, "Cancelling auto-update")
-        WorkManager.getInstance(context).cancelUniqueWork(WORK_TAG)
+        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(WORK_NAME)
     }
     
     /**
      * Перепланирование при изменении настроек
      */
     fun reschedule(context: Context) {
-        cancel(context)
-        schedule(context)
+        val preferencesManager = PreferencesManager(context)
+        if (!preferencesManager.subscriptionAutoUpdate) {
+            cancel(context)
+            return
+        }
+        enqueue(context, ExistingWorkPolicy.REPLACE)
     }
 }
-

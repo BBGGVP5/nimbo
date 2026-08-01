@@ -27,7 +27,6 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.danila.nimbo.model.Server
 import com.danila.nimbo.network.SubscriptionManager
-import com.danila.nimbo.service.SubscriptionUpdateScheduler
 import com.danila.nimbo.network.UpdateWorkScheduler
 import com.danila.nimbo.ui.LocalPreferencesManager
 import com.danila.nimbo.ui.components.NotificationType
@@ -120,8 +119,6 @@ class MainActivity : ComponentActivity() {
             com.danila.nimbo.network.RemnawaveApiClient.init(application)
             SubscriptionManager.init(application)
         }
-        SubscriptionUpdateScheduler.schedule(this)
-
         setContent {
             val themeIndex by preferencesManager.colorThemeState
             val themeMode by preferencesManager.themeModeState

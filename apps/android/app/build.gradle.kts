@@ -173,7 +173,8 @@ androidComponents {
                 ?.identifier
                 ?.replace('-', '_')
                 ?: "universal"
-            output.outputFileName.set("Nimbo_v${version}_${abi}_${variant.buildType}.apk")
+            val buildSuffix = if (variant.buildType == "debug") "_debug" else ""
+            output.outputFileName.set("Nimbo_v${version}_${abi}${buildSuffix}.apk")
         }
     }
 }
@@ -214,10 +215,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.5.3")
     implementation("androidx.camera:camera-lifecycle:1.5.3")
     implementation("androidx.camera:camera-view:1.5.3")
-// ML Kit QR — play-services variant: модель barhopper/tflite (~6 МБ)
-    // загружается из установленного Google Play Services вместо bundling в APK.
-    // API (com.google.mlkit.vision.barcode.*) совпадает с bundled-версией,
-    // поэтому код QrScannerScreen не меняется. На устройствах без GPS QR-сканер
-    // не запустится — пользователю придётся вставлять ссылки подписки руками.
-    implementation("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
+    // Bundled ML Kit: QR-сканер готов сразу и не зависит от загрузки модели
+    // через Google Play Services при первом открытии камеры.
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 }

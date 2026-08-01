@@ -5684,6 +5684,7 @@ private fun SettingsNumberField(
 private fun ColumnScope.SubscriptionsSettingsSection(
     preferencesManager: PreferencesManager
 ) {
+    val context = LocalContext.current
     var autoUpdate by remember { mutableStateOf(preferencesManager.subscriptionAutoUpdate) }
     var intervalHours by remember { mutableStateOf((preferencesManager.subscriptionUpdateInterval / 3600).coerceAtLeast(1)) }
     var updateOnStartup by remember { mutableStateOf(preferencesManager.updateSubOnStartup) }
@@ -5701,6 +5702,7 @@ private fun ColumnScope.SubscriptionsSettingsSection(
             onCheckedChange = {
                 autoUpdate = it
                 preferencesManager.subscriptionAutoUpdate = it
+                SubscriptionUpdateScheduler.reschedule(context)
             },
             icon = Icons.Default.Refresh
         )
@@ -5741,6 +5743,7 @@ private fun ColumnScope.SubscriptionsSettingsSection(
                     if (h != null) {
                         intervalHours = h.coerceIn(1, 168)
                         preferencesManager.subscriptionUpdateInterval = intervalHours * 3600
+                        SubscriptionUpdateScheduler.reschedule(context)
                     }
                 }
             )

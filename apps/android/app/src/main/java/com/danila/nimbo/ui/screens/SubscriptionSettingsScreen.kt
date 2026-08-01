@@ -96,11 +96,6 @@ fun SubscriptionSettingsScreen(
         }
     }
 
-    LaunchedEffect(autoUpdate, updateInterval) {
-        preferencesManager.subscriptionAutoUpdate = autoUpdate
-        preferencesManager.subscriptionUpdateInterval = updateInterval
-        SubscriptionUpdateScheduler.reschedule(context)
-    }
     LaunchedEffect(sendHwid) { preferencesManager.sendHwid = sendHwid }
     LaunchedEffect(showNotificationSpeed) { preferencesManager.showNotificationSpeed = showNotificationSpeed }
     LaunchedEffect(showNotificationConnectionTime) {
@@ -184,7 +179,11 @@ fun SubscriptionSettingsScreen(
                         title = "Автообновление",
                         subtitle = "Для всех подписок",
                         checked = autoUpdate,
-                        onCheckedChange = { autoUpdate = it }
+                        onCheckedChange = {
+                            autoUpdate = it
+                            preferencesManager.subscriptionAutoUpdate = it
+                            SubscriptionUpdateScheduler.reschedule(context)
+                        }
                     )
 
                     HorizontalDivider(
@@ -203,6 +202,8 @@ fun SubscriptionSettingsScreen(
                         selectedValue = updateInterval,
                         onSelect = {
                             updateInterval = it
+                            preferencesManager.subscriptionUpdateInterval = it
+                            SubscriptionUpdateScheduler.reschedule(context)
                             showIntervalDropdown = false
                         }
                     )
@@ -426,4 +427,3 @@ private fun MorphismDropdownField(
         }
     }
 }
-

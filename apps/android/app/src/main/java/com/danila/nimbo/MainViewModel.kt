@@ -15,6 +15,8 @@ import com.danila.nimbo.network.RemnawaveApiClient
 import com.danila.nimbo.network.RemnawaveSubscriptionTemplate
 import com.danila.nimbo.network.SubscriptionManager
 import com.danila.nimbo.network.SubscriptionRefreshPolicy
+import com.danila.nimbo.service.SubscriptionRefreshSchedulePolicy
+import com.danila.nimbo.service.SubscriptionUpdateEvents
 import com.danila.nimbo.ui.screens.SubscriptionProfile
 import com.danila.nimbo.ui.screens.SubscriptionTemplateCache
 import com.danila.nimbo.ui.screens.SubscriptionProfileMetadata
@@ -1014,6 +1016,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Log.d("MainViewModel", "Application: ${application.packageName}")
         loadProfiles()
         refreshIPInfo()
+
+        viewModelScope.launch {
+            SubscriptionUpdateEvents.updates.collect {
+                Log.d("MainViewModel", "Applying profiles refreshed by background worker")
+                loadProfiles()
+            }
+        }
         
         // Слушаем сигнал об отмене всех системных задач (из VPN сервиса)
         viewModelScope.launch {
@@ -1075,21 +1084,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun checkAndAutoUpdateSubscriptions() {
-        if (!preferencesManager.subscriptionAutoUpdate) return
+        if (!preferencesManager.subscriptionAutoUpdate || !preferencesManager.updateSubOnStartup) return
 
         val profiles = _profilesState.value
         val currentTime = System.currentTimeMillis()
 
         profiles.forEach { profile ->
             val lastUpdate = preferencesManager.getLastSubscriptionUpdateTime(profile.url)
-            val intervalHours = preferencesManager.getSubscriptionUpdateInterval(profile.url)
-                ?: preferencesManager.subscriptionUpdateInterval
-            
-            val intervalMillis = intervalHours * 60L * 60L * 1000L
-
-            if (currentTime - lastUpdate >= intervalMillis) {
-                Log.d("MainViewModel", "Auto-updating scheduled subscription on launch")
-                refreshSubscription(profile.url)
+            if (SubscriptionRefreshSchedulePolicy.isDue(
+                    nowMs = currentTime,
+                    lastSuccessMs = lastUpdate,
+                    configuredSeconds = preferencesManager.subscriptionUpdateInterval
+                )
+            ) {
+                Log.d("MainViewModel", "Silently refreshing due subscription on launch")
+                refreshSubscription(profile.url, notifyUser = false)
             }
         }
     }
@@ -1166,13 +1175,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Log.d("MainViewModel", "Removed subscription, remaining: ${_profilesState.value.size}")
     }
 
-    fun refreshSubscription(url: String) {
+    fun refreshSubscription(url: String, notifyUser: Boolean = true) {
         if (subscriptionJobs[url]?.isActive == true) {
-            showTopNotification(userText("Подписка уже обновляется...", "Subscription is already refreshing..."), com.danila.nimbo.ui.components.NotificationType.UPDATE)
+            if (notifyUser) {
+                showTopNotification(userText("Подписка уже обновляется...", "Subscription is already refreshing..."), com.danila.nimbo.ui.components.NotificationType.UPDATE)
+            }
             return
         }
 
-        showTopNotification(userText("Обновление подписки...", "Refreshing subscription..."), com.danila.nimbo.ui.components.NotificationType.UPDATE)
+        if (notifyUser) {
+            showTopNotification(userText("Обновление подписки...", "Refreshing subscription..."), com.danila.nimbo.ui.components.NotificationType.UPDATE)
+        }
         _isRefreshingSubscriptions.value = true
         val index = _profilesState.value.indexOfFirst { it.url == url }
         if (index != -1) {
@@ -1181,7 +1194,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 set(index, profile.copy(isLoading = true, error = null))
             }
         }
-        loadSubscription(url, isRefresh = true, forceNetwork = true)
+        loadSubscription(
+            url = url,
+            isRefresh = true,
+            showRefreshResultNotification = notifyUser,
+            allowPostRefreshPing = notifyUser,
+            forceNetwork = true
+        )
     }
 
     fun refreshAllSubscriptions() {

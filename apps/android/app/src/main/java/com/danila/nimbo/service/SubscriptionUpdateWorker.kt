@@ -10,6 +10,7 @@ import com.danila.nimbo.utils.NotificationManager
 import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.utils.Logger
 import com.danila.nimbo.utils.SubscriptionLogoCache
+import com.danila.nimbo.utils.AppVisibilityTracker
 
 /**
  * Worker для фонового обновления подписок
@@ -42,15 +43,38 @@ class SubscriptionUpdateWorker(
 
             if (profiles.isEmpty()) {
                 Log.d(TAG, "No profiles to update")
+                SubscriptionUpdateScheduler.scheduleNext(applicationContext)
                 return Result.success()
             }
 
-            var updatedCount = 0
+            val nowMs = System.currentTimeMillis()
+            val intervalSeconds = preferencesManager.subscriptionUpdateInterval
+            val dueUrls = profiles
+                .filter { profile ->
+                    SubscriptionRefreshSchedulePolicy.isDue(
+                        nowMs = nowMs,
+                        lastSuccessMs = preferencesManager.getLastSubscriptionUpdateTime(profile.url),
+                        configuredSeconds = intervalSeconds
+                    )
+                }
+                .mapTo(mutableSetOf()) { it.url }
+            if (dueUrls.isEmpty()) {
+                Log.d(TAG, "No subscriptions are due yet")
+                SubscriptionUpdateScheduler.scheduleNext(applicationContext)
+                return Result.success()
+            }
+
+            var successfulChecks = 0
+            var changedCount = 0
             var failedCount = 0
             val successfulServerCounts = mutableListOf<Int>()
             val updatedProfiles = mutableListOf<com.danila.nimbo.ui.screens.SubscriptionProfile>()
 
             for (profile in profiles) {
+                if (profile.url !in dueUrls) {
+                    updatedProfiles.add(profile)
+                    continue
+                }
                 try {
                     Log.d(TAG, "Updating profile: ${profile.name}")
 
@@ -83,6 +107,8 @@ class SubscriptionUpdateWorker(
 
                     // Обновляем профиль
                     val updatedProfile = profile.copy(
+                        isLoading = false,
+                        error = null,
                         name = result.username ?: profile.name,
                         servers = parsedServers.ifEmpty { profile.servers },
                         uploadTotal = result.uploadTotal,
@@ -105,8 +131,16 @@ class SubscriptionUpdateWorker(
                     }
 
                     updatedProfiles.add(updatedProfile)
-                    updatedCount++
-                    successfulServerCounts += updatedProfile.servers.size
+                    preferencesManager.setLastSubscriptionUpdateTime(profile.url, nowMs)
+                    preferencesManager.setSubscriptionUpdateInterval(
+                        profile.url,
+                        result.autoUpdateInterval
+                    )
+                    successfulChecks++
+                    if (updatedProfile != profile) {
+                        changedCount++
+                        successfulServerCounts += updatedProfile.servers.size
+                    }
                     Log.d(TAG, "Updated profile: ${profile.name}")
 
                 } catch (e: Exception) {
@@ -119,21 +153,29 @@ class SubscriptionUpdateWorker(
             }
 
             // Сохраняем обновлённые профили обратно в SharedPreferences
-            if (updatedCount > 0) {
+            if (changedCount > 0) {
                 preferencesManager.saveProfiles(updatedProfiles)
-                Log.d(TAG, "Saved $updatedCount updated profiles to SharedPreferences")
+                SubscriptionUpdateEvents.notifyProfilesChanged()
+                Log.d(TAG, "Saved $changedCount changed profiles to SharedPreferences")
             }
 
-            Log.d(TAG, "Auto-update completed. Updated $updatedCount profiles")
-            Logger.d(TAG, "Auto-update completed. Updated $updatedCount profiles")
+            Log.d(TAG, "Auto-update completed. Checked $successfulChecks, changed $changedCount")
+            Logger.d(TAG, "Auto-update completed. Checked $successfulChecks, changed $changedCount")
 
-            if (preferencesManager.notifyOnSubscriptionUpdate) {
+            if (SubscriptionRefreshSchedulePolicy.shouldShowSystemNotification(
+                    notificationsEnabled = preferencesManager.notifyOnSubscriptionUpdate,
+                    appInForeground = AppVisibilityTracker.isForeground,
+                    changedSubscriptions = changedCount
+                )
+            ) {
                 NotificationManager.showSubscriptionUpdateNotification(
                     applicationContext,
                     SubscriptionRefreshPolicy.summarize(successfulServerCounts, failedCount)
                 )
             }
 
+            if (failedCount > 0) return Result.retry()
+            SubscriptionUpdateScheduler.scheduleNext(applicationContext)
             return Result.success()
 
         } catch (e: Exception) {

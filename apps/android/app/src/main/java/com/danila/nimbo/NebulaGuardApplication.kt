@@ -7,6 +7,7 @@ import com.danila.nimbo.network.UpdateWorkScheduler
 import com.danila.nimbo.service.SubscriptionUpdateScheduler
 import com.danila.nimbo.utils.NotificationManager
 import com.danila.nimbo.utils.Logger
+import com.danila.nimbo.utils.AppVisibilityTracker
 
 class NebulaGuardApplication : Application() {
 
@@ -43,6 +44,7 @@ class NebulaGuardApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        registerActivityLifecycleCallbacks(AppVisibilityTracker)
         preferencesManager = com.danila.nimbo.utils.PreferencesManager(this)
         Logger.init(this)
         UpdateManager.confirmPendingInstallation(this)
