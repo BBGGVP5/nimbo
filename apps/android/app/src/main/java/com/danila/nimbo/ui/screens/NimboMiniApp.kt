@@ -308,6 +308,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.graphics.BlendMode
 import com.danila.nimbo.utils.PreferencesManager
+import com.danila.nimbo.utils.AppIconManager
 import com.danila.nimbo.ui.LocalPreferencesManager
 import com.danila.nimbo.utils.Logger
 import com.danila.nimbo.utils.formatBytes
@@ -330,12 +331,12 @@ import kotlin.math.sin
 
 private enum class MiniDestination {
     Home, Subscription, AppAccess, Settings,
-    Theme, Language, PingSettings, About, Disclaimer, ConnectionId, Notifications, Updates, Logs,
+    Theme, AppIcon, Language, PingSettings, About, Disclaimer, ConnectionId, Notifications, Updates, Logs,
     Routing, Connections, Statistics, Firewall, WhitelistCheck, WhitelistPing, WhitelistHistory,
     CrossPlatformSync;
 
     fun isSettingsSubPage(): Boolean = when (this) {
-        Theme, Language, PingSettings, About, ConnectionId, Notifications, Updates, Logs,
+        Theme, AppIcon, Language, PingSettings, About, ConnectionId, Notifications, Updates, Logs,
         Routing, Connections, Statistics, Firewall, WhitelistCheck, WhitelistPing, WhitelistHistory,
         CrossPlatformSync -> true
         else -> false
@@ -348,7 +349,7 @@ private enum class MiniDestination {
      */
     fun settingsRowYFraction(): Float = when (this) {
         Language -> 0.22f
-        Theme -> 0.30f
+        Theme, AppIcon -> 0.30f
         PingSettings -> 0.38f
         Notifications -> 0.54f
         ConnectionId -> 0.62f
@@ -711,6 +712,7 @@ fun NimboMiniApp(
     }
     val onOpenAppAccessRemembered = remember { { navigateTo(MiniDestination.AppAccess) } }
     val onLanguageClickRemembered = remember { { navigateTo(MiniDestination.Language) } }
+    val onAppIconClickRemembered = remember { { navigateTo(MiniDestination.AppIcon) } }
     val onAboutClickRemembered = remember { { navigateTo(MiniDestination.About) } }
     val onDisclaimerClickRemembered = remember { { showDisclaimer = true } }
     val onConnectionIdClickRemembered = remember { { navigateTo(MiniDestination.ConnectionId) } }
@@ -826,6 +828,7 @@ fun NimboMiniApp(
                     mainViewModel = mainViewModel,
                     onOpenSubscription = onOpenSubscriptionRemembered,
                     onOpenAppAccess = onOpenAppAccessRemembered,
+                    onAppIconClick = onAppIconClickRemembered,
                     onLanguageClick = onLanguageClickRemembered,
                     onAboutClick = onAboutClickRemembered,
                     onDisclaimerClick = onDisclaimerClickRemembered,
@@ -855,7 +858,12 @@ fun NimboMiniApp(
 
                 MiniDestination.Theme -> NimboThemeScreen(
                     preferencesManager = preferencesManager,
-                    onBack = { navigateBackInMiniApp() }
+                    onBack = { navigateBackInMiniApp() },
+                    onAppIconClick = onAppIconClickRemembered
+                )
+
+                MiniDestination.AppIcon -> AppIconSettingsScreen(
+                    onNavigateBack = { navigateBackInMiniApp() }
                 )
 
                 MiniDestination.PingSettings -> NimboPingSettingsScreen(
@@ -5216,6 +5224,7 @@ private fun NimboSettingsScreen(
     mainViewModel: MainViewModel,
     onOpenSubscription: () -> Unit,
     onOpenAppAccess: () -> Unit,
+    onAppIconClick: () -> Unit,
     onLanguageClick: () -> Unit,
     onAboutClick: () -> Unit,
     onDisclaimerClick: () -> Unit,
@@ -5269,7 +5278,10 @@ private fun NimboSettingsScreen(
         item {
             Column(modifier = Modifier.fillMaxWidth()) {
                 when (section) {
-                    1 -> ThemeSettingsSection(preferencesManager = preferencesManager)
+                    1 -> ThemeSettingsSection(
+                        preferencesManager = preferencesManager,
+                        onAppIconClick = onAppIconClick
+                    )
                     2 -> PingSettingsSection(preferencesManager, mainViewModel)
                     3 -> UpdatesSettingsContent()
                     4 -> AboutSettingsContent()
@@ -8519,8 +8531,11 @@ private fun AdvancedConnectionSettingsCard(
             icon = Icons.Default.Visibility
         )
         SettingsToggleRow(
-            title = t("TLS Fragment", "TLS Fragment"),
-            subtitle = t("Разбивает ClientHello для обхода SNI-фильтрации", "Splits ClientHello for SNI filtering bypass"),
+            title = t("TLS Fragment вручную", "Manual TLS Fragment"),
+            subtitle = t(
+                "Запасной режим: параметры сервиса из подписки применяются автоматически",
+                "Fallback mode: provider parameters from the subscription are applied automatically"
+            ),
             checked = tlsFragment,
             onCheckedChange = onTlsFragmentChange,
             icon = Icons.Default.Security
@@ -11566,17 +11581,22 @@ private fun NimboNotificationsScreen(
 @Composable
 private fun NimboThemeScreen(
     preferencesManager: PreferencesManager,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onAppIconClick: () -> Unit
 ) {
     NimboSubPageScaffold(title = t("Тема", "Theme"), onBack = onBack) {
-        ThemeSettingsSection(preferencesManager = preferencesManager)
+        ThemeSettingsSection(
+            preferencesManager = preferencesManager,
+            onAppIconClick = onAppIconClick
+        )
     }
 }
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ColumnScope.ThemeSettingsSection(
-    preferencesManager: PreferencesManager
+    preferencesManager: PreferencesManager,
+    onAppIconClick: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
     val languageContext = LocalContext.current
@@ -11611,6 +11631,7 @@ private fun ColumnScope.ThemeSettingsSection(
     val globalBlur by preferencesManager.globalBlurState
     val globalCorners by preferencesManager.globalCornersState
     val useDynamicColor by preferencesManager.useDynamicColorState
+    val selectedAppIcon by preferencesManager.selectedAppIconState
     val subscriptionPreviewProfiles = remember { preferencesManager.loadProfiles() }
     val subscriptionPreviewThemeSpec = preferencesManager.subscriptionThemeSpec
         ?.takeIf { it.isNotBlank() }
@@ -11682,6 +11703,13 @@ private fun ColumnScope.ThemeSettingsSection(
             )
         }
     }
+
+    Spacer(Modifier.height(18.dp))
+    AppIconAppearanceCard(
+        previewRes = AppIconManager.iconPreviewByIndex(selectedAppIcon),
+        title = AppIconManager.iconTitleByIndex(selectedAppIcon),
+        onClick = onAppIconClick
+    )
 
         Spacer(Modifier.height(18.dp))
         CollapsibleThemeSection(
@@ -12422,6 +12450,98 @@ private fun CollapsibleThemeSection(
                 Spacer(Modifier.height(12.dp))
                 content()
             }
+        }
+    }
+}
+
+@Composable
+private fun AppIconAppearanceCard(
+    previewRes: Int,
+    title: String,
+    onClick: () -> Unit
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val haptic = LocalHapticFeedback.current
+    val shape = RoundedCornerShape(20.dp)
+
+    GlassPanel(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() }
+            ) {
+                haptic.tick()
+                onClick()
+            },
+        shape = shape,
+        borderColor = nebulaColors.accent.copy(alpha = 0.24f),
+        accentFill = true
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(68.dp)
+                    .clip(RoundedCornerShape(19.dp))
+                    .background(nebulaColors.background.copy(alpha = 0.62f))
+                    .border(
+                        width = 1.dp,
+                        color = nebulaColors.accent.copy(alpha = 0.30f),
+                        shape = RoundedCornerShape(19.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                AppIconResourceImage(
+                    resId = previewRes,
+                    modifier = Modifier
+                        .size(58.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                )
+            }
+
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = t("Иконка приложения", "App icon"),
+                    color = nebulaColors.textPrimary,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = title,
+                    color = nebulaColors.accent,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+                Text(
+                    text = t(
+                        "Готовые варианты, форма, цвета и своя картинка",
+                        "Presets, shape, colors and your own image"
+                    ),
+                    color = nebulaColors.textTertiary,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 3.dp)
+                )
+            }
+
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = nebulaColors.textSecondary,
+                modifier = Modifier.size(26.dp)
+            )
         }
     }
 }

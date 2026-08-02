@@ -274,7 +274,7 @@ object XrayManager {
             runCatching {
                 val converted = LibXray.invoke(XrayCoreProtocol.convertShareLinksToXrayJson(config))
                 if (isOk(converted)) {
-                    sanitizeXrayJsonString(extractData(converted) ?: generateXrayConfig(server))
+                    sanitizeXrayJsonString(extractData(converted) ?: generateXrayConfig(server), server)
                 } else {
                     generateXrayConfig(server)
                 }
@@ -282,11 +282,11 @@ object XrayManager {
         }
     }
 
-    private fun sanitizeXrayJsonString(config: String): String {
+    private fun sanitizeXrayJsonString(config: String, server: Server? = null): String {
         return runCatching {
             val json = JSONObject(config)
             if (json.has("outbounds") || json.has("routing") || json.has("inbounds")) {
-                sanitizeOverrideXrayConfig(json, null, emptyList()).toString()
+                sanitizeOverrideXrayConfig(json, server, emptyList()).toString()
             } else {
                 config
             }
@@ -535,50 +535,62 @@ object XrayManager {
                 balancerTag = if (probeOutboundTag.isNullOrBlank()) balancerTag else null
             )
         )
-        applyTlsFragment(json)
+        applyTlsFragment(json, server)
         applyConnectionPolicy(json)
 
         return json
     }
 
-    // TLS Fragment (opt-in DPI bypass). Chains real proxy outbounds through an xray "fragment"
-    // freedom dialer that splits the TLS ClientHello so the SNI is not sent as one segment.
-    // Off by default; only applied when the user enables it in settings.
-    private fun applyTlsFragment(json: JSONObject) {
-        val enabled = runCatching {
-            PreferencesManager(NebulaGuardApplication.instance).tlsFragment
-        }.getOrDefault(false)
-        if (!enabled) return
+    // The subscription can centrally provide TLS ClientHello fragmentation parameters.
+    // The local toggle remains a fallback for subscriptions that do not publish them.
+    private fun applyTlsFragment(json: JSONObject, server: Server?) {
+        val prefs = PreferencesManager(NebulaGuardApplication.instance)
+        val profiles = runCatching { prefs.loadProfiles() }.getOrDefault(emptyList())
+        val owningProfile = server?.let { selected ->
+            selected.profileUrl?.let { profileUrl ->
+                profiles.firstOrNull { it.url.equals(profileUrl, ignoreCase = true) }
+            } ?: profiles.firstOrNull { profile ->
+                profile.servers.any { it.selectionKey() == selected.selectionKey() }
+            }
+        }
+        val providerConfig = owningProfile?.tlsFragment
+        val config = providerConfig ?: if (prefs.tlsFragment) {
+            com.danila.nimbo.network.TlsFragmentConfig(enabled = true)
+        } else {
+            null
+        }
+        if (config?.enabled != true) return
         val outbounds = json.optJSONArray("outbounds") ?: return
 
-        var hasFragment = false
+        var fragmentOutbound: JSONObject? = null
         for (i in 0 until outbounds.length()) {
-            if (outbounds.optJSONObject(i)?.optString("tag").equals("fragment", ignoreCase = true)) {
-                hasFragment = true
+            val outbound = outbounds.optJSONObject(i) ?: continue
+            if (outbound.optString("tag").equals("fragment", ignoreCase = true)) {
+                fragmentOutbound = outbound
                 break
             }
         }
-        if (!hasFragment) {
-            outbounds.put(
-                JSONObject()
-                    .put("tag", "fragment")
-                    .put("protocol", "freedom")
-                    .put(
-                        "settings",
-                        JSONObject().put(
-                            "fragment",
-                            JSONObject()
-                                .put("packets", "tlshello")
-                                .put("length", "100-200")
-                                .put("interval", "10-20")
-                        )
-                    )
-                    .put(
-                        "streamSettings",
-                        JSONObject().put("sockopt", JSONObject().put("tcpNoDelay", true))
-                    )
-            )
+        if (fragmentOutbound == null) {
+            fragmentOutbound = JSONObject()
+                .put("tag", "fragment")
+                .put("protocol", "freedom")
+            outbounds.put(fragmentOutbound)
         }
+        fragmentOutbound
+            .put(
+                "settings",
+                JSONObject().put(
+                    "fragment",
+                    JSONObject()
+                        .put("packets", config.packets)
+                        .put("length", config.length)
+                        .put("interval", config.interval)
+                )
+            )
+            .put(
+                "streamSettings",
+                JSONObject().put("sockopt", JSONObject().put("tcpNoDelay", true))
+            )
 
         val skipTags = setOf("direct", "block", "fragment", "dns")
         val skipProtocols = setOf("freedom", "blackhole", "dns", "loopback")
@@ -890,6 +902,7 @@ object XrayManager {
             })
         }
 
+        applyTlsFragment(root, server)
         applyConnectionPolicy(root)
         return root.toString()
     }

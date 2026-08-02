@@ -36,8 +36,8 @@ android {
         applicationId = "com.danila.nimbo"
         minSdk = 29
         targetSdk = 37
-        versionCode = 5
-        versionName = "1.1.0-beta.1"
+        versionCode = 6
+        versionName = "1.1.0-beta.2"
         buildConfigField("String", "LIBXRAY_VERSION", "\"26.7.28\"")
 
 
@@ -212,9 +212,9 @@ dependencies {
     implementation("sh.calvin.reorderable:reorderable:3.0.0")
     // CameraX
     implementation("androidx.camera:camera-core:1.5.3")
-    implementation("androidx.camera:camera-camera2:1.5.3")
-    implementation("androidx.camera:camera-lifecycle:1.5.3")
-    implementation("androidx.camera:camera-view:1.5.3")
+    implementation("androidx.camera:camera-camera2:1.6.1")
+    implementation("androidx.camera:camera-lifecycle:1.6.1")
+    implementation("androidx.camera:camera-view:1.6.1")
     // Bundled ML Kit: QR-сканер готов сразу и не зависит от загрузки модели
     // через Google Play Services при первом открытии камеры.
     implementation("com.google.mlkit:barcode-scanning:17.3.0")

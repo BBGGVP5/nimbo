@@ -9,13 +9,25 @@ import com.danila.nimbo.R
 
 object AppIconManager {
 
-    private val ALIAS_SUFFIXES = listOf(
+    data class IconOption(
+        val aliasSuffix: String,
+        @DrawableRes val previewRes: Int,
+        val title: String,
+        val description: String,
+        val backgroundColor: Int
+    )
+
+    private val SELECTABLE_ALIASES = listOf(
         "AliasDefault",
         "AliasSprite0000",
         "AliasSprite0001",
         "AliasSprite0002",
         "AliasSprite0004",
-        "AliasSprite0005",
+        "AliasSprite0005"
+    )
+
+    private val ALL_ALIAS_SUFFIXES = listOf(
+        *SELECTABLE_ALIASES.toTypedArray(),
         "AliasSprite0006",
         "AliasSprite0007",
         "AliasSprite0008",
@@ -31,80 +43,34 @@ object AppIconManager {
         "AliasSprite0018"
     )
 
-    val ICON_PREVIEWS = listOf(
-        R.mipmap.ic_launcher_nimbo_blue_v2,
-        R.mipmap.ic_alias_0000,
-        R.mipmap.ic_alias_0001,
-        R.mipmap.ic_alias_0002,
-        R.mipmap.ic_alias_0004,
-        R.mipmap.ic_alias_0005,
-        R.mipmap.ic_alias_0006,
-        R.mipmap.ic_alias_0007,
-        R.mipmap.ic_alias_0008,
-        R.mipmap.ic_alias_0009,
-        R.mipmap.ic_alias_0010,
-        R.mipmap.ic_alias_0011,
-        R.mipmap.ic_alias_0012,
-        R.mipmap.ic_alias_0013,
-        R.mipmap.ic_alias_0014,
-        R.mipmap.ic_alias_0015,
-        R.mipmap.ic_alias_0016,
-        R.mipmap.ic_alias_0017,
-        R.mipmap.ic_alias_0018
+    val ICON_OPTIONS = listOf(
+        IconOption("AliasDefault", R.mipmap.ic_launcher_nimbo_blue_v2, "Nimbo Beta", "Фирменная синяя иконка с аккуратной отметкой Beta", 0xFF1769E0.toInt()),
+        IconOption("AliasSprite0000", R.mipmap.ic_alias_0000, "Небо", "Чистый голубой фон и фирменное облако", 0xFF277BE8.toInt()),
+        IconOption("AliasSprite0001", R.mipmap.ic_alias_0001, "Полночь", "Глубокий тёмно-синий вариант", 0xFF0C1738.toInt()),
+        IconOption("AliasSprite0002", R.mipmap.ic_alias_0002, "Аврора", "Сине-фиолетовый градиент", 0xFF6548F5.toInt()),
+        IconOption("AliasSprite0004", R.mipmap.ic_alias_0004, "Мята", "Спокойный бирюзовый вариант", 0xFF008D78.toInt()),
+        IconOption("AliasSprite0005", R.mipmap.ic_alias_0005, "Жемчуг", "Светлый нейтральный фон", 0xFFF2F5FC.toInt())
     )
 
+    val ICON_PREVIEWS: List<Int> = ICON_OPTIONS.map(IconOption::previewRes)
+
     @DrawableRes
-    fun iconPreviewByIndex(index: Int): Int = ICON_PREVIEWS.getOrElse(index) { R.mipmap.ic_launcher_nimbo_blue_v2 }
+    fun iconPreviewByIndex(index: Int): Int = ICON_OPTIONS.getOrElse(index) { ICON_OPTIONS.first() }.previewRes
 
-    fun iconTitleByIndex(index: Int): String = when (index) {
-        0 -> "Nimbo Cloud"
-        1 -> "Leather"
-        2 -> "Graphite"
-        3 -> "Smoke"
-        4 -> "Steel"
-        5 -> "Ocean"
-        6 -> "Emerald"
-        7 -> "Aurora"
-        8 -> "Amethyst"
-        9 -> "Frost"
-        10 -> "Oak"
-        11 -> "Walnut"
-        12 -> "Neon Pulse"
-        13 -> "Cyber Glow"
-        14 -> "Pixel Hero"
-        15 -> "Amber"
-        16 -> "Indigo"
-        17 -> "Violet"
-        18 -> "Teal"
-        else -> "Nimbo Cloud"
-    }
+    fun iconTitleByIndex(index: Int): String = ICON_OPTIONS.getOrElse(index) { ICON_OPTIONS.first() }.title
 
-    fun iconDescriptionByIndex(index: Int): String = when (index) {
-        0 -> "Фирменное облачко Nimbo с сине-графитовым фоном"
-        1 -> "Кожаная фактура и теплый винтажный акцент"
-        2 -> "Тёмный металлический стиль для строгого вида"
-        3 -> "Дымный эффект и атмосферная мягкая текстура"
-        4 -> "Холодная сталь с индустриальным характером"
-        5 -> "Глубокие синие оттенки, вдохновленные океаном"
-        6 -> "Яркий зелёный щит с энергичным контрастом"
-        7 -> "Сине-фиолетовый градиент в футуристичном тоне"
-        8 -> "Благородный фиолетовый стиль с мягким свечением"
-        9 -> "Ледяная палитра с эффектом холодного стекла"
-        10 -> "Тёплая древесная текстура, натуральный стиль"
-        11 -> "Тёмное дерево с аккуратной премиальной подачей"
-        12 -> "Неоновый контур в духе ретро-future"
-        13 -> "Киберпанк-свечение и насыщенный контраст"
-        14 -> "Пиксель-арт щит для олдскульного вайба"
-        15 -> "Золотисто-янтарный акцент с мягким теплом"
-        16 -> "Глубокий индиго: спокойный и технологичный"
-        17 -> "Выразительный фиолетовый для яркого образа"
-        18 -> "Свежий бирюзовый, чистый и современный"
-        else -> "Фирменный стиль NebulaGuard"
-    }
+    fun iconDescriptionByIndex(index: Int): String = ICON_OPTIONS.getOrElse(index) { ICON_OPTIONS.first() }.description
+
+    fun iconBackgroundByIndex(index: Int): Int = ICON_OPTIONS.getOrElse(index) { ICON_OPTIONS.first() }.backgroundColor
 
     private fun aliases(context: Context): List<String> {
         val pkg = context.packageName
-        return ALIAS_SUFFIXES.map { "$pkg.$it" }
+        return SELECTABLE_ALIASES.map { "$pkg.$it" }
+    }
+
+    private fun allAliases(context: Context): List<String> {
+        val pkg = context.packageName
+        return ALL_ALIAS_SUFFIXES.map { "$pkg.$it" }
     }
 
     /**
@@ -132,8 +98,9 @@ object AppIconManager {
             return
         }
 
-        aliases.forEachIndexed { index, aliasName ->
-            if (index == targetIndex) return@forEachIndexed
+        val selectedAlias = aliases[targetIndex]
+        allAliases(context).forEach { aliasName ->
+            if (aliasName == selectedAlias) return@forEach
             runCatching {
                 pm.setComponentEnabledSetting(
                     ComponentName(context, aliasName),
@@ -180,7 +147,7 @@ object AppIconManager {
             }
         }
 
-        return PreferencesManager(context).selectedAppIcon.coerceIn(ICON_PREVIEWS.indices)
+        return PreferencesManager(context).selectedAppIcon.coerceIn(ICON_OPTIONS.indices)
     }
 
     /**

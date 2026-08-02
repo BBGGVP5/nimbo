@@ -20,8 +20,8 @@ use nimbo_ipc::PROTOCOL_VERSION;
 use nimbo_subscription::{
     build_subscription, extract_xray_templates_from_value, fetch_subscription,
     happ_compatible_user_agent, parse_aggregate, parse_subscription_userinfo, FetchOptions,
-    Fetched, Server, Subscription, HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS,
-    HAPP_COMPAT_OS_VERSION, USER_AGENT,
+    Fetched, Server, Subscription, TlsFragmentConfig, HAPP_COMPAT_DEVICE_MODEL,
+    HAPP_COMPAT_DEVICE_OS, HAPP_COMPAT_OS_VERSION, USER_AGENT,
 };
 use nimbo_xray_config::{
     AppRoutingMode as XrayAppRoutingMode, AppRoutingRule as XrayAppRoutingRule, ConfigBuilder,
@@ -756,6 +756,7 @@ pub async fn add_subscription(
             app_proxy_rules: Vec::new(),
             logo_url: None,
             theme: None,
+            tls_fragment: None,
             xray_templates,
         }
     };
@@ -5710,11 +5711,11 @@ fn build_runtime_xray_config(
     let base_value = serde_json::to_value(&base_config)
         .map_err(|e| format!("Не удалось собрать базовый Xray config: {e}"))?;
 
-    let subscription_url = snapshot
+    let owning_subscription = snapshot
         .subscriptions
         .iter()
-        .find(|sub| sub.servers.iter().any(|srv| srv.id == server.id))
-        .map(|sub| sub.url.as_str());
+        .find(|sub| sub.servers.iter().any(|srv| srv.id == server.id));
+    let subscription_url = owning_subscription.map(|sub| sub.url.as_str());
     let template_key = server
         .xray_json_template_uuid
         .as_deref()
@@ -5728,14 +5729,22 @@ fn build_runtime_xray_config(
         base_value
     };
 
-    apply_runtime_preferences(&mut config, &snapshot.preferences);
+    apply_runtime_preferences(
+        &mut config,
+        &snapshot.preferences,
+        owning_subscription.and_then(|subscription| subscription.meta.tls_fragment.as_ref()),
+    );
     Ok(config)
 }
 
-fn apply_runtime_preferences(config: &mut serde_json::Value, preferences: &AppPreferences) {
+fn apply_runtime_preferences(
+    config: &mut serde_json::Value,
+    preferences: &AppPreferences,
+    provider_tls_fragment: Option<&TlsFragmentConfig>,
+) {
     apply_inbound_preferences(config, preferences);
     apply_mux_preferences(config, preferences);
-    apply_tls_fragmentation_preferences(config, preferences);
+    apply_tls_fragmentation_preferences(config, preferences, provider_tls_fragment);
 }
 
 /// Tag of the freedom outbound that performs TLS ClientHello fragmentation.
@@ -5750,6 +5759,7 @@ const XRAY_FRAGMENT_TAG: &str = "fragment";
 fn apply_tls_fragmentation_preferences(
     config: &mut serde_json::Value,
     preferences: &AppPreferences,
+    provider: Option<&TlsFragmentConfig>,
 ) {
     let Some(outbounds) = config
         .get_mut("outbounds")
@@ -5763,28 +5773,34 @@ fn apply_tls_fragmentation_preferences(
         outbound.get("tag").and_then(serde_json::Value::as_str) != Some(XRAY_FRAGMENT_TAG)
     });
 
-    // Locate the proxy outbound (same heuristic as mux).
-    let target_index = outbounds
-        .iter()
-        .position(|outbound| {
-            outbound.get("tag").and_then(serde_json::Value::as_str) == Some(XRAY_PROXY_TAG)
-        })
-        .or_else(|| {
-            outbounds.iter().position(|outbound| {
-                let protocol = outbound
-                    .get("protocol")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default();
-                protocol != "freedom" && protocol != "blackhole"
-            })
-        });
+    let enabled = provider
+        .map(|config| config.enabled)
+        .unwrap_or(preferences.tunnel_tls_fragmentation);
+    let packets = provider
+        .map(|config| config.packets.as_str())
+        .unwrap_or("tlshello");
+    let length = provider
+        .map(|config| config.length.as_str())
+        .unwrap_or("100-200");
+    let interval = provider
+        .map(|config| config.interval.as_str())
+        .unwrap_or("10-20");
 
-    let Some(index) = target_index else {
-        return;
-    };
-
-    if preferences.tunnel_tls_fragmentation {
-        if let Some(outbound) = outbounds[index].as_object_mut() {
+    let mut proxy_count = 0usize;
+    for outbound in outbounds.iter_mut() {
+        let protocol = outbound
+            .get("protocol")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if matches!(
+            protocol.as_str(),
+            "freedom" | "blackhole" | "dns" | "loopback"
+        ) {
+            continue;
+        }
+        proxy_count += 1;
+        if let Some(outbound) = outbound.as_object_mut() {
             let stream = outbound
                 .entry("streamSettings")
                 .or_insert_with(|| serde_json::json!({}));
@@ -5793,38 +5809,36 @@ fn apply_tls_fragmentation_preferences(
                     .entry("sockopt")
                     .or_insert_with(|| serde_json::json!({}));
                 if let Some(sockopt_obj) = sockopt.as_object_mut() {
-                    sockopt_obj.insert(
-                        "dialerProxy".into(),
-                        serde_json::Value::String(XRAY_FRAGMENT_TAG.into()),
-                    );
+                    if enabled {
+                        sockopt_obj.insert(
+                            "dialerProxy".into(),
+                            serde_json::Value::String(XRAY_FRAGMENT_TAG.into()),
+                        );
+                    } else if sockopt_obj
+                        .get("dialerProxy")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(XRAY_FRAGMENT_TAG)
+                    {
+                        sockopt_obj.remove("dialerProxy");
+                    }
                 }
             }
         }
+    }
 
+    if enabled && proxy_count > 0 {
         outbounds.push(serde_json::json!({
             "tag": XRAY_FRAGMENT_TAG,
             "protocol": "freedom",
             "settings": {
                 "domainStrategy": "AsIs",
                 "fragment": {
-                    "packets": "tlshello",
-                    "length": "10-20",
-                    "interval": "10-20"
+                    "packets": packets,
+                    "length": length,
+                    "interval": interval
                 }
             }
         }));
-    } else if let Some(sockopt) = outbounds[index]
-        .get_mut("streamSettings")
-        .and_then(|stream| stream.get_mut("sockopt"))
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        if sockopt
-            .get("dialerProxy")
-            .and_then(serde_json::Value::as_str)
-            == Some(XRAY_FRAGMENT_TAG)
-        {
-            sockopt.remove("dialerProxy");
-        }
     }
 }
 
@@ -7984,6 +7998,68 @@ fn run_hidden(program: &str, args: &[String]) -> Result<(), String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn provider_tls_fragment_values_apply_to_all_proxy_outbounds() {
+        let mut config = json!({
+            "outbounds": [
+                {"tag": "proxy-a", "protocol": "vless"},
+                {"tag": "proxy-b", "protocol": "trojan"},
+                {"tag": "direct", "protocol": "freedom"}
+            ]
+        });
+        let provider = TlsFragmentConfig {
+            enabled: true,
+            packets: "tlshello".into(),
+            length: "120-240".into(),
+            interval: "15-30".into(),
+        };
+
+        apply_tls_fragmentation_preferences(
+            &mut config,
+            &AppPreferences::default(),
+            Some(&provider),
+        );
+
+        let outbounds = config["outbounds"].as_array().unwrap();
+        assert_eq!(
+            outbounds[0]["streamSettings"]["sockopt"]["dialerProxy"],
+            "fragment"
+        );
+        assert_eq!(
+            outbounds[1]["streamSettings"]["sockopt"]["dialerProxy"],
+            "fragment"
+        );
+        let fragment = outbounds
+            .iter()
+            .find(|outbound| outbound["tag"] == "fragment")
+            .expect("fragment outbound");
+        assert_eq!(fragment["settings"]["fragment"]["length"], "120-240");
+        assert_eq!(fragment["settings"]["fragment"]["interval"], "15-30");
+    }
+
+    #[test]
+    fn provider_tls_fragment_off_overrides_local_toggle() {
+        let mut config = json!({"outbounds": [{"tag": "proxy", "protocol": "vless"}]});
+        let mut preferences = AppPreferences::default();
+        preferences.tunnel_tls_fragmentation = true;
+        let provider = TlsFragmentConfig {
+            enabled: false,
+            packets: "tlshello".into(),
+            length: "100-200".into(),
+            interval: "10-20".into(),
+        };
+
+        apply_tls_fragmentation_preferences(&mut config, &preferences, Some(&provider));
+
+        let outbounds = config["outbounds"].as_array().unwrap();
+        assert!(outbounds
+            .iter()
+            .all(|outbound| outbound["tag"] != "fragment"));
+        assert!(outbounds[0]["streamSettings"]["sockopt"]
+            .get("dialerProxy")
+            .is_none());
+    }
 
     #[test]
     fn validates_xray_archive_sha256() {

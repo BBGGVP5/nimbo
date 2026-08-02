@@ -142,6 +142,13 @@ class PreferencesManager(context: Context) {
         private const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"
         private const val KEY_SELECTED_APP_ICON = "selected_app_icon"
         private const val KEY_CUSTOM_APP_ICON_BASE64 = "custom_app_icon_base64"
+        private const val KEY_CUSTOM_ICON_SHAPE = "custom_icon_shape"
+        private const val KEY_CUSTOM_ICON_BACKGROUND_COLOR = "custom_icon_background_color"
+        private const val KEY_CUSTOM_ICON_CLOUD_COLOR = "custom_icon_cloud_color"
+        private const val KEY_CUSTOM_ICON_CLOUD_STYLE = "custom_icon_cloud_style"
+        private const val KEY_CUSTOM_ICON_USE_IMPORTED = "custom_icon_use_imported"
+        private const val KEY_CUSTOM_NOTIFICATION_ICON_ENABLED = "custom_notification_icon_enabled"
+        private const val KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED = "bottom_bar_auto_hide_enabled"
         private const val KEY_BACKGROUND_STYLE = "background_style"
         private const val KEY_ELEMENT_STYLE = "element_style"
         private const val KEY_BACKGROUND_ANIMATION_ENABLED = "background_animation_enabled"
@@ -234,6 +241,13 @@ class PreferencesManager(context: Context) {
     val useDynamicColorState = mutableStateOf(sharedPreferences.getBoolean(KEY_USE_DYNAMIC_COLOR, false))
     val selectedAppIconState = mutableStateOf(sharedPreferences.getInt(KEY_SELECTED_APP_ICON, 0))
     val customAppIconBase64State = mutableStateOf(sharedPreferences.getString(KEY_CUSTOM_APP_ICON_BASE64, null))
+    val customIconShapeState = mutableStateOf(sharedPreferences.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, 2))
+    val customIconBackgroundColorState = mutableStateOf(sharedPreferences.getInt(KEY_CUSTOM_ICON_BACKGROUND_COLOR, 0xFF1769E0.toInt()))
+    val customIconCloudColorState = mutableStateOf(sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_COLOR, 0xFFF4F7FF.toInt()))
+    val customIconCloudStyleState = mutableStateOf(sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_STYLE, 0).coerceIn(0, 2))
+    val customIconUseImportedState = mutableStateOf(sharedPreferences.getBoolean(KEY_CUSTOM_ICON_USE_IMPORTED, false))
+    val customNotificationIconEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_CUSTOM_NOTIFICATION_ICON_ENABLED, false))
+    val bottomBarAutoHideEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED, true))
     val backgroundStyleState = mutableStateOf(sharedPreferences.getInt(KEY_BACKGROUND_STYLE, 0))
     val elementStyleState = mutableStateOf(sharedPreferences.getInt(KEY_ELEMENT_STYLE, 0))
     val backgroundAnimationEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true))
@@ -501,6 +515,13 @@ class PreferencesManager(context: Context) {
             KEY_USE_DYNAMIC_COLOR -> useDynamicColorState.value = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, false)
             KEY_SELECTED_APP_ICON -> selectedAppIconState.value = prefs.getInt(KEY_SELECTED_APP_ICON, 0)
             KEY_CUSTOM_APP_ICON_BASE64 -> customAppIconBase64State.value = prefs.getString(KEY_CUSTOM_APP_ICON_BASE64, null)
+            KEY_CUSTOM_ICON_SHAPE -> customIconShapeState.value = prefs.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, 2)
+            KEY_CUSTOM_ICON_BACKGROUND_COLOR -> customIconBackgroundColorState.value = prefs.getInt(KEY_CUSTOM_ICON_BACKGROUND_COLOR, 0xFF1769E0.toInt())
+            KEY_CUSTOM_ICON_CLOUD_COLOR -> customIconCloudColorState.value = prefs.getInt(KEY_CUSTOM_ICON_CLOUD_COLOR, 0xFFF4F7FF.toInt())
+            KEY_CUSTOM_ICON_CLOUD_STYLE -> customIconCloudStyleState.value = prefs.getInt(KEY_CUSTOM_ICON_CLOUD_STYLE, 0).coerceIn(0, 2)
+            KEY_CUSTOM_ICON_USE_IMPORTED -> customIconUseImportedState.value = prefs.getBoolean(KEY_CUSTOM_ICON_USE_IMPORTED, false)
+            KEY_CUSTOM_NOTIFICATION_ICON_ENABLED -> customNotificationIconEnabledState.value = prefs.getBoolean(KEY_CUSTOM_NOTIFICATION_ICON_ENABLED, false)
+            KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED -> bottomBarAutoHideEnabledState.value = prefs.getBoolean(KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED, true)
             KEY_BACKGROUND_STYLE -> backgroundStyleState.value = prefs.getInt(KEY_BACKGROUND_STYLE, prefs.getInt(KEY_VISUAL_STYLE, 0))
             KEY_ELEMENT_STYLE -> elementStyleState.value = prefs.getInt(KEY_ELEMENT_STYLE, prefs.getInt(KEY_VISUAL_STYLE, 0))
             KEY_HAPTIC_FEEDBACK_ENABLED -> hapticFeedbackEnabledState.value =
@@ -561,6 +582,13 @@ class PreferencesManager(context: Context) {
         useDynamicColorState.value = sharedPreferences.getBoolean(KEY_USE_DYNAMIC_COLOR, false)
         selectedAppIconState.value = sharedPreferences.getInt(KEY_SELECTED_APP_ICON, 0)
         customAppIconBase64State.value = sharedPreferences.getString(KEY_CUSTOM_APP_ICON_BASE64, null)
+        customIconShapeState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, 2)
+        customIconBackgroundColorState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_BACKGROUND_COLOR, 0xFF1769E0.toInt())
+        customIconCloudColorState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_COLOR, 0xFFF4F7FF.toInt())
+        customIconCloudStyleState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_STYLE, 0).coerceIn(0, 2)
+        customIconUseImportedState.value = sharedPreferences.getBoolean(KEY_CUSTOM_ICON_USE_IMPORTED, false)
+        customNotificationIconEnabledState.value = sharedPreferences.getBoolean(KEY_CUSTOM_NOTIFICATION_ICON_ENABLED, false)
+        bottomBarAutoHideEnabledState.value = sharedPreferences.getBoolean(KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED, true)
         val legacyStyle = sharedPreferences.getInt(KEY_VISUAL_STYLE, 0)
         backgroundStyleState.value = sharedPreferences.getInt(KEY_BACKGROUND_STYLE, legacyStyle)
         elementStyleState.value = sharedPreferences.getInt(KEY_ELEMENT_STYLE, legacyStyle)
@@ -670,6 +698,57 @@ class PreferencesManager(context: Context) {
         set(value) {
             sharedPreferences.edit().putString(KEY_CUSTOM_APP_ICON_BASE64, value).apply()
             customAppIconBase64State.value = value
+        }
+
+    var customIconShape: Int
+        get() = sharedPreferences.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, 2)
+        set(value) {
+            val safe = value.coerceIn(0, 2)
+            sharedPreferences.edit().putInt(KEY_CUSTOM_ICON_SHAPE, safe).apply()
+            customIconShapeState.value = safe
+        }
+
+    var customIconBackgroundColor: Int
+        get() = sharedPreferences.getInt(KEY_CUSTOM_ICON_BACKGROUND_COLOR, 0xFF1769E0.toInt())
+        set(value) {
+            sharedPreferences.edit().putInt(KEY_CUSTOM_ICON_BACKGROUND_COLOR, value).apply()
+            customIconBackgroundColorState.value = value
+        }
+
+    var customIconCloudColor: Int
+        get() = sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_COLOR, 0xFFF4F7FF.toInt())
+        set(value) {
+            sharedPreferences.edit().putInt(KEY_CUSTOM_ICON_CLOUD_COLOR, value).apply()
+            customIconCloudColorState.value = value
+        }
+
+    var customIconCloudStyle: Int
+        get() = sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_STYLE, 0).coerceIn(0, 2)
+        set(value) {
+            val safe = value.coerceIn(0, 2)
+            sharedPreferences.edit().putInt(KEY_CUSTOM_ICON_CLOUD_STYLE, safe).apply()
+            customIconCloudStyleState.value = safe
+        }
+
+    var customIconUseImported: Boolean
+        get() = sharedPreferences.getBoolean(KEY_CUSTOM_ICON_USE_IMPORTED, false)
+        set(value) {
+            sharedPreferences.edit().putBoolean(KEY_CUSTOM_ICON_USE_IMPORTED, value).apply()
+            customIconUseImportedState.value = value
+        }
+
+    var customNotificationIconEnabled: Boolean
+        get() = sharedPreferences.getBoolean(KEY_CUSTOM_NOTIFICATION_ICON_ENABLED, false)
+        set(value) {
+            sharedPreferences.edit().putBoolean(KEY_CUSTOM_NOTIFICATION_ICON_ENABLED, value).apply()
+            customNotificationIconEnabledState.value = value
+        }
+
+    var bottomBarAutoHideEnabled: Boolean
+        get() = sharedPreferences.getBoolean(KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED, true)
+        set(value) {
+            sharedPreferences.edit().putBoolean(KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED, value).apply()
+            bottomBarAutoHideEnabledState.value = value
         }
 
     // 0 = Liquid Glass, 1 = Material You Expressive, 2 = Nothing Dots
@@ -2055,6 +2134,14 @@ class PreferencesManager(context: Context) {
             glowEffectsEnabledState.value = sharedPreferences.getBoolean(KEY_GLOW_EFFECTS_ENABLED, true)
             useDynamicColorState.value = sharedPreferences.getBoolean(KEY_USE_DYNAMIC_COLOR, false)
             selectedAppIconState.value = sharedPreferences.getInt(KEY_SELECTED_APP_ICON, 0)
+            customAppIconBase64State.value = sharedPreferences.getString(KEY_CUSTOM_APP_ICON_BASE64, null)
+            customIconShapeState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, 2)
+            customIconBackgroundColorState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_BACKGROUND_COLOR, 0xFF1769E0.toInt())
+            customIconCloudColorState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_COLOR, 0xFFF4F7FF.toInt())
+            customIconCloudStyleState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_STYLE, 0).coerceIn(0, 2)
+            customIconUseImportedState.value = sharedPreferences.getBoolean(KEY_CUSTOM_ICON_USE_IMPORTED, false)
+            customNotificationIconEnabledState.value = sharedPreferences.getBoolean(KEY_CUSTOM_NOTIFICATION_ICON_ENABLED, false)
+            bottomBarAutoHideEnabledState.value = sharedPreferences.getBoolean(KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED, true)
             showVersionInHeaderState.value = sharedPreferences.getBoolean(KEY_SHOW_VERSION_IN_HEADER, true)
             gradientEffectsEnabledState.value = sharedPreferences.getBoolean(KEY_GRADIENT_EFFECTS_ENABLED, true)
             customAccentColorState.value = sharedPreferences.getInt(KEY_CUSTOM_ACCENT_COLOR, 0xFF7C5DFA.toInt())

@@ -11,6 +11,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
@@ -146,6 +148,14 @@ fun Modifier.liquidGlassSurface(
         .clip(shape)
         .background(fill)
         .drawWithCache {
+            // Draw every optical layer into the component outline itself. Drawing
+            // rectangular shader bounds and relying on an earlier clip produced
+            // visible square tiles on several Android 17 GPU drivers.
+            val glassPath = when (val outline = shape.createOutline(size, layoutDirection, this)) {
+                is Outline.Rectangle -> Path().apply { addRect(outline.rect) }
+                is Outline.Rounded -> Path().apply { addRoundRect(outline.roundRect) }
+                is Outline.Generic -> outline.path
+            }
             val upperSheen = Brush.radialGradient(
                 colors = listOf(
                     Color.White.copy(
@@ -194,10 +204,10 @@ fun Modifier.liquidGlassSurface(
             )
             onDrawBehind {
                 if (refractionEnabled) {
-                    drawRect(upperSheen)
-                    drawRect(refractedAccent)
-                    drawRect(coolRefraction)
-                    drawRect(warmRefraction)
+                    drawPath(glassPath, upperSheen)
+                    drawPath(glassPath, refractedAccent)
+                    drawPath(glassPath, coolRefraction)
+                    drawPath(glassPath, warmRefraction)
                 }
             }
         }

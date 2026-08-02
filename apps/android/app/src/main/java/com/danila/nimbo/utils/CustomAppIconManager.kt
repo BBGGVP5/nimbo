@@ -1,0 +1,282 @@
+package com.danila.nimbo.utils
+
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
+import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.drawable.Icon
+import android.os.Build
+import android.util.Base64
+import com.danila.nimbo.MainActivity
+import com.danila.nimbo.R
+import kotlin.math.max
+
+enum class CustomIconShape(val title: String) {
+    SQUIRCLE("Сквиркл"),
+    ROUNDED("Скруглённая"),
+    CIRCLE("Круг");
+
+    companion object {
+        fun fromIndex(index: Int): CustomIconShape = entries.getOrElse(index) { SQUIRCLE }
+    }
+}
+
+enum class CustomCloudStyle(val title: String) {
+    ORIGINAL("Объёмное"),
+    SOLID("Одноцветное"),
+    OUTLINE("Контурное");
+
+    companion object {
+        fun fromIndex(index: Int): CustomCloudStyle = entries.getOrElse(index) { ORIGINAL }
+    }
+}
+
+data class CustomAppIconConfig(
+    val shape: CustomIconShape,
+    val backgroundColor: Int,
+    val cloudColor: Int,
+    val cloudStyle: CustomCloudStyle,
+    val useImportedImage: Boolean,
+    val importedImageBase64: String?
+)
+
+data class CustomAppIconPreset(
+    val title: String,
+    val config: CustomAppIconConfig
+)
+
+object CustomAppIconManager {
+    @Volatile
+    private var cachedNotificationSignature: Int? = null
+
+    @Volatile
+    private var cachedNotificationBitmap: Bitmap? = null
+
+    val backgroundPalette = listOf(
+        0xFF1769E0.toInt(),
+        0xFF0C1738.toInt(),
+        0xFF6A4CFF.toInt(),
+        0xFF008D78.toInt(),
+        0xFFFF6B35.toInt(),
+        0xFFF2F5FC.toInt()
+    )
+
+    val cloudPalette = listOf(
+        0xFFF4F7FF.toInt(),
+        0xFF9ED1FF.toInt(),
+        0xFF78F0D0.toInt(),
+        0xFFFFD166.toInt(),
+        0xFFFF8EA1.toInt(),
+        0xFF151A2F.toInt()
+    )
+
+    val presets = listOf(
+        CustomAppIconPreset(
+            title = "Nimbo",
+            config = CustomAppIconConfig(
+                CustomIconShape.SQUIRCLE,
+                0xFF1769E0.toInt(),
+                0xFFF4F7FF.toInt(),
+                CustomCloudStyle.ORIGINAL,
+                false,
+                null
+            )
+        ),
+        CustomAppIconPreset(
+            title = "Полночь",
+            config = CustomAppIconConfig(
+                CustomIconShape.ROUNDED,
+                0xFF0C1738.toInt(),
+                0xFFF4F7FF.toInt(),
+                CustomCloudStyle.SOLID,
+                false,
+                null
+            )
+        ),
+        CustomAppIconPreset(
+            title = "Аврора",
+            config = CustomAppIconConfig(
+                CustomIconShape.SQUIRCLE,
+                0xFF6A4CFF.toInt(),
+                0xFF9ED1FF.toInt(),
+                CustomCloudStyle.SOLID,
+                false,
+                null
+            )
+        ),
+        CustomAppIconPreset(
+            title = "Мята",
+            config = CustomAppIconConfig(
+                CustomIconShape.CIRCLE,
+                0xFF008D78.toInt(),
+                0xFF78F0D0.toInt(),
+                CustomCloudStyle.SOLID,
+                false,
+                null
+            )
+        ),
+        CustomAppIconPreset(
+            title = "Закат",
+            config = CustomAppIconConfig(
+                CustomIconShape.ROUNDED,
+                0xFFFF6B35.toInt(),
+                0xFFFFD166.toInt(),
+                CustomCloudStyle.OUTLINE,
+                false,
+                null
+            )
+        ),
+        CustomAppIconPreset(
+            title = "Жемчуг",
+            config = CustomAppIconConfig(
+                CustomIconShape.SQUIRCLE,
+                0xFFF2F5FC.toInt(),
+                0xFF151A2F.toInt(),
+                CustomCloudStyle.OUTLINE,
+                false,
+                null
+            )
+        )
+    )
+
+    fun config(preferences: PreferencesManager): CustomAppIconConfig = CustomAppIconConfig(
+        shape = CustomIconShape.fromIndex(preferences.customIconShape),
+        backgroundColor = preferences.customIconBackgroundColor,
+        cloudColor = preferences.customIconCloudColor,
+        cloudStyle = CustomCloudStyle.fromIndex(preferences.customIconCloudStyle),
+        useImportedImage = preferences.customIconUseImported,
+        importedImageBase64 = preferences.customAppIconBase64
+    )
+
+    fun renderIcon(
+        context: Context,
+        config: CustomAppIconConfig,
+        size: Int = 256
+    ): Bitmap {
+        val safeSize = size.coerceIn(64, 1024)
+        val result = Bitmap.createBitmap(safeSize, safeSize, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        val iconPath = shapePath(config.shape, safeSize.toFloat())
+        canvas.save()
+        canvas.clipPath(iconPath)
+
+        val imported = if (config.useImportedImage) decodeBase64(config.importedImageBase64) else null
+        if (imported != null) {
+            drawCenterCrop(canvas, imported, safeSize)
+            canvas.restore()
+            return result
+        }
+
+        canvas.drawColor(config.backgroundColor)
+        val cloudRes = if (config.cloudStyle == CustomCloudStyle.ORIGINAL) {
+            R.mipmap.ic_launcher_foreground
+        } else {
+            R.mipmap.ic_launcher_monochrome
+        }
+        val cloud = BitmapFactory.decodeResource(context.resources, cloudRes)
+        if (cloud != null) {
+            val inset = (safeSize * 0.13f).toInt()
+            val destination = Rect(inset, inset, safeSize - inset, safeSize - inset)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            if (config.cloudStyle != CustomCloudStyle.ORIGINAL) {
+                paint.colorFilter = PorterDuffColorFilter(config.cloudColor, PorterDuff.Mode.SRC_IN)
+            }
+            if (config.cloudStyle == CustomCloudStyle.OUTLINE) {
+                // A soft larger silhouette makes the edge readable while the centre
+                // remains translucent, which feels closer to an outlined cloud.
+                val outlinePaint = Paint(paint).apply { alpha = 255 }
+                val outlineInset = (safeSize * 0.095f).toInt()
+                canvas.drawBitmap(
+                    cloud,
+                    null,
+                    Rect(outlineInset, outlineInset, safeSize - outlineInset, safeSize - outlineInset),
+                    outlinePaint
+                )
+                paint.colorFilter = PorterDuffColorFilter(config.backgroundColor, PorterDuff.Mode.SRC_IN)
+            }
+            canvas.drawBitmap(cloud, null, destination, paint)
+        }
+        canvas.restore()
+        return result
+    }
+
+    fun notificationLargeIcon(
+        context: Context,
+        preferences: PreferencesManager = PreferencesManager(context)
+    ): Bitmap {
+        val iconConfig = config(preferences)
+        val signature = if (preferences.customNotificationIconEnabled) {
+            iconConfig.hashCode()
+        } else {
+            Int.MIN_VALUE
+        }
+        cachedNotificationBitmap?.takeIf { cachedNotificationSignature == signature }?.let { return it }
+
+        return synchronized(this) {
+            cachedNotificationBitmap?.takeIf { cachedNotificationSignature == signature } ?: run {
+                val bitmap = if (preferences.customNotificationIconEnabled) {
+                    renderIcon(context, iconConfig, 192)
+                } else {
+                    val source = BitmapFactory.decodeResource(context.resources, R.drawable.nimbo_beta_notification)
+                    Bitmap.createScaledBitmap(source, 192, 192, true)
+                }
+                cachedNotificationSignature = signature
+                cachedNotificationBitmap = bitmap
+                bitmap
+            }
+        }
+    }
+
+    fun requestPinnedShortcut(context: Context, bitmap: Bitmap): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        val manager = context.getSystemService(ShortcutManager::class.java) ?: return false
+        if (!manager.isRequestPinShortcutSupported) return false
+        val launchIntent = Intent(context, MainActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        val shortcut = ShortcutInfo.Builder(context, "nimbo_custom_icon")
+            .setShortLabel("Nimbo")
+            .setLongLabel("Nimbo — своя иконка")
+            .setIcon(Icon.createWithBitmap(bitmap))
+            .setIntent(launchIntent)
+            .build()
+        return manager.requestPinShortcut(shortcut, null)
+    }
+
+    private fun decodeBase64(value: String?): Bitmap? {
+        if (value.isNullOrBlank()) return null
+        return runCatching {
+            val bytes = Base64.decode(value, Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }.getOrNull()
+    }
+
+    private fun drawCenterCrop(canvas: Canvas, bitmap: Bitmap, size: Int) {
+        val scale = max(size.toFloat() / bitmap.width, size.toFloat() / bitmap.height)
+        val width = bitmap.width * scale
+        val height = bitmap.height * scale
+        val left = (size - width) / 2f
+        val top = (size - height) / 2f
+        canvas.drawBitmap(bitmap, null, RectF(left, top, left + width, top + height), Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+    }
+
+    private fun shapePath(shape: CustomIconShape, size: Float): Path = Path().apply {
+        val edge = size * 0.025f
+        val bounds = RectF(edge, edge, size - edge, size - edge)
+        when (shape) {
+            CustomIconShape.CIRCLE -> addOval(bounds, Path.Direction.CW)
+            CustomIconShape.ROUNDED -> addRoundRect(bounds, size * 0.18f, size * 0.18f, Path.Direction.CW)
+            CustomIconShape.SQUIRCLE -> addRoundRect(bounds, size * 0.29f, size * 0.29f, Path.Direction.CW)
+        }
+    }
+}

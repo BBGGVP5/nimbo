@@ -97,6 +97,13 @@ export interface SubscriptionTheme {
   ui_style?: string | null;
 }
 
+export interface TlsFragmentConfig {
+  enabled: boolean;
+  packets: string;
+  length: string;
+  interval: string;
+}
+
 export interface SubscriptionMeta {
   description?: string | null;
   support_url?: string | null;
@@ -106,6 +113,7 @@ export interface SubscriptionMeta {
   app_proxy_rules?: AppProxyRule[];
   logo_url?: string | null;
   theme?: SubscriptionTheme | null;
+  tls_fragment?: TlsFragmentConfig | null;
 }
 
 export interface Subscription {

@@ -272,7 +272,7 @@ pub fn choose_install_dir(current_dir: String) -> Result<Option<String>, String>
         return choose_install_dir_linux(&start_dir);
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
     {
         let picked = rfd::FileDialog::new()
             .set_title("Выберите папку установки Nimbo")
@@ -280,6 +280,12 @@ pub fn choose_install_dir(current_dir: String) -> Result<Option<String>, String>
             .pick_folder();
 
         Ok(picked.map(|path| path.to_string_lossy().to_string()))
+    }
+
+    #[cfg(all(not(windows), not(target_os = "linux")))]
+    {
+        let _ = start_dir;
+        Err("Выбор папки поддерживается только в Windows и Linux.".into())
     }
 }
 

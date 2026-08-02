@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.*
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.Brush
@@ -22,7 +23,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Velocity
 import androidx.navigation.NavHostController
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -39,6 +44,9 @@ import com.danila.nimbo.ui.screens.AboutScreen
 import kotlinx.coroutines.flow.collect
 import kotlinx.serialization.Serializable
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 private const val NAV_ANIMATION_MS = 320
@@ -119,8 +127,50 @@ fun NavGraph(
     var isAddSheetVisible by remember { mutableStateOf(false) }
     val topLevelRoutes = remember { listOf("home", "profiles", "settings") }
     var predictiveBackProgress by remember { mutableFloatStateOf(0f) }
+    val navigationScope = rememberCoroutineScope()
+    val bottomBarAutoHideEnabled = NebulaGuardApplication.instance.preferencesManager
+        .bottomBarAutoHideEnabledState.value
+    var bottomBarVisible by remember { mutableStateOf(true) }
+    var bottomBarRevealJob by remember { mutableStateOf<Job?>(null) }
     val canNavigateBack = navController.previousBackStackEntry != null
     val systemBackEnabled = !showAddWidgetPanel && !isAddSheetVisible
+
+    fun scheduleBottomBarReveal(delayMillis: Long = 420L) {
+        bottomBarRevealJob?.cancel()
+        bottomBarRevealJob = navigationScope.launch {
+            delay(delayMillis)
+            bottomBarVisible = true
+        }
+    }
+
+    val bottomBarScrollConnection = remember(bottomBarAutoHideEnabled) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (!bottomBarAutoHideEnabled || source != NestedScrollSource.UserInput) {
+                    return Offset.Zero
+                }
+                bottomBarVisible = BottomBarScrollPolicy.visibleAfterScroll(
+                    currentlyVisible = bottomBarVisible,
+                    availableY = available.y
+                )
+                scheduleBottomBarReveal()
+                return Offset.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (bottomBarAutoHideEnabled) {
+                    delay(180L)
+                    bottomBarVisible = true
+                }
+                return Velocity.Zero
+            }
+        }
+    }
+
+    LaunchedEffect(bottomBarAutoHideEnabled, currentRoute) {
+        if (!bottomBarAutoHideEnabled) bottomBarVisible = true
+        if (currentRoute != null) scheduleBottomBarReveal(120L)
+    }
 
     fun navigateToTopLevel(route: String) {
         if (currentRoute == route) return
@@ -213,6 +263,7 @@ fun NavGraph(
             },
             modifier = Modifier
                 .fillMaxSize()
+                .nestedScroll(bottomBarScrollConnection)
                 .graphicsLayer {
                     if (predictiveBackProgress > 0f) {
                         translationX = size.width * 0.92f * predictiveBackProgress
@@ -498,16 +549,27 @@ fun NavGraph(
                 )
             }
         }
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.BottomCenter
+        AnimatedVisibility(
+            visible = !showAddWidgetPanel && !isAddSheetVisible && bottomBarVisible,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = slideInVertically(
+                initialOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(280, easing = FastOutSlowInEasing)
+            ) + fadeIn(tween(180)),
+            exit = slideOutVertically(
+                targetOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(240, easing = FastOutSlowInEasing)
+            ) + fadeOut(tween(150))
         ) {
-            if (!showAddWidgetPanel && !isAddSheetVisible) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp),
+                contentAlignment = Alignment.BottomCenter
+            ) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(120.dp)
+                        .fillMaxSize()
                         .blur(14.dp)
                         .background(
                             Brush.verticalGradient(
@@ -518,12 +580,6 @@ fun NavGraph(
                             )
                         )
                 )
-            }
-            AnimatedVisibility(
-                visible = !showAddWidgetPanel && !isAddSheetVisible,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
                 BottomBar(navController)
             }
         }

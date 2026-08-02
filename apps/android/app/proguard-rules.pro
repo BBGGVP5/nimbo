@@ -16,3 +16,12 @@
 -keepclassmembers,allowobfuscation class * {
     @com.google.gson.annotations.SerializedName <fields>;
 }
+
+# Firebase/ML Kit discovers ComponentRegistrar implementations from manifest
+# metadata and creates them reflectively. The dependency's consumer rule keeps
+# their class names, but with current R8 it does not keep the no-arg constructor.
+# Without it BarcodeRegistrar is skipped and BarcodeScanning.getClient() gets a
+# null scanner factory in minified release builds.
+-keep class * implements com.google.firebase.components.ComponentRegistrar {
+    public <init>();
+}

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp"
+    android:height="22dp"
+    android:viewportWidth="40"
+    android:viewportHeight="22">
+    <path
+        android:fillColor="#FF7A32"
+        android:pathData="M5,0 H35 C37.76,0 40,2.24 40,5 V17 C40,19.76 37.76,22 35,22 H5 C2.24,22 0,19.76 0,17 V5 C0,2.24 2.24,0 5,0 Z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#CCFFFFFF"
+        android:strokeWidth="0.8"
+        android:pathData="M5,0.4 H35 C37.54,0.4 39.6,2.46 39.6,5 V17 C39.6,19.54 37.54,21.6 35,21.6 H5 C2.46,21.6 0.4,19.54 0.4,17 V5 C0.4,2.46 2.46,0.4 5,0.4 Z" />
+    <!-- Compact 3x5 BETA lettering, kept as paths for adaptive icons. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M5,6h4v2H5z M5,8h2v2H5z M9,8h2v2H9z M5,10h4v2H5z M5,12h2v2H5z M9,12h2v2H9z M5,14h4v2H5z M13,6h6v2H13z M13,8h2v2H13z M13,10h6v2H13z M13,12h2v2H13z M13,14h6v2H13z M21,6h6v2H21z M23,8h2v8H23z M31,6h2v2H31z M29,8h2v2H29z M33,8h2v2H33z M29,10h6v2H29z M29,12h2v4H29z M33,12h2v4H33z" />
+</vector>

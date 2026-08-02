@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/ic_launcher_foreground_beta_safe_inset" />
+    <item
+        android:width="32dp"
+        android:height="18dp"
+        android:gravity="top|right"
+        android:top="21dp"
+        android:right="21dp"
+        android:drawable="@drawable/ic_launcher_beta_badge" />
+</layer-list>

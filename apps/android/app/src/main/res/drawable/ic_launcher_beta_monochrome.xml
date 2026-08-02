@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/ic_launcher_beta_monochrome_inset" />
+    <item
+        android:width="22dp"
+        android:height="14dp"
+        android:gravity="top|right"
+        android:top="18dp"
+        android:right="18dp"
+        android:drawable="@drawable/ic_launcher_beta_badge_monochrome" />
+</layer-list>

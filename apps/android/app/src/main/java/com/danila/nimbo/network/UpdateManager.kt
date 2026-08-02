@@ -26,6 +26,7 @@ import com.danila.nimbo.model.UpdateChannel
 import com.danila.nimbo.model.UpdateInfo
 import com.danila.nimbo.model.UpdateKind
 import com.danila.nimbo.utils.PreferencesManager
+import com.danila.nimbo.utils.CustomAppIconManager
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -841,6 +842,7 @@ object UpdateManager {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.icon_notification_nimbo_blue)
+            .setLargeIcon(CustomAppIconManager.notificationLargeIcon(context))
             .setColor(0xFF2869D4.toInt())
             .setContentTitle(title)
             .setContentText(content)

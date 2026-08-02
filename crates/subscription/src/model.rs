@@ -28,6 +28,17 @@ pub struct SubscriptionMeta {
     /// Provider theme contract from the `nimbo-theme` header.
     #[serde(default)]
     pub theme: Option<SubscriptionTheme>,
+    /// Provider-controlled TLS ClientHello fragmentation from `nimbo-tls-fragment`.
+    #[serde(default)]
+    pub tls_fragment: Option<TlsFragmentConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TlsFragmentConfig {
+    pub enabled: bool,
+    pub packets: String,
+    pub length: String,
+    pub interval: String,
 }
 
 /// Provider-supplied theme, parsed from the `<filter>,<accent>,<orb1>,<orb2>,<blur>`

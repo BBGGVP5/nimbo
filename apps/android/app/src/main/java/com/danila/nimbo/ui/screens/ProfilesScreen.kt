@@ -44,6 +44,7 @@ import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.MainViewModel
 import kotlinx.coroutines.launch
 import com.google.gson.annotations.SerializedName
+import com.danila.nimbo.network.TlsFragmentConfig
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -112,6 +113,7 @@ data class SubscriptionProfile(
     @SerializedName("brandLogo") val brandLogo: String? = null,
     @SerializedName("brandLogoCache") val brandLogoCache: String? = null,
     @SerializedName("themeSpec") val themeSpec: String? = null,
+    @SerializedName("tlsFragment") val tlsFragment: TlsFragmentConfig? = null,
     @SerializedName("templates") val templates: List<SubscriptionTemplateCache> = emptyList()
 ) {
     val displayName: String get() = customName ?: username ?: name

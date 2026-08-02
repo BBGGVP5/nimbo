@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   api,
@@ -81,6 +81,7 @@ export function CrossPlatformSync() {
   const secondsLeft = session?.expires_at_ms
     ? Math.max(0, Math.ceil((session.expires_at_ms - now) / 1000))
     : 0;
+  const timerProgress = Math.min(1, Math.max(0, secondsLeft / 75));
   const selectedCount = Object.values(categories).filter(Boolean).length;
   const categoriesLocked = Boolean(session && [
     "paired",
@@ -154,13 +155,32 @@ export function CrossPlatformSync() {
             </div>
           </div>
 
+          <div className={`cross-sync-link-visual${session?.remote_device ? " is-linked" : " is-waiting"}`} aria-hidden="true">
+            <span className="cross-sync-link-device">ПК</span>
+            <span className="cross-sync-link-rail">
+              <i /><i /><i />
+            </span>
+            <span className="cross-sync-link-device">A</span>
+          </div>
+
           {session?.qr_payload && !session.remote_device && (
             <div className="cross-sync-qr-wrap">
-              <div className="cross-sync-qr">
-                <QRCodeSVG value={session.qr_payload} size={256} level="M" marginSize={2} />
+              <div className="cross-sync-qr-stage">
+                <div className="cross-sync-qr">
+                  <QRCodeSVG value={session.qr_payload} size={256} level="M" marginSize={2} />
+                </div>
               </div>
-              <div className="cross-sync-expiry">
-                QR изменится через <strong>{secondsLeft} сек.</strong>
+              <div className={`cross-sync-expiry${secondsLeft <= 15 ? " is-urgent" : ""}`}>
+                <div
+                  className="cross-sync-timer"
+                  role="timer"
+                  aria-label={`QR изменится через ${secondsLeft} секунд`}
+                  style={{ "--sync-progress": `${timerProgress * 360}deg` } as CSSProperties}
+                >
+                  <strong>{secondsLeft}</strong>
+                  <span>сек</span>
+                </div>
+                <span>QR обновится автоматически</span>
               </div>
             </div>
           )}
@@ -170,7 +190,7 @@ export function CrossPlatformSync() {
               Создать одноразовый QR
             </button>
           )}
-          {busy && <div className="cross-sync-loading">Подготавливаем защищённый сеанс…</div>}
+          {busy && <div className="cross-sync-loading"><i />Подготавливаем защищённый сеанс…</div>}
 
           {session?.remote_device && (
             <div className="cross-sync-device-passport">

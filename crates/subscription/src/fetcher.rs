@@ -10,7 +10,7 @@ use nimbo_device::{device_info, DeviceInfo};
 
 use crate::model::{
     Protocol, Server, Subscription, SubscriptionAppProxyMode, SubscriptionAppProxyRule,
-    SubscriptionMeta, SubscriptionTheme,
+    SubscriptionMeta, SubscriptionTheme, TlsFragmentConfig,
 };
 use crate::parser::{parse_aggregate, ParseError};
 use crate::userinfo::{parse_subscription_userinfo, SubscriptionInfo};
@@ -91,6 +91,8 @@ pub struct Fetched {
     pub logo_url: Option<String>,
     /// Provider theme from the `nimbo-theme` header.
     pub theme: Option<SubscriptionTheme>,
+    /// Provider TLS ClientHello fragmentation contract.
+    pub tls_fragment: Option<TlsFragmentConfig>,
     /// Xray-config templates, извлечённые из тела подписки.
     /// Ключ — xrayJsonTemplateUuid/uuid/id, если есть; иначе `default`.
     pub xray_templates: HashMap<String, Value>,
@@ -174,6 +176,7 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
     let suggested_name = extract_subscription_name(resp.headers(), url);
     let logo_url = extract_subscription_logo(resp.headers());
     let theme = extract_subscription_theme(resp.headers());
+    let tls_fragment = extract_tls_fragment_config(resp.headers());
 
     let body = resp
         .text()
@@ -216,6 +219,7 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         app_proxy_rules: provider_app_proxy_rules,
         logo_url,
         theme,
+        tls_fragment,
         xray_templates,
     })
 }
@@ -340,6 +344,7 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
         app_proxy_rules,
         logo_url,
         theme,
+        tls_fragment,
         xray_templates: _,
     } = fetched;
     let resolved_name = sanitize_name(name).or_else(|| sanitize_name(suggested_name));
@@ -357,6 +362,7 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
             app_proxy_rules,
             logo_url: sanitize_name(logo_url),
             theme,
+            tls_fragment,
         },
         servers,
         info,
@@ -1473,6 +1479,143 @@ fn raw_header_value(headers: &reqwest::header::HeaderMap, keys: &[&str]) -> Opti
     None
 }
 
+fn extract_tls_fragment_config(headers: &reqwest::header::HeaderMap) -> Option<TlsFragmentConfig> {
+    const TLS_FRAGMENT_HEADERS: &[&str] = &[
+        "nimbo-tls-fragment",
+        "x-nimbo-tls-fragment",
+        "dropweb-tls-fragment",
+    ];
+    let raw = raw_header_value(headers, TLS_FRAGMENT_HEADERS)?;
+    let parsed = parse_tls_fragment_header(&raw);
+    if parsed.is_none() {
+        tracing::warn!("ignoring invalid nimbo-tls-fragment subscription header");
+    }
+    parsed
+}
+
+fn parse_tls_fragment_header(raw: &str) -> Option<TlsFragmentConfig> {
+    const DEFAULT_PACKETS: &str = "tlshello";
+    const DEFAULT_LENGTH: &str = "100-200";
+    const DEFAULT_INTERVAL: &str = "10-20";
+
+    let value = raw.trim().trim_matches('"').trim();
+    if value.is_empty() {
+        return None;
+    }
+    match value.to_ascii_lowercase().as_str() {
+        "off" | "false" | "disabled" | "0" => {
+            return Some(TlsFragmentConfig {
+                enabled: false,
+                packets: DEFAULT_PACKETS.into(),
+                length: DEFAULT_LENGTH.into(),
+                interval: DEFAULT_INTERVAL.into(),
+            });
+        }
+        "on" | "true" | "enabled" | "1" => {
+            return Some(TlsFragmentConfig {
+                enabled: true,
+                packets: DEFAULT_PACKETS.into(),
+                length: DEFAULT_LENGTH.into(),
+                interval: DEFAULT_INTERVAL.into(),
+            });
+        }
+        _ => {}
+    }
+
+    let (enabled, packets, length, interval) = if value.contains('=') {
+        let mut entries = HashMap::<String, String>::new();
+        for part in value.split(';') {
+            let token = part.trim();
+            if token.is_empty() {
+                continue;
+            }
+            let (key, value) = token.split_once('=')?;
+            let key = key.trim();
+            let value = value.trim();
+            if key.is_empty() || value.is_empty() {
+                return None;
+            }
+            entries.insert(key.to_ascii_lowercase(), value.to_string());
+        }
+        let enabled = match entries.get("enabled") {
+            Some(value) => parse_tls_fragment_bool(value)?,
+            None => true,
+        };
+        (
+            enabled,
+            entries
+                .get("packets")
+                .cloned()
+                .unwrap_or_else(|| DEFAULT_PACKETS.into()),
+            entries
+                .get("length")
+                .cloned()
+                .unwrap_or_else(|| DEFAULT_LENGTH.into()),
+            entries
+                .get("interval")
+                .cloned()
+                .unwrap_or_else(|| DEFAULT_INTERVAL.into()),
+        )
+    } else {
+        let parts = value.split(',').map(str::trim).collect::<Vec<_>>();
+        if parts.is_empty() || parts.len() > 3 || parts.iter().any(|part| part.is_empty()) {
+            return None;
+        }
+        (
+            true,
+            parts[0].to_string(),
+            parts.get(1).copied().unwrap_or(DEFAULT_LENGTH).to_string(),
+            parts
+                .get(2)
+                .copied()
+                .unwrap_or(DEFAULT_INTERVAL)
+                .to_string(),
+        )
+    };
+
+    if !enabled {
+        return Some(TlsFragmentConfig {
+            enabled: false,
+            packets: DEFAULT_PACKETS.into(),
+            length: DEFAULT_LENGTH.into(),
+            interval: DEFAULT_INTERVAL.into(),
+        });
+    }
+
+    let packets = if packets.eq_ignore_ascii_case(DEFAULT_PACKETS) {
+        DEFAULT_PACKETS.into()
+    } else {
+        normalize_tls_fragment_range(&packets, 1, 1_024)?
+    };
+    Some(TlsFragmentConfig {
+        enabled: true,
+        packets,
+        length: normalize_tls_fragment_range(&length, 1, 1_024)?,
+        interval: normalize_tls_fragment_range(&interval, 0, 1_000)?,
+    })
+}
+
+fn parse_tls_fragment_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "on" | "enabled" | "1" => Some(true),
+        "false" | "off" | "disabled" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+fn normalize_tls_fragment_range(value: &str, minimum: u16, maximum: u16) -> Option<String> {
+    let parts = value.trim().split('-').collect::<Vec<_>>();
+    if parts.is_empty() || parts.len() > 2 || parts.iter().any(|part| part.is_empty()) {
+        return None;
+    }
+    let first = parts[0].parse::<u16>().ok()?;
+    let second = parts.get(1).unwrap_or(&parts[0]).parse::<u16>().ok()?;
+    if !(minimum..=maximum).contains(&first) || !(minimum..=maximum).contains(&second) {
+        return None;
+    }
+    Some(format!("{}-{}", first.min(second), first.max(second)))
+}
+
 /// Normalizes a `#rrggbb` / `rrggbb` / `#rgb` color into lowercase `#rrggbb`.
 fn normalize_hex_color(value: &str) -> Option<String> {
     let hex = value.trim().trim_start_matches('#');
@@ -2204,6 +2347,37 @@ mod tests {
     }
 
     #[test]
+    fn parses_provider_tls_fragment_key_value_contract() {
+        let config = parse_tls_fragment_header(
+            "enabled=true; packets=tlshello; length=100-200; interval=10-20",
+        )
+        .expect("valid config");
+        assert!(config.enabled);
+        assert_eq!(config.packets, "tlshello");
+        assert_eq!(config.length, "100-200");
+        assert_eq!(config.interval, "10-20");
+    }
+
+    #[test]
+    fn parses_provider_tls_fragment_compact_and_normalizes_ranges() {
+        let config = parse_tls_fragment_header("tlshello,200-100,20-10").expect("valid config");
+        assert_eq!(config.length, "100-200");
+        assert_eq!(config.interval, "10-20");
+    }
+
+    #[test]
+    fn provider_tls_fragment_off_is_an_explicit_override() {
+        let config = parse_tls_fragment_header("off").expect("explicit disabled config");
+        assert!(!config.enabled);
+    }
+
+    #[test]
+    fn rejects_invalid_provider_tls_fragment_contract() {
+        assert!(parse_tls_fragment_header("enabled=true; length=0-9000").is_none());
+        assert!(parse_tls_fragment_header("enabled=perhaps").is_none());
+    }
+
+    #[test]
     fn extracts_multiple_xray_templates_by_uuid() {
         let json = json!({
             "response": {
@@ -2589,6 +2763,7 @@ mod tests {
             app_proxy_rules: Vec::new(),
             logo_url: None,
             theme: None,
+            tls_fragment: None,
             xray_templates: HashMap::new(),
         }
     }

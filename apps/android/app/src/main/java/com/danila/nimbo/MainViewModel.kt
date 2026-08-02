@@ -1750,6 +1750,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         brandLogo = updatedBrandLogo,
                         brandLogoCache = updatedBrandLogoCache,
                         themeSpec = updatedThemeSpec,
+                        tlsFragment = result.tlsFragment,
                         bonusDaysApplied = false,
                         autoUpdateInterval = result.autoUpdateInterval,
                         originalName = originalName,

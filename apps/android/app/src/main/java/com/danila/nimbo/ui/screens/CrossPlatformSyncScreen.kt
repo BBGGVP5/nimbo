@@ -6,7 +6,20 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,8 +59,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -55,7 +70,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -76,6 +96,8 @@ import com.danila.nimbo.sync.SyncWireResponse
 import com.danila.nimbo.ui.components.QrScannerScreen
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.theme.LocalNebulaColors
+import com.danila.nimbo.ui.theme.LocalBackgroundAnimationEnabled
+import com.danila.nimbo.utils.Logger
 import com.danila.nimbo.utils.PreferencesManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -104,6 +126,7 @@ fun CrossPlatformSyncScreen(
     val profiles by mainViewModel.profilesState.collectAsState()
     val scope = rememberCoroutineScope()
     val client = remember { CrossSyncClient() }
+    val motionEnabled = LocalBackgroundAnimationEnabled.current
 
     var categories by remember {
         mutableStateOf(
@@ -124,6 +147,19 @@ fun CrossPlatformSyncScreen(
     var pendingDesktopBundle by remember { mutableStateOf<CrossSyncBundle?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var addedSubscriptions by remember { mutableStateOf(0) }
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var sessionLifetimeMs by remember { mutableLongStateOf(75_000L) }
+
+    LaunchedEffect(qr?.sessionId, stage) {
+        while (
+            qr != null &&
+            stage != MobileSyncStage.IDLE &&
+            stage != MobileSyncStage.COMPLETED
+        ) {
+            nowMs = System.currentTimeMillis()
+            delay(250L)
+        }
+    }
 
     fun saveCategories(next: SyncCategories) {
         categories = next
@@ -140,6 +176,8 @@ fun CrossPlatformSyncScreen(
         localBundle = null
         pendingDesktopBundle = null
         addedSubscriptions = 0
+        sessionLifetimeMs = 75_000L
+        nowMs = System.currentTimeMillis()
         stage = MobileSyncStage.IDLE
         scanHandled = false
         showScanner = openScanner
@@ -179,6 +217,9 @@ fun CrossPlatformSyncScreen(
         scope.launch {
             try {
                 val parsed = CrossSyncProtocol.parseQr(raw)
+                val scannedAt = System.currentTimeMillis()
+                sessionLifetimeMs = (parsed.expiresAtMs - scannedAt).coerceAtLeast(1_000L)
+                nowMs = scannedAt
                 val exported = AndroidCrossSyncBundleMapper.export(
                     preferencesManager,
                     profiles
@@ -293,12 +334,18 @@ fun CrossPlatformSyncScreen(
     val cameraPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
+        Logger.i("QrScanner", "source=desktop_sync event=camera_permission_result granted=$granted")
         if (granted) resetSession(openScanner = true)
         else error = "Для сканирования QR требуется разрешение камеры"
     }
 
     val continueWithCamera: () -> Unit = {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        Logger.i("QrScanner", "source=desktop_sync event=continue_with_camera granted=$granted")
+        if (granted) {
             resetSession(openScanner = true)
         } else {
             cameraPermission.launch(Manifest.permission.CAMERA)
@@ -308,14 +355,28 @@ fun CrossPlatformSyncScreen(
     val localNetworkPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
+        Logger.i("QrScanner", "source=desktop_sync event=local_network_permission_result granted=$granted")
         if (granted) continueWithCamera()
         else error = "Разрешите доступ к локальной сети, чтобы телефон мог напрямую подключиться к Nimbo Desktop"
     }
 
     fun openScanner() {
+        val localNetworkGranted = Build.VERSION.SDK_INT < 37 || ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_LOCAL_NETWORK
+        ) == PackageManager.PERMISSION_GRANTED
+        val cameraGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        Logger.i(
+            "QrScanner",
+            "source=desktop_sync event=open_requested sdk=${Build.VERSION.SDK_INT} " +
+                "localNetworkPermission=$localNetworkGranted cameraPermission=$cameraGranted"
+        )
         if (
             Build.VERSION.SDK_INT >= 37 &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+            !localNetworkGranted
         ) {
             localNetworkPermission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
         } else {
@@ -331,7 +392,8 @@ fun CrossPlatformSyncScreen(
             instruction = t(
                 "Наведите камеру на одноразовый QR в Nimbo Desktop",
                 "Point the camera at the one-time QR in Nimbo Desktop"
-            )
+            ),
+            diagnosticSource = "desktop_sync"
         )
         return
     }
@@ -353,6 +415,21 @@ fun CrossPlatformSyncScreen(
         categories.connection,
         categories.automation
     ).count { it }
+    val sessionSecondsLeft = qr?.let { SyncMotionPolicy.secondsLeft(nowMs, it.expiresAtMs) } ?: 0
+    val sessionProgress = qr?.let {
+        SyncMotionPolicy.progress(nowMs, it.expiresAtMs, sessionLifetimeMs)
+    } ?: 0f
+    val sessionActive = stage != MobileSyncStage.IDLE && stage != MobileSyncStage.COMPLETED
+    val syncRotationTransition = rememberInfiniteTransition(label = "sync_header_rotation")
+    val syncRotation by syncRotationTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(5_800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "sync_header_rotation_value"
+    )
 
     LazyColumn(
         modifier = Modifier
@@ -380,7 +457,16 @@ fun CrossPlatformSyncScreen(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                Icon(Icons.Default.Sync, null, tint = colors.accent, modifier = Modifier.size(28.dp))
+                Icon(
+                    Icons.Default.Sync,
+                    null,
+                    tint = colors.accent,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .graphicsLayer {
+                            rotationZ = if (sessionActive && motionEnabled) syncRotation else 0f
+                        }
+                )
             }
         }
 
@@ -400,6 +486,11 @@ fun CrossPlatformSyncScreen(
                         )
                     }
                 }
+                Spacer(Modifier.height(14.dp))
+                SyncDeviceSignalBridge(
+                    active = motionEnabled,
+                    sessionActive = sessionActive
+                )
             }
         }
 
@@ -442,7 +533,20 @@ fun CrossPlatformSyncScreen(
             item {
                 SyncGlassCard(border = colors.accent.copy(alpha = 0.45f)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(13.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(30.dp), color = colors.accent, strokeWidth = 3.dp)
+                        if (qr == null) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(34.dp),
+                                color = colors.accent,
+                                strokeWidth = 3.dp
+                            )
+                        } else {
+                            SyncCountdownIndicator(
+                                progress = sessionProgress,
+                                secondsLeft = sessionSecondsLeft,
+                                motionEnabled = motionEnabled,
+                                modifier = Modifier.size(58.dp)
+                            )
+                        }
                         Column {
                             Text(
                                 when (stage) {
@@ -454,7 +558,7 @@ fun CrossPlatformSyncScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             response?.comparisonCode?.let { code ->
-                                Text(t("Код проверки: $code", "Verification code: $code"), color = colors.accent)
+                                SyncVerificationCode(code = code, motionEnabled = motionEnabled)
                             }
                         }
                     }
@@ -541,12 +645,7 @@ fun CrossPlatformSyncScreen(
             item {
                 SyncGlassCard(border = colors.statusConnected.copy(alpha = 0.55f)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier.size(42.dp).background(colors.statusConnected.copy(alpha = 0.16f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Check, null, tint = colors.statusConnected)
-                        }
+                        SyncCompletedIcon(motionEnabled = motionEnabled)
                         Column(Modifier.weight(1f)) {
                             Text(t("Синхронизация завершена", "Sync completed"), color = colors.textPrimary, fontWeight = FontWeight.ExtraBold)
                             Text(
@@ -607,6 +706,206 @@ fun CrossPlatformSyncScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun SyncDeviceSignalBridge(
+    active: Boolean,
+    sessionActive: Boolean
+) {
+    val colors = LocalNebulaColors.current
+    val transition = rememberInfiniteTransition(label = "sync_signal_bridge")
+    val travel by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = if (sessionActive) 1_250 else 2_600,
+                easing = LinearEasing
+            ),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "sync_signal_travel"
+    )
+    val currentTravel = if (active) travel else 0.5f
+    // controlFill is intentionally bright for switches and compact controls. At the
+    // size of this bridge it turned into a large grey slab in dark themes, so keep
+    // the panel tied to the surrounding surface and add only a restrained accent tint.
+    val bridgeFill = colors.accent.copy(
+        alpha = if (colors.isMaterialYou) 0.08f else 0.065f
+    )
+    val bridgeBorder = colors.accent.copy(
+        alpha = if (colors.isMaterialYou) 0.18f else 0.14f
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(bridgeFill)
+            .border(1.dp, bridgeBorder, RoundedCornerShape(18.dp))
+            .padding(horizontal = 13.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        SyncSignalEndpoint(Icons.Default.PhoneAndroid, t("Телефон", "Phone"))
+        Canvas(
+            modifier = Modifier
+                .weight(1f)
+                .height(34.dp)
+        ) {
+            val centerY = size.height / 2f
+            drawLine(
+                color = colors.divider,
+                start = Offset(0f, centerY),
+                end = Offset(size.width, centerY),
+                strokeWidth = 2.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+            repeat(3) { index ->
+                val local = (currentTravel + index / 3f) % 1f
+                val alpha = (0.28f + 0.72f * (1f - kotlin.math.abs(local - 0.5f) * 1.25f))
+                    .coerceIn(0.22f, 1f)
+                drawCircle(
+                    color = colors.accent.copy(alpha = alpha),
+                    radius = (if (index == 0) 4.2.dp else 3.dp).toPx(),
+                    center = Offset(size.width * local, centerY)
+                )
+            }
+        }
+        SyncSignalEndpoint(Icons.Default.Computer, t("Компьютер", "Desktop"))
+    }
+}
+
+@Composable
+private fun SyncSignalEndpoint(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String
+) {
+    val colors = LocalNebulaColors.current
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(colors.accent.copy(alpha = 0.15f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = colors.accent, modifier = Modifier.size(20.dp))
+        }
+        Text(
+            label,
+            color = colors.textTertiary,
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+@Composable
+private fun SyncCountdownIndicator(
+    progress: Float,
+    secondsLeft: Int,
+    motionEnabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalNebulaColors.current
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(280, easing = LinearEasing),
+        label = "sync_countdown_progress"
+    )
+    val urgent = secondsLeft in 0..15
+    val ringColor = if (urgent) colors.statusError else colors.accent
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val stroke = 4.dp.toPx()
+            val inset = stroke / 2f
+            val arcSize = Size(size.width - stroke, size.height - stroke)
+            drawArc(
+                color = colors.divider,
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = arcSize,
+                style = Stroke(stroke, cap = StrokeCap.Round)
+            )
+            drawArc(
+                color = ringColor,
+                startAngle = -90f,
+                sweepAngle = 360f * if (motionEnabled) animatedProgress else progress,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = arcSize,
+                style = Stroke(stroke, cap = StrokeCap.Round)
+            )
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            AnimatedContent(
+                targetState = secondsLeft,
+                transitionSpec = { fadeIn(tween(130)) togetherWith fadeOut(tween(130)) },
+                label = "sync_countdown_number"
+            ) { value ->
+                Text(
+                    value.toString(),
+                    color = ringColor,
+                    fontWeight = FontWeight.ExtraBold,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+            Text(t("сек", "sec"), color = colors.textTertiary, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+private fun SyncVerificationCode(code: String, motionEnabled: Boolean) {
+    val colors = LocalNebulaColors.current
+    val transition = rememberInfiniteTransition(label = "sync_verification_code")
+    val pulse by transition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = 1.035f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1_050, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "sync_verification_code_pulse"
+    )
+    Text(
+        t("Код проверки: $code", "Verification code: $code"),
+        color = colors.accent,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.graphicsLayer {
+            val scale = if (motionEnabled) pulse else 1f
+            scaleX = scale
+            scaleY = scale
+        }
+    )
+}
+
+@Composable
+private fun SyncCompletedIcon(motionEnabled: Boolean) {
+    val colors = LocalNebulaColors.current
+    var revealed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { revealed = true }
+    val scale by animateFloatAsState(
+        targetValue = if (revealed && motionEnabled) 1f else if (motionEnabled) 0.55f else 1f,
+        animationSpec = tween(520, easing = FastOutSlowInEasing),
+        label = "sync_completed_scale"
+    )
+    Box(
+        Modifier
+            .size(42.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                alpha = scale.coerceIn(0f, 1f)
+            }
+            .background(colors.statusConnected.copy(alpha = 0.16f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(Icons.Default.Check, null, tint = colors.statusConnected)
     }
 }
 

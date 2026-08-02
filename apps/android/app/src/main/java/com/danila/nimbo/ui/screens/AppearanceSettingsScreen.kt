@@ -81,6 +81,7 @@ fun AppearanceSettingsScreen(
     var backgroundStyle by remember { mutableIntStateOf(preferencesManager.backgroundStyle) }
     var elementStyle by remember { mutableIntStateOf(preferencesManager.elementStyle) }
     var backgroundAnimationEnabled by remember { mutableStateOf(preferencesManager.backgroundAnimationEnabled) }
+    var bottomBarAutoHideEnabled by remember { mutableStateOf(preferencesManager.bottomBarAutoHideEnabled) }
     var statusParticlesEnabled by remember { mutableStateOf(preferencesManager.statusParticlesEnabled) }
     var highContrastUi by remember { mutableStateOf(preferencesManager.highContrastUi) }
     var reducedTransparency by remember { mutableStateOf(preferencesManager.reducedTransparency) }
@@ -101,7 +102,7 @@ fun AppearanceSettingsScreen(
         else -> systemDarkTheme
     }
 
-    LaunchedEffect(colorTheme, themeMode, textScale, isCustomAccent, customAccentColor, showVersionInHeader, gradientEffectsEnabled, glowEffectsEnabled, customGradientCount, customGradColor1, customGradColor2, customGradColor3, useDynamicColor, selectedAppIcon, backgroundStyle, elementStyle, backgroundAnimationEnabled, statusParticlesEnabled, highContrastUi, reducedTransparency, splashScreenEnabled, globalBrightness, globalTransparency, globalBlur, globalCorners, useSubscriptionTheme, showSubscriptionLogo) {
+    LaunchedEffect(colorTheme, themeMode, textScale, isCustomAccent, customAccentColor, showVersionInHeader, gradientEffectsEnabled, glowEffectsEnabled, customGradientCount, customGradColor1, customGradColor2, customGradColor3, useDynamicColor, selectedAppIcon, backgroundStyle, elementStyle, backgroundAnimationEnabled, bottomBarAutoHideEnabled, statusParticlesEnabled, highContrastUi, reducedTransparency, splashScreenEnabled, globalBrightness, globalTransparency, globalBlur, globalCorners, useSubscriptionTheme, showSubscriptionLogo) {
         preferencesManager.colorTheme = if (isDarkTheme) colorIndex else colorIndex + 9
         preferencesManager.themeMode = themeMode
         preferencesManager.textScale = textScale
@@ -119,6 +120,7 @@ fun AppearanceSettingsScreen(
         preferencesManager.backgroundStyle = backgroundStyle
         preferencesManager.elementStyle = elementStyle
         preferencesManager.backgroundAnimationEnabled = backgroundAnimationEnabled
+        preferencesManager.bottomBarAutoHideEnabled = bottomBarAutoHideEnabled
         preferencesManager.statusParticlesEnabled = statusParticlesEnabled
         preferencesManager.highContrastUi = highContrastUi
         preferencesManager.reducedTransparency = reducedTransparency
@@ -660,6 +662,37 @@ fun AppearanceSettingsScreen(
                             reducedTransparency = preset.reducedTransparencyEnabled
                         }
                     )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = nebulaColors.onSurface.copy(alpha = 0.1f)
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { bottomBarAutoHideEnabled = !bottomBarAutoHideEnabled }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Скрывать нижнюю панель", color = nebulaColors.textPrimary, fontWeight = FontWeight.Bold)
+                            Text(
+                                "При прокрутке вниз панель плавно уходит и возвращается после остановки или прокрутки вверх",
+                                color = nebulaColors.textTertiary,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Switch(
+                            checked = bottomBarAutoHideEnabled,
+                            onCheckedChange = { bottomBarAutoHideEnabled = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = nebulaColors.accent,
+                                checkedTrackColor = nebulaColors.accent.copy(alpha = 0.3f)
+                            )
+                        )
+                    }
 
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),

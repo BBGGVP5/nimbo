@@ -109,7 +109,8 @@ object NotificationManager {
             }
         }
 
-        val isEn = PreferencesManager(context).appLanguage == "en"
+        val preferences = PreferencesManager(context)
+        val isEn = preferences.appLanguage == "en"
         val title = when {
             summary.failedSubscriptions == 0 && isEn -> "Subscriptions updated"
             summary.failedSubscriptions == 0 -> "Подписки обновлены"
@@ -133,6 +134,7 @@ object NotificationManager {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID_SUBSCRIPTIONS)
             .setSmallIcon(getNotificationSmallIconRes())
+            .setLargeIcon(CustomAppIconManager.notificationLargeIcon(context, preferences))
             .setColor(0xFF2869D4.toInt())
             .setContentTitle(title)
             .setContentText(message)
@@ -285,6 +287,12 @@ object NotificationManager {
         val upSpeed = formatSpeed(upSpeedBytes, isEn)
         val showNotificationSpeed = prefs.showNotificationSpeed
         val showConnectionTime = prefs.showNotificationConnectionTime
+        val nimboLargeIcon = CustomAppIconManager.notificationLargeIcon(context, prefs)
+        val notificationLargeIcon = if (prefs.customNotificationIconEnabled) {
+            nimboLargeIcon
+        } else {
+            subscriptionLogoBitmap ?: nimboLargeIcon
+        }
 
         val statusText = statusOverride ?: if (isConnected) {
             if (isEn) "Connected" else "Подключено"
@@ -317,7 +325,7 @@ object NotificationManager {
             .setColor(0xFF2869D4.toInt())
             .setColorized(false)
             // The large icon is rendered on the right by the system notification layout.
-            .apply { subscriptionLogoBitmap?.let { setLargeIcon(it) } }
+            .setLargeIcon(notificationLargeIcon)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

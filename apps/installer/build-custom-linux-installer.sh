@@ -58,6 +58,20 @@ ui_dir="$repo_root/apps/ui"
 installer_dir="$repo_root/apps/installer"
 out_dir="$repo_root/target/release/bundle/custom/linux"
 
+# Building large Rust archives directly on a Windows-mounted path in WSL can
+# fail with sporadic `Input/output error (os error 5)` failures. Keep Cargo's
+# intermediate files on the native Linux filesystem and copy only the payload
+# and final installer back into the repository. Native Linux builds continue
+# to use the repository target directory unless explicitly overridden.
+if [[ -n "${NIMBO_CARGO_TARGET_DIR:-}" ]]; then
+  cargo_target_dir="$NIMBO_CARGO_TARGET_DIR"
+elif [[ "$repo_root" == /mnt/* ]] && grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null; then
+  cargo_target_dir="${XDG_CACHE_HOME:-$HOME/.cache}/nimbo/cargo-target"
+else
+  cargo_target_dir="$repo_root/target"
+fi
+export CARGO_TARGET_DIR="$cargo_target_dir"
+
 if [[ $build_all -eq 1 ]]; then
   targets=("x86_64-unknown-linux-gnu" "aarch64-unknown-linux-gnu")
 elif [[ ${#targets[@]} -eq 0 ]]; then
@@ -112,6 +126,15 @@ touch "$ui_dir/src-tauri/tauri.conf.json"
 for target_triple in "${targets[@]}"; do
   echo "Building Linux app payload for $target_triple..."
   (cd "$repo_root" && cargo build -p nimbo-ui --release --features custom-protocol --target "$target_triple")
+
+  built_app="$cargo_target_dir/$target_triple/release/nimbo-ui"
+  payload_dir="$repo_root/target/$target_triple/release"
+  if [[ ! -f "$built_app" ]]; then
+    echo "Linux app payload was not found: $built_app" >&2
+    exit 1
+  fi
+  mkdir -p "$payload_dir"
+  cp -f "$built_app" "$payload_dir/nimbo-ui"
 done
 
 ensure_node_modules "$installer_dir"
@@ -121,7 +144,7 @@ for target_triple in "${targets[@]}"; do
   echo "Building custom Linux installer for $target_triple..."
   (cd "$installer_dir" && npx tauri build --no-bundle --target "$target_triple")
 
-  built="$repo_root/target/$target_triple/release/nimbo-installer"
+  built="$cargo_target_dir/$target_triple/release/nimbo-installer"
   if [[ ! -f "$built" ]]; then
     echo "Custom Linux installer binary was not found: $built" >&2
     exit 1

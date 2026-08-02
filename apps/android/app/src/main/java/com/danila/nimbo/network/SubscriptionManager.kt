@@ -40,6 +40,7 @@ data class SubscriptionInfo(
     val numericId: String? = null, // Цифровой ID
     val brandLogo: String? = null, // логотип бренда из заголовка nimbo-logo (URL или base64)
     val themeSpec: String? = null, // тема из заголовка nimbo-theme ("filter,accentHex,orb1,orb2,blur")
+    val tlsFragment: TlsFragmentConfig? = null, // параметры TLS ClientHello fragmentation от сервиса
     val fallbackUrl: String? = null, // URL аварийного пула из заголовка nimbo-fallback
     val fallbackServers: List<String> = emptyList() // ссылки аварийного пула, подмешанные в servers
 )
@@ -622,6 +623,13 @@ object SubscriptionManager {
             ?: response.headers["x-nimbo-theme"]
             ?: response.headers["dropweb-theme"])
             ?.trim()?.takeIf { it.isNotBlank() }
+        val tlsFragmentHeader = response.headers["nimbo-tls-fragment"]
+            ?: response.headers["x-nimbo-tls-fragment"]
+            ?: response.headers["dropweb-tls-fragment"]
+        val tlsFragment = TlsFragmentConfig.parse(tlsFragmentHeader)
+        if (!tlsFragmentHeader.isNullOrBlank() && tlsFragment == null) {
+            Log.w("SubscriptionManager", "Ignoring invalid Nimbo-TLS-Fragment header")
+        }
 
         // Аварийный пул серверов (nimbo-fallback): URL отдельной подписки/пула, который
         // клиент best-effort подмешивает как fallback-группу. decodeBase64Header не тронет
@@ -645,7 +653,7 @@ object SubscriptionManager {
         if (!response.isSuccessful) {
             throw Exception(buildSubscriptionHttpError(response.code, body, hwidActive, hwidMaxReached))
         }
-        if (body.isBlank()) return SubscriptionInfo()
+        if (body.isBlank()) return SubscriptionInfo(tlsFragment = tlsFragment)
         val trimmedBody = body.trim()
         var supportsJsonResponse: Boolean? = null
 
@@ -726,6 +734,7 @@ object SubscriptionManager {
                         supportUrl = supportUrl,
                         brandLogo = brandLogo,
                         themeSpec = themeSpec,
+                        tlsFragment = tlsFragment,
                         fallbackUrl = fallbackUrl,
                         autoUpdateInterval = autoUpdateInterval,
                         shortUuid = url.substringAfterLast("/").substringBefore("?"),
@@ -789,6 +798,7 @@ object SubscriptionManager {
             supportUrl = supportUrl,
             brandLogo = brandLogo,
             themeSpec = themeSpec,
+            tlsFragment = tlsFragment,
             fallbackUrl = fallbackUrl,
             autoUpdateInterval = autoUpdateInterval,
             supportsJsonResponse = supportsJsonResponse,
