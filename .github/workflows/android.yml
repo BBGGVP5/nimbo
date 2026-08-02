@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Получить исходники
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Установить JDK 21
         uses: actions/setup-java@v4
