@@ -145,7 +145,7 @@ jobs:
 
     steps:
       - name: Скачать собранные файлы
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: nimbo-*
           path: release-assets
