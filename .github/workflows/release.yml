@@ -109,7 +109,7 @@ jobs:
       - name: Собрать фирменный Linux-установщик
         if: matrix.asset_arch == 'x64'
         shell: bash
-        run: ./apps/installer/build-custom-linux-installer.sh --target x86_64-unknown-linux-gnu
+        run: bash apps/installer/build-custom-linux-installer.sh --target x86_64-unknown-linux-gnu
 
       - name: Подготовить понятные имена файлов
         env:
