@@ -134,7 +134,10 @@ for target_triple in "${targets[@]}"; do
     exit 1
   fi
   mkdir -p "$payload_dir"
-  cp -f "$built_app" "$payload_dir/nimbo-ui"
+  payload_app="$payload_dir/nimbo-ui"
+  if [[ "$built_app" != "$payload_app" ]]; then
+    cp -f "$built_app" "$payload_app"
+  fi
 done
 
 ensure_node_modules "$installer_dir"
