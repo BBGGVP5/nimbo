@@ -36,7 +36,7 @@ jobs:
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleRelease --no-daemon
 
       - name: Сохранить неподписанные APK для тестирования
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nimbo-android-release-unsigned
           path: apps/android/app/build/outputs/apk/release/*.apk
