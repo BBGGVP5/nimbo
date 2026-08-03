@@ -203,6 +203,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -289,6 +290,7 @@ import com.danila.nimbo.ui.components.liquidTouchDeformation
 import com.danila.nimbo.ui.components.rememberNetworkEdgeBurstController
 import com.danila.nimbo.ui.components.rememberHapticSliderValueChange
 import com.danila.nimbo.ui.components.tick
+import com.danila.nimbo.ui.navigation.BottomBarScrollPolicy
 import com.danila.nimbo.ui.theme.BackgroundStyleMode
 import com.danila.nimbo.ui.theme.DEFAULT_COLOR_THEME_INDEX
 import com.danila.nimbo.ui.theme.LocalBackgroundAnimationEnabled
@@ -305,6 +307,9 @@ import com.danila.nimbo.ui.theme.NebulaColors
 import com.danila.nimbo.ui.theme.LocalGlobalCornerRadius
 import com.danila.nimbo.ui.theme.LocalGlobalBlurRadius
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.graphics.BlendMode
 import com.danila.nimbo.utils.PreferencesManager
@@ -318,6 +323,7 @@ import com.danila.nimbo.vpn.VpnState
 import com.danila.nimbo.vpn.RoutingConfigurationApplier
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -408,6 +414,45 @@ fun NimboMiniApp(
     }
     val statusParticlesEnabled by preferencesManager.statusParticlesEnabledState
     val edgeBurstAnimationsEnabled = LocalBackgroundAnimationEnabled.current && statusParticlesEnabled
+    val bottomBarAutoHideEnabled by preferencesManager.bottomBarAutoHideEnabledState
+    var bottomControlsVisible by remember { mutableStateOf(true) }
+    var bottomControlsRevealJob by remember { mutableStateOf<Job?>(null) }
+    val bottomControlsScope = rememberCoroutineScope()
+
+    fun scheduleBottomControlsReveal(delayMillis: Long = 420L) {
+        bottomControlsRevealJob?.cancel()
+        bottomControlsRevealJob = bottomControlsScope.launch {
+            delay(delayMillis)
+            bottomControlsVisible = true
+        }
+    }
+
+    val bottomControlsScrollConnection = remember(bottomBarAutoHideEnabled) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (!bottomBarAutoHideEnabled || source != NestedScrollSource.UserInput) {
+                    return Offset.Zero
+                }
+                bottomControlsVisible = BottomBarScrollPolicy.visibleAfterScroll(
+                    currentlyVisible = bottomControlsVisible,
+                    availableY = available.y
+                )
+                scheduleBottomControlsReveal()
+                return Offset.Zero
+            }
+
+            override suspend fun onPostFling(
+                consumed: androidx.compose.ui.unit.Velocity,
+                available: androidx.compose.ui.unit.Velocity
+            ): androidx.compose.ui.unit.Velocity {
+                if (bottomBarAutoHideEnabled) {
+                    delay(180L)
+                    bottomControlsVisible = true
+                }
+                return androidx.compose.ui.unit.Velocity.Zero
+            }
+        }
+    }
 
     var destination by rememberSaveable {
         mutableStateOf(
@@ -418,6 +463,10 @@ fun NimboMiniApp(
                 else -> MiniDestination.Home
             }
         )
+    }
+    LaunchedEffect(bottomBarAutoHideEnabled, destination) {
+        bottomControlsRevealJob?.cancel()
+        bottomControlsVisible = true
     }
     var subscriptionTab by rememberSaveable { mutableStateOf(MiniSubscriptionTab.Profiles) }
     var currentProfileUrl by rememberSaveable { mutableStateOf<String?>(preferencesManager.loadLastSelectedProfileUrl()) }
@@ -732,7 +781,11 @@ fun NimboMiniApp(
     val backdropLayer = rememberGraphicsLayer()
 
     CompositionLocalProvider(LocalNetworkEdgeBurstEmitter provides edgeBurstEmitter) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .nestedScroll(bottomControlsScrollConnection)
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -968,6 +1021,7 @@ fun NimboMiniApp(
             NimboBottomControls(
                 backdropLayer = backdropLayer,
                 destination = destination,
+                visible = bottomControlsVisible,
                 onDestinationChange = { target ->
                     if (target == MiniDestination.Subscription && destination != MiniDestination.Subscription) {
                         subscriptionTab = MiniSubscriptionTab.Profiles
@@ -9222,6 +9276,7 @@ private fun Modifier.frostedBackdrop(
 private fun BoxScope.NimboBottomControls(
     backdropLayer: GraphicsLayer,
     destination: MiniDestination,
+    visible: Boolean,
     onDestinationChange: (MiniDestination) -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
@@ -9229,6 +9284,18 @@ private fun BoxScope.NimboBottomControls(
     val cornerScale = LocalGlobalCornerRadius.current
     val blurRadius = LocalGlobalBlurRadius.current
     val haptic = LocalHapticFeedback.current
+    val visibilityProgress by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (visible) 260 else 220,
+            easing = FastOutSlowInEasing
+        ),
+        label = "bottom-controls-visibility"
+    )
+    val visibilityModifier = Modifier.graphicsLayer {
+        translationY = size.height * (1f - visibilityProgress)
+        alpha = visibilityProgress
+    }
     val selectDestination: (MiniDestination) -> Unit = { target ->
         if (target != destination) {
             haptic.tick()
@@ -9264,6 +9331,7 @@ private fun BoxScope.NimboBottomControls(
                 .fillMaxWidth()
                 .height(80.dp)
                 .align(Alignment.BottomCenter)
+                .then(visibilityModifier)
                 .clip(panelShape)
                 .border(1.dp, outlineColor, panelShape)
         ) {
@@ -9334,6 +9402,7 @@ private fun BoxScope.NimboBottomControls(
                 .fillMaxWidth()
                 .height(80.dp)
                 .align(Alignment.BottomCenter)
+                .then(visibilityModifier)
                 .clip(panelShape)
                 .border(1.dp, outlineColor, panelShape)
         ) {
@@ -11595,6 +11664,7 @@ private fun ColumnScope.ThemeSettingsSection(
     val elementStyle by preferencesManager.elementStyleState
     val backgroundStyle by preferencesManager.backgroundStyleState
     val backgroundAnimationEnabled by preferencesManager.backgroundAnimationEnabledState
+    val bottomBarAutoHideEnabled by preferencesManager.bottomBarAutoHideEnabledState
     val statusParticlesEnabled by preferencesManager.statusParticlesEnabledState
     val liquidRefractionEnabled by preferencesManager.liquidRefractionEnabledState
     val connectButtonStyle by preferencesManager.connectButtonStyleState
@@ -11755,6 +11825,17 @@ private fun ColumnScope.ThemeSettingsSection(
             icon = Icons.Default.Grain,
             checked = statusParticlesEnabled,
             onCheckedChange = { preferencesManager.statusParticlesEnabled = it }
+        )
+        Spacer(Modifier.height(18.dp))
+        ThemeSwitchRow(
+            title = t("Скрывать нижнюю панель", "Hide bottom navigation"),
+            subtitle = t(
+                "Уходит при прокрутке вниз и возвращается после остановки или движения вверх",
+                "Hides while scrolling down and returns after stopping or scrolling up"
+            ),
+            icon = Icons.Default.SwapVert,
+            checked = bottomBarAutoHideEnabled,
+            onCheckedChange = { preferencesManager.bottomBarAutoHideEnabled = it }
         )
         Spacer(Modifier.height(18.dp))
         if (elementStyle == 0) {
