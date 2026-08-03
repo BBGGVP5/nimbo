@@ -2,14 +2,18 @@ package com.danila.nimbo.ui.screens
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color as AndroidColor
 import android.util.Base64
 import android.widget.ImageView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,11 +52,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import com.danila.nimbo.R
 import com.danila.nimbo.ui.components.AnimatedGradientBackground
 import com.danila.nimbo.ui.components.GlassHeader
@@ -89,6 +103,7 @@ fun AppIconSettingsScreen(
     var customIconUseImported by remember { mutableStateOf(preferencesManager.customIconUseImported) }
     var customNotificationIconEnabled by remember { mutableStateOf(preferencesManager.customNotificationIconEnabled) }
     var showIconConfirmDialog by remember { mutableStateOf<Int?>(null) }
+    var showBackgroundColorPicker by remember { mutableStateOf(false) }
     var iconSyncMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(selectedAppIcon) {
@@ -130,6 +145,40 @@ fun AppIconSettingsScreen(
     }
     val customPreview = remember(customConfig) {
         CustomAppIconManager.renderIcon(context, customConfig)
+    }
+    val shapePreviews = remember(
+        customIconBackgroundColor,
+        customIconCloudColor,
+        customIconCloudStyle
+    ) {
+        CustomIconShape.entries.map { shape ->
+            CustomAppIconManager.renderIcon(
+                context,
+                customConfig.copy(
+                    shape = shape,
+                    useImportedImage = false,
+                    importedImageBase64 = null
+                ),
+                192
+            )
+        }
+    }
+    val cloudPreviews = remember(
+        customIconShape,
+        customIconBackgroundColor,
+        customIconCloudColor
+    ) {
+        CustomCloudStyle.entries.map { cloudStyle ->
+            CustomAppIconManager.renderIcon(
+                context,
+                customConfig.copy(
+                    cloudStyle = cloudStyle,
+                    useImportedImage = false,
+                    importedImageBase64 = null
+                ),
+                192
+            )
+        }
     }
 
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -260,18 +309,20 @@ fun AppIconSettingsScreen(
                             ) { Text("Удалить загруженное изображение") }
                         }
 
-                        IconOptionRow(
+                        IconPreviewOptionRow(
                             title = "Форма",
-                            labels = CustomIconShape.entries.map { it.title },
+                            previews = shapePreviews,
+                            descriptions = CustomIconShape.entries.map { it.title },
                             selectedIndex = customIconShape,
                             onSelected = { customIconShape = it },
                             accent = nebulaColors.accent,
                             textColor = nebulaColors.textPrimary
                         )
 
-                        IconOptionRow(
+                        IconPreviewOptionRow(
                             title = "Облако",
-                            labels = CustomCloudStyle.entries.map { it.title },
+                            previews = cloudPreviews,
+                            descriptions = CustomCloudStyle.entries.map { it.title },
                             selectedIndex = customIconCloudStyle,
                             onSelected = { customIconCloudStyle = it },
                             accent = nebulaColors.accent,
@@ -283,7 +334,9 @@ fun AppIconSettingsScreen(
                             colors = CustomAppIconManager.backgroundPalette,
                             selectedColor = customIconBackgroundColor,
                             onSelected = { customIconBackgroundColor = it },
-                            textColor = nebulaColors.textPrimary
+                            onOpenPalette = { showBackgroundColorPicker = true },
+                            textColor = nebulaColors.textPrimary,
+                            accent = nebulaColors.accent
                         )
 
                         if (customIconCloudStyle != CustomCloudStyle.ORIGINAL.ordinal) {
@@ -292,7 +345,8 @@ fun AppIconSettingsScreen(
                                 colors = CustomAppIconManager.cloudPalette,
                                 selectedColor = customIconCloudColor,
                                 onSelected = { customIconCloudColor = it },
-                                textColor = nebulaColors.textPrimary
+                                textColor = nebulaColors.textPrimary,
+                                accent = nebulaColors.accent
                             )
                         }
 
@@ -364,6 +418,21 @@ fun AppIconSettingsScreen(
                 showIconConfirmDialog = null
                 selectedAppIcon = index
                 AppIconManager.setAppIcon(context, index)
+            }
+        )
+    }
+
+    if (showBackgroundColorPicker) {
+        FullColorPickerDialog(
+            initialColor = customIconBackgroundColor,
+            accent = nebulaColors.accent,
+            textPrimary = nebulaColors.textPrimary,
+            textSecondary = nebulaColors.textSecondary,
+            surfaceColor = nebulaColors.surface,
+            onDismiss = { showBackgroundColorPicker = false },
+            onApply = { selectedColor ->
+                customIconBackgroundColor = selectedColor
+                showBackgroundColorPicker = false
             }
         )
     }
@@ -603,9 +672,10 @@ private fun IconPresetGrid(
 }
 
 @Composable
-private fun IconOptionRow(
+private fun IconPreviewOptionRow(
     title: String,
-    labels: List<String>,
+    previews: List<Bitmap>,
+    descriptions: List<String>,
     selectedIndex: Int,
     onSelected: (Int) -> Unit,
     accent: Color,
@@ -613,28 +683,46 @@ private fun IconOptionRow(
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, color = textColor, fontWeight = FontWeight.SemiBold)
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            labels.forEachIndexed { index, label ->
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            previews.forEachIndexed { index, bitmap ->
                 val selected = index == selectedIndex
                 Surface(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(14.dp))
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(22.dp))
+                        .semantics {
+                            contentDescription = descriptions.getOrElse(index) { "$title ${index + 1}" }
+                        }
                         .clickable { onSelected(index) },
-                    color = if (selected) accent.copy(alpha = 0.22f) else Color.Transparent,
+                    color = if (selected) accent.copy(alpha = 0.16f) else textColor.copy(alpha = 0.035f),
                     border = androidx.compose.foundation.BorderStroke(
-                        if (selected) 1.5.dp else 1.dp,
+                        if (selected) 2.dp else 1.dp,
                         if (selected) accent else textColor.copy(alpha = 0.14f)
                     ),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = RoundedCornerShape(22.dp)
                 ) {
-                    Text(
-                        label,
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 10.dp),
-                        color = textColor,
-                        fontSize = 11.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                    )
+                    Box(
+                        modifier = Modifier.fillMaxSize().padding(10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CustomIconBitmapArtwork(
+                            bitmap = bitmap,
+                            modifier = Modifier.fillMaxSize(),
+                            contentDescription = descriptions.getOrNull(index)
+                        )
+                        if (selected) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Выбрано",
+                                tint = accent,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(22.dp)
+                                    .background(Color.Black.copy(alpha = 0.72f), CircleShape)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -647,7 +735,9 @@ private fun IconColorRow(
     colors: List<Int>,
     selectedColor: Int,
     onSelected: (Int) -> Unit,
-    textColor: Color
+    onOpenPalette: (() -> Unit)? = null,
+    textColor: Color,
+    accent: Color
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, color = textColor, fontWeight = FontWeight.SemiBold)
@@ -667,17 +757,202 @@ private fun IconColorRow(
                         .clickable { onSelected(colorValue) }
                 )
             }
+            if (onOpenPalette != null) {
+                val isCustomColor = selectedColor !in colors
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .border(
+                            if (isCustomColor) 3.dp else 1.dp,
+                            if (isCustomColor) accent else textColor.copy(alpha = 0.18f),
+                            CircleShape
+                        )
+                        .clickable(onClick = onOpenPalette),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
+                        drawCircle(
+                            brush = Brush.sweepGradient(
+                                listOf(
+                                    Color.Red,
+                                    Color.Yellow,
+                                    Color.Green,
+                                    Color.Cyan,
+                                    Color.Blue,
+                                    Color.Magenta,
+                                    Color.Red
+                                )
+                            )
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(13.dp)
+                            .clip(CircleShape)
+                            .background(Color(selectedColor))
+                            .border(1.dp, Color.White.copy(alpha = 0.9f), CircleShape)
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun CustomIconBitmapArtwork(bitmap: Bitmap, modifier: Modifier = Modifier) {
+private fun CustomIconBitmapArtwork(
+    bitmap: Bitmap,
+    modifier: Modifier = Modifier,
+    contentDescription: String? = null
+) {
     Image(
         bitmap = bitmap.asImageBitmap(),
-        contentDescription = null,
+        contentDescription = contentDescription,
         modifier = modifier.clip(RoundedCornerShape(36.dp))
     )
+}
+
+@Composable
+private fun FullColorPickerDialog(
+    initialColor: Int,
+    accent: Color,
+    textPrimary: Color,
+    textSecondary: Color,
+    surfaceColor: Color,
+    onDismiss: () -> Unit,
+    onApply: (Int) -> Unit
+) {
+    val initialHsv = remember(initialColor) {
+        FloatArray(3).also { AndroidColor.colorToHSV(initialColor, it) }
+    }
+    var hue by remember(initialColor) { mutableStateOf(initialHsv[0]) }
+    var saturation by remember(initialColor) { mutableStateOf(initialHsv[1]) }
+    var value by remember(initialColor) { mutableStateOf(initialHsv[2]) }
+    var saturationAreaSize by remember { mutableStateOf(IntSize.Zero) }
+    var hueAreaSize by remember { mutableStateOf(IntSize.Zero) }
+    val markerRadius = with(LocalDensity.current) { 8.dp.toPx() }
+    val selectedColorInt = AndroidColor.HSVToColor(floatArrayOf(hue, saturation, value))
+    val selectedColor = Color(selectedColorInt)
+
+    fun updateSaturationAndValue(x: Float, y: Float) {
+        if (saturationAreaSize.width <= 0 || saturationAreaSize.height <= 0) return
+        saturation = (x / saturationAreaSize.width).coerceIn(0f, 1f)
+        value = 1f - (y / saturationAreaSize.height).coerceIn(0f, 1f)
+    }
+
+    fun updateHue(x: Float) {
+        if (hueAreaSize.width <= 0) return
+        hue = ((x / hueAreaSize.width).coerceIn(0f, 1f) * 360f).coerceAtMost(359.999f)
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp),
+            color = surfaceColor.copy(alpha = 0.98f),
+            shape = RoundedCornerShape(30.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.42f))
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(selectedColor)
+                            .border(2.dp, Color.White.copy(alpha = 0.72f), CircleShape)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Цвет фона", color = textPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                        Text("Выберите любой оттенок", color = textSecondary, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(
+                        text = "#%06X".format(selectedColorInt and 0xFFFFFF),
+                        color = textSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(210.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .onSizeChanged { saturationAreaSize = it }
+                        .pointerInput(hue, saturationAreaSize) {
+                            detectTapGestures { updateSaturationAndValue(it.x, it.y) }
+                        }
+                        .pointerInput(hue, saturationAreaSize) {
+                            detectDragGestures { change, _ ->
+                                updateSaturationAndValue(change.position.x, change.position.y)
+                            }
+                        }
+                ) {
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            listOf(Color.White, Color.hsv(hue, 1f, 1f))
+                        )
+                    )
+                    drawRect(
+                        brush = Brush.verticalGradient(listOf(Color.Transparent, Color.Black))
+                    )
+                    val markerX = saturation * size.width
+                    val markerY = (1f - value) * size.height
+                    drawCircle(Color.Black.copy(alpha = 0.48f), markerRadius + 2f, androidx.compose.ui.geometry.Offset(markerX, markerY))
+                    drawCircle(Color.White, markerRadius, androidx.compose.ui.geometry.Offset(markerX, markerY), style = Stroke(3f))
+                }
+
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .onSizeChanged { hueAreaSize = it }
+                        .pointerInput(hueAreaSize) {
+                            detectTapGestures { updateHue(it.x) }
+                        }
+                        .pointerInput(hueAreaSize) {
+                            detectDragGestures { change, _ -> updateHue(change.position.x) }
+                        }
+                ) {
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            listOf(
+                                Color.Red,
+                                Color.Yellow,
+                                Color.Green,
+                                Color.Cyan,
+                                Color.Blue,
+                                Color.Magenta,
+                                Color.Red
+                            )
+                        )
+                    )
+                    val markerX = (hue / 360f) * size.width
+                    drawCircle(Color.Black.copy(alpha = 0.5f), markerRadius + 2f, androidx.compose.ui.geometry.Offset(markerX, size.height / 2f))
+                    drawCircle(Color.White, markerRadius, androidx.compose.ui.geometry.Offset(markerX, size.height / 2f), style = Stroke(3f))
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Отмена") }
+                    TextButton(onClick = { onApply(selectedColorInt) }) {
+                        Text("Применить", color = accent, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
