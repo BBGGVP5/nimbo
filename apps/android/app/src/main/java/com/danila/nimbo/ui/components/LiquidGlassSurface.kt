@@ -1,6 +1,5 @@
 package com.danila.nimbo.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.Modifier
@@ -63,36 +62,6 @@ fun Modifier.liquidGlassSurface(
         LiquidGlassDepth.FLOATING -> 16.dp
     }
     val base = if (isDark) Color(0xFF05070C) else Color.White
-    val fill = if (refractionEnabled) {
-        Brush.linearGradient(
-            colorStops = arrayOf(
-                0.0f to base.copy(alpha = baseAlpha),
-                0.30f to Color.White.copy(
-                    alpha = (if (isDark) 0.028f else 0.14f) * effectStrength
-                ),
-                0.52f to colors.accent.copy(
-                    alpha = (if (isDark) 0.055f else 0.10f) * effectStrength
-                ),
-                0.74f to base.copy(alpha = baseAlpha * 0.72f),
-                1.0f to base.copy(alpha = baseAlpha * 0.94f)
-            ),
-            start = Offset(
-                x = -100f + tilt.x * 260f,
-                y = -80f + tilt.y * 210f
-            ),
-            end = Offset(
-                x = 1100f + tilt.x * 320f,
-                y = 850f + tilt.y * 260f
-            )
-        )
-    } else {
-        Brush.linearGradient(
-            colors = listOf(
-                base.copy(alpha = baseAlpha),
-                base.copy(alpha = baseAlpha * 0.90f)
-            )
-        )
-    }
     val neutralRimAlpha = if (isDark) 0.09f else 0.28f
     val floatingRim = depth == LiquidGlassDepth.FLOATING
     val completeRimColor = if (refractionEnabled) {
@@ -146,68 +115,81 @@ fun Modifier.liquidGlassSurface(
             spotColor = Color.Black.copy(alpha = if (isDark) 0.46f else 0.16f)
         )
         .clip(shape)
-        .background(fill)
         .drawWithCache {
-            // Draw every optical layer into the component outline itself. Drawing
-            // rectangular shader bounds and relying on an earlier clip produced
-            // visible square tiles on several Android 17 GPU drivers.
+            // Render the whole material in one outline-bound draw node. Several
+            // Android 17 GPU drivers expose the rectangular backing textures of
+            // overlapping radial shaders as pale square tiles, even when Compose
+            // clips every individual layer. Keeping the material path-bound and
+            // using continuous linear optics avoids those texture seams.
             val glassPath = when (val outline = shape.createOutline(size, layoutDirection, this)) {
                 is Outline.Rectangle -> Path().apply { addRect(outline.rect) }
                 is Outline.Rounded -> Path().apply { addRoundRect(outline.roundRect) }
                 is Outline.Generic -> outline.path
             }
-            val upperSheen = Brush.radialGradient(
-                colors = listOf(
-                    Color.White.copy(
-                        alpha = (if (isDark) 0.085f else 0.18f) * effectStrength
+            val diagonalShiftX = tilt.x.coerceIn(-1f, 1f) * size.width * 0.18f
+            val diagonalShiftY = tilt.y.coerceIn(-1f, 1f) * size.height * 0.18f
+            val glassFill = if (refractionEnabled) {
+                Brush.linearGradient(
+                    colorStops = arrayOf(
+                        0.00f to base.copy(alpha = baseAlpha * 0.96f),
+                        0.25f to Color.White.copy(
+                            alpha = (if (isDark) 0.030f else 0.14f) * effectStrength
+                        ),
+                        0.48f to colors.accent.copy(
+                            alpha = (if (isDark) 0.055f else 0.10f) * effectStrength
+                        ),
+                        0.70f to base.copy(alpha = baseAlpha * 0.72f),
+                        1.00f to base.copy(alpha = baseAlpha * 0.94f)
                     ),
-                    Color.Transparent
+                    start = Offset(
+                        x = -size.width * 0.12f + diagonalShiftX,
+                        y = -size.height * 0.10f + diagonalShiftY
+                    ),
+                    end = Offset(
+                        x = size.width * 1.12f + diagonalShiftX,
+                        y = size.height * 1.10f + diagonalShiftY
+                    )
+                )
+            } else {
+                Brush.linearGradient(
+                    colors = listOf(
+                        base.copy(alpha = baseAlpha),
+                        base.copy(alpha = baseAlpha * 0.90f)
+                    ),
+                    start = Offset.Zero,
+                    end = Offset(size.width, size.height)
+                )
+            }
+            val opticalFlow = Brush.linearGradient(
+                colorStops = arrayOf(
+                    0.00f to Color.Transparent,
+                    0.22f to Color(0xFF79D7FF).copy(
+                        alpha = (if (isDark) 0.024f else 0.055f) * effectStrength
+                    ),
+                    0.46f to Color.White.copy(
+                        alpha = (if (isDark) 0.044f else 0.10f) * effectStrength
+                    ),
+                    0.68f to colors.accent.copy(
+                        alpha = (if (isDark) 0.035f else 0.075f) * effectStrength
+                    ),
+                    0.84f to Color(0xFFFF8DDA).copy(
+                        alpha = (if (isDark) 0.018f else 0.04f) * effectStrength
+                    ),
+                    1.00f to Color.Transparent
                 ),
-                center = Offset(
-                    x = size.width * (0.50f + tilt.x * 0.42f).coerceIn(0.05f, 0.95f),
-                    y = size.height * (0.08f + tilt.y * 0.30f).coerceIn(-0.10f, 0.44f)
+                start = Offset(
+                    x = size.width * (0.05f + tilt.x * 0.12f),
+                    y = size.height * (0.96f + tilt.y * 0.10f)
                 ),
-                radius = size.maxDimension * 0.72f
-            )
-            val refractedAccent = Brush.radialGradient(
-                colors = listOf(
-                    colors.accent.copy(alpha = (if (isDark) 0.085f else 0.15f) * effectStrength),
-                    Color.Transparent
-                ),
-                center = Offset(
-                    x = size.width * (0.72f - tilt.x * 0.28f).coerceIn(0.04f, 0.96f),
-                    y = size.height * (0.80f - tilt.y * 0.24f).coerceIn(0.04f, 0.96f)
-                ),
-                radius = size.maxDimension * 0.72f
-            )
-            val coolRefraction = Brush.radialGradient(
-                colors = listOf(
-                    Color(0xFF79D7FF).copy(alpha = (if (isDark) 0.045f else 0.08f) * effectStrength),
-                    Color.Transparent
-                ),
-                center = Offset(
-                    x = size.width * (0.12f + tilt.x * 0.22f).coerceIn(0.02f, 0.80f),
-                    y = size.height * (0.88f + tilt.y * 0.16f).coerceIn(0.20f, 0.98f)
-                ),
-                radius = size.maxDimension * 0.56f
-            )
-            val warmRefraction = Brush.radialGradient(
-                colors = listOf(
-                    Color(0xFFFF8DDA).copy(alpha = (if (isDark) 0.035f else 0.065f) * effectStrength),
-                    Color.Transparent
-                ),
-                center = Offset(
-                    x = size.width * (0.86f + tilt.x * 0.12f).coerceIn(0.20f, 0.98f),
-                    y = size.height * (0.10f + tilt.y * 0.20f).coerceIn(0.02f, 0.80f)
-                ),
-                radius = size.maxDimension * 0.46f
+                end = Offset(
+                    x = size.width * (0.95f + tilt.x * 0.12f),
+                    y = size.height * (0.04f + tilt.y * 0.10f)
+                )
             )
             onDrawBehind {
+                drawPath(glassPath, glassFill)
                 if (refractionEnabled) {
-                    drawPath(glassPath, upperSheen)
-                    drawPath(glassPath, refractedAccent)
-                    drawPath(glassPath, coolRefraction)
-                    drawPath(glassPath, warmRefraction)
+                    drawPath(glassPath, opticalFlow)
                 }
             }
         }
