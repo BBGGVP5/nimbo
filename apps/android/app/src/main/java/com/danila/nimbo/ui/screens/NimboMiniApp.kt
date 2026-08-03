@@ -10594,7 +10594,6 @@ private fun GlassPanel(
     val nebulaColors = LocalNebulaColors.current
     val isLight = nebulaColors.isLight
     val cornerScale = LocalGlobalCornerRadius.current
-    val reducedTransparency = LocalReducedTransparencyEnabled.current
     val resolvedShape = scaleRoundedCornerShape(shape, cornerScale)
     val useLiquidGlass = nebulaColors.isLiquidGlass && !forceOpaque
 
