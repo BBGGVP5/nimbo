@@ -18,12 +18,18 @@ import android.os.Build
 import android.util.Base64
 import com.danila.nimbo.MainActivity
 import com.danila.nimbo.R
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
 
 enum class CustomIconShape(val title: String) {
     SQUIRCLE("Сквиркл"),
-    ROUNDED("Скруглённая"),
-    CIRCLE("Круг");
+    ROUNDED("Скруглённый квадрат"),
+    CIRCLE("Круг"),
+    CLOVER("Клевер"),
+    FLOWER("Цветок"),
+    ARCH("Арка");
 
     companion object {
         fun fromIndex(index: Int): CustomIconShape = entries.getOrElse(index) { SQUIRCLE }
@@ -209,6 +215,25 @@ object CustomAppIconManager {
         return result
     }
 
+    /**
+     * Uses the exact same path as the generated shortcut and notification icon.
+     * This keeps the Android-style picker honest instead of showing approximate
+     * Compose shapes that differ from the exported bitmap.
+     */
+    fun renderShapePreview(
+        shape: CustomIconShape,
+        color: Int = 0xFFF4F7FF.toInt(),
+        size: Int = 128
+    ): Bitmap {
+        val safeSize = size.coerceIn(48, 512)
+        return Bitmap.createBitmap(safeSize, safeSize, Bitmap.Config.ARGB_8888).also { bitmap ->
+            Canvas(bitmap).drawPath(
+                shapePath(shape, safeSize.toFloat()),
+                Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+            )
+        }
+    }
+
     fun notificationLargeIcon(
         context: Context,
         preferences: PreferencesManager = PreferencesManager(context)
@@ -277,6 +302,60 @@ object CustomAppIconManager {
             CustomIconShape.CIRCLE -> addOval(bounds, Path.Direction.CW)
             CustomIconShape.ROUNDED -> addRoundRect(bounds, size * 0.18f, size * 0.18f, Path.Direction.CW)
             CustomIconShape.SQUIRCLE -> addRoundRect(bounds, size * 0.29f, size * 0.29f, Path.Direction.CW)
+            CustomIconShape.CLOVER -> addClover(size, edge)
+            CustomIconShape.FLOWER -> addFlower(size)
+            CustomIconShape.ARCH -> addArch(size, edge)
         }
+    }
+
+    private fun Path.addClover(size: Float, edge: Float) {
+        val far = size - edge
+        val mid = size / 2f
+        moveTo(mid, edge)
+        cubicTo(size * 0.72f, edge, far, size * 0.14f, far, size * 0.33f)
+        cubicTo(far, size * 0.43f, size * 0.92f, size * 0.48f, size * 0.88f, mid)
+        cubicTo(size * 0.92f, size * 0.52f, far, size * 0.57f, far, size * 0.67f)
+        cubicTo(far, size * 0.86f, size * 0.72f, far, mid, far)
+        cubicTo(size * 0.28f, far, edge, size * 0.86f, edge, size * 0.67f)
+        cubicTo(edge, size * 0.57f, size * 0.08f, size * 0.52f, size * 0.12f, mid)
+        cubicTo(size * 0.08f, size * 0.48f, edge, size * 0.43f, edge, size * 0.33f)
+        cubicTo(edge, size * 0.14f, size * 0.28f, edge, mid, edge)
+        close()
+    }
+
+    private fun Path.addFlower(size: Float) {
+        val centre = size / 2f
+        val pointCount = 16
+        val points = List(pointCount) { index ->
+            val angle = -PI / 2.0 + index * (2.0 * PI / pointCount)
+            val radius = size * if (index % 2 == 0) 0.475f else 0.405f
+            Pair(
+                centre + (cos(angle) * radius).toFloat(),
+                centre + (sin(angle) * radius).toFloat()
+            )
+        }
+        val first = points.first()
+        val last = points.last()
+        moveTo((last.first + first.first) / 2f, (last.second + first.second) / 2f)
+        points.forEachIndexed { index, point ->
+            val next = points[(index + 1) % points.size]
+            quadTo(
+                point.first,
+                point.second,
+                (point.first + next.first) / 2f,
+                (point.second + next.second) / 2f
+            )
+        }
+        close()
+    }
+
+    private fun Path.addArch(size: Float, edge: Float) {
+        val far = size - edge
+        moveTo(size * 0.13f, far)
+        lineTo(size * 0.13f, size * 0.43f)
+        cubicTo(size * 0.13f, size * 0.18f, size * 0.29f, edge, size * 0.50f, edge)
+        cubicTo(size * 0.71f, edge, size * 0.87f, size * 0.18f, size * 0.87f, size * 0.43f)
+        lineTo(size * 0.87f, far)
+        close()
     }
 }

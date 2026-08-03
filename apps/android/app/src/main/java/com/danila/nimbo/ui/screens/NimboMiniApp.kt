@@ -10595,9 +10595,6 @@ private fun GlassPanel(
     val isLight = nebulaColors.isLight
     val cornerScale = LocalGlobalCornerRadius.current
     val reducedTransparency = LocalReducedTransparencyEnabled.current
-    val glassBlur = if (reducedTransparency) 0.dp else LocalGlobalBlurRadius.current
-        .coerceIn(0f, 80f)
-        .dp
     val resolvedShape = scaleRoundedCornerShape(shape, cornerScale)
     val useLiquidGlass = nebulaColors.isLiquidGlass && !forceOpaque
 
@@ -10644,30 +10641,6 @@ private fun GlassPanel(
                 modifier = Modifier
                     .matchParentSize()
                     .background(nebulaColors.accent.copy(alpha = if (isLight) 0.08f else 0.10f))
-            )
-        }
-        // Keep the effect behind content: the blur slider changes every main glass
-        // surface while text and controls remain sharp and accessible.
-        if (!forceOpaque && !reducedTransparency) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(resolvedShape)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                nebulaColors.accent.copy(
-                                    alpha = if (useLiquidGlass) {
-                                        if (isLight) 0.06f else 0.10f
-                                    } else {
-                                        if (isLight) 0.07f else 0.13f
-                                    }
-                                ),
-                                Color.Transparent
-                            )
-                        )
-                    )
-                    .blur(glassBlur)
             )
         }
         Box(modifier = Modifier.fillMaxWidth()) {

@@ -48,8 +48,11 @@ fun SettingsSection(
                 modifier = Modifier
                     .size(32.dp)
                     .background(
-                        Brush.radialGradient(
-                            colors = listOf(nebulaColors.accent.copy(alpha = 0.25f), Color.Transparent)
+                        Brush.linearGradient(
+                            colors = listOf(
+                                nebulaColors.accent.copy(alpha = 0.18f),
+                                nebulaColors.accent.copy(alpha = 0.05f)
+                            )
                         ),
                         shape = RoundedCornerShape(8.dp)
                     ),
@@ -420,8 +423,11 @@ private fun settingsIconBrush(
     nebulaColors: com.danila.nimbo.ui.theme.NebulaColors,
     style: ElementStyleMode
 ): Brush = when (style) {
-    ElementStyleMode.LIQUID_GLASS -> Brush.radialGradient(
-        colors = listOf(nebulaColors.accent.copy(alpha = 0.15f), Color.Transparent)
+    ElementStyleMode.LIQUID_GLASS -> Brush.linearGradient(
+        colors = listOf(
+            nebulaColors.accent.copy(alpha = 0.13f),
+            nebulaColors.accent.copy(alpha = 0.035f)
+        )
     )
 
     ElementStyleMode.MATERIAL_EXPRESSIVE -> Brush.linearGradient(
@@ -445,7 +451,7 @@ private fun settingsIconBrush(
         )
     )
 
-    ElementStyleMode.SOFT_NEO -> Brush.radialGradient(
+    ElementStyleMode.SOFT_NEO -> Brush.linearGradient(
         colors = listOf(
             nebulaColors.accent.copy(alpha = 0.18f),
             Color.Transparent

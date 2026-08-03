@@ -53,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -146,21 +147,9 @@ fun AppIconSettingsScreen(
     val customPreview = remember(customConfig) {
         CustomAppIconManager.renderIcon(context, customConfig)
     }
-    val shapePreviews = remember(
-        customIconBackgroundColor,
-        customIconCloudColor,
-        customIconCloudStyle
-    ) {
+    val shapePreviews = remember {
         CustomIconShape.entries.map { shape ->
-            CustomAppIconManager.renderIcon(
-                context,
-                customConfig.copy(
-                    shape = shape,
-                    useImportedImage = false,
-                    importedImageBase64 = null
-                ),
-                192
-            )
+            CustomAppIconManager.renderShapePreview(shape = shape, size = 128)
         }
     }
     val cloudPreviews = remember(
@@ -309,8 +298,7 @@ fun AppIconSettingsScreen(
                             ) { Text("Удалить загруженное изображение") }
                         }
 
-                        IconPreviewOptionRow(
-                            title = "Форма",
+                        AndroidShapePicker(
                             previews = shapePreviews,
                             descriptions = CustomIconShape.entries.map { it.title },
                             selectedIndex = customIconShape,
@@ -564,44 +552,13 @@ private fun LauncherIconGallery(
 
 @Composable
 private fun ReadyLauncherIcon(index: Int, modifier: Modifier = Modifier) {
-    val context = androidx.compose.ui.platform.LocalContext.current
     val option = AppIconManager.ICON_OPTIONS.getOrElse(index) { AppIconManager.ICON_OPTIONS.first() }
-    val bitmap = remember(index) {
-        CustomAppIconManager.renderIcon(
-            context = context,
-            config = CustomAppIconConfig(
-                shape = CustomIconShape.SQUIRCLE,
-                backgroundColor = option.backgroundColor,
-                cloudColor = 0xFFF4F7FF.toInt(),
-                cloudStyle = CustomCloudStyle.ORIGINAL,
-                useImportedImage = false,
-                importedImageBase64 = null
-            ),
-            size = 224
-        )
-    }
-
     Box(modifier = modifier.aspectRatio(1f), contentAlignment = Alignment.Center) {
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = option.title,
-            modifier = Modifier.fillMaxSize()
+        AppIconResourceImage(
+            resId = option.previewRes,
+            modifier = Modifier.fillMaxSize(),
+            scaleType = ImageView.ScaleType.FIT_CENTER
         )
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 7.dp, end = 5.dp),
-            color = Color(0xFFFF7A32),
-            shape = RoundedCornerShape(5.dp)
-        ) {
-            Text(
-                text = "BETA",
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                color = Color.White,
-                fontSize = 7.sp,
-                fontWeight = FontWeight.Black
-            )
-        }
     }
 }
 
@@ -730,6 +687,71 @@ private fun IconPreviewOptionRow(
 }
 
 @Composable
+private fun AndroidShapePicker(
+    previews: List<Bitmap>,
+    descriptions: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    accent: Color,
+    textColor: Color
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Text("Форма", color = textColor, fontWeight = FontWeight.SemiBold)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = textColor.copy(alpha = 0.035f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, textColor.copy(alpha = 0.12f)),
+            shape = RoundedCornerShape(30.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                previews.forEachIndexed { index, bitmap ->
+                    val selected = index == selectedIndex
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (selected) accent.copy(alpha = 0.22f)
+                                else textColor.copy(alpha = 0.055f)
+                            )
+                            .border(
+                                width = if (selected) 2.dp else 1.dp,
+                                color = if (selected) accent else textColor.copy(alpha = 0.08f),
+                                shape = CircleShape
+                            )
+                            .semantics {
+                                contentDescription = descriptions.getOrElse(index) { "Форма ${index + 1}" }
+                            }
+                            .clickable { onSelected(index) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.size(30.dp),
+                            colorFilter = ColorFilter.tint(
+                                if (selected) accent else textColor.copy(alpha = 0.72f)
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        Text(
+            text = descriptions.getOrElse(selectedIndex) { "Форма иконки" },
+            color = textColor.copy(alpha = 0.58f),
+            fontSize = 12.sp
+        )
+    }
+}
+
+@Composable
 private fun IconColorRow(
     title: String,
     colors: List<Int>,
@@ -808,7 +830,7 @@ private fun CustomIconBitmapArtwork(
     Image(
         bitmap = bitmap.asImageBitmap(),
         contentDescription = contentDescription,
-        modifier = modifier.clip(RoundedCornerShape(36.dp))
+        modifier = modifier
     )
 }
 

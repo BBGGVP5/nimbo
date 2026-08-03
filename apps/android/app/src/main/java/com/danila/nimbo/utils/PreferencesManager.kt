@@ -241,7 +241,7 @@ class PreferencesManager(context: Context) {
     val useDynamicColorState = mutableStateOf(sharedPreferences.getBoolean(KEY_USE_DYNAMIC_COLOR, false))
     val selectedAppIconState = mutableStateOf(sharedPreferences.getInt(KEY_SELECTED_APP_ICON, 0))
     val customAppIconBase64State = mutableStateOf(sharedPreferences.getString(KEY_CUSTOM_APP_ICON_BASE64, null))
-    val customIconShapeState = mutableStateOf(sharedPreferences.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, 2))
+    val customIconShapeState = mutableStateOf(sharedPreferences.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, CustomIconShape.entries.lastIndex))
     val customIconBackgroundColorState = mutableStateOf(sharedPreferences.getInt(KEY_CUSTOM_ICON_BACKGROUND_COLOR, 0xFF1769E0.toInt()))
     val customIconCloudColorState = mutableStateOf(sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_COLOR, 0xFFF4F7FF.toInt()))
     val customIconCloudStyleState = mutableStateOf(sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_STYLE, 0).coerceIn(0, 2))
@@ -515,7 +515,7 @@ class PreferencesManager(context: Context) {
             KEY_USE_DYNAMIC_COLOR -> useDynamicColorState.value = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, false)
             KEY_SELECTED_APP_ICON -> selectedAppIconState.value = prefs.getInt(KEY_SELECTED_APP_ICON, 0)
             KEY_CUSTOM_APP_ICON_BASE64 -> customAppIconBase64State.value = prefs.getString(KEY_CUSTOM_APP_ICON_BASE64, null)
-            KEY_CUSTOM_ICON_SHAPE -> customIconShapeState.value = prefs.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, 2)
+            KEY_CUSTOM_ICON_SHAPE -> customIconShapeState.value = prefs.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, CustomIconShape.entries.lastIndex)
             KEY_CUSTOM_ICON_BACKGROUND_COLOR -> customIconBackgroundColorState.value = prefs.getInt(KEY_CUSTOM_ICON_BACKGROUND_COLOR, 0xFF1769E0.toInt())
             KEY_CUSTOM_ICON_CLOUD_COLOR -> customIconCloudColorState.value = prefs.getInt(KEY_CUSTOM_ICON_CLOUD_COLOR, 0xFFF4F7FF.toInt())
             KEY_CUSTOM_ICON_CLOUD_STYLE -> customIconCloudStyleState.value = prefs.getInt(KEY_CUSTOM_ICON_CLOUD_STYLE, 0).coerceIn(0, 2)
@@ -582,7 +582,7 @@ class PreferencesManager(context: Context) {
         useDynamicColorState.value = sharedPreferences.getBoolean(KEY_USE_DYNAMIC_COLOR, false)
         selectedAppIconState.value = sharedPreferences.getInt(KEY_SELECTED_APP_ICON, 0)
         customAppIconBase64State.value = sharedPreferences.getString(KEY_CUSTOM_APP_ICON_BASE64, null)
-        customIconShapeState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, 2)
+        customIconShapeState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, CustomIconShape.entries.lastIndex)
         customIconBackgroundColorState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_BACKGROUND_COLOR, 0xFF1769E0.toInt())
         customIconCloudColorState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_COLOR, 0xFFF4F7FF.toInt())
         customIconCloudStyleState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_STYLE, 0).coerceIn(0, 2)
@@ -701,9 +701,9 @@ class PreferencesManager(context: Context) {
         }
 
     var customIconShape: Int
-        get() = sharedPreferences.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, 2)
+        get() = sharedPreferences.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, CustomIconShape.entries.lastIndex)
         set(value) {
-            val safe = value.coerceIn(0, 2)
+            val safe = value.coerceIn(0, CustomIconShape.entries.lastIndex)
             sharedPreferences.edit().putInt(KEY_CUSTOM_ICON_SHAPE, safe).apply()
             customIconShapeState.value = safe
         }
@@ -2135,7 +2135,7 @@ class PreferencesManager(context: Context) {
             useDynamicColorState.value = sharedPreferences.getBoolean(KEY_USE_DYNAMIC_COLOR, false)
             selectedAppIconState.value = sharedPreferences.getInt(KEY_SELECTED_APP_ICON, 0)
             customAppIconBase64State.value = sharedPreferences.getString(KEY_CUSTOM_APP_ICON_BASE64, null)
-            customIconShapeState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, 2)
+            customIconShapeState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_SHAPE, 0).coerceIn(0, CustomIconShape.entries.lastIndex)
             customIconBackgroundColorState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_BACKGROUND_COLOR, 0xFF1769E0.toInt())
             customIconCloudColorState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_COLOR, 0xFFF4F7FF.toInt())
             customIconCloudStyleState.value = sharedPreferences.getInt(KEY_CUSTOM_ICON_CLOUD_STYLE, 0).coerceIn(0, 2)

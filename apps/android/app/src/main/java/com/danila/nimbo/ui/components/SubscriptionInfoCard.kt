@@ -137,8 +137,11 @@ fun SubscriptionInfoCard(
                         modifier = Modifier
                             .size(52.dp)
                             .background(
-                                Brush.radialGradient(
-                                    colors = listOf(nebulaColors.accent.copy(alpha = 0.4f), Color.Transparent)
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        nebulaColors.accent.copy(alpha = 0.28f),
+                                        nebulaColors.accent.copy(alpha = 0.06f)
+                                    )
                                 ),
                                 shape = RoundedCornerShape(16.dp)
                             )
@@ -826,4 +829,3 @@ private fun openUrl(context: Context, url: String) {
         Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
     }
 }
-

@@ -98,17 +98,20 @@ fun GlassHeader(
         color = Color.Transparent
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
-            // glow
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.radialGradient(
-                            listOf(iconColor.copy(alpha = 0.10f), Color.Transparent),
-                            radius = 800f
+            // LiquidGlassSurface already renders the optical depth. A second radial
+            // layer is intentionally skipped here because Android may rasterize its
+            // rectangular bounds on top of the rounded glass surface.
+            if (elementStyle != ElementStyleMode.LIQUID_GLASS) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.linearGradient(
+                                listOf(iconColor.copy(alpha = 0.07f), Color.Transparent)
+                            )
                         )
-                    )
-            )
+                )
+            }
 
             Row(
                 modifier = Modifier
@@ -132,8 +135,11 @@ fun GlassHeader(
                                         )
                                     )
                                 } else {
-                                    Brush.radialGradient(
-                                        listOf(nebulaColors.textPrimary.copy(0.15f), Color.Transparent)
+                                    Brush.linearGradient(
+                                        listOf(
+                                            nebulaColors.textPrimary.copy(alpha = 0.12f),
+                                            nebulaColors.accent.copy(alpha = 0.04f)
+                                        )
                                     )
                                 }
                             )
@@ -160,8 +166,11 @@ fun GlassHeader(
                         modifier = Modifier
                             .size(36.dp)
                             .background(
-                                Brush.radialGradient(
-                                    listOf(iconColor.copy(alpha = 0.25f), Color.Transparent)
+                                Brush.linearGradient(
+                                    listOf(
+                                        iconColor.copy(alpha = 0.18f),
+                                        iconColor.copy(alpha = 0.05f)
+                                    )
                                 ),
                                 shape = RoundedCornerShape(10.dp)
                             ),
