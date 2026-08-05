@@ -18,8 +18,20 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.PowerManager.WakeLock
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import com.danila.nimbo.model.Server
+import com.danila.nimbo.model.NetworkEventSeverity
+import com.danila.nimbo.model.NetworkEventType
+import com.danila.nimbo.model.TrafficBudgetAction
+import com.danila.nimbo.network.CaptivePortalPolicy
+import com.danila.nimbo.network.NetworkContextSnapshot
+import com.danila.nimbo.network.NetworkEventJournal
+import com.danila.nimbo.network.NetworkTransport
+import com.danila.nimbo.network.SmartServerGroupStore
+import com.danila.nimbo.network.TrafficBudgetPolicy
+import com.danila.nimbo.network.TrafficBudgetStore
+import com.danila.nimbo.network.TemporaryAppRuleManager
 import com.danila.nimbo.network.SubscriptionManager
 import com.danila.nimbo.network.RemnawaveApiClient
 import com.danila.nimbo.network.PingConfig
@@ -30,7 +42,9 @@ import com.danila.nimbo.service.ProfileStatsQuickSettingsTileService
 import com.danila.nimbo.service.TrafficStatsQuickSettingsTileService
 import com.danila.nimbo.service.VpnQuickSettingsTileService
 import com.danila.nimbo.ui.screens.SubscriptionProfile
+import com.danila.nimbo.ui.components.performConnectionSuccessHaptic
 import com.danila.nimbo.utils.Logger
+import com.danila.nimbo.utils.NetworkProfileManager
 import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.utils.isAutoBalancerServer
 import com.danila.nimbo.utils.isBypassServer
@@ -201,6 +215,7 @@ class MyVpnService : VpnService() {
     private var lastUnderlyingTransportName: String = "none"
     private var lastUnderlyingNetworkChangeAtMs: Long = 0L
     private var recoveryState = VpnRecoveryPolicy.State()
+    private var captivePortalState = CaptivePortalPolicy.State()
     private var serviceStopping = false
 
     private val handler = Handler(Looper.getMainLooper())
@@ -521,6 +536,12 @@ class MyVpnService : VpnService() {
                 currentServerHost = finalServer.host
                 connectionStatusOverride = null
                 VpnManager.state.value = VpnState.CONNECTED
+                performConnectionSuccessHaptic(
+                    context = this@MyVpnService,
+                    enabled = preferencesManager.hapticFeedbackEnabled,
+                    strength = preferencesManager.hapticFeedbackStrength,
+                    style = preferencesManager.hapticFeedbackStyle
+                )
                 VpnManager.connectedServer.value = finalServer
                 VpnManager.selectedServer = finalServer
                 lastConnectedServer = finalServer // Store the successfully connected server
@@ -547,6 +568,19 @@ class MyVpnService : VpnService() {
                 cancelRecoveryJob()
 
                 Logger.i(TAG, "Успешное подключение к ${finalServer.name}")
+                SmartServerGroupStore.recordResult(
+                    this@MyVpnService,
+                    finalServer.selectionKey(),
+                    finalServer.ping,
+                    success = true
+                )
+                NetworkEventJournal.record(
+                    this@MyVpnService,
+                    NetworkEventType.VPN_CONNECTED,
+                    "VPN подключён",
+                    "Туннель и контрольная проверка работают",
+                    serverName = finalServer.name
+                )
 
                 handler.post {
                     startForeground(com.danila.nimbo.utils.NotificationManager.NOTIFICATION_ID_VPN, createNotification())
@@ -684,6 +718,14 @@ class MyVpnService : VpnService() {
         if (serviceStopping) return
         serviceStopping = true
         Logger.i(TAG, "VPN stopped by user: $stopReason")
+        NetworkEventJournal.record(
+            this,
+            NetworkEventType.VPN_DISCONNECTED,
+            if (stopReason == "traffic budget reached") "VPN остановлен по лимиту трафика" else "VPN отключён",
+            stopReason,
+            severity = if (stopReason == "traffic budget reached") NetworkEventSeverity.WARNING else NetworkEventSeverity.INFO,
+            serverName = recoveryServer()?.name
+        )
         recoveryState = VpnRecoveryPolicy.reduce(
             recoveryState,
             VpnRecoveryPolicy.Event.ManualDisconnect
@@ -782,6 +824,22 @@ class MyVpnService : VpnService() {
 
     private fun handleConnectionFailure(message: String, retryable: Boolean) {
         if (serviceStopping || !preferencesManager.vpnConnectionDesired) return
+        recoveryServer()?.let { failedServer ->
+            SmartServerGroupStore.recordResult(
+                this,
+                failedServer.selectionKey(),
+                failedServer.ping,
+                success = false
+            )
+        }
+        NetworkEventJournal.record(
+            this,
+            NetworkEventType.HEALTH_CHECK_FAILED,
+            "Соединение не прошло проверку",
+            message,
+            severity = NetworkEventSeverity.WARNING,
+            serverName = recoveryServer()?.name
+        )
         teardownTunnel(cancelConnectionJob = false)
 
         val networkAvailable = hasUsableUnderlyingNetwork()
@@ -909,6 +967,14 @@ class MyVpnService : VpnService() {
         VpnManager.recoveryStatus.value = VpnRecoveryStatus.RETRYING
         VpnManager.recoveryAttempt.value = recoveryState.retryAttempt
         Logger.w(TAG, "Scheduling VPN recovery attempt ${recoveryState.retryAttempt} in ${delayMs}ms")
+        NetworkEventJournal.record(
+            this,
+            NetworkEventType.RECOVERY_SCHEDULED,
+            "Запланировано восстановление VPN",
+            "Попытка ${recoveryState.retryAttempt}, ожидание ${delayMs / 1000} с",
+            severity = NetworkEventSeverity.WARNING,
+            serverName = recoveryServer()?.name
+        )
         refreshForegroundNotification()
         recoveryJob = serviceScope.launch {
             delay(delayMs)
@@ -1073,10 +1139,98 @@ class MyVpnService : VpnService() {
                 handle != null &&
                 previousHandle != handle
 
+            val availableProfileServers = buildList {
+                preferencesManager.loadProfiles().forEach { profile -> addAll(profile.servers) }
+                currentServer?.let(::add)
+                lastConnectedServer?.let(::add)
+            }.distinctBy(::connectionCandidateKey)
+            val profileResult = NetworkProfileManager.applyPresetForNetworkIfEnabled(
+                context = this@MyVpnService,
+                snapshot = NetworkProfileManager.captureNetworkContext(
+                    context = this@MyVpnService,
+                    preferredCapabilities = selectedCapabilities
+                ),
+                availableServers = availableProfileServers
+            )
+            val profileServer = profileResult?.selectedServer
+            val profileServerChanged = profileServer != null &&
+                recoveryServer()?.let(::connectionCandidateKey) != connectionCandidateKey(profileServer)
+            if (profileServerChanged) {
+                val selectedProfileServer = requireNotNull(profileServer)
+                currentServer = selectedProfileServer
+                VpnManager.selectedServer = selectedProfileServer
+                preferencesManager.saveLastSelectedServer(selectedProfileServer)
+            }
+            val profileRequiresRebuild = profileResult?.settingsChanged == true || profileServerChanged
+            if (profileRequiresRebuild) {
+                NetworkEventJournal.record(
+                    this@MyVpnService,
+                    NetworkEventType.NETWORK_CHANGED,
+                    "Применён профиль сети «${profileResult?.preset?.name.orEmpty()}»",
+                    profileServer?.let { "Выбран сервер ${it.name}" }
+                        ?: "Обновлены правила подключения",
+                    transport = networkSnapshot(selectedCapabilities).transport,
+                    serverName = profileServer?.name
+                )
+            }
+
+            val portalDecision = CaptivePortalPolicy.evaluate(
+                captivePortalState,
+                networkSnapshot(selectedCapabilities),
+                preferencesManager.vpnConnectionDesired
+            )
+            captivePortalState = portalDecision.state
+            when (portalDecision.action) {
+                CaptivePortalPolicy.Action.PAUSE_AND_SHOW_LOGIN -> {
+                    NetworkEventJournal.record(
+                        this@MyVpnService,
+                        NetworkEventType.CAPTIVE_PORTAL,
+                        "Wi‑Fi требует авторизацию",
+                        "VPN временно остановлен до завершения входа",
+                        severity = NetworkEventSeverity.WARNING,
+                        transport = NetworkTransport.WIFI
+                    )
+                    teardownTunnel(cancelConnectionJob = true)
+                    recoveryState = recoveryState.copy(
+                        phase = VpnRecoveryPolicy.Phase.WAITING_FOR_NETWORK,
+                        networkAvailable = false,
+                        connectPending = false
+                    )
+                    VpnManager.recoveryStatus.value = VpnRecoveryStatus.WAITING_FOR_NETWORK
+                    openCaptivePortalLogin()
+                    refreshForegroundNotification()
+                    return@launch
+                }
+                CaptivePortalPolicy.Action.WAIT_FOR_VALIDATION -> {
+                    VpnManager.recoveryStatus.value = VpnRecoveryStatus.WAITING_FOR_NETWORK
+                    return@launch
+                }
+                CaptivePortalPolicy.Action.RECOVER_TUNNEL -> {
+                    NetworkEventJournal.record(
+                        this@MyVpnService,
+                        NetworkEventType.PORTAL_AUTHORIZED,
+                        "Авторизация Wi‑Fi завершена",
+                        "Восстанавливаем VPN",
+                        transport = NetworkTransport.WIFI
+                    )
+                    recoveryState = recoveryState.copy(networkAvailable = true)
+                    startRecoveryConnection()
+                    return@launch
+                }
+                CaptivePortalPolicy.Action.NONE -> Unit
+            }
+
             if (transportChanged) {
                 Logger.i(
                     TAG,
                     "Best underlying network changed: ${previous.second} -> $transportName"
+                )
+                NetworkEventJournal.record(
+                    this@MyVpnService,
+                    NetworkEventType.NETWORK_CHANGED,
+                    "Сеть изменилась",
+                    "${previous.second} → $transportName",
+                    transport = networkSnapshot(selectedCapabilities).transport
                 )
                 selectedNetwork?.let { network ->
                     runCatching { setUnderlyingNetworks(arrayOf(network)) }
@@ -1087,7 +1241,7 @@ class MyVpnService : VpnService() {
             }
 
             if (
-                transportChanged &&
+                (transportChanged || profileRequiresRebuild) &&
                 (isConnected || isConnecting) &&
                 preferencesManager.vpnConnectionDesired &&
                 !preferencesManager.vpnPausedByScreen
@@ -1156,6 +1310,31 @@ class MyVpnService : VpnService() {
         else -> "other"
     }
 
+    private fun networkSnapshot(capabilities: NetworkCapabilities?): NetworkContextSnapshot {
+        val transport = when {
+            capabilities == null -> NetworkTransport.NONE
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkTransport.WIFI
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkTransport.CELLULAR
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkTransport.ETHERNET
+            else -> NetworkTransport.OTHER
+        }
+        return NetworkContextSnapshot(
+            transport = transport,
+            metered = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false,
+            captivePortal = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true,
+            validated = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        )
+    }
+
+    private fun openCaptivePortalLogin() {
+        runCatching {
+            startActivity(
+                Intent(Settings.ACTION_WIFI_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.onFailure { Logger.w(TAG, "Unable to open Wi-Fi sign-in settings: ${it.message}") }
+    }
+
     private fun refreshForegroundNotification() {
         handler.post {
             runCatching {
@@ -1182,6 +1361,15 @@ class MyVpnService : VpnService() {
 
             if (capabilities != null &&
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+
+                if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)) {
+                    if (i == 0) {
+                        openCaptivePortalLogin()
+                    }
+                    Log.d(TAG, "Captive portal detected; waiting for authentication")
+                    delay(700)
+                    continue
+                }
 
                 val isValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                 if (isValidated) {
@@ -1258,6 +1446,7 @@ class MyVpnService : VpnService() {
 
                 if (backgroundMaintenanceTick >= BACKGROUND_MAINTENANCE_INTERVAL_TICKS) {
                     backgroundMaintenanceTick = 0
+                    TemporaryAppRuleManager.expire(this@MyVpnService)
                     if (preferencesManager.keepDeviceActive) {
                         acquireWakeLock()
                     } else {
@@ -1301,6 +1490,7 @@ class MyVpnService : VpnService() {
 
                     VpnManager.updateSpeeds(txDelta, rxDelta, timeDelta)
                     VpnManager.updatePackets(txPacketDelta, rxPacketDelta)
+                    evaluateTrafficBudgets(txDelta + rxDelta, currentTime)
 
                     if (notificationUpdateTick >= NOTIFICATION_UPDATE_INTERVAL_TICKS) {
                         notificationUpdateTick = 0
@@ -1323,6 +1513,55 @@ class MyVpnService : VpnService() {
     /**
      * Форматирование байт в человекочитаемый формат
      */
+    private fun evaluateTrafficBudgets(addedBytes: Long, nowMs: Long) {
+        if (addedBytes <= 0L) return
+        val budgets = TrafficBudgetStore.budgets(this)
+            .filter { it.enabled && it.packageName.isNullOrBlank() }
+        if (budgets.isEmpty()) return
+
+        val usage = TrafficBudgetStore.usage(this).toMutableMap()
+        var shouldDisconnect = false
+        budgets.forEach { budget ->
+            val evaluation = TrafficBudgetPolicy.evaluate(
+                budget = budget,
+                previous = usage[budget.id],
+                addedBytes = addedBytes,
+                nowMs = nowMs
+            )
+            usage[budget.id] = evaluation.usage
+            when (evaluation.event) {
+                TrafficBudgetPolicy.Event.WARNING -> {
+                    val percent = (evaluation.fraction * 100).toInt().coerceAtMost(100)
+                    NetworkEventJournal.record(
+                        this,
+                        NetworkEventType.TRAFFIC_LIMIT_REACHED,
+                        "Лимит трафика скоро закончится",
+                        "${budget.name}: использовано $percent%",
+                        severity = NetworkEventSeverity.WARNING
+                    )
+                    connectionStatusOverride = "Трафик: $percent% лимита"
+                    refreshForegroundNotification()
+                }
+                TrafficBudgetPolicy.Event.LIMIT_REACHED -> {
+                    NetworkEventJournal.record(
+                        this,
+                        NetworkEventType.TRAFFIC_LIMIT_REACHED,
+                        "Лимит трафика достигнут",
+                        budget.name,
+                        severity = NetworkEventSeverity.ERROR
+                    )
+                    connectionStatusOverride = "Лимит трафика достигнут"
+                    refreshForegroundNotification()
+                    shouldDisconnect = evaluation.action == TrafficBudgetAction.DISCONNECT ||
+                        evaluation.action == TrafficBudgetAction.BLOCK_UNTIL_RESET
+                }
+                TrafficBudgetPolicy.Event.NONE -> Unit
+            }
+        }
+        TrafficBudgetStore.saveUsage(this, usage)
+        if (shouldDisconnect) requestManualStop("traffic budget reached")
+    }
+
     private fun formatBytes(bytes: Long): String {
         return when {
             bytes < 1024 -> "$bytes Б"

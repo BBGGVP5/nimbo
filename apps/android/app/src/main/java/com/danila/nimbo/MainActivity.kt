@@ -31,6 +31,7 @@ import com.danila.nimbo.network.UpdateWorkScheduler
 import com.danila.nimbo.ui.LocalPreferencesManager
 import com.danila.nimbo.ui.components.NotificationType
 import com.danila.nimbo.ui.components.HapticStrength
+import com.danila.nimbo.ui.components.HapticStyle
 import com.danila.nimbo.ui.components.rememberPreferenceAwareHapticFeedback
 import com.danila.nimbo.ui.screens.MainScreen
 import com.danila.nimbo.ui.theme.DEFAULT_COLOR_THEME_INDEX
@@ -144,6 +145,7 @@ class MainActivity : ComponentActivity() {
             val globalCorners by preferencesManager.globalCornersState
             val hapticFeedbackEnabled by preferencesManager.hapticFeedbackEnabledState
             val hapticFeedbackStrength by preferencesManager.hapticFeedbackStrengthState
+            val hapticFeedbackStyle by preferencesManager.hapticFeedbackStyleState
 
             val customAccentColor = remember(customAccentColorInt) { Color(customAccentColorInt) }
             val customGradientColor1 = remember(customGradientColor1Int) { Color(customGradientColor1Int) }
@@ -158,7 +160,8 @@ class MainActivity : ComponentActivity() {
             }
             val hapticFeedback = rememberPreferenceAwareHapticFeedback(
                 enabled = hapticFeedbackEnabled,
-                strength = HapticStrength.fromPersistedValue(hapticFeedbackStrength)
+                strength = HapticStrength.fromPersistedValue(hapticFeedbackStrength),
+                style = HapticStyle.fromPersistedValue(hapticFeedbackStyle)
             )
 
             CompositionLocalProvider(

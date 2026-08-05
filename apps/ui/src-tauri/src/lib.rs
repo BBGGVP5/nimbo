@@ -11,6 +11,7 @@ use crate::commands::{
     add_subscription, app_ready, clear_tunnel_logs, connect_server, delete_routing_profile,
     disconnect_server, export_app_backup, export_app_proxy_rules_file, export_routing_profile,
     get_app_icon, get_device_info, get_memory_usage, get_preferences, get_routing_profile,
+    get_run_through_nimbo_context_menu_enabled,
     get_session_traffic, get_status, get_subscription_logo, get_traffic_stats, get_tun_status,
     get_tunnel_logs, get_user_agent_override, helper_status, import_app_backup,
     import_routing_profile, inspect_subscription_headers, install_helper, install_tun,
@@ -19,8 +20,10 @@ use crate::commands::{
     open_routing_folder, pick_app_executable, ping_server, ping_servers, read_clipboard_text,
     reapply_runtime_config, refresh_subscription, refresh_tray_menu, remove_subscription,
     reset_builtin_routing_profiles, reset_device_id, reset_traffic_totals, restart_as_admin,
+    run_through_nimbo,
     set_active_routing_profile, set_active_server, set_active_subscription, set_app_proxy_rules,
     set_connection_mode, set_preferences, set_proxy_settings, set_user_agent_override,
+    set_run_through_nimbo_context_menu,
     stop_conflicting_processes, uninstall_helper, update_routing_profile,
     update_subscription_settings, write_clipboard_text,
 };
@@ -34,7 +37,7 @@ use crate::updater::{
     check_app_update, dismiss_post_update_info, get_post_update_info, install_app_update,
     open_update_download,
 };
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 #[cfg(windows)]
@@ -117,6 +120,64 @@ pub fn handle_cli_args() -> bool {
     false
 }
 
+fn run_through_cli_path() -> Option<String> {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--run-through" {
+            return args.next().map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+        }
+    }
+    None
+}
+
+fn run_through_queue_dir() -> std::path::PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Nimbo")
+        .join("run-through-requests")
+}
+
+fn queue_run_through_request(path: &str) -> Result<(), String> {
+    let dir = run_through_queue_dir();
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("failed to create protected-launch queue: {e}"))?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let target = dir.join(format!("{}-{stamp}.json", std::process::id()));
+    let temp = dir.join(format!(".{}-{stamp}.tmp", std::process::id()));
+    let payload = serde_json::to_vec(path)
+        .map_err(|e| format!("failed to encode protected-launch request: {e}"))?;
+    std::fs::write(&temp, payload)
+        .map_err(|e| format!("failed to write protected-launch request: {e}"))?;
+    std::fs::rename(&temp, &target)
+        .map_err(|e| format!("failed to publish protected-launch request: {e}"))
+}
+
+fn drain_run_through_requests() -> Vec<String> {
+    let dir = run_through_queue_dir();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut files = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .collect::<Vec<_>>();
+    files.sort();
+    files
+        .into_iter()
+        .filter_map(|path| {
+            let value = std::fs::read(&path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<String>(&bytes).ok());
+            let _ = std::fs::remove_file(path);
+            value
+        })
+        .collect()
+}
+
 #[cfg(windows)]
 fn wait_for_parent_relaunch() {
     let mut args = std::env::args().skip(1);
@@ -163,7 +224,14 @@ pub fn run() {
     logging::init();
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "nimbo-ui starting");
 
+    let cli_run_through = run_through_cli_path();
+
     let Some(single_instance_guard) = acquire_single_instance() else {
+        if let Some(path) = cli_run_through.as_deref() {
+            if let Err(error) = queue_run_through_request(path) {
+                tracing::error!(?error, "failed to forward protected-launch request");
+            }
+        }
         tracing::info!("duplicate nimbo-ui instance rejected");
         return;
     };
@@ -207,7 +275,7 @@ pub fn run() {
                 }
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
             #[cfg(any(windows, target_os = "linux"))]
             {
                 app.deep_link().register_all()?;
@@ -215,6 +283,28 @@ pub fn run() {
 
             tray::setup_tray(app.handle())?;
             crate::commands::cleanup_disconnected_runtime_on_startup(app.handle());
+
+            if let Some(path) = cli_run_through.as_deref() {
+                let _ = queue_run_through_request(path);
+            }
+            let protected_launch_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // Let the WebView subscribe before delivering the first request.
+                tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+                loop {
+                    for executable_path in drain_run_through_requests() {
+                        if let Some(window) = protected_launch_handle.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                        let _ = protected_launch_handle.emit(
+                            "nimbo:run-through-request",
+                            executable_path,
+                        );
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                }
+            });
 
             if app
                 .state::<AppState>()
@@ -261,6 +351,9 @@ pub fn run() {
             get_app_icon,
             get_subscription_logo,
             pick_app_executable,
+            run_through_nimbo,
+            get_run_through_nimbo_context_menu_enabled,
+            set_run_through_nimbo_context_menu,
             export_app_proxy_rules_file,
             stop_conflicting_processes,
             set_app_proxy_rules,

@@ -5,6 +5,8 @@ import {
   serverDisplayName,
   type ActiveConnection,
   type ActiveConnectionRoute,
+  type AppProxyMode,
+  type AppProxyRule,
   type RoutingProfile,
 } from "../lib/api";
 import { CountryFlag } from "../components/CountryFlag";
@@ -164,6 +166,41 @@ export function Connections() {
     }
   };
 
+  const applyProcessRule = async (connection: ActiveConnection, mode: AppProxyMode) => {
+    const path = connection.process_path?.trim();
+    if (!path) {
+      notifyError(m.connectionsPage.processPathMissing);
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    try {
+      const existing = await api.listAppProxyRules();
+      const key = canonicalProcessPath(path);
+      const current = existing.find((rule) => canonicalProcessPath(rule.executable_path) === key);
+      const next: AppProxyRule[] = [
+        ...existing.filter((rule) => canonicalProcessPath(rule.executable_path) !== key),
+        {
+          id: current?.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: displayProcessName(connection),
+          executable_path: path,
+          mode,
+          enabled: true,
+        },
+      ];
+      await api.setAppProxyRules(next);
+      notifyInfo(m.connectionsPage.appRuleSaved);
+      if (status?.state === "connected") {
+        await api.reapplyRuntimeConfig();
+        await loadConnections(true);
+      }
+    } catch (error) {
+      notifyError(String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="page-view connections-page">
       <BackButton />
@@ -235,6 +272,7 @@ export function Connections() {
               <span>{m.connectionsPage.server}</span>
               <span>{m.connectionsPage.source}</span>
               <span>{m.connectionsPage.state}</span>
+              <span>{m.connectionsPage.quickActions}</span>
             </div>
             {filteredConnections.length === 0 ? (
               <div className="connections-empty">
@@ -274,6 +312,35 @@ export function Connections() {
                   </div>
                   <span className="connections-source-address">{connection.source}</span>
                   <span className="connections-kind">{connection.state}</span>
+                  <div className="connections-quick-actions">
+                    <button
+                      type="button"
+                      className="connections-quick-button connections-quick-button-proxy"
+                      title={m.connectionsPage.quickVpn}
+                      disabled={busy || !connection.process_path}
+                      onClick={() => void applyProcessRule(connection, "proxy")}
+                    >
+                      VPN
+                    </button>
+                    <button
+                      type="button"
+                      className="connections-quick-button"
+                      title={m.connectionsPage.quickDirect}
+                      disabled={busy || !connection.process_path}
+                      onClick={() => void applyProcessRule(connection, "direct")}
+                    >
+                      Direct
+                    </button>
+                    <button
+                      type="button"
+                      className="connections-quick-button connections-quick-button-block"
+                      title={m.connectionsPage.quickBlock}
+                      disabled={busy || !normalizeTarget(connection.remote_address)}
+                      onClick={() => void applyTarget("block", connection.remote_address)}
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -417,6 +484,12 @@ function fileNameFromPath(path?: string | null): string | null {
   if (!value) return null;
   const parts = value.split(/[\\/]/).filter(Boolean);
   return parts.length ? parts[parts.length - 1] : null;
+}
+
+function canonicalProcessPath(path: string): string {
+  const normalized = path.trim().replace(/\\/g, "/").toLowerCase();
+  const parts = normalized.split("/").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : normalized;
 }
 
 function compactPath(path: string): string {

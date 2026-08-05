@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -42,6 +43,7 @@ import com.danila.nimbo.model.UpdateInfo
 import com.danila.nimbo.model.UpdateKind
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.screens.MarkdownChangelog
+import com.danila.nimbo.ui.screens.UpdateUiText
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 
 @Composable
@@ -51,6 +53,7 @@ fun UpdateDialog(
     onUpdate: () -> Unit
 ) {
     val colors = LocalNebulaColors.current
+    val language = LocalConfiguration.current.locales[0].language
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
 
@@ -136,7 +139,7 @@ fun UpdateDialog(
                             text = "Android"
                         )
                         if (updateInfo.fileSize > 0L) {
-                            DialogChip(text = formatDialogSize(updateInfo.fileSize))
+                            DialogChip(text = UpdateUiText.fileSize(updateInfo.fileSize, language))
                         }
                         DialogChip(text = if (updateInfo.sha256 != null) "SHA-256" else t("Подпись APK", "APK signature"))
                     }
@@ -253,5 +256,3 @@ private fun DialogChip(
         Text(text, color = colors.accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
     }
 }
-
-private fun formatDialogSize(bytes: Long): String = "%.1f МБ".format(bytes / (1024.0 * 1024.0))

@@ -361,6 +361,12 @@ export interface ActiveConnection {
   server_protocol?: string | null;
 }
 
+export interface ProtectedLaunchResult {
+  executable_path: string;
+  process_id: number;
+  rule_added: boolean;
+}
+
 export interface MemoryUsage {
   bytes: number;
 }
@@ -1681,6 +1687,18 @@ export const api = {
     isTauriRuntime()
       ? invoke<string | null>("pick_app_executable")
       : Promise.resolve(null),
+  runThroughNimbo: (executablePath: string, args: string[] = []): Promise<ProtectedLaunchResult> =>
+    isTauriRuntime()
+      ? invoke<ProtectedLaunchResult>("run_through_nimbo", { executablePath, args })
+      : Promise.reject(new Error("Protected launch is available in Nimbo Desktop")),
+  getRunThroughNimboContextMenuEnabled: (): Promise<boolean> =>
+    isTauriRuntime()
+      ? invoke<boolean>("get_run_through_nimbo_context_menu_enabled")
+      : Promise.resolve(false),
+  setRunThroughNimboContextMenu: (enabled: boolean): Promise<boolean> =>
+    isTauriRuntime()
+      ? invoke<boolean>("set_run_through_nimbo_context_menu", { enabled })
+      : Promise.resolve(false),
   exportAppProxyRulesFile: (contents: string, fileName: string): Promise<string | null> =>
     isTauriRuntime()
       ? invoke<string | null>("export_app_proxy_rules_file", { contents, fileName })

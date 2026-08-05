@@ -196,6 +196,159 @@ pub struct ActiveConnection {
     pub server_protocol: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ProtectedLaunchResult {
+    pub executable_path: String,
+    pub process_id: u32,
+    pub rule_added: bool,
+}
+
+#[tauri::command]
+pub async fn run_through_nimbo(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    executable_path: String,
+    args: Option<Vec<String>>,
+) -> Result<ProtectedLaunchResult, String> {
+    #[cfg(not(windows))]
+    {
+        let _ = (app, state, executable_path, args);
+        return Err("Запуск через Nimbo сейчас доступен только на Windows.".into());
+    }
+
+    #[cfg(windows)]
+    {
+        let path = PathBuf::from(executable_path.trim());
+        let canonical = path
+            .canonicalize()
+            .map_err(|e| format!("Не удалось открыть программу: {e}"))?;
+        if !canonical.is_file()
+            || !canonical
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value.eq_ignore_ascii_case("exe"))
+        {
+            return Err("Выберите существующий EXE-файл.".into());
+        }
+
+        let snapshot = state.snapshot();
+        if !snapshot.connected {
+            return Err("Сначала подключите Nimbo, затем повторите запуск.".into());
+        }
+        if !snapshot.connection_mode.uses_tun() {
+            return Err(
+                "Для гарантированного запуска программы через Nimbo включите режим TUN или TUN + Proxy."
+                    .into(),
+            );
+        }
+        let server_id = snapshot
+            .active_server_id
+            .clone()
+            .ok_or_else(|| "Активный сервер не найден.".to_string())?;
+        let canonical_text = canonical.to_string_lossy().to_string();
+        let canonical_key = canonical_app_rule_key(&canonical_text);
+        let mut rule_added = false;
+        state
+            .mutate(|persisted| {
+                if let Some(rule) = persisted
+                    .app_proxy_rules
+                    .iter_mut()
+                    .find(|rule| canonical_app_rule_key(&rule.executable_path) == canonical_key)
+                {
+                    rule.executable_path = canonical_text.clone();
+                    rule.mode = AppProxyMode::Proxy;
+                    rule.enabled = true;
+                } else {
+                    persisted.app_proxy_rules.push(AppProxyRule {
+                        id: format!("protected-{}", uuid::Uuid::new_v4().simple()),
+                        name: executable_name(&canonical_text),
+                        executable_path: canonical_text.clone(),
+                        mode: AppProxyMode::Proxy,
+                        enabled: true,
+                    });
+                    rule_added = true;
+                }
+            })
+            .map_err(|e| format!("Не удалось сохранить правило приложения: {e}"))?;
+
+        // Rebuild the live config before the process starts. This closes the leak
+        // window where an app could make its first connection before its rule exists.
+        connect_server(app, state, server_id).await?;
+        let child = Command::new(&canonical)
+            .args(args.unwrap_or_default())
+            .spawn()
+            .map_err(|e| format!("Программа не запустилась: {e}"))?;
+        Ok(ProtectedLaunchResult {
+            executable_path: canonical_text,
+            process_id: child.id(),
+            rule_added,
+        })
+    }
+}
+
+#[tauri::command]
+pub fn get_run_through_nimbo_context_menu_enabled() -> Result<bool, String> {
+    #[cfg(not(windows))]
+    return Ok(false);
+
+    #[cfg(windows)]
+    {
+        use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        Ok(hkcu
+            .open_subkey_with_flags(r"Software\Classes\exefile\shell\NimboRun", KEY_READ)
+            .is_ok())
+    }
+}
+
+#[tauri::command]
+pub fn set_run_through_nimbo_context_menu(enabled: bool) -> Result<bool, String> {
+    #[cfg(not(windows))]
+    {
+        if enabled {
+            return Err("Интеграция проводника доступна только на Windows.".into());
+        }
+        return Ok(false);
+    }
+
+    #[cfg(windows)]
+    {
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let root = hkcu
+            .open_subkey_with_flags(r"Software\Classes\exefile\shell", winreg::enums::KEY_ALL_ACCESS)
+            .or_else(|_| hkcu.create_subkey(r"Software\Classes\exefile\shell").map(|pair| pair.0))
+            .map_err(|e| format!("Не удалось открыть интеграцию проводника: {e}"))?;
+        if !enabled {
+            match root.delete_subkey_all("NimboRun") {
+                Ok(()) => return Ok(false),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+                Err(error) => return Err(format!("Не удалось убрать пункт проводника: {error}")),
+            }
+        }
+
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("Не удалось определить путь Nimbo: {e}"))?;
+        let exe_text = exe.to_string_lossy();
+        let (menu, _) = root
+            .create_subkey("NimboRun")
+            .map_err(|e| format!("Не удалось создать пункт проводника: {e}"))?;
+        menu.set_value("", &"Запустить через Nimbo")
+            .map_err(|e| format!("Не удалось записать название пункта: {e}"))?;
+        menu.set_value("Icon", &exe_text.as_ref())
+            .map_err(|e| format!("Не удалось записать иконку пункта: {e}"))?;
+        let (command, _) = menu
+            .create_subkey("command")
+            .map_err(|e| format!("Не удалось создать команду проводника: {e}"))?;
+        command
+            .set_value("", &format!("\"{}\" --run-through \"%1\"", exe.display()))
+            .map_err(|e| format!("Не удалось записать команду проводника: {e}"))?;
+        Ok(true)
+    }
+}
+
 pub fn builtin_routing_profiles() -> Vec<RoutingProfile> {
     vec![
         RoutingProfile {

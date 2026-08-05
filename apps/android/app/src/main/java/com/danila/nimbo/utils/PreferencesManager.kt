@@ -3,6 +3,7 @@ package com.danila.nimbo.utils
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import com.danila.nimbo.BuildConfig
 import com.danila.nimbo.model.BuiltinRoutingProfiles
@@ -67,6 +68,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_TEXT_SCALE = "text_scale"
         private const val KEY_HAPTIC_FEEDBACK_ENABLED = "haptic_feedback_enabled"
         private const val KEY_HAPTIC_FEEDBACK_STRENGTH = "haptic_feedback_strength"
+        private const val KEY_HAPTIC_FEEDBACK_STYLE = "haptic_feedback_style"
         private const val KEY_CROSS_SYNC_SUBSCRIPTIONS = "cross_sync_subscriptions"
         private const val KEY_CROSS_SYNC_APPEARANCE = "cross_sync_appearance"
         private const val KEY_CROSS_SYNC_CONNECTION = "cross_sync_connection"
@@ -221,7 +223,8 @@ class PreferencesManager(context: Context) {
     val themeModeState = mutableStateOf(sharedPreferences.getInt(KEY_THEME_MODE, sharedPreferences.getInt("theme_mode_override", 0)).coerceIn(0, 2))
     val textScaleState = mutableStateOf(sharedPreferences.getFloat(KEY_TEXT_SCALE, 1f).coerceIn(0.85f, 1.25f))
     val hapticFeedbackEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_HAPTIC_FEEDBACK_ENABLED, true))
-    val hapticFeedbackStrengthState = mutableStateOf(sharedPreferences.getInt(KEY_HAPTIC_FEEDBACK_STRENGTH, 1).coerceIn(0, 2))
+    val hapticFeedbackStrengthState = mutableIntStateOf(sharedPreferences.getInt(KEY_HAPTIC_FEEDBACK_STRENGTH, 1).coerceIn(0, 2))
+    val hapticFeedbackStyleState = mutableIntStateOf(sharedPreferences.getInt(KEY_HAPTIC_FEEDBACK_STYLE, 1).coerceIn(0, 5))
     val showSpeedState = mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_SPEED, true))
     val tlsFragmentState = mutableStateOf(sharedPreferences.getBoolean(KEY_TLS_FRAGMENT, false))
     val showSubscriptionLogoState = mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_SUBSCRIPTION_LOGO, true))
@@ -528,6 +531,8 @@ class PreferencesManager(context: Context) {
                 prefs.getBoolean(KEY_HAPTIC_FEEDBACK_ENABLED, true)
             KEY_HAPTIC_FEEDBACK_STRENGTH -> hapticFeedbackStrengthState.value =
                 prefs.getInt(KEY_HAPTIC_FEEDBACK_STRENGTH, 1).coerceIn(0, 2)
+            KEY_HAPTIC_FEEDBACK_STYLE -> hapticFeedbackStyleState.value =
+                prefs.getInt(KEY_HAPTIC_FEEDBACK_STYLE, 1).coerceIn(0, 5)
             KEY_BACKGROUND_ANIMATION_ENABLED -> backgroundAnimationEnabledState.value = prefs.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true)
             KEY_STATUS_PARTICLES_ENABLED -> statusParticlesEnabledState.value = prefs.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true)
             KEY_LIQUID_REFRACTION_ENABLED -> liquidRefractionEnabledState.value = prefs.getBoolean(KEY_LIQUID_REFRACTION_ENABLED, true)
@@ -1054,6 +1059,14 @@ class PreferencesManager(context: Context) {
             val safeValue = value.coerceIn(0, 2)
             sharedPreferences.edit().putInt(KEY_HAPTIC_FEEDBACK_STRENGTH, safeValue).apply()
             hapticFeedbackStrengthState.value = safeValue
+        }
+
+    var hapticFeedbackStyle: Int
+        get() = sharedPreferences.getInt(KEY_HAPTIC_FEEDBACK_STYLE, 1).coerceIn(0, 5)
+        set(value) {
+            val safeValue = value.coerceIn(0, 5)
+            sharedPreferences.edit().putInt(KEY_HAPTIC_FEEDBACK_STYLE, safeValue).apply()
+            hapticFeedbackStyleState.value = safeValue
         }
 
     // TLS Fragment (opt-in DPI bypass that splits the TLS ClientHello so SNI is not contiguous).

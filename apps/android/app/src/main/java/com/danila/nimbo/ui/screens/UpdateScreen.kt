@@ -15,12 +15,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -323,32 +323,35 @@ internal fun ColumnScope.UpdatesSettingsContent() {
 private fun NimboGlassSection(content: @Composable () -> Unit) {
     val nebulaColors = LocalNebulaColors.current
     val reducedTransparency = LocalReducedTransparencyEnabled.current
-    val glassBlur = if (reducedTransparency) 0.dp else LocalGlobalBlurRadius.current
-        .coerceIn(0f, 80f)
-        .dp
     val shape = RoundedCornerShape(18.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        nebulaColors.surface,
+                        nebulaColors.surface.copy(alpha = if (reducedTransparency) 1f else 0.92f)
+                    )
+                )
+            )
+            .border(1.dp, nebulaColors.textPrimary.copy(alpha = 0.10f), shape)
     ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(nebulaColors.surface)
-        )
         if (!reducedTransparency) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
                     .clip(shape)
                     .background(
-                        Brush.radialGradient(
-                            colors = listOf(nebulaColors.accent.copy(alpha = 0.10f), Color.Transparent)
+                        Brush.linearGradient(
+                            colors = listOf(
+                                nebulaColors.accent.copy(alpha = 0.09f),
+                                Color.Transparent,
+                                nebulaColors.textPrimary.copy(alpha = 0.025f)
+                            )
                         )
                     )
-                    .blur(glassBlur)
             )
         }
         content()
@@ -368,6 +371,7 @@ private fun UpdateStatusCard(
     onInstall: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val language = LocalConfiguration.current.locales[0].language
     NimboGlassSection {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -450,57 +454,49 @@ private fun UpdateStatusCard(
 
                 if (updateInfo.fileSize > 0) {
                     Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = t(
-                            "Размер: ${"%.2f".format(updateInfo.fileSize / 1024f / 1024f)} МБ",
-                            "Size: ${"%.2f".format(updateInfo.fileSize / 1024f / 1024f)} MB"
-                        ),
-                        color = nebulaColors.textTertiary,
-                        style = MaterialTheme.typography.labelMedium
+                    UpdateMetadataRow(
+                        icon = Icons.Default.Storage,
+                        label = t("Размер", "Size"),
+                        value = UpdateUiText.fileSize(updateInfo.fileSize, language, decimals = 2)
                     )
                 }
                 if (updateInfo.assetName.isNotBlank()) {
-                    Text(
-                        text = t(
-                            "Выбран APK: ${updateInfo.assetName}",
-                            "Selected APK: ${updateInfo.assetName}"
-                        ),
-                        color = nebulaColors.textTertiary,
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(top = 4.dp)
+                    UpdateMetadataRow(
+                        icon = Icons.Default.Android,
+                        label = t("Файл", "File"),
+                        value = updateInfo.assetName
                     )
                 }
 
-                Spacer(Modifier.height(10.dp))
                 val updatedAt = formatReleaseDate(updateInfo.assetUpdatedAt)
                 val channelLabel = when (updateInfo.channel) {
                     UpdateChannel.STABLE -> t("Стабильный", "Stable")
                     UpdateChannel.BETA -> t("Бета", "Beta")
                 }
-                Text(
-                    text = buildString {
-                        append(t("Канал: $channelLabel", "Channel: $channelLabel"))
-                        if (updatedAt != null) append(t(" • Файл обновлён: $updatedAt", " • File updated: $updatedAt"))
-                    },
-                    color = nebulaColors.textTertiary,
-                    style = MaterialTheme.typography.labelMedium
+                UpdateMetadataRow(
+                    icon = Icons.Default.Update,
+                    label = t("Канал", "Channel"),
+                    value = buildString {
+                        append(channelLabel)
+                        if (updatedAt != null) append(t(" · обновлён $updatedAt", " · updated $updatedAt"))
+                    }
                 )
-                Text(
-                    text = if (updateInfo.sha256 != null) {
-                        t("Проверка: SHA-256 + сертификат APK", "Verification: SHA-256 + APK certificate")
+                UpdateMetadataRow(
+                    icon = Icons.Default.VerifiedUser,
+                    label = t("Защита", "Security"),
+                    value = if (updateInfo.sha256 != null) {
+                        t("SHA-256 + сертификат APK", "SHA-256 + APK certificate")
                     } else {
-                        t("Проверка: сертификат APK", "Verification: APK certificate")
+                        t("Сертификат APK", "APK certificate")
                     },
-                    color = nebulaColors.accent,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(top = 4.dp)
+                    accent = true
                 )
             }
 
             if (!downloadError.isNullOrBlank()) {
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = downloadError,
+                    text = UpdateUiText.error(downloadError, language),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -575,14 +571,14 @@ private fun UpdateStatusCard(
                     Spacer(Modifier.height(9.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(
-                            formatUpdateBytes(progress?.downloadedBytes ?: 0L),
+                            UpdateUiText.fileSize(progress?.downloadedBytes ?: 0L, language),
                             color = nebulaColors.textSecondary,
                             style = MaterialTheme.typography.labelMedium
                         )
                         Text(
                             t(
-                                "из ${formatUpdateBytes(progress?.totalBytes ?: updateInfo?.fileSize ?: 0L)}",
-                                "of ${formatUpdateBytes(progress?.totalBytes ?: updateInfo?.fileSize ?: 0L)}"
+                                "из ${UpdateUiText.fileSize(progress?.totalBytes ?: updateInfo?.fileSize ?: 0L, language)}",
+                                "of ${UpdateUiText.fileSize(progress?.totalBytes ?: updateInfo?.fileSize ?: 0L, language)}"
                             ),
                             color = nebulaColors.textTertiary,
                             style = MaterialTheme.typography.labelMedium
@@ -607,10 +603,50 @@ private fun UpdateStatusCard(
     }
 }
 
-private fun formatUpdateBytes(bytes: Long): String = when {
-    bytes <= 0L -> "0 МБ"
-    bytes < 1024L * 1024L -> "%.1f КБ".format(bytes / 1024.0)
-    else -> "%.1f МБ".format(bytes / (1024.0 * 1024.0))
+@Composable
+private fun UpdateMetadataRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String,
+    accent: Boolean = false
+) {
+    val nebulaColors = LocalNebulaColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 7.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(nebulaColors.accent.copy(alpha = if (accent) 0.17f else 0.10f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (accent) nebulaColors.accent else nebulaColors.textSecondary,
+                modifier = Modifier.size(15.dp)
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = label,
+                color = nebulaColors.textTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = value,
+                color = if (accent) nebulaColors.accent else nebulaColors.textSecondary,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (accent) FontWeight.SemiBold else FontWeight.Normal
+            )
+        }
+    }
 }
 
 private fun formatReleaseDate(value: String?): String? = runCatching {

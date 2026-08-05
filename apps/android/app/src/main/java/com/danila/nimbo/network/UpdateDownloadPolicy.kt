@@ -19,6 +19,16 @@ internal object UpdateDownloadPolicy {
         return start == requestedStart
     }
 
+    fun resolvedExpectedBytes(
+        metadataBytes: Long,
+        responseBytes: Long?,
+        completedBytes: Long
+    ): Long = when {
+        responseBytes != null && responseBytes > 0L -> completedBytes.coerceAtLeast(0L) + responseBytes
+        metadataBytes > 0L -> metadataBytes
+        else -> 0L
+    }
+
     fun requiredFreeBytes(expectedBytes: Long, partialBytes: Long): Long {
         val remaining = if (expectedBytes > 0L) {
             (expectedBytes - partialBytes).coerceAtLeast(0L)

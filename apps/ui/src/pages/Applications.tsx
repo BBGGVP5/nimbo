@@ -110,8 +110,16 @@ export function Applications() {
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [sortMode, setSortMode] = useState<SortMode>("default");
   const [busy, setBusy] = useState(false);
+  const [protectedLaunchBusy, setProtectedLaunchBusy] = useState(false);
+  const [explorerIntegration, setExplorerIntegration] = useState(false);
   const [showAddCustom, setShowAddCustom] = useState(false);
   const importFileInput = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    void api.getRunThroughNimboContextMenuEnabled()
+      .then(setExplorerIntegration)
+      .catch(() => setExplorerIntegration(false));
+  }, []);
 
   useEffect(() => {
     setMode(readAppRoutingMode(preferences.app_routing_mode));
@@ -342,9 +350,65 @@ export function Applications() {
     await toggleApp(newApp);
   };
 
+  const protectedLaunch = async () => {
+    if (protectedLaunchBusy) return;
+    try {
+      const path = await api.pickAppExecutable();
+      if (!path) return;
+      setProtectedLaunchBusy(true);
+      await api.runThroughNimbo(path);
+      notifyInfo(m.appsPage.protectedLaunchDone);
+    } catch (error) {
+      notifyError(String(error));
+    } finally {
+      setProtectedLaunchBusy(false);
+    }
+  };
+
+  const toggleExplorerIntegration = async () => {
+    try {
+      const enabled = await api.setRunThroughNimboContextMenu(!explorerIntegration);
+      setExplorerIntegration(enabled);
+    } catch (error) {
+      notifyError(String(error));
+    }
+  };
+
   return (
     <div className="page-view">
       <h1 className="page-title">{m.appsPage.title}</h1>
+
+      <section className="mb-7 rounded-[22px] border border-[var(--color-border)] bg-[var(--color-glass-bg)] p-5">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="min-w-[240px] flex-1">
+            <h2 className="text-lg font-black text-[var(--color-text)]">{m.appsPage.protectedLaunch}</h2>
+            <p className="mt-1 text-sm font-semibold text-[var(--color-text-dim)]">
+              {m.appsPage.protectedLaunchDescription}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="connections-action"
+            disabled={protectedLaunchBusy}
+            onClick={() => void protectedLaunch()}
+          >
+            {protectedLaunchBusy ? m.appsPage.protectedLaunchRunning : m.appsPage.protectedLaunchPick}
+          </button>
+        </div>
+        <button
+          type="button"
+          className="mt-4 flex w-full items-center justify-between rounded-2xl border border-[var(--color-border)] px-4 py-3 text-left"
+          onClick={() => void toggleExplorerIntegration()}
+        >
+          <span>
+            <strong className="block text-[var(--color-text)]">{m.appsPage.explorerIntegration}</strong>
+            <small className="text-[var(--color-text-dim)]">{m.appsPage.explorerIntegrationDescription}</small>
+          </span>
+          <span className={explorerIntegration ? "connections-badge connections-badge-proxy" : "connections-badge connections-badge-unknown"}>
+            {explorerIntegration ? "ON" : "OFF"}
+          </span>
+        </button>
+      </section>
 
       <div className="mt-7 mb-7 grid max-w-2xl grid-cols-2 gap-3 mobile-stack">
         <ModeButton active={mode === "direct"} onClick={() => void setAllMode("direct")}>

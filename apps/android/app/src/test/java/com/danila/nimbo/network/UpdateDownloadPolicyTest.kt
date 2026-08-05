@@ -56,4 +56,24 @@ class UpdateDownloadPolicyTest {
             )
         )
     }
+
+    @Test
+    fun responseLengthCanRefreshStaleGitHubAssetSize() {
+        assertEquals(
+            30_733_000L,
+            UpdateDownloadPolicy.resolvedExpectedBytes(
+                metadataBytes = 30_700_000L,
+                responseBytes = 30_733_000L,
+                completedBytes = 0L
+            )
+        )
+        assertEquals(
+            30_700_000L,
+            UpdateDownloadPolicy.resolvedExpectedBytes(
+                metadataBytes = 30_700_000L,
+                responseBytes = null,
+                completedBytes = 0L
+            )
+        )
+    }
 }

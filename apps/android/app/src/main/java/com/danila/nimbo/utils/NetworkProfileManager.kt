@@ -1,11 +1,20 @@
 package com.danila.nimbo.utils
 
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
+import android.os.BatteryManager
 import android.telephony.TelephonyManager
 import com.danila.nimbo.model.NetworkPreset
 import com.danila.nimbo.model.Server
+import com.danila.nimbo.network.NetworkContextSnapshot
+import com.danila.nimbo.network.NetworkPresetMatcher
+import com.danila.nimbo.network.NetworkTransport
+import com.danila.nimbo.network.SmartServerGroupStore
+import com.danila.nimbo.network.SmartServerSelector
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
@@ -30,7 +39,8 @@ object NetworkProfileManager {
 
     data class ApplyResult(
         val preset: NetworkPreset,
-        val selectedServer: Server?
+        val selectedServer: Server?,
+        val settingsChanged: Boolean = true
     )
 
     fun isAutoApplyEnabled(context: Context): Boolean {
@@ -127,21 +137,71 @@ object NetworkProfileManager {
     }
 
     fun detectCurrentPreset(context: Context): NetworkPresetType {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            ?: return NetworkPresetType.OTHER
-        val network = cm.activeNetwork ?: return NetworkPresetType.OTHER
-        val caps = cm.getNetworkCapabilities(network) ?: return NetworkPresetType.OTHER
-
+        val snapshot = captureNetworkContext(context)
         return when {
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
-                val isMetered = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-                if (isMetered) NetworkPresetType.PUBLIC_WIFI else NetworkPresetType.HOME
+            snapshot.transport == NetworkTransport.WIFI -> {
+                if (snapshot.metered || snapshot.captivePortal) NetworkPresetType.PUBLIC_WIFI else NetworkPresetType.HOME
             }
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) && isRoaming(context) -> {
+            snapshot.transport == NetworkTransport.CELLULAR && snapshot.roaming -> {
                 NetworkPresetType.ROAMING
             }
             else -> NetworkPresetType.OTHER
         }
+    }
+
+    fun captureNetworkContext(
+        context: Context,
+        preferredCapabilities: NetworkCapabilities? = null
+    ): NetworkContextSnapshot {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val activeCaps = cm?.activeNetwork?.let(cm::getNetworkCapabilities)
+        val underlyingCaps = cm?.allNetworks
+            ?.asSequence()
+            ?.mapNotNull(cm::getNetworkCapabilities)
+            ?.firstOrNull { capabilities ->
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            }
+        val caps = preferredCapabilities ?: activeCaps
+            ?.takeIf { it.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) }
+            ?: underlyingCaps
+        val transport = when {
+            caps == null -> NetworkTransport.NONE
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkTransport.WIFI
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkTransport.CELLULAR
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkTransport.ETHERNET
+            else -> NetworkTransport.OTHER
+        }
+        val ssid = if (transport == NetworkTransport.WIFI) {
+            runCatching {
+                (caps?.transportInfo as? WifiInfo)?.ssid
+                    ?.removeSurrounding("\"")
+                    ?.takeUnless { it.equals("<unknown ssid>", ignoreCase = true) }
+            }.getOrNull()
+        } else null
+        val telephony = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+        val carrier = runCatching { telephony?.networkOperatorName?.takeIf(String::isNotBlank) }.getOrNull()
+        val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val batteryPercent = battery?.let {
+            val level = it.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = it.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+            if (level >= 0 && scale > 0) (level * 100 / scale).coerceIn(0, 100) else null
+        }
+        val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == BatteryManager.BATTERY_STATUS_FULL
+
+        return NetworkContextSnapshot(
+            transport = transport,
+            ssid = ssid,
+            carrierName = carrier,
+            metered = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false,
+            roaming = isRoaming(context),
+            captivePortal = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true,
+            validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true,
+            charging = charging,
+            batteryPercent = batteryPercent
+        )
     }
 
     fun applyPresetById(
@@ -150,7 +210,7 @@ object NetworkProfileManager {
         availableServers: List<Server>
     ): ApplyResult? {
         val preset = getPresetById(context, presetId) ?: return null
-        val selectedServer = findBestServerForPreset(preset, availableServers)
+        val selectedServer = findBestServerForPreset(context, preset, availableServers)
         applyPreset(context, preset)
         setActivePresetId(context, preset.id)
         return ApplyResult(preset = preset, selectedServer = selectedServer)
@@ -159,18 +219,30 @@ object NetworkProfileManager {
     fun applyPresetForCurrentNetworkIfEnabled(
         context: Context,
         availableServers: List<Server>
+    ): ApplyResult? = applyPresetForNetworkIfEnabled(
+        context = context,
+        snapshot = captureNetworkContext(context),
+        availableServers = availableServers
+    )
+
+    fun applyPresetForNetworkIfEnabled(
+        context: Context,
+        snapshot: NetworkContextSnapshot,
+        availableServers: List<Server>
     ): ApplyResult? {
         if (!isAutoApplyEnabled(context)) return null
-        val presetType = detectCurrentPreset(context)
-        val preset = getPresets(context).firstOrNull {
-            it.type == presetType
-        } ?: return null
+        val preset = NetworkPresetMatcher.bestMatch(getPresets(context), snapshot)?.preset ?: return null
 
         val prefs = PreferencesManager(context)
         val last = prefs.getString(KEY_LAST_APPLIED, null)
-        if (last == preset.id) {
-            val selectedServer = findBestServerForPreset(preset, availableServers)
-            return ApplyResult(preset = preset, selectedServer = selectedServer)
+        val marker = "${preset.id}:${preset.updatedAtMs}"
+        if (last == marker) {
+            val selectedServer = findBestServerForPreset(context, preset, availableServers)
+            return ApplyResult(
+                preset = preset,
+                selectedServer = selectedServer,
+                settingsChanged = false
+            )
         }
 
         val result = applyPresetById(
@@ -178,7 +250,7 @@ object NetworkProfileManager {
             presetId = preset.id,
             availableServers = availableServers
         )
-        prefs.setString(KEY_LAST_APPLIED, preset.id)
+        prefs.setString(KEY_LAST_APPLIED, marker)
         return result
     }
 
@@ -213,9 +285,20 @@ object NetworkProfileManager {
     }
 
     private fun findBestServerForPreset(
+        context: Context,
         preset: NetworkPreset,
         availableServers: List<Server>
     ): Server? {
+        preset.smartGroupId?.let { groupId ->
+            val group = SmartServerGroupStore.groups(context).firstOrNull { it.id == groupId }
+            if (group != null) {
+                SmartServerSelector.select(
+                    group = group,
+                    servers = availableServers,
+                    health = SmartServerGroupStore.health(context)
+                )?.server?.let { return it }
+            }
+        }
         val selectedByKeys = if (preset.selectedServerKeys.isNotEmpty()) {
             val keys = preset.selectedServerKeys.toSet()
             availableServers.filter { server ->

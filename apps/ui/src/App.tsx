@@ -13,7 +13,7 @@ import { Settings } from "./pages/Settings";
 import { Notifications } from "./pages/Notifications";
 import { CrossPlatformSync } from "./pages/CrossPlatformSync";
 import { NotificationCenter } from "./components/NotificationCenter";
-import { notifyInfo, useNotificationHistory } from "./lib/notify";
+import { notifyError, notifyInfo, useNotificationHistory } from "./lib/notify";
 import {
   applyAccentGradient,
   loadBackgroundBlob,
@@ -210,6 +210,27 @@ export default function App() {
       if (unlisten) unlisten();
     };
   }, [navigate]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let active = true;
+    let unlisten: UnlistenFn | null = null;
+    void listen<string>("nimbo:run-through-request", (event) => {
+      navigate("/apps");
+      void api.runThroughNimbo(event.payload)
+        .then(() => notifyInfo(m.appsPage.protectedLaunchDone))
+        .catch((error) => notifyError(String(error)));
+    })
+      .then((dispose) => {
+        if (active) unlisten = dispose;
+        else dispose();
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      if (unlisten) unlisten();
+    };
+  }, [m.appsPage.protectedLaunchDone, navigate]);
 
   // The tray flyout (and background monitors) can change the connection state
   // out from under this window; refresh_tray_menu fires this so we re-sync.

@@ -36,8 +36,8 @@ android {
         applicationId = "com.danila.nimbo"
         minSdk = 29
         targetSdk = 37
-        versionCode = 6
-        versionName = "1.1.0-beta.2"
+        versionCode = 7
+        versionName = "1.1.0-beta.3"
         buildConfigField("String", "LIBXRAY_VERSION", "\"26.7.28\"")
 
 

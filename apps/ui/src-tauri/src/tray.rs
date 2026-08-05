@@ -608,6 +608,8 @@ pub fn tray_menu_action(app: AppHandle, action: String, server_id: Option<String
         "show" => show_main_window(&app),
         "home" => open_main_route(&app, "/"),
         "profiles" => open_main_route(&app, "/subscriptions"),
+        "connections" => open_main_route(&app, "/connections"),
+        "apps" => open_main_route(&app, "/apps"),
         "statistics" => open_main_route(&app, "/statistics"),
         "logs" => open_main_route(&app, "/tunnel-logs"),
         "settings" => open_main_route(&app, "/settings"),

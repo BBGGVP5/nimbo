@@ -56,6 +56,8 @@ const LABELS = {
     restartAdmin: "Перезапустить",
     quick: "Быстро",
     profiles: "Профили",
+    connections: "Соединения",
+    apps: "Приложения",
     statistics: "Статистика",
     logs: "Логи",
     settings: "Настройки",
@@ -98,6 +100,8 @@ const LABELS = {
     restartAdmin: "Restart",
     quick: "Quick",
     profiles: "Profiles",
+    connections: "Connections",
+    apps: "Applications",
     statistics: "Stats",
     logs: "Logs",
     settings: "Settings",
@@ -493,6 +497,17 @@ export function TrayMenu() {
           <span>{t.settings}</span>
         </button>
 
+        <div className="tray-utility-grid" aria-label={t.quick}>
+          <button type="button" onClick={() => act("connections")}>
+            <ConnectionsIcon />
+            <span>{t.connections}</span>
+          </button>
+          <button type="button" onClick={() => act("apps")}>
+            <AppsIcon />
+            <span>{t.apps}</span>
+          </button>
+        </div>
+
         <div className="tray-utility-grid" aria-label={t.maintenance}>
           <button
             type="button"
@@ -605,6 +620,27 @@ function describeTask(task: TrayTask, t: Labels): string {
   return typeof task.servers === "number"
     ? `${t.refreshDone} · ${task.servers} ${t.serversShort}`
     : t.refreshDone;
+}
+
+function ConnectionsIcon() {
+  return (
+    <svg {...svgProps}>
+      <path d="M4 7h10M4 12h16M4 17h8" />
+      <circle cx="17" cy="7" r="2" />
+      <circle cx="15" cy="17" r="2" />
+    </svg>
+  );
+}
+
+function AppsIcon() {
+  return (
+    <svg {...svgProps}>
+      <rect x="4" y="4" width="6" height="6" rx="1.4" />
+      <rect x="14" y="4" width="6" height="6" rx="1.4" />
+      <rect x="4" y="14" width="6" height="6" rx="1.4" />
+      <rect x="14" y="14" width="6" height="6" rx="1.4" />
+    </svg>
+  );
 }
 
 function TaskDoneIcon() {

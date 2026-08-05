@@ -27,6 +27,7 @@ import com.danila.nimbo.model.UpdateInfo
 import com.danila.nimbo.model.UpdateKind
 import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.utils.CustomAppIconManager
+import com.danila.nimbo.ui.screens.UpdateUiText
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -458,21 +459,33 @@ object UpdateManager {
                 null
             }
 
+            var effectiveUpdateInfo = updateInfo
             val verified = validation ?: run {
                 normalizePartialFile(partialFile, updateInfo.fileSize)
                 ensureDownloadAllowed(context, updateInfo, partialFile.length())
                 if (updateInfo.fileSize <= 0L || partialFile.length() != updateInfo.fileSize) {
-                    downloadToFile(updateInfo, partialFile)
+                    val observedBytes = downloadToFile(updateInfo, partialFile)
+                    if (observedBytes > 0L && observedBytes != updateInfo.fileSize) {
+                        if (updateInfo.sha256 == null) {
+                            throw SecurityException(UpdateUiText.APK_SIZE_MISMATCH)
+                        }
+                        Log.w(
+                            TAG,
+                            "GitHub asset size changed after metadata fetch: " +
+                                "${updateInfo.fileSize} -> $observedBytes; SHA-256 remains mandatory"
+                        )
+                        effectiveUpdateInfo = updateInfo.copy(fileSize = observedBytes)
+                    }
                 } else {
                     _downloadProgress.value = 1f
                 }
                 _downloadStatus.value = UpdateDownloadProgress(
                     downloadedBytes = partialFile.length(),
-                    totalBytes = updateInfo.fileSize,
+                    totalBytes = effectiveUpdateInfo.fileSize,
                     stage = UpdateDownloadStage.VERIFYING
                 )
                 val checked = try {
-                    verifyDownloadedApk(context, partialFile, updateInfo)
+                    verifyDownloadedApk(context, partialFile, effectiveUpdateInfo)
                 } catch (e: Exception) {
                     // A partial network transfer is useful on retry, but a file that
                     // reached verification and failed size/hash/APK checks is unsafe.
@@ -487,11 +500,11 @@ object UpdateManager {
                 checked
             }
 
-            recordPendingInstallation(context, updateInfo, verified)
+            recordPendingInstallation(context, effectiveUpdateInfo, verified)
             _downloadProgress.value = 1f
             _downloadStatus.value = UpdateDownloadProgress(
                 downloadedBytes = verifiedFile.length(),
-                totalBytes = updateInfo.fileSize.takeIf { it > 0L } ?: verifiedFile.length(),
+                totalBytes = effectiveUpdateInfo.fileSize.takeIf { it > 0L } ?: verifiedFile.length(),
                 stage = UpdateDownloadStage.READY
             )
             withContext(Dispatchers.Main) { installApk(context, verifiedFile) }
@@ -542,7 +555,7 @@ object UpdateManager {
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    private fun downloadToFile(updateInfo: UpdateInfo, target: File) {
+    private fun downloadToFile(updateInfo: UpdateInfo, target: File): Long {
         val expectedBytes = updateInfo.fileSize
         val existingBytes = target.length()
         val rangeStart = UpdateDownloadPolicy.requestRangeStart(existingBytes, expectedBytes)
@@ -559,7 +572,7 @@ object UpdateManager {
                 _downloadStatus.value = UpdateDownloadProgress(
                     target.length(), expectedBytes, UpdateDownloadStage.VERIFYING
                 )
-                return
+                return target.length()
             }
             if (!response.isSuccessful) throw IllegalStateException("Download failed: HTTP ${response.code}")
             val body = response.body ?: throw IllegalStateException("GitHub returned an empty APK")
@@ -569,9 +582,11 @@ object UpdateManager {
             }
             val completedBeforeResponse = if (append) existingBytes else 0L
             val responseBytes = body.contentLength().takeIf { it > 0L } ?: 0L
-            val totalBytes = expectedBytes.takeIf { it > 0L }
-                ?: (completedBeforeResponse + responseBytes).takeIf { it > 0L }
-                ?: 0L
+            val totalBytes = UpdateDownloadPolicy.resolvedExpectedBytes(
+                metadataBytes = expectedBytes,
+                responseBytes = responseBytes.takeIf { it > 0L },
+                completedBytes = completedBeforeResponse
+            )
 
             if (rangeStart != null && !append) {
                 Log.i(TAG, "Update server ignored Range; restarting APK download")
@@ -600,6 +615,7 @@ object UpdateManager {
                     output.fd.sync()
                 }
             }
+            return target.length()
         }
     }
 
@@ -608,7 +624,7 @@ object UpdateManager {
     private fun verifyDownloadedApk(context: Context, file: File, updateInfo: UpdateInfo): VerifiedApk {
         if (!file.isFile || file.length() <= 0) throw SecurityException("Загруженный APK пуст")
         if (updateInfo.fileSize > 0 && file.length() != updateInfo.fileSize) {
-            throw SecurityException("Размер APK не совпадает с данными GitHub")
+            throw SecurityException(UpdateUiText.APK_SIZE_MISMATCH)
         }
 
         updateInfo.sha256?.let { expected ->

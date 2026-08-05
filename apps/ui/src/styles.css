@@ -2185,7 +2185,7 @@ body[data-theme="light"] .connections-table-head {
 .connections-live-head,
 .connections-live-row {
   display: grid;
-  grid-template-columns: minmax(170px, 1.1fr) minmax(150px, 0.95fr) minmax(82px, max-content) minmax(150px, 0.95fr) minmax(130px, 0.8fr) minmax(96px, max-content);
+  grid-template-columns: minmax(165px, 1.05fr) minmax(145px, 0.9fr) minmax(76px, max-content) minmax(140px, 0.9fr) minmax(120px, 0.72fr) minmax(86px, max-content) minmax(178px, max-content);
   align-items: center;
   gap: 12px;
 }
@@ -2216,6 +2216,44 @@ body[data-theme="light"] .connections-live-head {
 
 .connections-live-row:last-child {
   border-bottom: 0;
+}
+
+.connections-quick-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.connections-quick-button {
+  min-height: 30px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  color: var(--color-text-dim);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 850;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.connections-quick-button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.connections-quick-button-proxy {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  color: var(--color-accent);
+}
+
+.connections-quick-button-block {
+  color: #ff7f87;
+}
+
+.connections-quick-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
 }
 
 .connections-endpoint,

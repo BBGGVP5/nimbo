@@ -26,7 +26,8 @@ import androidx.compose.foundation.Indication
 @Composable
 fun rememberPreferenceAwareHapticFeedback(
     enabled: Boolean,
-    strength: HapticStrength
+    strength: HapticStrength,
+    style: HapticStyle
 ): HapticFeedback {
     val context = LocalContext.current.applicationContext
     val platformHaptic = LocalHapticFeedback.current
@@ -38,32 +39,17 @@ fun rememberPreferenceAwareHapticFeedback(
             context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
         }
     }
-    return remember(platformHaptic, vibrator, enabled, strength) {
+    return remember(platformHaptic, vibrator, enabled, strength, style) {
         object : HapticFeedback {
             override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
                 if (!enabled) return
 
-                val pulse = if (hapticFeedbackType == HapticFeedbackType.LongPress) {
-                    HapticPulsePolicy.confirmation(strength)
+                val pattern = if (hapticFeedbackType == HapticFeedbackType.LongPress) {
+                    HapticPatternPolicy.confirmation(strength, style)
                 } else {
-                    HapticPulsePolicy.tick(strength)
+                    HapticPatternPolicy.tick(strength, style)
                 }
-                val customHapticSucceeded = runCatching {
-                    val target = vibrator ?: return@runCatching false
-                    if (!target.hasVibrator()) return@runCatching false
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        val amplitude = if (target.hasAmplitudeControl()) {
-                            pulse.amplitude
-                        } else {
-                            VibrationEffect.DEFAULT_AMPLITUDE
-                        }
-                        target.vibrate(VibrationEffect.createOneShot(pulse.durationMs, amplitude))
-                    } else {
-                        @Suppress("DEPRECATION")
-                        target.vibrate(pulse.durationMs)
-                    }
-                    true
-                }.getOrDefault(false)
+                val customHapticSucceeded = vibrate(vibrator, pattern)
 
                 if (!customHapticSucceeded) {
                     platformHaptic.performHapticFeedback(hapticFeedbackType)
@@ -72,6 +58,42 @@ fun rememberPreferenceAwareHapticFeedback(
         }
     }
 }
+
+fun performConnectionSuccessHaptic(
+    context: Context,
+    enabled: Boolean,
+    strength: Int,
+    style: Int
+) {
+    if (!enabled) return
+    val pattern = HapticPatternPolicy.confirmation(
+        strength = HapticStrength.fromPersistedValue(strength),
+        style = HapticStyle.fromPersistedValue(style)
+    )
+    vibrate(resolveVibrator(context.applicationContext), pattern)
+}
+
+private fun resolveVibrator(context: Context): Vibrator? =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        context.getSystemService(VibratorManager::class.java)?.defaultVibrator
+    } else {
+        @Suppress("DEPRECATION")
+        context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    }
+
+private fun vibrate(vibrator: Vibrator?, pattern: HapticPattern): Boolean = runCatching {
+    val target = vibrator ?: return@runCatching false
+    if (!target.hasVibrator()) return@runCatching false
+    val amplitudes = if (target.hasAmplitudeControl()) {
+        pattern.amplitudes
+    } else {
+        IntArray(pattern.amplitudes.size) { index ->
+            if (pattern.amplitudes[index] == 0) 0 else VibrationEffect.DEFAULT_AMPLITUDE
+        }
+    }
+    target.vibrate(VibrationEffect.createWaveform(pattern.timings, amplitudes, -1))
+    true
+}.getOrDefault(false)
 
 @Composable
 fun rememberHapticSliderValueChange(

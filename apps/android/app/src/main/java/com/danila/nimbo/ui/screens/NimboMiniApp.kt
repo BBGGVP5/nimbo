@@ -185,6 +185,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -289,6 +290,7 @@ import com.danila.nimbo.ui.components.liquidGlassSurface
 import com.danila.nimbo.ui.components.liquidTouchDeformation
 import com.danila.nimbo.ui.components.rememberNetworkEdgeBurstController
 import com.danila.nimbo.ui.components.rememberHapticSliderValueChange
+import com.danila.nimbo.ui.components.performConnectionSuccessHaptic
 import com.danila.nimbo.ui.components.tick
 import com.danila.nimbo.ui.navigation.BottomBarScrollPolicy
 import com.danila.nimbo.ui.theme.BackgroundStyleMode
@@ -965,16 +967,12 @@ fun NimboMiniApp(
                     onNavigateBack = { navigateBackInMiniApp() }
                 )
 
-                MiniDestination.Connections -> NimboSubPageScaffold(
-                    title = t("Соединения", "Connections"),
-                    subtitle = t("Туннель, активный сервер и правила", "Tunnel, active server and rules"),
+                MiniDestination.Connections -> NetworkIntelligenceScreen(
+                    preferencesManager = preferencesManager,
+                    servers = profiles.flatMap { it.servers },
+                    onOpenFirewall = { navigateTo(MiniDestination.Firewall) },
                     onBack = { navigateBackInMiniApp() }
-                ) {
-                    ConnectionsSettingsSection(
-                        preferencesManager = preferencesManager,
-                        onOpenFirewall = { navigateTo(MiniDestination.Firewall) }
-                    )
-                }
+                )
 
                 MiniDestination.Statistics -> NimboSubPageScaffold(
                     title = t("Статистика", "Statistics"),
@@ -5370,6 +5368,7 @@ private fun ColumnScope.GeneralSettingsSection(
     var memoryLimitMb by remember { mutableStateOf(preferencesManager.memoryLimitMb) }
     val hapticFeedbackEnabled by preferencesManager.hapticFeedbackEnabledState
     val hapticFeedbackStrength by preferencesManager.hapticFeedbackStrengthState
+    val hapticFeedbackStyle by preferencesManager.hapticFeedbackStyleState
     var hapticStrengthExpanded by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(hapticFeedbackEnabled) {
@@ -5417,10 +5416,12 @@ private fun ColumnScope.GeneralSettingsSection(
         )
         SettingsHapticStrengthButton(
             strength = hapticFeedbackStrength,
+            style = hapticFeedbackStyle,
             expanded = hapticStrengthExpanded,
             enabled = hapticFeedbackEnabled,
             onExpandedChange = { hapticStrengthExpanded = it },
-            onStrengthChange = { preferencesManager.hapticFeedbackStrength = it }
+            onStrengthChange = { preferencesManager.hapticFeedbackStrength = it },
+            onStyleChange = { preferencesManager.hapticFeedbackStyle = it }
         )
         SettingsToggleRow(
             title = t("Обновлять подписки при запуске", "Update subscriptions on launch"),
@@ -6432,7 +6433,7 @@ private fun StatLine(
 }
 
 @Composable
-private fun ColumnScope.ConnectionsSettingsSection(
+internal fun ColumnScope.ConnectionsSettingsSection(
     preferencesManager: PreferencesManager,
     onOpenFirewall: () -> Unit
 ) {
@@ -6765,42 +6766,10 @@ private data class FirewallRowData(
 )
 
 private fun getDomainsForFirewall(packageName: String, appName: String): List<String> {
-    val name = appName.lowercase()
-    val pkg = packageName.lowercase()
-    return when {
-        pkg.contains("chrome") || pkg.contains("browser") || name.contains("browser") ->
-            listOf("google.com", "github.com", "wikipedia.org")
-        pkg.contains("telegram") || name.contains("telegram") ->
-            listOf("api.telegram.org", "t.me")
-        pkg.contains("instagram") || name.contains("instagram") ->
-            listOf("instagram.com", "cdn.instagram.com")
-        pkg.contains("youtube") || name.contains("youtube") ->
-            listOf("youtube.com", "googlevideo.com")
-        pkg.contains("whatsapp") || name.contains("whatsapp") ->
-            listOf("whatsapp.net", "chat.whatsapp.com")
-        pkg.contains("facebook") || name.contains("facebook") ->
-            listOf("facebook.com", "graph.facebook.com")
-        pkg.contains("twitter") || name.contains("twitter") ->
-            listOf("twitter.com", "api.twitter.com")
-        pkg.contains("spotify") || name.contains("spotify") ->
-            listOf("spotify.com", "audio-ak.spotify.com")
-        pkg.contains("nimbo") || name.contains("nimbo") ->
-            listOf("api.remnawave.com")
-        pkg.contains("viber") || name.contains("viber") ->
-            listOf("viber.com", "api.viber.com")
-        pkg.contains("vkontakte") || pkg.contains("vkont") || name.contains("vk") ->
-            listOf("vk.com", "vk-cdn.net")
-        pkg.contains("tiktok") || name.contains("tiktok") ->
-            listOf("tiktok.com", "byteoversea.com")
-        else -> {
-            val cleanPkg = pkg.substringAfterLast(".").replace("_", "")
-            if (cleanPkg.length > 3) {
-                listOf("$cleanPkg.com", "cloudflare.com")
-            } else {
-                listOf("cloudflare.com", "aws.amazon.com")
-            }
-        }
-    }
+    // Android's public TrafficStats API exposes per-UID byte counters, not DNS
+    // ownership. Never guess domains from a package name: a made-up domain is
+    // worse than an honest empty list in a diagnostic screen.
+    return emptyList()
 }
 
 private fun calculateRouteForFirewall(
@@ -6883,6 +6852,7 @@ private fun ColumnScope.FirewallScreenContent(
     var firewallRows by remember { mutableStateOf<List<FirewallRowData>>(emptyList()) }
 
     LaunchedEffect(vpnState, activeServer, refreshKey) {
+        com.danila.nimbo.network.TemporaryAppRuleManager.expire(context)
         val appList = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
                 .filter { it.uid > 0 && it.packageName != context.packageName }
@@ -6918,21 +6888,6 @@ private fun ColumnScope.FirewallScreenContent(
                 }
         }
 
-        // Categorize apps
-        val priorityApps = appList.filter { app ->
-            val pkg = app.packageName.lowercase()
-            val name = app.name.lowercase()
-            pkg.contains("telegram") || name.contains("telegram") ||
-            pkg.contains("chrome") || pkg.contains("browser") || name.contains("browser") ||
-            pkg.contains("youtube") || name.contains("youtube") ||
-            pkg.contains("instagram") || name.contains("instagram") ||
-            pkg.contains("whatsapp") || name.contains("whatsapp") ||
-            pkg.contains("vkontakte") || pkg.contains("vkont") || name.contains("vk") ||
-            pkg.contains("tiktok") || name.contains("tiktok") ||
-            pkg.contains("yandex") || name.contains("yandex")
-        }
-        val regularApps = appList.filter { it !in priorityApps }
-
         val baselineStats = mutableMapOf<Int, Pair<Long, Long>>()
         appList.forEach { app ->
             val rx = android.net.TrafficStats.getUidRxBytes(app.uid).coerceAtLeast(0L)
@@ -6943,27 +6898,6 @@ private fun ColumnScope.FirewallScreenContent(
         var prevStats = baselineStats.toMutableMap()
         var lastPollTime = System.currentTimeMillis()
 
-        // Active simulated apps: initialize immediately with all priority apps + 5 random regular apps
-        val activeSimulatedUids = mutableSetOf<Int>()
-        val simulationSpeeds = mutableMapOf<Int, Pair<Long, Long>>()
-
-        priorityApps.forEach { app ->
-            activeSimulatedUids.add(app.uid)
-            simulationSpeeds[app.uid] = Pair(
-                (5000..120000).random().toLong(),
-                (1000..25000).random().toLong()
-            )
-        }
-
-        // Add up to 5 random regular apps
-        regularApps.shuffled().take(5).forEach { app ->
-            activeSimulatedUids.add(app.uid)
-            simulationSpeeds[app.uid] = Pair(
-                (2000..45000).random().toLong(),
-                (300..8000).random().toLong()
-            )
-        }
-
         while (true) {
             val now = System.currentTimeMillis()
             val timeDeltaSec = ((now - lastPollTime) / 1000f).coerceAtLeast(0.1f)
@@ -6971,26 +6905,6 @@ private fun ColumnScope.FirewallScreenContent(
 
             val currentRows = mutableListOf<FirewallRowData>()
             val currentStats = mutableMapOf<Int, Pair<Long, Long>>()
-
-            // Randomly rotate regular apps every iteration to keep it dynamic and alive
-            if (regularApps.isNotEmpty() && Math.random() < 0.2) {
-                val regularSimulated = activeSimulatedUids.filter { uid -> priorityApps.none { it.uid == uid } }
-                if (regularSimulated.size > 2) {
-                    val toRemove = regularSimulated.random()
-                    activeSimulatedUids.remove(toRemove)
-                    simulationSpeeds.remove(toRemove)
-                }
-
-                val regularCandidates = regularApps.filter { it.uid !in activeSimulatedUids }
-                if (regularCandidates.isNotEmpty()) {
-                    val toAdd = regularCandidates.random()
-                    activeSimulatedUids.add(toAdd.uid)
-                    simulationSpeeds[toAdd.uid] = Pair(
-                        (2000..45000).random().toLong(),
-                        (300..8000).random().toLong()
-                    )
-                }
-            }
 
             appList.forEach { app ->
                 val rx = android.net.TrafficStats.getUidRxBytes(app.uid).coerceAtLeast(0L)
@@ -7000,12 +6914,6 @@ private fun ColumnScope.FirewallScreenContent(
                 val prev = prevStats[app.uid] ?: Pair(rx, tx)
                 var rxRate = ((rx - prev.first) / timeDeltaSec).toLong().coerceAtLeast(0L)
                 var txRate = ((tx - prev.second) / timeDeltaSec).toLong().coerceAtLeast(0L)
-
-                if (rxRate == 0L && txRate == 0L && activeSimulatedUids.contains(app.uid)) {
-                    val sim = simulationSpeeds[app.uid] ?: Pair(0L, 0L)
-                    rxRate = (sim.first * (0.6 + Math.random() * 0.8)).toLong()
-                    txRate = (sim.second * (0.6 + Math.random() * 0.8)).toLong()
-                }
 
                 if (rxRate > 0L || txRate > 0L) {
                     val domains = getDomainsForFirewall(app.packageName, app.name)
@@ -7173,7 +7081,28 @@ private fun ColumnScope.FirewallScreenContent(
                 ?: firewallRows.firstOrNull { it.uid == uid }
         }
         if (openedUid != null && detailRow != null) {
-            FirewallDetailDialog(row = detailRow, onDismiss = { openedUid = null })
+            FirewallDetailDialog(
+                row = detailRow,
+                onDismiss = { openedUid = null },
+                onQuickDirect = {
+                    com.danila.nimbo.network.TemporaryAppRuleManager.apply(
+                        context,
+                        detailRow.packageName,
+                        com.danila.nimbo.network.TemporaryAppRoute.DIRECT,
+                        durationMs = 15 * 60_000L
+                    )
+                    refreshKey++
+                },
+                onQuickVpn = {
+                    com.danila.nimbo.network.TemporaryAppRuleManager.apply(
+                        context,
+                        detailRow.packageName,
+                        com.danila.nimbo.network.TemporaryAppRoute.VPN,
+                        durationMs = 15 * 60_000L
+                    )
+                    refreshKey++
+                }
+            )
         }
     }
 }
@@ -7228,21 +7157,6 @@ private fun FirewallMonitorSection(
                 }
         }
 
-        // Categorize apps
-        val priorityApps = appList.filter { app ->
-            val pkg = app.packageName.lowercase()
-            val name = app.name.lowercase()
-            pkg.contains("telegram") || name.contains("telegram") ||
-            pkg.contains("chrome") || pkg.contains("browser") || name.contains("browser") ||
-            pkg.contains("youtube") || name.contains("youtube") ||
-            pkg.contains("instagram") || name.contains("instagram") ||
-            pkg.contains("whatsapp") || name.contains("whatsapp") ||
-            pkg.contains("vkontakte") || pkg.contains("vkont") || name.contains("vk") ||
-            pkg.contains("tiktok") || name.contains("tiktok") ||
-            pkg.contains("yandex") || name.contains("yandex")
-        }
-        val regularApps = appList.filter { it !in priorityApps }
-
         val baselineStats = mutableMapOf<Int, Pair<Long, Long>>()
         appList.forEach { app ->
             val rx = android.net.TrafficStats.getUidRxBytes(app.uid).coerceAtLeast(0L)
@@ -7253,27 +7167,6 @@ private fun FirewallMonitorSection(
         var prevStats = baselineStats.toMutableMap()
         var lastPollTime = System.currentTimeMillis()
 
-        // Active simulated apps: initialize immediately with all priority apps + 4 random regular apps!
-        val activeSimulatedUids = mutableSetOf<Int>()
-        val simulationSpeeds = mutableMapOf<Int, Pair<Long, Long>>()
-
-        priorityApps.forEach { app ->
-            activeSimulatedUids.add(app.uid)
-            simulationSpeeds[app.uid] = Pair(
-                (5000..120000).random().toLong(),
-                (1000..25000).random().toLong()
-            )
-        }
-
-        // Add up to 5 random regular apps
-        regularApps.shuffled().take(5).forEach { app ->
-            activeSimulatedUids.add(app.uid)
-            simulationSpeeds[app.uid] = Pair(
-                (2000..45000).random().toLong(),
-                (300..8000).random().toLong()
-            )
-        }
-
         while (true) {
             val now = System.currentTimeMillis()
             val timeDeltaSec = ((now - lastPollTime) / 1000f).coerceAtLeast(0.1f)
@@ -7281,28 +7174,6 @@ private fun FirewallMonitorSection(
 
             val currentRows = mutableListOf<FirewallRowData>()
             val currentStats = mutableMapOf<Int, Pair<Long, Long>>()
-
-            // Randomly rotate regular apps every iteration to keep it dynamic and alive
-            if (regularApps.isNotEmpty() && Math.random() < 0.2) {
-                // Remove one random regular app simulation
-                val regularSimulated = activeSimulatedUids.filter { uid -> priorityApps.none { it.uid == uid } }
-                if (regularSimulated.size > 2) {
-                    val toRemove = regularSimulated.random()
-                    activeSimulatedUids.remove(toRemove)
-                    simulationSpeeds.remove(toRemove)
-                }
-
-                // Add a new random regular app
-                val regularCandidates = regularApps.filter { it.uid !in activeSimulatedUids }
-                if (regularCandidates.isNotEmpty()) {
-                    val toAdd = regularCandidates.random()
-                    activeSimulatedUids.add(toAdd.uid)
-                    simulationSpeeds[toAdd.uid] = Pair(
-                        (2000..45000).random().toLong(),
-                        (300..8000).random().toLong()
-                    )
-                }
-            }
 
             appList.forEach { app ->
                 val rx = android.net.TrafficStats.getUidRxBytes(app.uid).coerceAtLeast(0L)
@@ -7312,14 +7183,6 @@ private fun FirewallMonitorSection(
                 val prev = prevStats[app.uid] ?: Pair(rx, tx)
                 var rxRate = ((rx - prev.first) / timeDeltaSec).toLong().coerceAtLeast(0L)
                 var txRate = ((tx - prev.second) / timeDeltaSec).toLong().coerceAtLeast(0L)
-
-                // If no real traffic, apply simulated traffic for active simulation apps
-                if (rxRate == 0L && txRate == 0L && activeSimulatedUids.contains(app.uid)) {
-                    val sim = simulationSpeeds[app.uid] ?: Pair(0L, 0L)
-                    // Slightly fluctuate speeds to look ultra-realistic
-                    rxRate = (sim.first * (0.6 + Math.random() * 0.8)).toLong()
-                    txRate = (sim.second * (0.6 + Math.random() * 0.8)).toLong()
-                }
 
                 if (rxRate > 0L || txRate > 0L) {
                     val domains = getDomainsForFirewall(app.packageName, app.name)
@@ -7611,7 +7474,12 @@ private fun FirewallAppRowItem(row: FirewallRowData, onClick: (() -> Unit)? = nu
  * with the same simulated fallback the list uses, so the chart stays alive.
  */
 @Composable
-private fun FirewallDetailDialog(row: FirewallRowData, onDismiss: () -> Unit) {
+private fun FirewallDetailDialog(
+    row: FirewallRowData,
+    onDismiss: () -> Unit,
+    onQuickDirect: () -> Unit,
+    onQuickVpn: () -> Unit
+) {
     val nebulaColors = LocalNebulaColors.current
 
     var liveRx by remember(row.uid) { mutableStateOf(row.rxRate) }
@@ -7638,11 +7506,6 @@ private fun FirewallDetailDialog(row: FirewallRowData, onDismiss: () -> Unit) {
             val tx = android.net.TrafficStats.getUidTxBytes(row.uid).coerceAtLeast(0L)
             var rxR = ((rx - prevRx) / dt).toLong().coerceAtLeast(0L)
             var txR = ((tx - prevTx) / dt).toLong().coerceAtLeast(0L)
-            // Same simulated fallback the list uses when the OS reports no per-UID traffic.
-            if (rxR == 0L && txR == 0L) {
-                rxR = (row.rxRate * (0.6 + Math.random() * 0.8)).toLong()
-                txR = (row.txRate * (0.6 + Math.random() * 0.8)).toLong()
-            }
             prevRx = rx
             prevTx = tx
             accRx += (rxR * dt).toLong()
@@ -7742,6 +7605,28 @@ private fun FirewallDetailDialog(row: FirewallRowData, onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold
                     )
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                Text(
+                    text = t("Быстрое правило на 15 минут", "Quick rule for 15 minutes"),
+                    color = nebulaColors.textTertiary,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onQuickVpn, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.Lock, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(t("Через VPN", "Via VPN"), maxLines = 1)
+                    }
+                    OutlinedButton(onClick = onQuickDirect, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.Language, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(t("Напрямую", "Direct"), maxLines = 1)
+                    }
                 }
 
                 Spacer(Modifier.height(16.dp))
@@ -9013,20 +8898,32 @@ private fun SettingsToggleRow(
 @Composable
 private fun SettingsHapticStrengthButton(
     strength: Int,
+    style: Int,
     expanded: Boolean,
     enabled: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onStrengthChange: (Int) -> Unit,
+    onStyleChange: (Int) -> Unit,
     showDivider: Boolean = true
 ) {
     val nebulaColors = LocalNebulaColors.current
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     val labels = listOf(
         t("Лёгкая", "Light"),
         t("Средняя", "Medium"),
         t("Сильная", "Strong")
     )
     val safeStrength = strength.coerceIn(0, labels.lastIndex)
+    val styleLabels = listOf(
+        t("Мягкий", "Soft"),
+        t("Чёткий", "Crisp"),
+        t("Двойной", "Double"),
+        t("Волна", "Wave"),
+        t("Пульс", "Pulse"),
+        t("Пружина", "Spring")
+    )
+    val safeStyle = style.coerceIn(0, styleLabels.lastIndex)
     val arrowRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = tween(180, easing = FastOutSlowInEasing),
@@ -9153,6 +9050,74 @@ private fun SettingsHapticStrengthButton(
                         )
                     }
                 }
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    text = t("Характер отклика", "Feedback style"),
+                    color = nebulaColors.textPrimary,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = t(
+                        "Выберите ощущение — вариант сразу проиграется",
+                        "Choose a feel — it will play immediately"
+                    ),
+                    color = nebulaColors.textTertiary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 3.dp, bottom = 10.dp)
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    styleLabels.chunked(3).forEachIndexed { rowIndex, rowLabels ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowLabels.forEachIndexed { columnIndex, label ->
+                                val index = rowIndex * 3 + columnIndex
+                                val selected = index == safeStyle
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 42.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(
+                                            if (selected) nebulaColors.accent.copy(alpha = 0.20f)
+                                            else nebulaColors.textPrimary.copy(alpha = 0.045f)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (selected) nebulaColors.accent.copy(alpha = 0.72f)
+                                            else nebulaColors.textPrimary.copy(alpha = 0.09f),
+                                            RoundedCornerShape(14.dp)
+                                        )
+                                        .clickable(
+                                            indication = null,
+                                            interactionSource = remember { MutableInteractionSource() }
+                                        ) {
+                                            if (!selected) onStyleChange(index)
+                                            performConnectionSuccessHaptic(
+                                                context = context,
+                                                enabled = enabled,
+                                                strength = safeStrength,
+                                                style = index
+                                            )
+                                        }
+                                        .padding(horizontal = 6.dp, vertical = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = if (selected) nebulaColors.accent else nebulaColors.textSecondary,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -9168,10 +9133,11 @@ private fun SettingsHapticStrengthButton(
 
 @Composable
 private fun SettingsCompactCard(content: @Composable ColumnScope.() -> Unit) {
+    val nebulaColors = LocalNebulaColors.current
     GlassPanel(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        borderColor = Color.White.copy(alpha = 0.10f)
+        shape = RoundedCornerShape(22.dp),
+        borderColor = nebulaColors.textPrimary.copy(alpha = 0.10f)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             content()
@@ -15283,12 +15249,18 @@ private fun NimboDisclaimerDialog(
 @Composable
 internal fun NimboBackButton(onBack: () -> Unit) {
     val nebulaColors = LocalNebulaColors.current
+    val haptic = LocalHapticFeedback.current
+    val shape = RoundedCornerShape(16.dp)
     Box(
         modifier = Modifier
-            .size(52.dp)
-            .clip(RoundedCornerShape(17.dp))
-            .background(nebulaColors.textPrimary.copy(alpha = 0.045f))
-            .clickable(onClick = onBack)
+            .size(48.dp)
+            .clip(shape)
+            .background(nebulaColors.accent.copy(alpha = 0.10f))
+            .border(1.dp, nebulaColors.accent.copy(alpha = 0.22f), shape)
+            .clickable {
+                haptic.tick()
+                onBack()
+            }
             .semantics { role = Role.Button },
         contentAlignment = Alignment.Center
     ) {
@@ -15296,7 +15268,7 @@ internal fun NimboBackButton(onBack: () -> Unit) {
             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
             contentDescription = t("Назад", "Back"),
             tint = nebulaColors.textPrimary,
-            modifier = Modifier.size(30.dp)
+            modifier = Modifier.size(27.dp)
         )
     }
 }
@@ -15308,53 +15280,64 @@ internal fun NimboSubPageScaffold(
     onBack: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val nebulaColors = LocalNebulaColors.current
     Column(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 12.dp, end = 16.dp, top = 14.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            NimboBackButton(onBack = onBack)
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = nebulaColors.textPrimary,
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (!subtitle.isNullOrBlank()) {
-                    Text(
-                        text = subtitle,
-                        color = nebulaColors.textSecondary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 3.dp)
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(if (subtitle.isNullOrBlank()) 16.dp else 12.dp))
+        NimboSubPageHeader(title = title, subtitle = subtitle, onBack = onBack)
+        Spacer(Modifier.height(if (subtitle.isNullOrBlank()) 10.dp else 8.dp))
         val scrollModifier = rememberVerticalScrollModifier()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 18.dp)
                 .navigationBarsPadding()
                 .then(scrollModifier),
             content = content
         )
+    }
+}
+
+@Composable
+internal fun NimboSubPageHeader(
+    title: String,
+    subtitle: String? = null,
+    onBack: () -> Unit,
+    trailing: (@Composable () -> Unit)? = null
+) {
+    val nebulaColors = LocalNebulaColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 18.dp, top = 12.dp, end = 18.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        NimboBackButton(onBack = onBack)
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = nebulaColors.textPrimary,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    color = nebulaColors.textSecondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 3.dp)
+                )
+            }
+        }
+        trailing?.invoke()
     }
 }
 
@@ -15366,16 +15349,24 @@ internal fun SubPageSectionHeader(
     val nebulaColors = LocalNebulaColors.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(bottom = 4.dp)
+        modifier = Modifier.padding(start = 2.dp, bottom = 5.dp)
     ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(18.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(nebulaColors.accent.copy(alpha = 0.82f))
+        )
+        Spacer(Modifier.width(8.dp))
         if (icon != null) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = nebulaColors.accent,
                 modifier = Modifier
-                    .padding(end = 8.dp)
-                    .size(20.dp)
+                    .padding(end = 7.dp)
+                    .size(19.dp)
             )
         }
         Text(
