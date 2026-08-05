@@ -95,7 +95,12 @@ fun Modifier.liquidGlassSurface(
                 )
             sample.fraction to rimColor
         }.toTypedArray()
-        Brush.sweepGradient(*rimStops)
+        // A sweep-gradient border is backed by a square GPU texture. Several
+        // Android 17 launchers/drivers blend that texture into the surface,
+        // exposing a pale rectangle in the centre of every glass card. A
+        // linear spectrum still colors the complete outline and reacts to the
+        // tilt-driven samples, but stays inside the shape-safe render path.
+        Brush.linearGradient(*rimStops)
     } else {
         Brush.linearGradient(
             colors = listOf(
