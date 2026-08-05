@@ -3,6 +3,7 @@ package com.danila.nimbo.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,13 +27,16 @@ import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.WifiFind
 import androidx.compose.material3.Button
-import androidx.compose.material3.Divider
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -74,6 +79,7 @@ fun NetworkIntelligenceScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val colors = LocalNebulaColors.current
     val en = remember(preferencesManager.appLanguage) { preferencesManager.appLanguage == "en" }
     fun loc(ru: String, english: String) = if (en) english else ru
 
@@ -120,23 +126,38 @@ fun NetworkIntelligenceScreen(
         NetworkFeatureCard(Icons.Default.NetworkWifi, loc("Текущая сеть", "Current network")) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(networkSummary(contextSnapshot, en), fontWeight = FontWeight.SemiBold)
+                    Text(
+                        networkSummary(contextSnapshot, en),
+                        color = colors.textPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     Text(
                         validationSummary(contextSnapshot, en),
                         color = if (contextSnapshot.validated) {
-                            LocalNebulaColors.current.accent
+                            colors.accent
                         } else {
-                            MaterialTheme.colorScheme.error
+                            colors.statusError
                         }
                     )
                 }
                 IconButton(onClick = ::reload) {
-                    Icon(Icons.Default.Refresh, loc("Обновить", "Refresh"))
+                    Icon(
+                        Icons.Default.Refresh,
+                        loc("Обновить", "Refresh"),
+                        tint = colors.textPrimary
+                    )
                 }
             }
             if (contextSnapshot.captivePortal) {
                 Spacer(Modifier.height(8.dp))
-                Button(onClick = { openCaptivePortal(context) }) {
+                Button(
+                    onClick = { openCaptivePortal(context) },
+                    shape = RoundedCornerShape(15.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.accent,
+                        contentColor = Color.White
+                    )
+                ) {
                     Icon(Icons.Default.WifiFind, null)
                     Spacer(Modifier.size(8.dp))
                     Text(loc("Открыть страницу входа", "Open sign-in page"))
@@ -150,6 +171,7 @@ fun NetworkIntelligenceScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         loc("Выбирать профиль автоматически", "Select profile automatically"),
+                        color = colors.textPrimary,
                         fontWeight = FontWeight.SemiBold
                     )
                     SecondaryText(
@@ -164,10 +186,20 @@ fun NetworkIntelligenceScreen(
                     onCheckedChange = {
                         autoApply = it
                         NetworkProfileManager.setAutoApplyEnabled(context, it)
-                    }
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = colors.accent,
+                        uncheckedThumbColor = colors.textSecondary,
+                        uncheckedTrackColor = colors.softFill,
+                        uncheckedBorderColor = colors.textTertiary
+                    )
                 )
             }
-            Divider(Modifier.padding(vertical = 10.dp))
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 10.dp),
+                color = colors.divider
+            )
             presets.forEach { preset ->
                 PresetRow(preset, preset.id == activePresetId) {
                     NetworkProfileManager.setActivePresetId(context, preset.id)
@@ -179,7 +211,19 @@ fun NetworkIntelligenceScreen(
                 onValueChange = { profileName = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(loc("Название профиля для этой сети", "Profile name for this network")) },
-                singleLine = true
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = colors.controlFill,
+                    unfocusedContainerColor = colors.controlFill,
+                    focusedBorderColor = colors.accent.copy(alpha = 0.62f),
+                    unfocusedBorderColor = colors.textPrimary.copy(alpha = 0.22f),
+                    focusedTextColor = colors.textPrimary,
+                    unfocusedTextColor = colors.textPrimary,
+                    focusedLabelColor = colors.accent,
+                    unfocusedLabelColor = colors.textSecondary,
+                    cursorColor = colors.accent
+                )
             )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
@@ -207,7 +251,13 @@ fun NetworkIntelligenceScreen(
                     reload()
                 },
                 enabled = presets.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(15.dp),
+                border = BorderStroke(1.dp, colors.textPrimary.copy(alpha = 0.28f)),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = colors.textPrimary,
+                    disabledContentColor = colors.textTertiary
+                )
             ) {
                 Icon(Icons.Default.Add, null)
                 Spacer(Modifier.size(8.dp))
@@ -229,11 +279,15 @@ fun NetworkIntelligenceScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(group.name, fontWeight = FontWeight.SemiBold)
+                        Text(group.name, color = colors.textPrimary, fontWeight = FontWeight.SemiBold)
                         SecondaryText("${group.serverKeys.size} · ${group.strategy.name.lowercase()}")
                     }
                     IconButton(onClick = { SmartServerGroupStore.deleteGroup(context, group.id); reload() }) {
-                        Icon(Icons.Default.Delete, loc("Удалить", "Delete"))
+                        Icon(
+                            Icons.Default.Delete,
+                            loc("Удалить", "Delete"),
+                            tint = colors.statusError
+                        )
                     }
                 }
             }
@@ -253,7 +307,13 @@ fun NetworkIntelligenceScreen(
                     reload()
                 },
                 enabled = servers.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(15.dp),
+                border = BorderStroke(1.dp, colors.textPrimary.copy(alpha = 0.28f)),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = colors.textPrimary,
+                    disabledContentColor = colors.textTertiary
+                )
             ) {
                 Icon(Icons.Default.Add, null)
                 Spacer(Modifier.size(8.dp))
@@ -272,26 +332,30 @@ fun NetworkIntelligenceScreen(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(budget.name, fontWeight = FontWeight.SemiBold)
+                        Text(budget.name, color = colors.textPrimary, fontWeight = FontWeight.SemiBold)
                         SecondaryText(
                             "${formatBudgetBytes(used)} / ${formatBudgetBytes(budget.limitBytes)} · $percent%"
                         )
                     }
                     IconButton(onClick = { TrafficBudgetStore.deleteBudget(context, budget.id); reload() }) {
-                        Icon(Icons.Default.Delete, loc("Удалить", "Delete"))
+                        Icon(
+                            Icons.Default.Delete,
+                            loc("Удалить", "Delete"),
+                            tint = colors.statusError
+                        )
                     }
                 }
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .height(5.dp)
-                        .background(LocalNebulaColors.current.softFill, RoundedCornerShape(5.dp))
+                        .background(colors.softFill, RoundedCornerShape(5.dp))
                 ) {
                     Box(
                         Modifier
                             .fillMaxWidth(percent / 100f)
                             .height(5.dp)
-                            .background(LocalNebulaColors.current.accent, RoundedCornerShape(5.dp))
+                            .background(colors.accent, RoundedCornerShape(5.dp))
                     )
                 }
                 Spacer(Modifier.height(8.dp))
@@ -301,7 +365,19 @@ fun NetworkIntelligenceScreen(
                 onValueChange = { budgetGb = it.filter { ch -> ch.isDigit() || ch == '.' }.take(6) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(loc("Лимит в ГБ на месяц", "Monthly limit in GB")) },
-                singleLine = true
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = colors.controlFill,
+                    unfocusedContainerColor = colors.controlFill,
+                    focusedBorderColor = colors.accent.copy(alpha = 0.62f),
+                    unfocusedBorderColor = colors.textPrimary.copy(alpha = 0.22f),
+                    focusedTextColor = colors.textPrimary,
+                    unfocusedTextColor = colors.textPrimary,
+                    focusedLabelColor = colors.accent,
+                    unfocusedLabelColor = colors.textSecondary,
+                    cursorColor = colors.accent
+                )
             )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
@@ -319,7 +395,10 @@ fun NetworkIntelligenceScreen(
                     )
                     reload()
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(15.dp),
+                border = BorderStroke(1.dp, colors.textPrimary.copy(alpha = 0.28f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.textPrimary)
             ) {
                 Icon(Icons.Default.Add, null)
                 Spacer(Modifier.size(8.dp))
@@ -338,20 +417,30 @@ fun NetworkIntelligenceScreen(
                 )
             } else {
                 events.take(30).forEachIndexed { index, event ->
-                    if (index > 0) Divider(Modifier.padding(vertical = 10.dp))
+                    if (index > 0) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            color = colors.divider
+                        )
+                    }
                     Row {
-                        Text(event.title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Text(
+                            event.title,
+                            color = colors.textPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
+                        )
                         Text(
                             DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
                                 .format(Date(event.timestampMs)),
-                            color = LocalNebulaColors.current.textTertiary,
+                            color = colors.textTertiary,
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
                     event.detail?.let {
                         Text(
                             it,
-                            color = LocalNebulaColors.current.textSecondary,
+                            color = colors.textSecondary,
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -359,7 +448,10 @@ fun NetworkIntelligenceScreen(
                 }
                 OutlinedButton(
                     onClick = { NetworkEventJournal.clear(context); reload() },
-                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    shape = RoundedCornerShape(15.dp),
+                    border = BorderStroke(1.dp, colors.textPrimary.copy(alpha = 0.28f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.textPrimary)
                 ) {
                     Text(loc("Очистить историю", "Clear history"))
                 }
@@ -376,10 +468,10 @@ private fun NetworkFeatureCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val colors = LocalNebulaColors.current
-    WindowsFlatPanel(shape = RoundedCornerShape(20.dp)) {
+    WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
         Column(
-            Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 17.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, null, tint = colors.accent)
@@ -409,7 +501,11 @@ private fun PresetRow(preset: NetworkPreset, active: Boolean, onSelect: () -> Un
         Modifier.fillMaxWidth().clickable(onClick = onSelect).padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(preset.iconGlyph ?: "◆", modifier = Modifier.padding(end = 10.dp))
+        Text(
+            preset.iconGlyph ?: "◆",
+            color = colors.textPrimary,
+            modifier = Modifier.padding(end = 10.dp)
+        )
         Column(Modifier.weight(1f)) {
             Text(preset.name, color = colors.textPrimary, fontWeight = FontWeight.SemiBold)
             val rules = listOfNotNull(
