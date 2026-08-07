@@ -19,10 +19,12 @@ import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +38,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -122,15 +125,24 @@ fun UpdateDialog(
                         }
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
+                            val headline = if (updateInfo.kind == UpdateKind.REPAIR) {
+                                t("Дополнительное обновление", "Additional update")
+                            } else {
+                                t("Доступно обновление", "Update available")
+                            }
                             Text(
-                                if (updateInfo.kind == UpdateKind.REPAIR) {
-                                    t("Дополнительное обновление", "Additional update")
-                                } else {
-                                    t("Доступно обновление", "Update available")
-                                },
+                                headline,
                                 color = colors.textPrimary,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
+                                // Длинный вариант в titleLarge переносился посреди слова и
+                                // прижимал версию с датой — для него берём кегль поменьше.
+                                style = if (headline.length > 20) {
+                                    MaterialTheme.typography.titleMedium
+                                } else {
+                                    MaterialTheme.typography.titleLarge
+                                },
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 "Nimbo $displayVersion",
@@ -276,7 +288,14 @@ private fun DialogChip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        icon?.invoke()
+        // Иконку красим через LocalContentColor, а не в месте вызова: Surface
+        // диалога не входит в цветовую схему Material, поэтому contentColorFor
+        // не срабатывает и значок без tint рисуется чёрным.
+        if (icon != null) {
+            CompositionLocalProvider(LocalContentColor provides colors.accent) {
+                icon()
+            }
+        }
         Text(text, color = colors.accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
     }
 }

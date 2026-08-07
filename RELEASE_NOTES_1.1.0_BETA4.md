@@ -11,6 +11,7 @@
 | 🤖 **Android** | [![ARM64](https://img.shields.io/badge/ARM64--V8A-APK-00a844?style=for-the-badge&logo=android&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/Nimbo_v1.1.0-beta.4_arm64_v8a_release.apk) [![UNIVERSAL](https://img.shields.io/badge/UNIVERSAL-APK-4b5563?style=for-the-badge&logo=android&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/Nimbo_v1.1.0-beta.4_universal_release.apk) [![ARMV7](https://img.shields.io/badge/ARMEABI--V7A-APK-4b5563?style=for-the-badge&logo=android&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/Nimbo_v1.1.0-beta.4_armeabi_v7a_release.apk) |
 | 🪟 **Windows** | [![WINDOWS X64](https://img.shields.io/badge/УСТАНОВЩИК-X64-00a844?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/NimboSetup_1.1.0-beta.4_x64.exe) [![WINDOWS X86](https://img.shields.io/badge/УСТАНОВЩИК-X86-4b5563?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/NimboSetup_1.1.0-beta.4_x86.exe) [![WINDOWS ARM64](https://img.shields.io/badge/УСТАНОВЩИК-ARM64-4b5563?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/NimboSetup_1.1.0-beta.4_arm64.exe) |
 | 🐧 **Linux x64** | [![INSTALLER](https://img.shields.io/badge/УСТАНОВЩИК-X64-00a844?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/NimboSetup_1.1.0-beta.4_x64) [![APPIMAGE](https://img.shields.io/badge/APPIMAGE-X64-4b5563?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/Nimbo_1.1.0-beta.4_linux_x64.AppImage) [![DEB](https://img.shields.io/badge/DEB-X64-4b5563?style=for-the-badge&logo=debian&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/Nimbo_1.1.0-beta.4_linux_x64.deb) [![RPM](https://img.shields.io/badge/RPM-X64-4b5563?style=for-the-badge&logo=fedora&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/Nimbo_1.1.0-beta.4_linux_x64.rpm) |
+| 🐧 **Linux ARM64** | [![APPIMAGE](https://img.shields.io/badge/APPIMAGE-ARM64-00a844?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/Nimbo_1.1.0-beta.4_linux_arm64.AppImage) [![DEB](https://img.shields.io/badge/DEB-ARM64-4b5563?style=for-the-badge&logo=debian&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/Nimbo_1.1.0-beta.4_linux_arm64.deb) [![RPM](https://img.shields.io/badge/RPM-ARM64-4b5563?style=for-the-badge&logo=fedora&logoColor=white)](https://github.com/BBGGVP5/nimbo/releases/download/v1.1.0-beta.4/Nimbo_1.1.0-beta.4_linux_arm64.rpm) |
 
 <div align="center">
   🛡️ Для каждого установочного файла приложена отдельная контрольная сумма <code>.sha256</code>.
@@ -18,9 +19,6 @@
 
 > [!IMPORTANT]
 > Beta 4 доступна в канале «Бета». Это тестовая сборка: если важнее максимальная предсказуемость, оставайтесь на стабильном канале.
-
-> [!NOTE]
-> В этой сборке нет пакетов для Linux ARM64. Если вы пользуетесь Nimbo на ARM-машине с Linux, оставайтесь на Beta 3 до следующего выпуска.
 
 <!-- nimbo:android:start -->
 # 🤖 Что нового на Android
@@ -87,7 +85,7 @@ Nimbo больше не ограничен ссылками Xray.
 
 ## 📦 Сборки
 
-- Для Linux x86_64 снова собраны все форматы: AppImage (Arch, openSUSE и большинство дистрибутивов), DEB (Ubuntu, Debian, Mint, Pop!_OS), RPM (Fedora, RHEL, AlmaLinux, Rocky) и собственный установщик Nimbo.
+- Для Linux собраны все форматы под x86_64 и ARM64: AppImage (Arch, openSUSE и большинство дистрибутивов), DEB (Ubuntu, Debian, Mint, Pop!_OS) и RPM (Fedora, RHEL, AlmaLinux, Rocky); для x86_64 дополнительно есть собственный установщик Nimbo.
 - Для Windows собраны установщики под x64, x86 и ARM64.
 - Из настроек убрано дублирующее описание защиты обновлений.
 <!-- nimbo:desktop:end -->

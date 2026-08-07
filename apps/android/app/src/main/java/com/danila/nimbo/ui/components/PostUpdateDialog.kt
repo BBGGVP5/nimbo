@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,7 +38,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +69,7 @@ import java.time.Instant
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.tan
 
 @Composable
 fun PostUpdateDialog(
@@ -90,19 +94,19 @@ fun PostUpdateDialog(
             ?.let { UpdateUiText.releaseDate(Instant.ofEpochMilli(it).toString(), language) }
     }
     val hasChangelog = remember(changelog) { changelog.isNotBlank() }
+    // Капсулы медленно ползут через весь экран слева направо и целиком уходят
+    // за правый край. Скорости держим близкими: при большом разбросе поток
+    // читался как хаотичное мельтешение, а не спокойное движение.
     val ribbonSegments = remember {
         listOf(
-            UpdateRibbonSegment(0.16f, 0.08f, 0.34f, -14f, 10.5f, 0.02f, 0.17f),
-            UpdateRibbonSegment(0.72f, 0.14f, 0.28f, -18f, 8.0f, 0.31f, 0.13f),
-            UpdateRibbonSegment(0.32f, 0.24f, 0.52f, -13f, 12.5f, 0.54f, 0.19f),
-            UpdateRibbonSegment(0.82f, 0.31f, 0.25f, -11f, 8.5f, 0.76f, 0.12f),
-            UpdateRibbonSegment(0.11f, 0.41f, 0.22f, -17f, 7.5f, 0.23f, 0.11f),
-            UpdateRibbonSegment(0.57f, 0.47f, 0.46f, -14f, 11.5f, 0.65f, 0.18f),
-            UpdateRibbonSegment(0.90f, 0.57f, 0.17f, -19f, 7.0f, 0.09f, 0.10f),
-            UpdateRibbonSegment(0.27f, 0.64f, 0.39f, -12f, 10.5f, 0.42f, 0.15f),
-            UpdateRibbonSegment(0.70f, 0.73f, 0.49f, -16f, 12.0f, 0.82f, 0.17f),
-            UpdateRibbonSegment(0.14f, 0.82f, 0.27f, -10f, 8.0f, 0.59f, 0.12f),
-            UpdateRibbonSegment(0.53f, 0.90f, 0.35f, -15f, 9.5f, 0.15f, 0.14f)
+            UpdateRibbonSegment(0.07f, 0.34f, -14f, 10.5f, 0.00f, 1.00f, 0.17f),
+            UpdateRibbonSegment(0.18f, 0.28f, -12f, 8.0f, 0.30f, 1.08f, 0.13f),
+            UpdateRibbonSegment(0.29f, 0.52f, -13f, 12.5f, 0.62f, 0.92f, 0.19f),
+            UpdateRibbonSegment(0.40f, 0.25f, -11f, 8.5f, 0.16f, 1.04f, 0.12f),
+            UpdateRibbonSegment(0.52f, 0.46f, -14f, 11.5f, 0.78f, 0.96f, 0.18f),
+            UpdateRibbonSegment(0.64f, 0.39f, -12f, 10.5f, 0.44f, 1.02f, 0.15f),
+            UpdateRibbonSegment(0.76f, 0.49f, -15f, 12.0f, 0.08f, 0.90f, 0.17f),
+            UpdateRibbonSegment(0.88f, 0.30f, -12f, 8.5f, 0.54f, 1.06f, 0.13f)
         )
     }
 
@@ -141,17 +145,24 @@ fun PostUpdateDialog(
         }
     }
 
-    val infinite = rememberInfiniteTransition(label = "post_update_lines")
-    val movingPhase by infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(18_000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "post_update_line_phase"
-    )
-    val linePhase = if (animationsEnabled) movingPhase else 0.32f
+    // Монотонное время вместо infiniteRepeatable: у капсул разные скорости, и на
+    // перезапуске 1 -> 0 они прыгали бы посреди экрана. Значение читается в фазе
+    // отрисовки, поэтому кадры не вызывают рекомпозицию.
+    val linePhaseState = remember { mutableFloatStateOf(0.32f) }
+    LaunchedEffect(animationsEnabled) {
+        if (!animationsEnabled) {
+            linePhaseState.floatValue = 0.32f
+            return@LaunchedEffect
+        }
+        var startNanos = 0L
+        while (true) {
+            withInfiniteAnimationFrameNanos { now ->
+                if (startNanos == 0L) startNanos = now
+                // 38 секунд на один проезд: должно именно ползти, а не пролетать.
+                linePhaseState.floatValue = (now - startNanos) / 1_000_000_000f / 38f
+            }
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -177,25 +188,25 @@ fun PostUpdateDialog(
                     )
                 )
 
-                // Independent rounded capsules are distributed over the entire
-                // background. Their positions barely float; the visible movement
-                // is a slow highlight travelling from left to right along each
-                // segment. The sine/cosine motion closes cleanly at the cycle edge.
-                val cycle = linePhase * (PI * 2.0)
+                // Каждая капсула едет по своей строке от левого края к правому и
+                // возвращается, полностью уйдя за границу, — стык проезда не виден.
+                val linePhase = linePhaseState.floatValue
                 ribbonSegments.forEachIndexed { index, segment ->
-                    val localCycle = cycle + segment.phaseOffset * PI * 2.0
-                    val driftX = sin(localCycle).toFloat() * 12.dp.toPx()
-                    val driftY = cos(localCycle).toFloat() * 5.dp.toPx()
                     val angle = segment.angleDegrees / 180f * PI
+                    val slope = tan(angle).toFloat()
                     val length = size.width * segment.lengthFraction
-                    val halfX = cos(angle).toFloat() * length / 2f
-                    val halfY = sin(angle).toFloat() * length / 2f
-                    val center = androidx.compose.ui.geometry.Offset(
-                        size.width * segment.centerX + driftX,
-                        size.height * segment.centerY + driftY
+                    val travel = wrapUnit(linePhase * segment.speed + segment.phaseOffset)
+                    // Стартуем целиком слева за экраном и уезжаем целиком вправо.
+                    val startX = -length + travel * (size.width + length * 2f)
+                    // Ключевое: Y смещается по тому же наклону, что и сама капсула,
+                    // поэтому она ползёт вдоль собственной оси — наискосок. Раньше
+                    // наклонная капсула ехала строго вбок и выглядела летящей.
+                    val startY = size.height * segment.rowY + (startX - size.width * 0.5f) * slope
+                    val start = androidx.compose.ui.geometry.Offset(startX, startY)
+                    val end = androidx.compose.ui.geometry.Offset(
+                        startX + cos(angle).toFloat() * length,
+                        startY + sin(angle).toFloat() * length
                     )
-                    val start = androidx.compose.ui.geometry.Offset(center.x - halfX, center.y - halfY)
-                    val end = androidx.compose.ui.geometry.Offset(center.x + halfX, center.y + halfY)
                     val stroke = segment.strokeDp.dp.toPx()
                     val segmentColor = when (index % 4) {
                         0 -> colors.accent
@@ -227,7 +238,9 @@ fun PostUpdateDialog(
                         cap = StrokeCap.Round
                     )
 
-                    val highlightProgress = (linePhase + segment.phaseOffset) % 1f
+                    // Блик идёт по капсуле лишь немного быстрее её самой:
+                    // на тройной скорости он мельтешил и сбивал спокойный ход.
+                    val highlightProgress = wrapUnit(linePhase * segment.speed * 1.35f + segment.phaseOffset)
                     val highlightFade = sin(PI * highlightProgress).toFloat().coerceIn(0f, 1f)
                     val highlightHalf = 0.11f
                     val highlightStart = (highlightProgress - highlightHalf).coerceIn(0f, 1f)
@@ -317,7 +330,7 @@ fun PostUpdateDialog(
 
             if (colors.isMaterialYou) {
                 MaterialUpdateEmojiBackground(
-                    phase = linePhase,
+                    phase = linePhaseState,
                     animated = animationsEnabled
                 )
             }
@@ -452,18 +465,32 @@ fun PostUpdateDialog(
 }
 
 private data class UpdateRibbonSegment(
-    val centerX: Float,
-    val centerY: Float,
+    /** Вертикальная строка, по которой едет капсула, доля высоты экрана. */
+    val rowY: Float,
     val lengthFraction: Float,
     val angleDegrees: Float,
     val strokeDp: Float,
+    /** Стартовый сдвиг по времени: разносит капсулы, чтобы шли друг за другом. */
     val phaseOffset: Float,
+    /** Своя скорость у каждой капсулы — поток не выглядит марширующим строем. */
+    val speed: Float,
     val alpha: Float
 )
 
+/** Нормализует время в 0..1 для бесконечного проезда. */
+private fun wrapUnit(value: Float): Float {
+    val v = value % 1f
+    return if (v < 0f) v + 1f else v
+}
+
+/**
+ * Тот же поток, что и у капсул, только эмодзи: каждый едет по своей строке
+ * слева направо, друг за другом. Фаза читается внутри `graphicsLayer`, то есть
+ * в фазе отрисовки — кадры не вызывают рекомпозицию всего диалога.
+ */
 @Composable
 private fun MaterialUpdateEmojiBackground(
-    phase: Float,
+    phase: State<Float>,
     animated: Boolean
 ) {
     // remember is intentionally scoped to this dialog: reopening the update
@@ -472,47 +499,48 @@ private fun MaterialUpdateEmojiBackground(
         listOf(
             "✨", "🛡️", "🌐", "⚡", "✅", "📱",
             "💻", "🔄", "🎉", "☁️", "🔒", "🚀"
-        ).shuffled().take(5)
-    }
-    val positions = remember {
-        listOf(
-            0.08f to 0.16f,
-            0.76f to 0.25f,
-            0.12f to 0.54f,
-            0.79f to 0.72f,
-            0.38f to 0.89f
-        )
+        ).shuffled().take(MATERIAL_EMOJI_LANES.size)
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
+        val laneWidth = maxWidth
+        val laneHeight = maxHeight
         emojis.forEachIndexed { index, emoji ->
-            val position = positions[index]
-            val floatOffset = if (animated) {
-                sin(phase * PI * 2.0 + index * 0.84).toFloat() * 13f
-            } else {
-                0f
-            }
-            val horizontalOffset = if (animated) {
-                cos(phase * PI * 2.0 + index * 1.07).toFloat() * 10f
-            } else {
-                0f
-            }
+            val lane = MATERIAL_EMOJI_LANES[index]
             Text(
                 text = emoji,
                 modifier = Modifier
-                    .offset(
-                        x = maxWidth * position.first,
-                        y = maxHeight * position.second
-                    )
                     .graphicsLayer {
-                        alpha = 0.10f + (index % 3) * 0.018f
-                        translationX = horizontalOffset.dp.toPx()
-                        translationY = floatOffset.dp.toPx()
-                        rotationZ = -10f + (index % 5) * 5f +
-                            if (animated) sin(phase * PI * 2.0 + index).toFloat() * 3f else 0f
+                        val travel = wrapUnit(phase.value * lane.speed + lane.phaseOffset)
+                        val widthPx = laneWidth.toPx()
+                        val own = size.width.coerceAtLeast(1f)
+                        val x = -own + travel * (widthPx + own * 2f)
+                        translationX = x
+                        // Тот же наклон, что и у капсул: эмодзи ползёт наискосок,
+                        // а не съезжает строго вбок.
+                        val slope = tan(lane.angleDegrees / 180f * PI).toFloat()
+                        translationY = laneHeight.toPx() * lane.rowY + (x - widthPx * 0.5f) * slope
+                        alpha = 0.13f + (index % 3) * 0.02f
+                        rotationZ = lane.angleDegrees * 0.5f
                     },
-                fontSize = (21 + (index % 3) * 4).sp
+                fontSize = (24 + (index % 3) * 6).sp
             )
         }
     }
 }
+
+private data class MaterialEmojiLane(
+    val rowY: Float,
+    val phaseOffset: Float,
+    val speed: Float,
+    val angleDegrees: Float
+)
+
+private val MATERIAL_EMOJI_LANES = listOf(
+    MaterialEmojiLane(0.10f, 0.00f, 0.94f, -14f),
+    MaterialEmojiLane(0.26f, 0.34f, 1.04f, -12f),
+    MaterialEmojiLane(0.42f, 0.68f, 0.90f, -15f),
+    MaterialEmojiLane(0.58f, 0.18f, 1.06f, -13f),
+    MaterialEmojiLane(0.74f, 0.52f, 0.96f, -14f),
+    MaterialEmojiLane(0.90f, 0.80f, 1.00f, -12f)
+)
