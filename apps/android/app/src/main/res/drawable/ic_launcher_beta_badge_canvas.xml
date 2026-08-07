@@ -1,25 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Full 108dp adaptive-icon canvas. Every badge coordinate is already expressed
-  in this viewport: no scaled group and no LayerDrawable gravity. Some Android
-  launchers apply a group's translation before its scale, which used to pull
-  the badge back over the cloud. This geometry stays in the upper-right safe
-  zone for circle, rounded-square and squircle masks.
+  Full 108dp adaptive-icon canvas. The badge is scaled around its own centre,
+  with no translation and no LayerDrawable gravity, so it remains anchored in
+  the upper-right safe zone for circle, rounded-square and squircle masks.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FF7A32"
-        android:pathData="M61.25,16.5 H86.75 C89.1,16.5 91,18.4 91,20.75 V30.95 C91,33.3 89.1,35.21 86.75,35.21 H61.25 C58.9,35.21 57,33.3 57,30.95 V20.75 C57,18.4 58.9,16.5 61.25,16.5 Z" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#CCFFFFFF"
-        android:strokeWidth="0.55"
-        android:pathData="M61.25,16.85 H86.75 C88.91,16.85 90.67,18.59 90.67,20.75 V30.95 C90.67,33.12 88.91,34.86 86.75,34.86 H61.25 C59.09,34.86 57.35,33.12 57.35,30.95 V20.75 C57.35,18.59 59.09,16.85 61.25,16.85 Z" />
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M61.25,21.61h3.4v1.71h-3.4z M61.25,23.3h1.71v1.71h-1.71z M64.65,23.3h1.71v1.71h-1.71z M61.25,25.01h3.4v1.71h-3.4z M61.25,26.7h1.71v1.71h-1.71z M64.65,26.7h1.71v1.71h-1.71z M61.25,28.41h3.4v1.71h-3.4z M68.05,21.61h5.11v1.71h-5.11z M68.05,23.3h1.71v1.71h-1.71z M68.05,25.01h5.11v1.71h-5.11z M68.05,26.7h1.71v1.71h-1.71z M68.05,28.41h5.11v1.71h-5.11z M74.85,21.61h5.11v1.71h-5.11z M76.55,23.3h1.71v6.8h-1.71z M83.35,21.61h1.71v1.71h-1.71z M81.65,23.3h1.71v1.71h-1.71z M85.05,23.3h1.71v1.71h-1.71z M81.65,25.01h5.11v1.71h-5.11z M81.65,26.7h1.71v3.4h-1.71z M85.05,26.7h1.71v3.4h-1.71z" />
+    <group
+        android:scaleX="1.20"
+        android:scaleY="1.20"
+        android:pivotX="74"
+        android:pivotY="25.855">
+        <path
+            android:fillColor="#FF7A32"
+            android:pathData="M61.25,16.5 H86.75 C89.1,16.5 91,18.4 91,20.75 V30.95 C91,33.3 89.1,35.21 86.75,35.21 H61.25 C58.9,35.21 57,33.3 57,30.95 V20.75 C57,18.4 58.9,16.5 61.25,16.5 Z" />
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="#CCFFFFFF"
+            android:strokeWidth="0.55"
+            android:pathData="M61.25,16.85 H86.75 C88.91,16.85 90.67,18.59 90.67,20.75 V30.95 C90.67,33.12 88.91,34.86 86.75,34.86 H61.25 C59.09,34.86 57.35,33.12 57.35,30.95 V20.75 C57.35,18.59 59.09,16.85 61.25,16.85 Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M61.25,21.61h3.4v1.71h-3.4z M61.25,23.3h1.71v1.71h-1.71z M64.65,23.3h1.71v1.71h-1.71z M61.25,25.01h3.4v1.71h-3.4z M61.25,26.7h1.71v1.71h-1.71z M64.65,26.7h1.71v1.71h-1.71z M61.25,28.41h3.4v1.71h-3.4z M68.05,21.61h5.11v1.71h-5.11z M68.05,23.3h1.71v1.71h-1.71z M68.05,25.01h5.11v1.71h-5.11z M68.05,26.7h1.71v1.71h-1.71z M68.05,28.41h5.11v1.71h-5.11z M74.85,21.61h5.11v1.71h-5.11z M76.55,23.3h1.71v6.8h-1.71z M83.35,21.61h1.71v1.71h-1.71z M81.65,23.3h1.71v1.71h-1.71z M85.05,23.3h1.71v1.71h-1.71z M81.65,25.01h5.11v1.71h-5.11z M81.65,26.7h1.71v3.4h-1.71z M85.05,26.7h1.71v3.4h-1.71z" />
+    </group>
 </vector>

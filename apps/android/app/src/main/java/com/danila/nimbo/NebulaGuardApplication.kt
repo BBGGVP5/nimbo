@@ -52,6 +52,8 @@ class NebulaGuardApplication : Application() {
         NotificationManager.createNotificationChannels(this)
         UpdateWorkScheduler.schedulePeriodic(this)
         SubscriptionUpdateScheduler.schedule(this)
+        com.danila.nimbo.sync.CrossSyncScheduler.schedule(this)
+        com.danila.nimbo.utils.CustomAppIconManager.ensureCustomIconFile(this)
         Log.d(TAG, "Ensured periodic background update check")
     }
 }

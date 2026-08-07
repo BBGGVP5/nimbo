@@ -14,6 +14,7 @@ import com.danila.nimbo.model.HomeWidget
 import com.danila.nimbo.model.WidgetRegistry
 import com.danila.nimbo.model.WidgetType
 import com.danila.nimbo.ui.theme.DEFAULT_COLOR_THEME_INDEX
+import com.danila.nimbo.ui.theme.legacyBackgroundPaletteForStyle
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.io.File
@@ -75,6 +76,10 @@ class PreferencesManager(context: Context) {
         private const val KEY_CROSS_SYNC_AUTOMATION = "cross_sync_automation"
         private const val KEY_CROSS_SYNC_LAST_AT = "cross_sync_last_at"
         private const val KEY_CROSS_SYNC_LAST_DEVICE = "cross_sync_last_device"
+        private const val KEY_CROSS_SYNC_DEVICE_ID = "cross_sync_device_id"
+        private const val KEY_CROSS_SYNC_PAIRED = "cross_sync_paired_device"
+private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
+        private const val KEY_CROSS_SYNC_AUTO = "cross_sync_auto_sync"
         private const val KEY_LAST_SELECTED_SERVER = "last_selected_server"
         private const val KEY_LAST_SELECTED_PROFILE_URL = "last_selected_profile_url"
         private const val KEY_HOME_WIDGETS = "home_widgets"
@@ -152,6 +157,11 @@ class PreferencesManager(context: Context) {
         private const val KEY_CUSTOM_NOTIFICATION_ICON_ENABLED = "custom_notification_icon_enabled"
         private const val KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED = "bottom_bar_auto_hide_enabled"
         private const val KEY_BACKGROUND_STYLE = "background_style"
+        private const val KEY_BACKGROUND_PALETTE = "background_palette"
+        // BackgroundStyleMode: 0..15 исторические, 16 = дождь, 17 = орбиты.
+        private const val MAX_BACKGROUND_STYLE = 17
+        // BackgroundPaletteMode: 0 = «как тема», далее 11 готовых палитр.
+        private const val MAX_BACKGROUND_PALETTE = 11
         private const val KEY_ELEMENT_STYLE = "element_style"
         private const val KEY_BACKGROUND_ANIMATION_ENABLED = "background_animation_enabled"
         private const val KEY_STATUS_PARTICLES_ENABLED = "status_particles_enabled"
@@ -252,6 +262,7 @@ class PreferencesManager(context: Context) {
     val customNotificationIconEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_CUSTOM_NOTIFICATION_ICON_ENABLED, false))
     val bottomBarAutoHideEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED, true))
     val backgroundStyleState = mutableStateOf(sharedPreferences.getInt(KEY_BACKGROUND_STYLE, 0))
+    val backgroundPaletteState = mutableStateOf(readBackgroundPalette())
     val elementStyleState = mutableStateOf(sharedPreferences.getInt(KEY_ELEMENT_STYLE, 0))
     val backgroundAnimationEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true))
     val statusParticlesEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true))
@@ -525,7 +536,12 @@ class PreferencesManager(context: Context) {
             KEY_CUSTOM_ICON_USE_IMPORTED -> customIconUseImportedState.value = prefs.getBoolean(KEY_CUSTOM_ICON_USE_IMPORTED, false)
             KEY_CUSTOM_NOTIFICATION_ICON_ENABLED -> customNotificationIconEnabledState.value = prefs.getBoolean(KEY_CUSTOM_NOTIFICATION_ICON_ENABLED, false)
             KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED -> bottomBarAutoHideEnabledState.value = prefs.getBoolean(KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED, true)
-            KEY_BACKGROUND_STYLE -> backgroundStyleState.value = prefs.getInt(KEY_BACKGROUND_STYLE, prefs.getInt(KEY_VISUAL_STYLE, 0))
+            KEY_BACKGROUND_STYLE -> {
+                backgroundStyleState.value = prefs.getInt(KEY_BACKGROUND_STYLE, prefs.getInt(KEY_VISUAL_STYLE, 0))
+                // Палитра ещё не выбрана явно — её значение по умолчанию зависит от стиля.
+                if (!prefs.contains(KEY_BACKGROUND_PALETTE)) backgroundPaletteState.value = readBackgroundPalette()
+            }
+            KEY_BACKGROUND_PALETTE -> backgroundPaletteState.value = readBackgroundPalette()
             KEY_ELEMENT_STYLE -> elementStyleState.value = prefs.getInt(KEY_ELEMENT_STYLE, prefs.getInt(KEY_VISUAL_STYLE, 0))
             KEY_HAPTIC_FEEDBACK_ENABLED -> hapticFeedbackEnabledState.value =
                 prefs.getBoolean(KEY_HAPTIC_FEEDBACK_ENABLED, true)
@@ -596,6 +612,7 @@ class PreferencesManager(context: Context) {
         bottomBarAutoHideEnabledState.value = sharedPreferences.getBoolean(KEY_BOTTOM_BAR_AUTO_HIDE_ENABLED, true)
         val legacyStyle = sharedPreferences.getInt(KEY_VISUAL_STYLE, 0)
         backgroundStyleState.value = sharedPreferences.getInt(KEY_BACKGROUND_STYLE, legacyStyle)
+        backgroundPaletteState.value = readBackgroundPalette()
         elementStyleState.value = sharedPreferences.getInt(KEY_ELEMENT_STYLE, legacyStyle)
         backgroundAnimationEnabledState.value = sharedPreferences.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true)
         statusParticlesEnabledState.value = sharedPreferences.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true)
@@ -756,14 +773,37 @@ class PreferencesManager(context: Context) {
             bottomBarAutoHideEnabledState.value = value
         }
 
-    // 0 = Liquid Glass, 1 = Material You Expressive, 2 = Nothing Dots
+    // Форма фоновой анимации (что рисуется). Цвет живёт отдельно в backgroundPalette.
     var backgroundStyle: Int
         get() = sharedPreferences.getInt(KEY_BACKGROUND_STYLE, sharedPreferences.getInt(KEY_VISUAL_STYLE, 0))
         set(value) {
-            val safe = value.coerceIn(0, 14)
+            // 15 = отключённый фон. Его тоже нужно сохранять, иначе пункт
+            // «Нет» в настройках визуально выбирается, но сразу подменяется
+            // последним цветным стилем.
+            val safe = value.coerceIn(0, MAX_BACKGROUND_STYLE)
             sharedPreferences.edit().putInt(KEY_BACKGROUND_STYLE, safe).apply()
             backgroundStyleState.value = safe
         }
+
+    // Цвет фона — независим от выбранной анимации.
+    var backgroundPalette: Int
+        get() = readBackgroundPalette()
+        set(value) {
+            val safe = value.coerceIn(0, MAX_BACKGROUND_PALETTE)
+            sharedPreferences.edit().putInt(KEY_BACKGROUND_PALETTE, safe).apply()
+            backgroundPaletteState.value = safe
+        }
+
+    /**
+     * До разделения цвета и анимации палитра была «зашита» в стиль фона.
+     * Пока пользователь не выбрал цвет явно, отдаём тот, который у него был.
+     */
+    private fun readBackgroundPalette(): Int {
+        val style = sharedPreferences.getInt(KEY_BACKGROUND_STYLE, sharedPreferences.getInt(KEY_VISUAL_STYLE, 0))
+        return sharedPreferences
+            .getInt(KEY_BACKGROUND_PALETTE, legacyBackgroundPaletteForStyle(style))
+            .coerceIn(0, MAX_BACKGROUND_PALETTE)
+    }
 
     // 0 = Morphism, 1 = Material 3, 2 = Nothing Dots
     var elementStyle: Int
@@ -2137,6 +2177,7 @@ class PreferencesManager(context: Context) {
             colorThemeState.value = sharedPreferences.getInt(KEY_COLOR_THEME, DEFAULT_COLOR_THEME_INDEX)
             val legacyStyle = sharedPreferences.getInt(KEY_VISUAL_STYLE, 0)
             backgroundStyleState.value = sharedPreferences.getInt(KEY_BACKGROUND_STYLE, legacyStyle)
+            backgroundPaletteState.value = readBackgroundPalette()
             elementStyleState.value = sharedPreferences.getInt(KEY_ELEMENT_STYLE, legacyStyle)
             backgroundAnimationEnabledState.value = sharedPreferences.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true)
             statusParticlesEnabledState.value = sharedPreferences.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true)
@@ -2337,4 +2378,68 @@ class PreferencesManager(context: Context) {
     var crossSyncLastDevice: String
         get() = sharedPreferences.getString(KEY_CROSS_SYNC_LAST_DEVICE, "").orEmpty()
         set(value) = sharedPreferences.edit().putString(KEY_CROSS_SYNC_LAST_DEVICE, value.take(120)).apply()
+
+    fun getOrCreateCrossSyncDeviceId(): String {
+        sharedPreferences.getString(KEY_CROSS_SYNC_DEVICE_ID, null)?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        val id = UUID.randomUUID().toString()
+        sharedPreferences.edit().putString(KEY_CROSS_SYNC_DEVICE_ID, id).apply()
+        return id
+    }
+
+    var crossSyncPairedDevice: com.danila.nimbo.sync.PairedDesktopDevice?
+        get() = crossSyncPairedDevices.firstOrNull()
+        set(value) {
+            if (value == null) return
+            crossSyncPairedDevices = upsertCrossSyncDevice(value)
+        }
+
+    var crossSyncPairedDevices: List<com.danila.nimbo.sync.PairedDesktopDevice>
+        get() {
+            val listKey = sharedPreferences.getString(KEY_CROSS_SYNC_PAIRED_DEVICES, null)
+            if (!listKey.isNullOrBlank()) {
+                return runCatching {
+                    gson.fromJson<List<com.danila.nimbo.sync.PairedDesktopDevice>>(
+                        listKey,
+                        object : com.google.gson.reflect.TypeToken<List<com.danila.nimbo.sync.PairedDesktopDevice>>() {}.type
+                    )
+                }.getOrNull().orEmpty()
+            }
+            val legacy = sharedPreferences.getString(KEY_CROSS_SYNC_PAIRED, null)
+            if (!legacy.isNullOrBlank()) {
+                val old = runCatching {
+                    gson.fromJson(legacy, com.danila.nimbo.sync.PairedDesktopDevice::class.java)
+                }.getOrNull()
+                if (old != null) {
+                    val migrated = listOf(old)
+                    sharedPreferences.edit()
+                        .putString(KEY_CROSS_SYNC_PAIRED_DEVICES, gson.toJson(migrated))
+                        .putString(KEY_CROSS_SYNC_PAIRED, null)
+                        .apply()
+                    return migrated
+                }
+            }
+            return emptyList()
+        }
+        set(value) {
+            sharedPreferences.edit()
+                .putString(KEY_CROSS_SYNC_PAIRED_DEVICES, gson.toJson(value))
+                .putString(KEY_CROSS_SYNC_PAIRED, null)
+                .apply()
+        }
+
+    private fun upsertCrossSyncDevice(
+        device: com.danila.nimbo.sync.PairedDesktopDevice
+    ): List<com.danila.nimbo.sync.PairedDesktopDevice> {
+        val current = crossSyncPairedDevices
+        return if (current.any { it.deviceId == device.deviceId }) {
+            current.map { if (it.deviceId == device.deviceId) device else it }
+        } else {
+            current + device
+        }
+    }
+
+    var crossSyncAutoSync: Boolean
+        get() = sharedPreferences.getBoolean(KEY_CROSS_SYNC_AUTO, true)
+        set(value) = sharedPreferences.edit().putBoolean(KEY_CROSS_SYNC_AUTO, value).apply()
 }

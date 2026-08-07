@@ -15,10 +15,12 @@ internal object LiquidGlassMaterialPolicy {
     ): Float {
         if (reducedTransparency) return if (isDark) 0.90f else 0.94f
 
+        // Тёмная тема: стекло держим заметно плотнее. На прозрачных значениях
+        // фон бил сквозь панели, и карточки выглядели как выцветшие пятна.
         val defaultAlpha = when (depth) {
-            LiquidGlassDepth.CONTROL -> if (isDark) 0.12f else 0.32f
-            LiquidGlassDepth.PANEL -> if (isDark) 0.18f else 0.40f
-            LiquidGlassDepth.FLOATING -> if (isDark) 0.24f else 0.46f
+            LiquidGlassDepth.CONTROL -> if (isDark) 0.26f else 0.32f
+            LiquidGlassDepth.PANEL -> if (isDark) 0.34f else 0.40f
+            LiquidGlassDepth.FLOATING -> if (isDark) 0.42f else 0.46f
         }
         return (defaultAlpha * effectStrength(isDark, reducedTransparency, panelAlpha))
             .coerceIn(0.002f, 0.94f)

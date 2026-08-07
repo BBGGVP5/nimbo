@@ -53,7 +53,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -78,6 +77,7 @@ import com.danila.nimbo.utils.AppIconManager
 import com.danila.nimbo.utils.CustomAppIconConfig
 import com.danila.nimbo.utils.CustomAppIconManager
 import com.danila.nimbo.utils.CustomAppIconPreset
+import com.danila.nimbo.utils.CustomLauncherIconResult
 import com.danila.nimbo.utils.CustomCloudStyle
 import com.danila.nimbo.utils.CustomIconShape
 import com.danila.nimbo.utils.PreferencesManager
@@ -106,6 +106,8 @@ fun AppIconSettingsScreen(
     var showIconConfirmDialog by remember { mutableStateOf<Int?>(null) }
     var showBackgroundColorPicker by remember { mutableStateOf(false) }
     var iconSyncMessage by remember { mutableStateOf<String?>(null) }
+    var customIconActive by remember { mutableStateOf(AppIconManager.isCustomIconActive(context)) }
+    var lastAppliedConfig by remember { mutableStateOf<CustomAppIconConfig?>(null) }
 
     LaunchedEffect(selectedAppIcon) {
         preferencesManager.selectedAppIcon = selectedAppIcon
@@ -144,12 +146,30 @@ fun AppIconSettingsScreen(
             importedImageBase64 = customIconBase64
         )
     }
-    val customPreview = remember(customConfig) {
+    val customArtwork = remember(customConfig) {
         CustomAppIconManager.renderIcon(context, customConfig)
     }
-    val shapePreviews = remember {
+    val customPreview = remember(customConfig) {
+        CustomAppIconManager.renderSystemMaskedPreview(context, customArtwork)
+    }
+    // Notifications use the artwork itself; launcher previews deliberately go
+    // through Android's adaptive-icon renderer above.
+    val notificationPreview = customArtwork
+    val shapePreviews = remember(
+        customConfig,
+        customIconShape,
+        customIconBackgroundColor,
+        customIconCloudColor,
+        customIconCloudStyle,
+        customIconUseImported,
+        customIconBase64
+    ) {
         CustomIconShape.entries.map { shape ->
-            CustomAppIconManager.renderShapePreview(shape = shape, size = 128)
+            CustomAppIconManager.renderSystemMaskedPreview(
+                context = context,
+                config = customConfig.copy(shape = shape),
+                size = 128
+            )
         }
     }
     val cloudPreviews = remember(
@@ -158,7 +178,7 @@ fun AppIconSettingsScreen(
         customIconCloudColor
     ) {
         CustomCloudStyle.entries.map { cloudStyle ->
-            CustomAppIconManager.renderIcon(
+            CustomAppIconManager.renderSystemMaskedPreview(
                 context,
                 customConfig.copy(
                     cloudStyle = cloudStyle,
@@ -212,7 +232,8 @@ fun AppIconSettingsScreen(
                 title = "Иконка приложения",
                 icon = Icons.Default.Apps,
                 iconColor = nebulaColors.accent,
-                onBack = onNavigateBack
+                onBack = onNavigateBack,
+                bordered = false
             )
 
             Column(
@@ -223,7 +244,9 @@ fun AppIconSettingsScreen(
                 GlassSection(title = "Выбор иконки", icon = Icons.Default.Apps) {
                     LauncherIconGallery(
                         selectedIndex = selectedAppIcon,
+                        customActive = customIconActive,
                         onSelect = { index ->
+                            if (customIconActive) customIconActive = false
                             if (selectedAppIcon != index) showIconConfirmDialog = index
                         },
                         accent = nebulaColors.accent,
@@ -252,7 +275,7 @@ fun AppIconSettingsScreen(
                         )
 
                         Text(
-                            "Соберите отдельный стиль для уведомлений и ярлыка на рабочем столе.",
+                            "Соберите отдельный стиль для уведомлений и ярлыка Nimbo на рабочем столе.",
                             color = nebulaColors.textSecondary,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -305,6 +328,12 @@ fun AppIconSettingsScreen(
                             onSelected = { customIconShape = it },
                             accent = nebulaColors.accent,
                             textColor = nebulaColors.textPrimary
+                        )
+
+                        Text(
+                            "Внешнюю форму задаёт лаунчер телефона. Предпросмотр использует системную adaptive-маску; выбранный ниже силуэт остаётся внутри неё.",
+                            color = nebulaColors.textTertiary,
+                            style = MaterialTheme.typography.bodySmall
                         )
 
                         IconPreviewOptionRow(
@@ -361,22 +390,53 @@ fun AppIconSettingsScreen(
                             )
                         }
 
+                        NotificationIconPreview(
+                            bitmap = notificationPreview,
+                            usesCustomIcon = customNotificationIconEnabled,
+                            primaryText = nebulaColors.textPrimary,
+                            secondaryText = nebulaColors.textSecondary,
+                            surface = nebulaColors.surface,
+                            accent = nebulaColors.accent
+                        )
+
+                        val needsReapply = customConfig != lastAppliedConfig
                         OutlinedButton(
                             modifier = Modifier.fillMaxWidth(),
+                            enabled = !customIconActive || needsReapply,
                             onClick = {
-                                val requested = CustomAppIconManager.requestPinnedShortcut(context, customPreview)
-                                iconSyncMessage = if (requested) {
-                                    "Подтвердите добавление ярлыка на рабочий стол."
-                                } else {
-                                    "Лаунчер не поддерживает установку своего ярлыка."
+                                scope.launch {
+                                    val rendered = withContext(Dispatchers.IO) {
+                                        CustomAppIconManager.renderIcon(context, customConfig, 432)
+                                    }
+                                    val result = withContext(Dispatchers.Default) {
+                                        CustomAppIconManager.applyCustomLauncherIcon(context, rendered)
+                                    }
+                                    if (result != CustomLauncherIconResult.UNSUPPORTED) {
+                                        lastAppliedConfig = customConfig
+                                    }
+                                    customIconActive = result != CustomLauncherIconResult.UNSUPPORTED
+                                    iconSyncMessage = when (result) {
+                                        CustomLauncherIconResult.UPDATED ->
+                                            "Иконка на рабочем столе обновлена. Используется тот же ярлык Nimbo."
+                                        CustomLauncherIconResult.REQUESTED ->
+                                            "Подтвердите добавление ярлыка Nimbo в системном окне."
+                                        CustomLauncherIconResult.UNSUPPORTED ->
+                                            "Лаунчер не разрешил пользовательский ярлык. Предустановленные иконки доступны выше."
+                                    }
                                 }
                             }
                         ) {
-                            Text("Добавить свой ярлык")
+                            Text(
+                                when {
+                                    !customIconActive -> "Применить как иконку"
+                                    needsReapply -> "Обновить ярлык"
+                                    else -> "Своя иконка установлена"
+                                }
+                            )
                         }
 
                         Text(
-                            "Android разрешает мгновенно менять основную иконку только между готовыми вариантами выше. Свой рисунок добавляется как отдельный безопасный ярлык после системного подтверждения.",
+                            "Android применяет собранный вариант к отдельному ярлыку Nimbo через системную adaptive-иконку. Предустановленные варианты выше меняют основную иконку приложения.",
                             color = nebulaColors.textTertiary,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -405,6 +465,9 @@ fun AppIconSettingsScreen(
             onConfirm = {
                 showIconConfirmDialog = null
                 selectedAppIcon = index
+                // A pinned custom shortcut is a separate Android object. Keep
+                // it available for users who want both variants, while the
+                // main launcher alias switches cleanly to the preset.
                 AppIconManager.setAppIcon(context, index)
             }
         )
@@ -429,6 +492,7 @@ fun AppIconSettingsScreen(
 @Composable
 private fun LauncherIconGallery(
     selectedIndex: Int,
+    customActive: Boolean,
     onSelect: (Int) -> Unit,
     accent: Color,
     primaryText: Color,
@@ -475,7 +539,11 @@ private fun LauncherIconGallery(
                     style = MaterialTheme.typography.bodySmall
                 )
                 Text(
-                    text = "Выбрана для рабочего стола",
+                    text = if (customActive) {
+                        "Сейчас установлена ваша иконка из конструктора"
+                    } else {
+                        "Выбрана для рабочего стола"
+                    },
                     color = accent,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold
@@ -696,7 +764,7 @@ private fun AndroidShapePicker(
     textColor: Color
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Text("Форма", color = textColor, fontWeight = FontWeight.SemiBold)
+        Text("Силуэт внутри иконки", color = textColor, fontWeight = FontWeight.SemiBold)
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = textColor.copy(alpha = 0.035f),
@@ -734,10 +802,7 @@ private fun AndroidShapePicker(
                         Image(
                             bitmap = bitmap.asImageBitmap(),
                             contentDescription = null,
-                            modifier = Modifier.size(30.dp),
-                            colorFilter = ColorFilter.tint(
-                                if (selected) accent else textColor.copy(alpha = 0.72f)
-                            )
+                            modifier = Modifier.size(34.dp)
                         )
                     }
                 }
@@ -832,6 +897,57 @@ private fun CustomIconBitmapArtwork(
         contentDescription = contentDescription,
         modifier = modifier
     )
+}
+
+@Composable
+private fun NotificationIconPreview(
+    bitmap: Bitmap,
+    usesCustomIcon: Boolean,
+    primaryText: Color,
+    secondaryText: Color,
+    surface: Color,
+    accent: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(surface.copy(alpha = 0.72f))
+            .border(1.dp, accent.copy(alpha = 0.22f), RoundedCornerShape(24.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        CustomIconBitmapArtwork(
+            bitmap = bitmap,
+            modifier = Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(16.dp)),
+            contentDescription = "Предпросмотр иконки уведомления"
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Nimbo · подключено",
+                color = primaryText,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp
+            )
+            Text(
+                text = if (usesCustomIcon) {
+                    "В уведомлении будет ваш собранный вариант"
+                } else {
+                    "Включите «Для уведомлений», чтобы использовать собранную иконку"
+                },
+                color = secondaryText,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .background(accent, CircleShape)
+        )
+    }
 }
 
 @Composable

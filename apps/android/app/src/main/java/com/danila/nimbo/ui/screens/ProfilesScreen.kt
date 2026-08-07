@@ -16,7 +16,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
@@ -358,7 +358,7 @@ fun ProfilesScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             contentPadding = PaddingValues(bottom = 100.dp)
                         ) {
-                            items(mergedProfiles, key = { it.url.lowercase() }) { profile ->
+                            itemsIndexed(mergedProfiles, key = { _, profile -> profile.url.lowercase() }) { profileIndex, profile ->
                                 ProfileCard(
                                     mainViewModel = mainViewModel,
                                     profile = profile,
@@ -367,6 +367,10 @@ fun ProfilesScreen(
                                     onDelete = { showDeleteDialogFor = profile.url },
                                     onRefresh = { onProfileRefresh(profile.url) },
                                     onOpenServers = { onOpenServers(profile) },
+                                    onMoveUp = { mainViewModel.moveProfileByUrl(profile.url, -1) },
+                                    onMoveDown = { mainViewModel.moveProfileByUrl(profile.url, 1) },
+                                    canMoveUp = profileIndex > 0,
+                                    canMoveDown = profileIndex < mergedProfiles.lastIndex,
                                     onTogglePin = {
                                         val key = profile.url.trim().lowercase()
                                         val currentlyPinned = pinnedProfiles.contains(key)
@@ -472,7 +476,11 @@ fun ProfileCard(
     onDelete: () -> Unit,
     onRefresh: () -> Unit,
     onOpenServers: () -> Unit,
-    onTogglePin: () -> Unit
+    onTogglePin: () -> Unit,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
+    canMoveUp: Boolean = true,
+    canMoveDown: Boolean = true
 ) {
     val nebulaColors = LocalNebulaColors.current
     val scope = rememberCoroutineScope()
@@ -574,15 +582,24 @@ fun ProfileCard(
                 ) {
                     Text("$visibleServersCount серв.", color = nebulaColors.textTertiary, style = MaterialTheme.typography.bodySmall)
                     
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (onMoveUp != null || onMoveDown != null) {
+                        ProfileOrderControl(
+                            canMoveUp = canMoveUp && onMoveUp != null,
+                            canMoveDown = canMoveDown && onMoveDown != null,
+                            onMoveUp = { onMoveUp?.invoke() },
+                            onMoveDown = { onMoveDown?.invoke() }
+                        )
+                    }
+
                         GlassIconButton(
                             icon = Icons.Default.Speed, 
                             color = nebulaColors.accent,
-                            iconModifier = Modifier.scale(pingPulseScale.value)
-                        ) {
-                            scope.launch { performPingPulse() }
-                            mainViewModel.pingAllServers()
-                        }
+                            iconModifier = Modifier.scale(pingPulseScale.value),
+                            onClick = {
+                                scope.launch { performPingPulse() }
+                                mainViewModel.pingAllServers()
+                            }
+                        )
                         
                         GlassIconButton(
                             icon = Icons.Default.Refresh, 
@@ -596,7 +613,6 @@ fun ProfileCard(
                             color = Color(0xFFFF5252), 
                             onClick = onDelete
                         )
-                    }
                 }
             }
 
@@ -711,21 +727,79 @@ fun ProfileCard(
 }
 
 @Composable
+private fun ProfileOrderControl(
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit
+) {
+    val nebulaColors = LocalNebulaColors.current
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = nebulaColors.textPrimary.copy(alpha = 0.06f),
+        border = BorderStroke(1.dp, nebulaColors.textPrimary.copy(alpha = 0.12f)),
+        modifier = Modifier.height(48.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onMoveUp,
+                enabled = canMoveUp,
+                modifier = Modifier.size(46.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowUp,
+                    contentDescription = "Переместить выше",
+                    tint = if (canMoveUp) nebulaColors.textPrimary else nebulaColors.textTertiary.copy(alpha = 0.35f),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            VerticalDivider(
+                modifier = Modifier.height(24.dp),
+                color = nebulaColors.textPrimary.copy(alpha = 0.12f)
+            )
+            IconButton(
+                onClick = onMoveDown,
+                enabled = canMoveDown,
+                modifier = Modifier.size(46.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Переместить ниже",
+                    tint = if (canMoveDown) nebulaColors.textPrimary else nebulaColors.textTertiary.copy(alpha = 0.35f),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun GlassIconButton(
     icon: ImageVector,
     color: Color,
     modifier: Modifier = Modifier,
     iconModifier: Modifier = Modifier,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    contentDescription: String? = null
 ) {
     Surface(
         onClick = onClick,
+        enabled = enabled,
         shape = RoundedCornerShape(14.dp),
-        color = color.copy(alpha = 0.15f),
+        color = color.copy(alpha = if (enabled) 0.15f else 0.06f),
         modifier = modifier.size(42.dp)
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(icon, null, tint = color, modifier = Modifier.size(20.dp).then(iconModifier))
+            Icon(
+                icon,
+                contentDescription,
+                tint = color.copy(alpha = if (enabled) 1f else 0.35f),
+                modifier = Modifier.size(20.dp).then(iconModifier)
+            )
         }
     }
 }

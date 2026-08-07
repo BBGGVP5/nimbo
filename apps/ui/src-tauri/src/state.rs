@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use nimbo_subscription::{dedupe_subscription_servers, Subscription};
 
+use crate::cross_sync::PairedDevice;
+
 const STORAGE_FILE: &str = "subscriptions.json";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -55,6 +57,8 @@ pub struct PersistedState {
     pub pending_system_proxy_snapshot: Option<SystemProxySnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_tun_snapshot: Option<TunRuntimeSnapshot>,
+    #[serde(default)]
+    pub paired_devices: Vec<PairedDevice>,
 }
 
 impl PersistedState {

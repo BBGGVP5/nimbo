@@ -1481,7 +1481,7 @@ object SubscriptionManager {
     }
 
     private fun findProtocolLinksInText(text: String): List<String> {
-        val regex = Regex("""(?i)\b(?:vless|vmess|trojan|ss|hysteria2|hysteria|hy2|hy|tuic)://[^\s"'<>]+""")
+        val regex = Regex("""(?i)\b(?:vless|vmess|trojan|ss|hysteria2|hysteria|hy2|hy|tuic|awg|amneziawg|wireguard|wg)://[^\s"'<>]+""")
         return regex.findAll(text)
             .map { match ->
                 match.value.trim().trimEnd(',', ';', ']', '}', ')')
@@ -2011,7 +2011,11 @@ object SubscriptionManager {
             normalized.startsWith("hysteria2://") ||
             normalized.startsWith("hy2://") ||
             normalized.startsWith("hy://") ||
-            normalized.startsWith("tuic://")
+            normalized.startsWith("tuic://") ||
+            normalized.startsWith("awg://") ||
+            normalized.startsWith("amneziawg://") ||
+            normalized.startsWith("wireguard://") ||
+            normalized.startsWith("wg://")
     }
 
     private fun isHysteriaProtocolLink(value: String): Boolean {

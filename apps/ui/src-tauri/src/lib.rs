@@ -19,7 +19,8 @@ use crate::commands::{
     list_routing_profiles, list_subscription_app_proxy_rules, list_subscriptions, open_logs_folder,
     open_routing_folder, pick_app_executable, ping_server, ping_servers, read_clipboard_text,
     reapply_runtime_config, refresh_subscription, refresh_tray_menu, remove_subscription,
-    reset_builtin_routing_profiles, reset_device_id, reset_traffic_totals, restart_as_admin,
+    reorder_subscriptions, reset_builtin_routing_profiles, reset_device_id, reset_traffic_totals,
+    restart_as_admin,
     run_through_nimbo,
     set_active_routing_profile, set_active_server, set_active_subscription, set_app_proxy_rules,
     set_connection_mode, set_preferences, set_proxy_settings, set_user_agent_override,
@@ -28,8 +29,9 @@ use crate::commands::{
     update_subscription_settings, write_clipboard_text,
 };
 use crate::cross_sync::{
-    cross_sync_accept_import, cross_sync_approve, cross_sync_cancel, cross_sync_reject,
-    cross_sync_start, cross_sync_status, CrossSyncManager,
+    cross_sync_accept_import, cross_sync_approve, cross_sync_cancel, cross_sync_list_devices,
+    cross_sync_reject, cross_sync_remove_device, cross_sync_set_auto_sync, cross_sync_start,
+    cross_sync_status, CrossSyncManager,
 };
 use crate::state::AppState;
 use crate::tray::{tray_menu_action, tray_menu_resize, tray_menu_state};
@@ -37,8 +39,54 @@ use crate::updater::{
     check_app_update, dismiss_post_update_info, get_post_update_info, install_app_update,
     open_update_download,
 };
-use tauri::{Emitter, Manager, RunEvent, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
+
+/// Shutting down stops Xray, restores the system proxy and rolls back routes —
+/// all of it synchronous on the event-loop thread. Any window still on screen
+/// while that runs is a frozen frame the compositor cannot repaint (a white
+/// rectangle where the WebView used to be, plus the always-on-top tray flyout
+/// hanging over the desktop). Take every window down first, then block.
+fn hide_all_windows(app: &AppHandle) {
+    for (_, window) in app.webview_windows() {
+        let _ = window.hide();
+    }
+}
+
+/// Native background for the main window, matched to the theme the WebView is
+/// about to paint. Without it the window is white underneath, which shows up as
+/// a flash while the frontend boots and as a white rectangle after the WebView
+/// is released on shutdown.
+pub fn apply_main_window_background(app: &AppHandle) {
+    use tauri::utils::config::Color;
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let theme = app.state::<AppState>().snapshot().preferences.theme_mode;
+    let color = match theme {
+        crate::state::ThemeMode::Light => Color(246, 245, 250, 255),
+        crate::state::ThemeMode::Black => Color(4, 5, 10, 255),
+        crate::state::ThemeMode::Dark => Color(11, 12, 18, 255),
+        crate::state::ThemeMode::System => match window.theme() {
+            Ok(tauri::Theme::Light) => Color(246, 245, 250, 255),
+            _ => Color(11, 12, 18, 255),
+        },
+    };
+    let _ = window.set_background_color(Some(color));
+}
+
+static EXIT_CLEANUP_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `ExitRequested` and `Exit` both fire on a normal quit; the teardown is slow
+/// enough that running it twice is visible, so let the first one win.
+fn cleanup_once(app: &AppHandle) {
+    if EXIT_CLEANUP_DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    hide_all_windows(app);
+    crate::commands::cleanup_runtime_for_exit(app);
+}
 
 #[cfg(windows)]
 struct SingleInstanceGuard(windows_sys::Win32::Foundation::HANDLE);
@@ -269,9 +317,11 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                 } else {
-                    // Hide the window immediately for a perceptually instant close,
-                    // letting background event loop clean up proxies and routes gracefully
-                    let _ = window.hide();
+                    // Hide every window immediately for a perceptually instant close,
+                    // letting the background event loop clean up proxies and routes
+                    // gracefully. The tray flyout is always-on-top, so leaving it up
+                    // would park an empty dark panel over the desktop until we exit.
+                    hide_all_windows(&window.app_handle());
                 }
             }
         })
@@ -282,7 +332,21 @@ pub fn run() {
             }
 
             tray::setup_tray(app.handle())?;
+            apply_main_window_background(app.handle());
             crate::commands::cleanup_disconnected_runtime_on_startup(app.handle());
+
+            // Long-lived sync server: runs for the whole app lifetime so paired
+            // phones can keep syncing after the sync tab is closed.
+            let app_handle = app.handle().clone();
+            app_handle
+                .state::<CrossSyncManager>()
+                .attach(app_handle.clone());
+            let startup_manager = app_handle.state::<CrossSyncManager>().inner().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = startup_manager.ensure_server().await {
+                    tracing::warn!(?error, "cross-sync server failed to start");
+                }
+            });
 
             if let Some(path) = cli_run_through.as_deref() {
                 let _ = queue_run_through_request(path);
@@ -370,6 +434,7 @@ pub fn run() {
             refresh_subscription,
             update_subscription_settings,
             remove_subscription,
+            reorder_subscriptions,
             set_active_server,
             set_active_subscription,
             ping_server,
@@ -405,6 +470,9 @@ pub fn run() {
             cross_sync_reject,
             cross_sync_accept_import,
             cross_sync_cancel,
+cross_sync_list_devices,
+cross_sync_remove_device,
+cross_sync_set_auto_sync,
             tray_menu_state,
             tray_menu_resize,
             tray_menu_action,
@@ -421,7 +489,7 @@ pub fn run() {
 
     app.run(|app_handle, event| match event {
         RunEvent::ExitRequested { .. } | RunEvent::Exit => {
-            crate::commands::cleanup_runtime_for_exit(app_handle);
+            cleanup_once(app_handle);
         }
         RunEvent::Resumed => {
             crate::commands::reconnect_runtime_after_resume(app_handle);

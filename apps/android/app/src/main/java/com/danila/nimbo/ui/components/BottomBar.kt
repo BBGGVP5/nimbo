@@ -2,13 +2,9 @@ package com.danila.nimbo.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
@@ -47,10 +43,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -68,7 +62,6 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.theme.ElementStyleMode
-import com.danila.nimbo.ui.theme.LocalBackgroundAnimationEnabled
 import com.danila.nimbo.ui.theme.LocalElementStyleMode
 import com.danila.nimbo.ui.theme.LocalGlobalCornerRadius
 import com.danila.nimbo.ui.theme.LocalNebulaColors
@@ -87,7 +80,6 @@ fun BottomBar(navController: NavController) {
     val colors = LocalNebulaColors.current
     val elementStyle = LocalElementStyleMode.current
     val reducedTransparency = LocalReducedTransparencyEnabled.current
-    val animateBackground = LocalBackgroundAnimationEnabled.current && !reducedTransparency
     val cornerScale = LocalGlobalCornerRadius.current
     val destinations = listOf(
         BottomDestination("home", t("Главная", "Home"), Icons.Filled.Home, Icons.Outlined.Home),
@@ -103,22 +95,6 @@ fun BottomBar(navController: NavController) {
             ElementStyleMode.SOFT_NEO -> (28 * cornerScale).dp
         }
     )
-    val lightProgress = if (animateBackground && elementStyle == ElementStyleMode.LIQUID_GLASS) {
-        val transition = rememberInfiniteTransition(label = "liquidNavigationLight")
-        val value by transition.animateFloat(
-            initialValue = -0.35f,
-            targetValue = 1.35f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(9_000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "liquidNavigationLightProgress"
-        )
-        value
-    } else {
-        -1f
-    }
-
     fun navigate(route: String) {
         if (currentRoute == route) return
         if (!navController.popBackStack(route, inclusive = false)) {
@@ -143,19 +119,6 @@ fun BottomBar(navController: NavController) {
         val styledPanelModifier = when (elementStyle) {
             ElementStyleMode.LIQUID_GLASS -> basePanelModifier
                 .liquidGlassSurface(panelShape, LiquidGlassDepth.FLOATING)
-                .drawWithCache {
-                    val sweep = Brush.linearGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.White.copy(alpha = 0.18f),
-                            colors.accent.copy(alpha = 0.10f),
-                            Color.Transparent
-                        ),
-                        start = Offset(size.width * lightProgress - size.width * 0.24f, 0f),
-                        end = Offset(size.width * lightProgress + size.width * 0.24f, size.height)
-                    )
-                    onDrawBehind { drawRect(sweep) }
-                }
 
             ElementStyleMode.MATERIAL_EXPRESSIVE -> basePanelModifier
                 .shadow(

@@ -276,6 +276,20 @@ export interface CrossSyncApplyResult {
   applied_categories: string[];
 }
 
+export interface CrossSyncPairedDevice {
+  device_id: string;
+  name: string;
+  platform: string;
+  os_name: string;
+  app_version: string | null;
+  created_at_ms: number;
+  last_seen_ms: number;
+  auto_sync: boolean;
+  categories: CrossSyncCategories;
+  last_subscription_count: number;
+  last_subscription_names: string[];
+}
+
 export interface CrossSyncSession {
   state: string;
   qr_payload: string | null;
@@ -289,6 +303,8 @@ export interface CrossSyncSession {
   pending_categories: CrossSyncCategories | null;
   result: CrossSyncApplyResult | null;
   error: string | null;
+  server_port: number | null;
+  devices: CrossSyncPairedDevice[];
 }
 
 export type AppProxyMode = "proxy" | "direct";
@@ -1395,6 +1411,8 @@ export const api = {
           pending_categories: null,
           result: null,
           error: null,
+          server_port: 42000,
+          devices: [],
         } satisfies CrossSyncSession),
   crossSyncStatus: () =>
     isTauriRuntime()
@@ -1412,10 +1430,12 @@ export const api = {
           pending_categories: null,
           result: null,
           error: null,
+          server_port: null,
+          devices: [],
         } satisfies CrossSyncSession),
-  crossSyncApprove: (categories: CrossSyncCategories) =>
+  crossSyncApprove: (categories: CrossSyncCategories, direction: CrossSyncDirection) =>
     isTauriRuntime()
-      ? invoke<CrossSyncSession>("cross_sync_approve", { categories })
+      ? invoke<CrossSyncSession>("cross_sync_approve", { categories, direction })
       : Promise.resolve({
           state: "paired",
           qr_payload: null,
@@ -1432,10 +1452,12 @@ export const api = {
             architecture: "arm64-v8a",
           },
           remote_subscriptions: ["Основная", "Резервная"],
-          pending_direction: null,
+          pending_direction: direction,
           pending_categories: categories,
           result: null,
           error: null,
+          server_port: 42000,
+          devices: [],
         } satisfies CrossSyncSession),
   crossSyncReject: () =>
     isTauriRuntime()
@@ -1453,6 +1475,8 @@ export const api = {
           pending_categories: null,
           result: null,
           error: "Сопряжение отклонено",
+          server_port: null,
+          devices: [],
         } satisfies CrossSyncSession),
   crossSyncAcceptImport: () =>
     isTauriRuntime()
@@ -1470,6 +1494,8 @@ export const api = {
           pending_categories: null,
           result: { added_subscriptions: [], applied_categories: [] },
           error: null,
+          server_port: 42000,
+          devices: [],
         } satisfies CrossSyncSession),
   crossSyncCancel: () =>
     isTauriRuntime()
@@ -1487,7 +1513,25 @@ export const api = {
           pending_categories: null,
           result: null,
           error: null,
+          server_port: null,
+          devices: [],
         } satisfies CrossSyncSession),
+  crossSyncListDevices: () =>
+    isTauriRuntime()
+      ? invoke<CrossSyncPairedDevice[]>("cross_sync_list_devices")
+      : Promise.resolve([]),
+  crossSyncSetAutoSync: (deviceId: string, enabled: boolean) =>
+    isTauriRuntime()
+      ? invoke<CrossSyncPairedDevice[]>("cross_sync_set_auto_sync", { deviceId, enabled })
+      : Promise.resolve([]),
+  crossSyncSetDeviceCategories: (deviceId: string, categories: CrossSyncCategories) =>
+    isTauriRuntime()
+      ? invoke<CrossSyncPairedDevice[]>("cross_sync_set_device_categories", { deviceId, categories })
+      : Promise.resolve([]),
+  crossSyncRemoveDevice: (deviceId: string) =>
+    isTauriRuntime()
+      ? invoke<CrossSyncPairedDevice[]>("cross_sync_remove_device", { deviceId })
+      : Promise.resolve([]),
   getSessionTraffic: () =>
     isTauriRuntime()
       ? invoke<SessionTraffic>("get_session_traffic")
@@ -1906,6 +1950,21 @@ export const api = {
             ? current.active_server_id
             : null;
           return writeBrowserPersistedState({ ...current, subscriptions, active_server_id });
+        })()),
+  reorderSubscriptions: (urls: string[]) =>
+    isTauriRuntime()
+      ? invoke<PersistedState>("reorder_subscriptions", { urls })
+      : Promise.resolve((() => {
+          const current = browserPersistedState();
+          const order = new Map(urls.map((url, index) => [url.trim().toLowerCase(), index]));
+          const subscriptions = [...current.subscriptions].sort((a, b) => {
+            const ai = order.get(a.url.trim().toLowerCase());
+            const bi = order.get(b.url.trim().toLowerCase());
+            if (ai === undefined) return bi === undefined ? 0 : 1;
+            if (bi === undefined) return -1;
+            return ai - bi;
+          });
+          return writeBrowserPersistedState({ ...current, subscriptions });
         })()),
   setActiveServer: (serverId: string | null) =>
     isTauriRuntime()

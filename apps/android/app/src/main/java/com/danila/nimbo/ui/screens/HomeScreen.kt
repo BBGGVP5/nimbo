@@ -249,6 +249,8 @@ private fun protocolBadge(server: Server): String {
         protocol.contains("shadowsocks") || protocol == "ss" -> "Shadowsocks"
         protocol.contains("hysteria") -> "Hysteria"
         protocol.contains("tuic") -> "TUIC"
+        protocol.contains("awg") || protocol.contains("amnezia") -> "AWG"
+        protocol.contains("wireguard") || protocol == "wg" -> "WireGuard"
         protocol.isNotBlank() -> protocol.replaceFirstChar { it.uppercase() }
         else -> "VLESS"
     }

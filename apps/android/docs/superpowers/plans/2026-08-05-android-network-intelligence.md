@@ -102,3 +102,4 @@
 - [ ] Add budget progress, period, scope, threshold, and action controls.
 - [ ] Add captive-portal banners with explicit pause/open/recover controls.
 - [ ] Run `./gradlew.bat lintDebug testDebugUnitTest assembleDebug`; expect successful lint, tests, and APK assembly.
+

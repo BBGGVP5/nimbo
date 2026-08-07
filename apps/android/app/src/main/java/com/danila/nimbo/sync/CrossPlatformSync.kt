@@ -44,7 +44,8 @@ data class SyncCategories(
 
 data class SyncSubscription(
     @SerializedName("url") val url: String,
-    @SerializedName("name") val name: String? = null
+    @SerializedName("name") val name: String? = null,
+    @SerializedName("order") val order: Int = -1
 )
 
 data class SyncDeviceInfo(
@@ -138,6 +139,7 @@ data class EncryptedSyncEnvelope(
 
 data class SyncWireRequest(
     @SerializedName("action") val action: String,
+    @SerializedName("device_id") val deviceId: String? = null,
     @SerializedName("device_name") val deviceName: String? = null,
     @SerializedName("bundle") val bundle: CrossSyncBundle? = null,
     @SerializedName("direction") val direction: SyncDirection? = null,
@@ -152,7 +154,35 @@ data class SyncWireResponse(
     @SerializedName("desktop_device_info") val desktopDeviceInfo: SyncDeviceInfo? = null,
     @SerializedName("desktop_subscriptions") val desktopSubscriptions: List<String>? = null,
     @SerializedName("expires_at_ms") val expiresAtMs: Long? = null,
-    @SerializedName("message") val message: String? = null
+    @SerializedName("message") val message: String? = null,
+    @SerializedName("paired") val paired: Boolean = false,
+    @SerializedName("device_id") val deviceId: String? = null,
+    @SerializedName("paired_key") val pairedKey: String? = null,
+    @SerializedName("server_port") val serverPort: Int? = null,
+    @SerializedName("applied") val applied: Boolean = false,
+    @SerializedName("applied_categories") val appliedCategories: List<String>? = null,
+    @SerializedName("added_subscriptions") val addedSubscriptions: List<String>? = null,
+    @SerializedName("direction") val direction: SyncDirection? = null
+)
+
+data class PairedDesktopDevice(
+    @SerializedName("device_id") val deviceId: String,
+    @SerializedName("name") val name: String,
+    @SerializedName("key") val key: String,
+    @SerializedName("host") val host: String,
+    @SerializedName("port") val port: Int,
+    @SerializedName("paired_at_ms") val pairedAtMs: Long = 0,
+    @SerializedName("last_sync_ms") val lastSyncMs: Long = 0,
+    @SerializedName("last_seen_remote_sig") val lastSeenRemoteSig: String? = null,
+    @SerializedName("last_exported_sig") val lastExportedSig: String? = null,
+    @SerializedName("platform") val platform: String = "",
+    @SerializedName("os_name") val osName: String? = null,
+    @SerializedName("os_version") val osVersion: String? = null,
+    @SerializedName("app_version") val appVersion: String? = null,
+    @SerializedName("architecture") val architecture: String? = null,
+    @SerializedName("auto_sync") val autoSync: Boolean = true,
+    @SerializedName("subscription_count") val lastSubscriptionCount: Int = 0,
+    @SerializedName("subscription_names") val lastSubscriptionNames: List<String> = emptyList()
 )
 
 object CrossSyncProtocol {
@@ -309,35 +339,57 @@ class CrossSyncClient(
     suspend fun exchange(qr: CrossSyncQr, request: SyncWireRequest): SyncWireResponse =
         withContext(Dispatchers.IO) {
             require(System.currentTimeMillis() < qr.expiresAtMs) { "Сеанс синхронизации истёк" }
-            val plaintext = gson.toJson(request).encodeToByteArray()
-            require(plaintext.size <= MAX_SYNC_FRAME_BYTES) { "Слишком большой пакет синхронизации" }
-            val envelope = CrossSyncCrypto.encrypt(qr.key, qr.sessionId, plaintext)
-            val frame = gson.toJson(envelope).encodeToByteArray()
-            require(frame.size <= MAX_SYNC_FRAME_BYTES) { "Слишком большой пакет синхронизации" }
+            exchangeFrame(qr.host, qr.port, qr.key, qr.sessionId, request)
+        }
 
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress(qr.host, qr.port), 5_000)
-                socket.soTimeout = 8_000
-                DataOutputStream(socket.getOutputStream().buffered()).use { output ->
-                    output.writeInt(frame.size)
-                    output.write(frame)
-                    output.flush()
+    suspend fun exchangePaired(
+        device: PairedDesktopDevice,
+        request: SyncWireRequest
+    ): SyncWireResponse {
+        val key = runCatching { Base64.getUrlDecoder().decode(device.key) }
+            .getOrElse { throw IllegalArgumentException("Повреждён ключ устройства") }
+        require(key.size == 32) { "Повреждён ключ устройства" }
+        return withContext(Dispatchers.IO) {
+            exchangeFrame(device.host, device.port, key, "resume:${device.deviceId}", request)
+        }
+    }
 
-                    val input = DataInputStream(socket.getInputStream().buffered())
-                    val length = input.readInt()
-                    require(length in 1..MAX_SYNC_FRAME_BYTES) { "Некорректный ответ синхронизации" }
-                    val responseFrame = ByteArray(length)
-                    input.readFully(responseFrame)
-                    val responseEnvelope = gson.fromJson(
-                        responseFrame.decodeToString(),
-                        EncryptedSyncEnvelope::class.java
-                    )
-                    require(responseEnvelope.sessionId == qr.sessionId) { "Ответ другого сеанса" }
-                    val responseJson = CrossSyncCrypto.decrypt(qr.key, responseEnvelope).decodeToString()
-                    gson.fromJson(responseJson, SyncWireResponse::class.java)
-                }
+    private suspend fun exchangeFrame(
+        host: String,
+        port: Int,
+        key: ByteArray,
+        sessionId: String,
+        request: SyncWireRequest
+    ): SyncWireResponse = withContext(Dispatchers.IO) {
+        val plaintext = gson.toJson(request).encodeToByteArray()
+        require(plaintext.size <= MAX_SYNC_FRAME_BYTES) { "Слишком большой пакет синхронизации" }
+        val envelope = CrossSyncCrypto.encrypt(key, sessionId, plaintext)
+        val frame = gson.toJson(envelope).encodeToByteArray()
+        require(frame.size <= MAX_SYNC_FRAME_BYTES) { "Слишком большой пакет синхронизации" }
+
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress(host, port), 5_000)
+            socket.soTimeout = 8_000
+            DataOutputStream(socket.getOutputStream().buffered()).use { output ->
+                output.writeInt(frame.size)
+                output.write(frame)
+                output.flush()
+
+                val input = DataInputStream(socket.getInputStream().buffered())
+                val length = input.readInt()
+                require(length in 1..MAX_SYNC_FRAME_BYTES) { "Некорректный ответ синхронизации" }
+                val responseFrame = ByteArray(length)
+                input.readFully(responseFrame)
+                val responseEnvelope = gson.fromJson(
+                    responseFrame.decodeToString(),
+                    EncryptedSyncEnvelope::class.java
+                )
+                require(responseEnvelope.sessionId == sessionId) { "Ответ другого сеанса" }
+                val responseJson = CrossSyncCrypto.decrypt(key, responseEnvelope).decodeToString()
+                gson.fromJson(responseJson, SyncWireResponse::class.java)
             }
         }
+    }
 }
 
 object AndroidCrossSyncBundleMapper {
@@ -356,11 +408,17 @@ object AndroidCrossSyncBundleMapper {
             preferences.themeMode == 2 -> "dark"
             else -> "system"
         }
-        val accent = String.format(
-            Locale.ROOT,
-            "#%06x",
-            preferences.customAccentColor and 0x00FFFFFF
-        )
+        // Акцент экспортируем только если пользователь реально задал кастомный цвет.
+        // Иначе desktop применит "#000000"/дефолтный цвет как кастомный и сломает тему.
+        val accent = if (!preferences.useDynamicColor && preferences.isCustomAccent && preferences.customAccentColor != 0) {
+            String.format(
+                Locale.ROOT,
+                "#%06x",
+                preferences.customAccentColor and 0x00FFFFFF
+            )
+        } else {
+            ""
+        }
         return CrossSyncBundle(
             platform = "android",
             deviceName = deviceName,
@@ -375,7 +433,13 @@ object AndroidCrossSyncBundleMapper {
             ),
             subscriptions = profiles
                 .filter { it.url.isNotBlank() }
-                .map { SyncSubscription(it.url.trim(), it.customName ?: it.name.takeIf(String::isNotBlank)) },
+                .mapIndexed { index, profile ->
+                    SyncSubscription(
+                        url = profile.url.trim(),
+                        name = profile.customName ?: profile.name.takeIf(String::isNotBlank),
+                        order = index
+                    )
+                },
             appearance = SyncAppearance(
                 themeMode = themeMode,
                 uiStyle = if (preferences.elementStyle == 0) "nimbo" else "material_you",
@@ -457,6 +521,27 @@ object AndroidCrossSyncBundleMapper {
                 preferences.pingOnUpdate = automation.subscriptionsPingAfterUpdate
             }
         }
+        if (categories.subscriptions && incoming.subscriptions.size >= 2) {
+            reorderProfiles(preferences, incoming.subscriptions)
+        }
+    }
+
+    private fun reorderProfiles(
+        preferences: PreferencesManager,
+        incoming: List<SyncSubscription>
+    ) {
+        val profiles = preferences.loadProfiles()
+        if (profiles.size < 2) return
+        val order = incoming
+            .filter { it.order >= 0 && it.url.isNotBlank() }
+            .associate { CrossSyncProtocol.canonicalSubscriptionUrl(it.url) to it.order }
+        if (order.isEmpty()) return
+        val sorted = profiles.sortedWith(
+            compareBy { profile ->
+                order[CrossSyncProtocol.canonicalSubscriptionUrl(profile.url)] ?: Int.MAX_VALUE
+            }
+        )
+        if (sorted != profiles) preferences.saveProfiles(sorted)
     }
 
     fun missingSubscriptions(
@@ -474,9 +559,127 @@ object AndroidCrossSyncBundleMapper {
             .filter { CrossSyncProtocol.canonicalSubscriptionUrl(it.url) !in localKeys }
     }
 
+    fun bundleSignature(bundle: CrossSyncBundle, categories: SyncCategories): String {
+        val json = Gson().toJson(bundle.filtered(categories))
+        val digest = java.security.MessageDigest
+            .getInstance("SHA-256")
+            .digest(json.encodeToByteArray())
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
+    }
+
     private fun parseAccent(raw: String): Int? {
         val normalized = raw.trim().removePrefix("#")
         if (!normalized.matches(Regex("[0-9a-fA-F]{6}"))) return null
         return runCatching { (0xFF000000L or normalized.toLong(16)).toInt() }.getOrNull()
+    }
+}
+
+data class PairedSyncResult(
+    val unpaired: Boolean = false,
+    val deviceName: String = "",
+    val addedSubscriptions: Int = 0,
+    val appliedCategories: List<String> = emptyList()
+)
+
+object PairedSyncEngine {
+    private val client = CrossSyncClient()
+
+    fun currentCategories(preferences: PreferencesManager) = SyncCategories(
+        subscriptions = preferences.crossSyncSubscriptions,
+        appearance = preferences.crossSyncAppearance,
+        connection = preferences.crossSyncConnection,
+        automation = preferences.crossSyncAutomation
+    )
+
+    /**
+     * Односторонний цикл постоянной синхронизации: телефон шлёт свой бандл на ПК,
+     * получает бандл ПК и применяет его, если он изменился с прошлого раза.
+     * Возвращает результат; при [PairedSyncResult.unpaired] запись о ПК надо удалить.
+     */
+    suspend fun syncOnce(
+        preferences: PreferencesManager,
+        device: PairedDesktopDevice,
+        addSubscription: suspend (url: String, name: String?) -> Unit
+    ): PairedSyncResult {
+        val profiles = preferences.loadProfiles()
+        val exported = AndroidCrossSyncBundleMapper.export(preferences, profiles)
+        val categories = currentCategories(preferences)
+        val response = client.exchangePaired(
+            device,
+            SyncWireRequest(
+                action = "hello",
+                deviceId = preferences.getOrCreateCrossSyncDeviceId(),
+                deviceName = exported.deviceName,
+                bundle = exported.filtered(categories),
+                categories = categories
+            )
+        )
+        if (!response.paired || response.state == "unpaired") {
+            return PairedSyncResult(unpaired = true, deviceName = device.name)
+        }
+
+        var lastSeenRemoteSig = device.lastSeenRemoteSig
+        var added = 0
+        var appliedCategories = emptyList<String>()
+        val incoming = response.desktopBundle
+        if (incoming != null) {
+            val exportedSig = AndroidCrossSyncBundleMapper.bundleSignature(exported, categories)
+            val localUnchanged = device.lastExportedSig == null ||
+                device.lastExportedSig == exportedSig
+            if (localUnchanged) {
+                val incomingSig = AndroidCrossSyncBundleMapper.bundleSignature(incoming, categories)
+                if (lastSeenRemoteSig != incomingSig) {
+                    AndroidCrossSyncBundleMapper.applySettings(preferences, incoming, categories)
+                    val missing =
+                        AndroidCrossSyncBundleMapper.missingSubscriptions(profiles, incoming, categories)
+                    missing.forEach { addSubscription(it.url, it.name) }
+                    added = missing.size
+                    appliedCategories = listOfNotNull(
+                        "subscriptions".takeIf { categories.subscriptions },
+                        "appearance".takeIf { categories.appearance },
+                        "connection".takeIf { categories.connection },
+                        "automation".takeIf { categories.automation }
+                    )
+                    lastSeenRemoteSig = incomingSig
+                }
+            }
+        }
+
+        val updated = device.copy(
+            lastSyncMs = System.currentTimeMillis(),
+            lastSeenRemoteSig = lastSeenRemoteSig,
+            lastExportedSig = AndroidCrossSyncBundleMapper.bundleSignature(exported, categories),
+            lastSubscriptionCount = response.desktopInventory?.subscriptions
+                ?: incoming?.inventory()?.subscriptions ?: device.lastSubscriptionCount,
+            lastSubscriptionNames = if (!response.desktopSubscriptions.isNullOrEmpty()) {
+                response.desktopSubscriptions
+            } else {
+                incoming?.subscriptions?.map { it.name ?: it.url } ?: device.lastSubscriptionNames
+            }
+        )
+        preferences.crossSyncPairedDevices =
+            preferences.crossSyncPairedDevices.map { if (it.deviceId == device.deviceId) updated else it }
+        preferences.crossSyncLastAt = updated.lastSyncMs
+        preferences.crossSyncLastDevice = device.name
+        return PairedSyncResult(
+            unpaired = false,
+            deviceName = device.name,
+            addedSubscriptions = added,
+            appliedCategories = appliedCategories
+        )
+    }
+
+    suspend fun unpair(preferences: PreferencesManager, device: PairedDesktopDevice) {
+        runCatching {
+            client.exchangePaired(
+                device,
+                SyncWireRequest(
+                    action = "unpair",
+                    deviceId = preferences.getOrCreateCrossSyncDeviceId()
+                )
+            )
+        }
+        preferences.crossSyncPairedDevices =
+            preferences.crossSyncPairedDevices.filterNot { it.deviceId == device.deviceId }
     }
 }

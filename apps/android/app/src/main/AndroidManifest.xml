@@ -348,6 +348,48 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity-alias>
+
+        <activity-alias
+            android:name=".AliasCustom"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/custom_app_icon"
+            android:roundIcon="@drawable/custom_app_icon"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasCustom2"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/custom_app_icon"
+            android:roundIcon="@drawable/custom_app_icon"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".AliasCustom3"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/custom_app_icon"
+            android:roundIcon="@drawable/custom_app_icon"
+            android:label="Nimbo"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
         
         <!-- Ярлык для быстрого подключения -->
         <activity

@@ -1802,9 +1802,6 @@ function UpdatesSection({
           onToggle={(update_wifi_only) => onChange({ update_wifi_only })}
           icon={<DownloadIcon />}
         />
-        <div className="settings-row settings-row-block update-protection-copy">
-          <div className="settings-row-description">{m.settings.updateDownloadProtection}</div>
-        </div>
       </SettingsCard>
     </Section>
   );

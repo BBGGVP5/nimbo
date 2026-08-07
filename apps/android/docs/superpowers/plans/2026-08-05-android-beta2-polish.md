@@ -179,3 +179,4 @@ Expected: BUILD SUCCESSFUL and all unit tests pass.
 Run: `./gradlew.bat :app:processReleaseResources :app:compileReleaseKotlin`
 
 Expected: BUILD SUCCESSFUL. The user can then create the signed APK from Android Studio.
+

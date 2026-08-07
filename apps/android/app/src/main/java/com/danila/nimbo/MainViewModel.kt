@@ -1060,6 +1060,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ?.let { preferencesManager.subscriptionThemeSpec = it }
 
         _profilesState.value = loadedProfiles
+
         _serversState.value = loadedProfiles.flatMap { it.servers }
         val totalServers = loadedProfiles.sumOf { it.servers.size }
         Logger.d("MainViewModel", "Загружено ${loadedProfiles.size} профилей с $totalServers серверами")
@@ -1081,6 +1082,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 loadSubscription(profile.url)
             }
         }
+    }
+
+    fun reorderProfiles(urls: List<String>) {
+        val order = urls.mapIndexed { index, url ->
+            com.danila.nimbo.sync.CrossSyncProtocol.canonicalSubscriptionUrl(url) to index
+        }.toMap()
+        val current = _profilesState.value
+        val sorted = current.sortedWith(
+            compareBy { profile ->
+                order[com.danila.nimbo.sync.CrossSyncProtocol.canonicalSubscriptionUrl(profile.url)]
+                    ?: Int.MAX_VALUE
+            }
+        )
+        if (sorted != current) {
+            _profilesState.value = sorted
+            preferencesManager.saveProfiles(sorted)
+        }
+    }
+
+    fun moveProfile(index: Int, delta: Int) {
+        val current = _profilesState.value.toMutableList()
+        val target = index + delta
+        if (index < 0 || index >= current.size || target < 0 || target >= current.size) return
+        val moved = current.removeAt(index)
+        current.add(target, moved)
+        _profilesState.value = current
+        preferencesManager.saveProfiles(current)
+    }
+
+    fun moveProfileByUrl(url: String, delta: Int) {
+        val index = _profilesState.value.indexOfFirst { it.url == url }
+        if (index < 0) return
+        moveProfile(index, delta)
     }
 
     private fun checkAndAutoUpdateSubscriptions() {

@@ -78,7 +78,7 @@ fun Modifier.liquidTouchDeformation(
         intensity = depthIntensity * pressProgress
     )
 
-    this
+    val gestureModifier = this
         .onSizeChanged { size ->
             measuredSize = size
             if (touchPosition == Offset.Zero && size.width > 0 && size.height > 0) {
@@ -122,11 +122,20 @@ fun Modifier.liquidTouchDeformation(
                 pressed = false
             }
         }
-        .graphicsLayer {
+
+    // Do not allocate a rectangular render layer while the surface is idle.
+    // Some Android 17 GPU/launcher combinations leak that backing layer through
+    // translucent glass as a pale square. The layer is only required while the
+    // user is physically deforming the control.
+    if (pressProgress > 0.001f) {
+        gestureModifier.graphicsLayer {
             scaleX = transform.scaleX
             scaleY = transform.scaleY
             translationX = with(density) { transform.translationX.dp.toPx() }
             translationY = with(density) { transform.translationY.dp.toPx() }
             transformOrigin = TransformOrigin(transform.pivotX, transform.pivotY)
         }
+    } else {
+        gestureModifier
+    }
 }

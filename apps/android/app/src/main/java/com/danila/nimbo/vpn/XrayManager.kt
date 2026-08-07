@@ -108,52 +108,9 @@ object XrayManager {
     }
 
     private fun establishTun(vpnService: VpnService, underlyingNetwork: Network?): Int {
-        val prefs = PreferencesManager(NebulaGuardApplication.instance)
-        val useIpv6 = prefs.vpnIpType.equals("dual", ignoreCase = true)
-        val tunPolicy = VpnTunPolicy.forProxyMode(prefs.proxyByApp)
-        val builder = vpnService.Builder()
-            .setSession("Nimbo")
-            .addAddress("172.19.0.1", 30)
-            .addRoute("0.0.0.0", 0)
-            .setBlocking(false)
-
-        if (tunPolicy.publishTunnelDns) {
-            builder
-                .addDnsServer("1.1.1.1")
-                .addDnsServer("8.8.8.8")
-        }
-
-        if (useIpv6) {
-            builder
-                .addAddress("fdfe:dcba:9876::1", 126)
-                .addRoute("::", 0)
-            if (tunPolicy.publishTunnelDns) {
-                builder
-                    .addDnsServer("2606:4700:4700::1111")
-                    .addDnsServer("2001:4860:4860::8888")
-            }
-        }
-
-        if (prefs.packetFragmentationEnabled) {
-            builder.setMtu(1280)
-        } else {
-            builder.setMtu(1400)
-        }
-
-        applyUnderlyingNetwork(builder, underlyingNetwork)
-        excludeSelfFromVpnWhenPossible(builder, prefs)
-        applyPerAppProxyRules(builder, prefs)
-
-        val tun = builder.establish() ?: error("Failed to establish TUN")
+        val tun = VpnInterfaceBuilder.establish(vpnService, underlyingNetwork)
         tunInterface = tun
         return tun.fd
-    }
-
-    private fun applyUnderlyingNetwork(builder: VpnService.Builder, network: Network?) {
-        if (network == null) return
-        runCatching { builder.setUnderlyingNetworks(arrayOf(network)) }
-            .onSuccess { Log.d(TAG, "VPN underlying network set: ${network.networkHandle}") }
-            .onFailure { Log.w(TAG, "Could not set underlying network: ${it.message}") }
     }
 
     private fun protectAndBindSocket(
@@ -193,35 +150,6 @@ object XrayManager {
         runCatching { builder.addDisallowedApplication(packageName) }
             .onSuccess { Log.d(TAG, "Excluded self package from VPN tunnel: $packageName") }
             .onFailure { Log.w(TAG, "Could not exclude self package from VPN tunnel: ${it.message}") }
-    }
-
-    private fun applyPerAppProxyRules(
-        builder: VpnService.Builder,
-        prefs: PreferencesManager
-    ) {
-        when (prefs.proxyByApp) {
-            1 -> {
-                // Выбранные приложения идут в обход VPN (напрямую).
-                val bypassPackages = prefs.getAppBypassList().map { it.trim() }
-                    .filter { it.isNotBlank() && it != NebulaGuardApplication.instance.packageName }
-                bypassPackages.forEach { packageName ->
-                    runCatching { builder.addDisallowedApplication(packageName) }
-                        .onFailure { Log.w(TAG, "Skip bypass package $packageName: ${it.message}") }
-                }
-                Log.d(TAG, "Per-app proxy mode=BYPASS_VPN, packages=${bypassPackages.size}")
-            }
-
-            2 -> {
-                // Только выбранные приложения идут через VPN.
-                val vpnOnlyPackages = prefs.getAppVpnOnlyList().map { it.trim() }
-                    .filter { it.isNotBlank() && it != NebulaGuardApplication.instance.packageName }
-                vpnOnlyPackages.forEach { packageName ->
-                    runCatching { builder.addAllowedApplication(packageName) }
-                        .onFailure { Log.w(TAG, "Skip VPN-only package $packageName: ${it.message}") }
-                }
-                Log.d(TAG, "Per-app proxy mode=VPN_ONLY, packages=${vpnOnlyPackages.size}")
-            }
-        }
     }
 
     private fun ensureXrayDatAssets(context: Context, datDir: File) {

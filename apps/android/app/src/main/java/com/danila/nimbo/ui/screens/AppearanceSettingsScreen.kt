@@ -210,7 +210,7 @@ fun AppearanceSettingsScreen(
                 Spacer(Modifier.height(20.dp))
 
                 // АКЦЕНТНЫЙ ЦВЕТ
-                GlassSection(title = "Акцентный цвет", icon = Icons.Default.ColorLens) {
+                GlassSection(title = "Цвет фона и акцент", icon = Icons.Default.ColorLens) {
                     val colors = listOf(
                         Triple(AccentPurple, "Фиолетовый", "Стильный и современный"),
                         Triple(AccentBlue, "Голубой Nimbo", "Фирменный цвет сайта"),
@@ -628,10 +628,16 @@ fun AppearanceSettingsScreen(
                     )
 
                     Text(
-                        text = "Стиль фона",
+                        text = "Анимация фона",
                         color = nebulaColors.textSecondary,
                         fontSize = 13.sp,
                         modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 2.dp)
+                    )
+                    Text(
+                        text = "Цвет и градиент задаются палитрой выше. Здесь выбирается только движущийся слой поверх них.",
+                        color = nebulaColors.textTertiary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
                     )
                     VisualStyleSelector(
                         selectedStyle = backgroundStyle,
@@ -639,7 +645,7 @@ fun AppearanceSettingsScreen(
                         onSelect = { backgroundStyle = it }
                     )
                     StylePreviewCard(
-                        title = "Превью фона",
+                        title = "Превью анимации",
                         style = backgroundStyle,
                         isBackgroundPreview = true
                     )
@@ -1308,21 +1314,22 @@ private fun VisualStyleSelector(
 }
 
 private fun backgroundStyleOptions(): List<Pair<Int, String>> = listOf(
-    0 to "Liquid Glass Aura",
-    1 to "Material 3",
-    2 to "Nothing Dots",
-    3 to "Aurora",
-    4 to "Grid",
-    5 to "Mesh",
-    6 to "Waves",
-    7 to "Starfield",
-    8 to "Cyberpunk",
-    9 to "Deep Space",
-    10 to "Fire",
-    11 to "Lava",
-    12 to "Neon",
-    13 to "Nordic",
-    14 to "Blossom"
+    0 to "Круги",
+    1 to "Кольца",
+    2 to "Точки",
+    3 to "Аврора",
+    4 to "Сетка",
+    5 to "Формы",
+    6 to "Волны",
+    7 to "Снег",
+    8 to "Неон",
+    9 to "Космос",
+    10 to "Огонь",
+    11 to "Лава",
+    12 to "Неон+",
+    13 to "Север",
+    14 to "Цветение",
+    15 to "Нет"
 )
 
 private fun elementStyleOptions(): List<Pair<Int, String>> = listOf(
@@ -1364,7 +1371,7 @@ private fun stylePresets(): List<StylePreset> = listOf(
         elementStyle = 1,
         gradientEnabled = false,
         glowEnabled = false,
-        backgroundAnimationEnabled = false,
+        backgroundAnimationEnabled = true,
         highContrastEnabled = true,
         reducedTransparencyEnabled = true
     ),
@@ -1419,7 +1426,7 @@ private fun stylePresets(): List<StylePreset> = listOf(
         elementStyle = 2,
         gradientEnabled = false,
         glowEnabled = false,
-        backgroundAnimationEnabled = false,
+        backgroundAnimationEnabled = true,
         highContrastEnabled = true,
         reducedTransparencyEnabled = true
     )
@@ -1479,6 +1486,12 @@ private fun StylePreviewCard(
     isBackgroundPreview: Boolean
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val previewShape = when {
+        isBackgroundPreview && style == 4 -> RoundedCornerShape(8.dp)
+        !isBackgroundPreview && style == 2 -> RoundedCornerShape(8.dp)
+        !isBackgroundPreview && style == 3 -> RoundedCornerShape(6.dp)
+        else -> RoundedCornerShape(12.dp)
+    }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1494,61 +1507,53 @@ private fun StylePreviewCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(60.dp)
-                    .clip(
-                        when {
-                            isBackgroundPreview && style == 4 -> RoundedCornerShape(8.dp)
-                            !isBackgroundPreview && style == 2 -> RoundedCornerShape(8.dp)
-                            !isBackgroundPreview && style == 3 -> RoundedCornerShape(6.dp)
-                            else -> RoundedCornerShape(12.dp)
-                        }
-                    )
-                    .background(
-                        when {
-                            isBackgroundPreview && style == 0 -> Brush.radialGradient(
-                                listOf(nebulaColors.accent.copy(alpha = 0.35f), Color.Transparent)
-                            )
-                            isBackgroundPreview && style == 1 -> Brush.verticalGradient(
-                                listOf(nebulaColors.primaryGradientStart.copy(alpha = 0.28f), Color.Transparent)
-                            )
-                            isBackgroundPreview && style == 2 -> Brush.linearGradient(
-                                listOf(nebulaColors.surface.copy(alpha = 0.8f), nebulaColors.surface.copy(alpha = 0.7f))
-                            )
-                            isBackgroundPreview && style == 3 -> Brush.linearGradient(
-                                listOf(nebulaColors.primaryGradientStart.copy(alpha = 0.3f), nebulaColors.primaryGradientEnd.copy(alpha = 0.25f))
-                            )
-                            isBackgroundPreview && style == 4 -> Brush.linearGradient(
-                                listOf(nebulaColors.surface.copy(alpha = 0.7f), nebulaColors.primaryGradientMiddle.copy(alpha = 0.2f))
-                            )
-                            !isBackgroundPreview && style == 1 -> Brush.verticalGradient(
-                                listOf(nebulaColors.surface.copy(alpha = 0.95f), nebulaColors.surface.copy(alpha = 0.78f))
-                            )
-                            !isBackgroundPreview && style == 2 -> Brush.linearGradient(
-                                listOf(nebulaColors.surface.copy(alpha = 0.9f), nebulaColors.surface.copy(alpha = 0.75f))
-                            )
-                            !isBackgroundPreview && style == 3 -> Brush.linearGradient(
-                                listOf(Color.Transparent, Color.Transparent)
-                            )
-                            !isBackgroundPreview && style == 4 -> Brush.linearGradient(
-                                listOf(nebulaColors.onSurface.copy(alpha = 0.1f), nebulaColors.surface.copy(alpha = 0.7f))
-                            )
-                            else -> Brush.linearGradient(
-                                listOf(nebulaColors.textPrimary.copy(alpha = 0.1f), nebulaColors.textPrimary.copy(alpha = 0.04f))
-                            )
-                        }
-                    )
-                    .then(
-                        if (style == 2) Modifier.dotPatternOverlay(nebulaColors.textPrimary, spacing = 10.dp, radius = 0.9.dp, alpha = 0.16f)
-                        else Modifier
-                    )
+                    .clip(previewShape)
                     .border(
                         1.dp,
                         when {
                             !isBackgroundPreview && style == 3 -> nebulaColors.onSurface.copy(alpha = 0.26f)
                             else -> nebulaColors.onSurface.copy(alpha = 0.14f)
                         },
-                        RoundedCornerShape(12.dp)
+                        previewShape
                     )
-            )
+            ) {
+                if (isBackgroundPreview) {
+                    // Show the same real renderer as the full-screen background
+                    // so every preset is visibly alive while it is being chosen.
+                    AnimatedGradientBackground(
+                        modifier = Modifier.matchParentSize(),
+                        styleOverride = backgroundStyleModeForIndex(style)
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                when {
+                                    style == 1 -> Brush.verticalGradient(
+                                listOf(nebulaColors.surface.copy(alpha = 0.95f), nebulaColors.surface.copy(alpha = 0.78f))
+                            )
+                                    style == 2 -> Brush.linearGradient(
+                                listOf(nebulaColors.surface.copy(alpha = 0.9f), nebulaColors.surface.copy(alpha = 0.75f))
+                            )
+                                    style == 3 -> Brush.linearGradient(
+                                listOf(Color.Transparent, Color.Transparent)
+                            )
+                                    style == 4 -> Brush.linearGradient(
+                                listOf(nebulaColors.onSurface.copy(alpha = 0.1f), nebulaColors.surface.copy(alpha = 0.7f))
+                            )
+                                    else -> Brush.linearGradient(
+                                listOf(nebulaColors.textPrimary.copy(alpha = 0.1f), nebulaColors.textPrimary.copy(alpha = 0.04f))
+                            )
+                                }
+                            )
+                            .then(
+                                if (style == 2) Modifier.dotPatternOverlay(nebulaColors.textPrimary, spacing = 10.dp, radius = 0.9.dp, alpha = 0.16f)
+                                else Modifier
+                            )
+                    )
+                }
+            }
         }
     }
 }

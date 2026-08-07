@@ -40,12 +40,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.danila.nimbo.model.UpdateInfo
+import com.danila.nimbo.model.UpdateChannel
 import com.danila.nimbo.model.UpdateKind
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.screens.MarkdownChangelog
 import com.danila.nimbo.ui.screens.UpdateUiText
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun UpdateDialog(
     updateInfo: UpdateInfo,
@@ -54,6 +56,12 @@ fun UpdateDialog(
 ) {
     val colors = LocalNebulaColors.current
     val language = LocalConfiguration.current.locales[0].language
+    val displayVersion = remember(updateInfo.versionName, language) {
+        UpdateUiText.versionLabel(updateInfo.versionName, language)
+    }
+    val releaseDate = remember(updateInfo.assetUpdatedAt, updateInfo.publishDate, language) {
+        UpdateUiText.releaseDate(updateInfo.assetUpdatedAt ?: updateInfo.publishDate, language)
+    }
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
 
@@ -116,7 +124,7 @@ fun UpdateDialog(
                         Column(Modifier.weight(1f)) {
                             Text(
                                 if (updateInfo.kind == UpdateKind.REPAIR) {
-                                    t("Исправление версии", "Version repair")
+                                    t("Дополнительное обновление", "Additional update")
                                 } else {
                                     t("Доступно обновление", "Update available")
                                 },
@@ -125,18 +133,34 @@ fun UpdateDialog(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                "Nimbo v${updateInfo.versionName.removePrefix("v")}",
+                                "Nimbo $displayVersion",
                                 color = colors.textSecondary,
                                 style = MaterialTheme.typography.bodyMedium
                             )
+                            releaseDate?.let { date ->
+                                Text(
+                                    date,
+                                    color = colors.textTertiary,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
                         }
                     }
 
                     Spacer(Modifier.height(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         DialogChip(
                             icon = { Icon(Icons.Default.Android, null, Modifier.size(15.dp)) },
                             text = "Android"
+                        )
+                        DialogChip(
+                            text = when (updateInfo.channel) {
+                                UpdateChannel.STABLE -> t("Стабильный", "Stable")
+                                UpdateChannel.BETA -> t("Бета", "Beta")
+                            }
                         )
                         if (updateInfo.fileSize > 0L) {
                             DialogChip(text = UpdateUiText.fileSize(updateInfo.fileSize, language))

@@ -89,78 +89,87 @@ object UpdateManager {
     val downloadError = _downloadError.asStateFlow()
 
     /** Checks the selected stable/beta channel and compares the exact release asset. */
-    suspend fun checkUpdate(context: Context): UpdateInfo? = withContext(Dispatchers.IO) {
-        try {
-            val prefs = PreferencesManager(context)
-            val channel = prefs.updateChannel
-            val releases = fetchReleaseMaps()
-            val candidate = releases
-                .asSequence()
-                .mapNotNull { parseReleaseCandidate(it, Build.SUPPORTED_ABIS.toList()) }
-                .filter { UpdatePolicy.acceptsChannel(it, channel) }
-                .maxWithOrNull { left, right -> UpdatePolicy.compareVersions(left.tagName, right.tagName) }
-                ?: return@withContext null
+    suspend fun checkUpdate(context: Context): UpdateInfo? = try {
+        checkUpdateOrThrow(context)
+    } catch (e: Exception) {
+        Log.e(TAG, "Update check failed via GitHub API", e)
+        null
+    }
 
-            if (prefs.installedUpdateArtifactId == null && candidate.asset.sha256 != null) {
-                val installedApk = File(context.applicationInfo.sourceDir)
-                val installedDigest = installedApk.takeIf(File::isFile)?.let(::sha256)
-                val matchingIdentity = installedDigest?.let {
-                    UpdatePolicy.matchingInstalledArtifact(BuildConfig.VERSION_NAME, it, candidate)
-                }
-                if (matchingIdentity != null) {
-                    prefs.installedUpdateArtifactId = matchingIdentity
-                    Log.i(TAG, "Bootstrapped installed artifact identity from APK digest")
-                    return@withContext null
-                }
+    /** Background entry point: network/server failures must reach WorkManager for retry. */
+    internal suspend fun checkUpdateInBackground(context: Context): UpdateInfo? =
+        checkUpdateOrThrow(context)
+
+    private suspend fun checkUpdateOrThrow(context: Context): UpdateInfo? = withContext(Dispatchers.IO) {
+        val prefs = PreferencesManager(context)
+        val channel = prefs.updateChannel
+        val releases = fetchReleaseMaps()
+        val candidate = releases
+            .asSequence()
+            .mapNotNull { parseReleaseCandidate(it, Build.SUPPORTED_ABIS.toList()) }
+            .filter { UpdatePolicy.acceptsChannel(it, channel) }
+            .maxWithOrNull { left, right -> UpdatePolicy.compareVersions(left.tagName, right.tagName) }
+            ?: return@withContext null
+
+        if (prefs.installedUpdateArtifactId == null && candidate.asset.sha256 != null) {
+            val installedApk = File(context.applicationInfo.sourceDir)
+            val installedDigest = installedApk.takeIf(File::isFile)?.let(::sha256)
+            val matchingIdentity = installedDigest?.let {
+                UpdatePolicy.matchingInstalledArtifact(BuildConfig.VERSION_NAME, it, candidate)
             }
-
-            val kind = UpdatePolicy.decide(
-                currentVersion = BuildConfig.VERSION_NAME,
-                currentCode = BuildConfig.VERSION_CODE,
-                installedArtifactId = prefs.installedUpdateArtifactId,
-                candidate = candidate
-            ) ?: return@withContext null
-
-            val filteredNotes = releaseNotesForAndroid(candidate.releaseBody)
-            val isEnglish = prefs.appLanguage == "en"
-            val bundledNotes = BundledReleaseNotes.forVersion(candidate.tagName, isEnglish)
-            val notesSource = filteredNotes.ifBlank { bundledNotes.orEmpty() }
-            val commitMessage = if (notesSource.isBlank()) fetchCommitMessage(candidate.tagName) else null
-            val notes = UpdatePolicy.changelog(notesSource, kind, commitMessage, isEnglish)
-
-            Log.d(
-                TAG,
-                "Update found: channel=$channel tag=${candidate.tagName} kind=$kind " +
-                    "asset=${candidate.asset.id} updated=${candidate.asset.updatedAt}"
-            )
-
-            UpdateInfo(
-                versionCode = candidate.versionCode ?: 0,
-                versionName = candidate.tagName,
-                downloadUrl = candidate.asset.downloadUrl,
-                changelog = notes,
-                publishDate = candidate.publishedAt,
-                fileSize = candidate.asset.size,
-                channel = channel,
-                kind = kind,
-                artifactId = candidate.artifactIdentity,
-                assetId = candidate.asset.id,
-                assetName = candidate.asset.name,
-                assetUpdatedAt = candidate.asset.updatedAt,
-                sha256 = candidate.asset.sha256,
-                releaseUrl = candidate.releaseUrl
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Update check failed via GitHub API", e)
-            null
+            if (matchingIdentity != null) {
+                prefs.installedUpdateArtifactId = matchingIdentity
+                Log.i(TAG, "Bootstrapped installed artifact identity from APK digest")
+                return@withContext null
+            }
         }
+
+        val kind = UpdatePolicy.decide(
+            currentVersion = BuildConfig.VERSION_NAME,
+            currentCode = BuildConfig.VERSION_CODE,
+            installedArtifactId = prefs.installedUpdateArtifactId,
+            candidate = candidate
+        ) ?: return@withContext null
+
+        val filteredNotes = releaseNotesForAndroid(candidate.releaseBody)
+        val isEnglish = prefs.appLanguage == "en"
+        val bundledNotes = BundledReleaseNotes.forVersion(candidate.tagName, isEnglish)
+        val notesSource = filteredNotes.ifBlank { bundledNotes.orEmpty() }
+        val commitMessage = if (notesSource.isBlank()) fetchCommitMessage(candidate.tagName) else null
+        val notes = UpdatePolicy.changelog(notesSource, kind, commitMessage, isEnglish)
+
+        Log.d(
+            TAG,
+            "Update found: channel=$channel tag=${candidate.tagName} kind=$kind " +
+                "asset=${candidate.asset.id} updated=${candidate.asset.updatedAt}"
+        )
+
+        UpdateInfo(
+            versionCode = candidate.versionCode ?: 0,
+            versionName = candidate.tagName,
+            downloadUrl = candidate.asset.downloadUrl,
+            changelog = notes,
+            publishDate = candidate.publishedAt,
+            fileSize = candidate.asset.size,
+            channel = channel,
+            kind = kind,
+            artifactId = candidate.artifactIdentity,
+            assetId = candidate.asset.id,
+            assetName = candidate.asset.name,
+            assetUpdatedAt = candidate.asset.updatedAt,
+            sha256 = candidate.asset.sha256,
+            releaseUrl = candidate.releaseUrl
+        )
     }
 
     /** Compatibility entry point for older callers; new code should pass its Context explicitly. */
     suspend fun checkUpdate(): UpdateInfo? = checkUpdate(NebulaGuardApplication.instance)
 
     private fun fetchReleaseMaps(): List<Map<String, Any?>> {
-        val request = githubRequest(RELEASES_API_URL)
+        // GitHub assets can be deleted and uploaded again without changing the
+        // tag. A cache-buster keeps a proxy/CDN from returning the previous
+        // asset id, digest and updated_at for that same release.
+        val request = githubRequest("$RELEASES_API_URL&_=${System.currentTimeMillis()}")
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IllegalStateException("GitHub releases request failed: HTTP ${response.code}")
@@ -188,7 +197,8 @@ object UpdateManager {
         .url(url)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("Cache-Control", "no-cache")
+        .header("Cache-Control", "no-cache, no-store")
+        .header("Pragma", "no-cache")
         .header("User-Agent", "Nimbo-Android/${BuildConfig.VERSION_NAME}")
         .build()
 
@@ -393,6 +403,9 @@ object UpdateManager {
             .any(value::contains)
     }
 
+    private fun channelForTag(tag: String): UpdateChannel =
+        if (tag.contains("beta", ignoreCase = true)) UpdateChannel.BETA else UpdateChannel.STABLE
+
     /** Gets release notes for the currently installed tag. */
     suspend fun getReleaseInfoForTag(tag: String): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
@@ -413,7 +426,8 @@ object UpdateManager {
                         BundledReleaseNotes.forVersion(tagName, isEnglish).orEmpty()
                     },
                     publishDate = release["published_at"] as? String,
-                    releaseUrl = release["html_url"] as? String
+                    releaseUrl = release["html_url"] as? String,
+                    channel = channelForTag(tagName)
                 )
             }
         } catch (e: Exception) {
@@ -424,7 +438,8 @@ object UpdateManager {
                     versionCode = BuildConfig.VERSION_CODE,
                     versionName = tag,
                     downloadUrl = "",
-                    changelog = notes
+                    changelog = notes,
+                    channel = channelForTag(tag)
                 )
             }
         }
@@ -787,28 +802,35 @@ object UpdateManager {
     fun showUpdateNotification(context: Context, updateInfo: UpdateInfo): Boolean {
         val prefs = PreferencesManager(context)
         val identity = updateInfo.artifactId.ifBlank { normalizedVersionTag(updateInfo.versionName) }
-        if (prefs.lastUpdateNotifiedArtifactId == identity) {
-            Log.d(TAG, "Already notified about artifact $identity. Skipping.")
+        val now = System.currentTimeMillis()
+        if (!UpdateNotificationPolicy.shouldPost(
+                identity = identity,
+                lastIdentity = prefs.lastUpdateNotifiedArtifactId,
+                kind = updateInfo.kind,
+                lastNotifiedAt = prefs.lastUpdateNotificationTime,
+                now = now
+            )
+        ) {
+            Log.d(TAG, "Artifact notification is not due yet. Skipping.")
             return true
         }
 
         val isEnglish = prefs.appLanguage == "en"
         val displayVersion = "v${normalizedVersionTag(updateInfo.versionName)}"
         val title = when {
-            updateInfo.kind == UpdateKind.REPAIR && isEnglish -> "Version repair available"
-            updateInfo.kind == UpdateKind.REPAIR -> "Доступно исправление версии"
+            updateInfo.kind == UpdateKind.REPAIR && isEnglish -> "Additional update available"
+            updateInfo.kind == UpdateKind.REPAIR -> "Доступно дополнительное обновление"
             isEnglish -> "Update available"
             else -> "Доступно обновление"
         }
         val updatedDate = formatAssetDate(updateInfo.assetUpdatedAt)
-        val summary = notificationSummary(updateInfo.changelog.orEmpty()).ifBlank {
-            if (isEnglish) "Bug fixes and stability improvements." else "Исправления ошибок и стабильности."
-        }
         val content = when {
             updateInfo.kind == UpdateKind.REPAIR && isEnglish ->
-                "$displayVersion was republished${updatedDate?.let { " on $it" }.orEmpty()}. $summary"
+                "An additional update for Nimbo $displayVersion was released" +
+                    "${updatedDate?.let { " on $it" }.orEmpty()} with fixes and improvements. Tap to install."
             updateInfo.kind == UpdateKind.REPAIR ->
-                "Версия $displayVersion опубликована повторно${updatedDate?.let { " $it" }.orEmpty()}. $summary"
+                "Для Nimbo $displayVersion выпущено дополнительное обновление" +
+                    "${updatedDate?.let { " от $it" }.orEmpty()} с исправлениями и улучшениями. Нажмите, чтобы установить."
             isEnglish -> "$displayVersion is available. Tap to see what's new."
             else -> "Версия $displayVersion доступна. Нажмите, чтобы узнать, что нового."
         }
@@ -867,12 +889,17 @@ object UpdateManager {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setOnlyAlertOnce(true)
+            // The same notification slot replaces an obsolete card, but a newly
+            // uploaded artifact must still make sound/vibration instead of being
+            // silently folded into the old release notification.
+            .setOnlyAlertOnce(false)
+            .setWhen(now)
+            .setShowWhen(true)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .addAction(
                 R.drawable.icon_notification_nimbo_blue,
-                if (isEnglish) "View" else "Посмотреть",
+                if (isEnglish) "Update" else "Обновить",
                 pendingIntent
             )
             .build()
@@ -882,7 +909,7 @@ object UpdateManager {
         prefs.lastUpdateNotifiedArtifactId = identity
         prefs.lastUpdateNotifiedVersion = normalizedVersionTag(updateInfo.versionName)
         prefs.updateNotificationCount = 1
-        prefs.lastUpdateNotificationTime = System.currentTimeMillis()
+        prefs.lastUpdateNotificationTime = now
         return true
     }
 

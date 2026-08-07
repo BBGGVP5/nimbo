@@ -37,3 +37,9 @@ ui-template/
 # Local agent workspaces
 .claude/
 .codex-logs/
+# Local agent workspaces (продолжение)
+.supergoal/
+
+# Артефакт сборки Linux-инсталлятора: cargo однажды развернул CARGO_TARGET_DIR
+# внутрь исходников. Это build output, а не код.
+apps/installer/src-tauri/C*Users*/

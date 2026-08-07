@@ -40,17 +40,30 @@ import com.danila.nimbo.network.UpdateManager
 import com.danila.nimbo.network.UpdateDownloadProgress
 import com.danila.nimbo.network.UpdateDownloadStage
 import com.danila.nimbo.ui.components.ExpressiveCircularLoader
+import com.danila.nimbo.ui.components.LiquidGlassDepth
+import com.danila.nimbo.ui.components.liquidGlassSurface
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.theme.*
 import kotlinx.coroutines.launch
 
 import android.app.Application
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
+import androidx.compose.foundation.Canvas
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.luminance
+import kotlin.math.cos
+import kotlin.math.sin
 import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.ui.components.SettingsSwitch
 import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 @Composable
 fun UpdateScreen(onBack: () -> Unit) {
@@ -67,22 +80,30 @@ internal fun ColumnScope.UpdatesSettingsContent() {
     val application = context.applicationContext as Application
     val preferencesManager = remember { PreferencesManager(application) }
     val scope = rememberCoroutineScope()
+    val installedAtIso = remember(context) {
+        runCatching {
+            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            Instant.ofEpochMilli(packageInfo.lastUpdateTime).toString()
+        }.getOrNull()
+    }
 
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var currentInfo by remember {
         mutableStateOf(
-            preferencesManager.lastInstalledUpdateChangelog
-                ?.takeIf { it.isNotBlank() }
-                ?.let { changelog ->
-                    UpdateInfo(
-                        versionCode = BuildConfig.VERSION_CODE,
-                        versionName = preferencesManager.lastInstalledUpdateVersion
-                            ?: BuildConfig.VERSION_NAME,
-                        changelog = changelog,
-                        downloadUrl = "",
-                        releaseUrl = preferencesManager.lastInstalledUpdateReleaseUrl.orEmpty()
-                    )
-                }
+            UpdateInfo(
+                versionCode = BuildConfig.VERSION_CODE,
+                versionName = preferencesManager.lastInstalledUpdateVersion
+                    ?: BuildConfig.VERSION_NAME,
+                changelog = preferencesManager.lastInstalledUpdateChangelog.orEmpty(),
+                downloadUrl = "",
+                publishDate = installedAtIso,
+                channel = if (BuildConfig.VERSION_NAME.contains("beta", ignoreCase = true)) {
+                    UpdateChannel.BETA
+                } else {
+                    UpdateChannel.STABLE
+                },
+                releaseUrl = preferencesManager.lastInstalledUpdateReleaseUrl.orEmpty()
+            )
         )
     }
     var isChecking by remember { mutableStateOf(false) }
@@ -144,6 +165,13 @@ internal fun ColumnScope.UpdatesSettingsContent() {
 
         Spacer(Modifier.height(24.dp))
 
+        SubPageSectionHeader(t("История изменений", "Changelog"), icon = Icons.Default.History)
+        Spacer(Modifier.height(8.dp))
+        NimboGlassSection {
+            UpdateHistoryCard(currentInfo = currentInfo)
+        }
+        Spacer(Modifier.height(24.dp))
+
         SubPageSectionHeader(t("Настройки", "Settings"), icon = Icons.Default.Settings)
         Spacer(Modifier.height(8.dp))
         NimboGlassSection {
@@ -165,7 +193,10 @@ internal fun ColumnScope.UpdatesSettingsContent() {
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
                             Text(
                                 t("Канал обновлений", "Update channel"),
                                 color = nebulaColors.textPrimary,
@@ -181,91 +212,18 @@ internal fun ColumnScope.UpdatesSettingsContent() {
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    var channelMenuExpanded by remember { mutableStateOf(false) }
-                    Box(Modifier.fillMaxWidth()) {
-                        val channelLabel = when (updateChannel) {
-                            UpdateChannel.STABLE -> t("Стабильный", "Stable")
-                            UpdateChannel.BETA -> t("Бета", "Beta")
-                        }
-                        val channelShape = RoundedCornerShape(18.dp)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(channelShape)
-                                .background(
-                                    if (channelMenuExpanded) {
-                                        nebulaColors.accent.copy(alpha = 0.10f)
-                                    } else {
-                                        nebulaColors.textPrimary.copy(alpha = 0.035f)
-                                    }
-                                )
-                                .border(
-                                    width = if (channelMenuExpanded) 2.dp else 1.dp,
-                                    color = if (channelMenuExpanded) {
-                                        nebulaColors.accent
-                                    } else {
-                                        nebulaColors.textPrimary.copy(alpha = 0.16f)
-                                    },
-                                    shape = channelShape
-                                )
-                                .clickable { channelMenuExpanded = true }
-                                .padding(horizontal = 18.dp, vertical = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.Update,
-                                contentDescription = null,
-                                tint = nebulaColors.accent
-                            )
-                            Spacer(Modifier.width(14.dp))
-                            Text(
-                                text = channelLabel,
-                                color = nebulaColors.textPrimary,
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Icon(
-                                Icons.Default.KeyboardArrowDown,
-                                contentDescription = t("Выбрать канал", "Choose channel"),
-                                tint = nebulaColors.textSecondary,
-                                modifier = Modifier.rotate(if (channelMenuExpanded) 180f else 0f)
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = channelMenuExpanded,
-                            onDismissRequest = { channelMenuExpanded = false },
-                            containerColor = nebulaColors.surface,
-                            shape = RoundedCornerShape(18.dp),
-                            modifier = Modifier.widthIn(min = 240.dp)
-                        ) {
-                            UpdateChannel.entries.forEach { channel ->
-                                val label = when (channel) {
-                                    UpdateChannel.STABLE -> t("Стабильный", "Stable")
-                                    UpdateChannel.BETA -> t("Бета", "Beta")
+                        Spacer(Modifier.width(12.dp))
+                        UpdateChannelPicker(
+                            value = updateChannel,
+                            onValueChange = { channel ->
+                                if (updateChannel != channel) {
+                                    updateChannel = channel
+                                    preferencesManager.updateChannel = channel
+                                    preferencesManager.lastUpdateCheckTime = 0L
+                                    scope.launch { refreshData() }
                                 }
-                                DropdownMenuItem(
-                                    text = { Text(label) },
-                                    leadingIcon = {
-                                        Icon(
-                                            if (channel == updateChannel) Icons.Default.Check else Icons.Default.Update,
-                                            null,
-                                            tint = if (channel == updateChannel) nebulaColors.accent else nebulaColors.textSecondary
-                                        )
-                                    },
-                                    onClick = {
-                                        channelMenuExpanded = false
-                                        if (updateChannel != channel) {
-                                            updateChannel = channel
-                                            preferencesManager.updateChannel = channel
-                                            preferencesManager.lastUpdateCheckTime = 0L
-                                            scope.launch { refreshData() }
-                                        }
-                                    }
-                                )
                             }
-                        }
+                        )
                     }
                 }
                 HorizontalDivider(color = nebulaColors.textPrimary.copy(alpha = 0.08f))
@@ -301,22 +259,165 @@ internal fun ColumnScope.UpdatesSettingsContent() {
         Spacer(Modifier.height(8.dp))
         NimboGlassSection { SystemInfoBlock() }
 
-        if (currentInfo?.changelog?.isNotBlank() == true) {
-            Spacer(Modifier.height(24.dp))
-            SubPageSectionHeader(t("История изменений", "Changelog"), icon = Icons.Default.History)
-            Spacer(Modifier.height(8.dp))
-            NimboGlassSection {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    MarkdownChangelog(
-                        content = currentInfo?.changelog ?: "",
-                        color = nebulaColors.textSecondary,
-                        itemAlignment = Alignment.Start
-                    )
-                }
+        Spacer(Modifier.height(24.dp))
+}
+
+@Composable
+private fun UpdateChannelPicker(
+    value: UpdateChannel,
+    onValueChange: (UpdateChannel) -> Unit
+) {
+    val colors = LocalNebulaColors.current
+    var expanded by remember { mutableStateOf(false) }
+    val width = 154.dp
+    val shape = RoundedCornerShape(15.dp)
+    val label: @Composable (UpdateChannel) -> String = { channel ->
+        when (channel) {
+            UpdateChannel.STABLE -> t("Стабильный", "Stable")
+            UpdateChannel.BETA -> t("Бета", "Beta")
+        }
+    }
+
+    Box(modifier = Modifier.width(width)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(
+                    if (expanded) colors.accent.copy(alpha = 0.14f)
+                    else colors.textPrimary.copy(alpha = 0.045f)
+                )
+                .border(
+                    width = if (expanded) 1.5.dp else 1.dp,
+                    color = if (expanded) colors.accent else colors.textPrimary.copy(alpha = 0.15f),
+                    shape = shape
+                )
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 13.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label(value),
+                color = colors.textPrimary,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+                maxLines = 1
+            )
+            Icon(
+                Icons.Default.KeyboardArrowDown,
+                contentDescription = t("Выбрать канал", "Choose channel"),
+                tint = colors.textSecondary,
+                modifier = Modifier
+                    .size(19.dp)
+                    .rotate(if (expanded) 180f else 0f)
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = colors.surface,
+            shape = RoundedCornerShape(15.dp),
+            modifier = Modifier.width(width)
+        ) {
+            UpdateChannel.entries.forEach { channel ->
+                val selected = channel == value
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = label(channel),
+                            color = if (selected) colors.accent else colors.textPrimary,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    },
+                    onClick = {
+                        expanded = false
+                        onValueChange(channel)
+                    },
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)
+                )
             }
         }
+    }
+}
 
-        Spacer(Modifier.height(24.dp))
+@Composable
+private fun UpdateHistoryCard(currentInfo: UpdateInfo) {
+    val colors = LocalNebulaColors.current
+    val language = LocalConfiguration.current.locales[0].language
+    val date = UpdateUiText.releaseDate(
+        currentInfo.publishDate ?: currentInfo.assetUpdatedAt,
+        language
+    ) ?: t("Дата обновления недоступна", "Update date unavailable")
+    val channel = when (currentInfo.channel) {
+        UpdateChannel.STABLE -> t("Стабильный канал", "Stable channel")
+        UpdateChannel.BETA -> t("Бета-канал", "Beta channel")
+    }
+
+    Column(modifier = Modifier.padding(20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(colors.accent.copy(alpha = 0.14f))
+                    .border(1.dp, colors.accent.copy(alpha = 0.28f), RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.History, null, tint = colors.accent, modifier = Modifier.size(24.dp))
+            }
+            Spacer(Modifier.width(13.dp))
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    text = UpdateUiText.versionLabel(currentInfo.versionName, language),
+                    color = colors.textPrimary,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = date,
+                    color = colors.textSecondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+        Spacer(Modifier.height(13.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            UpdateInfoChip(t("Android", "Android"))
+            UpdateInfoChip(channel)
+        }
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(color = colors.textPrimary.copy(alpha = 0.08f))
+        Spacer(Modifier.height(16.dp))
+        MarkdownChangelog(
+            content = currentInfo.changelog?.takeIf { it.isNotBlank() }
+                ?: t(
+                    "Для этой установки подробный список изменений не сохранён.",
+                    "Detailed release notes were not saved for this installation."
+                ),
+            color = colors.textSecondary,
+            itemAlignment = Alignment.Start
+        )
+    }
+}
+
+@Composable
+private fun UpdateInfoChip(text: String) {
+    val colors = LocalNebulaColors.current
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(colors.accent.copy(alpha = 0.11f))
+            .border(1.dp, colors.accent.copy(alpha = 0.22f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text = text,
+            color = colors.accent,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
 }
 
 @Composable
@@ -324,36 +425,26 @@ private fun NimboGlassSection(content: @Composable () -> Unit) {
     val nebulaColors = LocalNebulaColors.current
     val reducedTransparency = LocalReducedTransparencyEnabled.current
     val shape = RoundedCornerShape(18.dp)
+    val surfaceModifier = if (nebulaColors.isLiquidGlass) {
+        Modifier.liquidGlassSurface(
+            shape = shape,
+            depth = LiquidGlassDepth.PANEL,
+            interactive = false
+        )
+    } else {
+        Modifier
+            .clip(shape)
+            .background(
+                if (reducedTransparency) nebulaColors.surface
+                else nebulaColors.surface.copy(alpha = 0.94f)
+            )
+            .border(1.dp, nebulaColors.textPrimary.copy(alpha = 0.10f), shape)
+    }
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        nebulaColors.surface,
-                        nebulaColors.surface.copy(alpha = if (reducedTransparency) 1f else 0.92f)
-                    )
-                )
-            )
-            .border(1.dp, nebulaColors.textPrimary.copy(alpha = 0.10f), shape)
+            .then(surfaceModifier)
     ) {
-        if (!reducedTransparency) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(shape)
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                nebulaColors.accent.copy(alpha = 0.09f),
-                                Color.Transparent,
-                                nebulaColors.textPrimary.copy(alpha = 0.025f)
-                            )
-                        )
-                    )
-            )
-        }
         content()
     }
 }
@@ -373,7 +464,9 @@ private fun UpdateStatusCard(
     val nebulaColors = LocalNebulaColors.current
     val language = LocalConfiguration.current.locales[0].language
     NimboGlassSection {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Box {
+            UpdateStatusBackdrop(isChecking = isChecking, hasUpdate = hasUpdate)
+            Column(modifier = Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
@@ -404,7 +497,7 @@ private fun UpdateStatusCard(
                         text = when {
                             isChecking -> t("Проверяем обновления", "Checking for updates")
                             updateInfo?.kind == UpdateKind.REPAIR ->
-                                t("Исправление текущей версии", "Repair for current version")
+                                t("Дополнительное обновление", "Additional update")
                             hasUpdate -> t("Доступно обновление", "Update available")
                             else -> t("У вас последняя версия", "You're up to date")
                         },
@@ -468,7 +561,10 @@ private fun UpdateStatusCard(
                     )
                 }
 
-                val updatedAt = formatReleaseDate(updateInfo.assetUpdatedAt)
+                val updatedAt = UpdateUiText.releaseDate(
+                    updateInfo.assetUpdatedAt ?: updateInfo.publishDate,
+                    language
+                )
                 val channelLabel = when (updateInfo.channel) {
                     UpdateChannel.STABLE -> t("Стабильный", "Stable")
                     UpdateChannel.BETA -> t("Бета", "Beta")
@@ -599,7 +695,118 @@ private fun UpdateStatusCard(
                     onClick = if (hasUpdate) onInstall else onCheck
                 )
             }
+            }
         }
+    }
+}
+
+/**
+ * Живой фон карточки статуса обновления.
+ *
+ * Прежняя версия рисовала четыре линии с alpha 0.035–0.06 — на тёмной панели
+ * их не было видно вообще. Теперь это три слоя: дышащие пятна акцента,
+ * бегущие световые полосы и мягкое свечение сверху; плотность и скорость
+ * зависят от состояния, поэтому «Проверяем» ощущается быстрее, чем
+ * «У вас последняя версия».
+ *
+ * Фаза монотонно растёт от кадровых часов: у `infiniteRepeatable` на стыке
+ * 1 -> 0 полосы прыгали обратно заметным рывком.
+ */
+@Composable
+private fun UpdateStatusBackdrop(
+    isChecking: Boolean,
+    hasUpdate: Boolean
+) {
+    val colors = LocalNebulaColors.current
+    val animate = LocalBackgroundAnimationEnabled.current && !LocalReducedTransparencyEnabled.current
+    // Проверка — быстрое сканирование, найденное обновление — бодрее покоя.
+    val speed = when {
+        isChecking -> 2.6f
+        hasUpdate -> 1.5f
+        else -> 1f
+    }
+    val phaseState = remember { mutableFloatStateOf(0.38f) }
+    LaunchedEffect(animate, speed) {
+        if (!animate) {
+            phaseState.floatValue = 0.38f
+            return@LaunchedEffect
+        }
+        var startNanos = 0L
+        while (true) {
+            withInfiniteAnimationFrameNanos { now ->
+                if (startNanos == 0L) startNanos = now
+                phaseState.floatValue = 0.38f + (now - startNanos) / 1_000_000_000f / 6.4f * speed
+            }
+        }
+    }
+
+    val accent = colors.accent
+    val highlight = if (colors.background.luminance() > 0.5f) Color.Black else Color.White
+    // Найденное обновление подсвечиваем ярче: карточка должна тянуть взгляд.
+    val boost = if (hasUpdate) 1.35f else 1f
+
+    Canvas(Modifier.fillMaxSize()) {
+        val w = size.width
+        val h = size.height
+        if (w <= 0f || h <= 0f) return@Canvas
+        val phase = phaseState.floatValue
+        val twoPi = (Math.PI * 2.0).toFloat()
+
+        // 1. Дышащие пятна акцента.
+        repeat(3) { index ->
+            val local = phase * 0.55f + index * 0.31f
+            val radius = h * (0.85f + 0.25f * index)
+            val center = Offset(
+                x = w * (0.18f + 0.34f * index) + w * 0.10f * sin((local * twoPi).toDouble()).toFloat(),
+                y = h * (0.30f + 0.22f * (index % 2)) + h * 0.16f * cos((local * twoPi).toDouble()).toFloat()
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        accent.copy(alpha = 0.13f * boost),
+                        accent.copy(alpha = 0.04f * boost),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = radius
+                ),
+                radius = radius,
+                center = center
+            )
+        }
+
+        // 2. Бегущие полосы.
+        val segment = w * 0.34f
+        val travel = w + segment * 2f
+        repeat(4) { index ->
+            val local = ((phase + index * 0.27f) % 1f + 1f) % 1f
+            val startX = local * travel - segment
+            val y = h * (0.16f + index * 0.20f)
+            drawLine(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        accent.copy(alpha = (0.16f + index * 0.03f) * boost),
+                        Color.Transparent
+                    ),
+                    start = Offset(startX, y),
+                    end = Offset(startX + segment, y + h * 0.06f)
+                ),
+                start = Offset(startX, y),
+                end = Offset(startX + segment, y + h * 0.06f),
+                strokeWidth = (1.6f + index * 0.35f).dp.toPx(),
+                cap = StrokeCap.Round
+            )
+        }
+
+        // 3. Мягкое свечение по верхней кромке — даёт карточке объём без тени.
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(highlight.copy(alpha = 0.05f), Color.Transparent),
+                startY = 0f,
+                endY = h * 0.55f
+            )
+        )
     }
 }
 
@@ -648,14 +855,6 @@ private fun UpdateMetadataRow(
         }
     }
 }
-
-private fun formatReleaseDate(value: String?): String? = runCatching {
-    value?.takeIf(String::isNotBlank)?.let {
-        DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
-            .withZone(ZoneId.systemDefault())
-            .format(Instant.parse(it))
-    }
-}.getOrNull()
 
 @Composable
 private fun NimboUpdateButton(

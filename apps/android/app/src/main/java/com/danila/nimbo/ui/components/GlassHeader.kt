@@ -26,7 +26,8 @@ fun GlassHeader(
     iconColor: Color,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
-    actions: @Composable (RowScope.() -> Unit)? = null
+    actions: @Composable (RowScope.() -> Unit)? = null,
+    bordered: Boolean = true
 ) {
     val nebulaColors = LocalNebulaColors.current
     val elementStyle = LocalElementStyleMode.current
@@ -81,7 +82,7 @@ fun GlassHeader(
             .padding(top = 12.dp, bottom = 6.dp)
             .statusBarsPadding()
     val styledModifier = if (elementStyle == ElementStyleMode.LIQUID_GLASS) {
-        baseModifier.liquidGlassSurface(shape, LiquidGlassDepth.FLOATING)
+        baseModifier.liquidGlassSurface(shape, LiquidGlassDepth.FLOATING, showOutline = bordered)
     } else {
         baseModifier
             .clip(shape)

@@ -18,6 +18,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.danila.nimbo.ui.components.LiquidGlassTilt
 import com.danila.nimbo.ui.components.rememberLiquidGlassTilt
 
+/**
+ * Форма фоновой анимации. Отвечает ТОЛЬКО за движение/геометрию —
+ * цвет задаётся отдельно через [BackgroundPaletteMode].
+ */
 enum class BackgroundStyleMode {
     MORPHISM,
     MATERIAL3,
@@ -33,10 +37,95 @@ enum class BackgroundStyleMode {
     LAVA,
     NEON,
     NORDIC,
-    BLOSSOM
+    BLOSSOM,
+    NONE,
+    RAIN,
+    ORBIT
+}
+
+/**
+ * Палитра фона. Отвечает ТОЛЬКО за цвет — не влияет на то, какой эффект
+ * рисуется. `THEME` наследует акцент активной темы.
+ */
+enum class BackgroundPaletteMode {
+    THEME,
+    AURORA,
+    CYBER,
+    SPACE,
+    FIRE,
+    LAVA,
+    NEON,
+    NORDIC,
+    BLOSSOM,
+    OCEAN,
+    SUNSET,
+    FOREST
+}
+
+/**
+ * Индексы палитры сохраняются как есть; неизвестное значение падает в `THEME`,
+ * чтобы фон никогда не оставался без цвета.
+ */
+fun backgroundPaletteModeForIndex(index: Int): BackgroundPaletteMode = when (index) {
+    1 -> BackgroundPaletteMode.AURORA
+    2 -> BackgroundPaletteMode.CYBER
+    3 -> BackgroundPaletteMode.SPACE
+    4 -> BackgroundPaletteMode.FIRE
+    5 -> BackgroundPaletteMode.LAVA
+    6 -> BackgroundPaletteMode.NEON
+    7 -> BackgroundPaletteMode.NORDIC
+    8 -> BackgroundPaletteMode.BLOSSOM
+    9 -> BackgroundPaletteMode.OCEAN
+    10 -> BackgroundPaletteMode.SUNSET
+    11 -> BackgroundPaletteMode.FOREST
+    else -> BackgroundPaletteMode.THEME
+}
+
+/**
+ * Палитра, которую по умолчанию подставляем пользователям, обновившимся со
+ * старой сборки: там цвет фона был «зашит» в стиль, и его нужно сохранить,
+ * иначе после обновления фон внезапно поменяет цвет.
+ */
+fun legacyBackgroundPaletteForStyle(styleIndex: Int): Int = when (styleIndex) {
+    3 -> 1   // Aurora
+    8 -> 2   // Cyberpunk
+    9 -> 3   // Deep space
+    10 -> 4  // Fire
+    11 -> 5  // Lava
+    12 -> 6  // Neon
+    13 -> 7  // Nordic
+    14 -> 8  // Blossom
+    else -> 0
+}
+
+/**
+ * Keeps the persisted background selector compatible while giving the UI a
+ * single, testable conversion point. New styles are appended so existing
+ * installations retain their selected background after an update.
+ */
+fun backgroundStyleModeForIndex(index: Int): BackgroundStyleMode = when (index) {
+    1 -> BackgroundStyleMode.MATERIAL3
+    2 -> BackgroundStyleMode.NOTHING_DOTS
+    3 -> BackgroundStyleMode.AURORA
+    4 -> BackgroundStyleMode.GRID
+    5 -> BackgroundStyleMode.MESH
+    6 -> BackgroundStyleMode.WAVES
+    7 -> BackgroundStyleMode.STARFIELD
+    8 -> BackgroundStyleMode.CYBERPUNK
+    9 -> BackgroundStyleMode.DEEP_SPACE
+    10 -> BackgroundStyleMode.FIRE
+    11 -> BackgroundStyleMode.LAVA
+    12 -> BackgroundStyleMode.NEON
+    13 -> BackgroundStyleMode.NORDIC
+    14 -> BackgroundStyleMode.BLOSSOM
+    15 -> BackgroundStyleMode.NONE
+    16 -> BackgroundStyleMode.RAIN
+    17 -> BackgroundStyleMode.ORBIT
+    else -> BackgroundStyleMode.MORPHISM
 }
 
 val LocalBackgroundStyleMode = staticCompositionLocalOf { BackgroundStyleMode.MORPHISM }
+val LocalBackgroundPaletteMode = staticCompositionLocalOf { BackgroundPaletteMode.THEME }
 val LocalElementStyleMode = staticCompositionLocalOf { ElementStyleMode.LIQUID_GLASS }
 val LocalBackgroundAnimationEnabled = staticCompositionLocalOf { true }
 val LocalReducedTransparencyEnabled = staticCompositionLocalOf { false }
@@ -762,6 +851,7 @@ fun NebulaGuardTheme(
     customGradientCount: Int = 1,
     useDynamicColor: Boolean = false,
     backgroundStyle: Int = 0,
+    backgroundPalette: Int = 0,
     elementStyle: Int = 0,
     backgroundAnimationEnabled: Boolean = true,
     highContrastUi: Boolean = false,
@@ -826,23 +916,8 @@ fun NebulaGuardTheme(
         globalTransparency = globalTransparency
     )
     val darkTheme = isDarkTheme(effectiveThemeIndex)
-    val backgroundMode = when (backgroundStyle) {
-        1 -> BackgroundStyleMode.MATERIAL3
-        2 -> BackgroundStyleMode.NOTHING_DOTS
-        3 -> BackgroundStyleMode.AURORA
-        4 -> BackgroundStyleMode.GRID
-        5 -> BackgroundStyleMode.MESH
-        6 -> BackgroundStyleMode.WAVES
-        7 -> BackgroundStyleMode.STARFIELD
-        8 -> BackgroundStyleMode.CYBERPUNK
-        9 -> BackgroundStyleMode.DEEP_SPACE
-        10 -> BackgroundStyleMode.FIRE
-        11 -> BackgroundStyleMode.LAVA
-        12 -> BackgroundStyleMode.NEON
-        13 -> BackgroundStyleMode.NORDIC
-        14 -> BackgroundStyleMode.BLOSSOM
-        else -> BackgroundStyleMode.MORPHISM
-    }
+    val backgroundMode = backgroundStyleModeForIndex(backgroundStyle)
+    val backgroundPaletteMode = backgroundPaletteModeForIndex(backgroundPalette)
     val elementMode = ElementStyleMode.fromPersistedValue(elementStyle)
     val refractionEffectsEnabled =
         elementMode == ElementStyleMode.LIQUID_GLASS &&
@@ -906,6 +981,7 @@ fun NebulaGuardTheme(
     CompositionLocalProvider(
         LocalNebulaColors provides nebulaColors,
         LocalBackgroundStyleMode provides backgroundMode,
+        LocalBackgroundPaletteMode provides backgroundPaletteMode,
         LocalElementStyleMode provides elementMode,
         LocalBackgroundAnimationEnabled provides backgroundAnimationEnabled,
         LocalReducedTransparencyEnabled provides reducedTransparency,

@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -16,17 +17,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.danila.nimbo.ui.theme.*
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
-fun AnimatedGradientBackground() {
+fun AnimatedGradientBackground(
+    modifier: Modifier = Modifier,
+    styleOverride: BackgroundStyleMode? = null
+) {
     val nebulaColors = LocalNebulaColors.current
-    val styleMode = LocalBackgroundStyleMode.current
+    val styleMode = styleOverride ?: LocalBackgroundStyleMode.current
     val animationEnabled = LocalBackgroundAnimationEnabled.current
     val reducedTransparencyEnabled = LocalReducedTransparencyEnabled.current
     val accent = nebulaColors.accent
@@ -36,7 +45,9 @@ fun AnimatedGradientBackground() {
     val gradMid = nebulaColors.primaryGradientMiddle
     val gradEnd = nebulaColors.primaryGradientEnd
 
-    val animateBackground = animationEnabled && !reducedTransparencyEnabled
+    // Reduced transparency is an accessibility setting for opacity/blur, not
+    // a request to freeze the scene. Keep motion alive at a quieter amplitude.
+    val animateBackground = animationEnabled
     // Single phase 0..1 that wraps seamlessly — Restart + LinearEasing means
     // there is no visible jump at the cycle boundary because every animated
     // value below is expressed through sin/cos of phase*2π (or as an offset
@@ -56,6 +67,7 @@ fun AnimatedGradientBackground() {
     val twoPi = (PI * 2.0).toFloat()
     val t1 = 0.5f + 0.5f * sin(phase * twoPi)
     val t2 = 0.5f + 0.5f * cos(phase * twoPi)
+    val patternAlpha = if (reducedTransparencyEnabled) 0.38f else 1f
 
     val starSpecs = remember {
         val random = java.util.Random(42L)
@@ -69,61 +81,87 @@ fun AnimatedGradientBackground() {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(background)) {
+    Box(modifier = modifier.fillMaxSize().background(background)) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
 
-            if (reducedTransparencyEnabled) {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        listOf(
-                            background,
-                            accent.copy(alpha = 0.08f),
-                            background
-                        )
-                    )
-                )
-                return@Canvas
-            }
+            // Reduced transparency tones down the pattern but does not remove
+            // it. The selector should still feel alive when accessibility
+            // settings are enabled; only the opacity and glows are reduced.
+            // Базовый цвет задаётся палитрой приложения. Выбор анимации ниже
+            // добавляет только самостоятельный прозрачный слой и никогда не
+            // перекрашивает сам фон.
 
             when (styleMode) {
                 BackgroundStyleMode.MORPHISM -> {
-                    drawRadialBlob(accent.copy(alpha = 0.22f), t1 * w, t2 * h * 0.55f, w * 0.75f)
-                    drawRadialBlob(glow.copy(alpha = 0.18f), t2 * w, t1 * h * 0.45f, w * 0.9f)
-                    drawRadialBlob(gradEnd.copy(alpha = 0.16f), t1 * w * 0.8f, t1 * h * 0.2f, w * 0.6f)
+                    // Calm floating circles: each orbit is independent so the
+                    // screen never looks like one large blob sliding around.
+                    val circles = listOf(
+                        Triple(0.16f, 0.18f, 0.34f),
+                        Triple(0.82f, 0.27f, 0.28f),
+                        Triple(0.30f, 0.60f, 0.42f),
+                        Triple(0.78f, 0.78f, 0.38f),
+                        Triple(0.12f, 0.88f, 0.24f)
+                    )
+                    circles.forEachIndexed { index, (x, y, radius) ->
+                        val local = phase * twoPi + index * 1.31f
+                        val cx = (x + sin(local.toDouble()).toFloat() * 0.035f) * w
+                        val cy = (y + cos(local.toDouble()).toFloat() * 0.025f) * h
+                        drawRadialBlob(
+                            (if (index % 2 == 0) accent else glow).copy(alpha = 0.18f * patternAlpha),
+                            cx,
+                            cy,
+                            w * radius
+                        )
+                    }
                 }
 
                 BackgroundStyleMode.MATERIAL3 -> {
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            listOf(
-                                gradStart.copy(alpha = 0.16f),
-                                gradMid.copy(alpha = 0.08f),
-                                Color.Transparent
+                    // Material You's quiet ring field. The rings breathe and
+                    // drift slightly instead of being a static decoration.
+                    val rings = listOf(
+                        Triple(0.18f, 0.20f, 0.12f),
+                        Triple(0.78f, 0.30f, 0.16f),
+                        Triple(0.26f, 0.62f, 0.19f),
+                        Triple(0.78f, 0.82f, 0.14f)
+                    )
+                    rings.forEachIndexed { index, (x, y, radius) ->
+                        val local = phase * twoPi + index * 0.92f
+                        val breathe = 1f + sin(local.toDouble()).toFloat() * 0.09f
+                        val center = Offset(
+                            (x + cos(local.toDouble()).toFloat() * 0.025f) * w,
+                            (y + sin(local.toDouble()).toFloat() * 0.018f) * h
+                        )
+                        drawCircle(
+                            color = accent.copy(alpha = 0.15f * patternAlpha),
+                            radius = w * radius * breathe,
+                            center = center,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 1.8.dp.toPx(),
+                                cap = StrokeCap.Round
                             )
                         )
-                    )
-                    drawRadialBlob(accent.copy(alpha = 0.12f), w * 0.85f, h * 0.2f, w * 0.45f)
+                        drawCircle(
+                            color = gradMid.copy(alpha = 0.07f * patternAlpha),
+                            radius = w * radius * breathe * 1.28f,
+                            center = center,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 1.dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+                        )
+                    }
                 }
 
                 BackgroundStyleMode.NOTHING_DOTS -> {
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            listOf(
-                                background,
-                                gradEnd.copy(alpha = 0.08f),
-                                background
-                            )
-                        )
-                    )
                     // Dot pattern that slowly drifts. The offset uses phase * step
                     // directly (no mod), so visually 0 == step (positions coincide
                     // because the pattern repeats every `step`), and Restart never
                     // causes a visible jump.
                     val step = 22f
                     val radius = 1.4f
-                    val dotColor = accent.copy(alpha = 0.26f)
+                    val dotColor = accent.copy(alpha = 0.26f * patternAlpha)
                     val driftX = phase * step
                     val driftY = phase * step * 0.5f
                     var y = -step + (driftY % step)
@@ -159,78 +197,118 @@ fun AnimatedGradientBackground() {
                 }
 
                 BackgroundStyleMode.GRID -> {
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            listOf(
-                                background,
-                                gradMid.copy(alpha = 0.1f),
-                                background
-                            )
-                        )
-                    )
-                    val grid = 34f
-                    val shiftX = (phase * grid) % grid
-                    val shiftY = (phase * grid * 0.5f) % grid
-                    var x = -grid + shiftX
-                    while (x < w + grid) {
+                    val grid = 42f
+                    val shift = (phase * grid * 1.4f) % grid
+                    val gridColor = nebulaColors.onSurface.copy(alpha = 0.075f * patternAlpha)
+                    var offset = -h - grid + shift
+                    while (offset < w + h + grid) {
                         drawLine(
-                            color = nebulaColors.onSurface.copy(alpha = 0.08f),
-                            start = Offset(x, 0f),
-                            end = Offset(x, h),
-                            strokeWidth = 1f
+                            color = gridColor,
+                            start = Offset(offset, 0f),
+                            end = Offset(offset + h, h),
+                            strokeWidth = 1.dp.toPx()
                         )
-                        x += grid
+                        offset += grid
                     }
-                    var y = -grid + shiftY
-                    while (y < h + grid) {
+                    offset = -h - grid + shift * 0.73f
+                    while (offset < w + h + grid) {
                         drawLine(
-                            color = nebulaColors.onSurface.copy(alpha = 0.08f),
-                            start = Offset(0f, y),
-                            end = Offset(w, y),
-                            strokeWidth = 1f
+                            color = gridColor.copy(alpha = gridColor.alpha * 0.62f),
+                            start = Offset(offset, h),
+                            end = Offset(offset + h, 0f),
+                            strokeWidth = 1.dp.toPx()
                         )
-                        y += grid
+                        offset += grid * 1.55f
                     }
-                    drawRadialBlob(accent.copy(alpha = 0.1f), w * 0.5f, h * 0.4f, w * 0.5f)
                 }
 
                 BackgroundStyleMode.MESH -> {
-                    drawRadialBlob(accent.copy(alpha = 0.2f), t1 * w, t2 * h, w * 0.8f)
-                    drawRadialBlob(gradStart.copy(alpha = 0.15f), (1 - t2) * w, t1 * h, w * 0.7f)
-                    drawRadialBlob(gradMid.copy(alpha = 0.18f), t2 * w * 0.5f, (1 - t1) * h * 0.8f, w * 0.9f)
-                    drawRadialBlob(gradEnd.copy(alpha = 0.12f), (1 - t1) * w * 0.3f, t2 * h * 1.2f, w * 0.6f)
+                    val forms = listOf(
+                        Triple(0.18f, 0.20f, 0.14f),
+                        Triple(0.80f, 0.26f, 0.17f),
+                        Triple(0.27f, 0.68f, 0.21f),
+                        Triple(0.82f, 0.80f, 0.15f)
+                    )
+                    forms.forEachIndexed { index, (x, y, radius) ->
+                        val local = phase * twoPi + index * 1.17f
+                        val cx = (x + sin(local.toDouble()).toFloat() * 0.025f) * w
+                        val cy = (y + cos(local.toDouble()).toFloat() * 0.024f) * h
+                        val path = polygonPath(
+                            center = Offset(cx, cy),
+                            radius = w * radius,
+                            sides = 5 + index % 3,
+                            rotation = local * 0.10f
+                        )
+                        drawPath(
+                            path = path,
+                            color = (if (index % 2 == 0) gradStart else gradEnd).copy(alpha = 0.09f * patternAlpha),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 1.6.dp.toPx(),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round
+                            )
+                        )
+                    }
                 }
 
                 BackgroundStyleMode.WAVES -> {
-                    val waveCount = 4
-                    val baseAlpha = 0.08f
-                    for (i in 0 until waveCount) {
-                        val local = (phase + i.toFloat() / waveCount) % 1.0f
-                        val waveY = (0.5f + 0.45f * sin(local * twoPi)) * h
+                    // Three broad, rounded ribbons are spread across the
+                    // screen instead of emerging from one corner.
+                    val ribbons = listOf(
+                        Triple(0.18f, 0.20f, 0.48f),
+                        Triple(0.72f, 0.48f, 0.36f),
+                        Triple(0.30f, 0.78f, 0.56f)
+                    )
+                    ribbons.forEachIndexed { index, (x, y, lengthFraction) ->
+                        val local = phase * twoPi + index * 1.4f
+                        val center = Offset(
+                            (x + sin(local.toDouble()).toFloat() * 0.04f) * w,
+                            (y + cos(local.toDouble()).toFloat() * 0.035f) * h
+                        )
+                        val angle = (-10f - index * 3f) / 180f * PI
+                        val length = w * lengthFraction
+                        val dx = cos(angle).toFloat() * length / 2f
+                        val dy = sin(angle).toFloat() * length / 2f
                         drawLine(
                             brush = Brush.horizontalGradient(
-                                listOf(Color.Transparent, accent.copy(alpha = baseAlpha - i * 0.01f), Color.Transparent)
+                                listOf(
+                                    Color.Transparent,
+                                    accent.copy(alpha = 0.17f * patternAlpha),
+                                    gradMid.copy(alpha = 0.10f * patternAlpha),
+                                    Color.Transparent
+                                )
                             ),
-                            start = Offset(0f, waveY),
-                            end = Offset(w, waveY),
-                            strokeWidth = 2.dp.toPx()
+                            start = Offset(center.x - dx, center.y - dy),
+                            end = Offset(center.x + dx, center.y + dy),
+                            strokeWidth = (7f + index * 1.5f).dp.toPx(),
+                            cap = StrokeCap.Round
                         )
                     }
-                    drawRadialBlob(accent.copy(alpha = 0.15f), w * 0.5f, h * 0.3f, w * 0.6f)
                 }
 
                 BackgroundStyleMode.STARFIELD -> {
-                    starSpecs.forEach { star ->
-                        val sx = star.xFraction * w
-                        val sy = (star.yFraction * h + phase * h * 0.2f) % h
-                        val flicker = (sin((phase * twoPi * 3f + star.phase).toDouble()) * 0.5 + 0.5).toFloat()
-                        drawCircle(
-                            color = accent.copy(alpha = 0.15f + flicker * 0.25f),
-                            radius = star.radiusDp.dp.toPx(),
-                            center = Offset(sx, sy)
+                    // Sparse snow-like flakes, each on its own slow trajectory.
+                    starSpecs.forEachIndexed { index, star ->
+                        val sx = (star.xFraction * w + sin((phase * twoPi + index).toDouble()).toFloat() * 14.dp.toPx()) % w
+                        val sy = (star.yFraction * h + phase * h * (0.08f + (index % 4) * 0.02f)) % h
+                        val flicker = (sin((phase * twoPi * 2f + star.phase).toDouble()) * 0.5 + 0.5).toFloat()
+                        val radius = (star.radiusDp + flicker * 0.8f).dp.toPx()
+                        val snowColor = nebulaColors.textPrimary.copy(alpha = (0.16f + flicker * 0.20f) * patternAlpha)
+                        drawLine(
+                            color = snowColor,
+                            start = Offset(sx - radius, sy),
+                            end = Offset(sx + radius, sy),
+                            strokeWidth = 1.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                        drawLine(
+                            color = snowColor,
+                            start = Offset(sx, sy - radius),
+                            end = Offset(sx, sy + radius),
+                            strokeWidth = 1.dp.toPx(),
+                            cap = StrokeCap.Round
                         )
                     }
-                    drawRadialBlob(accent.copy(alpha = 0.1f), w * 0.8f, h * 0.2f, w * 0.4f)
                 }
 
                 BackgroundStyleMode.CYBERPUNK,
@@ -239,34 +317,80 @@ fun AnimatedGradientBackground() {
                 BackgroundStyleMode.LAVA,
                 BackgroundStyleMode.NEON,
                 BackgroundStyleMode.NORDIC,
-                BackgroundStyleMode.BLOSSOM -> {
-                    val preset = when (styleMode) {
-                        BackgroundStyleMode.CYBERPUNK -> listOf(Color(0xFF00F0FF), Color(0xFFFF2EA6), Color(0xFF7C5DFA), Color(0xFF22FFAA))
-                        BackgroundStyleMode.DEEP_SPACE -> listOf(Color(0xFF3432A8), Color(0xFF7C5DFA), Color(0xFFEAF3FF), Color(0xFF1B2356))
-                        BackgroundStyleMode.FIRE -> listOf(Color(0xFFFF3D00), Color(0xFFFFA000), Color(0xFFFFD166), Color(0xFFB31312))
-                        BackgroundStyleMode.LAVA -> listOf(Color(0xFFFF2E2E), Color(0xFFFF7A00), Color(0xFF7C1FFF), Color(0xFFFFC857))
-                        BackgroundStyleMode.NEON -> listOf(Color(0xFFFF2EA6), Color(0xFF7C5DFA), Color(0xFF00D2FF), Color(0xFF9BFF6A))
-                        BackgroundStyleMode.NORDIC -> listOf(Color(0xFF8FFFE8), Color(0xFF89C2FF), Color(0xFF2C4A72), Color(0xFFE7F8FF))
-                        BackgroundStyleMode.BLOSSOM -> listOf(Color(0xFFFF9BC4), Color(0xFFFFC29B), Color(0xFFC7A8FF), Color(0xFFFFE3EF))
-                        else -> listOf(accent, gradMid, gradEnd)
+                BackgroundStyleMode.BLOSSOM,
+                BackgroundStyleMode.RAIN,
+                BackgroundStyleMode.ORBIT -> {
+                    // Разные траектории и плотность есть у каждого режима,
+                    // а цвета всегда берутся из выбранной пользователем палитры.
+                    val effectColors = listOf(accent, gradStart, gradMid, gradEnd, glow)
+                    val motionScale = when (styleMode) {
+                        BackgroundStyleMode.FIRE, BackgroundStyleMode.LAVA -> 1.35f
+                        BackgroundStyleMode.NEON, BackgroundStyleMode.CYBERPUNK -> 1.15f
+                        BackgroundStyleMode.DEEP_SPACE -> 0.72f
+                        else -> 1f
                     }
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            listOf(
-                                preset.first().copy(alpha = 0.16f),
-                                background,
-                                preset.last().copy(alpha = 0.10f)
-                            )
-                        )
-                    )
-                    preset.forEachIndexed { index, color ->
+                    effectColors.forEachIndexed { index, color ->
                         val local = (phase + index * 0.23f) % 1f
-                        val x = w * (0.14f + (index % 2) * 0.72f + sin(local * twoPi) * 0.10f)
-                        val y = h * (0.15f + (index / 2) * 0.62f + cos(local * twoPi) * 0.08f)
-                        drawRadialBlob(color.copy(alpha = 0.18f - index * 0.02f), x, y, w * (0.58f - index * 0.04f))
+                        val x = w * (0.14f + (index % 2) * 0.72f + sin(local * twoPi) * 0.10f * motionScale)
+                        val y = h * (0.15f + (index / 2) * 0.42f + cos(local * twoPi) * 0.08f * motionScale)
+                        drawRadialBlob(color.copy(alpha = (0.16f - index * 0.018f) * patternAlpha), x, y, w * (0.52f - index * 0.035f))
                     }
                 }
+
+                BackgroundStyleMode.NONE -> Unit
             }
+        }
+
+        if (LocalElementStyleMode.current == ElementStyleMode.MATERIAL_EXPRESSIVE &&
+            styleMode != BackgroundStyleMode.NONE
+        ) {
+            MaterialYouEmojiOverlay(
+                phase = phase,
+                animated = animateBackground,
+                alphaScale = patternAlpha
+            )
+        }
+    }
+}
+
+@Composable
+private fun MaterialYouEmojiOverlay(
+    phase: Float,
+    animated: Boolean,
+    alphaScale: Float
+) {
+    val emojis = remember {
+        listOf("✨", "🌐", "⚡", "🛡️", "☁️", "🔒", "🚀", "🔄").shuffled().take(5)
+    }
+    val positions = remember {
+        listOf(
+            0.08f to 0.18f,
+            0.78f to 0.29f,
+            0.16f to 0.56f,
+            0.82f to 0.72f,
+            0.42f to 0.88f
+        )
+    }
+    val twoPi = (PI * 2.0).toFloat()
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        emojis.forEachIndexed { index, emoji ->
+            val (xFraction, yFraction) = positions[index]
+            val local = phase * twoPi + index * 0.91f
+            val driftX = if (animated) sin(local.toDouble()).toFloat() * 11f else 0f
+            val driftY = if (animated) cos(local.toDouble()).toFloat() * 15f else 0f
+            Text(
+                text = emoji,
+                modifier = Modifier
+                    .offset(x = maxWidth * xFraction, y = maxHeight * yFraction)
+                    .graphicsLayer {
+                        alpha = (0.055f + (index % 3) * 0.012f) * alphaScale
+                        translationX = driftX.dp.toPx()
+                        translationY = driftY.dp.toPx()
+                        rotationZ = if (animated) sin(local.toDouble()).toFloat() * 4f else 0f
+                    },
+                fontSize = (18 + (index % 3) * 4).sp
+            )
         }
     }
 }
@@ -277,6 +401,24 @@ private data class BackgroundStar(
     val radiusDp: Float,
     val phase: Float
 )
+
+private fun polygonPath(
+    center: Offset,
+    radius: Float,
+    sides: Int,
+    rotation: Float
+): Path = Path().apply {
+    val safeSides = sides.coerceAtLeast(3)
+    repeat(safeSides) { index ->
+        val angle = rotation + (PI * 2.0 * index / safeSides) - PI / 2.0
+        val point = Offset(
+            center.x + cos(angle).toFloat() * radius,
+            center.y + sin(angle).toFloat() * radius
+        )
+        if (index == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
+    }
+    close()
+}
 
 private fun DrawScope.drawRadialBlob(color: Color, cx: Float, cy: Float, radius: Float) {
     drawCircle(

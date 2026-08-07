@@ -2,6 +2,18 @@
 # JNI. Neither its class names nor its members may be renamed or removed.
 -keep class libXray.** { *; }
 
+# AmneziaWG native bridge binds to libwg-go.so through JNI entry points.
+# The class name and all external members must survive minification.
+-keep class com.danila.nimbo.awg.AmneziaWgLibrary { *; }
+-keepclassmembers class com.danila.nimbo.awg.AmneziaWgLibrary {
+    static *** awgTurnOn(...);
+    static *** awgTurnOff(...);
+    static *** awgGetSocketV4(...);
+    static *** awgGetSocketV6(...);
+    static *** awgGetConfig(...);
+    static *** awgVersion(...);
+}
+
 # WorkManager instantiates workers from their persisted class names after the
 # process restarts. Keep those names and their Context/WorkerParameters ctors.
 -keep class com.danila.nimbo.network.UpdateWorker { <init>(...); }

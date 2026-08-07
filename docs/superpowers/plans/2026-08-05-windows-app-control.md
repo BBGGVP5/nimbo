@@ -77,3 +77,4 @@
 - [ ] Run `cargo test --workspace`; expect all Rust tests to pass.
 - [ ] Run `npm run build` in `apps/ui`; expect TypeScript and Vite builds to pass.
 - [ ] Build the current Windows custom installer and verify install, protected launch, context menu, update, rollback, and uninstall in a non-admin UI session.
+

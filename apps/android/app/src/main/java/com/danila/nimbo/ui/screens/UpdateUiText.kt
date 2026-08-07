@@ -1,6 +1,9 @@
 package com.danila.nimbo.ui.screens
 
 import java.text.NumberFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 internal object UpdateUiText {
@@ -24,6 +27,41 @@ internal object UpdateUiText {
             isGroupingUsed = false
         }
         return "${formatter.format(safeBytes / divisor)} $unit"
+    }
+
+    fun versionLabel(value: String, language: String): String {
+        val clean = value
+            .trim()
+            .replaceFirst(Regex("^v+", RegexOption.IGNORE_CASE), "")
+        if (clean.isBlank()) return "Nimbo"
+
+        val betaNumber = Regex("(?i)(?:[-._]?)beta(?:[-._]?)(\\d+)")
+            .find(clean)
+            ?.groupValues
+            ?.getOrNull(1)
+        val stablePart = clean
+            .replace(Regex("(?i)(?:[-._]?)beta(?:[-._]?)(\\d+)?"), "")
+            .trim('-', '.', '_', ' ')
+        val channel = when {
+            betaNumber != null -> " Beta $betaNumber"
+            clean.contains("beta", ignoreCase = true) -> " Beta"
+            else -> ""
+        }
+        return "v${stablePart.ifBlank { clean }}$channel"
+    }
+
+    fun releaseDate(
+        value: String?,
+        language: String,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): String? {
+        val instant = runCatching { Instant.parse(value?.trim().orEmpty()) }.getOrNull() ?: return null
+        val english = language.equals("en", ignoreCase = true)
+        val locale = if (english) Locale.US else Locale.forLanguageTag("ru-RU")
+        val pattern = if (english) "MMMM d, yyyy · h:mm a" else "d MMMM yyyy · HH:mm"
+        return DateTimeFormatter.ofPattern(pattern, locale)
+            .withZone(zoneId)
+            .format(instant)
     }
 
     fun error(raw: String, language: String): String {

@@ -1,17 +1,13 @@
 package com.danila.nimbo.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
@@ -37,7 +33,8 @@ enum class LiquidGlassDepth {
 fun Modifier.liquidGlassSurface(
     shape: Shape,
     depth: LiquidGlassDepth = LiquidGlassDepth.PANEL,
-    interactive: Boolean = true
+    interactive: Boolean = true,
+    showOutline: Boolean = true
 ): Modifier = composed {
     val colors = LocalNebulaColors.current
     val reducedTransparency = LocalReducedTransparencyEnabled.current
@@ -56,12 +53,12 @@ fun Modifier.liquidGlassSurface(
         reducedTransparency = reducedTransparency,
         panelAlpha = colors.panelFill.alpha
     )
-    val elevation = when (depth) {
-        LiquidGlassDepth.CONTROL -> 3.dp
-        LiquidGlassDepth.PANEL -> 9.dp
-        LiquidGlassDepth.FLOATING -> 16.dp
-    }
     val base = if (isDark) Color(0xFF05070C) else Color.White
+    val materialTint = lerp(
+        base,
+        colors.accent,
+        if (refractionEnabled) 0.025f * effectStrength else 0f
+    ).copy(alpha = baseAlpha)
     val neutralRimAlpha = if (isDark) 0.09f else 0.28f
     val floatingRim = depth == LiquidGlassDepth.FLOATING
     val completeRimColor = if (refractionEnabled) {
@@ -112,94 +109,26 @@ fun Modifier.liquidGlassSurface(
 
     this
         .liquidTouchDeformation(depth = depth, interactive = interactive)
-        .shadow(
-            elevation = elevation,
-            shape = shape,
-            clip = false,
-            ambientColor = colors.accent.copy(alpha = if (isDark) 0.08f else 0.08f),
-            spotColor = Color.Black.copy(alpha = if (isDark) 0.46f else 0.16f)
-        )
+        // Никакой .shadow(): она держит постоянный прямоугольный render layer на
+        // каждой стеклянной панели, и на части устройств этот слой просвечивает
+        // сквозь полупрозрачное стекло бледным квадратом внутри скруглённой
+        // карточки. Глубину дают только тонировка и рамки ниже — они
+        // рисуются строго по форме.
         .clip(shape)
-        .drawWithCache {
-            // Render the whole material in one outline-bound draw node. Several
-            // Android 17 GPU drivers expose the rectangular backing textures of
-            // overlapping radial shaders as pale square tiles, even when Compose
-            // clips every individual layer. Keeping the material path-bound and
-            // using continuous linear optics avoids those texture seams.
-            val glassPath = when (val outline = shape.createOutline(size, layoutDirection, this)) {
-                is Outline.Rectangle -> Path().apply { addRect(outline.rect) }
-                is Outline.Rounded -> Path().apply { addRoundRect(outline.roundRect) }
-                is Outline.Generic -> outline.path
-            }
-            val diagonalShiftX = tilt.x.coerceIn(-1f, 1f) * size.width * 0.18f
-            val diagonalShiftY = tilt.y.coerceIn(-1f, 1f) * size.height * 0.18f
-            val glassFill = if (refractionEnabled) {
-                Brush.linearGradient(
-                    colorStops = arrayOf(
-                        0.00f to base.copy(alpha = baseAlpha * 0.96f),
-                        0.25f to Color.White.copy(
-                            alpha = (if (isDark) 0.030f else 0.14f) * effectStrength
-                        ),
-                        0.48f to colors.accent.copy(
-                            alpha = (if (isDark) 0.055f else 0.10f) * effectStrength
-                        ),
-                        0.70f to base.copy(alpha = baseAlpha * 0.72f),
-                        1.00f to base.copy(alpha = baseAlpha * 0.94f)
-                    ),
-                    start = Offset(
-                        x = -size.width * 0.12f + diagonalShiftX,
-                        y = -size.height * 0.10f + diagonalShiftY
-                    ),
-                    end = Offset(
-                        x = size.width * 1.12f + diagonalShiftX,
-                        y = size.height * 1.10f + diagonalShiftY
-                    )
-                )
+        // Keep the body deliberately shader-free. Several Android 17 devices
+        // expose the square backing texture of translucent Compose gradients.
+        // The solid translucent tint preserves the glass depth, while the two
+        // shape-safe borders below carry the moving/refraction colour.
+        .background(materialTint, shape)
+        .then(
+            if (showOutline) {
+                // The neutral outline keeps long capsules readable through their quiet sweep
+                // sectors; the moving colored rim then flows over the complete perimeter.
+                Modifier
+                    .border(if (floatingRim) 1.15.dp else 0.8.dp, completeRimColor, shape)
+                    .border(if (floatingRim) 1.55.dp else 1.dp, rim, shape)
             } else {
-                Brush.linearGradient(
-                    colors = listOf(
-                        base.copy(alpha = baseAlpha),
-                        base.copy(alpha = baseAlpha * 0.90f)
-                    ),
-                    start = Offset.Zero,
-                    end = Offset(size.width, size.height)
-                )
+                Modifier
             }
-            val opticalFlow = Brush.linearGradient(
-                colorStops = arrayOf(
-                    0.00f to Color.Transparent,
-                    0.22f to Color(0xFF79D7FF).copy(
-                        alpha = (if (isDark) 0.024f else 0.055f) * effectStrength
-                    ),
-                    0.46f to Color.White.copy(
-                        alpha = (if (isDark) 0.044f else 0.10f) * effectStrength
-                    ),
-                    0.68f to colors.accent.copy(
-                        alpha = (if (isDark) 0.035f else 0.075f) * effectStrength
-                    ),
-                    0.84f to Color(0xFFFF8DDA).copy(
-                        alpha = (if (isDark) 0.018f else 0.04f) * effectStrength
-                    ),
-                    1.00f to Color.Transparent
-                ),
-                start = Offset(
-                    x = size.width * (0.05f + tilt.x * 0.12f),
-                    y = size.height * (0.96f + tilt.y * 0.10f)
-                ),
-                end = Offset(
-                    x = size.width * (0.95f + tilt.x * 0.12f),
-                    y = size.height * (0.04f + tilt.y * 0.10f)
-                )
-            )
-            onDrawBehind {
-                drawPath(glassPath, glassFill)
-                if (refractionEnabled) {
-                    drawPath(glassPath, opticalFlow)
-                }
-            }
-        }
-        // The neutral outline keeps long capsules readable through their quiet sweep
-        // sectors; the moving colored rim then flows over the complete perimeter.
-        .border(if (floatingRim) 1.15.dp else 0.8.dp, completeRimColor, shape)
-        .border(if (floatingRim) 1.55.dp else 1.dp, rim, shape)
+        )
 }

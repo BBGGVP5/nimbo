@@ -129,6 +129,7 @@ export function Subscriptions() {
   const refreshSubscription = useAppStore((s) => s.refreshSubscription);
   const updateSubscriptionSettings = useAppStore((s) => s.updateSubscriptionSettings);
   const removeSubscription = useAppStore((s) => s.removeSubscription);
+  const reorderSubscriptions = useAppStore((s) => s.reorderSubscriptions);
   const importOpen = useAppStore((s) => s.importDialogOpen);
   const openImportDialog = useAppStore((s) => s.openImportDialog);
   const closeImportDialog = useAppStore((s) => s.closeImportDialog);
@@ -191,6 +192,17 @@ export function Subscriptions() {
         notifyError(message);
       }
     }
+  };
+
+  const moveSubscription = (url: string, delta: -1 | 1) => {
+    const index = subs.findIndex((sub) => sub.url === url);
+    if (index < 0) return;
+    const target = index + delta;
+    if (target < 0 || target >= subs.length) return;
+    const next = [...subs];
+    const [moved] = next.splice(index, 1);
+    next.splice(target, 0, moved);
+    void reorderSubscriptions(next.map((sub) => sub.url));
   };
 
   return (
@@ -261,6 +273,10 @@ export function Subscriptions() {
               onRefresh={() => refreshSubscription(sub.url)}
               onUpdate={(settings) => updateSubscriptionSettings(sub.url, settings)}
               onRemove={() => removeSubscription(sub.url)}
+              onMoveUp={() => moveSubscription(sub.url, -1)}
+              onMoveDown={() => moveSubscription(sub.url, 1)}
+              canMoveUp={subs.findIndex((item) => item.url === sub.url) > 0}
+              canMoveDown={subs.findIndex((item) => item.url === sub.url) < subs.length - 1}
             />
           ))}
         </div>
@@ -311,6 +327,10 @@ function ProfileCard({
   onRefresh,
   onUpdate,
   onRemove,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
 }: {
   sub: Subscription;
   activeId: string | null;
@@ -329,6 +349,10 @@ function ProfileCard({
     update_interval_minutes?: number | null;
   }) => Promise<unknown>;
   onRemove: () => Promise<unknown>;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
 }) {
   const m = useMessages();
   const used = (sub.info?.upload ?? 0) + (sub.info?.download ?? 0);
@@ -479,6 +503,11 @@ function ProfileCard({
             </div>
           </div>
           <div className="flex items-center gap-1.5" data-no-toggle>
+            <div className="subscription-reorder-control" role="group" aria-label={m.profiles.reorder} data-no-toggle>
+              <span className="subscription-reorder-label">{m.profiles.reorder}</span>
+              <IconButton compact title={m.profiles.moveUp} icon={<ArrowUpIcon />} onClick={() => void onMoveUp()} disabled={!canMoveUp} />
+              <IconButton compact title={m.profiles.moveDown} icon={<ArrowDownIcon />} onClick={() => void onMoveDown()} disabled={!canMoveDown} />
+            </div>
             <IconButton compact title={m.home.pingServers} icon={<SignalIcon pulse={pinging} />} onClick={onPingClick} />
             <IconButton compact title={m.home.refreshSubscription} icon={<RefreshIcon spin={refreshing} />} onClick={onRefreshClick} />
             <div className="relative">
@@ -1423,6 +1452,22 @@ function ChevronIcon({ open }: { open: boolean }) {
       strokeLinejoin="round"
     >
       <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
+
+function ArrowUpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m5 15 7-7 7 7" />
+    </svg>
+  );
+}
+
+function ArrowDownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m5 9 7 7 7-7" />
     </svg>
   );
 }

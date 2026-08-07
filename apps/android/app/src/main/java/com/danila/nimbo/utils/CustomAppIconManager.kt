@@ -60,12 +60,21 @@ data class CustomAppIconPreset(
     val config: CustomAppIconConfig
 )
 
+enum class CustomLauncherIconResult {
+    UPDATED,
+    REQUESTED,
+    UNSUPPORTED
+}
+
 object CustomAppIconManager {
     @Volatile
     private var cachedNotificationSignature: Int? = null
 
     @Volatile
     private var cachedNotificationBitmap: Bitmap? = null
+
+    private const val CUSTOM_LAUNCHER_ICON_FILE = "custom_launcher_icon.png"
+    const val CUSTOM_SHORTCUT_ID = "nimbo_custom_icon"
 
     val backgroundPalette = listOf(
         0xFF1769E0.toInt(),
@@ -234,6 +243,50 @@ object CustomAppIconManager {
         }
     }
 
+    /**
+     * Renders an icon through Android's adaptive-icon pipeline instead of
+     * drawing an approximate rounded square in Compose.  The framework mask is
+     * the same base mask that is used for [Icon.createWithAdaptiveBitmap], so
+     * the picker shows the safe area and crop a launcher will use.
+     *
+     * A launcher is still free to apply its own final shape (circle, squircle,
+     * rounded square, etc.). Android intentionally does not expose an API for
+     * applications to replace that system-wide shape.
+     */
+    fun renderSystemMaskedPreview(
+        context: Context,
+        config: CustomAppIconConfig,
+        size: Int = 256
+    ): Bitmap = renderSystemMaskedPreview(
+        context = context,
+        artwork = renderIcon(context, config, size),
+        size = size
+    )
+
+    fun renderSystemMaskedPreview(
+        context: Context,
+        artwork: Bitmap,
+        size: Int = artwork.width
+    ): Bitmap {
+        val safeSize = size.coerceIn(64, 1024)
+        val preview = Bitmap.createBitmap(safeSize, safeSize, Bitmap.Config.ARGB_8888)
+        val adaptiveIcon = Icon.createWithAdaptiveBitmap(artwork).loadDrawable(context)
+        adaptiveIcon?.let { drawable ->
+            drawable.setBounds(0, 0, safeSize, safeSize)
+            drawable.draw(Canvas(preview))
+        } ?: run {
+            // Defensive fallback for a broken/very unusual launcher image
+            // implementation: the picker must still show the composed artwork.
+            Canvas(preview).drawBitmap(
+                artwork,
+                null,
+                Rect(0, 0, safeSize, safeSize),
+                Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            )
+        }
+        return preview
+    }
+
     fun notificationLargeIcon(
         context: Context,
         preferences: PreferencesManager = PreferencesManager(context)
@@ -261,22 +314,92 @@ object CustomAppIconManager {
         }
     }
 
-    fun requestPinnedShortcut(context: Context, bitmap: Bitmap): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
-        val manager = context.getSystemService(ShortcutManager::class.java) ?: return false
-        if (!manager.isRequestPinShortcutSupported) return false
+    private fun buildPinnedShortcut(context: Context, bitmap: Bitmap): ShortcutInfo {
         val launchIntent = Intent(context, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
-        val shortcut = ShortcutInfo.Builder(context, "nimbo_custom_icon")
+        return ShortcutInfo.Builder(context, CUSTOM_SHORTCUT_ID)
             .setShortLabel("Nimbo")
             .setLongLabel("Nimbo — своя иконка")
-            .setIcon(Icon.createWithBitmap(bitmap))
+            // A regular bitmap is shown as a plain square by many launchers.
+            // Adaptive bitmap lets the current launcher apply its own real
+            // icon mask, exactly like it does for the built-in aliases.
+            .setIcon(Icon.createWithAdaptiveBitmap(bitmap))
             .setIntent(launchIntent)
             .build()
-        return manager.requestPinShortcut(shortcut, null)
     }
+
+    fun isPinnedShortcutPresent(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        val manager = context.getSystemService(ShortcutManager::class.java) ?: return false
+        return manager.pinnedShortcuts.any { it.id == CUSTOM_SHORTCUT_ID }
+    }
+
+    private fun updateOrRequestPinnedShortcut(context: Context, bitmap: Bitmap): CustomLauncherIconResult {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return CustomLauncherIconResult.UNSUPPORTED
+        val manager = context.getSystemService(ShortcutManager::class.java)
+            ?: return CustomLauncherIconResult.UNSUPPORTED
+        if (isPinnedShortcutPresent(context)) {
+            return if (manager.updateShortcuts(listOf(buildPinnedShortcut(context, bitmap)))) {
+                CustomLauncherIconResult.UPDATED
+            } else {
+                CustomLauncherIconResult.UNSUPPORTED
+            }
+        }
+        if (!manager.isRequestPinShortcutSupported) return CustomLauncherIconResult.UNSUPPORTED
+        return if (manager.requestPinShortcut(buildPinnedShortcut(context, bitmap), null)) {
+            CustomLauncherIconResult.REQUESTED
+        } else {
+            CustomLauncherIconResult.UNSUPPORTED
+        }
+    }
+
+    /**
+     * Сохраняет собранную иконку для уведомлений и создаёт/обновляет один
+     * стабильный системный ярлык Nimbo. Произвольную bitmap-иконку нельзя
+     * надёжно подменить у PackageManager-alias после установки приложения;
+     * ShortcutManager — поддерживаемый Android способ для рабочего стола.
+     */
+    fun applyCustomLauncherIcon(context: Context, bitmap: Bitmap): CustomLauncherIconResult {
+        runCatching {
+            customLauncherIconFile(context).outputStream().use {
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+        }.onFailure { return CustomLauncherIconResult.UNSUPPORTED }
+        CustomAppIconDrawable.remember(bitmap)
+        val result = updateOrRequestPinnedShortcut(context, bitmap)
+        if (result != CustomLauncherIconResult.UNSUPPORTED) {
+            // The arbitrary bitmap is carried by the system shortcut. Keep the
+            // normal app icon alias active so a launcher never tries to read a
+            // private file through a custom Drawable from another process.
+            val preferences = PreferencesManager(context)
+            AppIconManager.setAppIcon(context, preferences.selectedAppIcon)
+        }
+        return result
+    }
+
+    /**
+     * Гарантирует наличие PNG иконки в app storage ещё до первого применения,
+     * чтобы CustomAppIconDrawable никогда не остался без изображения.
+     */
+    fun ensureCustomIconFile(context: Context) {
+        val file = customLauncherIconFile(context)
+        if (file.exists()) {
+            runCatching {
+                BitmapFactory.decodeFile(file.absolutePath)?.let { CustomAppIconDrawable.remember(it) }
+            }
+            return
+        }
+        runCatching {
+            val bitmap = renderIcon(context, config(PreferencesManager(context)), 432)
+            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            CustomAppIconDrawable.remember(bitmap)
+        }
+    }
+
+    fun customLauncherIconFile(context: Context): java.io.File =
+        java.io.File(context.filesDir, CUSTOM_LAUNCHER_ICON_FILE)
 
     private fun decodeBase64(value: String?): Bitmap? {
         if (value.isNullOrBlank()) return null

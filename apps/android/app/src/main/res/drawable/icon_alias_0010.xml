@@ -1,12 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@drawable/bg_alias_0010" />
-    <item>
-        <inset
-            android:drawable="@drawable/sprite_0010"
-            android:insetLeft="14dp"
-            android:insetTop="14dp"
-            android:insetRight="14dp"
-            android:insetBottom="14dp" />
-    </item>
+    <item android:drawable="@drawable/bg_nimbo_sunset" />
+    <item android:drawable="@drawable/ic_launcher_beta_foreground" />
 </layer-list>

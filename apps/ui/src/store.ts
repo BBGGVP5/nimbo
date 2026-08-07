@@ -59,6 +59,7 @@ interface AppStoreState {
   refreshSubscription: (url: string) => Promise<Subscription>;
   updateSubscriptionSettings: (url: string, settings: SubscriptionSettingsPatch) => Promise<Subscription>;
   removeSubscription: (url: string) => Promise<void>;
+  reorderSubscriptions: (urls: string[]) => Promise<void>;
   setActiveServer: (serverId: string | null) => Promise<void>;
   setActiveSubscription: (url: string | null) => Promise<void>;
   connectServer: (serverId: string) => Promise<void>;
@@ -247,6 +248,18 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   removeSubscription: async (url) => {
     const persisted = await api.removeSubscription(url);
+    set({
+      subscriptions: persisted.subscriptions,
+      activeServerId: persisted.active_server_id,
+      activeSubscriptionUrl: persisted.active_subscription_url ?? null,
+      serverPings: persisted.server_pings ?? {},
+    });
+    await get().hydrate();
+    void api.refreshTrayMenu();
+  },
+
+  reorderSubscriptions: async (urls) => {
+    const persisted = await api.reorderSubscriptions(urls);
     set({
       subscriptions: persisted.subscriptions,
       activeServerId: persisted.active_server_id,

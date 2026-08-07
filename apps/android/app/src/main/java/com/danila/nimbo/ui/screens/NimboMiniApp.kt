@@ -27,6 +27,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -93,6 +94,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -100,8 +102,14 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.BubbleChart
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.TrackChanges
+import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.Delete
@@ -196,6 +204,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -293,10 +302,18 @@ import com.danila.nimbo.ui.components.rememberHapticSliderValueChange
 import com.danila.nimbo.ui.components.performConnectionSuccessHaptic
 import com.danila.nimbo.ui.components.tick
 import com.danila.nimbo.ui.navigation.BottomBarScrollPolicy
+import com.danila.nimbo.ui.components.backgroundPaletteColors
+import com.danila.nimbo.ui.components.drawNimboBackgroundMotion
+import com.danila.nimbo.ui.theme.BackgroundPaletteMode
 import com.danila.nimbo.ui.theme.BackgroundStyleMode
 import com.danila.nimbo.ui.theme.DEFAULT_COLOR_THEME_INDEX
+import com.danila.nimbo.ui.theme.ElementStyleMode
 import com.danila.nimbo.ui.theme.LocalBackgroundAnimationEnabled
+import com.danila.nimbo.ui.theme.LocalBackgroundPaletteMode
 import com.danila.nimbo.ui.theme.LocalBackgroundStyleMode
+import com.danila.nimbo.ui.theme.LocalElementStyleMode
+import com.danila.nimbo.ui.theme.backgroundPaletteModeForIndex
+import com.danila.nimbo.ui.theme.backgroundStyleModeForIndex
 import com.danila.nimbo.ui.i18n.loc
 import com.danila.nimbo.ui.i18n.serverCountEn
 import com.danila.nimbo.ui.i18n.serverCountRu
@@ -399,6 +416,11 @@ fun NimboMiniApp(
     initialScreen: String?
 ) {
     val context = LocalContext.current
+    val lastPackageUpdateTime = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
+        }.getOrDefault(System.currentTimeMillis())
+    }
     // Должен быть тем же экземпляром, что и в MainActivity: так изменение
     // палитры/фона публикуется в NebulaGuardTheme в тот же кадр.
     val preferencesManager = LocalPreferencesManager.current
@@ -561,12 +583,13 @@ fun NimboMiniApp(
 
     // OTA: check GitHub releases on launch, then show a dialog once per release
     // unless the user has explicitly pressed "Later" for that version. The check
-    // is throttled to once every six hours so it doesn't hit the API every
+    // is throttled to once every thirty minutes so a same-release APK replacement
+    // becomes visible promptly without hitting the API on every recomposition or
     // process restart.
     LaunchedEffect(Unit) {
         if (!preferencesManager.showUpdateDialog) return@LaunchedEffect
         val now = System.currentTimeMillis()
-        val throttleMs = 6 * 60 * 60 * 1000L
+        val throttleMs = 30 * 60 * 1000L
         if (now - preferencesManager.lastUpdateCheckTime < throttleMs) return@LaunchedEffect
 
         val info = runCatching { UpdateManager.checkUpdate(context) }.getOrNull()
@@ -1110,6 +1133,8 @@ fun NimboMiniApp(
         if (showPostUpdatePrompt) {
             PostUpdateDialog(
                 versionName = preferencesManager.lastInstalledUpdateVersion.orEmpty(),
+                changelog = preferencesManager.lastInstalledUpdateChangelog.orEmpty(),
+                installedAt = lastPackageUpdateTime,
                 onDismiss = {
                     preferencesManager.showPostUpdateChangelog = false
                     showPostUpdatePrompt = false
@@ -1136,48 +1161,65 @@ private fun rememberMiniMotionEnabled(): Boolean {
     return backgroundAnimationEnabled && !reducedTransparencyEnabled && !lowRamDevice
 }
 
+/**
+ * Непрерывно растущая фаза для фоновой анимации.
+ *
+ * Намеренно не используем `infiniteRepeatable`: при перезапуске 1 -> 0 частицы
+ * (снег, искры, дождь) прыгали в начальные позиции. Кадровые часы дают
+ * монотонное время, поэтому шва нет вообще, а неактивная анимация просто
+ * останавливается на статичном кадре.
+ *
+ * Значение читается прямо внутри `Canvas { }`, то есть инвалидирует только
+ * отрисовку — рекомпозиции на каждом кадре не происходит.
+ */
+@Composable
+private fun rememberBackgroundPhase(enabled: Boolean, periodSeconds: Float = 24f): State<Float> {
+    val phase = remember { mutableFloatStateOf(BACKGROUND_STATIC_PHASE) }
+    LaunchedEffect(enabled, periodSeconds) {
+        if (!enabled) {
+            phase.floatValue = BACKGROUND_STATIC_PHASE
+            return@LaunchedEffect
+        }
+        var startNanos = 0L
+        while (true) {
+            withInfiniteAnimationFrameNanos { now ->
+                if (startNanos == 0L) startNanos = now
+                phase.floatValue =
+                    BACKGROUND_STATIC_PHASE + (now - startNanos) / 1_000_000_000f / periodSeconds
+            }
+        }
+    }
+    return phase
+}
+
+/** Кадр, который показываем при выключенном движении фона. */
+private const val BACKGROUND_STATIC_PHASE = 0.12f
+
 @Composable
 private fun NimboBackdrop() {
     val nebulaColors = LocalNebulaColors.current
     val accent = nebulaColors.accent
     val baseBackground = nebulaColors.background
     val isLight = baseBackground.luminance() > 0.5f
-    val animationsOn = rememberMiniMotionEnabled()
+    val motionEnabled = rememberMiniMotionEnabled()
+    val reducedTransparency = LocalReducedTransparencyEnabled.current
+    // Форма эффекта и его цвет — две независимые настройки.
     val styleMode = LocalBackgroundStyleMode.current
+    val paletteMode = LocalBackgroundPaletteMode.current
 
-    val windowsDarkBg = if (nebulaColors.background == Color.Black) Color(0xFF000000) else nebulaColors.background
-    val resolvedBase = if (isLight) baseBackground else windowsDarkBg
-    val presetColors = miniBackgroundPresetColors(styleMode, accent, isLight)
-    val accentTop = if (isLight) lerp(baseBackground, accent, 0.07f) else lerp(resolvedBase, accent, 0.12f)
-    // The very bottom resolves to the plain base background so the opaque bottom
-    // nav bar (painted with nebulaColors.background) blends seamlessly into it.
-    val accentBottom = if (isLight) baseBackground else resolvedBase
-    val backgroundBrush = when {
-        presetColors.isNotEmpty() && isLight -> Brush.verticalGradient(
-            listOf(
-                lerp(baseBackground, presetColors.first(), 0.08f),
-                baseBackground,
-                accentBottom
-            )
-        )
-        presetColors.isNotEmpty() -> Brush.verticalGradient(
-            listOf(
-                lerp(resolvedBase, presetColors.first(), 0.22f),
-                resolvedBase,
-                resolvedBase
-            )
-        )
-        isLight -> Brush.verticalGradient(
-            listOf(accentTop, baseBackground, accentBottom)
-        )
-        else -> Brush.verticalGradient(
-            // Bottom half stays flat at resolvedBase (== nebulaColors.background) so the
-            // opaque bottom nav bar merges into it with no visible seam.
-            listOf(accentTop, resolvedBase, resolvedBase)
-        )
+    val paletteColors = remember(paletteMode, accent, isLight) {
+        backgroundPaletteColors(paletteMode, accent, isLight)
     }
-    val bottomVignette = if (isLight) Color.Transparent
-        else Color.Black.copy(alpha = 0.42f)
+    val phase = rememberBackgroundPhase(enabled = motionEnabled)
+
+    // Подложка тонируется палитрой, но сдержанно: сильная заливка делала весь
+    // экран светлее темы и «съедала» контраст с панелями. Низ всегда остаётся
+    // чистым nebulaColors.background, чтобы нижняя панель сливалась с ним.
+    val deepTop = lerp(baseBackground, Color.Black, if (isLight) 0f else 0.14f)
+    val tintTop = lerp(deepTop, paletteColors[0], if (isLight) 0.07f else 0.13f)
+    val tintMid = lerp(baseBackground, paletteColors.getOrElse(1) { paletteColors[0] }, if (isLight) 0.035f else 0.06f)
+    val backgroundBrush = Brush.verticalGradient(listOf(tintTop, tintMid, baseBackground))
+    val bottomVignette = if (isLight) Color.Transparent else Color.Black.copy(alpha = 0.42f)
 
     Box(
         modifier = Modifier
@@ -1201,110 +1243,88 @@ private fun NimboBackdrop() {
             }
         }
 
-        if (animationsOn) {
-            val infiniteTransition = rememberInfiniteTransition(label = "nimbo-bg")
-            val phase by infiniteTransition.animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(18000, easing = LinearEasing),
-                    repeatMode = RepeatMode.Restart
-                ),
-                label = "nimbo-bg-accent-phase"
-            )
-
+        // Слой эффекта идёт поверх виньетки, иначе она съедает половину
+        // рисунка. Рисуем его и при выключенном движении — тогда это просто
+        // застывший кадр, а не пустой фон.
+        if (styleMode != BackgroundStyleMode.NONE) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
-                val twoPi = (PI * 2.0).toFloat()
-                val accentAlpha = if (isLight) 0.11f else 0.18f
-                val blobs = presetColors.ifEmpty { listOf(accent, accent) }
-
-                blobs.forEachIndexed { index, blobColor ->
-                    val local = (phase + index * 0.23f) % 1f
-                    val baseX = when (index % 4) {
-                        0 -> 0.08f
-                        1 -> 0.90f
-                        2 -> 0.22f
-                        else -> 0.78f
-                    }
-                    val baseY = when (index % 4) {
-                        0 -> 0.06f
-                        1 -> 0.94f
-                        2 -> 0.82f
-                        else -> 0.18f
-                    }
-                    val strength = when (index % 4) {
-                        0 -> 0.72f
-                        1 -> 0.40f
-                        2 -> 0.34f
-                        else -> 0.30f
-                    }
-                    val radius = w * when (index % 4) {
-                        0 -> 0.42f
-                        1 -> 0.34f
-                        2 -> 0.38f
-                        else -> 0.30f
-                    }
-                    val center = Offset(
-                        x = w * (baseX + sin(local * twoPi) * (0.10f + index * 0.01f)),
-                        y = h * (baseY + cos(local * twoPi) * (0.06f + index * 0.005f))
-                    )
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                blobColor.copy(alpha = accentAlpha * strength),
-                                blobColor.copy(alpha = accentAlpha * 0.18f),
-                                Color.Transparent
-                            ),
-                            center = center,
-                            radius = radius
-                        ),
-                        radius = radius,
-                        center = center
-                    )
-                }
-
-                // Oscillate the sweep along sin so the value at phase 0 and phase 1
-                // coincide — Restart no longer causes a visible jump.
-                val sweepCenterX = w * (0.5f + 0.52f * sin(phase * twoPi))
-                drawRect(
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            (presetColors.firstOrNull() ?: accent).copy(alpha = if (isLight) 0.08f else 0.06f),
-                            Color.Transparent
-                        ),
-                        start = Offset(sweepCenterX - w * 0.24f, 0f),
-                        end = Offset(sweepCenterX + w * 0.24f, h)
-                    )
+                drawNimboBackgroundMotion(
+                    mode = styleMode,
+                    phase = phase.value,
+                    colors = paletteColors,
+                    isLight = isLight,
+                    intensity = if (reducedTransparency) 0.5f else 1f
                 )
+            }
 
+            // Фирменная «выразительная» деталь Material You. В остальных
+            // стилях фон остаётся чисто геометрическим.
+            if (LocalElementStyleMode.current == ElementStyleMode.MATERIAL_EXPRESSIVE &&
+                !reducedTransparency
+            ) {
+                MaterialYouEmojiLayer(phase = phase, isLight = isLight)
             }
         }
     }
 }
 
-private fun miniBackgroundPresetColors(
-    styleMode: BackgroundStyleMode,
-    accent: Color,
-    isLight: Boolean
-): List<Color> {
-    val baseAccent = if (isLight) accent.copy(alpha = 0.92f) else accent
-    return when (styleMode) {
-        BackgroundStyleMode.CYBERPUNK -> listOf(Color(0xFF00F0FF), Color(0xFFFF2EA6), Color(0xFF7C5DFA), Color(0xFF22FFAA))
-        BackgroundStyleMode.DEEP_SPACE -> listOf(Color(0xFF3432A8), Color(0xFF7C5DFA), Color(0xFFEAF3FF), Color(0xFF1B2356))
-        BackgroundStyleMode.FIRE -> listOf(Color(0xFFFF3D00), Color(0xFFFFA000), Color(0xFFFFD166), Color(0xFFB31312))
-        BackgroundStyleMode.LAVA -> listOf(Color(0xFFFF2E2E), Color(0xFFFF7A00), Color(0xFF7C1FFF), Color(0xFFFFC857))
-        BackgroundStyleMode.NEON -> listOf(Color(0xFFFF2EA6), Color(0xFF7C5DFA), Color(0xFF00D2FF), Color(0xFF9BFF6A))
-        BackgroundStyleMode.NORDIC -> listOf(Color(0xFF8FFFE8), Color(0xFF89C2FF), Color(0xFF2C4A72), Color(0xFFE7F8FF))
-        BackgroundStyleMode.BLOSSOM -> listOf(Color(0xFFFF9BC4), Color(0xFFFFC29B), Color(0xFFC7A8FF), Color(0xFFFFE3EF))
-        BackgroundStyleMode.AURORA -> listOf(Color(0xFF6BE88E), Color(0xFF63B3FF), baseAccent)
-        BackgroundStyleMode.MESH -> listOf(baseAccent, Color(0xFF00D2FF), Color(0xFFFF7B7B), Color(0xFF5DD9A1))
-        BackgroundStyleMode.STARFIELD -> listOf(Color(0xFF8EA2FF), Color(0xFFEAF0FF), baseAccent)
-        else -> emptyList()
+/**
+ * Эмодзи-декор фона для стиля Material You.
+ *
+ * Отличия от прежней (мёртвой) версии в `AnimatedGradientBackground`: эмодзи
+ * заметно крупнее и не «выцветшие» (было alpha 0.055 — на глаз их не было
+ * вообще), позиции считаются с запасом под кегль, чтобы правый столбец не
+ * обрезался краем экрана, а фаза берётся из общих кадровых часов фона —
+ * поэтому дрейф не перезапускается рывком и замирает вместе с выключенным
+ * «Движением фона».
+ */
+@Composable
+private fun MaterialYouEmojiLayer(phase: State<Float>, isLight: Boolean) {
+    val emojis = remember {
+        listOf("✨", "🌐", "⚡", "🛡️", "☁️", "🔒", "🚀", "🔄", "🪄", "💠")
+            .shuffled()
+            .take(MATERIAL_YOU_EMOJI_SPOTS.size)
+    }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val boxWidth = maxWidth
+        val boxHeight = maxHeight
+        emojis.forEachIndexed { index, emoji ->
+            val spot = MATERIAL_YOU_EMOJI_SPOTS[index]
+            val fontSize = (27 + (index % 3) * 9).sp
+            // offset позиционирует левый верхний угол: без поправки на кегль
+            // правые эмодзи уезжали за границу экрана.
+            val reserve = with(density) { fontSize.toDp() } * 1.4f
+            Text(
+                text = emoji,
+                fontSize = fontSize,
+                modifier = Modifier
+                    .offset(
+                        x = (boxWidth - reserve) * spot.first,
+                        y = (boxHeight - reserve) * spot.second
+                    )
+                    .graphicsLayer {
+                        // phase читается здесь, в фазе отрисовки: слой движется
+                        // без рекомпозиции на каждом кадре.
+                        val local = (phase.value * 0.6f + index * 0.17f) * (PI * 2.0).toFloat()
+                        alpha = (if (isLight) 0.16f else 0.13f) + (index % 3) * 0.02f
+                        translationX = sin(local) * 13.dp.toPx()
+                        translationY = cos(local * 0.8f) * 17.dp.toPx()
+                        rotationZ = sin(local) * 7f
+                    }
+            )
+        }
     }
 }
+
+private val MATERIAL_YOU_EMOJI_SPOTS = listOf(
+    0.07f to 0.13f,
+    0.83f to 0.22f,
+    0.14f to 0.47f,
+    0.88f to 0.58f,
+    0.34f to 0.78f,
+    0.72f to 0.90f
+)
 
 @Composable
 private fun NimboHomeScreen(
@@ -3408,6 +3428,8 @@ private fun ProxyList(
                 protocol.contains("shadowsocks") || protocol == "ss" -> "Shadowsocks"
                 protocol.contains("hysteria") || protocol == "hy2" -> "Hysteria2"
                 protocol.contains("tuic") -> "TUIC"
+                protocol.contains("awg") || protocol.contains("amnezia") -> "AWG"
+                protocol.contains("wireguard") || protocol == "wg" -> "WireGuard"
                 protocol.contains("reality") -> "Reality"
                 else -> "Other"
             }
@@ -3426,6 +3448,8 @@ private fun ProxyList(
                         server.protocol.lowercase().contains("shadowsocks") || server.protocol.lowercase() == "ss" -> "Shadowsocks"
                         server.protocol.lowercase().contains("hysteria") || server.protocol.lowercase() == "hy2" -> "Hysteria2"
                         server.protocol.lowercase().contains("tuic") -> "TUIC"
+                        server.protocol.lowercase().contains("awg") || server.protocol.lowercase().contains("amnezia") -> "AWG"
+                        server.protocol.lowercase().contains("wireguard") || server.protocol.lowercase() == "wg" -> "WireGuard"
                         server.protocol.lowercase().contains("reality") -> "Reality"
                         else -> "Other"
                     }
@@ -5918,6 +5942,8 @@ private fun ColumnScope.ServersSettingsSection(
                                         protocol.contains("shadowsocks") || protocol == "ss" -> "Shadowsocks"
                                         protocol.contains("hysteria") || protocol == "hy2" -> "Hysteria2"
                                         protocol.contains("tuic") -> "TUIC"
+                                        protocol.contains("awg") || protocol.contains("amnezia") -> "AWG"
+                                        protocol.contains("wireguard") || protocol == "wg" -> "WireGuard"
                                         protocol.contains("reality") -> "Reality"
                                         else -> "Other"
                                     }
@@ -10931,6 +10957,7 @@ private enum class ThemePreviewKind { System, Light, Dark, Black }
 private enum class ThemeSettingsSectionId(val storageKey: String) {
     InterfaceStyle("interface_style"),
     ConnectionStyle("connection_style"),
+    BackgroundColor("background_color"),
     Background("background"),
     StyleDetails("style_details"),
     ThemeMode("theme_mode"),
@@ -11629,6 +11656,7 @@ private fun ColumnScope.ThemeSettingsSection(
     val pureBlackMode by preferencesManager.pureBlackModeState
     val elementStyle by preferencesManager.elementStyleState
     val backgroundStyle by preferencesManager.backgroundStyleState
+    val backgroundPalette by preferencesManager.backgroundPaletteState
     val backgroundAnimationEnabled by preferencesManager.backgroundAnimationEnabledState
     val bottomBarAutoHideEnabled by preferencesManager.bottomBarAutoHideEnabledState
     val statusParticlesEnabled by preferencesManager.statusParticlesEnabledState
@@ -11746,11 +11774,50 @@ private fun ColumnScope.ThemeSettingsSection(
 
         Spacer(Modifier.height(18.dp))
         CollapsibleThemeSection(
-            title = t("Фон", "Background"),
-            subtitle = t("Живые цветовые пресеты с учетом акцента и темы", "Animated color presets adapted to accent and theme"),
+            title = t("Цвет фона", "Background color"),
+            subtitle = t(
+                "Палитра подложки. Не зависит от выбранной анимации",
+                "Backdrop palette. Independent from the chosen animation"
+            ),
+            expanded = isSectionExpanded(ThemeSettingsSectionId.BackgroundColor),
+            onExpandedChange = { setSectionExpanded(ThemeSettingsSectionId.BackgroundColor, it) }
+        ) {
+        androidx.compose.foundation.layout.FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            maxItemsInEachRow = 3,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            backgroundPalettePresets().forEach { preset ->
+                BackgroundColorTile(
+                    label = t(preset.titleRu, preset.titleEn),
+                    colors = backgroundPaletteColors(
+                        backgroundPaletteModeForIndex(preset.id),
+                        nebulaColors.accent,
+                        nebulaColors.isLight
+                    ),
+                    selected = backgroundPalette == preset.id,
+                    onClick = { preferencesManager.backgroundPalette = preset.id },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+
+        Spacer(Modifier.height(18.dp))
+        CollapsibleThemeSection(
+            title = t("Анимация фона", "Background animation"),
+            subtitle = t("Выберите эффект: он сразу появится за интерфейсом", "Choose an effect: it appears behind the interface instantly"),
             expanded = isSectionExpanded(ThemeSettingsSectionId.Background),
             onExpandedChange = { setSectionExpanded(ThemeSettingsSectionId.Background, it) }
         ) {
+        // Превью рисуются той же функцией, что и настоящий фон, поэтому плитка
+        // всегда показывает именно тот эффект, который включится.
+        val previewColors = backgroundPaletteColors(
+            backgroundPaletteModeForIndex(backgroundPalette),
+            nebulaColors.accent,
+            nebulaColors.isLight
+        )
         androidx.compose.foundation.layout.FlowRow(
             modifier = Modifier.fillMaxWidth(),
             maxItemsInEachRow = 3,
@@ -11759,16 +11826,32 @@ private fun ColumnScope.ThemeSettingsSection(
         ) {
             backgroundStylePresets().forEach { preset ->
                 BackgroundPresetTile(
-                    label = preset.second,
-                    selected = backgroundStyle == preset.first,
-                    onClick = { preferencesManager.backgroundStyle = preset.first },
+                    label = t(preset.titleRu, preset.titleEn),
+                    mode = backgroundStyleModeForIndex(preset.id),
+                    previewColors = previewColors,
+                    icon = preset.icon,
+                    selected = backgroundStyle == preset.id,
+                    onClick = { preferencesManager.backgroundStyle = preset.id },
                     modifier = Modifier.weight(1f)
                 )
             }
         }
+        Spacer(Modifier.height(8.dp))
+        BackgroundRandomTile(
+            label = t("Случайный эффект", "Random effect"),
+            onClick = {
+                val alternatives = backgroundStylePresets()
+                    .filter { it.id != backgroundStyle && it.id != BACKGROUND_STYLE_NONE_ID }
+                preferencesManager.backgroundStyle = alternatives.random().id
+            }
+        )
         Spacer(Modifier.height(10.dp))
         ThemeSwitchRow(
-            title = t("Анимация фона", "Background animation"),
+            title = t("Движение фона", "Background motion"),
+            subtitle = t(
+                "Выключите, чтобы эффект застыл на одном кадре",
+                "Turn off to freeze the effect on a single frame"
+            ),
             icon = Icons.Default.Refresh,
             checked = backgroundAnimationEnabled,
             onCheckedChange = { preferencesManager.backgroundAnimationEnabled = it }
@@ -13265,42 +13348,112 @@ private fun subscriptionPreviewColors(themeSpec: String?, fallback: Color): List
     )
 }
 
-private fun backgroundStylePresets(): List<Pair<Int, String>> = listOf(
-    0 to "Standard",
-    1 to "Material",
-    2 to "Dots",
-    3 to "Aurora",
-    4 to "Grid",
-    5 to "Mesh",
-    6 to "Waves",
-    7 to "Stars",
-    8 to "Cyberpunk",
-    9 to "Deep Space",
-    10 to "Fire",
-    11 to "Lava",
-    12 to "Neon",
-    13 to "Nordic",
-    14 to "Blossom"
+private data class BackgroundStylePreset(
+    val id: Int,
+    val titleRu: String,
+    val titleEn: String,
+    val icon: ImageVector
 )
+
+/** id — значение BackgroundStyleMode, менять нельзя: оно сохранено у пользователей. */
+private const val BACKGROUND_STYLE_NONE_ID = 15
+
+private fun backgroundStylePresets(): List<BackgroundStylePreset> = listOf(
+    BackgroundStylePreset(0, "Круги", "Circles", Icons.Default.RadioButtonUnchecked),
+    BackgroundStylePreset(1, "Кольца", "Rings", Icons.Default.RadioButtonChecked),
+    BackgroundStylePreset(2, "Точки", "Dots", Icons.Default.Apps),
+    BackgroundStylePreset(3, "Аврора", "Aurora", Icons.Default.BrightnessAuto),
+    BackgroundStylePreset(4, "Сетка", "Grid", Icons.Default.GridView),
+    BackgroundStylePreset(5, "Фигуры", "Shapes", Icons.Default.Category),
+    BackgroundStylePreset(6, "Волны", "Waves", Icons.Default.Waves),
+    BackgroundStylePreset(7, "Снег", "Snow", Icons.Default.AcUnit),
+    BackgroundStylePreset(8, "Импульс", "Pulse", Icons.Default.Bolt),
+    BackgroundStylePreset(9, "Звёзды", "Stars", Icons.Default.Star),
+    BackgroundStylePreset(10, "Искры", "Embers", Icons.Default.LocalFireDepartment),
+    BackgroundStylePreset(11, "Пузыри", "Bubbles", Icons.Default.BubbleChart),
+    BackgroundStylePreset(12, "Неон", "Neon", Icons.Default.ShowChart),
+    BackgroundStylePreset(13, "Лучи", "Rays", Icons.Default.LightMode),
+    BackgroundStylePreset(14, "Лепестки", "Petals", Icons.Default.Favorite),
+    BackgroundStylePreset(16, "Дождь", "Rain", Icons.Default.Grain),
+    BackgroundStylePreset(17, "Орбиты", "Orbits", Icons.Default.TrackChanges),
+    BackgroundStylePreset(BACKGROUND_STYLE_NONE_ID, "Нет", "None", Icons.Default.Block)
+)
+
+private data class BackgroundPalettePreset(
+    val id: Int,
+    val titleRu: String,
+    val titleEn: String
+)
+
+private fun backgroundPalettePresets(): List<BackgroundPalettePreset> = listOf(
+    BackgroundPalettePreset(0, "Как тема", "Theme"),
+    BackgroundPalettePreset(1, "Аврора", "Aurora"),
+    BackgroundPalettePreset(2, "Кибер", "Cyber"),
+    BackgroundPalettePreset(3, "Космос", "Space"),
+    BackgroundPalettePreset(4, "Огонь", "Fire"),
+    BackgroundPalettePreset(5, "Лава", "Lava"),
+    BackgroundPalettePreset(6, "Неон", "Neon"),
+    BackgroundPalettePreset(7, "Север", "Nordic"),
+    BackgroundPalettePreset(8, "Цветение", "Blossom"),
+    BackgroundPalettePreset(9, "Океан", "Ocean"),
+    BackgroundPalettePreset(10, "Закат", "Sunset"),
+    BackgroundPalettePreset(11, "Лес", "Forest")
+)
+
+/**
+ * Общая рамка выбранной плитки. Раньше выделение рисовалось волосяной линией
+ * акцента поверх акцентной же заливки — на тёмном фоне рамка практически
+ * пропадала. Теперь это заметное кольцо + фон, и переход анимирован.
+ */
+@Composable
+private fun Modifier.selectableTileFrame(
+    selected: Boolean,
+    shape: RoundedCornerShape,
+    nebulaColors: NebulaColors
+): Modifier {
+    val fill by animateColorAsState(
+        targetValue = if (selected) nebulaColors.accent.copy(alpha = 0.20f) else nebulaColors.surface,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "tile_fill"
+    )
+    val border by animateColorAsState(
+        targetValue = if (selected) nebulaColors.accent else windowsBorder(nebulaColors),
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "tile_border"
+    )
+    val width by animateDpAsState(
+        targetValue = if (selected) 2.dp else 1.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "tile_border_width"
+    )
+    return this
+        .clip(shape)
+        .background(fill)
+        .border(width, border, shape)
+}
 
 @Composable
 private fun BackgroundPresetTile(
     label: String,
+    mode: BackgroundStyleMode,
+    previewColors: List<Color>,
+    icon: ImageVector,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
     val shape = RoundedCornerShape(16.dp)
-    val colors = backgroundPresetColors(label, nebulaColors)
-    val fill = if (selected) nebulaColors.accent.copy(alpha = 0.14f) else nebulaColors.surface
-    val border = if (selected) nebulaColors.accent.copy(alpha = 0.62f) else windowsBorder(nebulaColors)
+    val previewShape = RoundedCornerShape(13.dp)
+    val previewBase = lerp(
+        nebulaColors.background,
+        previewColors.firstOrNull() ?: nebulaColors.accent,
+        if (nebulaColors.isLight) 0.10f else 0.26f
+    )
     Column(
         modifier = modifier
-            .height(112.dp)
-            .clip(shape)
-            .background(fill)
-            .border(1.dp, border, shape)
+            .height(106.dp)
+            .selectableTileFrame(selected, shape, nebulaColors)
             .nimboClickable(onClick = onClick)
             .padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -13309,65 +13462,31 @@ private fun BackgroundPresetTile(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .clip(RoundedCornerShape(13.dp))
-                .background(backgroundPresetBrush(label, nebulaColors))
-                .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(13.dp))
+                .clip(previewShape)
+                .background(previewBase)
+                .border(1.dp, Color.White.copy(alpha = 0.10f), previewShape)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .offset(x = (-12).dp, y = 8.dp)
-                    .blur(10.dp)
-                    .clip(CircleShape)
-                    .background(colors.getOrElse(0) { nebulaColors.accent }.copy(alpha = 0.58f))
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = 12.dp, y = (-8).dp)
-                    .size(48.dp)
-                    .blur(12.dp)
-                    .clip(CircleShape)
-                    .background(colors.getOrElse(1) { nebulaColors.accent }.copy(alpha = 0.50f))
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .offset(x = 4.dp, y = 10.dp)
-                    .size(40.dp)
-                    .blur(9.dp)
-                    .clip(CircleShape)
-                    .background(colors.getOrElse(2) { nebulaColors.accent }.copy(alpha = 0.44f))
-            )
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(6.dp),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .width(22.dp)
-                            .height(5.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(Color.White.copy(alpha = 0.64f))
-                    )
-                    Box(
-                        modifier = Modifier
-                            .size(5.dp)
-                            .clip(CircleShape)
-                            .background(nebulaColors.accent.copy(alpha = 0.85f))
+            if (mode == BackgroundStyleMode.NONE) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = nebulaColors.textSecondary,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(22.dp)
+                )
+            } else {
+                // Тот же рендер, что и у настоящего фона — превью не врёт.
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    drawNimboBackgroundMotion(
+                        mode = mode,
+                        phase = 0.35f,
+                        colors = previewColors,
+                        isLight = nebulaColors.isLight,
+                        intensity = 2.6f,
+                        detail = 0.4f
                     )
                 }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(18.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(Color.Black.copy(alpha = if (nebulaColors.isLight) 0.16f else 0.26f))
-                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(9.dp))
-                )
             }
             if (selected) {
                 Box(
@@ -13386,7 +13505,7 @@ private fun BackgroundPresetTile(
         Spacer(Modifier.height(7.dp))
         Text(
             text = label,
-            color = if (selected) nebulaColors.textPrimary else nebulaColors.textSecondary,
+            color = if (selected) nebulaColors.accent else nebulaColors.textSecondary,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.ExtraBold,
             maxLines = 1,
@@ -13395,29 +13514,85 @@ private fun BackgroundPresetTile(
     }
 }
 
-private fun backgroundPresetBrush(label: String, nebulaColors: NebulaColors): Brush {
-    return Brush.linearGradient(backgroundPresetColors(label, nebulaColors))
+@Composable
+private fun BackgroundColorTile(
+    label: String,
+    colors: List<Color>,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val shape = RoundedCornerShape(16.dp)
+    val swatchShape = RoundedCornerShape(13.dp)
+    Column(
+        modifier = modifier
+            .height(96.dp)
+            .selectableTileFrame(selected, shape, nebulaColors)
+            .nimboClickable(onClick = onClick)
+            .padding(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(swatchShape)
+                .background(
+                    Brush.linearGradient(
+                        colors.take(3).ifEmpty { listOf(nebulaColors.accent, nebulaColors.accent) }
+                    )
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.12f), swatchShape)
+        ) {
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(5.dp)
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(nebulaColors.accent),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                }
+            }
+        }
+        Spacer(Modifier.height(7.dp))
+        Text(
+            text = label,
+            color = if (selected) nebulaColors.accent else nebulaColors.textSecondary,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
 
-private fun backgroundPresetColors(label: String, nebulaColors: NebulaColors): List<Color> {
-    val accent = nebulaColors.accent
-    return when (label.lowercase()) {
-        "standard" -> listOf(accent.copy(alpha = 0.90f), Color(0xFF191A24), nebulaColors.background)
-        "material" -> listOf(accent.copy(alpha = 0.70f), Color(0xFF2F2A3B), Color(0xFFE8DEF8))
-        "dots" -> listOf(Color(0xFF090A0F), Color(0xFF2C2C34), accent.copy(alpha = 0.70f))
-        "grid" -> listOf(Color(0xFF10131A), Color(0xFF263046), accent)
-        "waves" -> listOf(Color(0xFF10233F), Color(0xFF1976D2), Color(0xFF66E3FF))
-        "cyberpunk" -> listOf(Color(0xFF00F0FF), Color(0xFFFF2EA6), Color(0xFF7C5DFA))
-        "deep space" -> listOf(Color(0xFF070716), Color(0xFF25206C), Color(0xFFE8F3FF))
-        "fire" -> listOf(Color(0xFF3A0B05), Color(0xFFFF4D00), Color(0xFFFFC857))
-        "lava" -> listOf(Color(0xFF250008), Color(0xFFFF3D00), Color(0xFF7C1FFF))
-        "neon" -> listOf(Color(0xFFFF2EA6), Color(0xFF7C5DFA), Color(0xFF00D2FF))
-        "nordic" -> listOf(Color(0xFFB8FFF2), Color(0xFF6EA8FF), Color(0xFF12213A))
-        "blossom" -> listOf(Color(0xFFFF9BC4), Color(0xFFFFC29B), Color(0xFFC7A8FF))
-        "aurora" -> listOf(Color(0xFF6BE88E), Color(0xFF63B3FF), Color(0xFF7C5DFA))
-        "mesh" -> listOf(accent, Color(0xFF00D2FF), Color(0xFFFF7B7B))
-        "stars" -> listOf(Color(0xFF0A0F1E), Color(0xFF29345F), Color(0xFFE9EDFF))
-        else -> listOf(accent.copy(alpha = 0.86f), nebulaColors.background, Color(0xFF1C1D29))
+@Composable
+private fun BackgroundRandomTile(
+    label: String,
+    onClick: () -> Unit
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(shape)
+            .background(nebulaColors.surface)
+            .border(1.dp, windowsBorder(nebulaColors), shape)
+            .nimboClickable(onClick = onClick)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Icon(Icons.Default.BrightnessAuto, null, tint = nebulaColors.accent, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(9.dp))
+        Text(label, color = nebulaColors.textPrimary, fontWeight = FontWeight.ExtraBold)
     }
 }
 
@@ -15609,6 +15784,8 @@ private fun miniProtocolLabel(server: Server): String {
         protocol.contains("shadowsocks") || protocol == "ss" -> "Shadowsocks"
         protocol.contains("hysteria") || protocol == "hy2" -> "Hysteria2"
         protocol.contains("tuic") -> "TUIC"
+        protocol.contains("awg") || protocol.contains("amnezia") -> "AWG"
+        protocol.contains("wireguard") || protocol == "wg" -> "WireGuard"
         protocol.contains("reality") -> "Reality"
         protocol.isNotBlank() -> protocol.replaceFirstChar { it.uppercase() }
         else -> "VLESS"

@@ -30,30 +30,37 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -70,50 +77,48 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.danila.nimbo.MainViewModel
+import com.danila.nimbo.sync.CrossSyncPairingEngine
+import com.danila.nimbo.sync.CrossSyncPairingStage
 import com.danila.nimbo.sync.AndroidCrossSyncBundleMapper
 import com.danila.nimbo.sync.CrossSyncBundle
 import com.danila.nimbo.sync.CrossSyncClient
 import com.danila.nimbo.sync.CrossSyncProtocol
 import com.danila.nimbo.sync.CrossSyncQr
+import com.danila.nimbo.sync.PairedDesktopDevice
+import com.danila.nimbo.sync.PairedSyncEngine
 import com.danila.nimbo.sync.SyncCategories
 import com.danila.nimbo.sync.SyncDirection
 import com.danila.nimbo.sync.SyncDeviceInfo
 import com.danila.nimbo.sync.SyncInventory
 import com.danila.nimbo.sync.SyncWireRequest
 import com.danila.nimbo.sync.SyncWireResponse
+import com.danila.nimbo.ui.components.NebulaMorphicDialog
 import com.danila.nimbo.ui.components.QrScannerScreen
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.ui.theme.LocalBackgroundAnimationEnabled
 import com.danila.nimbo.utils.Logger
 import com.danila.nimbo.utils.PreferencesManager
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
-
-private enum class MobileSyncStage {
-    IDLE,
-    CONNECTING,
-    WAITING_DESKTOP,
-    CHOOSE_DIRECTION,
-    READY_TO_IMPORT,
-    WAITING_IMPORT_CONFIRMATION,
-    COMPLETED
-}
 
 @Composable
 fun CrossPlatformSyncScreen(
@@ -124,9 +129,18 @@ fun CrossPlatformSyncScreen(
     val context = LocalContext.current
     val colors = LocalNebulaColors.current
     val profiles by mainViewModel.profilesState.collectAsState()
-    val scope = rememberCoroutineScope()
-    val client = remember { CrossSyncClient() }
     val motionEnabled = LocalBackgroundAnimationEnabled.current
+    CrossSyncPairingEngine.syncPairedDevice(preferencesManager)
+
+    val stage = CrossSyncPairingEngine.stage
+    val qr = CrossSyncPairingEngine.qr
+    val response = CrossSyncPairingEngine.response
+    val pendingDesktopBundle = CrossSyncPairingEngine.pendingDesktopBundle
+    val error = CrossSyncPairingEngine.error
+    val offline = CrossSyncPairingEngine.offline
+    val addedSubscriptions = CrossSyncPairingEngine.addedSubscriptions
+    val nowMs = CrossSyncPairingEngine.nowMs
+    val sessionLifetimeMs = CrossSyncPairingEngine.sessionLifetimeMs
 
     var categories by remember {
         mutableStateOf(
@@ -139,27 +153,10 @@ fun CrossPlatformSyncScreen(
         )
     }
     var showScanner by remember { mutableStateOf(false) }
-    var scanHandled by remember { mutableStateOf(false) }
-    var stage by remember { mutableStateOf(MobileSyncStage.IDLE) }
-    var qr by remember { mutableStateOf<CrossSyncQr?>(null) }
-    var response by remember { mutableStateOf<SyncWireResponse?>(null) }
-    var localBundle by remember { mutableStateOf<CrossSyncBundle?>(null) }
-    var pendingDesktopBundle by remember { mutableStateOf<CrossSyncBundle?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var addedSubscriptions by remember { mutableStateOf(0) }
-    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var sessionLifetimeMs by remember { mutableLongStateOf(75_000L) }
-
-    LaunchedEffect(qr?.sessionId, stage) {
-        while (
-            qr != null &&
-            stage != MobileSyncStage.IDLE &&
-            stage != MobileSyncStage.COMPLETED
-        ) {
-            nowMs = System.currentTimeMillis()
-            delay(250L)
-        }
-    }
+    var pairedSyncing by remember { mutableStateOf(false) }
+    var selectedDevice by remember { mutableStateOf<PairedDesktopDevice?>(null) }
+    var deviceToDelete by remember { mutableStateOf<PairedDesktopDevice?>(null) }
+    val scope = rememberCoroutineScope()
 
     fun saveCategories(next: SyncCategories) {
         categories = next
@@ -170,164 +167,55 @@ fun CrossPlatformSyncScreen(
     }
 
     fun resetSession(openScanner: Boolean) {
-        error = null
-        response = null
-        qr = null
-        localBundle = null
-        pendingDesktopBundle = null
-        addedSubscriptions = 0
-        sessionLifetimeMs = 75_000L
-        nowMs = System.currentTimeMillis()
-        stage = MobileSyncStage.IDLE
-        scanHandled = false
+        CrossSyncPairingEngine.reset()
         showScanner = openScanner
     }
 
-    fun applyResponse(next: SyncWireResponse) {
-        response = next
-        error = next.message.takeIf { next.state == "rejected" }
-        stage = when (next.state) {
-            "awaiting_approval" -> MobileSyncStage.WAITING_DESKTOP
-            "paired" -> MobileSyncStage.CHOOSE_DIRECTION
-            "awaiting_import_confirmation" -> MobileSyncStage.WAITING_IMPORT_CONFIRMATION
-            "completed" -> MobileSyncStage.COMPLETED
-            "rejected", "cancelled", "expired" -> MobileSyncStage.IDLE
-            else -> stage
-        }
-    }
-
-    suspend fun pollUntilDecision(sessionQr: CrossSyncQr): SyncWireResponse {
-        while (scope.isActive && System.currentTimeMillis() < sessionQr.expiresAtMs) {
-            delay(800)
-            val next = client.exchange(sessionQr, SyncWireRequest(action = "status"))
-            applyResponse(next)
-            if (next.state in setOf("paired", "completed", "rejected", "cancelled", "expired")) {
-                return next
-            }
-        }
-        throw IllegalStateException("Сеанс истёк. Обновите QR на компьютере")
-    }
-
     fun handleScanned(raw: String) {
-        if (scanHandled) return
-        scanHandled = true
         showScanner = false
-        error = null
-        stage = MobileSyncStage.CONNECTING
-        scope.launch {
-            try {
-                val parsed = CrossSyncProtocol.parseQr(raw)
-                val scannedAt = System.currentTimeMillis()
-                sessionLifetimeMs = (parsed.expiresAtMs - scannedAt).coerceAtLeast(1_000L)
-                nowMs = scannedAt
-                val exported = AndroidCrossSyncBundleMapper.export(
-                    preferencesManager,
-                    profiles
-                )
-                qr = parsed
-                localBundle = exported
-                val hello = client.exchange(
-                    parsed,
-                    SyncWireRequest(
-                        action = "hello",
-                        deviceName = exported.deviceName,
-                        bundle = exported.filtered(categories)
-                    )
-                )
-                applyResponse(hello)
-                if (hello.state == "awaiting_approval") pollUntilDecision(parsed)
-            } catch (cause: Throwable) {
-                error = mobileSyncError(cause)
-                stage = MobileSyncStage.IDLE
-            }
-        }
+        CrossSyncPairingEngine.handleScanned(raw, preferencesManager, profiles, mainViewModel)
     }
 
     fun transfer(direction: SyncDirection) {
-        val sessionQr = qr ?: return
-        val exported = localBundle ?: return
-        error = null
-        stage = if (direction == SyncDirection.DESKTOP_TO_ANDROID) {
-            MobileSyncStage.CONNECTING
-        } else {
-            MobileSyncStage.WAITING_IMPORT_CONFIRMATION
-        }
+        CrossSyncPairingEngine.commit(direction, preferencesManager, profiles, mainViewModel)
+    }
+
+    fun applyDesktopData() {
+        CrossSyncPairingEngine.applyDesktopData(preferencesManager, profiles, mainViewModel, context)
+    }
+
+    fun syncPairedNow(device: PairedDesktopDevice) {
+        CrossSyncPairingEngine.error = null
+        pairedSyncing = true
         scope.launch {
             try {
-                val next = client.exchange(
-                    sessionQr,
-                    SyncWireRequest(
-                        action = "commit",
-                        deviceName = exported.deviceName,
-                        bundle = exported.filtered(categories),
-                        direction = direction,
-                        categories = categories
-                    )
+                val result = PairedSyncEngine.syncOnce(preferencesManager, device) { url, name ->
+                    mainViewModel.addSubscription(url)
+                    name?.takeIf { it.isNotBlank() }?.let { mainViewModel.renameProfile(url, it) }
+                }
+                CrossSyncPairingEngine.pairedDevices = preferencesManager.crossSyncPairedDevices
+                mainViewModel.showTopNotification(
+                    when {
+                        result.unpaired -> "Компьютер удалён из синхронизации"
+                        result.addedSubscriptions > 0 ->
+                            "Синхронизировано: добавлено подписок ${result.addedSubscriptions}"
+                        else -> "Синхронизировано"
+                    }
                 )
-                applyResponse(next)
-                when (direction) {
-                    SyncDirection.DESKTOP_TO_ANDROID -> {
-                        pendingDesktopBundle = next.desktopBundle
-                            ?: throw IllegalStateException("Компьютер не передал данные")
-                        stage = MobileSyncStage.READY_TO_IMPORT
-                    }
-                    SyncDirection.ANDROID_TO_DESKTOP -> {
-                        val final = if (next.state == "completed") next else pollUntilDecision(sessionQr)
-                        if (final.state == "completed") {
-                            preferencesManager.crossSyncLastAt = System.currentTimeMillis()
-                            preferencesManager.crossSyncLastDevice = "Nimbo Desktop"
-                            runCatching {
-                                client.exchange(sessionQr, SyncWireRequest(action = "receipt"))
-                            }
-                            stage = MobileSyncStage.COMPLETED
-                        } else if (final.state == "rejected") {
-                            throw IllegalStateException(final.message ?: "Импорт отклонён на компьютере")
-                        }
-                    }
-                }
             } catch (cause: Throwable) {
-                error = mobileSyncError(cause)
-                stage = if (response?.state in setOf("rejected", "cancelled", "expired")) {
-                    MobileSyncStage.IDLE
-                } else {
-                    MobileSyncStage.CHOOSE_DIRECTION
-                }
+                CrossSyncPairingEngine.failSync(cause)
+            } finally {
+                pairedSyncing = false
             }
         }
     }
 
-    fun applyDesktopData() {
-        val sessionQr = qr ?: return
-        val incoming = pendingDesktopBundle ?: return
-        error = null
-        stage = MobileSyncStage.CONNECTING
+    fun deletePairedDevice(device: PairedDesktopDevice) {
         scope.launch {
-            try {
-                val languageBefore = preferencesManager.appLanguage
-                AndroidCrossSyncBundleMapper.applySettings(preferencesManager, incoming, categories)
-                val missing = AndroidCrossSyncBundleMapper.missingSubscriptions(profiles, incoming, categories)
-                missing.forEach { subscription ->
-                    mainViewModel.addSubscription(subscription.url)
-                    subscription.name?.takeIf { it.isNotBlank() }?.let { name ->
-                        mainViewModel.renameProfile(subscription.url, name)
-                    }
-                }
-                addedSubscriptions = missing.size
-                preferencesManager.crossSyncLastAt = System.currentTimeMillis()
-                preferencesManager.crossSyncLastDevice = incoming.deviceName
-                client.exchange(sessionQr, SyncWireRequest(action = "receipt"))
-                stage = MobileSyncStage.COMPLETED
-                mainViewModel.showTopNotification(
-                    if (missing.isEmpty()) "Настройки синхронизированы" else "Синхронизация завершена: добавлено ${missing.size}"
-                )
-                if (preferencesManager.appLanguage != languageBefore) {
-                    delay(900)
-                    (context as? Activity)?.recreate()
-                }
-            } catch (cause: Throwable) {
-                error = mobileSyncError(cause)
-                stage = MobileSyncStage.READY_TO_IMPORT
-            }
+            PairedSyncEngine.unpair(preferencesManager, device)
+            CrossSyncPairingEngine.pairedDevices = preferencesManager.crossSyncPairedDevices
+            selectedDevice = null
+            mainViewModel.showTopNotification("Компьютер удалён из синхронизации")
         }
     }
 
@@ -336,7 +224,7 @@ fun CrossPlatformSyncScreen(
     ) { granted ->
         Logger.i("QrScanner", "source=desktop_sync event=camera_permission_result granted=$granted")
         if (granted) resetSession(openScanner = true)
-        else error = "Для сканирования QR требуется разрешение камеры"
+        else CrossSyncPairingEngine.error = "Для сканирования QR требуется разрешение камеры"
     }
 
     val continueWithCamera: () -> Unit = {
@@ -357,7 +245,7 @@ fun CrossPlatformSyncScreen(
     ) { granted ->
         Logger.i("QrScanner", "source=desktop_sync event=local_network_permission_result granted=$granted")
         if (granted) continueWithCamera()
-        else error = "Разрешите доступ к локальной сети, чтобы телефон мог напрямую подключиться к Nimbo Desktop"
+        else CrossSyncPairingEngine.error = "Разрешите доступ к локальной сети, чтобы телефон мог напрямую подключиться к Nimbo Desktop"
     }
 
     fun openScanner() {
@@ -398,7 +286,7 @@ fun CrossPlatformSyncScreen(
         return
     }
 
-    val effectiveLocalBundle = localBundle ?: AndroidCrossSyncBundleMapper.export(
+    val effectiveLocalBundle = CrossSyncPairingEngine.localBundle ?: AndroidCrossSyncBundleMapper.export(
         preferencesManager,
         profiles
     )
@@ -419,17 +307,8 @@ fun CrossPlatformSyncScreen(
     val sessionProgress = qr?.let {
         SyncMotionPolicy.progress(nowMs, it.expiresAtMs, sessionLifetimeMs)
     } ?: 0f
-    val sessionActive = stage != MobileSyncStage.IDLE && stage != MobileSyncStage.COMPLETED
-    val syncRotationTransition = rememberInfiniteTransition(label = "sync_header_rotation")
-    val syncRotation by syncRotationTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(5_800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "sync_header_rotation_value"
-    )
+    val sessionActive = stage != CrossSyncPairingStage.IDLE && stage != CrossSyncPairingStage.COMPLETED
+    val pairedDevices = CrossSyncPairingEngine.pairedDevices
 
     LazyColumn(
         modifier = Modifier
@@ -457,16 +336,85 @@ fun CrossPlatformSyncScreen(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                Icon(
-                    Icons.Default.Sync,
-                    null,
-                    tint = colors.accent,
-                    modifier = Modifier
-                        .size(28.dp)
-                        .graphicsLayer {
-                            rotationZ = if (sessionActive && motionEnabled) syncRotation else 0f
+            }
+        }
+
+        if (pairedDevices.isNotEmpty()) {
+            item {
+                SyncGlassCard {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SyncRoundIcon(Icons.Default.Computer)
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                t("Устройства", "Devices"),
+                                color = colors.textPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                t(
+                                    "Синхронизированные устройства и автосинхронизация по локальной сети.",
+                                    "Synced devices and auto-sync over the local network."
+                                ),
+                                color = colors.textSecondary,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
-                )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        pairedDevices.forEach { device ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable { selectedDevice = device }
+                                    .background(colors.controlFill)
+                                    .padding(horizontal = 13.dp, vertical = 11.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(11.dp)
+                            ) {
+                                SyncPlatformIcon(
+                                    platform = device.platform,
+                                    size = 36.dp,
+                                    tint = colors.accent
+                                )
+                                Column(Modifier.weight(1f)) {
+                                    Text(device.name, color = colors.textPrimary, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        if (device.lastSyncMs > 0) {
+                                            t(
+                                                "Последняя синхронизация: ${syncAgoText(device.lastSyncMs)}",
+                                                "Last sync: ${syncAgoText(device.lastSyncMs)}"
+                                            )
+                                        } else {
+                                            t("Синхронизация ещё не выполнялась", "Not synced yet")
+                                        },
+                                        color = colors.textSecondary,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Text(
+                                        if (device.autoSync) {
+                                            t("Автосинхронизация включена", "Auto-sync on")
+                                        } else {
+                                            t("Автосинхронизация выключена", "Auto-sync off")
+                                        },
+                                        color = if (device.autoSync) colors.accent else colors.textTertiary,
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                                Icon(
+                                    Icons.Default.ChevronRight,
+                                    null,
+                                    tint = colors.textTertiary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -478,8 +426,8 @@ fun CrossPlatformSyncScreen(
                         Text(t("Передача напрямую", "Direct transfer"), color = colors.textPrimary, fontWeight = FontWeight.Bold)
                         Text(
                             t(
-                                "Без облака: AES‑256‑GCM, локальная Wi‑Fi сеть и одноразовый QR на 75 секунд.",
-                                "No cloud: AES-256-GCM, local Wi-Fi and a 75-second one-time QR."
+                                "Без облака: AES‑256‑GCM, локальная Wi‑Fi сеть и одноразовый QR на 60 секунд.",
+                                "No cloud: AES-256-GCM, local Wi-Fi and a 60-second one-time QR."
                             ),
                             color = colors.textSecondary,
                             style = MaterialTheme.typography.bodySmall
@@ -498,22 +446,22 @@ fun CrossPlatformSyncScreen(
             SyncGlassCard {
                 Text(t("Что синхронизировать", "What to sync"), color = colors.textPrimary, fontWeight = FontWeight.ExtraBold)
                 Spacer(Modifier.height(8.dp))
-                SyncCategoryRow(t("Подписки", "Subscriptions"), t("Ссылки и пользовательские названия", "Links and custom names"), categories.subscriptions, stage == MobileSyncStage.IDLE) {
+                SyncCategoryRow(t("Подписки", "Subscriptions"), t("Ссылки и пользовательские названия", "Links and custom names"), categories.subscriptions, stage == CrossSyncPairingStage.IDLE) {
                     saveCategories(categories.copy(subscriptions = it))
                 }
-                SyncCategoryRow(t("Оформление", "Appearance"), t("Тема, акцент, стекло и скругления", "Theme, accent, glass and rounding"), categories.appearance, stage == MobileSyncStage.IDLE) {
+                SyncCategoryRow(t("Оформление", "Appearance"), t("Тема, акцент, стекло и скругления", "Theme, accent, glass and rounding"), categories.appearance, stage == CrossSyncPairingStage.IDLE) {
                     saveCategories(categories.copy(appearance = it))
                 }
-                SyncCategoryRow(t("Подключение", "Connection"), t("Kill Switch, TLS-фрагментация, график", "Kill Switch, TLS fragmentation, chart"), categories.connection, stage == MobileSyncStage.IDLE) {
+                SyncCategoryRow(t("Подключение", "Connection"), t("Kill Switch, TLS-фрагментация, график", "Kill Switch, TLS fragmentation, chart"), categories.connection, stage == CrossSyncPairingStage.IDLE) {
                     saveCategories(categories.copy(connection = it))
                 }
-                SyncCategoryRow(t("Автоматизация", "Automation"), t("Язык, ping и обновления", "Language, ping and updates"), categories.automation, stage == MobileSyncStage.IDLE) {
+                SyncCategoryRow(t("Автоматизация", "Automation"), t("Язык, ping и обновления", "Language, ping and updates"), categories.automation, stage == CrossSyncPairingStage.IDLE) {
                     saveCategories(categories.copy(automation = it))
                 }
             }
         }
 
-        if (stage == MobileSyncStage.IDLE) {
+        if (stage == CrossSyncPairingStage.IDLE) {
             item {
                 Button(
                     onClick = ::openScanner,
@@ -529,7 +477,7 @@ fun CrossPlatformSyncScreen(
             }
         }
 
-        if (stage == MobileSyncStage.CONNECTING || stage == MobileSyncStage.WAITING_DESKTOP || stage == MobileSyncStage.WAITING_IMPORT_CONFIRMATION) {
+        if (stage == CrossSyncPairingStage.CONNECTING || stage == CrossSyncPairingStage.WAITING_DESKTOP || stage == CrossSyncPairingStage.WAITING_IMPORT_CONFIRMATION) {
             item {
                 SyncGlassCard(border = colors.accent.copy(alpha = 0.45f)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(13.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -543,15 +491,14 @@ fun CrossPlatformSyncScreen(
                             SyncCountdownIndicator(
                                 progress = sessionProgress,
                                 secondsLeft = sessionSecondsLeft,
-                                motionEnabled = motionEnabled,
-                                modifier = Modifier.size(58.dp)
+                                motionEnabled = motionEnabled
                             )
                         }
                         Column {
                             Text(
                                 when (stage) {
-                                    MobileSyncStage.WAITING_DESKTOP -> t("Подтвердите телефон на ПК", "Approve this phone on desktop")
-                                    MobileSyncStage.WAITING_IMPORT_CONFIRMATION -> t("Подтвердите импорт на ПК", "Confirm import on desktop")
+                                    CrossSyncPairingStage.WAITING_DESKTOP -> t("Подтвердите телефон на ПК", "Approve this phone on desktop")
+                                    CrossSyncPairingStage.WAITING_IMPORT_CONFIRMATION -> t("Подтвердите импорт на ПК", "Confirm import on desktop")
                                     else -> t("Защищённое подключение…", "Secure connection…")
                                 },
                                 color = colors.textPrimary,
@@ -566,7 +513,7 @@ fun CrossPlatformSyncScreen(
             }
         }
 
-        if (stage == MobileSyncStage.WAITING_DESKTOP && remoteDeviceInfo != null && remoteInventory != null) {
+        if (stage == CrossSyncPairingStage.WAITING_DESKTOP && remoteDeviceInfo != null && remoteInventory != null) {
             item {
                 SyncRemoteDevicePassport(
                     info = remoteDeviceInfo,
@@ -576,7 +523,7 @@ fun CrossPlatformSyncScreen(
             }
         }
 
-        if (stage == MobileSyncStage.CHOOSE_DIRECTION && remoteInventory != null) {
+        if (stage == CrossSyncPairingStage.CHOOSE_DIRECTION && remoteInventory != null) {
             item {
                 SyncDeviceComparison(
                     localInfo = effectiveLocalBundle.deviceInfo,
@@ -616,7 +563,7 @@ fun CrossPlatformSyncScreen(
             }
         }
 
-        if (stage == MobileSyncStage.READY_TO_IMPORT) {
+        if (stage == CrossSyncPairingStage.READY_TO_IMPORT) {
             item {
                 SyncGlassCard(border = colors.accent.copy(alpha = 0.55f)) {
                     Text(t("Применить данные с компьютера?", "Apply desktop data?"), color = colors.textPrimary, fontWeight = FontWeight.ExtraBold)
@@ -641,25 +588,42 @@ fun CrossPlatformSyncScreen(
             }
         }
 
-        if (stage == MobileSyncStage.COMPLETED) {
+        if (stage == CrossSyncPairingStage.COMPLETED) {
             item {
                 SyncGlassCard(border = colors.statusConnected.copy(alpha = 0.55f)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         SyncCompletedIcon(motionEnabled = motionEnabled)
                         Column(Modifier.weight(1f)) {
-                            Text(t("Синхронизация завершена", "Sync completed"), color = colors.textPrimary, fontWeight = FontWeight.ExtraBold)
+                            Text(t("Добавить устройство", "Add a device"), color = colors.textPrimary, fontWeight = FontWeight.ExtraBold)
                             Text(
-                                if (addedSubscriptions > 0) t("Добавлено подписок: $addedSubscriptions", "Subscriptions added: $addedSubscriptions")
-                                else t("Выбранные данные перенесены", "Selected data was transferred"),
+                                if (addedSubscriptions > 0) t("Синхронизация завершена: добавлено подписок $addedSubscriptions", "Sync completed: $addedSubscriptions subscriptions added")
+                                else t("Синхронизация завершена. Можно добавить ещё одно устройство", "Sync completed. You can add another device"),
                                 color = colors.textSecondary,
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
                     }
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = { resetSession(openScanner = false) }, modifier = Modifier.fillMaxWidth()) {
-                        Text(t("Синхронизировать ещё раз", "Sync again"))
+                    Button(
+                        onClick = { resetSession(openScanner = true) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.accent)
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, null)
+                        Spacer(Modifier.size(8.dp))
+                        Text(t("Добавить устройство", "Add a device"), fontWeight = FontWeight.Bold)
                     }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        t(
+                            "Можно подключить несколько компьютеров — каждый синхронизируется отдельно.",
+                            "You can pair several desktops — each syncs separately."
+                        ),
+                        color = colors.textTertiary,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
@@ -667,13 +631,37 @@ fun CrossPlatformSyncScreen(
         error?.let { message ->
             item {
                 SyncGlassCard(border = colors.statusError.copy(alpha = 0.55f)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-                        Icon(Icons.Default.Warning, null, tint = colors.statusError)
-                        Text(message, color = colors.textPrimary, style = MaterialTheme.typography.bodyMedium)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(
+                            if (offline) Icons.Default.WifiOff else Icons.Default.Warning,
+                            null,
+                            tint = colors.statusError,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                if (offline) {
+                                    t("Устройство не в сети", "Device is offline")
+                                } else {
+                                    t("Ошибка синхронизации", "Sync error")
+                                },
+                                color = colors.textPrimary,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                message,
+                                color = colors.textSecondary,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
                     Spacer(Modifier.height(10.dp))
                     OutlinedButton(onClick = { resetSession(openScanner = false) }, modifier = Modifier.fillMaxWidth()) {
-                        Text(t("Начать заново", "Start over"))
+                        Text(t("Понятно", "Got it"))
                     }
                 }
             }
@@ -706,6 +694,39 @@ fun CrossPlatformSyncScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
             )
         }
+    }
+
+    selectedDevice?.let { device ->
+        DeviceDetailsSheet(
+            device = device,
+            categories = categories,
+            busy = pairedSyncing,
+            onCategoryChange = ::saveCategories,
+            onAutoSyncChange = { enabled ->
+                preferencesManager.crossSyncPairedDevices =
+                    preferencesManager.crossSyncPairedDevices.map {
+                        if (it.deviceId == device.deviceId) it.copy(autoSync = enabled) else it
+                    }
+                CrossSyncPairingEngine.pairedDevices = preferencesManager.crossSyncPairedDevices
+                Logger.i("CrossSync", "Auto-sync set to $enabled for ${device.deviceId}")
+            },
+            onSyncNow = { syncPairedNow(device) },
+            onDelete = { deviceToDelete = device },
+            onDismiss = { selectedDevice = null }
+        )
+    }
+
+    deviceToDelete?.let { device ->
+        NebulaMorphicDialog(
+            onDismissRequest = { deviceToDelete = null },
+            title = "Удалить устройство?",
+            description = "${device.name} будет удалено. Синхронизация с ним прекратится, его данные на этом телефоне сохранятся.",
+            confirmButtonText = "Удалить",
+            onConfirm = {
+                deviceToDelete = null
+                deletePairedDevice(device)
+            }
+        )
     }
 }
 
@@ -815,47 +836,40 @@ private fun SyncCountdownIndicator(
         label = "sync_countdown_progress"
     )
     val urgent = secondsLeft in 0..15
-    val ringColor = if (urgent) colors.statusError else colors.accent
+    val barColor = if (urgent) colors.statusError else colors.accent
+    val fraction = (if (motionEnabled) animatedProgress else progress).coerceIn(0f, 1f)
 
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val stroke = 4.dp.toPx()
-            val inset = stroke / 2f
-            val arcSize = Size(size.width - stroke, size.height - stroke)
-            drawArc(
-                color = colors.divider,
-                startAngle = -90f,
-                sweepAngle = 360f,
-                useCenter = false,
-                topLeft = Offset(inset, inset),
-                size = arcSize,
-                style = Stroke(stroke, cap = StrokeCap.Round)
-            )
-            drawArc(
-                color = ringColor,
-                startAngle = -90f,
-                sweepAngle = 360f * if (motionEnabled) animatedProgress else progress,
-                useCenter = false,
-                topLeft = Offset(inset, inset),
-                size = arcSize,
-                style = Stroke(stroke, cap = StrokeCap.Round)
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        AnimatedContent(
+            targetState = secondsLeft,
+            transitionSpec = { fadeIn(tween(130)) togetherWith fadeOut(tween(130)) },
+            label = "sync_countdown_number"
+        ) { value ->
+            Text(
+                value.toString(),
+                color = barColor,
+                fontWeight = FontWeight.ExtraBold,
+                style = MaterialTheme.typography.titleLarge
             )
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            AnimatedContent(
-                targetState = secondsLeft,
-                transitionSpec = { fadeIn(tween(130)) togetherWith fadeOut(tween(130)) },
-                label = "sync_countdown_number"
-            ) { value ->
-                Text(
-                    value.toString(),
-                    color = ringColor,
-                    fontWeight = FontWeight.ExtraBold,
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-            Text(t("сек", "sec"), color = colors.textTertiary, style = MaterialTheme.typography.labelSmall)
+        Spacer(Modifier.height(5.dp))
+        Box(
+            modifier = Modifier
+                .width(132.dp)
+                .height(9.dp)
+                .clip(RoundedCornerShape(4.5.dp))
+                .background(colors.divider)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(fraction)
+                    .clip(RoundedCornerShape(4.5.dp))
+                    .background(barColor)
+            )
         }
+        Spacer(Modifier.height(4.dp))
+        Text(t("сек", "sec"), color = colors.textTertiary, style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -1170,4 +1184,222 @@ private fun mobileSyncError(cause: Throwable): String {
         raw.isNotBlank() -> raw
         else -> "Не удалось выполнить синхронизацию"
     }
+}
+
+private fun syncAgoText(lastSyncMs: Long): String {
+    val seconds = (System.currentTimeMillis() - lastSyncMs) / 1000
+    return when {
+        seconds < 60 -> "только что"
+        seconds < 3600 -> "${seconds / 60} мин назад"
+        seconds < 86_400 -> "${seconds / 3600} ч назад"
+        else -> "${seconds / 86_400} дн назад"
+    }
+}
+
+private fun pairedDateText(pairedAtMs: Long): String =
+    DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(pairedAtMs))
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DeviceDetailsSheet(
+    device: PairedDesktopDevice,
+    categories: SyncCategories,
+    busy: Boolean,
+    onCategoryChange: (SyncCategories) -> Unit,
+    onAutoSyncChange: (Boolean) -> Unit,
+    onSyncNow: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val colors = LocalNebulaColors.current
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = if (colors.isLiquidGlass) {
+            colors.background.copy(alpha = 0.96f)
+        } else {
+            colors.surface
+        },
+        contentColor = colors.textPrimary
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp)
+                .padding(bottom = 30.dp),
+            verticalArrangement = Arrangement.spacedBy(13.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+                SyncPlatformIcon(platform = device.platform, size = 54.dp, tint = colors.accent)
+                Column(Modifier.weight(1f)) {
+                    Text(device.name, color = colors.textPrimary, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge, maxLines = 1)
+                    Text(
+                        listOfNotNull(
+                            device.osName,
+                            device.osVersion,
+                            device.appVersion?.let { "Nimbo $it" }
+                        ).joinToString(" · ").ifBlank { "Nimbo Desktop" },
+                        color = colors.textSecondary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
+            Text(
+                t("Добавлено ${pairedDateText(device.pairedAtMs)} · Последняя синхронизация ${if (device.lastSyncMs > 0) syncAgoText(device.lastSyncMs) else "ещё не было"}",
+                  "Paired ${pairedDateText(device.pairedAtMs)} · Last sync ${if (device.lastSyncMs > 0) syncAgoText(device.lastSyncMs) else "never"}"),
+                color = colors.textTertiary,
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            Text(
+                t("ПОДПИСКИ НА УСТРОЙСТВЕ", "SUBSCRIPTIONS ON THE DEVICE"),
+                color = colors.textTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+            if (device.lastSubscriptionCount <= 0) {
+                Text(
+                    t("Подписок на устройстве пока нет", "No subscriptions on the device yet"),
+                    color = colors.textSecondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else {
+                val shown = device.lastSubscriptionNames.take(8)
+                shown.forEach { name ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.size(6.dp).background(colors.accent, CircleShape))
+                        Text(name, color = colors.textPrimary, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                    }
+                }
+                val hidden = (device.lastSubscriptionCount - shown.size).coerceAtLeast(0)
+                if (hidden > 0) {
+                    Text(
+                        t("Ещё $hidden подписок", "$hidden more subscriptions"),
+                        color = colors.accent,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Box(Modifier.fillMaxWidth().height(1.dp).background(colors.divider))
+
+            Text(
+                t("ЧТО СИНХРОНИЗИРУЕТСЯ С УСТРОЙСТВОМ", "WHAT IS SYNCED WITH THIS DEVICE"),
+                color = colors.textTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+            SyncCategoryRow(t("Подписки", "Subscriptions"), t("Ссылки и пользовательские названия", "Links and custom names"), categories.subscriptions, enabled = true) {
+                onCategoryChange(categories.copy(subscriptions = it))
+            }
+            SyncCategoryRow(t("Оформление", "Appearance"), t("Тема, акцент, стекло и скругления", "Theme, accent, glass and rounding"), categories.appearance, enabled = true) {
+                onCategoryChange(categories.copy(appearance = it))
+            }
+            SyncCategoryRow(t("Подключение", "Connection"), t("Kill Switch, TLS-фрагментация, график", "Kill Switch, TLS fragmentation, chart"), categories.connection, enabled = true) {
+                onCategoryChange(categories.copy(connection = it))
+            }
+            SyncCategoryRow(t("Автоматизация", "Automation"), t("Язык, ping и обновления", "Language, ping and updates"), categories.automation, enabled = true) {
+                onCategoryChange(categories.copy(automation = it))
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        t("Автосинхронизация", "Auto-sync"),
+                        color = colors.textPrimary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        t("Автоматически обновлять данные при подключении к локальной сети.", "Automatically update when connected to the local network."),
+                        color = colors.textSecondary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Switch(
+                    checked = device.autoSync,
+                    onCheckedChange = onAutoSyncChange,
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = colors.accent,
+                        checkedThumbColor = colors.surface
+                    )
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(30.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    GlassIconButton(icon = Icons.Default.Sync, color = colors.accent, onClick = onSyncNow)
+                    Text(t("Синхронизировать", "Sync now"), color = colors.textTertiary, style = MaterialTheme.typography.labelSmall)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    GlassIconButton(icon = Icons.Default.Delete, color = Color(0xFFFF5252), onClick = onDelete)
+                    Text(t("Удалить устройство", "Remove device"), color = Color(0xFFFF5252), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SyncPlatformIcon(
+    platform: String,
+    size: Dp,
+    tint: Color
+) {
+    val isAndroid = platform.equals("android", ignoreCase = true)
+    Box(
+        modifier = Modifier
+            .size(size)
+            .background(tint.copy(alpha = 0.14f), RoundedCornerShape(size.value * 0.38f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(Modifier.fillMaxSize().padding(size * 0.2f)) {
+            if (isAndroid) drawAndroidRobot(tint) else drawMonitor(tint)
+        }
+    }
+}
+
+private fun DrawScope.drawAndroidRobot(color: Color) {
+    val w = size.width
+    val h = size.height
+    val stroke = w * 0.09f
+    drawLine(color, Offset(w * 0.28f, h * 0.06f), Offset(w * 0.37f, h * 0.26f), stroke, StrokeCap.Round)
+    drawLine(color, Offset(w * 0.72f, h * 0.06f), Offset(w * 0.63f, h * 0.26f), stroke, StrokeCap.Round)
+    val head = Path().apply {
+        fillType = PathFillType.EvenOdd
+        arcTo(androidx.compose.ui.geometry.Rect(0f, 0f, w, h * 1.05f), 180f, 180f, false)
+        close()
+        addRect(androidx.compose.ui.geometry.Rect(w * 0.24f, h * 0.42f, w * 0.39f, h * 0.6f))
+        addRect(androidx.compose.ui.geometry.Rect(w * 0.61f, h * 0.42f, w * 0.76f, h * 0.6f))
+    }
+    drawPath(head, color)
+    val legs = Path().apply {
+        moveTo(w * 0.14f, h * 0.62f)
+        lineTo(w * 0.14f, h * 0.92f)
+        lineTo(w * 0.33f, h * 0.92f)
+        lineTo(w * 0.33f, h * 0.62f)
+        moveTo(w * 0.67f, h * 0.62f)
+        lineTo(w * 0.67f, h * 0.92f)
+        lineTo(w * 0.86f, h * 0.92f)
+        lineTo(w * 0.86f, h * 0.62f)
+        close()
+    }
+    drawPath(legs, color)
+}
+
+private fun DrawScope.drawMonitor(color: Color) {
+    val w = size.width
+    val h = size.height
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(w * 0.08f, h * 0.08f),
+        size = Size(w * 0.84f, h * 0.58f),
+        cornerRadius = CornerRadius(w * 0.09f)
+    )
+    drawLine(color, Offset(w * 0.5f, h * 0.66f), Offset(w * 0.5f, h * 0.84f), w * 0.09f, StrokeCap.Round)
+    drawLine(color, Offset(w * 0.3f, h * 0.88f), Offset(w * 0.7f, h * 0.88f), w * 0.09f, StrokeCap.Round)
 }

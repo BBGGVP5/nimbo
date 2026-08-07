@@ -102,6 +102,30 @@ class MyVpnService : VpnService() {
         const val EXTRA_SERVER_HYSTERIA_UP = "server_hysteria_up"
         const val EXTRA_SERVER_HYSTERIA_DOWN = "server_hysteria_down"
         const val EXTRA_SERVER_HYSTERIA_CONGESTION = "server_hysteria_congestion"
+        const val EXTRA_SERVER_WG_PRIVATE_KEY = "server_wg_private_key"
+        const val EXTRA_SERVER_WG_PUBLIC_KEY = "server_wg_public_key"
+        const val EXTRA_SERVER_WG_PRESHARED_KEY = "server_wg_preshared_key"
+        const val EXTRA_SERVER_WG_ADDRESS = "server_wg_address"
+        const val EXTRA_SERVER_WG_ALLOWED_IPS = "server_wg_allowed_ips"
+        const val EXTRA_SERVER_WG_DNS = "server_wg_dns"
+        const val EXTRA_SERVER_WG_MTU = "server_wg_mtu"
+        const val EXTRA_SERVER_WG_KEEPALIVE = "server_wg_keepalive"
+        const val EXTRA_SERVER_AWG_JC = "server_awg_jc"
+        const val EXTRA_SERVER_AWG_JMIN = "server_awg_jmin"
+        const val EXTRA_SERVER_AWG_JMAX = "server_awg_jmax"
+        const val EXTRA_SERVER_AWG_S1 = "server_awg_s1"
+        const val EXTRA_SERVER_AWG_S2 = "server_awg_s2"
+        const val EXTRA_SERVER_AWG_S3 = "server_awg_s3"
+        const val EXTRA_SERVER_AWG_S4 = "server_awg_s4"
+        const val EXTRA_SERVER_AWG_H1 = "server_awg_h1"
+        const val EXTRA_SERVER_AWG_H2 = "server_awg_h2"
+        const val EXTRA_SERVER_AWG_H3 = "server_awg_h3"
+        const val EXTRA_SERVER_AWG_H4 = "server_awg_h4"
+        const val EXTRA_SERVER_AWG_I1 = "server_awg_i1"
+        const val EXTRA_SERVER_AWG_I2 = "server_awg_i2"
+        const val EXTRA_SERVER_AWG_I3 = "server_awg_i3"
+        const val EXTRA_SERVER_AWG_I4 = "server_awg_i4"
+        const val EXTRA_SERVER_AWG_I5 = "server_awg_i5"
 
         private const val TAG = "MyVpnService"
         private const val FORCE_LOCAL_MANUAL_ROUTING_TEST = false
@@ -111,6 +135,8 @@ class MyVpnService : VpnService() {
         private const val UNDERLYING_NETWORK_SETTLE_MS = 1_500L
         private const val UNDERLYING_NETWORK_HEALTH_GRACE_MS = 2_500L
         private const val HANDOFF_HEALTH_RETRY_DELAY_MS = 750L
+        private const val AWG_HANDSHAKE_WAIT_MS = 8_000L
+        private const val AWG_HANDSHAKE_POLL_MS = 500L
         private const val BACKGROUND_MAINTENANCE_INTERVAL_TICKS = 30
         private const val NOTIFICATION_UPDATE_INTERVAL_TICKS = 1
 
@@ -144,6 +170,30 @@ class MyVpnService : VpnService() {
                 putExtra(EXTRA_SERVER_HYSTERIA_UP, server.hysteriaUp ?: "")
                 putExtra(EXTRA_SERVER_HYSTERIA_DOWN, server.hysteriaDown ?: "")
                 putExtra(EXTRA_SERVER_HYSTERIA_CONGESTION, server.hysteriaCongestion ?: "")
+                putExtra(EXTRA_SERVER_WG_PRIVATE_KEY, server.wgPrivateKey ?: "")
+                putExtra(EXTRA_SERVER_WG_PUBLIC_KEY, server.wgPublicKey ?: "")
+                putExtra(EXTRA_SERVER_WG_PRESHARED_KEY, server.wgPresharedKey ?: "")
+                putExtra(EXTRA_SERVER_WG_ADDRESS, server.wgAddress ?: "")
+                putExtra(EXTRA_SERVER_WG_ALLOWED_IPS, server.wgAllowedIps ?: "")
+                putExtra(EXTRA_SERVER_WG_DNS, server.wgDns ?: "")
+                putExtra(EXTRA_SERVER_WG_MTU, server.wgMtu ?: 0)
+                putExtra(EXTRA_SERVER_WG_KEEPALIVE, server.wgKeepAlive ?: 0)
+                putExtra(EXTRA_SERVER_AWG_JC, server.awgJc ?: 0)
+                putExtra(EXTRA_SERVER_AWG_JMIN, server.awgJmin ?: 0)
+                putExtra(EXTRA_SERVER_AWG_JMAX, server.awgJmax ?: 0)
+                putExtra(EXTRA_SERVER_AWG_S1, server.awgS1 ?: 0)
+                putExtra(EXTRA_SERVER_AWG_S2, server.awgS2 ?: 0)
+                putExtra(EXTRA_SERVER_AWG_S3, server.awgS3 ?: 0)
+                putExtra(EXTRA_SERVER_AWG_S4, server.awgS4 ?: 0)
+                putExtra(EXTRA_SERVER_AWG_H1, server.awgH1 ?: "")
+                putExtra(EXTRA_SERVER_AWG_H2, server.awgH2 ?: "")
+                putExtra(EXTRA_SERVER_AWG_H3, server.awgH3 ?: "")
+                putExtra(EXTRA_SERVER_AWG_H4, server.awgH4 ?: "")
+                putExtra(EXTRA_SERVER_AWG_I1, server.awgI1 ?: "")
+                putExtra(EXTRA_SERVER_AWG_I2, server.awgI2 ?: "")
+                putExtra(EXTRA_SERVER_AWG_I3, server.awgI3 ?: "")
+                putExtra(EXTRA_SERVER_AWG_I4, server.awgI4 ?: "")
+                putExtra(EXTRA_SERVER_AWG_I5, server.awgI5 ?: "")
             }
         }
 
@@ -520,7 +570,7 @@ class MyVpnService : VpnService() {
 
                 if (!connected) {
                     connectionStatusOverride = null
-                    val rawError = XrayManager.connectionError
+                    val rawError = AmneziaWgManager.connectionError ?: XrayManager.connectionError
                     val userFacingError = buildUserFacingConnectionError(rawError)
                     Logger.e(TAG, userFacingError)
                     handleConnectionFailure(rawError ?: "Connection failed", retryable = true)
@@ -808,7 +858,7 @@ class MyVpnService : VpnService() {
             connectionJob?.cancel()
         }
         connectionJob = null
-        XrayManager.disconnect()
+        disconnectCurrentEngine()
         timerJob?.cancel()
         timerJob = null
 
@@ -1707,6 +1757,11 @@ class MyVpnService : VpnService() {
         maxAttemptsOverride: Int? = null,
         probeMode: Boolean = false
     ): Boolean {
+        // AmneziaWG/WireGuard работают на нативном движке libwg-go, минуя Xray,
+        // удалённые шаблоны и локальный прокси.
+        if (candidate.usesAwgEngine()) {
+            return connectAwgCandidate(candidate, cycleDeadlineMs, maxAttemptsOverride, probeMode)
+        }
         val autoBalancerCandidate = isAutoBalancerServer(candidate)
         // For auto-balancer templates, gather the profile's concrete servers so the
         // balancer (which ships without real proxy outbounds) can be populated client-side.
@@ -1851,6 +1906,104 @@ class MyVpnService : VpnService() {
             }
         }
         return false
+    }
+
+    private suspend fun connectAwgCandidate(
+        candidate: Server,
+        cycleDeadlineMs: Long,
+        maxAttemptsOverride: Int? = null,
+        probeMode: Boolean = false
+    ): Boolean {
+        val defaultAttempts = if (probeMode) {
+            ConnectionAttemptPolicy.PROBE_MAX_ATTEMPTS
+        } else {
+            ConnectionAttemptPolicy.NORMAL_MAX_ATTEMPTS
+        }
+        val maxAttempts = (maxAttemptsOverride ?: defaultAttempts).coerceAtLeast(1)
+        for (attempt in 0 until maxAttempts) {
+            var remainingCycleMs = cycleDeadlineMs - SystemClock.elapsedRealtime()
+            if (remainingCycleMs <= 0L) break
+
+            if (attempt > 0) {
+                Log.w(TAG, "AmneziaWG retry ${attempt + 1}/$maxAttempts for ${candidate.name}...")
+                AmneziaWgManager.disconnect()
+                val retryDelayMs = 1000L * (attempt + 1)
+                if (remainingCycleMs <= retryDelayMs) break
+                delay(retryDelayMs)
+            }
+
+            remainingCycleMs = cycleDeadlineMs - SystemClock.elapsedRealtime()
+            val attemptTimeoutMs = ConnectionAttemptPolicy.attemptTimeoutMs(remainingCycleMs)
+            if (attemptTimeoutMs <= 0L) break
+            val connected = withTimeoutOrNull(attemptTimeoutMs) {
+                AmneziaWgManager.connect(
+                    vpnService = this@MyVpnService,
+                    server = candidate,
+                    underlyingNetwork = findUsableUnderlyingNetwork(
+                        getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                    )
+                )
+            } ?: run {
+                Logger.w(TAG, "AmneziaWG connection attempt timed out for ${candidate.name}")
+                AmneziaWgManager.disconnect()
+                false
+            }
+            if (connected) {
+                val verificationBudgetMs = cycleDeadlineMs - SystemClock.elapsedRealtime()
+                val verified = if (verificationBudgetMs > 0L) {
+                    withTimeoutOrNull(verificationBudgetMs) {
+                        verifyAwgTunnel(candidate, verifyHandshake = !probeMode)
+                    } ?: false
+                } else {
+                    false
+                }
+                if (verified) return true
+                AmneziaWgManager.disconnect()
+            }
+            if (!ConnectionAttemptPolicy.shouldRetry(AmneziaWgManager.connectionError, attempt, maxAttempts)) {
+                break
+            }
+        }
+        return false
+    }
+
+    private suspend fun verifyAwgTunnel(candidate: Server, verifyHandshake: Boolean): Boolean {
+        delay(POST_CONNECT_STABILIZATION_MS)
+        if (!AmneziaWgManager.isConnected) {
+            Logger.w(TAG, "AmneziaWG engine stopped right after start for ${candidate.name}")
+            AmneziaWgManager.recordConnectionFailure("AmneziaWG engine stopped immediately after start")
+            return false
+        }
+        if (!hasUsableUnderlyingNetwork()) {
+            Logger.w(TAG, "Underlying network disappeared after VPN start for ${candidate.name}")
+            AmneziaWgManager.recordConnectionFailure("Underlying network disappeared after VPN start")
+            AmneziaWgManager.disconnect()
+            return false
+        }
+        if (!verifyHandshake) return true
+
+        // Ждём первый handshake: для UDP-туннеля это единственная объективная
+        // проверка, что ключи/endpoint верны и сервер отвечает.
+        val deadline = SystemClock.elapsedRealtime() + AWG_HANDSHAKE_WAIT_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (!AmneziaWgManager.isConnected) {
+                AmneziaWgManager.recordConnectionFailure("AmneziaWG engine stopped during handshake wait")
+                return false
+            }
+            if (AmneziaWgManager.lastHandshakeSeconds() > 0L) {
+                Logger.i(TAG, "AmneziaWG handshake established for ${candidate.name}")
+                return true
+            }
+            delay(AWG_HANDSHAKE_POLL_MS)
+        }
+        Logger.w(TAG, "AmneziaWG handshake timeout for ${candidate.name}")
+        AmneziaWgManager.recordConnectionFailure("AmneziaWG handshake timeout (нет ответа от сервера)")
+        return false
+    }
+
+    private fun disconnectCurrentEngine() {
+        AmneziaWgManager.disconnect()
+        XrayManager.disconnect()
     }
 
     private suspend fun verifyStartedTunnel(candidate: Server, verifyTraffic: Boolean): Boolean {
@@ -2035,9 +2188,9 @@ class MyVpnService : VpnService() {
             }
             Log.i(
                 TAG,
-                "Bypass probe result: ${candidate.name}, success=${report.successCount}/5, avg=${if (report.averageLatencyMs == Int.MAX_VALUE) "-1" else report.averageLatencyMs}ms, score=${report.score}"
+                "AmneziaWG probe result: ${candidate.name}, success=${report.successCount}/5, avg=${if (report.averageLatencyMs == Int.MAX_VALUE) "-1" else report.averageLatencyMs}ms, score=${report.score}"
             )
-            XrayManager.disconnect()
+            disconnectCurrentEngine()
             delay(250)
         }
 
@@ -2413,7 +2566,31 @@ class MyVpnService : VpnService() {
             hysteriaHopInterval = intent.getStringExtra(EXTRA_SERVER_HYSTERIA_HOP_INTERVAL)?.takeIf { it.isNotBlank() },
             hysteriaUp = intent.getStringExtra(EXTRA_SERVER_HYSTERIA_UP)?.takeIf { it.isNotBlank() },
             hysteriaDown = intent.getStringExtra(EXTRA_SERVER_HYSTERIA_DOWN)?.takeIf { it.isNotBlank() },
-            hysteriaCongestion = intent.getStringExtra(EXTRA_SERVER_HYSTERIA_CONGESTION)?.takeIf { it.isNotBlank() }
+            hysteriaCongestion = intent.getStringExtra(EXTRA_SERVER_HYSTERIA_CONGESTION)?.takeIf { it.isNotBlank() },
+            wgPrivateKey = intent.getStringExtra(EXTRA_SERVER_WG_PRIVATE_KEY)?.takeIf { it.isNotBlank() },
+            wgPublicKey = intent.getStringExtra(EXTRA_SERVER_WG_PUBLIC_KEY)?.takeIf { it.isNotBlank() },
+            wgPresharedKey = intent.getStringExtra(EXTRA_SERVER_WG_PRESHARED_KEY)?.takeIf { it.isNotBlank() },
+            wgAddress = intent.getStringExtra(EXTRA_SERVER_WG_ADDRESS)?.takeIf { it.isNotBlank() },
+            wgAllowedIps = intent.getStringExtra(EXTRA_SERVER_WG_ALLOWED_IPS)?.takeIf { it.isNotBlank() },
+            wgDns = intent.getStringExtra(EXTRA_SERVER_WG_DNS)?.takeIf { it.isNotBlank() },
+            wgMtu = intent.getIntExtra(EXTRA_SERVER_WG_MTU, 0).takeIf { it > 0 },
+            wgKeepAlive = intent.getIntExtra(EXTRA_SERVER_WG_KEEPALIVE, 0).takeIf { it > 0 },
+            awgJc = intent.getIntExtra(EXTRA_SERVER_AWG_JC, 0).takeIf { it > 0 },
+            awgJmin = intent.getIntExtra(EXTRA_SERVER_AWG_JMIN, 0).takeIf { it > 0 },
+            awgJmax = intent.getIntExtra(EXTRA_SERVER_AWG_JMAX, 0).takeIf { it > 0 },
+            awgS1 = intent.getIntExtra(EXTRA_SERVER_AWG_S1, 0).takeIf { it > 0 },
+            awgS2 = intent.getIntExtra(EXTRA_SERVER_AWG_S2, 0).takeIf { it > 0 },
+            awgS3 = intent.getIntExtra(EXTRA_SERVER_AWG_S3, 0).takeIf { it > 0 },
+            awgS4 = intent.getIntExtra(EXTRA_SERVER_AWG_S4, 0).takeIf { it > 0 },
+            awgH1 = intent.getStringExtra(EXTRA_SERVER_AWG_H1)?.takeIf { it.isNotBlank() },
+            awgH2 = intent.getStringExtra(EXTRA_SERVER_AWG_H2)?.takeIf { it.isNotBlank() },
+            awgH3 = intent.getStringExtra(EXTRA_SERVER_AWG_H3)?.takeIf { it.isNotBlank() },
+            awgH4 = intent.getStringExtra(EXTRA_SERVER_AWG_H4)?.takeIf { it.isNotBlank() },
+            awgI1 = intent.getStringExtra(EXTRA_SERVER_AWG_I1)?.takeIf { it.isNotBlank() },
+            awgI2 = intent.getStringExtra(EXTRA_SERVER_AWG_I2)?.takeIf { it.isNotBlank() },
+            awgI3 = intent.getStringExtra(EXTRA_SERVER_AWG_I3)?.takeIf { it.isNotBlank() },
+            awgI4 = intent.getStringExtra(EXTRA_SERVER_AWG_I4)?.takeIf { it.isNotBlank() },
+            awgI5 = intent.getStringExtra(EXTRA_SERVER_AWG_I5)?.takeIf { it.isNotBlank() }
         )
     }
 

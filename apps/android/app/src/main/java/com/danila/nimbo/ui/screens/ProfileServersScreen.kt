@@ -650,6 +650,8 @@ private val PROTOCOL_FILTER_ORDER = listOf(
     "Shadowsocks",
     "Hysteria2",
     "TUIC",
+    "AWG",
+    "WireGuard",
     "Reality",
     "Other"
 )
@@ -663,6 +665,8 @@ private fun protocolFilterKey(protocolRaw: String?): String {
         protocol.contains("shadowsocks") || protocol == "ss" -> "Shadowsocks"
         protocol.contains("hysteria") || protocol == "hy2" -> "Hysteria2"
         protocol.contains("tuic") -> "TUIC"
+        protocol.contains("awg") || protocol.contains("amnezia") -> "AWG"
+        protocol.contains("wireguard") || protocol == "wg" -> "WireGuard"
         protocol.contains("reality") -> "Reality"
         else -> "Other"
     }
@@ -1192,6 +1196,8 @@ private fun buildProtocolInfo(server: Server, showJsonBadge: Boolean): List<Stri
         protocol.contains("shadowsocks") || protocol.contains("ss") -> "Shadowsocks"
         protocol.contains("hysteria") || protocol == "hy2" -> "Hysteria2"
         protocol.contains("tuic") -> "TUIC"
+        protocol.contains("awg") || protocol.contains("amnezia") -> "AWG"
+        protocol.contains("wireguard") || protocol == "wg" -> "WireGuard"
         protocol.contains("reality") -> "Reality"
         protocol.isNotEmpty() -> protocol.replaceFirstChar { it.uppercase() }
         else -> null

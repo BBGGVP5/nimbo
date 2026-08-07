@@ -85,13 +85,22 @@ internal object UpdatePolicy {
         commitMessage: String?,
         isEnglish: Boolean
     ): String {
-        releaseNotes.trim().takeIf { it.isNotEmpty() }?.let { return it }
-        commitMessage?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        val details = releaseNotes.trim().takeIf { it.isNotEmpty() }
+            ?: commitMessage?.trim()?.takeIf { it.isNotEmpty() }
+        if (kind == UpdateKind.REPAIR && details != null) {
+            val repairNotice = if (isEnglish) {
+                "An additional update with fixes and improvements is available for the installed version."
+            } else {
+                "Для установленной версии доступно дополнительное обновление с исправлениями и улучшениями."
+            }
+            return "$repairNotice\n\n$details"
+        }
+        details?.let { return it }
         return when (kind) {
             UpdateKind.REPAIR -> if (isEnglish) {
-                "Fixed release file: bug fixes and stability improvements."
+                "An additional update with bug fixes and stability improvements."
             } else {
-                "Исправленный файл релиза: исправления ошибок и улучшения стабильности."
+                "Дополнительное обновление с исправлениями ошибок и улучшениями стабильности."
             }
             UpdateKind.VERSION -> if (isEnglish) {
                 "Bug fixes and stability improvements."

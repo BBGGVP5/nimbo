@@ -108,13 +108,34 @@ class UpdatePolicyTest {
     @Test
     fun repairWithoutNotesUsesBugFixFallback() {
         assertEquals(
-            "Исправленный файл релиза: исправления ошибок и улучшения стабильности.",
+            "Дополнительное обновление с исправлениями ошибок и улучшениями стабильности.",
             UpdatePolicy.changelog("", UpdateKind.REPAIR, commitMessage = null, isEnglish = false)
         )
         assertEquals(
-            "Fixed release file: bug fixes and stability improvements.",
+            "An additional update with bug fixes and stability improvements.",
             UpdatePolicy.changelog("", UpdateKind.REPAIR, commitMessage = null, isEnglish = true)
         )
+    }
+
+    @Test
+    fun repairWithExistingReleaseNotesStartsWithReinstallExplanation() {
+        val russian = UpdatePolicy.changelog(
+            "## Уже опубликованные изменения\n\nСтарое описание релиза.",
+            UpdateKind.REPAIR,
+            commitMessage = null,
+            isEnglish = false
+        )
+        val english = UpdatePolicy.changelog(
+            "## Existing release notes\n\nPrevious release description.",
+            UpdateKind.REPAIR,
+            commitMessage = null,
+            isEnglish = true
+        )
+
+        assertTrue(russian.startsWith("Для установленной версии доступно дополнительное обновление"))
+        assertTrue(russian.contains("Старое описание релиза"))
+        assertTrue(english.startsWith("An additional update with fixes and improvements is available"))
+        assertTrue(english.contains("Previous release description"))
     }
 
     @Test

@@ -133,6 +133,7 @@ class MainActivity : ComponentActivity() {
             val customGradientCount by preferencesManager.customGradientCountState
             val useDynamicColor by preferencesManager.useDynamicColorState
             val backgroundStyle by preferencesManager.backgroundStyleState
+            val backgroundPalette by preferencesManager.backgroundPaletteState
             val elementStyle by preferencesManager.elementStyleState
             val backgroundAnimationEnabled by preferencesManager.backgroundAnimationEnabledState
             val liquidRefractionEnabled by preferencesManager.liquidRefractionEnabledState
@@ -179,6 +180,7 @@ class MainActivity : ComponentActivity() {
                     customGradientCount = customGradientCount,
                     useDynamicColor = useDynamicColor,
                     backgroundStyle = backgroundStyle,
+                    backgroundPalette = backgroundPalette,
                     elementStyle = elementStyle,
                     backgroundAnimationEnabled = backgroundAnimationEnabled,
                     highContrastUi = highContrastUi,
@@ -222,6 +224,15 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) {
+            // A persisted one-time check closes the gap between the in-app check
+            // and the next periodic run after the user leaves or swipes Nimbo away.
+            UpdateWorkScheduler.enqueueBackgroundCatchUp(this)
         }
     }
 

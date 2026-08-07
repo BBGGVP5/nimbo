@@ -193,8 +193,11 @@ object LinkParser {
     }
 
     fun parse(link: String): Server {
-        val uri = try { Uri.parse(link) } catch (e: Exception) { null }
-        val protocol = link.substringBefore("://", "vless").lowercase()
+        val trimmed = link.trim()
+        val uri = try { Uri.parse(trimmed) } catch (e: Exception) { null }
+        // Сырые wg/awg-конфиги (без схемы) парсим как WireGuard.
+        if (looksLikeWgIni(trimmed)) return parseWireGuardLink(trimmed, uri)
+        val protocol = trimmed.substringBefore("://", "vless").lowercase()
         
         return when (protocol) {
             "vless" -> parseVless(link, uri)
@@ -202,8 +205,279 @@ object LinkParser {
             "trojan" -> parseTrojan(link, uri)
             "ss" -> parseShadowsocks(link, uri)
             "hy", "hy2", "hysteria2", "hysteria" -> parseHysteria2(link, uri)
+            "awg", "amneziawg" -> parseAwgLink(link, uri)
+            "wireguard", "wg" -> parseWireGuardLink(link, uri)
             else -> parseVless(link, uri)
         }
+    }
+
+    // ---------- WireGuard / AmneziaWG ----------
+
+    private fun parseIntParam(params: Map<String, String>, vararg keys: String): Int? {
+        for (key in keys) {
+            val value = params[key]?.trim()?.takeIf { it.isNotBlank() } ?: continue
+            return value.toIntOrNull()
+        }
+        return null
+    }
+
+    private fun firstParam(params: Map<String, String>, vararg keys: String): String? {
+        for (key in keys) {
+            val value = params[key]?.trim()?.takeIf { it.isNotBlank() } ?: continue
+            return value
+        }
+        return null
+    }
+
+    private fun parseWgEndpoint(raw: String?, uriHost: String?, uriPort: Int?): Pair<String, Int> {
+        val candidate = raw?.trim().orEmpty().ifEmpty { uriHost.orEmpty() }
+        if (candidate.isBlank()) return "" to 0
+        val (host, port) = parseHostPort(candidate, 51820)
+        val effectivePort = port.takeIf { it > 0 } ?: uriPort ?: 51820
+        return host to effectivePort
+    }
+
+    private fun parseAwgLink(link: String, uri: Uri?): Server {
+        val rawRest = link.substringAfter("://", "").substringBeforeLast("#", "").trim()
+        val rawFragment = link.substringAfterLast("#", "")
+        val fragmentName = if (rawFragment.isNotBlank() && !rawFragment.contains("://")) {
+            splitFragmentNameAndDescription(rawFragment).first.ifBlank { null }
+        } else null
+
+        // awg://<base64 INI> — формат официального клиента Amnezia.
+        val decodedIni = maybeDecodeBase64Text(rawRest.substringBefore("?"))
+        val params = parseQueryParams(rawRest.substringAfter("?", ""))
+
+        if (!decodedIni.isNullOrBlank() && looksLikeWgIni(decodedIni)) {
+            return parseWgIniConfig(decodedIni, nameOverride = fragmentName, params = params, protocol = "awg")
+        }
+
+        // awg://key=value&... — параметры в query (панели/скрипты).
+        if (params.isNotEmpty()) {
+            return parseWgQueryConfig(params, uri, fragmentName, protocol = "awg")
+        }
+
+        // Сырой INI прямо в ссылке.
+        if (looksLikeWgIni(rawRest)) {
+            return parseWgIniConfig(rawRest, nameOverride = fragmentName, params = emptyMap(), protocol = "awg")
+        }
+
+        // Безнадёжный случай: только host:port без ключей.
+        val (host, port) = parseWgEndpoint(rawRest, uri?.host, uri?.port)
+        return Server(
+            name = fragmentName ?: "AWG",
+            host = host,
+            port = port,
+            uuid = "",
+            protocol = "awg",
+            serverDescription = null
+        )
+    }
+
+    private fun parseWireGuardLink(link: String, uri: Uri?): Server {
+        // Сырой INI-конфиг целиком.
+        if (looksLikeWgIni(link)) {
+            return parseWgIniConfig(link, nameOverride = null, params = emptyMap(), protocol = "wireguard")
+        }
+        val rawRest = link.substringAfter("://", "").trim()
+        val rawFragment = link.substringAfterLast("#", "")
+
+        // wireguard://<имя>?key=value...
+        val qIndex = rawRest.indexOf('?')
+        val namePart = if (qIndex >= 0) rawRest.substring(0, qIndex) else ""
+        val queryPart = if (qIndex >= 0) rawRest.substring(qIndex + 1) else ""
+        val params = parseQueryParams(queryPart)
+
+        val fragmentName = if (rawFragment.isNotBlank() && !rawFragment.contains("://")) {
+            splitFragmentNameAndDescription(rawFragment).first.ifBlank { null }
+        } else null
+
+        val nameOverride = fragmentName
+            ?: decodeName(namePart, fallback = "").ifBlank { null }
+            ?: firstParam(params, "name", "hostname", "title", "remark", "comment", "ps")
+
+        if (params.isNotEmpty()) {
+            return parseWgQueryConfig(params, uri, nameOverride, protocol = "wireguard")
+        }
+
+        val rawBody = if (namePart.isBlank()) rawRest else namePart
+        if (looksLikeWgIni(rawBody)) {
+            return parseWgIniConfig(rawBody, nameOverride = nameOverride, params = emptyMap(), protocol = "wireguard")
+        }
+
+        val decodedIni = maybeDecodeBase64Text(rawBody)
+        if (!decodedIni.isNullOrBlank() && looksLikeWgIni(decodedIni)) {
+            return parseWgIniConfig(decodedIni, nameOverride = nameOverride, params = emptyMap(), protocol = "wireguard")
+        }
+
+        val (host, port) = parseWgEndpoint(rawBody, uri?.host, uri?.port)
+        return Server(
+            name = nameOverride ?: "WireGuard",
+            host = host,
+            port = port,
+            uuid = "",
+            protocol = "wireguard",
+            serverDescription = null
+        )
+    }
+
+    private fun looksLikeWgIni(text: String?): Boolean {
+        val lower = text?.lowercase().orEmpty()
+        return lower.contains("[interface]") || lower.contains("[peer]")
+    }
+
+    private fun looksLikeEndpointHost(host: String): Boolean {
+        if (host.isBlank() || host.contains(' ')) return false
+        if (host.contains('.')) return true
+        return host.count { it == ':' } >= 2
+    }
+
+    private fun parseWgIniConfig(
+        iniText: String,
+        nameOverride: String?,
+        params: Map<String, String>,
+        protocol: String
+    ): Server {
+        val interfaceParams = mutableMapOf<String, String>()
+        val peerParams = mutableMapOf<String, String>()
+        var currentSection: String? = null
+
+        iniText.lineSequence().forEach { rawLine ->
+            val line = rawLine.substringBefore('#').trim()
+            if (line.isBlank()) return@forEach
+            when {
+                line.startsWith("[") && line.endsWith("]") -> {
+                    currentSection = line.removePrefix("[").removeSuffix("]").lowercase()
+                }
+
+                line.contains("=") -> {
+                    val key = line.substringBefore("=").trim().lowercase()
+                    val value = line.substringAfter("=").trim()
+                    when (currentSection) {
+                        "interface" -> interfaceParams[key] = value
+                        "peer" -> peerParams[key] = value
+                    }
+                }
+            }
+        }
+
+        val merged = interfaceParams.toMutableMap()
+        // Параметры из query ссылки приоритетнее INI (имя, endpoint и т.п.).
+        merged.putAll(params)
+        val peerMerged = peerParams.toMutableMap()
+        return buildWgServer(interfaceParams = merged, peerParams = peerMerged, nameOverride = nameOverride, protocol = protocol)
+    }
+
+    private fun parseWgQueryConfig(
+        params: Map<String, String>,
+        uri: Uri?,
+        nameOverride: String?,
+        protocol: String
+    ): Server {
+        val interfaceParams = HashMap(params)
+        val peerParams = HashMap<String, String>()
+
+        // В query-формате peer-ключи лежат рядом с interface-ключами.
+        val peerKeys = mapOf(
+            "publickey" to "publickey",
+            "pubkey" to "publickey",
+            "public_key" to "publickey",
+            "peer_public_key" to "publickey",
+            "server_public_key" to "publickey",
+            "presharedkey" to "presharedkey",
+            "psk" to "presharedkey",
+            "preshared_key" to "presharedkey",
+            "peer_preshared_key" to "presharedkey",
+            "endpoint" to "endpoint",
+            "server" to "endpoint",
+            "allowedips" to "allowedips",
+            "allowed_ips" to "allowedips",
+            "ip_range" to "allowedips",
+            "routes" to "allowedips",
+            "keepalive" to "persistent_keepalive",
+            "persistent_keepalive" to "persistent_keepalive",
+            "persistentkeepalive" to "persistent_keepalive",
+            "persistent_keepalive_interval" to "persistent_keepalive"
+        )
+        peerKeys.forEach { (rawKey, canonicalKey) ->
+            params[rawKey]?.let { peerParams[canonicalKey] = it }
+        }
+        peerParams.keys.forEach { key -> interfaceParams.remove(key) }
+
+        // Endpoint в query может лежать отдельным ключом; достаём host:port из uri как fallback.
+        // uri.host тут доверять нельзя напрямую: в wireguard://<имя>?.. host-часть — это имя.
+        val endpoint = peerParams["endpoint"]
+        val uriHost = uri?.host
+        val uriPort = uri?.port
+        if (endpoint.isNullOrBlank() && !uriHost.isNullOrBlank() && looksLikeEndpointHost(uriHost)) {
+            peerParams["endpoint"] = if (uriPort != null && uriPort > 0) "$uriHost:$uriPort" else uriHost
+        }
+
+        return buildWgServer(
+            interfaceParams = interfaceParams,
+            peerParams = peerParams,
+            nameOverride = nameOverride,
+            protocol = protocol
+        )
+    }
+
+    private fun buildWgServer(
+        interfaceParams: Map<String, String>,
+        peerParams: Map<String, String>,
+        nameOverride: String?,
+        protocol: String
+    ): Server {
+        val ip = interfaceParams
+        val pp = peerParams
+
+        val privateKey = firstParam(ip, "privatekey", "private_key", "privkey", "key", "client_private_key")
+        val publicKey = firstParam(pp, "publickey", "public_key", "pubkey", "peer_public_key", "server_public_key")
+        val presharedKey = firstParam(pp, "presharedkey", "preshared_key", "psk")
+            ?: firstParam(ip, "presharedkey", "preshared_key", "psk")
+        val address = firstParam(ip, "address", "addresses", "ip", "ips", "interface_address")
+        val allowedIps = firstParam(pp, "allowedips", "allowed_ips", "ip_range", "routes")
+        val dns = firstParam(ip, "dns", "dns1", "dns2", "dns_server", "dns_servers")
+        val mtu = parseIntParam(ip, "mtu", "mtu_size")
+        val keepAlive = parseIntParam(pp, "persistent_keepalive", "persistentkeepalive", "keepalive")
+
+        val (host, port) = parseWgEndpoint(pp["endpoint"], null, null)
+
+        val name = nameOverride?.takeIf { it.isNotBlank() }
+            ?: firstParam(ip, "name", "hostname", "title", "remark", "comment", "ps")
+            ?: host.ifBlank { protocol }
+
+        return Server(
+            name = name,
+            host = host,
+            port = port,
+            uuid = "",
+            protocol = protocol,
+            serverDescription = firstParam(ip, "serverdescription", "server_description", "description"),
+            wgPrivateKey = privateKey,
+            wgPublicKey = publicKey,
+            wgPresharedKey = presharedKey,
+            wgAddress = address,
+            wgAllowedIps = allowedIps,
+            wgDns = dns,
+            wgMtu = mtu,
+            wgKeepAlive = keepAlive,
+            awgJc = parseIntParam(ip, "jc", "junkpacketcount", "junk"),
+            awgJmin = parseIntParam(ip, "jmin", "junkpacketminsize"),
+            awgJmax = parseIntParam(ip, "jmax", "junkpacketmaxsize"),
+            awgS1 = parseIntParam(ip, "s1", "junkpacketcollectionsize1"),
+            awgS2 = parseIntParam(ip, "s2", "junkpacketcollectionsize2"),
+            awgS3 = parseIntParam(ip, "s3", "junkpacketcollectionsize3"),
+            awgS4 = parseIntParam(ip, "s4", "junkpacketcollectionsize4"),
+            awgH1 = firstParam(ip, "h1", "header1"),
+            awgH2 = firstParam(ip, "h2", "header2"),
+            awgH3 = firstParam(ip, "h3", "header3"),
+            awgH4 = firstParam(ip, "h4", "header4"),
+            awgI1 = firstParam(ip, "i1", "init1"),
+            awgI2 = firstParam(ip, "i2", "init2"),
+            awgI3 = firstParam(ip, "i3", "init3"),
+            awgI4 = firstParam(ip, "i4", "init4"),
+            awgI5 = firstParam(ip, "i5", "init5")
+        )
     }
 
     private fun parseVless(link: String, uri: Uri?): Server {

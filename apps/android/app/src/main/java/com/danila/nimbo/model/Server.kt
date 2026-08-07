@@ -45,6 +45,34 @@ data class Server(
     @SerializedName("hysteriaDown") val hysteriaDown: String? = null,
     @SerializedName("hysteriaCongestion") val hysteriaCongestion: String? = null,
 
+    // WireGuard
+    @SerializedName("wgPrivateKey") val wgPrivateKey: String? = null,
+    @SerializedName("wgPublicKey") val wgPublicKey: String? = null,
+    @SerializedName("wgPresharedKey") val wgPresharedKey: String? = null,
+    @SerializedName("wgAddress") val wgAddress: String? = null,
+    @SerializedName("wgAllowedIps") val wgAllowedIps: String? = null,
+    @SerializedName("wgDns") val wgDns: String? = null,
+    @SerializedName("wgMtu") val wgMtu: Int? = null,
+    @SerializedName("wgKeepAlive") val wgKeepAlive: Int? = null,
+
+    // AmneziaWG obfuscation (1.x junk + 2.0 headers/padding/CPS)
+    @SerializedName("awgJc") val awgJc: Int? = null,
+    @SerializedName("awgJmin") val awgJmin: Int? = null,
+    @SerializedName("awgJmax") val awgJmax: Int? = null,
+    @SerializedName("awgS1") val awgS1: Int? = null,
+    @SerializedName("awgS2") val awgS2: Int? = null,
+    @SerializedName("awgS3") val awgS3: Int? = null,
+    @SerializedName("awgS4") val awgS4: Int? = null,
+    @SerializedName("awgH1") val awgH1: String? = null,
+    @SerializedName("awgH2") val awgH2: String? = null,
+    @SerializedName("awgH3") val awgH3: String? = null,
+    @SerializedName("awgH4") val awgH4: String? = null,
+    @SerializedName("awgI1") val awgI1: String? = null,
+    @SerializedName("awgI2") val awgI2: String? = null,
+    @SerializedName("awgI3") val awgI3: String? = null,
+    @SerializedName("awgI4") val awgI4: String? = null,
+    @SerializedName("awgI5") val awgI5: String? = null,
+
     // Remnawave template selection hints
     @SerializedName("templateUuid") val templateUuid: String? = null,
     @SerializedName("templateName") val templateName: String? = null,
@@ -168,4 +196,14 @@ data class Server(
         // до следующей проверки, даже после перезапуска приложения.
         return ping != null && ping >= 0
     }
+
+    fun isAmneziaWg(): Boolean = protocol.equals("awg", true) || protocol.equals("amneziawg", true)
+
+    fun isWireGuard(): Boolean = protocol.equals("wireguard", true)
+
+    /**
+     * Протоколы, которые обслуживает нативный движок AmneziaWG (libwg-go)
+     * вместо Xray. WireGuard-конфиги идут в тот же движок без обфускации.
+     */
+    fun usesAwgEngine(): Boolean = isAmneziaWg() || isWireGuard()
 }

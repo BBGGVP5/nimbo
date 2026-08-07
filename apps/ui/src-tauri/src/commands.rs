@@ -733,6 +733,7 @@ pub fn set_preferences(
         .map_err(|e| format!("Не удалось сохранить настройки приложения: {e}"))?;
     crate::tray::refresh_tray_menu(&app)
         .map_err(|e| format!("Не удалось обновить меню трея: {e}"))?;
+    crate::apply_main_window_background(&app);
     Ok(preferences)
 }
 
@@ -1046,6 +1047,29 @@ pub fn remove_subscription(
             }
         })
         .map_err(|e| format!("Не удалось сохранить: {e}"))?;
+    Ok(state.snapshot())
+}
+
+#[tauri::command]
+pub fn reorder_subscriptions(
+    state: State<'_, AppState>,
+    urls: Vec<String>,
+) -> Result<PersistedState, String> {
+    state
+        .mutate(|s| {
+            let order: HashMap<String, usize> = urls
+                .iter()
+                .enumerate()
+                .map(|(index, url)| (url.trim().to_lowercase(), index))
+                .collect();
+            s.subscriptions.sort_by_key(|sub| {
+                order
+                    .get(&sub.url.trim().to_lowercase())
+                    .copied()
+                    .unwrap_or(usize::MAX)
+            });
+        })
+        .map_err(|e| format!("Не удалось изменить порядок подписок: {e}"))?;
     Ok(state.snapshot())
 }
 
