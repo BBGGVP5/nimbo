@@ -759,6 +759,13 @@ function AppearanceSection({
               selected={preferences.ui_style === "material_you"}
               onClick={() => onChange({ ui_style: "material_you" })}
             />
+            <InterfaceStyleOption
+              styleId="dotted"
+              title={m.settings.dottedStyle}
+              subtitle={m.settings.dottedStyleSubtitle}
+              selected={preferences.ui_style === "dotted"}
+              onClick={() => onChange({ ui_style: "dotted" })}
+            />
           </div>
         </CollapsibleSection>
 
@@ -2667,7 +2674,7 @@ function InterfaceStyleOption({
   selected,
   onClick,
 }: {
-  styleId: "nimbo" | "material_you";
+  styleId: "nimbo" | "material_you" | "dotted";
   title: string;
   subtitle: string;
   selected: boolean;

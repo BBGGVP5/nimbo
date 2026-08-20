@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import uiPackage from "../../package.json";
 
+export const CURRENT_SUBSCRIPTION_PARSER_REVISION = 1;
+
 export type ConnectionState =
   | "disconnected"
   | "connecting"
@@ -68,7 +70,8 @@ export type Protocol =
   | { kind: "vmess"; address: string; port: number; uuid: string; alter_id: number; security: string; stream: StreamSettings }
   | { kind: "trojan"; address: string; port: number; password: string; stream: StreamSettings }
   | { kind: "shadowsocks"; address: string; port: number; method: string; password: string }
-  | { kind: "hysteria2"; address: string; port: number; password: string; sni?: string | null; alpn?: string[] | null; insecure: boolean; obfs?: string | null; obfs_password?: string | null };
+  | { kind: "hysteria2"; address: string; port: number; password: string; sni?: string | null; alpn?: string[] | null; insecure: boolean; obfs?: string | null; obfs_password?: string | null }
+  | { kind: "naive"; address: string; port: number; username: string; password: string; transport: "https" | "quic"; local_port?: number | null };
 
 export interface Server {
   id: string;
@@ -119,10 +122,19 @@ export interface SubscriptionMeta {
 export interface Subscription {
   url: string;
   name: string | null;
+  parser_revision?: number;
   meta?: SubscriptionMeta | null;
   servers: Server[];
   info: SubscriptionInfo | null;
   fetched_at: number;
+}
+
+export interface SubscriptionMigrationResult {
+  attempted: number;
+  migrated: number;
+  failed: number;
+  deferred: boolean;
+  completed: boolean;
 }
 
 export interface SubscriptionSettingsPatch {
@@ -181,7 +193,7 @@ export const DEFAULT_ACCENT_PALETTE = [
   DEFAULT_ACCENT_STRONG,
   DEFAULT_ACCENT_SOFT,
 ] as const;
-export type UiStyle = "nimbo" | "material_you";
+export type UiStyle = "nimbo" | "material_you" | "dotted";
 export type AppLanguage = "ru" | "en" | "system";
 export type LatencyProtocol = "tcp_connect" | "icmp" | "http_head";
 export type LatencyDisplayFormat = "ms" | "badge";
@@ -617,7 +629,7 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
   const accentMode = value?.accent_mode === "system" || value?.accent_mode === "preset" || value?.accent_mode === "custom"
     ? value.accent_mode
     : defaultAppPreferences.accent_mode;
-  const uiStyle = value?.ui_style === "material_you" || value?.ui_style === "nimbo"
+  const uiStyle = value?.ui_style === "material_you" || value?.ui_style === "nimbo" || value?.ui_style === "dotted"
     ? value.ui_style
     : defaultAppPreferences.ui_style;
   const language = value?.language === "en" || value?.language === "ru" || value?.language === "system"
@@ -795,7 +807,7 @@ function writeBrowserPersistedState(state: PersistedState): PersistedState {
 }
 
 function isSingleProxyLink(value: string): boolean {
-  return /^(vless|vmess|trojan|ss|hysteria2|hy2):\/\//i.test(value.trim());
+  return /^(vless|vmess|trojan|ss|hysteria2|hy2|naive|naive\+https|naive\+quic):\/\//i.test(value.trim());
 }
 
 function fallbackServerFromProxyLink(value: string): Server {
@@ -812,6 +824,31 @@ function fallbackServerFromProxyLink(value: string): Server {
     const uuid = q.get("id") || randomUuid();
     const network = (q.get("type") as Network | null) || "tcp";
     const security = (q.get("security") as Security | null) || "tls";
+
+    if (u.protocol === "naive:" || u.protocol === "naive+https:" || u.protocol === "naive+quic:") {
+      const queryTransport = q.get("transport")?.toLowerCase();
+      const transport = u.protocol === "naive+quic:" || queryTransport === "quic" ? "quic" : "https";
+      return {
+        id: randomUuid(),
+        name: hashName || "NaiveProxy",
+        server_description: queryValue(q, ["serverDescription", "server_description", "server-description"]),
+        host_uuid: queryValue(q, ["hostUuid", "host_uuid", "host-uuid"]),
+        xray_json_template_uuid: queryValue(q, [
+          "xrayJsonTemplateUuid",
+          "xray_json_template_uuid",
+          "xray-json-template-uuid",
+        ]),
+        protocol: {
+          kind: "naive",
+          address,
+          port,
+          username: decodeURIComponent(u.username || ""),
+          password: decodeURIComponent(u.password || ""),
+          transport,
+          local_port: null,
+        },
+      };
+    }
 
     if (u.protocol === "hysteria2:" || u.protocol === "hy2:") {
       return {
@@ -1882,6 +1919,7 @@ export const api = {
             },
             servers,
             info: null,
+            parser_revision: CURRENT_SUBSCRIPTION_PARSER_REVISION,
             fetched_at: Math.floor(Date.now() / 1000),
           };
 
@@ -1908,12 +1946,47 @@ export const api = {
           }
           const updated: Subscription = {
             ...current.subscriptions[index],
+            parser_revision: CURRENT_SUBSCRIPTION_PARSER_REVISION,
             fetched_at: Math.floor(Date.now() / 1000),
           };
           const subscriptions = [...current.subscriptions];
           subscriptions[index] = updated;
           writeBrowserPersistedState({ ...current, subscriptions });
           return updated;
+        })()),
+  migrateSubscriptions: () =>
+    isTauriRuntime()
+      ? invoke<SubscriptionMigrationResult>("migrate_subscriptions")
+      : Promise.resolve((() => {
+          const current = browserPersistedState();
+          const pending = current.subscriptions.filter(
+            (sub) => (sub.parser_revision ?? 0) < CURRENT_SUBSCRIPTION_PARSER_REVISION,
+          );
+          if (current.connected) {
+            return {
+              attempted: 0,
+              migrated: 0,
+              failed: 0,
+              deferred: pending.length > 0,
+              completed: pending.length === 0,
+            } satisfies SubscriptionMigrationResult;
+          }
+          if (pending.length > 0) {
+            writeBrowserPersistedState({
+              ...current,
+              subscriptions: current.subscriptions.map((sub) => ({
+                ...sub,
+                parser_revision: CURRENT_SUBSCRIPTION_PARSER_REVISION,
+              })),
+            });
+          }
+          return {
+            attempted: pending.length,
+            migrated: pending.length,
+            failed: 0,
+            deferred: false,
+            completed: true,
+          } satisfies SubscriptionMigrationResult;
         })()),
   updateSubscriptionSettings: (url: string, settings: SubscriptionSettingsPatch) =>
     isTauriRuntime()
@@ -2050,6 +2123,8 @@ export function protocolLabel(p: Protocol): string {
       return "Shadowsocks";
     case "hysteria2":
       return "Hysteria2";
+    case "naive":
+      return "NaiveProxy";
   }
 }
 
@@ -2060,6 +2135,7 @@ export function serverEndpoint(p: Protocol): string {
     case "trojan":
     case "shadowsocks":
     case "hysteria2":
+    case "naive":
       return `${p.address}:${p.port}`;
   }
 }
@@ -2080,6 +2156,7 @@ export function serverListDescription(server: Server, servers: Server[]): string
 export function transportLabel(p: Protocol): string {
   if (p.kind === "shadowsocks") return p.method;
   if (p.kind === "hysteria2") return [p.sni ? "TLS" : "QUIC", p.alpn?.join(", ")].filter(Boolean).join(" · ");
+  if (p.kind === "naive") return p.transport === "quic" ? "QUIC" : "HTTPS";
   const stream = p.stream;
   const sec = stream.security === "none" ? "" : stream.security.toUpperCase();
   const net = stream.network.replace("_", "-").toUpperCase();
@@ -2228,14 +2305,40 @@ export function formatBytes(bytes: number): string {
   return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)} ${units[i]}`;
 }
 
-export function formatExpire(unixSeconds: number | null | undefined): string {
+export interface ExpireLabels {
+  locale: string;
+  inDays: string;
+  today: string;
+  expired: string;
+}
+
+const RU_EXPIRE_LABELS: ExpireLabels = {
+  locale: "ru-RU",
+  inDays: "через {days} дн.",
+  today: "сегодня",
+  expired: "истекла",
+};
+
+/** Дата окончания подписки в языке интерфейса; без подписей падает на русский. */
+export function formatExpire(
+  unixSeconds: number | null | undefined,
+  labels: ExpireLabels = RU_EXPIRE_LABELS,
+): string {
   if (!unixSeconds) return "—";
   const ms = unixSeconds * 1000;
   const date = new Date(ms);
   const diff = ms - Date.now();
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const fmt = date.toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" });
-  if (days > 0) return `${fmt} (через ${days} дн.)`;
-  if (days === 0) return `${fmt} (сегодня)`;
-  return `${fmt} (истекла)`;
+  const fmt = date.toLocaleDateString(labels.locale, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const suffix =
+    days > 0
+      ? labels.inDays.replace("{days}", String(days))
+      : days === 0
+        ? labels.today
+        : labels.expired;
+  return `${fmt} (${suffix})`;
 }

@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { CountryFlag } from "../components/CountryFlag";
@@ -9,12 +9,12 @@ import {
   formatBytes,
   formatExpire,
   protocolLabel,
-  serverDisplayName,
   serverCustomDescription,
   transportLabel,
   type Server,
 } from "../lib/api";
-import { useMessages } from "../lib/i18n";
+import { expireLabels, useMessages } from "../lib/i18n";
+import { serverDisplayLabel, useServerUiOverrides } from "../lib/serverUiOverrides";
 
 const FAVORITES_KEY = "nimbo.favorites";
 function readFavoriteServers(): Set<string> {
@@ -51,59 +51,6 @@ function useFavoriteServers() {
   return { favorites, toggle };
 }
 
-const SERVER_OVERRIDES_KEY = "nimbo.serverOverrides";
-type ServerUiOverrides = Record<string, { name?: string; hidden?: boolean }>;
-function readServerUiOverrides(): ServerUiOverrides {
-  try {
-    const raw = localStorage.getItem(SERVER_OVERRIDES_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-function writeServerUiOverrides(value: ServerUiOverrides) {
-  try {
-    localStorage.setItem(SERVER_OVERRIDES_KEY, JSON.stringify(value));
-  } catch {}
-}
-function useServerUiOverrides() {
-  const [overrides, setOverrides] = useState<ServerUiOverrides>(readServerUiOverrides);
-  const commit = useCallback((producer: (current: ServerUiOverrides) => ServerUiOverrides) => {
-    setOverrides((current) => {
-      const next = producer(current);
-      writeServerUiOverrides(next);
-      return next;
-    });
-  }, []);
-  const renameServer = useCallback((serverId: string, name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    commit((current) => ({
-      ...current,
-      [serverId]: {
-        ...(current[serverId] ?? {}),
-        name: trimmed,
-      },
-    }));
-  }, [commit]);
-  const hideServer = useCallback((serverId: string) => {
-    commit((current) => ({
-      ...current,
-      [serverId]: {
-        ...(current[serverId] ?? {}),
-        hidden: true,
-      },
-    }));
-  }, [commit]);
-  return { overrides, renameServer, hideServer };
-}
-
-function serverDisplayLabel(server: Server, overrides: ServerUiOverrides): string {
-  const customName = overrides[server.id]?.name?.trim();
-  return customName || serverDisplayName(server.name);
-}
-
 export function Servers() {
   const m = useMessages();
   const { url } = useParams<{ url: string }>();
@@ -115,7 +62,13 @@ export function Servers() {
   const setServerPing = useAppStore((s) => s.setServerPing);
   const [pingingServerIds, setPingingServerIds] = useState<Set<string>>(() => new Set());
   const { favorites, toggle: toggleFavorite } = useFavoriteServers();
-  const { overrides: serverOverrides, renameServer, hideServer } = useServerUiOverrides();
+  const {
+    overrides: serverOverrides,
+    renameServer,
+    hideServer,
+    showAllServers,
+    hiddenCount,
+  } = useServerUiOverrides();
 
   const decoded = url ? decodeURIComponent(url) : "";
   const sub = subs.find((s) => s.url === decoded);
@@ -170,7 +123,7 @@ export function Servers() {
 
   const used = (sub.info?.upload ?? 0) + (sub.info?.download ?? 0);
   const total = sub.info?.total ?? null;
-  const expires = formatExpire(sub.info?.expire);
+  const expires = formatExpire(sub.info?.expire, expireLabels(m));
   const description = sub.meta?.description?.trim() || "";
   const visibleDescription = /^описание подписки$/i.test(description) ? "" : description;
   const supportUrl = sub.meta?.support_url?.trim() || "";
@@ -284,6 +237,19 @@ export function Servers() {
                 ))}
             </div>
           </div>
+
+          {hiddenCount > 0 && (
+            <div className="mt-2 flex items-center justify-between px-1 text-[11px] text-[var(--color-text-faint)]">
+              <span>{fillTemplate(m.common.hiddenServers, { count: String(hiddenCount) })}</span>
+              <button
+                type="button"
+                className="interactive rounded-lg px-2 py-1 font-semibold text-[var(--color-accent-bright)]"
+                onClick={showAllServers}
+              >
+                {m.common.showHiddenServers}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -524,6 +490,7 @@ function pingTier(ping: number): { bg: string; fg: string } {
 
 function networkBadge(protocol: Server["protocol"]): string {
   if (protocol.kind === "shadowsocks") return "SHADOWSOCKS";
+  if (protocol.kind === "naive") return "NAIVEPROXY";
   const value = transportLabel(protocol).replace(" · ", " • ").trim();
   return value ? value.toUpperCase() : "JSON";
 }

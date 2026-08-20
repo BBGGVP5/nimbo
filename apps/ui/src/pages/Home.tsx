@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { CountryFlag } from "../components/CountryFlag";
 import { notifyError } from "../lib/notify";
 import { useMessages } from "../lib/i18n";
+import { serverDisplayLabel, useServerUiOverrides } from "../lib/serverUiOverrides";
 import type { Messages } from "../lib/i18n";
 import { pingServersProgressively } from "../lib/ping";
 import { useCachedSubscriptionLogo } from "../lib/subscriptionLogo";
@@ -13,7 +14,6 @@ import {
   formatBytes,
   formatExpire,
   protocolLabel,
-  serverDisplayName,
   serverListDescription,
   subscriptionVisibleOnHome,
   transportLabel,
@@ -80,13 +80,15 @@ function writeServerOrder(subUrl: string, order: string[]) {
 function validateServerOrder(stored: string[], currentIds: string[], subUrl: string): string[] {
   if (!stored.length) return [];
   const currentSet = new Set(currentIds);
-  // Discard stored order if it references IDs not present in the current subscription
-  const hasUnknown = stored.some((id) => !currentSet.has(id));
-  if (hasUnknown) {
-    try { localStorage.removeItem(makeOrderKey(subUrl)); } catch {}
-    return [];
-  }
-  return stored;
+  // Раньше порядок сбрасывался целиком, стоило подписке потерять один сервер.
+  // Теперь отбрасываются только исчезнувшие id, ручная сортировка остаётся.
+  const kept = stored.filter((id) => currentSet.has(id));
+  if (kept.length === stored.length) return stored;
+  try {
+    if (kept.length) localStorage.setItem(makeOrderKey(subUrl), JSON.stringify(kept));
+    else localStorage.removeItem(makeOrderKey(subUrl));
+  } catch {}
+  return kept;
 }
 
 function subscriptionSiteUrl(source: string): string | null {
@@ -106,10 +108,17 @@ function sortEntries(
   pingOrder: "asc" | "desc" = "asc",
 ): ServerEntry[] {
   if (mode === "ping") {
+    const UNMEASURED = Number.MAX_SAFE_INTEGER;
     return [...entries].sort((a, b) => {
-      const pa = pings[a.server.id] ?? Infinity;
-      const pb = pings[b.server.id] ?? Infinity;
-      return pingOrder === "asc" ? pa - pb : pb - pa;
+      const pa = pings[a.server.id];
+      const pb = pings[b.server.id];
+      // Серверы без замера всегда в хвосте — в обоих направлениях сортировки.
+      if (pa == null && pb == null) return 0;
+      if (pa == null) return 1;
+      if (pb == null) return -1;
+      const left = pa ?? UNMEASURED;
+      const right = pb ?? UNMEASURED;
+      return pingOrder === "asc" ? left - right : right - left;
     });
   }
   if (mode === "protocol") {
@@ -119,7 +128,7 @@ function sortEntries(
   }
   if (mode === "name") {
     return [...entries].sort((a, b) =>
-      serverDisplayName(a.server.name).localeCompare(serverDisplayName(b.server.name), undefined, { sensitivity: "base" }),
+      serverDisplayLabel(a.server).localeCompare(serverDisplayLabel(b.server), undefined, { sensitivity: "base" }),
     );
   }
   if (order.length) {
@@ -250,6 +259,7 @@ export function Home() {
   const [showFavOnly, setShowFavOnly] = useState(false);
   const [compactSheetOpen, setCompactSheetOpen] = useState(false);
   const { favorites, toggle: toggleFavorite } = useFavorites();
+  const { overrides: serverOverrides } = useServerUiOverrides();
   const serversPanelWidth = useResizableServersPanel();
 
   useEffect(() => {
@@ -307,7 +317,17 @@ export function Home() {
     });
   }, []);
 
-  const visibleSubs = useMemo(() => subs.filter(subscriptionVisibleOnHome), [subs]);
+  const visibleSubs = useMemo(
+    () =>
+      subs
+        .filter(subscriptionVisibleOnHome)
+        // Скрытые на других экранах серверы не должны возвращаться на главную.
+        .map((sub) => ({
+          ...sub,
+          servers: sub.servers.filter((server) => !serverOverrides[server.id]?.hidden),
+        })),
+    [subs, serverOverrides],
+  );
 
   const currentSub = useMemo(() => {
     if (activeSubscriptionUrl) {
@@ -366,12 +386,13 @@ export function Home() {
     if (!targetId) return null;
     const inCurrent = baseEntries.find((item) => item.server.id === targetId);
     if (inCurrent) return inCurrent;
-    for (const sub of visibleSubs) {
+    // Активный сервер показываем всегда — даже если он скрыт из списка вручную.
+    for (const sub of subs) {
       const server = sub.servers.find((s) => s.id === targetId);
       if (server) return { server, sub };
     }
     return null;
-  }, [activeId, connectingServerId, switchingServerId, baseEntries, visibleSubs]);
+  }, [activeId, connectingServerId, switchingServerId, baseEntries, subs]);
   const fallbackEntry = activeEntry ?? baseEntries[0] ?? null;
   const connected = status?.state === "connected";
   const connecting = Boolean(connectingServerId);
@@ -713,7 +734,7 @@ function ActiveServerInfo({
   labels: Messages;
 }) {
   if (!entry) return null;
-  const name = serverDisplayName(entry.server.name);
+  const name = serverDisplayLabel(entry.server);
   const subscriptionName = entry.sub.name?.trim() || labels.common.subscription;
   const protocol = protocolLabel(entry.server.protocol);
   const transport = transportLabel(entry.server.protocol);
@@ -775,7 +796,7 @@ function CompactServerBar({
   labels: Messages;
 }) {
   if (!entry) return null;
-  const label = serverDisplayName(entry.server.name);
+  const label = serverDisplayLabel(entry.server);
 
   return (
     <div className="compact-server-bar mt-4 flex w-full max-w-[400px] items-center gap-1.5">
@@ -1138,7 +1159,7 @@ function ServerSidePanel({
           </div>
         ) : (
           entries.map(({ server }, idx) => {
-            const label = serverDisplayName(server.name);
+            const label = serverDisplayLabel(server);
             const description = serverListDescription(
               server,
               entries.map((e) => e.server),
@@ -1798,6 +1819,7 @@ function protoName(kind: string): string {
     case "trojan": return "Trojan";
     case "shadowsocks": return "SS";
     case "hysteria2": return "HY2";
+    case "naive": return "NAIVE";
     default: return kind.toUpperCase();
   }
 }

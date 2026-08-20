@@ -3,7 +3,12 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CountryFlag } from "../components/CountryFlag";
 import { notifyError, notifyInfo } from "../lib/notify";
-import { fillTemplate, useMessages, type Messages } from "../lib/i18n";
+import { expireLabels, fillTemplate, useMessages, type Messages } from "../lib/i18n";
+import {
+  serverDisplayLabel,
+  useServerUiOverrides,
+  type ServerUiOverrides,
+} from "../lib/serverUiOverrides";
 import { pingServersProgressively } from "../lib/ping";
 import { useCachedSubscriptionLogo } from "../lib/subscriptionLogo";
 import { useAppStore } from "../store";
@@ -13,22 +18,13 @@ import {
   formatExpire,
   protocolLabel,
   serverCustomDescription,
-  serverDisplayName,
   serverListDescription,
   transportLabel,
   type Server,
   type Subscription,
 } from "../lib/api";
 
-type ServerUiOverride = {
-  name?: string;
-  hidden?: boolean;
-};
-
-type ServerUiOverrides = Record<string, ServerUiOverride>;
-
 const FAVORITES_KEY = "nimbo.favorites";
-const SERVER_OVERRIDES_KEY = "nimbo.serverUiOverrides";
 
 function readFavoriteServers(): Set<string> {
   try {
@@ -60,64 +56,6 @@ function useFavoriteServers() {
   return { favorites, toggle };
 }
 
-function readServerUiOverrides(): ServerUiOverrides {
-  try {
-    const raw = localStorage.getItem(SERVER_OVERRIDES_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as ServerUiOverrides;
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeServerUiOverrides(value: ServerUiOverrides) {
-  try {
-    localStorage.setItem(SERVER_OVERRIDES_KEY, JSON.stringify(value));
-  } catch {}
-}
-
-function useServerUiOverrides() {
-  const [overrides, setOverrides] = useState<ServerUiOverrides>(readServerUiOverrides);
-
-  const commit = useCallback((producer: (current: ServerUiOverrides) => ServerUiOverrides) => {
-    setOverrides((current) => {
-      const next = producer(current);
-      writeServerUiOverrides(next);
-      return next;
-    });
-  }, []);
-
-  const renameServer = useCallback((serverId: string, name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    commit((current) => ({
-      ...current,
-      [serverId]: {
-        ...(current[serverId] ?? {}),
-        name: trimmed,
-      },
-    }));
-  }, [commit]);
-
-  const hideServer = useCallback((serverId: string) => {
-    commit((current) => ({
-      ...current,
-      [serverId]: {
-        ...(current[serverId] ?? {}),
-        hidden: true,
-      },
-    }));
-  }, [commit]);
-
-  return { overrides, renameServer, hideServer };
-}
-
-function serverDisplayLabel(server: Server, overrides: ServerUiOverrides): string {
-  const customName = overrides[server.id]?.name?.trim();
-  return customName || serverDisplayName(server.name);
-}
-
 export function Subscriptions() {
   const m = useMessages();
   const subs = useAppStore((s) => s.subscriptions);
@@ -140,6 +78,8 @@ export function Subscriptions() {
     overrides: serverOverrides,
     renameServer,
     hideServer,
+    showAllServers,
+    hiddenCount,
   } = useServerUiOverrides();
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const serverCount = subs.reduce((sum, sub) => sum + sub.servers.length, 0);
@@ -213,6 +153,18 @@ export function Subscriptions() {
           <p className="page-subtitle">
             {serverCount} {m.common.servers} · {subs.length} {m.common.subscriptions}
           </p>
+          {hiddenCount > 0 && (
+            <p className="mt-1 text-[11px] text-[var(--color-text-faint)]">
+              {fillTemplate(m.common.hiddenServers, { count: hiddenCount })}{" "}
+              <button
+                type="button"
+                className="interactive font-semibold text-[var(--color-accent-bright)]"
+                onClick={showAllServers}
+              >
+                {m.common.showHiddenServers}
+              </button>
+            </p>
+          )}
         </div>
         <div className="flex gap-3">
           <IconButton
@@ -357,7 +309,7 @@ function ProfileCard({
   const m = useMessages();
   const used = (sub.info?.upload ?? 0) + (sub.info?.download ?? 0);
   const total = sub.info?.total ?? null;
-  const expires = formatExpire(sub.info?.expire);
+  const expires = formatExpire(sub.info?.expire, expireLabels(m));
   const supportUrl = sub.meta?.support_url?.trim() || "https://t.me/nebulaguard_channel";
   const siteUrl = sub.meta?.website_url?.trim() || subscriptionSiteUrl(sub.url);
   const description = sub.meta?.description?.trim() || "";
@@ -457,9 +409,9 @@ function ProfileCard({
   };
 
   return (
-    <section className="panel relative">
+    <section className="subscription-card panel relative">
       <div
-        className="cursor-pointer p-4"
+        className="subscription-card-body cursor-pointer p-4"
         onClick={onSummaryClick}
         role="button"
         tabIndex={0}
@@ -473,12 +425,12 @@ function ProfileCard({
         }}
       >
         <div
-          className="mb-4 grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-3 rounded-xl text-left"
+          className="subscription-summary mb-4 grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-3 rounded-xl text-left"
         >
           <div className="pt-1 text-[var(--color-text-faint)]">
             <ChevronIcon open={expanded} />
           </div>
-          <div className="min-w-0">
+          <div className="subscription-summary-main min-w-0">
             <div className="flex min-w-0 items-center gap-3">
               {logoSrc && (
                 <img
@@ -502,7 +454,7 @@ function ProfileCard({
               {!showOnHome && <span>{m.profiles.hiddenFromHome}</span>}
             </div>
           </div>
-          <div className="flex items-center gap-1.5" data-no-toggle>
+          <div className="subscription-summary-actions flex items-center gap-1.5" data-no-toggle>
             <div className="subscription-reorder-control" role="group" aria-label={m.profiles.reorder} data-no-toggle>
               <span className="subscription-reorder-label">{m.profiles.reorder}</span>
               <IconButton compact title={m.profiles.moveUp} icon={<ArrowUpIcon />} onClick={() => void onMoveUp()} disabled={!canMoveUp} />
@@ -546,13 +498,13 @@ function ProfileCard({
           </div>
         </div>
 
-        <div className="mobile-stack mb-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.72fr)] gap-2 text-xs">
+        <div className="subscription-stats mobile-stack mb-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.72fr)] gap-2 text-xs">
           <MiniStat label={m.profiles.traffic} value={trafficValue} />
           <MiniStat label={m.profiles.expires} value={expires} />
           <MiniStat label={m.profiles.updated} value={updatedAt} />
         </div>
 
-        <div className="mb-3 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-accent-panel)] px-3 py-3">
+        <div className="subscription-description mb-3 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-accent-panel)] px-3 py-3">
           <div className="mb-1 text-[9px] uppercase tracking-wider text-[var(--color-text-faint)]">
             {m.common.description}
           </div>
@@ -1127,6 +1079,7 @@ function SubscriptionSettingsDialog({
 
 function networkBadge(protocol: Server["protocol"]): string {
   if (protocol.kind === "shadowsocks") return "SHADOWSOCKS";
+  if (protocol.kind === "naive") return "NAIVEPROXY";
   const value = transportLabel(protocol).replace(" · ", " • ").trim();
   return value ? value.toUpperCase() : "JSON";
 }

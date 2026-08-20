@@ -21,7 +21,7 @@ import {
   type AppearanceState,
 } from "./lib/appearance";
 import { useAppStore } from "./store";
-import { APP_VERSION, api, formatBytes, isTauriRuntime, type AppPostUpdateInfo, type AppUpdateInfo, type AppUpdateProgress, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
+import { APP_VERSION, CURRENT_SUBSCRIPTION_PARSER_REVISION, api, formatBytes, isTauriRuntime, type AppPostUpdateInfo, type AppUpdateInfo, type AppUpdateProgress, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
 import { cachedSubscriptionTheme } from "./lib/subscriptionTheme";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initNimboDeepLinks } from "./lib/deepLinks";
@@ -79,6 +79,7 @@ export default function App() {
   const switchingServerId = useAppStore((s) => s.switchingServerId);
   const disconnecting = useAppStore((s) => s.disconnecting);
   const launchedActions = useRef(false);
+  const subscriptionMigrationInFlight = useRef(false);
   const onboardingChecked = useRef(false);
   const sidebarWidth = useResizableSidebar();
   const updateChecked = useRef(false);
@@ -139,6 +140,45 @@ export default function App() {
     // Notify the backend that the React frontend has mounted and is ready
     void api.appReady().catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    const hasPendingMigration = subscriptions.some(
+      (subscription) =>
+        (subscription.parser_revision ?? 0) < CURRENT_SUBSCRIPTION_PARSER_REVISION,
+    );
+    if (!status || status.state !== "disconnected" || !hasPendingMigration) {
+      return;
+    }
+
+    let cancelled = false;
+    let retryTimer: number | null = null;
+    const run = async () => {
+      if (cancelled || subscriptionMigrationInFlight.current) return;
+      subscriptionMigrationInFlight.current = true;
+      try {
+        const result = await api.migrateSubscriptions();
+        if (cancelled) return;
+        if (result.migrated > 0) {
+          await hydrate();
+        }
+        if (!result.completed && !cancelled) {
+          retryTimer = window.setTimeout(() => void run(), 5 * 60 * 1000);
+        }
+      } catch {
+        if (!cancelled) {
+          retryTimer = window.setTimeout(() => void run(), 5 * 60 * 1000);
+        }
+      } finally {
+        subscriptionMigrationInFlight.current = false;
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+      if (retryTimer != null) window.clearTimeout(retryTimer);
+    };
+  }, [hydrate, status?.state, subscriptions]);
 
   useEffect(() => {
     let active = true;
@@ -957,7 +997,7 @@ function navLabel(labels: Messages["app"], key: string, short: boolean): string 
   if (key === "tunnelLogs") return short ? labels.tunnelLogsShort : labels.tunnelLogs;
   if (key === "notifications") return short ? labels.notificationsShort : labels.notifications;
   if (key === "sync") return short ? labels.syncShort : labels.sync;
-  return labels.settings;
+  return short ? labels.settingsShort : labels.settings;
 }
 
 function normalizeTrayRoute(route: unknown): string | null {

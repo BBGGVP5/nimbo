@@ -20,8 +20,9 @@ use nimbo_ipc::PROTOCOL_VERSION;
 use nimbo_subscription::{
     build_subscription, extract_xray_templates_from_value, fetch_subscription,
     happ_compatible_user_agent, parse_aggregate, parse_subscription_userinfo, FetchOptions,
-    Fetched, Server, Subscription, TlsFragmentConfig, HAPP_COMPAT_DEVICE_MODEL,
-    HAPP_COMPAT_DEVICE_OS, HAPP_COMPAT_OS_VERSION, USER_AGENT,
+    Fetched, NaiveTransport, Server, Subscription, TlsFragmentConfig,
+    CURRENT_SUBSCRIPTION_PARSER_REVISION, HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS,
+    HAPP_COMPAT_OS_VERSION, USER_AGENT,
 };
 use nimbo_xray_config::{
     AppRoutingMode as XrayAppRoutingMode, AppRoutingRule as XrayAppRoutingRule, ConfigBuilder,
@@ -128,6 +129,15 @@ pub struct SubscriptionSettingsPatch {
     pub name: Option<String>,
     pub show_on_home: Option<bool>,
     pub update_interval_minutes: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SubscriptionMigrationResult {
+    pub attempted: usize,
+    pub migrated: usize,
+    pub failed: usize,
+    pub deferred: bool,
+    pub completed: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -318,8 +328,14 @@ pub fn set_run_through_nimbo_context_menu(enabled: bool) -> Result<bool, String>
         use winreg::RegKey;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let root = hkcu
-            .open_subkey_with_flags(r"Software\Classes\exefile\shell", winreg::enums::KEY_ALL_ACCESS)
-            .or_else(|_| hkcu.create_subkey(r"Software\Classes\exefile\shell").map(|pair| pair.0))
+            .open_subkey_with_flags(
+                r"Software\Classes\exefile\shell",
+                winreg::enums::KEY_ALL_ACCESS,
+            )
+            .or_else(|_| {
+                hkcu.create_subkey(r"Software\Classes\exefile\shell")
+                    .map(|pair| pair.0)
+            })
             .map_err(|e| format!("Не удалось открыть интеграцию проводника: {e}"))?;
         if !enabled {
             match root.delete_subkey_all("NimboRun") {
@@ -939,14 +955,42 @@ pub async fn refresh_subscription(
     state: State<'_, AppState>,
     url: String,
 ) -> Result<Subscription, String> {
-    let opts = build_fetch_options(&state.snapshot());
-    let fetched = fetch_subscription(&url, &opts)
-        .await
-        .map_err(|e| format!("Не удалось обновить: {e}"))?;
+    refresh_subscription_inner(&state, url).await
+}
+
+async fn refresh_subscription_inner(state: &AppState, url: String) -> Result<Subscription, String> {
+    let snapshot_before = state.snapshot();
+    let source = url.trim();
+    let opts = build_fetch_options(&snapshot_before);
+    let fetched = if is_remote_subscription(source) {
+        fetch_subscription(source, &opts)
+            .await
+            .map_err(|e| format!("Не удалось обновить: {e}"))?
+    } else {
+        let servers =
+            parse_aggregate(source).map_err(|e| format!("Не удалось распарсить конфиг: {e}"))?;
+        let xray_templates = serde_json::from_str::<serde_json::Value>(source)
+            .ok()
+            .map(|json| extract_xray_templates_from_value(&json))
+            .unwrap_or_default();
+        Fetched {
+            raw_body: source.to_string(),
+            servers,
+            info: None,
+            suggested_name: None,
+            description: None,
+            support_url: None,
+            website_url: None,
+            app_proxy_rules: Vec::new(),
+            logo_url: None,
+            theme: None,
+            tls_fragment: None,
+            xray_templates,
+        }
+    };
 
     let active_was_in_servers = {
-        let snap = state.snapshot();
-        if let Some(active) = &snap.active_server_id {
+        if let Some(active) = &snapshot_before.active_server_id {
             fetched.servers.iter().any(|srv| &srv.id == active)
         } else {
             true
@@ -954,20 +998,20 @@ pub async fn refresh_subscription(
     };
 
     let xray_templates =
-        collect_subscription_xray_templates(&fetched, &url, opts.user_agent.as_deref()).await;
+        collect_subscription_xray_templates(&fetched, source, opts.user_agent.as_deref()).await;
     let updated_name = state
         .mutate(|s| {
-            remove_xray_templates_for_subscription(&mut s.xray_templates, &url);
-            merge_xray_template_cache(&mut s.xray_templates, &url, xray_templates);
-            let existing = s.subscriptions.iter().find(|sub| sub.url == url);
+            remove_xray_templates_for_subscription(&mut s.xray_templates, source);
+            merge_xray_template_cache(&mut s.xray_templates, source, xray_templates);
+            let existing = s.subscriptions.iter().find(|sub| sub.url == source);
             let existing_name = existing.and_then(|sub| sub.name.clone());
             let existing_show_on_home = existing.and_then(|sub| sub.meta.show_on_home);
             let existing_update_interval =
                 existing.and_then(|sub| sub.meta.update_interval_minutes);
-            let mut updated = build_subscription(&url, fetched.clone(), existing_name.clone());
+            let mut updated = build_subscription(source, fetched.clone(), existing_name.clone());
             updated.meta.show_on_home = existing_show_on_home.or(Some(true));
             updated.meta.update_interval_minutes = existing_update_interval;
-            if let Some(pos) = s.subscriptions.iter().position(|sub| sub.url == url) {
+            if let Some(pos) = s.subscriptions.iter().position(|sub| sub.url == source) {
                 s.subscriptions[pos] = updated.clone();
             } else {
                 s.subscriptions.push(updated.clone());
@@ -983,8 +1027,77 @@ pub async fn refresh_subscription(
     let snap = state.snapshot();
     snap.subscriptions
         .into_iter()
-        .find(|sub| sub.url == url)
+        .find(|sub| sub.url == source)
         .ok_or_else(|| "Подписка не найдена после обновления".into())
+}
+
+/// Rebuilds legacy subscriptions with the current parser. This is deliberately
+/// separate from scheduled auto-refresh: it runs silently, preserves ordering
+/// and user settings, and never touches subscriptions while the tunnel is active.
+#[tauri::command]
+pub async fn migrate_subscriptions(
+    state: State<'_, AppState>,
+) -> Result<SubscriptionMigrationResult, String> {
+    let snapshot = state.snapshot();
+    let pending_urls = snapshot
+        .subscriptions
+        .iter()
+        .filter(|sub| sub.parser_revision < CURRENT_SUBSCRIPTION_PARSER_REVISION)
+        .map(|sub| sub.url.clone())
+        .collect::<Vec<_>>();
+
+    if pending_urls.is_empty() {
+        return Ok(SubscriptionMigrationResult {
+            attempted: 0,
+            migrated: 0,
+            failed: 0,
+            deferred: false,
+            completed: true,
+        });
+    }
+    if snapshot.connected {
+        return Ok(SubscriptionMigrationResult {
+            attempted: 0,
+            migrated: 0,
+            failed: 0,
+            deferred: true,
+            completed: false,
+        });
+    }
+
+    let mut attempted = 0;
+    let mut migrated = 0;
+    let mut failed = 0;
+    let mut deferred = false;
+    for url in pending_urls {
+        if state.snapshot().connected {
+            deferred = true;
+            break;
+        }
+        attempted += 1;
+        match refresh_subscription_inner(&state, url).await {
+            Ok(_) => migrated += 1,
+            Err(_) => {
+                failed += 1;
+                // Never log a subscription URL/key: it may contain a private token.
+                tracing::warn!("subscription parser migration remains pending");
+            }
+        }
+    }
+
+    let completed = !deferred
+        && state
+            .snapshot()
+            .subscriptions
+            .iter()
+            .all(|sub| sub.parser_revision >= CURRENT_SUBSCRIPTION_PARSER_REVISION);
+    Ok(SubscriptionMigrationResult {
+        attempted,
+        migrated,
+        failed,
+        deferred,
+        completed,
+    })
 }
 
 #[tauri::command]
@@ -3465,6 +3578,7 @@ fn server_protocol_label(server: &Server) -> String {
         nimbo_subscription::Protocol::Trojan(_) => "Trojan",
         nimbo_subscription::Protocol::Shadowsocks(_) => "Shadowsocks",
         nimbo_subscription::Protocol::Hysteria2(_) => "Hysteria2",
+        nimbo_subscription::Protocol::Naive(_) => "NaiveProxy",
     }
     .into()
 }
@@ -5255,6 +5369,14 @@ fn server_connection_identity(server: &Server) -> String {
             config.alpn,
             config.insecure
         ),
+        nimbo_subscription::Protocol::Naive(config) => format!(
+            "naive:{}:{}:{}:{}:{:?}",
+            config.address.trim().to_ascii_lowercase(),
+            config.port,
+            config.username,
+            config.password,
+            config.transport
+        ),
     }
 }
 
@@ -5500,6 +5622,254 @@ fn server_endpoint(server: &Server) -> (String, u16) {
         nimbo_subscription::Protocol::Trojan(config) => (config.address.clone(), config.port),
         nimbo_subscription::Protocol::Shadowsocks(config) => (config.address.clone(), config.port),
         nimbo_subscription::Protocol::Hysteria2(config) => (config.address.clone(), config.port),
+        nimbo_subscription::Protocol::Naive(config) => (config.address.clone(), config.port),
+    }
+}
+
+fn prepare_naive_runtime(
+    app: &AppHandle,
+    mut server: Server,
+) -> Result<(Server, Option<std::process::Child>), String> {
+    let nimbo_subscription::Protocol::Naive(config) = &mut server.protocol else {
+        return Ok((server, None));
+    };
+
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|e| format!("Не удалось выбрать локальный порт NaiveProxy: {e}"))?;
+    let local_port = listener
+        .local_addr()
+        .map_err(|e| format!("Не удалось определить локальный порт NaiveProxy: {e}"))?
+        .port();
+    drop(listener);
+
+    // Подготавливаем бинарник и лог до создания файла с учётными данными.
+    // Так пароль не останется на диске, если подготовка окружения завершится ошибкой.
+    let binary = ensure_naive_binary(app)?;
+    let runtime_dir = nimbo_data_dir()?.join("runtime");
+    std::fs::create_dir_all(&runtime_dir)
+        .map_err(|e| format!("Не удалось создать папку NaiveProxy: {e}"))?;
+    let log_path = runtime_dir.join("naive.log");
+    rotate_runtime_log(&log_path)?;
+    let stdout = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| format!("Не удалось открыть лог NaiveProxy: {e}"))?;
+    let stderr = stdout
+        .try_clone()
+        .map_err(|e| format!("Не удалось открыть лог NaiveProxy: {e}"))?;
+
+    let config_path = runtime_dir.join("naive-config.json");
+    let scheme = match config.transport {
+        NaiveTransport::Https => "https",
+        NaiveTransport::Quic => "quic",
+    };
+    let host = if config.address.contains(':') && !config.address.starts_with('[') {
+        format!("[{}]", config.address)
+    } else {
+        config.address.clone()
+    };
+    let mut proxy_url = url::Url::parse(&format!("{scheme}://{host}:{}", config.port))
+        .map_err(|e| format!("Некорректный адрес NaiveProxy: {e}"))?;
+    proxy_url
+        .set_username(&config.username)
+        .map_err(|_| "Некорректное имя пользователя NaiveProxy".to_string())?;
+    proxy_url
+        .set_password(Some(&config.password))
+        .map_err(|_| "Некорректный пароль NaiveProxy".to_string())?;
+    let bytes = serde_json::to_vec_pretty(&serde_json::json!({
+        "listen": format!("socks://127.0.0.1:{local_port}"),
+        "proxy": proxy_url.as_str(),
+    }))
+    .map_err(|e| format!("Не удалось собрать конфиг NaiveProxy: {e}"))?;
+    if let Err(error) = std::fs::write(&config_path, bytes) {
+        let _ = std::fs::remove_file(&config_path);
+        return Err(format!("Не удалось записать конфиг NaiveProxy: {error}"));
+    }
+
+    let mut command = Command::new(&binary);
+    command
+        .arg(&config_path)
+        .current_dir(binary.parent().unwrap_or_else(|| Path::new(".")))
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            let _ = std::fs::remove_file(&config_path);
+            return Err(format!("Не удалось запустить NaiveProxy: {error}"));
+        }
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
+    let mut ready = false;
+    while std::time::Instant::now() < deadline {
+        if let Ok(Some(status)) = child.try_wait() {
+            let _ = std::fs::remove_file(&config_path);
+            return Err(format!(
+                "NaiveProxy завершился до открытия локального порта: {status}"
+            ));
+        }
+        if TcpStream::connect(("127.0.0.1", local_port)).is_ok() {
+            ready = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    // Конфиг содержит пароль и нужен NaiveProxy только во время запуска.
+    let _ = std::fs::remove_file(&config_path);
+    if !ready {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!(
+            "NaiveProxy запущен, но локальный SOCKS-порт {local_port} не открылся"
+        ));
+    }
+
+    config.local_port = Some(local_port);
+    Ok((server, Some(child)))
+}
+
+fn ensure_naive_binary(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Some(path) = std::env::var_os("NIMBO_NAIVE_PATH").map(PathBuf::from) {
+        if path.is_file() {
+            return Ok(path);
+        }
+    }
+    let data_binary = nimbo_data_dir()?.join("bin").join(naive_exe_name());
+    if data_binary.is_file() {
+        if verify_naive_binary(&data_binary).is_ok() {
+            return Ok(data_binary);
+        }
+        let _ = std::fs::remove_file(&data_binary);
+    }
+
+    let source = find_existing_path(naive_candidate_paths(app)?)
+        .ok_or_else(|| "Бинарник NaiveProxy не найден в составе Nimbo.".to_string())?;
+    verify_naive_binary(&source)?;
+    let bin_dir = data_binary
+        .parent()
+        .ok_or_else(|| "Некорректный путь NaiveProxy.".to_string())?;
+    std::fs::create_dir_all(bin_dir)
+        .map_err(|e| format!("Не удалось создать папку NaiveProxy: {e}"))?;
+    std::fs::copy(&source, &data_binary)
+        .map_err(|e| format!("Не удалось установить NaiveProxy: {e}"))?;
+    if let Err(error) = verify_naive_binary(&data_binary) {
+        let _ = std::fs::remove_file(&data_binary);
+        return Err(error);
+    }
+    mark_naive_executable(&data_binary)?;
+    Ok(data_binary)
+}
+
+fn verify_naive_binary(path: &Path) -> Result<(), String> {
+    let expected = expected_naive_binary_sha256().ok_or_else(|| {
+        format!(
+            "NaiveProxy пока не собран для {}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )
+    })?;
+    let bytes = std::fs::read(path).map_err(|e| format!("Не удалось проверить NaiveProxy: {e}"))?;
+    let actual = format!("{:x}", Sha256::digest(bytes));
+    if actual.eq_ignore_ascii_case(expected) {
+        Ok(())
+    } else {
+        Err("Контрольная сумма NaiveProxy не совпала.".to_string())
+    }
+}
+
+fn expected_naive_binary_sha256() -> Option<&'static str> {
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        return Some("94f99801c665d29fc071624663c6f7bfa59e8d5efaa84cd08ef5ebb18b46cb62");
+    }
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        return Some("baea1e9b9f8dd879a6374110bd7bdca80c2ecbdca8debc4f84f784a8739eaea7");
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+fn naive_candidate_paths(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
+    let mut paths = Vec::new();
+    let platform = if cfg!(windows) {
+        "windows-x64"
+    } else {
+        "linux-x64"
+    };
+    if let Ok(resource) = app.path().resource_dir() {
+        paths.push(
+            resource
+                .join("resources")
+                .join("naive")
+                .join(platform)
+                .join(naive_exe_name()),
+        );
+        paths.push(resource.join("naive").join(platform).join(naive_exe_name()));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            paths.push(dir.join("bin").join(naive_exe_name()));
+            paths.push(
+                dir.join("resources")
+                    .join("naive")
+                    .join(platform)
+                    .join(naive_exe_name()),
+            );
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        paths.push(
+            cwd.join("resources")
+                .join("naive")
+                .join(platform)
+                .join(naive_exe_name()),
+        );
+        paths.push(
+            cwd.join("apps")
+                .join("ui")
+                .join("src-tauri")
+                .join("resources")
+                .join("naive")
+                .join(platform)
+                .join(naive_exe_name()),
+        );
+    }
+    Ok(paths)
+}
+
+fn naive_exe_name() -> &'static str {
+    if cfg!(windows) {
+        "naive.exe"
+    } else {
+        "naive"
+    }
+}
+
+#[cfg(unix)]
+fn mark_naive_executable(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+        .map_err(|e| format!("Не удалось выдать права на запуск NaiveProxy: {e}"))
+}
+
+#[cfg(not(unix))]
+fn mark_naive_executable(_path: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+fn stop_child(child: &mut Option<std::process::Child>) {
+    if let Some(mut child) = child.take() {
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }
 
@@ -5512,14 +5882,40 @@ async fn connect_system_proxy(
     stop_runtime(state)?;
 
     let ports = ProxyPorts::default();
-    let config = build_runtime_xray_config(&server, snapshot, ports)?;
-    let config_path = write_xray_config(&config)?;
-    let xray_path = ensure_xray_binary(app).await?;
+    let (server, mut naive) = prepare_naive_runtime(app, server)?;
+    let config = match build_runtime_xray_config(&server, snapshot, ports) {
+        Ok(value) => value,
+        Err(error) => {
+            stop_child(&mut naive);
+            return Err(error);
+        }
+    };
+    let config_path = match write_xray_config(&config) {
+        Ok(path) => path,
+        Err(error) => {
+            stop_child(&mut naive);
+            return Err(error);
+        }
+    };
+    let xray_path = match ensure_xray_binary(app).await {
+        Ok(path) => path,
+        Err(error) => {
+            stop_child(&mut naive);
+            return Err(error);
+        }
+    };
 
-    let mut child = spawn_xray(&xray_path, &config_path)?;
+    let mut child = match spawn_xray(&xray_path, &config_path) {
+        Ok(child) => child,
+        Err(error) => {
+            stop_child(&mut naive);
+            return Err(error);
+        }
+    };
     if let Err(error) = wait_for_xray_port(&mut child, ports.socks) {
         let _ = child.kill();
         let _ = child.wait();
+        stop_child(&mut naive);
         return Err(error);
     }
     let proxy_snapshot = match apply_system_proxy(ports) {
@@ -5527,6 +5923,7 @@ async fn connect_system_proxy(
         Err(error) => {
             let _ = child.kill();
             let _ = child.wait();
+            stop_child(&mut naive);
             return Err(error);
         }
     };
@@ -5536,6 +5933,7 @@ async fn connect_system_proxy(
         let _ = child.kill();
         let _ = child.wait();
         let _ = restore_system_proxy(proxy_snapshot);
+        stop_child(&mut naive);
         return Err(format!(
             "Не удалось сохранить снимок системного proxy: {error}"
         ));
@@ -5543,6 +5941,7 @@ async fn connect_system_proxy(
 
     state.runtime(|runtime| {
         runtime.xray = Some(child);
+        runtime.naive = naive;
         runtime.system_proxy_snapshot = proxy_snapshot;
     });
 
@@ -5593,16 +5992,45 @@ async fn connect_tun(
 
     let ports = ProxyPorts::default();
     let default_route = current_default_ipv4_route();
-    let mut config = build_runtime_xray_config(&server, snapshot, ports)?;
+    let (server, mut naive) = prepare_naive_runtime(app, server)?;
+    let mut config = match build_runtime_xray_config(&server, snapshot, ports) {
+        Ok(value) => value,
+        Err(error) => {
+            stop_child(&mut naive);
+            return Err(error);
+        }
+    };
     add_native_tun_inbound(&mut config);
-    let config_path = write_xray_config(&config)?;
-    let xray_path = ensure_xray_binary(app).await?;
-    prepare_tun_runtime_files(app)?;
+    let config_path = match write_xray_config(&config) {
+        Ok(path) => path,
+        Err(error) => {
+            stop_child(&mut naive);
+            return Err(error);
+        }
+    };
+    let xray_path = match ensure_xray_binary(app).await {
+        Ok(path) => path,
+        Err(error) => {
+            stop_child(&mut naive);
+            return Err(error);
+        }
+    };
+    if let Err(error) = prepare_tun_runtime_files(app) {
+        stop_child(&mut naive);
+        return Err(error);
+    }
     let bypass_ips = resolve_server_ipv4s(&server).await;
-    let mut xray = spawn_xray(&xray_path, &config_path)?;
+    let mut xray = match spawn_xray(&xray_path, &config_path) {
+        Ok(child) => child,
+        Err(error) => {
+            stop_child(&mut naive);
+            return Err(error);
+        }
+    };
     if let Err(error) = wait_for_xray_port(&mut xray, ports.socks) {
         let _ = xray.kill();
         let _ = xray.wait();
+        stop_child(&mut naive);
         return Err(error);
     }
 
@@ -5616,17 +6044,20 @@ async fn connect_tun(
         let _ = xray.kill();
         let _ = xray.wait();
         let _ = cleanup_tun(Some(tun_snapshot));
+        stop_child(&mut naive);
         return Err(error);
     }
     if let Err(error) = state.mutate(|s| s.pending_tun_snapshot = Some(tun_snapshot.clone())) {
         let _ = xray.kill();
         let _ = xray.wait();
         let _ = cleanup_tun(Some(tun_snapshot));
+        stop_child(&mut naive);
         return Err(format!("Не удалось сохранить снимок TUN: {error}"));
     }
 
     state.runtime(|runtime| {
         runtime.xray = Some(xray);
+        runtime.naive = naive;
         runtime.tun_snapshot = Some(tun_snapshot);
     });
 
@@ -7161,6 +7592,10 @@ fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
             let _ = child.kill();
             let _ = child.wait();
         }
+        if let Some(mut child) = runtime.naive.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
         (
             runtime.tun_snapshot.take(),
             runtime.system_proxy_snapshot.take(),
@@ -7848,7 +8283,7 @@ fn kill_orphan_nimbo_core_processes() -> Result<(), String> {
 $ErrorActionPreference = 'SilentlyContinue'
 $dataDir = '{data_dir}'
 $configPath = '{config_path}'
-$processes = Get-CimInstance Win32_Process -Filter "Name = 'xray.exe' OR Name = 'tun2socks.exe'"
+$processes = Get-CimInstance Win32_Process -Filter "Name = 'xray.exe' OR Name = 'tun2socks.exe' OR Name = 'naive.exe'"
 foreach ($p in @($processes)) {{
   $name = [string]$p.Name
   $path = [string]$p.ExecutablePath
@@ -7858,6 +8293,9 @@ foreach ($p in @($processes)) {{
     $owned = $true
   }}
   if ($name -ieq 'tun2socks.exe' -and $path -and $path.StartsWith($dataDir, [System.StringComparison]::OrdinalIgnoreCase)) {{
+    $owned = $true
+  }}
+  if ($name -ieq 'naive.exe' -and $path -and $path.StartsWith($dataDir, [System.StringComparison]::OrdinalIgnoreCase)) {{
     $owned = $true
   }}
   if ($owned) {{
@@ -7995,7 +8433,7 @@ fn normalize_accent_color(value: &str) -> String {
 
 fn normalize_ui_style(value: &str) -> String {
     match value.trim() {
-        "nimbo" | "material_you" => value.trim().into(),
+        "nimbo" | "material_you" | "dotted" => value.trim().into(),
         _ => "nimbo".into(),
     }
 }
@@ -8218,8 +8656,10 @@ mod tests {
     #[test]
     fn provider_tls_fragment_off_overrides_local_toggle() {
         let mut config = json!({"outbounds": [{"tag": "proxy", "protocol": "vless"}]});
-        let mut preferences = AppPreferences::default();
-        preferences.tunnel_tls_fragmentation = true;
+        let preferences = AppPreferences {
+            tunnel_tls_fragmentation: true,
+            ..AppPreferences::default()
+        };
         let provider = TlsFragmentConfig {
             enabled: false,
             packets: "tlshello".into(),
@@ -8372,6 +8812,7 @@ mod tests {
             .push(nimbo_subscription::Subscription {
                 url: "https://example.com/sub".into(),
                 name: Some("Test".into()),
+                parser_revision: 0,
                 meta: nimbo_subscription::SubscriptionMeta {
                     app_proxy_rules: vec![rule],
                     ..Default::default()
@@ -9065,6 +9506,7 @@ mod tests {
         snapshot.subscriptions.push(Subscription {
             url: subscription_url.into(),
             name: None,
+            parser_revision: 0,
             meta: Default::default(),
             servers: vec![server_a, server_b.clone()],
             info: None,

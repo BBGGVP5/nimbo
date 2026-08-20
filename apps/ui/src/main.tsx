@@ -10,7 +10,13 @@ import "./styles.css";
 
 useAppStore.getState().hydrate();
 
+// Системное меню правой кнопки в десктоп-оболочке не нужно, но в полях ввода
+// это единственный способ вставить ссылку подписки мышью — там его оставляем.
 document.addEventListener("contextmenu", (event) => {
+  const target = event.target as HTMLElement | null;
+  const editable = target?.closest?.("input, textarea, [contenteditable=\"true\"]");
+  if (editable) return;
+  if (window.getSelection()?.toString()) return;
   event.preventDefault();
 });
 

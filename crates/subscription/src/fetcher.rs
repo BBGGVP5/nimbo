@@ -353,6 +353,7 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
     Subscription {
         url: url.to_string(),
         name: resolved_name,
+        parser_revision: crate::CURRENT_SUBSCRIPTION_PARSER_REVISION,
         meta: SubscriptionMeta {
             description: sanitize_name(description),
             support_url: sanitize_name(support_url),
@@ -464,6 +465,14 @@ fn server_config_key(server: &Server) -> String {
             lower_option_key(config.obfs.as_deref()),
             exact_option_key(config.obfs_password.as_deref()),
         ]),
+        Protocol::Naive(config) => json!([
+            "naive",
+            lower_key(&config.address),
+            config.port,
+            exact_key(&config.username),
+            exact_key(&config.password),
+            config.transport,
+        ]),
     };
 
     serde_json::to_string(&json!([
@@ -531,6 +540,17 @@ fn server_logical_key(server: &Server) -> Option<String> {
                 config.insecure,
                 lower_option_key(config.obfs.as_deref()),
                 exact_option_key(config.obfs_password.as_deref()),
+            ])
+        }
+        Protocol::Naive(config) => {
+            if config.username.trim().is_empty() || config.password.trim().is_empty() {
+                return None;
+            }
+            json!([
+                "naive",
+                exact_key(&config.username),
+                exact_key(&config.password),
+                config.transport,
             ])
         }
     };
@@ -1184,6 +1204,7 @@ fn server_identity(server: &Server) -> (&str, u16, Option<&str>) {
         Protocol::Trojan(cfg) => (&cfg.address, cfg.port, None),
         Protocol::Shadowsocks(cfg) => (&cfg.address, cfg.port, None),
         Protocol::Hysteria2(cfg) => (&cfg.address, cfg.port, None),
+        Protocol::Naive(cfg) => (&cfg.address, cfg.port, None),
     }
 }
 
@@ -1666,7 +1687,7 @@ fn extract_subscription_theme(headers: &reqwest::header::HeaderMap) -> Option<Su
 }
 
 /// Parses the interface style from the `nimbo-style` header into the app's
-/// internal value: `nimbo` (Glass) or `material_you`.
+/// internal value: `nimbo` (Glass), `material_you` or `dotted`.
 fn extract_subscription_ui_style(headers: &reqwest::header::HeaderMap) -> Option<String> {
     const STYLE_HEADERS: &[&str] = &["nimbo-style", "x-nimbo-style"];
     let value = raw_header_value(headers, STYLE_HEADERS)?;
@@ -1678,6 +1699,7 @@ fn extract_subscription_ui_style(headers: &reqwest::header::HeaderMap) -> Option
     match normalized.as_str() {
         "glass" | "nebula" | "nimbo" | "nimboglass" => Some("nimbo".to_string()),
         "materialyou" | "material" | "md3" | "mdyou" | "md" => Some("material_you".to_string()),
+        "dotted" | "dot" | "dots" | "nothing" => Some("dotted".to_string()),
         _ => None,
     }
 }

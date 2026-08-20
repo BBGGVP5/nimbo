@@ -13,6 +13,7 @@ $installerDir = Join-Path $repoRoot "apps\installer"
 $outDir = Join-Path $repoRoot "target\release\bundle\custom\windows"
 $installerConfig = Get-Content -Raw -LiteralPath (Join-Path $installerDir "src-tauri\tauri.conf.json") | ConvertFrom-Json
 $version = $installerConfig.version
+$xrayVersion = "v26.7.28"
 
 if ($All) {
   $Target = @(
@@ -68,7 +69,9 @@ function Invoke-DownloadWithRetry(
 
 function Install-XrayPayload([string]$TargetTriple) {
   $archiveName = Get-XrayArchiveName $TargetTriple
-  $downloadBase = "https://github.com/XTLS/Xray-core/releases/latest/download"
+  # Pin release payloads so rebuilding the same Nimbo version remains
+  # reproducible. Every archive is still verified against the upstream .dgst.
+  $downloadBase = "https://github.com/XTLS/Xray-core/releases/download/$xrayVersion"
   $workDir = Join-Path $repoRoot "target\xray\.downloads\$TargetTriple"
   $archivePath = Join-Path $workDir $archiveName
   $digestPath = "$archivePath.dgst"

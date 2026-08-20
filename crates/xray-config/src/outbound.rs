@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use nimbo_subscription::{
-    Hysteria2Config, Protocol, Server, ShadowsocksConfig, TrojanConfig, VlessConfig, VmessConfig,
+    Hysteria2Config, NaiveConfig, Protocol, Server, ShadowsocksConfig, TrojanConfig, VlessConfig,
+    VmessConfig,
 };
 
 use crate::transport::build_stream_settings;
@@ -23,6 +24,21 @@ pub fn server_to_outbound(server: &Server, tag: &str) -> Outbound {
         Protocol::Trojan(cfg) => trojan_outbound(tag, cfg),
         Protocol::Shadowsocks(cfg) => shadowsocks_outbound(tag, cfg),
         Protocol::Hysteria2(cfg) => hysteria2_outbound(tag, cfg),
+        Protocol::Naive(cfg) => naive_outbound(tag, cfg),
+    }
+}
+
+fn naive_outbound(tag: &str, cfg: &NaiveConfig) -> Outbound {
+    Outbound {
+        tag: tag.into(),
+        protocol: "socks".into(),
+        settings: json!({
+            "servers": [{
+                "address": "127.0.0.1",
+                "port": cfg.local_port.unwrap_or(10989)
+            }]
+        }),
+        stream_settings: None,
     }
 }
 

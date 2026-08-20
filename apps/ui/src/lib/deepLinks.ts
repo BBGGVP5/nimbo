@@ -116,27 +116,45 @@ async function handleDeepLink(rawUrl: string, deps: DeepLinkDeps): Promise<void>
   }
 }
 
+// Подписка на deep links живёт ровно одна на окно. Раньше каждый повторный
+// запуск эффекта вешал новый слушатель (старый терялся, потому что init
+// асинхронный) — одна ссылка обрабатывалась столько раз, сколько было
+// перезапусков, и стартовый URL открывался заново при каждой навигации.
+let activeDeps: DeepLinkDeps | null = null;
+let listenerReady: Promise<void> | null = null;
+let initialUrlsConsumed = false;
+
+async function consumeDeepLinks(urls: string[]): Promise<void> {
+  const deps = activeDeps;
+  if (!deps) return;
+  for (const url of urls) {
+    await handleDeepLink(url, deps);
+  }
+}
+
 export async function initNimboDeepLinks(deps: DeepLinkDeps): Promise<() => void> {
   if (!isTauriRuntime()) {
     return () => {};
   }
 
-  const consume = async (urls: string[]) => {
-    for (const url of urls) {
-      await handleDeepLink(url, deps);
-    }
-  };
+  activeDeps = deps;
 
-  const current = await getCurrent();
-  if (current?.length) {
-    await consume(current);
+  if (!listenerReady) {
+    listenerReady = onOpenUrl((urls) => {
+      void consumeDeepLinks(urls);
+    }).then(() => undefined);
+  }
+  await listenerReady;
+
+  if (!initialUrlsConsumed) {
+    initialUrlsConsumed = true;
+    const current = await getCurrent();
+    if (current?.length) {
+      await consumeDeepLinks(current);
+    }
   }
 
-  const unlisten = await onOpenUrl((urls) => {
-    void consume(urls);
-  });
-
   return () => {
-    unlisten();
+    if (activeDeps === deps) activeDeps = null;
   };
 }

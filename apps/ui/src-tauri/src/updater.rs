@@ -1381,12 +1381,22 @@ fn promote_pending_receipt() -> Result<(), String> {
         .map_err(|e| format!("Не удалось прочитать ожидающее обновление: {e}"))?;
     let receipt: UpdateReceipt = serde_json::from_slice(&bytes)
         .map_err(|e| format!("Не удалось разобрать ожидающее обновление: {e}"))?;
-    if compare_versions(&receipt.version, env!("CARGO_PKG_VERSION")).is_ne() {
-        return Err(format!(
-            "Проверяется версия {}, но установлен файл версии {}.",
-            receipt.version,
-            env!("CARGO_PKG_VERSION")
-        ));
+    match compare_versions(&receipt.version, env!("CARGO_PKG_VERSION")) {
+        // The download this receipt belongs to never made it onto disk.
+        std::cmp::Ordering::Greater => {
+            return Err(format!(
+                "Проверяется версия {}, но установлен файл версии {}.",
+                receipt.version,
+                env!("CARGO_PKG_VERSION")
+            ));
+        }
+        // Left over from an update that was abandoned or already superseded —
+        // failing the health check over it would roll back a good install.
+        std::cmp::Ordering::Less => {
+            let _ = std::fs::remove_file(&pending);
+            return Ok(());
+        }
+        std::cmp::Ordering::Equal => {}
     }
     let installed = receipt_path("installed.json")?;
     write_atomic(&installed, &bytes)?;
@@ -1411,8 +1421,24 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), String> {
         .map_err(|e| format!("Не удалось завершить запись {}: {e}", target.display()))
 }
 
+/// Launched through a short-lived `cmd /C start`, not as our own child: the
+/// installer terminates Nimbo before replacing its files, and as a direct child
+/// it went down together with us whenever that kill walked the process tree.
 #[cfg(windows)]
 fn open_verified_package(path: &Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let detached = std::process::Command::new("cmd.exe")
+        .args(["/C", "start", "", "/B"])
+        .arg(path)
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+    if detached.is_ok() {
+        return Ok(());
+    }
+
     std::process::Command::new(path)
         .spawn()
         .map_err(|e| format!("Не удалось запустить проверенный установщик: {e}"))?;

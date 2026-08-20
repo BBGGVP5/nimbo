@@ -7,7 +7,7 @@ export const messages = {
       home: "Главная",
       profiles: "Профили",
       apps: "По приложениям",
-      appsShort: "Приложения",
+      appsShort: "Прил.",
       connections: "Соединения",
       connectionsShort: "Связи",
       routing: "Маршрутизация",
@@ -21,6 +21,7 @@ export const messages = {
       sync: "Синхронизация",
       syncShort: "Синхр.",
       settings: "Настройки",
+      settingsShort: "Настр.",
     },
     common: {
       subscription: "Подписка",
@@ -51,6 +52,11 @@ export const messages = {
       from: "из",
       savingProgress: "сохранение...",
       locale: "ru-RU",
+      expireInDays: "через {days} дн.",
+      expireToday: "сегодня",
+      expired: "истекла",
+      hiddenServers: "Скрыто серверов: {count}",
+      showHiddenServers: "Показать все",
     },
     home: {
       addProfileFirst: "Сначала добавьте профиль и выберите сервер.",
@@ -415,6 +421,8 @@ export const messages = {
       nimboStyleSubtitle: "Глубина и преломление как в iOS",
       materialYouStyle: "Material You",
       materialYouStyleSubtitle: "Expressive · Android 17",
+      dottedStyle: "Dotted",
+      dottedStyleSubtitle: "Точечная сетка и чистый контраст",
       styleDetails: "Детали стиля",
       styleDetailsDescription: "Настройте яркость, прозрачность, размытие и скругление элементов",
       resetAll: "Сбросить все",
@@ -641,6 +649,7 @@ export const messages = {
       sync: "Synchronization",
       syncShort: "Sync",
       settings: "Settings",
+      settingsShort: "Settings",
     },
     common: {
       subscription: "Subscription",
@@ -671,6 +680,11 @@ export const messages = {
       from: "of",
       savingProgress: "saving...",
       locale: "en-US",
+      expireInDays: "in {days} d.",
+      expireToday: "today",
+      expired: "expired",
+      hiddenServers: "Hidden servers: {count}",
+      showHiddenServers: "Show all",
     },
     home: {
       addProfileFirst: "Add a profile and select a server first.",
@@ -1035,6 +1049,8 @@ export const messages = {
       nimboStyleSubtitle: "iOS-inspired depth and refraction",
       materialYouStyle: "Material You",
       materialYouStyleSubtitle: "Expressive · Android 17",
+      dottedStyle: "Dotted",
+      dottedStyleSubtitle: "Dot grid and crisp contrast",
       styleDetails: "Style details",
       styleDetailsDescription: "Tune brightness, transparency, blur, and element rounding",
       resetAll: "Reset all",
@@ -1272,6 +1288,16 @@ export function getMessages(language: AppLanguage | undefined | null): Messages 
 export function useMessages(): Messages {
   const language = useAppStore((s) => s.preferences.language);
   return getMessages(language);
+}
+
+/** Подписи для formatExpire: api.ts не тянет i18n, чтобы не замкнуть импорты. */
+export function expireLabels(m: Messages) {
+  return {
+    locale: m.common.locale,
+    inDays: m.common.expireInDays,
+    today: m.common.expireToday,
+    expired: m.common.expired,
+  };
 }
 
 export function fillTemplate(template: string, values: Record<string, string | number>): string {

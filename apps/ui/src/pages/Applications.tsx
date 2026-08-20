@@ -156,6 +156,13 @@ export function Applications() {
     return map;
   }, [subRules]);
 
+  const ruledPaths = useMemo(() => {
+    const set = new Set<string>();
+    for (const rule of subRules) set.add(canonicalRuleKey(rule.executable_path));
+    for (const rule of rules) set.add(canonicalRuleKey(rule.executable_path));
+    return set;
+  }, [rules, subRules]);
+
   const selectedPaths = useMemo(() => {
     const set = new Set<string>();
     for (const rule of subRules) {
@@ -195,8 +202,24 @@ export function Applications() {
       source = [...source].sort((a, b) => direction * collator.compare(a.name, b.name));
     }
 
-    return source.slice(0, 180);
-  }, [apps, query, filterMode, sortMode, selectedPaths, subscriptionByPath]);
+    // The cap keeps the list light on machines with hundreds of installed
+    // programs, but it must never swallow an app the user already configured:
+    // rules for programs that were since uninstalled sit at the very end of the
+    // merged list, so they used to vanish from the page while still routing.
+    const capped: InstalledApp[] = [];
+    let unruled = 0;
+    for (const app of source) {
+      if (ruledPaths.has(canonicalRuleKey(app.executable_path))) {
+        capped.push(app);
+        continue;
+      }
+      if (unruled < 180) {
+        capped.push(app);
+        unruled += 1;
+      }
+    }
+    return capped;
+  }, [apps, query, filterMode, sortMode, selectedPaths, subscriptionByPath, ruledPaths]);
 
   const setAllMode = async (next: AppMode) => {
     setMode(next);

@@ -114,6 +114,21 @@ const WINTUN_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../ui/src-tauri/resources/tun/wintun.dll"
 ));
+#[cfg(all(windows, target_arch = "x86_64"))]
+const NAIVE_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../ui/src-tauri/resources/naive/windows-x64/naive.exe"
+));
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+const NAIVE_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../ui/src-tauri/resources/naive/linux-x64/naive"
+));
+#[cfg(not(any(
+    all(windows, target_arch = "x86_64"),
+    all(target_os = "linux", target_arch = "x86_64")
+)))]
+const NAIVE_BYTES: &[u8] = &[];
 // Xray is embedded in release installers so a fresh Nimbo installation does
 // not depend on GitHub being reachable. The installer build script downloads
 // the official archive and verifies its SHA-256 before placing it here.
@@ -250,7 +265,14 @@ pub fn read_app_theme() -> AppTheme {
 
 #[tauri::command]
 pub fn probe_installation() -> Result<InstallerProbe, String> {
-    let install_dir = default_install_dir()?;
+    // An update must land on top of the copy the user actually runs. Falling
+    // back to the default folder here used to install a second Nimbo next to
+    // the old one, so the shortcut kept starting the previous version and the
+    // app kept asking to update.
+    let install_dir = match existing_install_dir() {
+        Some(dir) => dir,
+        None => default_install_dir()?,
+    };
     let (helper_installed, helper_running) = helper_state();
     Ok(InstallerProbe {
         existing_install: install_dir.join(APP_EXE).exists(),
@@ -263,13 +285,23 @@ pub fn probe_installation() -> Result<InstallerProbe, String> {
     })
 }
 
+/// Async so Tauri runs it off the UI thread: a blocking native folder dialog
+/// opened from the event-loop thread never showed up on Windows, which left the
+/// «Выбрать» button doing nothing and the install folder stuck on the default.
 #[tauri::command]
-pub fn choose_install_dir(current_dir: String) -> Result<Option<String>, String> {
+pub async fn choose_install_dir(current_dir: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || choose_install_dir_blocking(current_dir))
+        .await
+        .map_err(|e| format!("Не удалось открыть выбор папки: {e}"))?
+}
+
+fn choose_install_dir_blocking(current_dir: String) -> Result<Option<String>, String> {
     let start_dir = dialog_start_dir(&current_dir)?;
 
     #[cfg(target_os = "linux")]
     {
-        return choose_install_dir_linux(&start_dir);
+        return Ok(choose_install_dir_linux(&start_dir)?
+            .map(|picked| path_with_product_folder(PathBuf::from(picked))));
     }
 
     #[cfg(windows)]
@@ -279,7 +311,7 @@ pub fn choose_install_dir(current_dir: String) -> Result<Option<String>, String>
             .set_directory(start_dir)
             .pick_folder();
 
-        Ok(picked.map(|path| path.to_string_lossy().to_string()))
+        Ok(picked.map(path_with_product_folder))
     }
 
     #[cfg(all(not(windows), not(target_os = "linux")))]
@@ -287,6 +319,73 @@ pub fn choose_install_dir(current_dir: String) -> Result<Option<String>, String>
         let _ = start_dir;
         Err("Выбор папки поддерживается только в Windows и Linux.".into())
     }
+}
+
+/// The picker returns the *parent* folder the user browsed to, and uninstall
+/// removes the install folder wholesale — so always install into a `Nimbo`
+/// subfolder instead of scattering files across (and later deleting) whatever
+/// was selected, e.g. `D:\Games` or a drive root.
+fn path_with_product_folder(path: PathBuf) -> String {
+    let already_named = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case(PRODUCT_NAME));
+    let target = if already_named {
+        path
+    } else {
+        path.join(PRODUCT_NAME)
+    };
+    target.to_string_lossy().to_string()
+}
+
+/// Validates the folder the user typed or picked before anything is written.
+fn resolve_install_target(raw: &str) -> Result<PathBuf, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("Папка установки не выбрана.".into());
+    }
+    let path = PathBuf::from(trimmed);
+    if !path.is_absolute() {
+        return Err(format!(
+            "Укажите полный путь к папке установки, например {}.",
+            default_install_dir()
+                .map(|dir| dir.display().to_string())
+                .unwrap_or_else(|_| "C:\\Nimbo".to_string())
+        ));
+    }
+    if path.parent().is_none() {
+        return Err(
+            "Нельзя устанавливать Nimbo в корень диска — выберите вложенную папку, например D:\\Nimbo."
+                .into(),
+        );
+    }
+    if path.exists() && !path.is_dir() {
+        return Err(format!(
+            "«{}» — это файл, а не папка. Выберите другую папку установки.",
+            path.display()
+        ));
+    }
+    Ok(path)
+}
+
+/// Fails early (and in plain language) when the chosen folder needs admin
+/// rights: Nimbo installs per user, so `C:\Program Files` and friends are out.
+fn ensure_install_dir_writable(dir: &Path) -> Result<(), String> {
+    fs::create_dir_all(dir).map_err(|e| {
+        format!(
+            "Не удалось создать папку установки «{}»: {e}. Выберите папку, доступную без прав администратора.",
+            dir.display()
+        )
+    })?;
+    let probe = dir.join(".nimbo-install-check");
+    fs::write(&probe, b"nimbo").map_err(|e| {
+        format!(
+            "Нет доступа на запись в «{}»: {e}. Выберите другую папку — например, внутри профиля пользователя.",
+            dir.display()
+        )
+    })?;
+    let _ = fs::remove_file(&probe);
+    Ok(())
 }
 
 #[tauri::command]
@@ -334,10 +433,7 @@ fn install_blocking_windows(
     app: AppHandle,
     options: InstallOptions,
 ) -> Result<InstallResult, String> {
-    let install_dir = PathBuf::from(options.install_dir.trim());
-    if install_dir.as_os_str().is_empty() {
-        return Err("Папка установки не выбрана.".into());
-    }
+    let install_dir = resolve_install_target(&options.install_dir)?;
 
     emit(
         &app,
@@ -347,8 +443,7 @@ fn install_blocking_windows(
         "Отключаем Nimbo и останавливаем хелпер",
     );
     prepare_windows_upgrade(&install_dir)?;
-    fs::create_dir_all(&install_dir)
-        .map_err(|e| format!("Не удалось создать папку установки: {e}"))?;
+    ensure_install_dir_writable(&install_dir)?;
     emit(&app, "prepare", "done", 12, "Окружение готово");
 
     emit(&app, "files", "running", 18, "Обновляем исполняемые файлы");
@@ -369,6 +464,9 @@ fn install_blocking_windows(
     fs::create_dir_all(&tun_dir).map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
     replace_payload(&tun_dir.join("tun2socks.exe"), TUN2SOCKS_BYTES)?;
     replace_payload(&tun_dir.join("wintun.dll"), WINTUN_BYTES)?;
+    if !NAIVE_BYTES.is_empty() {
+        replace_payload(&tun_dir.join("naive.exe"), NAIVE_BYTES)?;
+    }
     if !XRAY_BYTES.is_empty() {
         replace_payload(&tun_dir.join("xray.exe"), XRAY_BYTES)?;
         replace_payload(&tun_dir.join("geoip.dat"), GEOIP_BYTES)?;
@@ -380,8 +478,19 @@ fn install_blocking_windows(
     emit(&app, "tun", "done", 56, "TUN готов");
 
     emit(&app, "service", "running", 64, "Регистрируем helper-сервис");
-    run_status(&install_dir.join(HELPER_EXE), &["--install"])
-        .map_err(|e| format!("Хелпер не установился: {e}"))?;
+    if let Err(error) = run_status(&install_dir.join(HELPER_EXE), &["--install"]) {
+        rollback_windows_payload(&install_dir);
+        return Err(format!("Хелпер не установился: {error}"));
+    }
+    // Verify the freshly written build actually starts before the previous
+    // `.old` binaries are thrown away, and let it promote the pending update
+    // receipt so the changelog shows up on the next launch.
+    if let Err(error) = run_status(&install_dir.join(APP_EXE), &["--update-health-check"]) {
+        rollback_windows_payload(&install_dir);
+        return Err(format!(
+            "Новая сборка Nimbo не прошла проверку, восстановлена предыдущая версия: {error}"
+        ));
+    }
     cleanup_old_binaries(&install_dir);
     emit(&app, "service", "done", 74, "Хелпер готов");
 
@@ -423,14 +532,10 @@ fn install_blocking_linux(
     app: AppHandle,
     options: InstallOptions,
 ) -> Result<InstallResult, String> {
-    let install_dir = PathBuf::from(options.install_dir.trim());
-    if install_dir.as_os_str().is_empty() {
-        return Err("Папка установки не выбрана.".into());
-    }
+    let install_dir = resolve_install_target(&options.install_dir)?;
 
     emit(&app, "prepare", "running", 8, "Готовим папку установки");
-    fs::create_dir_all(&install_dir)
-        .map_err(|e| format!("Не удалось создать папку установки: {e}"))?;
+    ensure_install_dir_writable(&install_dir)?;
     emit(&app, "prepare", "done", 16, "Окружение готово");
 
     emit(&app, "files", "running", 28, "Обновляем исполняемый файл");
@@ -440,6 +545,13 @@ fn install_blocking_linux(
     write_payload(&install_dir.join("icon.png"), ICON_BYTES)?;
     copy_self_uninstaller(&install_dir)?;
     make_executable(&install_dir.join(UNINSTALL_EXE))?;
+    if !NAIVE_BYTES.is_empty() {
+        let bin_dir = roaming_nimbo_bin_dir()?;
+        fs::create_dir_all(&bin_dir)
+            .map_err(|e| format!("Не удалось создать папку NaiveProxy: {e}"))?;
+        replace_payload(&bin_dir.join("naive"), NAIVE_BYTES)?;
+        make_executable(&bin_dir.join("naive"))?;
+    }
     emit(&app, "files", "done", 48, "Файлы Nimbo установлены");
 
     emit(
@@ -558,13 +670,11 @@ fn perform_uninstall(
     );
 
     uemit(app.as_ref(), "files", "running", 72, "Удаляем файлы Nimbo");
+    // `bin/` only ever holds binaries we shipped (xray, tun2socks, wintun and
+    // the licence/readme files that come with them), so it goes as a whole —
+    // deleting a hand-written list left the folder behind on every uninstall.
     let tun_dir = roaming_nimbo_bin_dir()?;
-    let _ = fs::remove_file(tun_dir.join("tun2socks.exe"));
-    let _ = fs::remove_file(tun_dir.join("wintun.dll"));
-    let _ = fs::remove_file(tun_dir.join("xray.exe"));
-    let _ = fs::remove_file(tun_dir.join("geoip.dat"));
-    let _ = fs::remove_file(tun_dir.join("geosite.dat"));
-    let _ = fs::remove_dir(&tun_dir);
+    let _ = fs::remove_dir_all(&tun_dir);
 
     #[cfg(windows)]
     for name in [
@@ -580,6 +690,7 @@ fn perform_uninstall(
     for name in [APP_EXE, UNINSTALL_EXE, "icon.png", "nimbo.exe.old"] {
         let _ = fs::remove_file(install_dir.join(name));
     }
+    remove_webview_data();
     uemit(app.as_ref(), "files", "done", 84, "Файлы удалены");
 
     let removed_user_data = if options.remove_user_data {
@@ -620,12 +731,51 @@ fn perform_uninstall(
 }
 
 fn current_install_dir() -> Result<PathBuf, String> {
+    // `Uninstall.exe` lives inside the install folder, so its own directory is
+    // the right answer. The standalone setup binary does not — running it with
+    // `--uninstall` from Downloads must not treat Downloads as the install dir.
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            return Ok(parent.to_path_buf());
+            if parent.join(APP_EXE).exists() || parent.join(UNINSTALL_EXE).exists() {
+                return Ok(parent.to_path_buf());
+            }
         }
     }
+    if let Some(dir) = existing_install_dir() {
+        return Ok(dir);
+    }
     default_install_dir()
+}
+
+/// Install folder of the copy that is already on this machine, taken from the
+/// records the previous install wrote. `None` when Nimbo is not installed yet.
+#[cfg(windows)]
+fn existing_install_dir() -> Option<PathBuf> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let read = |path: String, name: &str| -> Option<PathBuf> {
+        let value: String = hkcu.open_subkey(path).ok()?.get_value(name).ok()?;
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+    };
+
+    read(format!("Software\\{APP_ID}"), "InstallDir")
+        .or_else(|| {
+            read(
+                format!("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{APP_ID}"),
+                "InstallLocation",
+            )
+        })
+        .filter(|dir| dir.join(APP_EXE).is_file())
+}
+
+#[cfg(not(windows))]
+fn existing_install_dir() -> Option<PathBuf> {
+    default_install_dir()
+        .ok()
+        .filter(|dir| dir.join(APP_EXE).is_file())
 }
 
 fn user_data_root() -> Result<PathBuf, String> {
@@ -653,14 +803,27 @@ fn wipe_user_data(root: &Path) {
     if !root.exists() {
         return;
     }
-    let _ = fs::remove_file(root.join("subscriptions.json"));
-    let _ = fs::remove_file(root.join("hwid.txt"));
-    let _ = fs::remove_dir_all(root.join("runtime"));
-    // `bin/` is removed by the file-step (TUN binaries). If empty now, drop
-    // the whole Nimbo data folder too.
-    let _ = fs::remove_dir(root.join("bin"));
-    let _ = fs::remove_dir(root);
+    // Everything under `%APPDATA%\Nimbo` belongs to Nimbo — subscriptions,
+    // runtime configs, hwid, logs and the update cache. Removing only the three
+    // known entries used to leave `logs/` and `updates/` (hundreds of MB of
+    // downloaded installers) behind, so the folder survived every uninstall.
+    let _ = fs::remove_dir_all(root);
 }
+
+/// WebView2 keeps its profile in `%LOCALAPPDATA%\<bundle identifier>`; nothing
+/// else cleans it up, so an uninstall left both folders on disk forever.
+#[cfg(windows)]
+fn remove_webview_data() {
+    let Some(base) = dirs::data_local_dir() else {
+        return;
+    };
+    // `com.nimbo.setup` is this uninstaller's own profile and is still locked —
+    // `schedule_self_cleanup` takes care of it once the process is gone.
+    let _ = fs::remove_dir_all(base.join("com.nimbo.app"));
+}
+
+#[cfg(not(windows))]
+fn remove_webview_data() {}
 
 fn uemit(
     app: Option<&AppHandle>,
@@ -905,7 +1068,13 @@ fn prepare_windows_upgrade(install_dir: &Path) -> Result<(), String> {
 
 #[cfg(windows)]
 fn stop_nimbo_runtime_processes() {
-    for image in [APP_EXE, "nimbo-ui.exe", "tun2socks.exe", "xray.exe"] {
+    for image in [
+        APP_EXE,
+        "nimbo-ui.exe",
+        "tun2socks.exe",
+        "xray.exe",
+        "naive.exe",
+    ] {
         taskkill_image(image);
     }
 }
@@ -958,8 +1127,13 @@ fn wait_for_helper_stopped(timeout: Duration) {
 
 #[cfg(windows)]
 fn taskkill_image(image: &str) {
+    // Deliberately without `/T`: the in-app update path launches this installer
+    // as a child of Nimbo.exe, so a tree kill of Nimbo.exe also killed the
+    // installer itself — the update silently did nothing and Nimbo kept
+    // offering it on every launch. Runtime children (xray, tun2socks, naive)
+    // are terminated by their own image names anyway.
     let _ = hidden_command("taskkill.exe")
-        .args(["/F", "/IM", image, "/T"])
+        .args(["/F", "/IM", image])
         .status();
 }
 
@@ -1223,6 +1397,26 @@ fn helper_state() -> (bool, bool) {
     (false, false)
 }
 
+/// Puts the `.old` binaries kept by `replace_payload` back and re-registers the
+/// previous helper, so a failed upgrade leaves a working Nimbo behind.
+#[cfg(windows)]
+fn rollback_windows_payload(install_dir: &Path) {
+    for name in [APP_EXE, HELPER_EXE] {
+        let current = install_dir.join(name);
+        let backup = old_payload_path(&current);
+        if !backup.exists() {
+            continue;
+        }
+        let _ = remove_file_with_retries(&current);
+        let _ = rename_with_retries(&backup, &current);
+    }
+
+    let helper = install_dir.join(HELPER_EXE);
+    if helper.exists() {
+        let _ = run_status(&helper, &["--install"]);
+    }
+}
+
 fn cleanup_old_binaries(install_dir: &Path) {
     for name in ["nimbo-svc.exe.old", "Nimbo.exe.old"] {
         let _ = fs::remove_file(install_dir.join(name));
@@ -1235,6 +1429,7 @@ fn cleanup_old_tun_binaries(tun_dir: &Path) {
         "wintun.dll.old",
         "wintun.exe.old",
         "xray.exe.old",
+        "naive.exe.old",
         "geoip.dat.old",
         "geosite.dat.old",
     ] {
@@ -1294,21 +1489,77 @@ fn delete_registry() {}
 
 #[cfg(windows)]
 fn schedule_self_cleanup(install_dir: &Path) {
+    // `Uninstall.exe` is the process running this code, so Windows refuses to
+    // delete it — and with it still inside, the install folder cannot be
+    // removed either. That is why «удалил, а папка и запись остались».
+    // Two-step fix: hand the leftovers to a detached helper that waits for this
+    // process to exit and deletes them right away, and register the same paths
+    // for delete-on-reboot as a fallback in case that helper never runs.
+    let uninstaller = install_dir.join(UNINSTALL_EXE);
+    let _ = fs::remove_file(&uninstaller);
+    let _ = fs::remove_dir(install_dir);
+
+    let mut leftovers: Vec<PathBuf> = Vec::new();
+    if install_dir.exists() {
+        schedule_delete_on_reboot(&uninstaller);
+        schedule_delete_on_reboot(install_dir);
+        leftovers.push(install_dir.to_path_buf());
+    }
+    leftovers.extend(webview_setup_data_dir());
+    spawn_detached_cleanup(&leftovers);
+}
+
+#[cfg(windows)]
+fn webview_setup_data_dir() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|base| base.join("com.nimbo.setup"))
+}
+
+#[cfg(windows)]
+fn schedule_delete_on_reboot(path: &Path) {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_DELAY_UNTIL_REBOOT};
 
-    let _ = fs::remove_file(install_dir.join(UNINSTALL_EXE));
-    let _ = fs::remove_dir(install_dir);
-    if install_dir.exists() {
-        let wide: Vec<u16> = install_dir
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        unsafe {
-            MoveFileExW(wide.as_ptr(), std::ptr::null(), MOVEFILE_DELAY_UNTIL_REBOOT);
-        }
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        MoveFileExW(wide.as_ptr(), std::ptr::null(), MOVEFILE_DELAY_UNTIL_REBOOT);
     }
+}
+
+/// Fire-and-forget PowerShell that outlives us: it waits for this process to
+/// exit (a running executable can only be deleted afterwards) and then removes
+/// the given folders.
+#[cfg(windows)]
+fn spawn_detached_cleanup(paths: &[PathBuf]) {
+    if paths.is_empty() {
+        return;
+    }
+
+    let mut script = format!(
+        "Wait-Process -Id {} -Timeout 600 -ErrorAction SilentlyContinue;",
+        std::process::id()
+    );
+    for path in paths {
+        script.push_str(&format!(
+            "Remove-Item -LiteralPath '{}' -Recurse -Force -ErrorAction SilentlyContinue;",
+            ps_escape(path)
+        ));
+    }
+
+    let _ = hidden_command("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            &script,
+        ])
+        .spawn();
 }
 
 #[cfg(target_os = "linux")]

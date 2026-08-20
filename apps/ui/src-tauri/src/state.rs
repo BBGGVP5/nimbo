@@ -59,6 +59,10 @@ pub struct PersistedState {
     pub pending_tun_snapshot: Option<TunRuntimeSnapshot>,
     #[serde(default)]
     pub paired_devices: Vec<PairedDevice>,
+    /// Stable identity of this Desktop installation for end-to-end device pairing.
+    /// Older Beta 5 state files did not contain it, so it is generated lazily.
+    #[serde(default)]
+    pub cross_sync_device_id: String,
 }
 
 impl PersistedState {
@@ -529,6 +533,7 @@ pub struct TrafficRuntimeSample {
 #[derive(Default)]
 pub struct RuntimeState {
     pub xray: Option<Child>,
+    pub naive: Option<Child>,
     pub tun2socks: Option<Child>,
     pub system_proxy_snapshot: Option<SystemProxySnapshot>,
     pub tun_snapshot: Option<TunRuntimeSnapshot>,
@@ -740,6 +745,23 @@ mod tests {
         let restored: AppPreferences =
             serde_json::from_value(serde_json::to_value(preferences).unwrap()).unwrap();
         assert!(restored.update_wifi_only);
+    }
+
+    #[test]
+    fn legacy_subscription_defaults_parser_revision_to_zero() {
+        let state: PersistedState = serde_json::from_value(serde_json::json!({
+            "subscriptions": [{
+                "url": "https://example.com/subscription",
+                "name": null,
+                "meta": {},
+                "servers": [],
+                "info": null,
+                "fetched_at": 0
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(state.subscriptions[0].parser_revision, 0);
     }
 
     #[test]

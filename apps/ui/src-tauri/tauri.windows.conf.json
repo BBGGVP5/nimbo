@@ -1,7 +1,8 @@
 {
   "bundle": {
     "resources": [
-      "resources/tun/*"
+      "resources/tun/*",
+      "resources/naive/**/*"
     ]
   }
 }

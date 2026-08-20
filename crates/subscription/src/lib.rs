@@ -9,11 +9,15 @@ pub use fetcher::{
     HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS, HAPP_COMPAT_OS_VERSION,
 };
 pub use model::{
-    Hysteria2Config, Network, Protocol, Security, Server, ShadowsocksConfig, StreamSettings,
-    Subscription, SubscriptionAppProxyMode, SubscriptionAppProxyRule, SubscriptionMeta,
-    SubscriptionTheme, TlsFragmentConfig, TrojanConfig, VlessConfig, VmessConfig,
+    Hysteria2Config, NaiveConfig, NaiveTransport, Network, Protocol, Security, Server,
+    ShadowsocksConfig, StreamSettings, Subscription, SubscriptionAppProxyMode,
+    SubscriptionAppProxyRule, SubscriptionMeta, SubscriptionTheme, TlsFragmentConfig, TrojanConfig,
+    VlessConfig, VmessConfig,
 };
 pub use parser::{parse_aggregate, ParseError};
 pub use userinfo::{parse_subscription_userinfo, SubscriptionInfo};
 
 pub const USER_AGENT: &str = concat!("Nimbo/", env!("CARGO_PKG_VERSION"));
+
+/// Increment when a parser fix requires already saved subscriptions to be rebuilt.
+pub const CURRENT_SUBSCRIPTION_PARSER_REVISION: u32 = 1;

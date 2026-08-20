@@ -80,7 +80,9 @@ export function Connections() {
 
   useEffect(() => {
     void loadProfile().catch((error) => notifyError(String(error)));
-  }, [loadConnections]);
+    // Профиль маршрутизации читается один раз при входе на экран.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const connected = status?.state === "connected";

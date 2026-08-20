@@ -670,6 +670,7 @@ pub async fn cross_sync_start(
     state: State<'_, AppState>,
     manager: State<'_, CrossSyncManager>,
 ) -> Result<SyncSessionView, String> {
+    get_or_create_local_device_id(&state)?;
     manager
         .start(SyncBundle::from_state(&state.snapshot()))
         .await
@@ -815,11 +816,7 @@ pub fn cross_sync_cancel(
         // (apply bundle -> receipt) and persist the paired device. Tearing the
         // session down here would silently break that pairing. Only cancel
         // sessions that are still waiting for a desktop decision.
-        if !session.consumed
-            && matches!(
-                session.state.as_str(),
-                "showing_qr" | "awaiting_approval"
-            )
+        if !session.consumed && matches!(session.state.as_str(), "showing_qr" | "awaiting_approval")
         {
             session.state = "cancelled".into();
             session.consumed = true;
@@ -840,11 +837,7 @@ fn active_session_mut(guard: &mut ManagerInner) -> Result<&mut ActiveSession, St
     Ok(session)
 }
 
-async fn serve_forever(
-    listener: TcpListener,
-    inner: Arc<Mutex<ManagerInner>>,
-    generation: Uuid,
-) {
+async fn serve_forever(listener: TcpListener, inner: Arc<Mutex<ManagerInner>>, generation: Uuid) {
     loop {
         match listener.accept().await {
             Ok((stream, peer)) => {
@@ -896,7 +889,8 @@ async fn handle_stream(
     };
     let app_state = app_handle.state::<AppState>();
 
-    let (key, session_id, response) = if let Some(device_id) = envelope.sid.strip_prefix("resume:") {
+    let (key, session_id, response) = if let Some(device_id) = envelope.sid.strip_prefix("resume:")
+    {
         let device = app_state
             .snapshot()
             .paired_devices
@@ -956,6 +950,7 @@ fn process_pairing_request(
     request: WireRequest,
     app_state: &AppState,
 ) -> Result<WireResponse, String> {
+    let local_device_id = get_or_create_local_device_id(app_state)?;
     let mut guard = lock_inner(inner);
     let server_port = guard.server.as_ref().map(|server| server.port);
     let session = guard
@@ -1021,8 +1016,12 @@ fn process_pairing_request(
                         app_state,
                         &device_id,
                         name,
-                        info.as_ref().map(|info| info.platform.clone()).unwrap_or_default(),
-                        info.as_ref().map(|info| info.os_name.clone()).unwrap_or_default(),
+                        info.as_ref()
+                            .map(|info| info.platform.clone())
+                            .unwrap_or_default(),
+                        info.as_ref()
+                            .map(|info| info.os_name.clone())
+                            .unwrap_or_default(),
                         info.and_then(|info| info.app_version),
                         categories,
                     )?;
@@ -1059,25 +1058,29 @@ fn process_pairing_request(
                     .clone()
                     .or_else(|| request.device_id.clone())
                 {
-                let name = session
-                    .remote_device
-                    .clone()
-                    .unwrap_or_else(|| "Android".into());
-                let info = session
-                    .remote_bundle
-                    .as_ref()
-                    .and_then(|bundle| bundle.device_info.clone());
-                let key = register_paired_device(
-                    app_state,
-                    &device_id,
-                    name,
-                    info.as_ref().map(|info| info.platform.clone()).unwrap_or_default(),
-                    info.as_ref().map(|info| info.os_name.clone()).unwrap_or_default(),
-                    info.and_then(|info| info.app_version),
-                    session.approved_categories,
-                )?;
-                session.paired_device_id = Some(device_id);
-                session.paired_key = Some(key);
+                    let name = session
+                        .remote_device
+                        .clone()
+                        .unwrap_or_else(|| "Android".into());
+                    let info = session
+                        .remote_bundle
+                        .as_ref()
+                        .and_then(|bundle| bundle.device_info.clone());
+                    let key = register_paired_device(
+                        app_state,
+                        &device_id,
+                        name,
+                        info.as_ref()
+                            .map(|info| info.platform.clone())
+                            .unwrap_or_default(),
+                        info.as_ref()
+                            .map(|info| info.os_name.clone())
+                            .unwrap_or_default(),
+                        info.and_then(|info| info.app_version),
+                        session.approved_categories,
+                    )?;
+                    session.paired_device_id = Some(device_id);
+                    session.paired_key = Some(key);
                 }
             }
         }
@@ -1097,13 +1100,18 @@ fn process_pairing_request(
         expires_at_ms: Some(session.expires_at_ms),
         message: session.error.clone(),
         paired: false,
-        device_id: session.paired_device_id.clone(),
+        // The client must persist the identity of this computer. Returning the
+        // phone id here made a second peer overwrite an existing pairing.
+        device_id: Some(local_device_id),
         paired_key: session.paired_key.clone(),
         server_port,
         applied: false,
         applied_categories: Vec::new(),
         added_subscriptions: Vec::new(),
-        direction: session.approved_direction.clone().or_else(|| session.pending_direction.clone()),
+        direction: session
+            .approved_direction
+            .clone()
+            .or_else(|| session.pending_direction.clone()),
         auto_sync: true,
     })
 }
@@ -1192,6 +1200,7 @@ fn resume_response(
     device_id: &str,
     outcome: &SyncApplyOutcome,
 ) -> Result<WireResponse, String> {
+    let local_device_id = get_or_create_local_device_id(app_state)?;
     let snapshot = app_state.snapshot();
     let paired = snapshot
         .paired_devices
@@ -1205,12 +1214,18 @@ fn resume_response(
         comparison_code: None,
         desktop_bundle: auto_sync.then(|| desktop_bundle.clone()),
         desktop_inventory: auto_sync.then(|| desktop_bundle.inventory()),
-        desktop_device_info: auto_sync.then(|| desktop_bundle.device_info.clone()).flatten(),
-        desktop_subscriptions: auto_sync.then(|| subscription_preview_names(&desktop_bundle)).unwrap_or_default(),
+        desktop_device_info: auto_sync
+            .then(|| desktop_bundle.device_info.clone())
+            .flatten(),
+        desktop_subscriptions: if auto_sync {
+            subscription_preview_names(&desktop_bundle)
+        } else {
+            Vec::new()
+        },
         expires_at_ms: None,
         message: None,
         paired: true,
-        device_id: Some(paired.device_id.clone()),
+        device_id: Some(local_device_id),
         paired_key: None,
         server_port: None,
         applied: outcome.applied,
@@ -1219,6 +1234,22 @@ fn resume_response(
         direction: None,
         auto_sync,
     })
+}
+
+fn get_or_create_local_device_id(app_state: &AppState) -> Result<String, String> {
+    let existing = app_state.snapshot().cross_sync_device_id;
+    if !existing.trim().is_empty() {
+        return Ok(existing);
+    }
+    let generated = format!("desktop-{}", Uuid::new_v4());
+    app_state
+        .mutate(|state| {
+            if state.cross_sync_device_id.trim().is_empty() {
+                state.cross_sync_device_id = generated.clone();
+            }
+            state.cross_sync_device_id.clone()
+        })
+        .map_err(|error| error.to_string())
 }
 
 fn apply_incoming_bundle(
@@ -1376,6 +1407,8 @@ fn apply_bundle(
             state.subscriptions.push(Subscription {
                 url: url.to_string(),
                 name: incoming.name.clone().filter(|name| !name.trim().is_empty()),
+                // Imported records are rebuilt locally by the receiving app.
+                parser_revision: 0,
                 meta: SubscriptionMeta::default(),
                 servers: Vec::new(),
                 info: None,
@@ -1408,10 +1441,10 @@ fn apply_bundle(
                 "black" => ThemeMode::Black,
                 _ => ThemeMode::System,
             };
-            state.preferences.ui_style = if value.ui_style == "material_you" {
-                "material_you".into()
-            } else {
-                "nimbo".into()
+            state.preferences.ui_style = match value.ui_style.as_str() {
+                "material_you" => "material_you".into(),
+                "dotted" => "dotted".into(),
+                _ => "nimbo".into(),
             };
             if !value.accent_color.is_empty() && is_hex_color(&value.accent_color) {
                 state.preferences.accent_mode = AccentMode::Custom;
@@ -1695,9 +1728,7 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn lock_inner(
-    inner: &Arc<Mutex<ManagerInner>>,
-) -> std::sync::MutexGuard<'_, ManagerInner> {
+fn lock_inner(inner: &Arc<Mutex<ManagerInner>>) -> std::sync::MutexGuard<'_, ManagerInner> {
     inner.lock().unwrap_or_else(|error| error.into_inner())
 }
 
@@ -1731,6 +1762,7 @@ mod tests {
         state.subscriptions.push(Subscription {
             url: "https://example.com/sub/".into(),
             name: Some("Local".into()),
+            parser_revision: 0,
             meta: SubscriptionMeta::default(),
             servers: vec![],
             info: None,
@@ -1743,11 +1775,13 @@ mod tests {
             created_at_ms: 0,
             device_info: None,
             subscriptions: vec![
-                SyncSubscription { order: 0,
+                SyncSubscription {
+                    order: 0,
                     url: "HTTPS://EXAMPLE.COM/sub".into(),
                     name: Some("Remote".into()),
                 },
-                SyncSubscription { order: 0,
+                SyncSubscription {
+                    order: 0,
                     url: "https://second.example/key".into(),
                     name: Some("Second".into()),
                 },
@@ -1798,7 +1832,8 @@ mod tests {
             device_name: "Phone".into(),
             created_at_ms: 0,
             device_info: None,
-            subscriptions: vec![SyncSubscription { order: 0,
+            subscriptions: vec![SyncSubscription {
+                order: 0,
                 url: "https://example.com/sub".into(),
                 name: Some("Main".into()),
             }],
@@ -1807,13 +1842,27 @@ mod tests {
             automation: None,
         };
 
-        let first = apply_incoming_bundle(&mut state, "phone-1", &bundle, SyncCategories::default(), 100).unwrap();
+        let first = apply_incoming_bundle(
+            &mut state,
+            "phone-1",
+            &bundle,
+            SyncCategories::default(),
+            100,
+        )
+        .unwrap();
         assert!(first.applied);
         assert_eq!(first.added_subscriptions, vec!["https://example.com/sub"]);
         assert_eq!(state.subscriptions.len(), 1);
         assert_eq!(state.paired_devices[0].last_seen_ms, 100);
 
-        let second = apply_incoming_bundle(&mut state, "phone-1", &bundle, SyncCategories::default(), 200).unwrap();
+        let second = apply_incoming_bundle(
+            &mut state,
+            "phone-1",
+            &bundle,
+            SyncCategories::default(),
+            200,
+        )
+        .unwrap();
         assert!(!second.applied);
         assert!(second.added_subscriptions.is_empty());
         assert_eq!(state.subscriptions.len(), 1);
@@ -1848,7 +1897,8 @@ mod tests {
             device_name: "Phone".into(),
             created_at_ms: 0,
             device_info: None,
-            subscriptions: vec![SyncSubscription { order: 0,
+            subscriptions: vec![SyncSubscription {
+                order: 0,
                 url: "https://example.com/sub".into(),
                 name: None,
             }],
@@ -1883,7 +1933,8 @@ mod tests {
             device_name: "Phone".into(),
             created_at_ms: 0,
             device_info: None,
-            subscriptions: vec![SyncSubscription { order: 0,
+            subscriptions: vec![SyncSubscription {
+                order: 0,
                 url: "https://example.com/sub".into(),
                 name: None,
             }],
@@ -1925,11 +1976,13 @@ mod tests {
             created_at_ms: 0,
             device_info: None,
             subscriptions: vec![
-                SyncSubscription { order: 0,
+                SyncSubscription {
+                    order: 0,
                     url: "https://provider.example/sub/SecretKey".into(),
                     name: Some("Основная".into()),
                 },
-                SyncSubscription { order: 0,
+                SyncSubscription {
+                    order: 0,
                     url: "https://provider.example/sub/SecondSecret".into(),
                     name: None,
                 },

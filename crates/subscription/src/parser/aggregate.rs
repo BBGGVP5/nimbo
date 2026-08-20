@@ -1,6 +1,6 @@
 use crate::model::Server;
 use crate::parser::{
-    b64_decode_str, hysteria2, shadowsocks, trojan, vless, vmess, xray_json, ParseError,
+    b64_decode_str, hysteria2, naive, shadowsocks, trojan, vless, vmess, xray_json, ParseError,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +115,11 @@ pub fn parse_single(line: &str) -> Result<Server, ParseError> {
         shadowsocks::parse(line)
     } else if line.starts_with("hysteria2://") || line.starts_with("hy2://") {
         hysteria2::parse(line)
+    } else if line.starts_with("naive://")
+        || line.starts_with("naive+https://")
+        || line.starts_with("naive+quic://")
+    {
+        naive::parse(line)
     } else {
         Err(ParseError::UnsupportedScheme(
             line.split("://").next().unwrap_or("").to_string(),
@@ -129,6 +134,9 @@ fn looks_like_proxy_url(line: &str) -> bool {
         || line.starts_with("ss://")
         || line.starts_with("hysteria2://")
         || line.starts_with("hy2://")
+        || line.starts_with("naive://")
+        || line.starts_with("naive+https://")
+        || line.starts_with("naive+quic://")
         || line.starts_with("tuic://")
 }
 
@@ -169,6 +177,7 @@ mod tests {
     const TROJAN_LINE: &str = "trojan://pwd@h.tld:443?security=tls&sni=h.tld#trojan-srv";
     const SS_LINE: &str = "ss://aes-256-gcm:p@h.tld:8388#ss-srv";
     const HY2_LINE: &str = "hysteria2://secret@hy.tld:443?sni=cdn.hy.tld#hy2-srv";
+    const NAIVE_LINE: &str = "naive+https://user:secret@naive.tld:443#naive-srv";
 
     #[test]
     fn detects_plain_list() {
@@ -197,9 +206,9 @@ mod tests {
 
     #[test]
     fn parses_plain_list_aggregate() {
-        let body = format!("{VLESS_LINE}\n{TROJAN_LINE}\n{SS_LINE}\n{HY2_LINE}\n");
+        let body = format!("{VLESS_LINE}\n{TROJAN_LINE}\n{SS_LINE}\n{HY2_LINE}\n{NAIVE_LINE}\n");
         let servers = parse_aggregate(&body).unwrap();
-        assert_eq!(servers.len(), 4);
+        assert_eq!(servers.len(), 5);
     }
 
     #[test]

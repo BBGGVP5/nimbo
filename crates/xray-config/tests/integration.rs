@@ -1,4 +1,5 @@
 use nimbo_subscription::parser::aggregate::parse_single;
+use nimbo_subscription::Protocol;
 use nimbo_xray_config::{
     build_config, build_config_with_ports, AppRoutingMode, AppRoutingRule, ConfigBuilder,
     ProxyPorts,
@@ -131,6 +132,25 @@ fn shadowsocks_no_stream_settings() {
     assert_eq!(proxy["settings"]["servers"][0]["method"], "aes-256-gcm");
     assert_eq!(proxy["settings"]["servers"][0]["password"], "p");
     assert_eq!(proxy["settings"]["servers"][0]["port"], 8388);
+    assert!(proxy.get("streamSettings").is_none() || proxy["streamSettings"].is_null());
+}
+
+#[test]
+fn naive_uses_the_prepared_local_socks_sidecar() {
+    let mut server = parse_single("naive+https://user:pass@naive.example:443#Naive").unwrap();
+    let Protocol::Naive(naive) = &mut server.protocol else {
+        panic!("NaiveProxy link was parsed as another protocol");
+    };
+    naive.local_port = Some(19090);
+
+    let config = build_config(&server);
+    let value = serde_json::to_value(&config).unwrap();
+    let proxy = &value["outbounds"][0];
+
+    assert_eq!(proxy["tag"], "proxy");
+    assert_eq!(proxy["protocol"], "socks");
+    assert_eq!(proxy["settings"]["servers"][0]["address"], "127.0.0.1");
+    assert_eq!(proxy["settings"]["servers"][0]["port"], 19090);
     assert!(proxy.get("streamSettings").is_none() || proxy["streamSettings"].is_null());
 }
 

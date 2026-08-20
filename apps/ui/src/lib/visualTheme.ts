@@ -32,7 +32,7 @@ export function applyVisualPreferences(
       ? providerTheme.blur
       : null;
   const themeUiStyle =
-    providerTheme?.ui_style === "material_you" || providerTheme?.ui_style === "nimbo"
+    providerTheme?.ui_style === "material_you" || providerTheme?.ui_style === "nimbo" || providerTheme?.ui_style === "dotted"
       ? providerTheme.ui_style
       : null;
   const effectiveUiStyle = themeUiStyle ?? preferences.ui_style;
@@ -78,18 +78,27 @@ export function applyVisualPreferences(
     const scaledRadius = (base: number) => `${Math.max(2, Math.round(base * rounding))}px`;
 
     const liquidGlass = effectiveUiStyle === "nimbo";
+    const dotted = effectiveUiStyle === "dotted";
     const panelAlpha = liquidGlass
       ? Math.max(24, 72 - Math.round(transparency * 0.6))
-      : 100 - transparency;
+      : dotted
+        ? Math.max(88, 100 - Math.round(transparency * 0.2))
+        : 100 - transparency;
     const controlAlpha = liquidGlass
       ? Math.max(22, 60 - Math.round(transparency * 0.46))
-      : Math.max(20, 100 - Math.round(transparency * 0.84));
+      : dotted
+        ? Math.max(84, 100 - Math.round(transparency * 0.22))
+        : Math.max(20, 100 - Math.round(transparency * 0.84));
     const backdropFilter = liquidGlass
       ? `blur(${blur}px) saturate(185%) contrast(108%)`
-      : `blur(${blur}px) saturate(118%)`;
+      : dotted
+        ? "none"
+        : `blur(${blur}px) saturate(118%)`;
     const softBackdropFilter = liquidGlass
       ? `blur(${Math.round(blur * 0.68)}px) saturate(165%) contrast(105%)`
-      : `blur(${Math.round(blur * 0.65)}px) saturate(112%)`;
+      : dotted
+        ? "none"
+        : `blur(${Math.round(blur * 0.65)}px) saturate(112%)`;
 
     root.style.setProperty("--ui-panel-alpha-percent", `${panelAlpha}%`);
     root.style.setProperty("--ui-control-alpha-percent", `${controlAlpha}%`);

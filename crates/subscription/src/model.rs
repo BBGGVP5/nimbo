@@ -6,6 +6,10 @@ use crate::userinfo::SubscriptionInfo;
 pub struct Subscription {
     pub url: String,
     pub name: Option<String>,
+    /// Revision of the parser that produced the persisted server list.
+    /// Missing in legacy state, so serde intentionally defaults it to zero.
+    #[serde(default)]
+    pub parser_revision: u32,
     #[serde(default)]
     pub meta: SubscriptionMeta,
     pub servers: Vec<Server>,
@@ -101,6 +105,28 @@ pub enum Protocol {
     Trojan(TrojanConfig),
     Shadowsocks(ShadowsocksConfig),
     Hysteria2(Hysteria2Config),
+    Naive(NaiveConfig),
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NaiveTransport {
+    #[default]
+    Https,
+    Quic,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NaiveConfig {
+    pub address: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    #[serde(default)]
+    pub transport: NaiveTransport,
+    /// Runtime-only local SOCKS port exposed by the NaiveProxy sidecar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
