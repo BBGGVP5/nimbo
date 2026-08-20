@@ -223,7 +223,7 @@ pub async fn run_through_nimbo(
     #[cfg(not(windows))]
     {
         let _ = (app, state, executable_path, args);
-        return Err("Запуск через Nimbo сейчас доступен только на Windows.".into());
+        Err("Запуск через Nimbo сейчас доступен только на Windows.".into())
     }
 
     #[cfg(windows)]
@@ -319,7 +319,7 @@ pub fn set_run_through_nimbo_context_menu(enabled: bool) -> Result<bool, String>
         if enabled {
             return Err("Интеграция проводника доступна только на Windows.".into());
         }
-        return Ok(false);
+        Ok(false)
     }
 
     #[cfg(windows)]
