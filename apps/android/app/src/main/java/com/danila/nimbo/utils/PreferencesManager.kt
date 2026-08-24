@@ -80,6 +80,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_CROSS_SYNC_PAIRED = "cross_sync_paired_device"
 private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         private const val KEY_CROSS_SYNC_AUTO = "cross_sync_auto_sync"
+        private const val KEY_CROSS_SYNC_TRANSPORT_MODE = "cross_sync_transport_mode"
         private const val KEY_LAST_SELECTED_SERVER = "last_selected_server"
         private const val KEY_LAST_SELECTED_PROFILE_URL = "last_selected_profile_url"
         private const val KEY_HOME_WIDGETS = "home_widgets"
@@ -162,6 +163,10 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         private const val MAX_BACKGROUND_STYLE = 17
         // BackgroundPaletteMode: 0 = «как тема», далее 11 готовых палитр.
         private const val MAX_BACKGROUND_PALETTE = 11
+
+        /** Верхняя граница стилей элементов; растёт вместе с перечислением. */
+        private val MAX_ELEMENT_STYLE =
+            com.danila.nimbo.ui.theme.ElementStyleMode.entries.maxOf { it.persistedValue }
         private const val KEY_ELEMENT_STYLE = "element_style"
         private const val KEY_BACKGROUND_ANIMATION_ENABLED = "background_animation_enabled"
         private const val KEY_STATUS_PARTICLES_ENABLED = "status_particles_enabled"
@@ -805,12 +810,15 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
             .coerceIn(0, MAX_BACKGROUND_PALETTE)
     }
 
-    // 0 = Morphism, 1 = Material 3, 2 = Nothing Dots
+    // 0 = Liquid Glass, 1 = Material You, 2 = Nothing Dots, 3 = Outlined,
+    // 4 = Soft Neo, 5 = Signal. Границу берём из самого перечисления: раньше
+    // здесь стояла константа, и новый стиль молча схлопывался в предыдущий.
     var elementStyle: Int
         get() = sharedPreferences.getInt(KEY_ELEMENT_STYLE, sharedPreferences.getInt(KEY_VISUAL_STYLE, 0))
         set(value) {
-            sharedPreferences.edit().putInt(KEY_ELEMENT_STYLE, value.coerceIn(0, 4)).apply()
-            elementStyleState.value = value.coerceIn(0, 4)
+            val normalized = value.coerceIn(0, MAX_ELEMENT_STYLE)
+            sharedPreferences.edit().putInt(KEY_ELEMENT_STYLE, normalized).apply()
+            elementStyleState.value = normalized
         }
 
     var backgroundAnimationEnabled: Boolean
@@ -1415,6 +1423,20 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     var showPostUpdateChangelog: Boolean
         get() = sharedPreferences.getBoolean(KEY_SHOW_POST_UPDATE_CHANGELOG, false)
         set(value) = sharedPreferences.edit().putBoolean(KEY_SHOW_POST_UPDATE_CHANGELOG, value).apply()
+
+    /**
+     * Забирает одноразовую сцену «обновление завершено» ровно одному запуску.
+     *
+     * Здесь намеренно используется commit(): после установки Android может
+     * пересоздать Activity почти сразу, и отложенный apply() оставлял короткое
+     * окно, в котором одна и та же сцена успевала открыться повторно.
+     */
+    fun consumePostUpdateChangelogPrompt(): Boolean {
+        if (!showPostUpdateChangelog || lastInstalledUpdateVersion.isNullOrBlank()) return false
+        return sharedPreferences.edit()
+            .putBoolean(KEY_SHOW_POST_UPDATE_CHANGELOG, false)
+            .commit()
+    }
 
     fun clearPendingUpdate() {
         sharedPreferences.edit()
@@ -2442,4 +2464,8 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     var crossSyncAutoSync: Boolean
         get() = sharedPreferences.getBoolean(KEY_CROSS_SYNC_AUTO, true)
         set(value) = sharedPreferences.edit().putBoolean(KEY_CROSS_SYNC_AUTO, value).apply()
+
+    var crossSyncTransportMode: String
+        get() = sharedPreferences.getString(KEY_CROSS_SYNC_TRANSPORT_MODE, "both") ?: "both"
+        set(value) = sharedPreferences.edit().putString(KEY_CROSS_SYNC_TRANSPORT_MODE, value).apply()
 }
