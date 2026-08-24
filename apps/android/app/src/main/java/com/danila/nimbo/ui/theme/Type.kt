@@ -2,6 +2,7 @@ package com.danila.nimbo.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
@@ -104,6 +105,25 @@ private fun TextStyle.scaledBy(scale: Float): TextStyle {
     return copy(
         fontSize = if (fontSize.isSpecified) fontSize * safeScale else fontSize,
         lineHeight = if (lineHeight.isSpecified) lineHeight * safeScale else lineHeight
+    )
+}
+
+/**
+ * Набор Signal: подписи и мелкие ярлыки идут моноширинным шрифтом с
+ * разрядкой — так же, как кикеры в десктопной приборной панели. Основной
+ * текст остаётся прежним, иначе экраны станут нечитаемыми.
+ */
+fun signalTypography(scale: Float): Typography {
+    val base = scaledTypography(scale)
+    fun TextStyle.asKicker(extra: Float) = copy(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = (letterSpacing.takeIf { it.isSpecified }?.value ?: 0f).plus(extra).sp
+    )
+    return base.copy(
+        labelSmall = base.labelSmall.asKicker(0.9f),
+        labelMedium = base.labelMedium.asKicker(0.7f),
+        titleSmall = base.titleSmall.copy(fontWeight = FontWeight.SemiBold)
     )
 }
 

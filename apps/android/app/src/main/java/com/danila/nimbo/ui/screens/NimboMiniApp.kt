@@ -67,6 +67,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -85,6 +86,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -180,9 +182,12 @@ import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import com.danila.nimbo.service.SubscriptionUpdateScheduler
@@ -222,6 +227,7 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
@@ -258,6 +264,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -273,6 +280,7 @@ import com.danila.nimbo.model.Server
 import com.danila.nimbo.model.UpdateInfo
 import com.danila.nimbo.network.SubscriptionManager
 import com.danila.nimbo.network.UpdateManager
+import com.danila.nimbo.network.UpdateWorkScheduler
 import com.danila.nimbo.ui.components.DeleteProfileDialog
 import com.danila.nimbo.ui.components.ExpressiveCircularLoader
 import com.danila.nimbo.ui.components.ExpressiveLoadingPane
@@ -283,6 +291,7 @@ import com.danila.nimbo.ui.components.EdgeBurstTrigger
 import com.danila.nimbo.ui.components.LiquidGlassDepth
 import com.danila.nimbo.ui.components.LiquidInteractionPolicy
 import com.danila.nimbo.ui.components.LocalNetworkEdgeBurstEmitter
+import com.danila.nimbo.ui.components.NebulaMorphicDialog
 import com.danila.nimbo.ui.components.NetworkEdgeBurstOverlay
 import com.danila.nimbo.ui.components.NotificationType
 import com.danila.nimbo.ui.components.QrCodeDisplayBottomSheet
@@ -290,6 +299,7 @@ import com.danila.nimbo.ui.components.QrScannerScreen
 import com.danila.nimbo.ui.components.SubscriptionBrandLogo
 import com.danila.nimbo.ui.screens.SubscriptionProfileMetadata
 import com.danila.nimbo.ui.screens.toMetadata
+import com.danila.nimbo.ui.components.ConnectionErrorDialog
 import com.danila.nimbo.ui.components.UpdateDialog
 import com.danila.nimbo.ui.components.PostUpdateDialog
 import com.danila.nimbo.ui.components.cleanServerName
@@ -301,9 +311,11 @@ import com.danila.nimbo.ui.components.rememberNetworkEdgeBurstController
 import com.danila.nimbo.ui.components.rememberHapticSliderValueChange
 import com.danila.nimbo.ui.components.performConnectionSuccessHaptic
 import com.danila.nimbo.ui.components.tick
-import com.danila.nimbo.ui.navigation.BottomBarScrollPolicy
+import com.danila.nimbo.ui.navigation.BottomBarScrollTracker
 import com.danila.nimbo.ui.components.backgroundPaletteColors
 import com.danila.nimbo.ui.components.drawNimboBackgroundMotion
+import com.danila.nimbo.ui.components.dotPatternOverlay
+import com.danila.nimbo.ui.components.dottedOutline
 import com.danila.nimbo.ui.theme.BackgroundPaletteMode
 import com.danila.nimbo.ui.theme.BackgroundStyleMode
 import com.danila.nimbo.ui.theme.DEFAULT_COLOR_THEME_INDEX
@@ -402,7 +414,7 @@ private enum class MiniSubscriptionTab { Proxies, Profiles }
 // Open — просто открыть; Paste/File — открыть и сразу выполнить метод (как одноимённые
 // кнопки в самом диалоге); Qr — сразу открыть сканер (без диалога).
 private enum class AddProfileAction { Open, Paste, File, Qr }
-private enum class InterfacePreviewKind { IosLiquidGlass, MaterialYou }
+private enum class InterfacePreviewKind { IosLiquidGlass, MaterialYou, Dotted }
 
 @Composable
 fun NimboMiniApp(
@@ -441,9 +453,18 @@ fun NimboMiniApp(
     val bottomBarAutoHideEnabled by preferencesManager.bottomBarAutoHideEnabledState
     var bottomControlsVisible by remember { mutableStateOf(true) }
     var bottomControlsRevealJob by remember { mutableStateOf<Job?>(null) }
+    val bottomControlsLastScheduleNanos = remember { longArrayOf(0L) }
     val bottomControlsScope = rememberCoroutineScope()
 
     fun scheduleBottomControlsReveal(delayMillis: Long = 420L) {
+        val now = System.nanoTime()
+        if (
+            bottomControlsRevealJob?.isActive == true &&
+            now - bottomControlsLastScheduleNanos[0] < 120_000_000L
+        ) {
+            return
+        }
+        bottomControlsLastScheduleNanos[0] = now
         bottomControlsRevealJob?.cancel()
         bottomControlsRevealJob = bottomControlsScope.launch {
             delay(delayMillis)
@@ -453,11 +474,13 @@ fun NimboMiniApp(
 
     val bottomControlsScrollConnection = remember(bottomBarAutoHideEnabled) {
         object : NestedScrollConnection {
+            private val scrollTracker = BottomBarScrollTracker()
+
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (!bottomBarAutoHideEnabled || source != NestedScrollSource.UserInput) {
                     return Offset.Zero
                 }
-                bottomControlsVisible = BottomBarScrollPolicy.visibleAfterScroll(
+                bottomControlsVisible = scrollTracker.visibleAfterScroll(
                     currentlyVisible = bottomControlsVisible,
                     availableY = available.y
                 )
@@ -469,6 +492,7 @@ fun NimboMiniApp(
                 consumed: androidx.compose.ui.unit.Velocity,
                 available: androidx.compose.ui.unit.Velocity
             ): androidx.compose.ui.unit.Velocity {
+                scrollTracker.reset()
                 if (bottomBarAutoHideEnabled) {
                     delay(180L)
                     bottomControlsVisible = true
@@ -511,8 +535,15 @@ fun NimboMiniApp(
     var showTvSheetUrl by remember { mutableStateOf<String?>(null) }
     var showDisclaimer by remember { mutableStateOf(false) }
     var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+    // Сцену после обновления нужно «забрать» сразу при первом запуске новой
+    // сборки. Раньше флаг сбрасывался только после нажатия пользователя; при
+    // повторном создании Activity после установки он успевал открыть ту же
+    // сцену второй раз. Локальное состояние не прячет её в текущем окне.
+    val postUpdatePromptPending = remember {
+        preferencesManager.consumePostUpdateChangelogPrompt()
+    }
     var showPostUpdatePrompt by remember {
-        mutableStateOf(preferencesManager.showPostUpdateChangelog)
+        mutableStateOf(postUpdatePromptPending)
     }
     val destinationHistory = remember { mutableStateListOf<MiniDestination>() }
 
@@ -592,8 +623,20 @@ fun NimboMiniApp(
         val throttleMs = 30 * 60 * 1000L
         if (now - preferencesManager.lastUpdateCheckTime < throttleMs) return@LaunchedEffect
 
-        val info = runCatching { UpdateManager.checkUpdate(context) }.getOrNull()
-        preferencesManager.lastUpdateCheckTime = System.currentTimeMillis()
+        // Do not mark a failed request as a completed check. Previously a
+        // temporary DNS/network failure could hide updates for thirty minutes.
+        val result = runCatching { UpdateManager.checkUpdateInBackground(context) }
+        val info = result.getOrNull()
+        if (result.isSuccess) {
+            preferencesManager.lastUpdateCheckTime = System.currentTimeMillis()
+        } else {
+            Logger.e(
+                "UPDATE",
+                "Foreground update check failed; scheduling catch-up",
+                result.exceptionOrNull() ?: IllegalStateException("Unknown update check error")
+            )
+            UpdateWorkScheduler.enqueueImmediate(context)
+        }
         // Это может быть новая версия или исправленный APK той же версии.
         if (info != null) {
             val skipped = preferencesManager.updateDialogSkippedArtifactId
@@ -1115,6 +1158,21 @@ fun NimboMiniApp(
             }
         }
 
+        // Ошибка подключения, из-за которой сервис сдался: показываем настоящую
+        // причину, следующий шаг и кнопку сбора диагностики для поддержки.
+        VpnManager.lastConnectionError.value?.let { failure ->
+            ConnectionErrorDialog(
+                failure = failure,
+                onDismiss = { VpnManager.lastConnectionError.value = null },
+                onCopied = { message ->
+                    mainViewModel.showTopNotification(
+                        message,
+                        com.danila.nimbo.ui.components.NotificationType.SUCCESS
+                    )
+                }
+            )
+        }
+
         pendingUpdateInfo?.let { info ->
             UpdateDialog(
                 updateInfo = info,
@@ -1123,7 +1181,7 @@ fun NimboMiniApp(
                     preferencesManager.updateDialogSkippedArtifactId = info.artifactId
                     pendingUpdateInfo = null
                 },
-                onUpdate = {
+                onOpenHistory = {
                     pendingUpdateInfo = null
                     navigateTo(MiniDestination.Updates)
                 }
@@ -1588,6 +1646,7 @@ private fun SubscriptionOverviewPanel(
     onOpenSite: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     val isRefreshingSubscriptions by mainViewModel.isRefreshingSubscriptions.collectAsState()
     val showSubscriptionLogo by preferencesManager.showSubscriptionLogoState
     GlassPanel(
@@ -1597,7 +1656,9 @@ private fun SubscriptionOverviewPanel(
             .nimboClickable {
                 onOpenProfiles()
             },
-        shape = RoundedCornerShape(22.dp),
+        // GlassPanel applies the global compact-corner factor for Dotted.
+        // 16dp resolves to the same 8dp radius used by its dot outline.
+        shape = RoundedCornerShape(if (dottedStyle) 16.dp else 22.dp),
         borderColor = Color.White.copy(alpha = 0.13f)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -1709,6 +1770,7 @@ private fun SubscriptionOverviewPanel(
 @Composable
 private fun EmptyHomeProfilePanel(onAction: (AddProfileAction) -> Unit) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     GlassPanel(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(26.dp),
@@ -1733,7 +1795,7 @@ private fun EmptyHomeProfilePanel(onAction: (AddProfileAction) -> Unit) {
                     Box(
                         modifier = Modifier
                             .size(72.dp)
-                            .clip(RoundedCornerShape(22.dp))
+                            .clip(RoundedCornerShape(if (dottedStyle) 8.dp else 22.dp))
                             .background(
                                 Brush.linearGradient(
                                     listOf(
@@ -1742,7 +1804,7 @@ private fun EmptyHomeProfilePanel(onAction: (AddProfileAction) -> Unit) {
                                     )
                                 )
                             )
-                            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(22.dp)),
+                            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(if (dottedStyle) 8.dp else 22.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -1944,6 +2006,8 @@ private fun AddMethodChip(
     onClick: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val materialYou = nebulaColors.isMaterialYou
     val haptic = LocalHapticFeedback.current
     val miniMotionEnabled = rememberMiniMotionEnabled()
     val interactionSource = remember { MutableInteractionSource() }
@@ -2036,6 +2100,9 @@ private fun WindowsConnectionButton(
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val signalStyle = LocalElementStyleMode.current == ElementStyleMode.SIGNAL
+    val materialYou = nebulaColors.isMaterialYou
     val haptic = LocalHapticFeedback.current
     val isLight = nebulaColors.isLight
     val connected = state == VpnState.CONNECTED
@@ -2045,9 +2112,45 @@ private fun WindowsConnectionButton(
     val edgeBurstEmitter = LocalNetworkEdgeBurstEmitter.current
     var edgeBurstSource by remember { mutableStateOf<EdgeBurstSource?>(null) }
     val edgeBurstOutsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { 5.dp.toPx() }
+    // Signal: не круг и не капсула, а строгая плашка приборной панели.
+    val outerShape = when {
+        dottedStyle -> RoundedCornerShape(20.dp)
+        signalStyle -> RoundedCornerShape(28.dp)
+        materialYou -> RoundedCornerShape(48.dp)
+        else -> CircleShape
+    }
+    val centerShape = when {
+        dottedStyle -> RoundedCornerShape(14.dp)
+        signalStyle -> RoundedCornerShape(22.dp)
+        materialYou -> RoundedCornerShape(34.dp)
+        else -> CircleShape
+    }
+    val outerSize = when {
+        dottedStyle -> 196.dp
+        signalStyle -> 200.dp
+        materialYou -> 184.dp
+        else -> 216.dp
+    }
+    val centerSize = when {
+        dottedStyle -> 150.dp
+        signalStyle -> 156.dp
+        materialYou -> 166.dp
+        else -> 174.dp
+    }
     val ringColor = if (connected || connecting) accent else if (isLight) Color(0xFFCFCDD9) else Color.White
-    val idleFill = if (isLight) Color.White.copy(alpha = 0.96f) else Color(0xFF151520).copy(alpha = 0.96f)
-    val idleBorder = if (connecting) accent.copy(alpha = 0.24f) else if (isLight) Color(0xFFDAD8E3) else Color.White.copy(alpha = 0.08f)
+    val idleFill = when {
+        nebulaColors.isLiquidGlass && isLight -> Color.White.copy(alpha = 0.36f)
+        nebulaColors.isLiquidGlass -> nebulaColors.surface.copy(alpha = 0.54f)
+        isLight -> Color.White.copy(alpha = 0.84f)
+        else -> nebulaColors.surface.copy(alpha = 0.78f)
+    }
+    val idleBorder = when {
+        connecting -> accent.copy(alpha = 0.24f)
+        // Волосяная граница вместо мягкого свечения — как на панелях Signal.
+        signalStyle -> if (isLight) Color(0xFFDCDAE4) else Color.White.copy(alpha = 0.12f)
+        isLight -> Color(0xFFDAD8E3)
+        else -> Color.White.copy(alpha = 0.08f)
+    }
     val rotation = if (connecting && miniMotionEnabled) {
         val infinite = rememberInfiniteTransition(label = "windows-connect")
         val animatedRotation by infinite.animateFloat(
@@ -2073,7 +2176,7 @@ private fun WindowsConnectionButton(
 
     Box(
         modifier = modifier
-            .size(216.dp)
+            .size(outerSize)
             .scale(scale)
             .then(
                 if (nebulaColors.isLiquidGlass) {
@@ -2091,14 +2194,52 @@ private fun WindowsConnectionButton(
                     ),
                     halfWidth = coordinates.size.width / 2f,
                     halfHeight = coordinates.size.height / 2f,
-                    shape = EdgeBurstSourceShape.CIRCLE,
+                    shape = if (dottedStyle || materialYou || signalStyle) {
+                        EdgeBurstSourceShape.ROUNDED_RECT
+                    } else {
+                        EdgeBurstSourceShape.CIRCLE
+                    },
                     densityMultiplier = 1.5f,
                     outsetPx = edgeBurstOutsetPx
                 )
             },
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        if (dottedStyle) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(outerShape)
+                    .background(nebulaColors.surface.copy(alpha = 0.94f))
+                    .dotPatternOverlay(
+                        color = nebulaColors.textPrimary,
+                        spacing = 11.dp,
+                        radius = 0.75.dp,
+                        alpha = if (nebulaColors.isLight) 0.10f else 0.15f
+                    )
+                    .dottedOutline(
+                        color = if (connected || connecting) accent else nebulaColors.accent,
+                        cornerRadius = 20.dp,
+                        thickness = 1.15.dp,
+                        alpha = 0.92f
+                    )
+            )
+        } else if (signalStyle) {
+            // Signal: строгая рамка по форме кнопки вместо концентрических
+            // колец — круги от прежних стилей не ложились на плашку.
+            val frameColor = when {
+                connected -> accent.copy(alpha = 0.55f)
+                connecting -> accent.copy(alpha = 0.42f)
+                else -> nebulaColors.textPrimary.copy(alpha = if (isLight) 0.14f else 0.10f)
+            }
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(outerShape)
+                    .background(nebulaColors.textPrimary.copy(alpha = if (isLight) 0.04f else 0.02f))
+                    .border(1.dp, frameColor, outerShape)
+            )
+        } else if (!materialYou) Canvas(modifier = Modifier.fillMaxSize()) {
             val radius = size.minDimension / 2f
             val center = Offset(size.width / 2f, size.height / 2f)
             val outerAlpha = when {
@@ -2139,18 +2280,20 @@ private fun WindowsConnectionButton(
                 )
             }
         }
-        val materialYou = nebulaColors.isMaterialYou
         val centerFill = when {
+            dottedStyle && connected -> accent.copy(alpha = 0.26f).compositeOver(nebulaColors.surface)
+            dottedStyle && connecting -> accent.copy(alpha = 0.18f).compositeOver(nebulaColors.surface)
+            dottedStyle -> nebulaColors.surface.copy(alpha = if (isLight) 0.84f else 0.72f)
             materialYou && connected -> MaterialTheme.colorScheme.primary
-            // Disconnected Material You: darkest tonal surface + accent outline (below) for a dark,
-            // clearly-defined idle button.
-            materialYou -> MaterialTheme.colorScheme.surfaceContainerLowest
+            materialYou && connecting -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.88f)
+            materialYou -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (isLight) 0.88f else 0.72f)
             connected -> accent
             else -> idleFill
         }
         val centerBorder = when {
+            dottedStyle -> Color.Transparent
             materialYou && connected -> Color.Transparent
-            materialYou -> accent.copy(alpha = 0.5f)
+            materialYou -> MaterialTheme.colorScheme.outline.copy(alpha = 0.36f)
             connected -> accent.copy(alpha = 0.55f)
             else -> idleBorder
         }
@@ -2164,13 +2307,31 @@ private fun WindowsConnectionButton(
 
         Box(
             modifier = Modifier
-                .size(174.dp)
-                .clip(CircleShape)
+                .size(centerSize)
+                .clip(centerShape)
                 .background(centerFill)
-                .border(
-                    if (materialYou && !connected && !connecting) 1.5.dp else 1.dp,
-                    centerBorder,
-                    CircleShape
+                .then(
+                    if (dottedStyle) Modifier else Modifier.border(
+                        if (materialYou && !connected && !connecting) 1.dp else 1.dp,
+                        centerBorder,
+                        centerShape
+                    )
+                )
+                .then(
+                    if (dottedStyle) {
+                        Modifier
+                            .dotPatternOverlay(
+                                color = nebulaColors.textPrimary,
+                                spacing = 8.dp,
+                                radius = 0.56.dp,
+                                alpha = if (nebulaColors.isLight) 0.10f else 0.16f
+                            )
+                            .dottedOutline(
+                                color = if (connected || connecting) accent else nebulaColors.accent,
+                                cornerRadius = 14.dp,
+                                alpha = 1f
+                            )
+                    } else Modifier
                 )
                 .clickable(
                     indication = if (materialYou) LocalIndication.current else null,
@@ -2218,7 +2379,7 @@ private fun WindowsConnectionButton(
                     imageVector = if (connected) Icons.Default.Security else Icons.Default.PowerSettingsNew,
                     contentDescription = null,
                     tint = iconTint,
-                    modifier = Modifier.size(if (connected) 62.dp else 68.dp)
+                    modifier = Modifier.size(if (connected) 58.dp else 64.dp)
                 )
             }
         }
@@ -2235,6 +2396,7 @@ private fun WindowsConnectionButtonCompact(
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     val haptic = LocalHapticFeedback.current
     val isLight = nebulaColors.isLight
     val materialYou = nebulaColors.isMaterialYou
@@ -2245,9 +2407,22 @@ private fun WindowsConnectionButtonCompact(
     val edgeBurstEmitter = LocalNetworkEdgeBurstEmitter.current
     var edgeBurstSource by remember { mutableStateOf<EdgeBurstSource?>(null) }
     val edgeBurstOutsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { 3.dp.toPx() }
+    val signalStyle = LocalElementStyleMode.current == ElementStyleMode.SIGNAL
     val cornerScale = LocalGlobalCornerRadius.current
-    val shape = RoundedCornerShape(20.dp * cornerScale)
-    val chipShape = RoundedCornerShape(14.dp * cornerScale)
+    val shape = RoundedCornerShape(
+        when {
+            dottedStyle -> 8.dp
+            signalStyle -> 14.dp * cornerScale
+            else -> 20.dp * cornerScale
+        }
+    )
+    val chipShape = RoundedCornerShape(
+        when {
+            dottedStyle -> 6.dp
+            signalStyle -> 10.dp * cornerScale
+            else -> 14.dp * cornerScale
+        }
+    )
 
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -2304,7 +2479,15 @@ private fun WindowsConnectionButtonCompact(
             )
             .clip(shape)
             .background(panelFill)
-            .border(1.dp, panelBorder, shape)
+            .then(
+                if (dottedStyle) {
+                    Modifier
+                        .dotPatternOverlay(nebulaColors.textPrimary, spacing = 9.dp, radius = 0.62.dp, alpha = 0.12f)
+                        .dottedOutline(nebulaColors.accent, cornerRadius = 8.dp, alpha = 0.94f)
+                } else {
+                    Modifier.border(1.dp, panelBorder, shape)
+                }
+            )
             .clickable(
                 indication = if (materialYou) LocalIndication.current else null,
                 interactionSource = interactionSource,
@@ -2345,11 +2528,14 @@ private fun WindowsConnectionButtonCompact(
                 .size(46.dp)
                 .clip(chipShape)
                 .background(chipFill)
-                .border(
-                    1.dp,
-                    if (connected || (materialYou && !connecting)) accent.copy(alpha = 0.40f)
-                    else windowsBorder(nebulaColors, 0.12f),
-                    chipShape
+                .then(
+                    if (dottedStyle) Modifier.dottedOutline(accent, cornerRadius = 6.dp, alpha = 0.94f)
+                    else Modifier.border(
+                        1.dp,
+                        if (connected || (materialYou && !connecting)) accent.copy(alpha = 0.40f)
+                        else windowsBorder(nebulaColors, 0.12f),
+                        chipShape
+                    )
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -2433,7 +2619,11 @@ private fun WindowsSelectedServerBar(
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val materialYou = nebulaColors.isMaterialYou
     val hasServer = server != null
+    val serverControlShape = RoundedCornerShape(if (dottedStyle) 8.dp else if (materialYou) 22.dp else 16.dp)
+    val serverIconShape = RoundedCornerShape(if (dottedStyle) 6.dp else if (materialYou) 14.dp else 11.dp)
     val controlFill = if (hasServer) {
         nebulaColors.accent.copy(alpha = 0.08f).compositeOver(windowsControlFill(nebulaColors))
     } else {
@@ -2450,21 +2640,30 @@ private fun WindowsSelectedServerBar(
             modifier = Modifier
                 .weight(1f)
                 .height(56.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = serverControlShape,
             color = controlFill,
-            border = BorderStroke(1.dp, border)
+            border = if (dottedStyle) null else BorderStroke(1.dp, border)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (dottedStyle) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .dotPatternOverlay(nebulaColors.textPrimary, spacing = 9.dp, radius = 0.58.dp, alpha = 0.12f)
+                            .dottedOutline(nebulaColors.accent, cornerRadius = 8.dp, alpha = if (hasServer) 0.98f else 0.72f)
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                 val flagEmoji = server?.let { extractFlagEmoji(it.name) }.orEmpty()
                 Box(
                     modifier = Modifier
                         .size(40.dp)
-                        .clip(RoundedCornerShape(11.dp))
+                        .clip(serverIconShape)
                         .background(windowsSoftFill(nebulaColors)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -2488,23 +2687,32 @@ private fun WindowsSelectedServerBar(
                     val currentPing = server.ping ?: -1
                     Box(
                         modifier = Modifier
-                            .padding(start = 8.dp)
-                            .clip(RoundedCornerShape(999.dp))
+                        .padding(start = 8.dp)
+                            .clip(if (dottedStyle) RoundedCornerShape(5.dp) else RoundedCornerShape(999.dp))
                             .nimboClickable(onClick = onServerClick)
                     ) {
                         WindowsPingPill(ping = currentPing, loading = isPinging, pingDisplayMode = pingDisplayMode)
                     }
                 }
             }
+            }
         }
         Surface(
             onClick = onListClick,
             modifier = Modifier.size(56.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = serverControlShape,
             color = controlFill,
-            border = BorderStroke(1.dp, border)
+            border = if (dottedStyle) null else BorderStroke(1.dp, border)
         ) {
             Box(contentAlignment = Alignment.Center) {
+                if (dottedStyle) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .dotPatternOverlay(nebulaColors.textPrimary, spacing = 9.dp, radius = 0.58.dp, alpha = 0.12f)
+                            .dottedOutline(nebulaColors.accent, cornerRadius = 8.dp, alpha = 0.84f)
+                    )
+                }
                 Icon(Icons.Default.List, null, tint = nebulaColors.textSecondary, modifier = Modifier.size(25.dp))
             }
         }
@@ -2626,6 +2834,8 @@ private fun SpeedValue(icon: ImageVector, text: String, color: Color) {
 @Composable
 private fun SpeedChartCanvas(samples: List<MiniSpeedSample>, modifier: Modifier = Modifier) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val materialYou = nebulaColors.isMaterialYou
     Canvas(modifier = modifier) {
         val values = samples.flatMap { listOf(it.upload, it.download) }
         val peak = values.maxOrNull()?.coerceAtLeast(1L)?.toFloat() ?: 1f
@@ -2649,27 +2859,59 @@ private fun SpeedChartCanvas(samples: List<MiniSpeedSample>, modifier: Modifier 
         }
         val downPath = buildPath { it.download }
         val upPath = buildPath { it.upload }
+        if (dottedStyle) {
+            // A compact LED guide-grid keeps the chart legible without returning to a
+            // conventional glass card. It deliberately sits behind the two traces.
+            val stepX = size.width / 10f
+            val stepY = size.height / 4f
+            repeat(4) { row ->
+                repeat(10) { col ->
+                    drawCircle(
+                        color = nebulaColors.textPrimary.copy(alpha = 0.12f),
+                        radius = 0.75.dp.toPx(),
+                        center = Offset(stepX * (col + 0.5f), stepY * (row + 0.5f))
+                    )
+                }
+            }
+        } else if (materialYou) {
+            repeat(2) { row ->
+                val y = size.height * (row + 1) / 3f
+                drawLine(
+                    color = nebulaColors.textPrimary.copy(alpha = 0.08f),
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+        }
         drawPath(
             path = buildArea(downPath),
             brush = Brush.verticalGradient(
-                listOf(nebulaColors.accent.copy(alpha = 0.26f), Color.Transparent)
+                listOf(
+                    nebulaColors.accent.copy(alpha = when {
+                        dottedStyle -> 0.16f
+                        materialYou -> 0.34f
+                        else -> 0.26f
+                    }),
+                    Color.Transparent
+                )
             )
         )
         drawPath(
             path = downPath,
             color = nebulaColors.accent,
-            style = Stroke(width = 2.dp.toPx())
+            style = Stroke(width = if (dottedStyle) 1.35.dp.toPx() else 2.dp.toPx(), cap = StrokeCap.Round)
         )
         drawPath(
             path = buildArea(upPath),
             brush = Brush.verticalGradient(
-                listOf(Color(0xFF5DD9A1).copy(alpha = 0.18f), Color.Transparent)
+                listOf(Color(0xFF5DD9A1).copy(alpha = if (materialYou) 0.26f else 0.18f), Color.Transparent)
             )
         )
         drawPath(
             path = upPath,
             color = Color(0xFF5DD9A1),
-            style = Stroke(width = 1.7.dp.toPx())
+            style = Stroke(width = if (dottedStyle) 1.2.dp.toPx() else 1.7.dp.toPx(), cap = StrokeCap.Round)
         )
     }
 }
@@ -2785,7 +3027,10 @@ private fun MemoryUsageCard(
 
 @Composable
 private fun MemoryChartCanvas(samples: List<Long>, modifier: Modifier = Modifier) {
-    val accent = LocalNebulaColors.current.accent
+    val nebulaColors = LocalNebulaColors.current
+    val accent = nebulaColors.accent
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val materialYou = nebulaColors.isMaterialYou
     Canvas(modifier = modifier) {
         val values = samples.ifEmpty { listOf(0L) }
         val maxValue = values.maxOrNull()?.coerceAtLeast(1L)?.toFloat() ?: 1f
@@ -2805,16 +3050,40 @@ private fun MemoryChartCanvas(samples: List<Long>, modifier: Modifier = Modifier
             lineTo(0f, size.height)
             close()
         }
+        if (dottedStyle) {
+            val stepX = size.width / 10f
+            val stepY = size.height / 3f
+            repeat(3) { row ->
+                repeat(10) { col ->
+                    drawCircle(
+                        color = nebulaColors.textPrimary.copy(alpha = 0.11f),
+                        radius = 0.7.dp.toPx(),
+                        center = Offset(stepX * (col + 0.5f), stepY * (row + 0.5f))
+                    )
+                }
+            }
+        } else if (materialYou) {
+            drawLine(
+                color = nebulaColors.textPrimary.copy(alpha = 0.08f),
+                start = Offset(0f, size.height * 0.72f),
+                end = Offset(size.width, size.height * 0.72f),
+                strokeWidth = 1.dp.toPx()
+            )
+        }
         drawPath(
             path = area,
             brush = Brush.verticalGradient(
-                listOf(accent.copy(alpha = 0.24f), Color.Transparent)
+                listOf(accent.copy(alpha = when {
+                    dottedStyle -> 0.14f
+                    materialYou -> 0.32f
+                    else -> 0.24f
+                }), Color.Transparent)
             )
         )
         drawPath(
             path = path,
             color = accent,
-            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+            style = Stroke(width = if (dottedStyle) 1.35.dp.toPx() else 2.dp.toPx(), cap = StrokeCap.Round)
         )
     }
 }
@@ -2868,9 +3137,10 @@ private fun MiniSquareIconButton(
     forceOpaque: Boolean = false
 ) {
     val edgeBurstEmitter = LocalNetworkEdgeBurstEmitter.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     var edgeBurstSource by remember { mutableStateOf<EdgeBurstSource?>(null) }
     val edgeBurstOutsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { 3.dp.toPx() }
-    val buttonShape = RoundedCornerShape(size * 0.30f)
+    val buttonShape = RoundedCornerShape(if (dottedStyle) size * 0.16f else size * 0.30f)
     val onClickWithBurst: () -> Unit = {
         when (motion) {
             MiniIconMotion.Ping -> edgeBurstEmitter(EdgeBurstTrigger.PING, edgeBurstSource)
@@ -3118,13 +3388,17 @@ private fun NimboSubscriptionScreen(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f, fill = false)) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = headerTitle,
                         color = LocalNebulaColors.current.textPrimary,
-                        style = MaterialTheme.typography.headlineLarge,
+                        style = if (useWindowsProfileList) {
+                            MaterialTheme.typography.headlineLarge
+                        } else {
+                            MaterialTheme.typography.titleLarge
+                        },
                         fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
+                        maxLines = if (useWindowsProfileList) 1 else 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     if (useWindowsProfileList) {
@@ -3140,11 +3414,17 @@ private fun NimboSubscriptionScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 3.dp)
                         )
+                    } else {
+                        Text(
+                            text = t(serverCountRu(servers.size), serverCountEn(servers.size)),
+                            color = LocalNebulaColors.current.textSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
                     }
-                }
-                if (!useWindowsProfileList) {
-                    Spacer(Modifier.width(10.dp))
-                    WindowsCountPill(servers.size.toString())
                 }
             }
             if (useWindowsProfileList) {
@@ -3166,8 +3446,8 @@ private fun NimboSubscriptionScreen(
                 MiniSquareIconButton(
                     icon = Icons.Default.SignalCellularAlt,
                     onClick = { mainViewModel.pingAllServers() },
-                    size = 48.dp,
-                    iconSize = 25.dp,
+                    size = 44.dp,
+                    iconSize = 23.dp,
                     motion = MiniIconMotion.Ping,
                     active = isPinging
                 )
@@ -3175,8 +3455,8 @@ private fun NimboSubscriptionScreen(
                 MiniSquareIconButton(
                     icon = Icons.Default.Refresh,
                     onClick = { currentProfile?.url?.let { onProfileRefresh(it) } },
-                    size = 48.dp,
-                    iconSize = 25.dp,
+                    size = 44.dp,
+                    iconSize = 23.dp,
                     motion = MiniIconMotion.Refresh,
                     active = currentProfile?.isLoading == true
                 )
@@ -3230,6 +3510,16 @@ private fun NimboSubscriptionScreen(
                     }
                 },
                 onOpenSettings = { settingsProfileForDialog = it.toMetadata() },
+                onMoveProfile = { url, delta ->
+                    val from = profiles.indexOfFirst { it.url == url }
+                    val to = from + delta
+                    if (from >= 0 && to in profiles.indices) {
+                        val reordered = profiles.toMutableList()
+                        val profile = reordered.removeAt(from)
+                        reordered.add(to, profile)
+                        mainViewModel.reorderProfiles(reordered.map { it.url })
+                    }
+                },
                 modifier = Modifier
                     .weight(1f)
                     .navigationBarsPadding()
@@ -3427,6 +3717,7 @@ private fun ProxyList(
                 protocol.contains("trojan") -> "Trojan"
                 protocol.contains("shadowsocks") || protocol == "ss" -> "Shadowsocks"
                 protocol.contains("hysteria") || protocol == "hy2" -> "Hysteria2"
+                protocol.contains("naive") -> "NaiveProxy"
                 protocol.contains("tuic") -> "TUIC"
                 protocol.contains("awg") || protocol.contains("amnezia") -> "AWG"
                 protocol.contains("wireguard") || protocol == "wg" -> "WireGuard"
@@ -3447,6 +3738,7 @@ private fun ProxyList(
                         server.protocol.lowercase().contains("trojan") -> "Trojan"
                         server.protocol.lowercase().contains("shadowsocks") || server.protocol.lowercase() == "ss" -> "Shadowsocks"
                         server.protocol.lowercase().contains("hysteria") || server.protocol.lowercase() == "hy2" -> "Hysteria2"
+                        server.protocol.lowercase().contains("naive") -> "NaiveProxy"
                         server.protocol.lowercase().contains("tuic") -> "TUIC"
                         server.protocol.lowercase().contains("awg") || server.protocol.lowercase().contains("amnezia") -> "AWG"
                         server.protocol.lowercase().contains("wireguard") || server.protocol.lowercase() == "wg" -> "WireGuard"
@@ -3652,47 +3944,51 @@ private fun ServerSortRow(
         else t("Пинг ⬇", "Ping ⬇") to Icons.Default.Speed,
         t("Протокол", "Protocol") to Icons.Default.Dns
     )
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            tabs.forEachIndexed { index, (label, icon) ->
-                val selected = index == sortMode
-                Row(
-                    modifier = Modifier
-                        .clip(tabShape)
-                        .background(if (selected) nebulaColors.accent.copy(alpha = 0.16f) else nebulaColors.surface)
-                        .border(
-                            1.dp,
-                            if (selected) nebulaColors.accent.copy(alpha = 0.60f) else windowsBorder(nebulaColors),
-                            tabShape
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        tabs.chunked(2).forEachIndexed { rowIndex, rowTabs ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                rowTabs.forEachIndexed { columnIndex, (label, icon) ->
+                    val index = rowIndex * 2 + columnIndex
+                    val selected = index == sortMode
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(tabShape)
+                            .background(if (selected) nebulaColors.accent.copy(alpha = 0.16f) else nebulaColors.surface)
+                            .border(
+                                1.dp,
+                                if (selected) nebulaColors.accent.copy(alpha = 0.60f) else windowsBorder(nebulaColors),
+                                tabShape
+                            )
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() },
+                                onClick = { onSelect(index) }
+                            )
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = if (selected) nebulaColors.accent else nebulaColors.textSecondary,
+                            modifier = Modifier.size(17.dp)
                         )
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() },
-                            onClick = { onSelect(index) }
+                        Spacer(Modifier.width(7.dp))
+                        Text(
+                            text = label,
+                            color = if (selected) nebulaColors.textPrimary else nebulaColors.textSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = if (selected) nebulaColors.accent else nebulaColors.textSecondary,
-                        modifier = Modifier.size(17.dp)
-                    )
-                    Spacer(Modifier.width(7.dp))
-                    Text(
-                        text = label,
-                        color = if (selected) nebulaColors.textPrimary else nebulaColors.textSecondary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                        maxLines = 1
-                    )
+                    }
                 }
             }
         }
@@ -4048,6 +4344,7 @@ private fun WindowsProfilesList(
     onSupportProfile: (SubscriptionProfile) -> Unit,
     onOpenSite: (SubscriptionProfile) -> Unit,
     onOpenSettings: (SubscriptionProfile) -> Unit,
+    onMoveProfile: (url: String, delta: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val pinnedKeys = remember(pinnedOnly, serverUiVersion) { preferencesManager.getPinnedServerKeys() }
@@ -4097,6 +4394,7 @@ private fun WindowsProfilesList(
             // Expanded by default; the user's collapse choice persists across restarts.
             val expanded = subscriptionCardExpanded[profile.url] ?: !collapsedUrls.contains(profile.url)
             item(key = "profile-${profile.url}") {
+                val profileIndex = profiles.indexOfFirst { it.url == profile.url }
                 WindowsSubscriptionCard(
                     profile = profile,
                     expanded = expanded,
@@ -4113,7 +4411,17 @@ private fun WindowsProfilesList(
                     onSite = { onOpenSite(profile) },
                     onPingAll = { onPingProfile(profile.servers) },
                     showSubscriptionLogo = showSubscriptionLogo,
-                    onOpenSettings = { onOpenSettings(profile) }
+                    onOpenSettings = { onOpenSettings(profile) },
+                    onMoveUp = if (profileIndex > 0) {
+                        { onMoveProfile(profile.url, -1) }
+                    } else {
+                        null
+                    },
+                    onMoveDown = if (profileIndex >= 0 && profileIndex < profiles.lastIndex) {
+                        { onMoveProfile(profile.url, 1) }
+                    } else {
+                        null
+                    }
                 )
                 Spacer(Modifier.height(if (expanded) 12.dp else 14.dp))
             }
@@ -4223,7 +4531,9 @@ private fun WindowsSubscriptionCard(
     onSite: () -> Unit,
     onPingAll: () -> Unit,
     showSubscriptionLogo: Boolean,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null
 ) {
     val nebulaColors = LocalNebulaColors.current
     var menuExpanded by remember { mutableStateOf(false) }
@@ -4325,20 +4635,38 @@ private fun WindowsSubscriptionCard(
                             DropdownMenu(
                                 expanded = menuExpanded,
                                 onDismissRequest = { menuExpanded = false },
-                                modifier = Modifier
-                                    .width(220.dp)
-                                    .background(windowsPanelFill(nebulaColors), RoundedCornerShape(16.dp)),
+                                modifier = Modifier.width(220.dp),
                                 shape = RoundedCornerShape(16.dp),
-                                containerColor = Color.Transparent,
+                                containerColor = windowsMenuFill(nebulaColors),
                                 tonalElevation = 0.dp,
-                                shadowElevation = 0.dp,
-                                border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.14f))
+                                shadowElevation = 12.dp,
+                                border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.26f))
                             ) {
                                 ProfileMenuItem(t("Настройки", "Settings"), icon = Icons.Default.Settings) {
                                     menuExpanded = false
                                     onOpenSettings()
                                 }
                                 ProfileMenuDivider(nebulaColors.textPrimary)
+                                if (onMoveUp != null) {
+                                    ProfileMenuItem(
+                                        t("Переместить выше", "Move up"),
+                                        icon = Icons.Default.ArrowUpward
+                                    ) {
+                                        menuExpanded = false
+                                        onMoveUp()
+                                    }
+                                    ProfileMenuDivider(nebulaColors.textPrimary)
+                                }
+                                if (onMoveDown != null) {
+                                    ProfileMenuItem(
+                                        t("Переместить ниже", "Move down"),
+                                        icon = Icons.Default.KeyboardArrowDown
+                                    ) {
+                                        menuExpanded = false
+                                        onMoveDown()
+                                    }
+                                    ProfileMenuDivider(nebulaColors.textPrimary)
+                                }
                                 ProfileMenuItem(t("Обновить", "Refresh"), icon = Icons.Default.Refresh) {
                                     menuExpanded = false
                                     onRefresh()
@@ -4429,6 +4757,8 @@ private fun WindowsProfileServerLine(
     onHide: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val resolvedRowShape = if (dottedStyle) RoundedCornerShape(8.dp) else rowShape
     val flagEmoji = extractFlagEmoji(server.name)
     var menuExpanded by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
@@ -4442,11 +4772,26 @@ private fun WindowsProfileServerLine(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(rowShape)
+            .clip(resolvedRowShape)
             .background(rowBackground)
             .then(
                 if (selected) {
-                    Modifier.border(1.dp, nebulaColors.accent.copy(alpha = 0.68f), rowShape)
+                    if (dottedStyle) {
+                        Modifier
+                            .dotPatternOverlay(
+                                color = nebulaColors.textPrimary,
+                                spacing = 10.dp,
+                                radius = 0.72.dp,
+                                alpha = 0.10f
+                            )
+                            .dottedOutline(
+                                color = nebulaColors.accent,
+                                cornerRadius = 8.dp,
+                                alpha = 0.96f
+                            )
+                    } else {
+                        Modifier.border(1.dp, nebulaColors.accent.copy(alpha = 0.68f), resolvedRowShape)
+                    }
                 } else {
                     Modifier
                 }
@@ -4623,6 +4968,7 @@ internal fun WindowsFlatPanel(
     val cornerScale = LocalGlobalCornerRadius.current
     val resolvedShape = scaleRoundedCornerShape(shape, cornerScale)
     val useLiquidGlass = nebulaColors.isLiquidGlass
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     val fill = windowsPanelFill(nebulaColors)
     val panelModifier = if (useLiquidGlass) {
         modifier
@@ -4632,7 +4978,9 @@ internal fun WindowsFlatPanel(
         modifier
             .fillMaxWidth()
             .clip(resolvedShape)
-            .border(1.dp, windowsBorder(nebulaColors), resolvedShape)
+            .then(
+                if (dottedStyle) Modifier else Modifier.border(1.dp, windowsBorder(nebulaColors), resolvedShape)
+            )
     }
     Box(
         modifier = panelModifier
@@ -4643,6 +4991,23 @@ internal fun WindowsFlatPanel(
                     .matchParentSize()
                     .background(fill)
             )
+            if (dottedStyle) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .dotPatternOverlay(
+                            color = nebulaColors.textPrimary,
+                            spacing = 12.dp,
+                            radius = 0.8.dp,
+                            alpha = if (nebulaColors.isLight) 0.08f else 0.12f
+                        )
+                        .dottedOutline(
+                            color = nebulaColors.accent,
+                            cornerRadius = 18.dp * cornerScale,
+                            alpha = 0.70f
+                        )
+                )
+            }
         }
         Box(modifier = Modifier.fillMaxWidth()) {
             content()
@@ -5941,6 +6306,7 @@ private fun ColumnScope.ServersSettingsSection(
                                         protocol.contains("trojan") -> "Trojan"
                                         protocol.contains("shadowsocks") || protocol == "ss" -> "Shadowsocks"
                                         protocol.contains("hysteria") || protocol == "hy2" -> "Hysteria2"
+                                        protocol.contains("naive") -> "NaiveProxy"
                                         protocol.contains("tuic") -> "TUIC"
                                         protocol.contains("awg") || protocol.contains("amnezia") -> "AWG"
                                         protocol.contains("wireguard") || protocol == "wg" -> "WireGuard"
@@ -8188,6 +8554,8 @@ private fun SettingsSectionTab(
     onClick: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val materialYou = nebulaColors.isMaterialYou
     val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(12.dp)
     Row(
@@ -9273,6 +9641,7 @@ private fun BoxScope.NimboBottomControls(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val materialYou = nebulaColors.isMaterialYou
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     val cornerScale = LocalGlobalCornerRadius.current
     val blurRadius = LocalGlobalBlurRadius.current
     val haptic = LocalHapticFeedback.current
@@ -9329,47 +9698,25 @@ private fun BoxScope.NimboBottomControls(
         ) {
             Box(Modifier.matchParentSize().frostedBackdrop(backdropLayer, panelShape, blurRadius))
             Box(Modifier.matchParentSize().background(tintColor))
-            Row(
+            MaterialYouBottomNavRow(
+                destination = destination,
+                onSelect = selectDestination,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                WindowsBottomNavItem(
-                    selected = destination == MiniDestination.Home,
-                    icon = Icons.Default.Bolt,
-                    label = t("Главная", "Home"),
-                    onClick = { selectDestination(MiniDestination.Home) },
-                    modifier = Modifier.weight(1f)
-                )
-                WindowsBottomNavItem(
-                    selected = destination == MiniDestination.Subscription,
-                    icon = Icons.Default.Public,
-                    label = t("Профили", "Profiles"),
-                    onClick = { selectDestination(MiniDestination.Subscription) },
-                    modifier = Modifier.weight(1f)
-                )
-                WindowsBottomNavItem(
-                    selected = destination == MiniDestination.AppAccess,
-                    icon = Icons.Default.Smartphone,
-                    label = t("Приложения", "Apps"),
-                    onClick = { selectDestination(MiniDestination.AppAccess) },
-                    modifier = Modifier.weight(1f)
-                )
-                WindowsBottomNavItem(
-                    selected = destination == MiniDestination.Settings,
-                    icon = Icons.Default.Settings,
-                    label = t("Настройки", "Settings"),
-                    onClick = { selectDestination(MiniDestination.Settings) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
+                    .padding(horizontal = 8.dp)
+            )
         }
     } else {
-        val panelShape = RoundedCornerShape(32.dp * cornerScale)
+        // Dotted is deliberately more architectural than glass: a compact rounded
+        // rectangle with an opaque surface, an LED perimeter and a restrained grid.
+        // Keeping it out of the frosted-backdrop path is important — otherwise the
+        // dots disappear into the blur and the bar still looks like Nimbo Glass.
+        val panelCorner = if (dottedStyle) 16.dp * cornerScale else 32.dp * cornerScale
+        val panelShape = RoundedCornerShape(panelCorner)
         val liquidGlass = nebulaColors.isLiquidGlass
         val outlineColor = if (liquidGlass) {
+            Color.Transparent
+        } else if (dottedStyle) {
             Color.Transparent
         } else if (nebulaColors.isLight) {
             Color.Black.copy(alpha = 0.12f)
@@ -9378,14 +9725,18 @@ private fun BoxScope.NimboBottomControls(
         }
         // Tint laid over the frosted backdrop. Its alpha tracks the transparency slider
         // (via panelFill's alpha), so the bar goes from near-solid to barely-there glass.
-        val tintColor = nebulaColors.surface
-            .copy(
-                alpha = if (liquidGlass) {
-                    (windowsPanelFill(nebulaColors).alpha * 0.26f).coerceIn(0.06f, 0.30f)
-                } else {
-                    (windowsPanelFill(nebulaColors).alpha * 0.62f).coerceIn(0.10f, 0.82f)
-                }
-            )
+        val tintColor = if (dottedStyle) {
+            nebulaColors.surface.copy(alpha = if (nebulaColors.isLight) 0.98f else 0.96f)
+        } else {
+            nebulaColors.surface
+                .copy(
+                    alpha = if (liquidGlass) {
+                        (windowsPanelFill(nebulaColors).alpha * 0.26f).coerceIn(0.06f, 0.30f)
+                    } else {
+                        (windowsPanelFill(nebulaColors).alpha * 0.62f).coerceIn(0.10f, 0.82f)
+                    }
+                )
+        }
 
         Box(
             modifier = Modifier
@@ -9396,10 +9747,38 @@ private fun BoxScope.NimboBottomControls(
                 .align(Alignment.BottomCenter)
                 .then(visibilityModifier)
                 .clip(panelShape)
-                .border(1.dp, outlineColor, panelShape)
+                .then(
+                    if (dottedStyle) {
+                        Modifier
+                    } else {
+                        Modifier.border(1.dp, outlineColor, panelShape)
+                    }
+                )
         ) {
-            Box(Modifier.matchParentSize().frostedBackdrop(backdropLayer, panelShape, blurRadius))
+            if (!dottedStyle) {
+                Box(Modifier.matchParentSize().frostedBackdrop(backdropLayer, panelShape, blurRadius))
+            }
             Box(Modifier.matchParentSize().background(tintColor))
+            if (dottedStyle) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .dotPatternOverlay(
+                            color = nebulaColors.textPrimary,
+                            spacing = 10.dp,
+                            radius = 0.7.dp,
+                            alpha = if (nebulaColors.isLight) 0.12f else 0.16f
+                        )
+                        .dottedOutline(
+                            color = nebulaColors.accent,
+                            cornerRadius = panelCorner,
+                            thickness = 1.dp,
+                            dotLength = 1.15.dp,
+                            gap = 3.4.dp,
+                            alpha = 0.92f
+                        )
+                )
+            }
             if (liquidGlass) {
                 Box(
                     Modifier
@@ -9828,6 +10207,153 @@ private fun LiquidGlassBottomNavRow(
     }
 }
 
+private data class MaterialYouNavEntry(
+    val destination: MiniDestination,
+    val selectedIcon: ImageVector,
+    val icon: ImageVector,
+    val label: String
+)
+
+/**
+ * Навигация в духе Material 3: выбранный пункт разворачивается в таблетку
+ * с подписью, остальные остаются одними иконками. Ширина слота и раскрытие
+ * подписи анимируются пружиной, цвета берутся из ролей динамической схемы.
+ */
+@Composable
+private fun MaterialYouBottomNavRow(
+    destination: MiniDestination,
+    onSelect: (MiniDestination) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val entries = listOf(
+        MaterialYouNavEntry(
+            MiniDestination.Home,
+            Icons.Default.Bolt,
+            Icons.Outlined.Bolt,
+            t("Главная", "Home")
+        ),
+        MaterialYouNavEntry(
+            MiniDestination.Subscription,
+            Icons.Default.Public,
+            Icons.Outlined.Public,
+            t("Профили", "Profiles")
+        ),
+        MaterialYouNavEntry(
+            MiniDestination.AppAccess,
+            Icons.Default.Smartphone,
+            Icons.Outlined.Smartphone,
+            t("Приложения", "Apps")
+        ),
+        MaterialYouNavEntry(
+            MiniDestination.Settings,
+            Icons.Default.Settings,
+            Icons.Outlined.Settings,
+            t("Настройки", "Settings")
+        )
+    )
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        entries.forEach { entry ->
+            MaterialYouBottomNavItem(
+                entry = entry,
+                selected = destination == entry.destination,
+                onClick = { onSelect(entry.destination) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun RowScope.MaterialYouBottomNavItem(
+    entry: MaterialYouNavEntry,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val motionEnabled = rememberMiniMotionEnabled()
+    val selection by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = if (motionEnabled) {
+            spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow)
+        } else {
+            snap()
+        },
+        label = "material-nav-selection"
+    )
+    val labelStyle = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+    val measurer = rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // Подпись раскрывается из-под иконки: ширина ползёт от нуля до реальной
+    // ширины текста, поэтому текст не переносится и не дёргает соседние пункты.
+    val labelWidth = remember(entry.label, labelStyle, density) {
+        with(density) {
+            measurer.measure(
+                text = entry.label,
+                style = labelStyle,
+                maxLines = 1,
+                softWrap = false
+            ).size.width.toDp()
+        }
+    }
+    val contentColor = androidx.compose.ui.graphics.lerp(
+        MaterialTheme.colorScheme.onSurfaceVariant,
+        MaterialTheme.colorScheme.onSecondaryContainer,
+        selection
+    )
+    val indicatorColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = selection)
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier
+            .weight(1f + 2.2f * selection)
+            .height(56.dp)
+            .clip(CircleShape)
+            .background(indicatorColor)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (selected) entry.selectedIcon else entry.icon,
+                contentDescription = entry.label,
+                tint = contentColor,
+                modifier = Modifier
+                    .size(24.dp)
+                    .scale(1f + 0.08f * selection)
+            )
+            Spacer(Modifier.width(8.dp * selection))
+            Box(
+                modifier = Modifier
+                    .width(labelWidth.coerceAtMost(120.dp) * selection)
+                    .clipToBounds()
+            ) {
+                Text(
+                    text = entry.label,
+                    color = contentColor,
+                    style = labelStyle,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .wrapContentWidth(align = Alignment.Start, unbounded = true)
+                        .graphicsLayer {
+                            alpha = ((selection - 0.3f) / 0.7f).coerceIn(0f, 1f)
+                        }
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun WindowsBottomNavItem(
     selected: Boolean,
@@ -9839,10 +10365,11 @@ private fun WindowsBottomNavItem(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val materialYou = nebulaColors.isMaterialYou
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     // Scale the selected-item highlight with the corner slider so it nests inside the
     // rounded bar instead of staying a fixed square while the panel becomes a pill.
     val cornerScale = LocalGlobalCornerRadius.current
-    val shape = RoundedCornerShape(14.dp * cornerScale)
+    val shape = RoundedCornerShape(if (dottedStyle) 8.dp * cornerScale else 14.dp * cornerScale)
 
     if (materialYou) {
         val activeIndicatorColor = nebulaColors.accent.copy(
@@ -9937,19 +10464,16 @@ private fun WindowsBottomNavItem(
     } else {
         val selectedFill = when {
             externalSelection -> Color.Transparent
-            nebulaColors.isMaterialYou -> MaterialTheme.colorScheme.secondaryContainer
+            dottedStyle -> nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.18f else 0.16f)
             nebulaColors.isLight -> Color.Transparent
             else -> Color.White.copy(alpha = 0.075f)
         }
         val selectedBorder = when {
-            externalSelection -> Color.Transparent
-            nebulaColors.isMaterialYou -> Color.Transparent
+            externalSelection || dottedStyle -> Color.Transparent
             nebulaColors.isLight -> Color.Transparent
             else -> Color.White.copy(alpha = 0.16f)
         }
         val contentColor = when {
-            nebulaColors.isMaterialYou && selected -> MaterialTheme.colorScheme.onSecondaryContainer
-            nebulaColors.isMaterialYou -> MaterialTheme.colorScheme.onSurfaceVariant
             else -> nebulaColors.textPrimary
         }
         // Small inset from the bar edges so the highlight doesn't touch the panel border,
@@ -9960,7 +10484,24 @@ private fun WindowsBottomNavItem(
                 .padding(horizontal = 3.dp, vertical = 6.dp)
                 .clip(shape)
                 .background(selectedFill)
-                .border(1.dp, selectedBorder, shape)
+                .then(
+                    if (dottedStyle) {
+                        Modifier
+                            .dotPatternOverlay(
+                                color = nebulaColors.textPrimary,
+                                spacing = 7.dp,
+                                radius = 0.55.dp,
+                                alpha = if (nebulaColors.isLight) 0.12f else 0.16f
+                            )
+                            .dottedOutline(
+                                color = nebulaColors.accent,
+                                cornerRadius = 8.dp * cornerScale,
+                                alpha = 0.94f
+                            )
+                    } else {
+                        Modifier.border(1.dp, selectedBorder, shape)
+                    }
+                )
         } else {
             modifier
                 .fillMaxHeight()
@@ -10012,6 +10553,8 @@ private fun NimboVpnFab(
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val materialYou = nebulaColors.isMaterialYou
     val haptic = LocalHapticFeedback.current
     val connected = state == VpnState.CONNECTED
     val connecting = state == VpnState.CONNECTING
@@ -10026,10 +10569,15 @@ private fun NimboVpnFab(
         animationSpec = if (miniMotionEnabled) tween(220) else snap(),
         label = "fab-accent"
     )
+    val materialButtonColor = if (materialYou && !connected && !connecting) {
+        nebulaColors.accent
+    } else {
+        accentColor
+    }
 
     // Don't drive any infinite animation while disconnected — that's the most
     // common idle state and the FAB has no animated visuals there.
-    val animationsActive = miniMotionEnabled && (connected || connecting)
+    val animationsActive = miniMotionEnabled && (connected || connecting) && !dottedStyle
     val lightPulse: Float
     val lightSweep: Float
     val refreshRotation: Float
@@ -10082,6 +10630,17 @@ private fun NimboVpnFab(
         },
         label = "press-scale"
     )
+
+    val mainButtonShape: Shape = when {
+        dottedStyle -> RoundedCornerShape(14.dp)
+        materialYou -> RoundedCornerShape(26.dp)
+        else -> CircleShape
+    }
+    val mainButtonSize = when {
+        dottedStyle -> 76.dp
+        materialYou -> 78.dp
+        else -> 70.dp
+    }
 
     Box(
         modifier = modifier.size(168.dp),
@@ -10137,7 +10696,7 @@ private fun NimboVpnFab(
         if (!connected) {
             Box(
                 modifier = Modifier
-                    .size(76.dp)
+                    .size(if (dottedStyle) 92.dp else if (materialYou) 88.dp else 76.dp)
                     .background(
                         Brush.radialGradient(
                             listOf(
@@ -10145,14 +10704,14 @@ private fun NimboVpnFab(
                                 Color.Transparent
                             )
                         ),
-                        shape = CircleShape
+                        shape = mainButtonShape
                     )
             )
         }
 
         Box(
             modifier = Modifier
-                .size(70.dp)
+                .size(mainButtonSize)
                 .scale(pressScale)
                 .then(
                     if (nebulaColors.isLiquidGlass) {
@@ -10161,20 +10720,36 @@ private fun NimboVpnFab(
                         Modifier
                     }
                 )
-                .clip(CircleShape)
+                .clip(mainButtonShape)
                 .background(
-                    Brush.radialGradient(
-                        listOf(
-                            accentColor.copy(alpha = if (connected) 0.48f else 0.22f),
-                            Color.White.copy(alpha = 0.06f),
-                            Color.Black.copy(alpha = 0.22f)
+                    when {
+                        dottedStyle -> Brush.linearGradient(
+                            listOf(
+                                nebulaColors.surface.copy(alpha = 0.98f),
+                                nebulaColors.accent.copy(alpha = if (connected) 0.18f else 0.08f)
+                            )
                         )
-                    )
+                        materialYou -> Brush.linearGradient(
+                            listOf(
+                                materialButtonColor.copy(alpha = if (connected) 0.90f else 0.82f),
+                                materialButtonColor.copy(alpha = if (connected) 0.72f else 0.64f)
+                            )
+                        )
+                        else -> Brush.radialGradient(
+                            listOf(
+                                accentColor.copy(alpha = if (connected) 0.48f else 0.22f),
+                                Color.White.copy(alpha = 0.10f),
+                                Color.Black.copy(alpha = 0.22f)
+                            )
+                        )
+                    }
                 )
-                .border(
-                    1.dp,
-                    accentColor.copy(alpha = if (connected) 0.55f else 0.32f),
-                    CircleShape
+                .then(
+                    if (dottedStyle) Modifier else Modifier.border(
+                        1.dp,
+                        if (materialYou) Color.White.copy(alpha = 0.26f) else accentColor.copy(alpha = if (connected) 0.55f else 0.32f),
+                        mainButtonShape
+                    )
                 )
                 .clickable(
                     indication = null,
@@ -10189,6 +10764,24 @@ private fun NimboVpnFab(
                 ),
             contentAlignment = Alignment.Center
         ) {
+            if (dottedStyle) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .dotPatternOverlay(
+                            color = nebulaColors.textPrimary,
+                            spacing = 8.dp,
+                            radius = 0.62.dp,
+                            alpha = if (nebulaColors.isLight) 0.12f else 0.16f
+                        )
+                        .dottedOutline(
+                            color = accentColor,
+                            cornerRadius = 14.dp,
+                            thickness = 1.2.dp,
+                            alpha = 0.98f
+                        )
+                )
+            }
             AnimatedContent(
                 targetState = state,
                 transitionSpec = {
@@ -10199,16 +10792,21 @@ private fun NimboVpnFab(
             ) { current ->
                 when (current) {
                     VpnState.CONNECTED -> {
-                        // Filled rounded square — the broadcasting source
+                        // The connected mark follows the selected visual system rather
+                        // than reusing the same glass square in every theme.
                         Box(
                             modifier = Modifier
-                                .size(22.dp)
-                                .clip(RoundedCornerShape(5.dp))
-                                .background(accentColor)
-                                .border(
-                                    1.dp,
-                                    Color.White.copy(alpha = 0.45f),
-                                    RoundedCornerShape(5.dp)
+                                .size(if (materialYou) 26.dp else 22.dp)
+                                .clip(RoundedCornerShape(if (dottedStyle) 3.dp else if (materialYou) 9.dp else 5.dp))
+                                .background(
+                                    if (dottedStyle) accentColor else Color.White.copy(alpha = if (materialYou) 0.94f else 0.72f)
+                                )
+                                .then(
+                                    if (dottedStyle) Modifier.dottedOutline(
+                                        color = nebulaColors.textPrimary,
+                                        cornerRadius = 3.dp,
+                                        alpha = 0.76f
+                                    ) else Modifier
                                 )
                         )
                     }
@@ -10216,7 +10814,7 @@ private fun NimboVpnFab(
                         Icon(
                             Icons.Default.Refresh,
                             null,
-                            tint = accentColor,
+                            tint = if (materialYou) Color.White else accentColor,
                             modifier = Modifier
                                 .size(32.dp)
                                 .rotate(refreshRotation)
@@ -10226,7 +10824,7 @@ private fun NimboVpnFab(
                         Icon(
                             Icons.Default.PowerSettingsNew,
                             contentDescription = "VPN отключен",
-                            tint = accentColor,
+                            tint = if (materialYou) Color.White else accentColor,
                             modifier = Modifier.size(32.dp)
                         )
                     }
@@ -10403,11 +11001,12 @@ private fun MiniSegmented(
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     GlassPanel(
         modifier = modifier
             .fillMaxWidth()
             .height(56.dp),
-        shape = RoundedCornerShape(30.dp),
+        shape = RoundedCornerShape(if (dottedStyle) 10.dp else 30.dp),
         borderColor = Color.White.copy(alpha = 0.12f)
     ) {
         Row(modifier = Modifier.fillMaxSize().padding(5.dp)) {
@@ -10435,13 +11034,15 @@ private fun SegmentChoice(
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     val haptic = LocalHapticFeedback.current
+    val choiceShape = RoundedCornerShape(if (dottedStyle) 6.dp else 32.dp)
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .clip(RoundedCornerShape(32.dp))
+            .clip(choiceShape)
             .background(
-                if (selected) {
+                if (selected && !dottedStyle) {
                     Brush.linearGradient(
                         listOf(
                             nebulaColors.accent.copy(alpha = 0.32f),
@@ -10450,6 +11051,21 @@ private fun SegmentChoice(
                     )
                 } else {
                     Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                }
+            )
+            .then(
+                if (selected && dottedStyle) {
+                    Modifier
+                        .background(nebulaColors.accent.copy(alpha = 0.18f))
+                        .dotPatternOverlay(
+                            color = nebulaColors.textPrimary,
+                            spacing = 8.dp,
+                            radius = 0.6.dp,
+                            alpha = 0.16f
+                        )
+                        .dottedOutline(nebulaColors.accent, cornerRadius = 6.dp, alpha = 0.95f)
+                } else {
+                    Modifier
                 }
             )
             .clickable(
@@ -10464,7 +11080,7 @@ private fun SegmentChoice(
     ) {
         Text(
             text = text,
-            color = if (selected) nebulaColors.accent else nebulaColors.textSecondary,
+            color = if (selected && !dottedStyle) nebulaColors.accent else if (selected) nebulaColors.textPrimary else nebulaColors.textSecondary,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
@@ -10634,12 +11250,19 @@ private fun windowsDivider(colors: NebulaColors): Color = colors.divider
 @Composable
 private fun scaleRoundedCornerShape(shape: RoundedCornerShape, scale: Float): RoundedCornerShape {
     val density = androidx.compose.ui.platform.LocalDensity.current
+    // Стиль задаёт общий множитель скруглений: Dotted почти квадратный,
+    // Signal — строгая панель, остальные оставляют авторскую геометрию.
+    val compactDottedCorners = when (LocalElementStyleMode.current) {
+        ElementStyleMode.NOTHING_DOTS -> 0.48f
+        ElementStyleMode.SIGNAL -> 0.62f
+        else -> 1f
+    }
     val dummySize = with(density) { androidx.compose.ui.geometry.Size(500.dp.toPx(), 500.dp.toPx()) }
     return RoundedCornerShape(
-        topStart = androidx.compose.foundation.shape.CornerSize(shape.topStart.toPx(dummySize, density) * scale),
-        topEnd = androidx.compose.foundation.shape.CornerSize(shape.topEnd.toPx(dummySize, density) * scale),
-        bottomEnd = androidx.compose.foundation.shape.CornerSize(shape.bottomEnd.toPx(dummySize, density) * scale),
-        bottomStart = androidx.compose.foundation.shape.CornerSize(shape.bottomStart.toPx(dummySize, density) * scale)
+        topStart = androidx.compose.foundation.shape.CornerSize(shape.topStart.toPx(dummySize, density) * scale * compactDottedCorners),
+        topEnd = androidx.compose.foundation.shape.CornerSize(shape.topEnd.toPx(dummySize, density) * scale * compactDottedCorners),
+        bottomEnd = androidx.compose.foundation.shape.CornerSize(shape.bottomEnd.toPx(dummySize, density) * scale * compactDottedCorners),
+        bottomStart = androidx.compose.foundation.shape.CornerSize(shape.bottomStart.toPx(dummySize, density) * scale * compactDottedCorners)
     )
 }
 
@@ -10656,12 +11279,19 @@ private fun GlassPanel(
     val isLight = nebulaColors.isLight
     val cornerScale = LocalGlobalCornerRadius.current
     val resolvedShape = scaleRoundedCornerShape(shape, cornerScale)
-    val useLiquidGlass = nebulaColors.isLiquidGlass && !forceOpaque
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val signalStyle = LocalElementStyleMode.current == ElementStyleMode.SIGNAL
+    val useLiquidGlass = nebulaColors.isLiquidGlass && !forceOpaque && !signalStyle
 
     // Flat surfaces (no glassmorphism): solid fill + thin hairline border, matching
     // the Windows app's .panel. Selected/active panels get a subtle accent tint.
     val baseFill = if (accentFill) {
-        nebulaColors.accent.copy(alpha = if (isLight) 0.12f else 0.14f).compositeOver(nebulaColors.surface)
+        val accentAlpha = if (signalStyle) {
+            if (isLight) 0.10f else 0.11f
+        } else {
+            if (isLight) 0.12f else 0.14f
+        }
+        nebulaColors.accent.copy(alpha = accentAlpha).compositeOver(nebulaColors.surface)
     } else {
         windowsPanelFill(nebulaColors)
     }
@@ -10673,6 +11303,14 @@ private fun GlassPanel(
     val isWhiteishBorder = borderColor.red >= 0.95f && borderColor.green >= 0.95f &&
         borderColor.blue >= 0.95f && borderColor.alpha <= 0.3f
     val resolvedBorder = when {
+        dottedStyle -> Color.Transparent
+        // Signal рисует одну волосяную линию одинаковой толщины на всех
+        // панелях — глубину даёт она, а не подсветка и тени.
+        signalStyle -> if (accentFill) {
+            nebulaColors.accent.copy(alpha = 0.34f)
+        } else {
+            nebulaColors.textPrimary.copy(alpha = if (isLight) 0.10f else 0.075f)
+        }
         // Material You panels are borderless tonal surfaces — drop the glass hairline.
         nebulaColors.isMaterialYou -> Color.Transparent
         isLight && isWhiteishBorder ->
@@ -10687,7 +11325,9 @@ private fun GlassPanel(
     } else {
         modifier
             .clip(resolvedShape)
-            .border(1.dp, resolvedBorder, resolvedShape)
+            .then(
+                if (dottedStyle) Modifier else Modifier.border(1.dp, resolvedBorder, resolvedShape)
+            )
     }
     Box(modifier = panelModifier) {
         if (!useLiquidGlass) {
@@ -10696,6 +11336,29 @@ private fun GlassPanel(
                     .matchParentSize()
                     .background(fill)
             )
+            if (dottedStyle) {
+                // This is intentionally a sibling after the solid fill. It keeps the
+                // dot matrix visible on controls and cards instead of burying it under
+                // the panel background.
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .dotPatternOverlay(
+                            color = nebulaColors.textPrimary,
+                            spacing = 11.dp,
+                            radius = 0.72.dp,
+                            alpha = if (isLight) 0.08f else 0.12f
+                        )
+                        .dottedOutline(
+                            color = nebulaColors.accent,
+                            // Dotted panels intentionally use compact, almost-square
+                            // corners. Keeping this fixed to the grid radius makes the
+                            // dot border follow the clipped edge instead of protruding.
+                            cornerRadius = 8.dp,
+                            alpha = 0.72f
+                        )
+                )
+            }
         } else if (accentFill) {
             Box(
                 modifier = Modifier
@@ -10789,17 +11452,43 @@ private fun NimboAddSubscriptionDialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        GlassPanel(
+        Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp)
+                .fillMaxWidth(0.94f)
+                .widthIn(max = 560.dp)
                 .imePadding(),
-            shape = RoundedCornerShape(26.dp),
-            borderColor = Color.White.copy(alpha = 0.12f)
+            shape = RoundedCornerShape(30.dp),
+            color = windowsMenuFill(nebulaColors),
+            tonalElevation = 0.dp,
+            shadowElevation = 22.dp,
+            border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.34f))
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(verticalAlignment = Alignment.Top) {
-                    Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.padding(22.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(nebulaColors.accent.copy(alpha = 0.16f))
+                            .border(
+                                1.dp,
+                                nebulaColors.accent.copy(alpha = 0.28f),
+                                RoundedCornerShape(16.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = null,
+                            tint = nebulaColors.accent,
+                            modifier = Modifier.size(25.dp)
+                        )
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 14.dp)
+                    ) {
                         Text(
                             text = t("Добавить профиль", "Add profile"),
                             color = nebulaColors.textPrimary,
@@ -10809,62 +11498,114 @@ private fun NimboAddSubscriptionDialog(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = t("URL подписки или одиночная proxy-ссылка.", "Subscription URL or a single proxy link."),
+                            text = t("Подписка или отдельный сервер", "Subscription or a single server"),
                             color = nebulaColors.textSecondary,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(top = 4.dp)
+                            modifier = Modifier.padding(top = 2.dp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                     Surface(
                         onClick = onDismiss,
-                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.size(44.dp),
+                        shape = CircleShape,
                         color = windowsControlFill(nebulaColors),
-                        border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.10f))
+                        border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.16f))
                     ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = t("Закрыть", "Close"),
+                                tint = nebulaColors.textSecondary,
+                                modifier = Modifier.size(21.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(20.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(windowsSoftFill(nebulaColors))
+                        .border(1.dp, windowsBorder(nebulaColors, 0.16f), RoundedCornerShape(22.dp))
+                        .padding(14.dp)
+                ) {
+                    Text(
+                        text = t("ССЫЛКА ИЛИ КОНФИГУРАЦИЯ", "LINK OR CONFIGURATION"),
+                        color = nebulaColors.textTertiary,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Spacer(Modifier.height(9.dp))
+                    OutlinedTextField(
+                        value = url,
+                        onValueChange = { url = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp),
+                        singleLine = true,
+                        placeholder = {
+                            Text(
+                                t("https://…  или  vless://…", "https://…  or  vless://…"),
+                                color = nebulaColors.textTertiary,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = null,
+                                tint = if (url.isBlank()) nebulaColors.textTertiary else nebulaColors.accent
+                            )
+                        },
+                        textStyle = MaterialTheme.typography.bodyLarge,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = nebulaColors.accent,
+                            unfocusedBorderColor = windowsBorder(nebulaColors, 0.18f),
+                            focusedContainerColor = windowsControlFill(nebulaColors),
+                            unfocusedContainerColor = windowsControlFill(nebulaColors),
+                            focusedTextColor = nebulaColors.textPrimary,
+                            unfocusedTextColor = nebulaColors.textPrimary,
+                            cursorColor = nebulaColors.accent
+                        )
+                    )
+                    Row(
+                        modifier = Modifier.padding(top = 10.dp, start = 2.dp, end = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = null,
+                            tint = nebulaColors.textTertiary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(7.dp))
                         Text(
-                            text = t("Закрыть", "Close"),
-                            color = nebulaColors.textSecondary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                            t(
+                                "Ссылка обрабатывается только на устройстве",
+                                "The link is processed only on this device"
+                            ),
+                            color = nebulaColors.textTertiary,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
-                Spacer(Modifier.height(18.dp))
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 58.dp),
-                    placeholder = {
-                        Text(
-                            t("vless://... или URL подписки", "vless://... or subscription URL"),
-                            color = nebulaColors.textTertiary,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    },
-                    textStyle = MaterialTheme.typography.bodyLarge,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = nebulaColors.accent,
-                        unfocusedBorderColor = nebulaColors.textSecondary.copy(alpha = 0.22f),
-                        focusedContainerColor = windowsControlFill(nebulaColors),
-                        unfocusedContainerColor = windowsControlFill(nebulaColors),
-                        focusedTextColor = nebulaColors.textPrimary,
-                        unfocusedTextColor = nebulaColors.textPrimary,
-                        cursorColor = nebulaColors.accent
-                    )
-                )
+
                 Spacer(Modifier.height(14.dp))
                 Surface(
-                    onClick = { onAdd(url) },
+                    onClick = { onAdd(url.trim()) },
                     enabled = url.isNotBlank(),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(58.dp),
-                    shape = RoundedCornerShape(16.dp),
+                        .height(60.dp),
+                    shape = RoundedCornerShape(18.dp),
                     color = nebulaColors.accent.copy(alpha = if (url.isBlank()) 0.28f else 1f),
                     border = BorderStroke(1.dp, nebulaColors.accent.copy(alpha = if (url.isBlank()) 0.22f else 0.72f))
                 ) {
@@ -10883,30 +11624,50 @@ private fun NimboAddSubscriptionDialog(
                         )
                     }
                 }
-                Spacer(Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.padding(top = 18.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = t("ДРУГИЕ СПОСОБЫ", "OTHER METHODS"),
+                        color = nebulaColors.textTertiary,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(1.dp)
+                            .background(windowsBorder(nebulaColors, 0.12f))
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     AddDialogMethodTile(
                         icon = Icons.Default.ContentPaste,
                         label = t("Буфер", "Paste"),
+                        subtitle = t("Вставить", "Insert"),
                         modifier = Modifier
                             .weight(1f)
-                            .height(74.dp),
+                            .height(88.dp),
                         onClick = ::pasteFromClipboard
                     )
                     AddDialogMethodTile(
                         icon = Icons.Default.FolderOpen,
                         label = t("Файл", "File"),
+                        subtitle = t("Открыть", "Open"),
                         modifier = Modifier
                             .weight(1f)
-                            .height(74.dp),
+                            .height(88.dp),
                         onClick = { fileLauncher.launch(arrayOf("text/*", "application/json", "application/octet-stream", "*/*")) }
                     )
                     AddDialogMethodTile(
                         icon = Icons.Default.QrCodeScanner,
                         label = "QR",
+                        subtitle = t("Сканировать", "Scan"),
                         modifier = Modifier
                             .weight(1f)
-                            .height(74.dp),
+                            .height(88.dp),
                         onClick = onQr
                     )
                 }
@@ -10919,6 +11680,7 @@ private fun NimboAddSubscriptionDialog(
 private fun AddDialogMethodTile(
     icon: ImageVector,
     label: String,
+    subtitle: String,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -10926,23 +11688,38 @@ private fun AddDialogMethodTile(
     Surface(
         onClick = onClick,
         modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         color = windowsControlFill(nebulaColors),
-        border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.12f))
+        border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.16f))
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(icon, null, tint = nebulaColors.accent, modifier = Modifier.size(23.dp))
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(nebulaColors.accent.copy(alpha = 0.13f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, tint = nebulaColors.accent, modifier = Modifier.size(20.dp))
+            }
             Text(
                 text = label,
-                color = nebulaColors.textSecondary,
+                color = nebulaColors.textPrimary,
                 style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
                 modifier = Modifier.padding(top = 6.dp)
+            )
+            Text(
+                text = subtitle,
+                color = nebulaColors.textTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
             )
         }
     }
@@ -11406,9 +12183,12 @@ private fun ConnectStyleOption(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val cornerScale = LocalGlobalCornerRadius.current
-    val shape = RoundedCornerShape(18.dp * cornerScale)
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val shape = RoundedCornerShape(if (dottedStyle) 8.dp else 18.dp * cornerScale)
     val fill by animateColorAsState(
-        targetValue = if (selected) nebulaColors.accent.copy(alpha = 0.18f) else nebulaColors.surface,
+        targetValue = if (selected) {
+            nebulaColors.accent.copy(alpha = if (dottedStyle) 0.12f else 0.18f)
+        } else nebulaColors.surface,
         animationSpec = tween(200, easing = FastOutSlowInEasing),
         label = "connect_style_fill"
     )
@@ -11421,7 +12201,25 @@ private fun ConnectStyleOption(
         modifier = modifier
             .clip(shape)
             .background(fill)
-            .border(if (selected) 1.6.dp else 1.dp, borderColor, shape)
+            .then(
+                if (dottedStyle) {
+                    Modifier
+                        .dotPatternOverlay(
+                            color = nebulaColors.textPrimary,
+                            spacing = 9.dp,
+                            radius = 0.7.dp,
+                            alpha = if (selected) 0.14f else 0.08f
+                        )
+                        .dottedOutline(
+                            color = if (selected) nebulaColors.accent else borderColor,
+                            cornerRadius = 8.dp,
+                            thickness = if (selected) 1.4.dp else 1.dp,
+                            alpha = if (selected) 0.98f else 0.68f
+                        )
+                } else {
+                    Modifier.border(if (selected) 1.6.dp else 1.dp, borderColor, shape)
+                }
+            )
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onClick)
             .padding(vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -11429,10 +12227,19 @@ private fun ConnectStyleOption(
         Box(
             modifier = Modifier
                 .size(40.dp)
-                .clip(CircleShape)
+                .clip(if (dottedStyle) RoundedCornerShape(6.dp) else CircleShape)
                 .background(
                     if (selected) nebulaColors.accent.copy(alpha = 0.22f)
                     else nebulaColors.textSecondary.copy(alpha = 0.10f)
+                )
+                .then(
+                    if (dottedStyle && selected) {
+                        Modifier.dottedOutline(
+                            color = nebulaColors.accent,
+                            cornerRadius = 6.dp,
+                            alpha = 0.92f
+                        )
+                    } else Modifier
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -11462,14 +12269,24 @@ private fun PingSegmentedControl(
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     val haptic = LocalHapticFeedback.current
     val fill = windowsControlFill(nebulaColors)
     val border = windowsBorder(nebulaColors, 0.11f)
+    val controlShape = RoundedCornerShape(if (dottedStyle) 8.dp else 14.dp)
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(controlShape)
             .background(fill)
-            .border(1.dp, border, RoundedCornerShape(14.dp))
+            .then(
+                if (dottedStyle) {
+                    Modifier
+                        .dotPatternOverlay(nebulaColors.textPrimary, spacing = 10.dp, radius = 0.65.dp, alpha = 0.10f)
+                        .dottedOutline(nebulaColors.accent, cornerRadius = 8.dp, alpha = 0.82f)
+                } else {
+                    Modifier.border(1.dp, border, controlShape)
+                }
+            )
             .padding(5.dp),
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
@@ -11479,8 +12296,21 @@ private fun PingSegmentedControl(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clip(RoundedCornerShape(11.dp))
-                    .background(if (selected) nebulaColors.accent else Color.Transparent)
+                    .clip(RoundedCornerShape(if (dottedStyle) 5.dp else 11.dp))
+                    .background(
+                        when {
+                            selected && dottedStyle -> nebulaColors.accent.copy(alpha = 0.18f)
+                            selected -> nebulaColors.accent
+                            else -> Color.Transparent
+                        }
+                    )
+                    .then(
+                        if (selected && dottedStyle) {
+                            Modifier
+                                .dotPatternOverlay(nebulaColors.textPrimary, spacing = 7.dp, radius = 0.52.dp, alpha = 0.16f)
+                                .dottedOutline(nebulaColors.accent, cornerRadius = 5.dp, alpha = 0.98f)
+                        } else Modifier
+                    )
                     .clickable(
                         enabled = !selected,
                         indication = null,
@@ -11493,7 +12323,7 @@ private fun PingSegmentedControl(
             ) {
                 Text(
                     text = label,
-                    color = if (selected) Color.White else nebulaColors.textSecondary,
+                    color = if (selected && !dottedStyle) Color.White else if (selected) nebulaColors.textPrimary else nebulaColors.textSecondary,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
@@ -11738,6 +12568,15 @@ private fun ColumnScope.ThemeSettingsSection(
                 modifier = Modifier.weight(1f)
             )
         }
+        Spacer(Modifier.height(10.dp))
+        InterfaceStylePreviewCard(
+            title = "Dotted",
+            subtitle = t("Точечная сетка и чистый контраст", "Dot grid and crisp contrast"),
+            kind = InterfacePreviewKind.Dotted,
+            selected = elementStyle == 2,
+            onClick = { preferencesManager.elementStyle = 2 },
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 
     Spacer(Modifier.height(18.dp))
@@ -12660,7 +13499,9 @@ private fun InterfaceStylePreviewCard(
     val nebulaColors = LocalNebulaColors.current
     val isMaterialPreview = kind == InterfacePreviewKind.MaterialYou
     val isLiquidPreview = kind == InterfacePreviewKind.IosLiquidGlass
-    val shape = RoundedCornerShape(18.dp)
+    val isDottedPreview = kind == InterfacePreviewKind.Dotted
+    val activeDottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val shape = RoundedCornerShape(if (activeDottedStyle) 8.dp else 18.dp)
     val cardFill by animateColorAsState(
         targetValue = if (selected) nebulaColors.accent.copy(alpha = 0.13f) else nebulaColors.surface,
         animationSpec = tween(220, easing = FastOutSlowInEasing),
@@ -12671,19 +13512,29 @@ private fun InterfaceStylePreviewCard(
         animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "interface_preview_card_border"
     )
-    val previewBase = if (isMaterialPreview) {
-        if (nebulaColors.isLight) Color(0xFFF2ECF6) else Color(0xFF17131D)
+    val previewBase = if (isDottedPreview) {
+        if (nebulaColors.isLight) Color(0xFFF2F4F6) else Color(0xFF101114)
+    } else if (isMaterialPreview) {
+        // A quiet neutral tonal base lets dynamic accents read as Material You rather
+        // than making the tiny preview look like another glass gradient.
+        if (nebulaColors.isLight) Color(0xFFFFF8FC) else Color(0xFF17131C)
     } else {
         if (nebulaColors.isLight) Color(0xFFEAF4FF) else Color(0xFF0A1024)
     }
-    val panel = if (isMaterialPreview) {
-        nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.18f else 0.24f)
+    val panel = if (isDottedPreview) {
+        nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.12f else 0.18f)
+            .compositeOver(previewBase)
+    } else if (isMaterialPreview) {
+        nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.14f else 0.20f)
             .compositeOver(previewBase)
     } else {
         Color.White.copy(alpha = if (nebulaColors.isLight) 0.52f else 0.16f)
     }
-    val soft = if (isMaterialPreview) {
-        nebulaColors.accent.copy(alpha = 0.32f).compositeOver(previewBase)
+    val soft = if (isDottedPreview) {
+        nebulaColors.accent.copy(alpha = 0.28f).compositeOver(previewBase)
+    } else if (isMaterialPreview) {
+        nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.24f else 0.32f)
+            .compositeOver(previewBase)
     } else {
         nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.32f else 0.38f)
     }
@@ -12695,12 +13546,13 @@ private fun InterfaceStylePreviewCard(
     val screenShape = RoundedCornerShape(14.dp)
     val statusTint = if (nebulaColors.isLight) Color.Black.copy(alpha = 0.30f) else Color.White.copy(alpha = 0.44f)
     val mutedDot = if (nebulaColors.isLight) Color.Black.copy(alpha = 0.26f) else Color.White.copy(alpha = 0.32f)
-    val navFill = if (isMaterialPreview) {
-        nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.20f else 0.30f).compositeOver(previewBase)
-    } else {
-        Color.White.copy(alpha = if (nebulaColors.isLight) 0.46f else 0.14f)
+    val navFill = when {
+        isDottedPreview -> previewBase.copy(alpha = 0.96f)
+        isMaterialPreview -> nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.26f else 0.34f)
+            .compositeOver(previewBase)
+        else -> Color.White.copy(alpha = if (nebulaColors.isLight) 0.46f else 0.14f)
     }
-    val navBorder = Color.White.copy(
+    val navBorder = if (isDottedPreview) nebulaColors.accent.copy(alpha = 0.42f) else Color.White.copy(
         alpha = if (isLiquidPreview) {
             if (nebulaColors.isLight) 0.82f else 0.38f
         } else {
@@ -12708,12 +13560,15 @@ private fun InterfaceStylePreviewCard(
         }
     )
     val chipFill = panel.copy(alpha = if (isMaterialPreview) 1f else panel.alpha)
-    val screenBrush = if (isMaterialPreview) {
-        Brush.verticalGradient(
+    val screenBrush = if (isDottedPreview) {
+        Brush.verticalGradient(listOf(previewBase, soft.copy(alpha = 0.72f), previewBase))
+    } else if (isMaterialPreview) {
+        Brush.linearGradient(
             listOf(
-                soft.copy(alpha = 0.92f),
+                soft.copy(alpha = 0.72f),
                 previewBase,
-                previewBase
+                nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.08f else 0.12f)
+                    .compositeOver(previewBase)
             )
         )
     } else {
@@ -12733,7 +13588,25 @@ private fun InterfaceStylePreviewCard(
             .height(196.dp)
             .clip(shape)
             .background(cardFill)
-            .border(1.dp, cardBorder, shape)
+            .then(
+                if (activeDottedStyle) {
+                    Modifier
+                        .dotPatternOverlay(
+                            color = nebulaColors.textPrimary,
+                            spacing = 9.dp,
+                            radius = 0.7.dp,
+                            alpha = if (selected) 0.14f else 0.07f
+                        )
+                        .dottedOutline(
+                            color = if (selected) nebulaColors.accent else cardBorder,
+                            cornerRadius = 8.dp,
+                            thickness = if (selected) 1.4.dp else 1.dp,
+                            alpha = if (selected) 0.98f else 0.66f
+                        )
+                } else {
+                    Modifier.border(1.dp, cardBorder, shape)
+                }
+            )
             .nimboClickable(onClick = onClick)
             .padding(9.dp)
     ) {
@@ -12752,6 +13625,38 @@ private fun InterfaceStylePreviewCard(
                     .clip(screenShape)
                     .background(screenBrush)
             ) {
+                if (isDottedPreview) {
+                    Canvas(Modifier.matchParentSize()) {
+                        val cols = 12
+                        val rows = 7
+                        val dx = size.width / cols
+                        val dy = size.height / rows
+                        for (row in 0 until rows) for (col in 0 until cols) {
+                            drawCircle(
+                                color = nebulaColors.accent.copy(alpha = if ((col + row) % 5 == 0) 0.46f else 0.18f),
+                                radius = 1.25.dp.toPx(),
+                                center = Offset(dx * (col + 0.5f), dy * (row + 0.5f))
+                            )
+                        }
+                    }
+                }
+                if (isMaterialPreview) {
+                    Canvas(Modifier.matchParentSize()) {
+                        // Two slow, restrained tonal fields make the compact preview feel
+                        // like Material You. The weaker alpha deliberately avoids the noisy
+                        // multi-colour "neon" look the previous preview had.
+                        drawCircle(
+                            color = nebulaColors.accent.copy(alpha = 0.10f),
+                            radius = size.width * 0.34f,
+                            center = Offset(size.width * 0.08f, size.height * 0.02f)
+                        )
+                        drawCircle(
+                            color = Color.White.copy(alpha = if (nebulaColors.isLight) 0.20f else 0.05f),
+                            radius = size.width * 0.30f,
+                            center = Offset(size.width * 0.96f, size.height * 0.92f)
+                        )
+                    }
+                }
                 if (isLiquidPreview) {
                     Box(
                         Modifier
@@ -12868,17 +13773,33 @@ private fun InterfaceStylePreviewCard(
                             if (isMaterialPreview) {
                                 Box(
                                     modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(CircleShape)
+                                        .width(52.dp)
+                                        .height(38.dp)
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(nebulaColors.accent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(16.dp)
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .background(Color.White.copy(alpha = 0.94f))
+                                    )
+                                }
+                            } else if (isDottedPreview) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(10.dp))
                                         .background(nebulaColors.accent),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Box(
                                         Modifier
-                                            .width(3.dp)
-                                            .height(15.dp)
-                                            .clip(RoundedCornerShape(999.dp))
-                                            .background(Color.White.copy(alpha = 0.95f))
+                                            .size(14.dp)
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .background(previewBase)
                                     )
                                 }
                             } else {
@@ -12933,19 +13854,24 @@ private fun InterfaceStylePreviewCard(
                         }
                     }
 
-                    // Floating bottom navigation
+                    // Bottom navigation mirrors the selected visual language: a tonal
+                    // Material You pill or a compact LED-like Dotted strip.
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(24.dp)
-                            .clip(RoundedCornerShape(if (isMaterialPreview || isLiquidPreview) 13.dp else 11.dp))
+                            .clip(RoundedCornerShape(if (isMaterialPreview || isLiquidPreview) 13.dp else 6.dp))
                             .background(navFill)
                             .then(
-                                if (isMaterialPreview) Modifier
+                                if (isDottedPreview) {
+                                    Modifier
+                                        .dotPatternOverlay(nebulaColors.textPrimary, spacing = 5.dp, radius = 0.45.dp, alpha = 0.16f)
+                                        .dottedOutline(nebulaColors.accent, cornerRadius = 6.dp, alpha = 0.86f)
+                                } else if (isMaterialPreview) Modifier
                                 else Modifier.border(
                                     1.dp,
                                     navBorder,
-                                    RoundedCornerShape(if (isLiquidPreview) 13.dp else 11.dp)
+                                    RoundedCornerShape(if (isLiquidPreview) 13.dp else 6.dp)
                                 )
                             )
                             .padding(horizontal = 9.dp),
@@ -12953,7 +13879,23 @@ private fun InterfaceStylePreviewCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         repeat(4) { i ->
-                            if (i == 1) {
+                            if (isDottedPreview && i == 1) {
+                                Box(
+                                    Modifier
+                                        .width(18.dp)
+                                        .height(10.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(nebulaColors.accent)
+                                        .dottedOutline(previewBase, cornerRadius = 2.dp, alpha = 0.90f)
+                                )
+                            } else if (isDottedPreview) {
+                                Box(
+                                    Modifier
+                                        .size(6.dp)
+                                        .clip(RoundedCornerShape(1.dp))
+                                        .background(mutedDot)
+                                )
+                            } else if (i == 1) {
                                 Box(
                                     Modifier
                                         .width(20.dp)
@@ -12979,11 +13921,29 @@ private fun InterfaceStylePreviewCard(
                             .align(Alignment.TopEnd)
                             .padding(5.dp)
                             .size(20.dp)
-                            .clip(CircleShape)
-                            .background(nebulaColors.accent),
+                            .clip(if (activeDottedStyle) RoundedCornerShape(5.dp) else CircleShape)
+                            .background(
+                                if (activeDottedStyle) nebulaColors.accent.copy(alpha = 0.20f)
+                                else nebulaColors.accent
+                            )
+                            .then(
+                                if (activeDottedStyle) {
+                                    Modifier.dottedOutline(
+                                        color = nebulaColors.accent,
+                                        cornerRadius = 5.dp,
+                                        thickness = 1.2.dp,
+                                        alpha = 1f
+                                    )
+                                } else Modifier
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                        Icon(
+                            Icons.Default.Check,
+                            null,
+                            tint = if (activeDottedStyle) nebulaColors.accent else Color.White,
+                            modifier = Modifier.size(12.dp)
+                        )
                     }
                 }
             }
@@ -13020,7 +13980,8 @@ private fun ThemeModePreviewCard(
     onClick: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
-    val shape = RoundedCornerShape(18.dp)
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val shape = RoundedCornerShape(if (dottedStyle) 8.dp else 18.dp)
     val previewBg = when (preview) {
         ThemePreviewKind.Light -> Color(0xFFF6F5FB)
         ThemePreviewKind.Dark -> Color(0xFF171720)
@@ -13048,9 +14009,7 @@ private fun ThemeModePreviewCard(
     Column(
         modifier = modifier
             .height(116.dp)
-            .clip(shape)
-            .background(fillColor)
-            .border(1.dp, borderColor, shape)
+            .selectableTileFrame(selected, shape, nebulaColors)
             .nimboClickable(onClick = onClick)
             .padding(8.dp)
     ) {
@@ -13376,6 +14335,7 @@ private fun backgroundStylePresets(): List<BackgroundStylePreset> = listOf(
     BackgroundStylePreset(14, "Лепестки", "Petals", Icons.Default.Favorite),
     BackgroundStylePreset(16, "Дождь", "Rain", Icons.Default.Grain),
     BackgroundStylePreset(17, "Орбиты", "Orbits", Icons.Default.TrackChanges),
+    BackgroundStylePreset(18, "Поток", "Signal flow", Icons.Default.ShowChart),
     BackgroundStylePreset(BACKGROUND_STYLE_NONE_ID, "Нет", "None", Icons.Default.Block)
 )
 
@@ -13411,8 +14371,12 @@ private fun Modifier.selectableTileFrame(
     shape: RoundedCornerShape,
     nebulaColors: NebulaColors
 ): Modifier {
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val effectiveShape = if (dottedStyle) RoundedCornerShape(8.dp) else shape
     val fill by animateColorAsState(
-        targetValue = if (selected) nebulaColors.accent.copy(alpha = 0.20f) else nebulaColors.surface,
+        targetValue = if (selected) {
+            nebulaColors.accent.copy(alpha = if (dottedStyle) 0.12f else 0.20f)
+        } else nebulaColors.surface,
         animationSpec = tween(180, easing = FastOutSlowInEasing),
         label = "tile_fill"
     )
@@ -13427,9 +14391,27 @@ private fun Modifier.selectableTileFrame(
         label = "tile_border_width"
     )
     return this
-        .clip(shape)
+        .clip(effectiveShape)
         .background(fill)
-        .border(width, border, shape)
+        .then(
+            if (dottedStyle) {
+                Modifier
+                    .dotPatternOverlay(
+                        color = nebulaColors.textPrimary,
+                        spacing = 9.dp,
+                        radius = 0.68.dp,
+                        alpha = if (selected) 0.14f else 0.08f
+                    )
+                    .dottedOutline(
+                        color = if (selected) nebulaColors.accent else border,
+                        cornerRadius = 8.dp,
+                        thickness = if (selected) 1.4.dp else 1.dp,
+                        alpha = if (selected) 0.98f else 0.64f
+                    )
+            } else {
+                Modifier.border(width, border, effectiveShape)
+            }
+        )
 }
 
 @Composable
@@ -13443,8 +14425,9 @@ private fun BackgroundPresetTile(
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
-    val shape = RoundedCornerShape(16.dp)
-    val previewShape = RoundedCornerShape(13.dp)
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val shape = RoundedCornerShape(if (dottedStyle) 8.dp else 16.dp)
+    val previewShape = RoundedCornerShape(if (dottedStyle) 5.dp else 13.dp)
     val previewBase = lerp(
         nebulaColors.background,
         previewColors.firstOrNull() ?: nebulaColors.accent,
@@ -13523,8 +14506,9 @@ private fun BackgroundColorTile(
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
-    val shape = RoundedCornerShape(16.dp)
-    val swatchShape = RoundedCornerShape(13.dp)
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val shape = RoundedCornerShape(if (dottedStyle) 8.dp else 16.dp)
+    val swatchShape = RoundedCornerShape(if (dottedStyle) 5.dp else 13.dp)
     Column(
         modifier = modifier
             .height(96.dp)
@@ -13577,14 +14561,23 @@ private fun BackgroundRandomTile(
     onClick: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
-    val shape = RoundedCornerShape(16.dp)
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val shape = RoundedCornerShape(if (dottedStyle) 8.dp else 16.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp)
             .clip(shape)
             .background(nebulaColors.surface)
-            .border(1.dp, windowsBorder(nebulaColors), shape)
+            .then(
+                if (dottedStyle) {
+                    Modifier
+                        .dotPatternOverlay(nebulaColors.textPrimary, spacing = 9.dp, radius = 0.68.dp, alpha = 0.08f)
+                        .dottedOutline(nebulaColors.accent, cornerRadius = 8.dp, alpha = 0.68f)
+                } else {
+                    Modifier.border(1.dp, windowsBorder(nebulaColors), shape)
+                }
+            )
             .nimboClickable(onClick = onClick)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -13690,7 +14683,8 @@ private fun ThemePaletteTile(
     onClick: () -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
-    val shape = RoundedCornerShape(16.dp)
+    val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val shape = RoundedCornerShape(if (dottedStyle) 8.dp else 16.dp)
     val tileBrush = when {
         system -> Brush.sweepGradient(
             colors = listOf(
@@ -13726,10 +14720,21 @@ private fun ThemePaletteTile(
             .size(72.dp)
             .clip(shape)
             .background(tileBrush)
-            .border(
-                1.dp,
-                if (selected) nebulaColors.accent else Color.White.copy(alpha = 0.12f),
-                shape
+            .then(
+                if (dottedStyle) {
+                    Modifier.dottedOutline(
+                        color = if (selected) nebulaColors.accent else Color.White.copy(alpha = 0.28f),
+                        cornerRadius = 8.dp,
+                        thickness = if (selected) 1.4.dp else 1.dp,
+                        alpha = if (selected) 1f else 0.72f
+                    )
+                } else {
+                    Modifier.border(
+                        1.dp,
+                        if (selected) nebulaColors.accent else Color.White.copy(alpha = 0.12f),
+                        shape
+                    )
+                }
             )
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -15585,61 +16590,37 @@ private fun NimboRenameServerDialog(
     val nebulaColors = LocalNebulaColors.current
     var value by rememberSaveable(initialName) { mutableStateOf(initialName) }
 
-    Dialog(onDismissRequest = onDismiss) {
-        GlassPanel(
+    NebulaMorphicDialog(
+        onDismissRequest = onDismiss,
+        title = t("Переименовать сервер", "Rename server"),
+        description = t(
+            "Имя сохранится локально и не изменит подписку.",
+            "The name is stored locally and will not change the subscription."
+        ),
+        confirmButtonText = t("Сохранить", "Save"),
+        cancelButtonText = t("Отмена", "Cancel"),
+        onConfirm = { onSave(value.trim()) },
+        headerIcon = Icons.Default.Edit
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { value = it },
+            singleLine = true,
+            leadingIcon = {
+                Icon(Icons.Default.Edit, null, tint = nebulaColors.accent)
+            },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            borderColor = Color.White.copy(alpha = 0.14f)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text(
-                    text = t("Переименовать сервер", "Rename server"),
-                    color = nebulaColors.textPrimary,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.ExtraBold
-                )
-                Text(
-                    text = t("Имя сохранится локально и не изменит подписку.", "The name is stored locally and will not change the subscription."),
-                    color = nebulaColors.textSecondary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(Icons.Default.Edit, null, tint = nebulaColors.accent)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = nebulaColors.textPrimary,
-                        unfocusedTextColor = nebulaColors.textPrimary,
-                        focusedBorderColor = nebulaColors.accent,
-                        unfocusedBorderColor = windowsBorder(nebulaColors, 0.16f),
-                        focusedContainerColor = windowsControlFill(nebulaColors),
-                        unfocusedContainerColor = windowsControlFill(nebulaColors),
-                        cursorColor = nebulaColors.accent
-                    )
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 18.dp),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text(t("Отмена", "Cancel"), color = nebulaColors.textSecondary)
-                    }
-                    TextButton(onClick = { onSave(value.trim()) }) {
-                        Text(t("Сохранить", "Save"), color = nebulaColors.accent, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
+            shape = RoundedCornerShape(16.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = nebulaColors.textPrimary,
+                unfocusedTextColor = nebulaColors.textPrimary,
+                focusedBorderColor = nebulaColors.accent,
+                unfocusedBorderColor = windowsBorder(nebulaColors, 0.16f),
+                focusedContainerColor = windowsControlFill(nebulaColors),
+                unfocusedContainerColor = windowsControlFill(nebulaColors),
+                cursorColor = nebulaColors.accent
+            )
+        )
     }
 }
 
@@ -15651,30 +16632,17 @@ private fun NimboConfirmDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    val nebulaColors = LocalNebulaColors.current
-    Dialog(onDismissRequest = onDismiss) {
-        GlassPanel(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            borderColor = Color.White.copy(alpha = 0.14f)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text(title, color = nebulaColors.textPrimary, style = MaterialTheme.typography.headlineSmall)
-                Text(text, color = nebulaColors.textSecondary, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text(t("Отмена", "Cancel"), color = nebulaColors.textSecondary)
-                    }
-                    TextButton(onClick = onConfirm) {
-                        Text(confirmText, color = Color(0xFFFF6B6B), fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
+    NebulaMorphicDialog(
+        onDismissRequest = onDismiss,
+        title = title,
+        description = text,
+        confirmButtonText = confirmText,
+        cancelButtonText = t("Отмена", "Cancel"),
+        onConfirm = onConfirm,
+        confirmButtonColor = Color(0xFFFF6B6B),
+        headerIcon = Icons.Default.Delete,
+        headerIconTint = Color(0xFFFF6B6B)
+    )
 }
 
 @Composable
@@ -15783,6 +16751,7 @@ private fun miniProtocolLabel(server: Server): String {
         protocol.contains("trojan") -> "Trojan"
         protocol.contains("shadowsocks") || protocol == "ss" -> "Shadowsocks"
         protocol.contains("hysteria") || protocol == "hy2" -> "Hysteria2"
+        protocol.contains("naive") -> "NaiveProxy"
         protocol.contains("tuic") -> "TUIC"
         protocol.contains("awg") || protocol.contains("amnezia") -> "AWG"
         protocol.contains("wireguard") || protocol == "wg" -> "WireGuard"
@@ -15829,7 +16798,7 @@ private fun removeDomainFragments(value: String): String {
 }
 
 private fun formatProfileDate(expireTime: Long): String {
-    if (expireTime <= 0L) return loc("без срока", "no expiry")
+    if (expireTime <= 0L) return "∞"
     return SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(expireTime * 1000L))
 }
 
@@ -15849,7 +16818,7 @@ private fun formatDaysLeft(profile: SubscriptionProfileMetadata): String {
 
 // Date-only expiry line; the remaining time is rendered separately below it.
 private fun formatProfileExpiryDate(profile: SubscriptionProfile): String {
-    if (profile.expireTime <= 0L) return loc("Без срока", "No expiry")
+    if (profile.expireTime <= 0L) return "∞"
     val pattern = loc("d MMM yyyy 'г.'", "d MMM yyyy")
     return SimpleDateFormat(pattern, Locale.getDefault()).format(Date(profile.expireTime * 1000L))
 }
@@ -15893,6 +16862,61 @@ private fun formatLastUpdateTime(lastUpdateMs: Long): String {
 }
 
 @Composable
+private fun DialogSectionLabel(
+    icon: ImageVector,
+    text: String
+) {
+    val nebulaColors = LocalNebulaColors.current
+    Row(
+        modifier = Modifier.padding(start = 2.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = nebulaColors.accent,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(Modifier.width(7.dp))
+        Text(
+            text = text,
+            color = nebulaColors.textTertiary,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.ExtraBold
+        )
+    }
+}
+
+@Composable
+private fun DialogIconActionButton(
+    icon: ImageVector,
+    contentDescription: String,
+    containerColor: Color,
+    contentColor: Color,
+    borderColor: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(52.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = containerColor,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = contentColor,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+}
+
+@Composable
 private fun SubscriptionSettingsDialog(
     profile: SubscriptionProfile,
     preferencesManager: PreferencesManager,
@@ -15914,76 +16938,149 @@ private fun SubscriptionSettingsDialog(
     var selectedIntervalHours by remember { mutableStateOf<Int?>(initialInterval) }
     var copiedUrl by remember { mutableStateOf(false) }
 
+    val saveChanges = {
+        val finalName = customName.trim()
+        if (finalName.isNotBlank() && finalName != profile.displayName) {
+            mainViewModel.renameProfile(profile.url, finalName)
+        }
+
+        if (isPinned) {
+            preferencesManager.pinProfile(profile.url)
+        } else {
+            preferencesManager.unpinProfile(profile.url)
+        }
+
+        preferencesManager.setSubscriptionUpdateInterval(profile.url, selectedIntervalHours)
+        SubscriptionUpdateScheduler.reschedule(context)
+        onDismiss()
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        GlassPanel(
+        // Диалог показывается поверх уже открытого списка профилей. Для него
+        // нельзя использовать обычное полупрозрачное стекло: под текстом и
+        // полями начинали читаться серверы с предыдущего экрана. Берём
+        // непрозрачный тематический слой, как у меню профиля и импорта.
+        Surface(
             modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .fillMaxHeight(0.88f)
-                .padding(vertical = 24.dp),
-            shape = RoundedCornerShape(26.dp),
-            borderColor = Color.White.copy(alpha = 0.16f)
+                .fillMaxWidth(0.94f)
+                .widthIn(max = 620.dp)
+                .fillMaxHeight(0.90f)
+                .padding(vertical = 18.dp),
+            shape = RoundedCornerShape(30.dp),
+            color = windowsMenuFill(nebulaColors),
+            tonalElevation = 0.dp,
+            shadowElevation = 22.dp,
+            border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.34f))
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .fillMaxSize()
+                    .padding(20.dp)
             ) {
-                // Header Icon
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(nebulaColors.accent.copy(alpha = 0.16f))
+                            .border(
+                                1.dp,
+                                nebulaColors.accent.copy(alpha = 0.28f),
+                                RoundedCornerShape(16.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            tint = nebulaColors.accent,
+                            modifier = Modifier.size(25.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = t("Настройки профиля", "Profile settings"),
+                            color = nebulaColors.textPrimary,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(
+                            modifier = Modifier.padding(top = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = null,
+                                tint = nebulaColors.textTertiary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                text = profile.displayName,
+                                color = nebulaColors.textSecondary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    Surface(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(44.dp),
+                        shape = CircleShape,
+                        color = windowsControlFill(nebulaColors),
+                        border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.16f))
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = t("Закрыть", "Close"),
+                                tint = nebulaColors.textSecondary,
+                                modifier = Modifier.size(21.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
                 Box(
                     modifier = Modifier
-                        .size(54.dp)
-                        .clip(CircleShape)
-                        .background(nebulaColors.accent.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = null,
-                        tint = nebulaColors.accent,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                Text(
-                    text = t("Настройки подписки", "Subscription Settings"),
-                    color = nebulaColors.textPrimary,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(windowsBorder(nebulaColors, 0.12f))
                 )
+                Spacer(Modifier.height(14.dp))
 
-                Spacer(Modifier.height(6.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.fillMaxWidth()
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(end = 2.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Security,
-                        contentDescription = null,
-                        tint = nebulaColors.textSecondary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = profile.displayName,
-                        color = nebulaColors.textSecondary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
 
-                Spacer(Modifier.height(20.dp))
-
+                DialogSectionLabel(
+                    icon = Icons.Default.Edit,
+                    text = t("ОСНОВНОЕ", "GENERAL")
+                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = windowsSoftFill(nebulaColors),
+                    border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.16f)),
+                    tonalElevation = 0.dp
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                 // Name Input
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
@@ -16006,11 +17103,11 @@ private fun SubscriptionSettingsDialog(
                             focusedTextColor = nebulaColors.textPrimary,
                             unfocusedTextColor = nebulaColors.textPrimary
                         ),
-                        shape = RoundedCornerShape(16.dp)
+                        shape = RoundedCornerShape(15.dp)
                     )
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
 
                 // Pin Toggle Row
                 Row(
@@ -16060,16 +17157,29 @@ private fun SubscriptionSettingsDialog(
                         )
                     )
                 }
+                    }
+                }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(18.dp))
 
                 // Update Interval Block
-                Column(modifier = Modifier.fillMaxWidth()) {
+                DialogSectionLabel(
+                    icon = Icons.Default.Schedule,
+                    text = t("ОБНОВЛЕНИЕ", "UPDATES")
+                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = windowsSoftFill(nebulaColors),
+                    border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.16f)),
+                    tonalElevation = 0.dp
+                ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
                     Text(
-                        text = t("Интервал обновления", "Update interval"),
-                        color = nebulaColors.textTertiary,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
+                        text = t("Интервал для этого профиля", "Interval for this profile"),
+                        color = nebulaColors.textSecondary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(bottom = 10.dp)
                     )
 
@@ -16130,10 +17240,22 @@ private fun SubscriptionSettingsDialog(
                         }
                     }
                 }
+                }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(18.dp))
 
-                Column(modifier = Modifier.fillMaxWidth()) {
+                DialogSectionLabel(
+                    icon = Icons.Default.Link,
+                    text = t("ИСТОЧНИК", "SOURCE")
+                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = windowsSoftFill(nebulaColors),
+                    border = BorderStroke(1.dp, windowsBorder(nebulaColors, 0.16f)),
+                    tonalElevation = 0.dp
+                ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
                     Text(
                         text = t("URL подписки", "Subscription URL"),
                         color = nebulaColors.textTertiary,
@@ -16178,6 +17300,7 @@ private fun SubscriptionSettingsDialog(
                             forceOpaque = false
                         )
                     }
+                }
                 }
 
                 if (!profile.supportUrl.isNullOrBlank() || !profile.websiteUrl.isNullOrBlank()) {
@@ -16248,100 +17371,54 @@ private fun SubscriptionSettingsDialog(
                     }
                 }
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(14.dp))
+                }
 
-                // Action Buttons — destructive delete as a compact icon, Отмена outlined,
-                // Сохранить filled & wider so its label never wraps.
+                Spacer(Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(windowsBorder(nebulaColors, 0.12f))
+                )
+                Spacer(Modifier.height(12.dp))
+
+                // Compact icon actions keep the footer balanced on narrow screens.
+                // TalkBack still receives localized labels through contentDescription.
                 val destructiveColor = Color(0xFFFF6B6B)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(52.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(destructiveColor.copy(alpha = 0.12f))
-                            .border(1.dp, destructiveColor.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
-                            .clickable {
-                                mainViewModel.removeSubscription(profile.url)
-                                onDismiss()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = t("Удалить", "Delete"),
-                            tint = destructiveColor,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(52.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .border(1.dp, windowsBorder(nebulaColors, 0.20f), RoundedCornerShape(14.dp))
-                            .clickable { onDismiss() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = t("Отмена", "Cancel"),
-                            color = nebulaColors.textSecondary,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .weight(1.7f)
-                            .height(52.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(nebulaColors.accent)
-                            .clickable {
-                                // 1. Rename profile if name changed
-                                val finalName = customName.trim()
-                                if (finalName.isNotBlank() && finalName != profile.displayName) {
-                                    mainViewModel.renameProfile(profile.url, finalName)
-                                }
-
-                                // 2. Set pin status
-                                if (isPinned) {
-                                    preferencesManager.pinProfile(profile.url)
-                                } else {
-                                    preferencesManager.unpinProfile(profile.url)
-                                }
-
-                                // 3. Set update interval
-                                preferencesManager.setSubscriptionUpdateInterval(profile.url, selectedIntervalHours)
-
-                                // 4. Reschedule subscription update if needed
-                                SubscriptionUpdateScheduler.reschedule(context)
-
-                                onDismiss()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(7.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(19.dp)
-                            )
-                            Text(
-                                text = t("Сохранить", "Save"),
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                    DialogIconActionButton(
+                        icon = Icons.Default.Delete,
+                        contentDescription = t("Удалить", "Delete"),
+                        containerColor = destructiveColor.copy(alpha = 0.12f),
+                        contentColor = destructiveColor,
+                        borderColor = destructiveColor.copy(alpha = 0.35f),
+                        onClick = {
+                            mainViewModel.removeSubscription(profile.url)
+                            onDismiss()
                         }
-                    }
+                    )
+                    Spacer(Modifier.weight(1f))
+                    DialogIconActionButton(
+                        icon = Icons.Default.Close,
+                        contentDescription = t("Отмена", "Cancel"),
+                        containerColor = windowsControlFill(nebulaColors),
+                        contentColor = nebulaColors.textSecondary,
+                        borderColor = windowsBorder(nebulaColors, 0.20f),
+                        onClick = onDismiss
+                    )
+                    DialogIconActionButton(
+                        icon = Icons.Default.Check,
+                        contentDescription = t("Сохранить", "Save"),
+                        containerColor = nebulaColors.accent,
+                        contentColor = Color.White,
+                        borderColor = nebulaColors.accent.copy(alpha = 0.72f),
+                        onClick = saveChanges
+                    )
                 }
             }
         }

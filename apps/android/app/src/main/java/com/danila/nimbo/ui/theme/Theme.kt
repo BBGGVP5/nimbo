@@ -1029,7 +1029,11 @@ fun NebulaGuardTheme(
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = scaledTypography(textScale),
+            typography = if (elementMode == ElementStyleMode.SIGNAL) {
+                signalTypography(textScale)
+            } else {
+                scaledTypography(textScale)
+            },
             shapes = componentShapes,
             content = content
         )
