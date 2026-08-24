@@ -8,6 +8,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -604,12 +606,14 @@ fun AppearanceSettingsScreen(
                     VisualStyleSelector(
                         selectedStyle = elementStyle,
                         options = elementStyleOptions(),
-                        onSelect = { elementStyle = it }
+                        onSelect = { elementStyle = it },
+                        wrap = true
                     )
                     Text(
                         text = when (elementStyle) {
                             0 -> "Жидкое стекло: прозрачные поверхности, преломляющий свет контур и мягкая глубина"
                             1 -> "Material 3 Expressive для Android 17: тональные поверхности, крупные формы и выразительная навигация"
+                            5 -> "Signal: приборная панель — ровные поверхности, тонкие границы, плотные списки и янтарный акцент"
                             else -> "Альтернативный стиль элементов Nimbo"
                         },
                         color = nebulaColors.textTertiary,
@@ -1272,20 +1276,19 @@ fun AppearanceSettingsScreen(
 
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun VisualStyleSelector(
     selectedStyle: Int,
     options: List<Pair<Int, String>>,
-    onSelect: (Int) -> Unit
+    onSelect: (Int) -> Unit,
+    wrap: Boolean = false
 ) {
     val nebulaColors = LocalNebulaColors.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
+    // Стилей элементов немного, и прятать последние за горизонтальной
+    // прокруткой нельзя: пользователь просто не находит их. Список фонов
+    // длинный, поэтому он по-прежнему прокручивается вбок.
+    val chips: @Composable () -> Unit = {
         options.forEach { (styleId, title) ->
             Surface(
                 onClick = { onSelect(styleId) },
@@ -1309,6 +1312,28 @@ private fun VisualStyleSelector(
                     )
                 }
             }
+        }
+    }
+
+    if (wrap) {
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            chips()
+        }
+    } else {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            chips()
         }
     }
 }

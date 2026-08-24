@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Every launcher icon and alias points here, so this file is the single switch
+    for the corner badge. Beta builds show the cloud at the safe inset plus the
+    corner badge; for a stable release collapse it back to one layer:
+
+        <item android:drawable="@drawable/ic_launcher_foreground_compact_inset" />
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@drawable/ic_launcher_foreground_beta_safe_inset" />
     <item android:drawable="@drawable/ic_launcher_beta_badge_canvas" />
