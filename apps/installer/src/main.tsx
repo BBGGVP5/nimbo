@@ -100,11 +100,25 @@ function applyAppTheme(theme: AppTheme | null | undefined) {
   if (!root) return;
   const mode = resolveThemeMode(theme?.theme_mode);
   root.dataset.theme = mode;
-  const uiStyle = theme?.ui_style === "material_you" ? "material_you" : "nebula";
+  // Signal — новый стиль приложения; установщик подхватывает его так же,
+  // как Material You, чтобы окно установки не выбивалось из интерфейса.
+  const uiStyle = theme?.ui_style === "material_you"
+    ? "material_you"
+    : theme?.ui_style === "signal"
+      ? "signal"
+      : theme?.ui_style === "dotted"
+        ? "dotted"
+        : "nebula";
   root.dataset.uiStyle = uiStyle;
-  const accent = typeof theme?.accent_color === "string" && /^#[0-9a-f]{6}$/i.test(theme.accent_color)
+  // Стиль Signal нарисован под тёплый эмбер: пока пользователь не выбрал
+  // собственный акцент, установщик показывает тот же цвет, что и приложение.
+  const savedAccent = typeof theme?.accent_color === "string" && /^#[0-9a-f]{6}$/i.test(theme.accent_color)
     ? theme.accent_color
-    : "#75a7ff";
+    : null;
+  const untouchedAccent = !savedAccent || savedAccent.toLowerCase() === "#75a7ff";
+  const accent = uiStyle === "signal" && untouchedAccent
+    ? "#ff9345"
+    : savedAccent ?? "#75a7ff";
   root.style.setProperty("--accent", accent);
 }
 

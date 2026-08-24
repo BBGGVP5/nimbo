@@ -1305,7 +1305,7 @@ function AddCustomDialog({
           className="mb-5 flex items-center gap-1.5 text-sm font-semibold text-[var(--color-text-faint)] transition-colors hover:text-[var(--color-accent-bright)]"
         >
           <PlusIcon />
-          Добавить ещё
+          {m.appsPage.customAddMore}
         </button>
 
         <div className="flex gap-3">
@@ -1320,7 +1320,9 @@ function AddCustomDialog({
             disabled={validCount === 0}
             className="primary-button interactive flex-1 rounded-xl py-3 font-bold disabled:opacity-40"
           >
-            {validCount > 1 ? `Добавить ${validCount}` : m.appsPage.customAdd}
+            {validCount > 1
+              ? fillTemplate(m.appsPage.customAddCount, { count: validCount })
+              : m.appsPage.customAdd}
           </button>
         </div>
       </div>

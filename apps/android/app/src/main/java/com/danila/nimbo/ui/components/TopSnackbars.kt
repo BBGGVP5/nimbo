@@ -160,6 +160,7 @@ fun NotificationSurface(
         ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape(12.dp)
         ElementStyleMode.OUTLINED -> RoundedCornerShape(10.dp)
         ElementStyleMode.SOFT_NEO -> RoundedCornerShape(22.dp)
+        ElementStyleMode.SIGNAL -> RoundedCornerShape(16.dp)
     }
     val isMaterial = nebulaColors.isMaterialYou || elementStyle == ElementStyleMode.MATERIAL_EXPRESSIVE
 

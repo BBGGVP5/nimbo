@@ -19,6 +19,10 @@ val AccentGreen = Color(0xFF5DD9A1)
 val AccentRed = Color(0xFFFF7B7B)
 val AccentOrange = Color(0xFFE2A75F)
 
+/** Янтарный акцент стиля Signal: тот же, что в десктопной сборке. */
+val SignalEmber = Color(0xFFFF9345)
+val SignalEmberLight = Color(0xFFE2701F)
+
 const val DEFAULT_COLOR_THEME_INDEX = 1
 
 // Glass morphism colors

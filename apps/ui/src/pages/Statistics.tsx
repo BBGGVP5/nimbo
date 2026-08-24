@@ -1,4 +1,7 @@
 import type { ReactNode } from "react";
+import { useState } from "react";
+import { serverDisplayLabel } from "../lib/serverUiOverrides";
+import { SignalStatistics, type SignalStatsRange } from "./stats/SignalStatistics";
 import { api, formatBytes } from "../lib/api";
 import { useMessages } from "../lib/i18n";
 import { useAppStore } from "../store";
@@ -15,6 +18,19 @@ export function Statistics() {
   const speedAvailable = useAppStore((s) => s.trafficMonitoringAvailable);
   const sessionStartedAt = useAppStore((s) => s.sessionStartedAt);
   const setTrafficStats = useAppStore((s) => s.setTrafficStats);
+  const preferences = useAppStore((s) => s.preferences);
+  const speedHistory = useAppStore((s) => s.trafficHistory);
+  const activeServerId = useAppStore((s) => s.activeServerId);
+  const subscriptions = useAppStore((s) => s.subscriptions);
+  const serverPings = useAppStore((s) => s.serverPings);
+  const [range, setRange] = useState<SignalStatsRange>("day");
+  const appTraffic = useAppStore((state) => state.appTraffic);
+  const sessionHistory = useAppStore((state) => state.sessionHistory);
+  const activeServer = subscriptions
+    .flatMap((sub) => sub.servers)
+    .find((server) => server.id === activeServerId) ?? null;
+  const activeServerName = activeServer ? serverDisplayLabel(activeServer) : "";
+  const activePing = activeServerId ? serverPings[activeServerId] : undefined;
 
   const handleReset = async () => {
     try {
@@ -32,6 +48,77 @@ export function Statistics() {
     : status?.state === "connecting"
       ? m.statistics.statusConnecting
       : m.statistics.statusDisconnected;
+
+  // ── Signal ────────────────────────────────────────────────────
+  // Раскладка превью: карточка суммарного трафика с графиком, разбивка
+  // по приложениям и таблица сессий. Данные те же, что на обычном экране.
+  if (preferences.ui_style === "signal") {
+    const sessionUp = stats?.session_upload ?? 0;
+    const sessionDown = stats?.session_download ?? 0;
+    const points = speedHistory.length > 0
+      ? speedHistory.map((sample) => ({ download: sample.download, upload: sample.upload }))
+      : [{ download: 0, upload: 0 }, { download: 0, upload: 0 }];
+    const axis = signalAxis(range, m);
+    const totals = range === "hour"
+      ? { down: sessionDown, up: sessionUp }
+      : range === "day"
+        ? { down: stats?.monthly_download ?? 0, up: stats?.monthly_upload ?? 0 }
+        : { down: stats?.all_time_download ?? 0, up: stats?.all_time_upload ?? 0 };
+    // Приложения: текущая сессия — живая оценка, завершённые — то, что
+    // записалось в историю.
+    const signalApps = (sessionStartedAt
+      ? Object.entries(appTraffic).map(([name, value]) => ({
+          name,
+          bytes: Math.round(value.download + value.upload),
+        }))
+      : (sessionHistory[0]?.apps ?? []))
+      .filter((item) => item.bytes > 0)
+      .sort((a, b) => b.bytes - a.bytes)
+      .slice(0, 6);
+
+    const current = sessionStartedAt
+      ? [{
+          id: "current",
+          startedLabel: formatTime(sessionStartedAt),
+          server: activeServerName || m.signal.noServer,
+          flag: m.signal.sessionNow,
+          duration: formatDurationShort(Date.now() - sessionStartedAt),
+          download: sessionDown,
+          upload: sessionUp,
+          ping: activePing ?? null,
+        }]
+      : [];
+    const sessions = [
+      ...current,
+      ...sessionHistory.slice(0, 12).map((item) => ({
+        id: item.id,
+        startedLabel: formatSessionStart(item.startedAt),
+        server: item.serverName || m.signal.noServer,
+        flag: "",
+        duration: formatDurationShort(item.endedAt - item.startedAt),
+        download: item.download,
+        upload: item.upload,
+        ping: item.ping,
+      })),
+    ];
+
+    return (
+      <SignalStatistics
+        labels={m}
+        subtitle={statusLabel}
+        range={range}
+        onRange={setRange}
+        totalBytes={totals.down + totals.up}
+        downloadBytes={totals.down}
+        uploadBytes={totals.up}
+        points={points}
+        axis={axis}
+        apps={signalApps}
+        sessions={sessions}
+        onReset={() => void handleReset()}
+      />
+    );
+  }
 
   return (
     <div className="statistics-page h-full overflow-auto">
@@ -273,4 +360,33 @@ function CalendarIcon() {
       <path d="M16 3v4M8 3v4M3 11h18" />
     </svg>
   );
+}
+
+/** Подписи оси под выбранный период — как на превью. */
+function signalAxis(range: SignalStatsRange, m: ReturnType<typeof useMessages>): string[] {
+  if (range === "hour") return ["-60", "-45", "-30", "-15", m.signal.axisNow];
+  if (range === "week") return ["-7", "-5", "-3", "-1", m.signal.axisNow];
+  return ["00:00", "06:00", "12:00", "18:00", "23:59"];
+}
+
+/** Длительность сессии в формате чч:мм:сс. */
+function formatDurationShort(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const hours = String(Math.floor(total / 3600)).padStart(2, "0");
+  const minutes = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+  const seconds = String(total % 60).padStart(2, "0");
+  return `${hours}:${minutes}:${seconds}`;
+}
+
+/** «Сегодня 16:19» / «Вчера 21:40» / дата — как в превью. */
+function formatSessionStart(at: number): string {
+  const date = new Date(at);
+  const today = new Date();
+  const yesterday = new Date(today.getTime() - 86400000);
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (sameDay(date, today)) return time;
+  if (sameDay(date, yesterday)) return `-1 ${time}`;
+  return `${date.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" })} ${time}`;
 }

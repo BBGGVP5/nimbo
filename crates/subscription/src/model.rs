@@ -35,6 +35,14 @@ pub struct SubscriptionMeta {
     /// Provider-controlled TLS ClientHello fragmentation from `nimbo-tls-fragment`.
     #[serde(default)]
     pub tls_fragment: Option<TlsFragmentConfig>,
+    /// Зеркала сабпейджа из заголовка `nimbo-mirrors`: клиент перебирает их,
+    /// когда основной домен подписки недоступен.
+    #[serde(default)]
+    pub mirrors: Vec<String>,
+    /// Ссылка, по которой подписка реально загрузилась в прошлый раз. Пусто —
+    /// значит работал основной домен.
+    #[serde(default)]
+    pub active_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

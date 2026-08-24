@@ -117,6 +117,10 @@ export interface SubscriptionMeta {
   logo_url?: string | null;
   theme?: SubscriptionTheme | null;
   tls_fragment?: TlsFragmentConfig | null;
+  /** Домены-зеркала сабпейджа из заголовка nimbo-mirrors. */
+  mirrors?: string[];
+  /** Ссылка, по которой подписка загрузилась в прошлый раз (пусто — основной домен). */
+  active_url?: string | null;
 }
 
 export interface Subscription {
@@ -186,6 +190,10 @@ export type ThemeMode = "system" | "dark" | "black" | "light";
 export type AccentMode = "system" | "preset" | "custom";
 
 export const DEFAULT_ACCENT_COLOR = "#75a7ff";
+/** Тёплый акцент стиля Signal: им нарисован весь макет приборной панели. */
+export const SIGNAL_ACCENT_COLOR = "#ff9345";
+/** Тот же акцент для светлой темы: темнее, чтобы держать контраст на белом. */
+export const SIGNAL_ACCENT_LIGHT = "#e2701f";
 export const DEFAULT_ACCENT_STRONG = "#4e8cff";
 export const DEFAULT_ACCENT_SOFT = "#dce9ff";
 export const DEFAULT_ACCENT_PALETTE = [
@@ -193,7 +201,7 @@ export const DEFAULT_ACCENT_PALETTE = [
   DEFAULT_ACCENT_STRONG,
   DEFAULT_ACCENT_SOFT,
 ] as const;
-export type UiStyle = "nimbo" | "material_you" | "dotted";
+export type UiStyle = "signal" | "nimbo" | "material_you" | "dotted";
 export type AppLanguage = "ru" | "en" | "system";
 export type LatencyProtocol = "tcp_connect" | "icmp" | "http_head";
 export type LatencyDisplayFormat = "ms" | "badge";
@@ -575,7 +583,7 @@ export const defaultAppPreferences: AppPreferences = {
   update_wifi_only: false,
   provider_theme: true,
   show_subscription_logo: true,
-  ui_style: "nimbo",
+  ui_style: "signal",
   interface_panel_brightness: 100,
   interface_transparency: 0,
   interface_blur: 25,
@@ -629,7 +637,8 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
   const accentMode = value?.accent_mode === "system" || value?.accent_mode === "preset" || value?.accent_mode === "custom"
     ? value.accent_mode
     : defaultAppPreferences.accent_mode;
-  const uiStyle = value?.ui_style === "material_you" || value?.ui_style === "nimbo" || value?.ui_style === "dotted"
+  const uiStyle = value?.ui_style === "material_you" || value?.ui_style === "nimbo"
+    || value?.ui_style === "dotted" || value?.ui_style === "signal"
     ? value.ui_style
     : defaultAppPreferences.ui_style;
   const language = value?.language === "en" || value?.language === "ru" || value?.language === "system"
@@ -2294,7 +2303,9 @@ export function serverDisplayName(name: string): string {
 }
 
 export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
+  // Скорости приходят дробными, поэтому даже байты округляем до сотых —
+  // иначе в интерфейс попадает «10.830310172585436 B».
+  if (bytes < 1024) return `${Number(bytes.toFixed(2))} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let v = bytes / 1024;
   let i = 0;

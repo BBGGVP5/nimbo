@@ -12,6 +12,7 @@ import {
 import { pingServersProgressively } from "../lib/ping";
 import { useCachedSubscriptionLogo } from "../lib/subscriptionLogo";
 import { useAppStore } from "../store";
+import { SignalProfiles } from "./profiles/SignalProfiles";
 import {
   api,
   formatBytes,
@@ -61,6 +62,7 @@ export function Subscriptions() {
   const subs = useAppStore((s) => s.subscriptions);
   const activeId = useAppStore((s) => s.activeServerId);
   const serverPings = useAppStore((s) => s.serverPings);
+  const setPageServerPing = useAppStore((s) => s.setServerPing);
   const connectingServerId = useAppStore((s) => s.connectingServerId);
   const switchingServerId = useAppStore((s) => s.switchingServerId);
   const setActive = useAppStore((s) => s.setActiveServer);
@@ -73,6 +75,13 @@ export function Subscriptions() {
   const closeImportDialog = useAppStore((s) => s.closeImportDialog);
   const [query, setQuery] = useState("");
   const [showFavOnly, setShowFavOnly] = useState(false);
+  const preferences = useAppStore((s) => s.preferences);
+  const [refreshingUrl, setRefreshingUrl] = useState<string | null>(null);
+  const [pingingUrl, setPingingUrl] = useState<string | null>(null);
+  const [signalSettingsUrl, setSignalSettingsUrl] = useState<string | null>(null);
+  const [signalRemoveUrl, setSignalRemoveUrl] = useState<string | null>(null);
+  const [signalRenameServerId, setSignalRenameServerId] = useState<string | null>(null);
+  const [signalHideServerId, setSignalHideServerId] = useState<string | null>(null);
   const { favorites, toggle: toggleFavorite } = useFavoriteServers();
   const {
     overrides: serverOverrides,
@@ -145,6 +154,229 @@ export function Subscriptions() {
     void reorderSubscriptions(next.map((sub) => sub.url));
   };
 
+  const pageHead = (
+    <div className="mb-7 flex items-start justify-between gap-4 mobile-column">
+      <div>
+        <h1 className="page-title">{m.profiles.title}</h1>
+        <p className="page-subtitle">
+          {serverCount} {m.common.servers} · {subs.length} {m.common.subscriptions}
+        </p>
+        {hiddenCount > 0 && (
+          <p className="mt-1 text-[11px] text-[var(--color-text-faint)]">
+            {fillTemplate(m.common.hiddenServers, { count: hiddenCount })}{" "}
+            <button
+              type="button"
+              className="interactive font-semibold text-[var(--color-accent-bright)]"
+              onClick={showAllServers}
+            >
+              {m.common.showHiddenServers}
+            </button>
+          </p>
+        )}
+      </div>
+      <div className="flex gap-3">
+        <IconButton
+          title={showFavOnly ? m.home.showAll : m.profiles.favorite}
+          icon={<StarIcon filled={showFavOnly} />}
+          onClick={() => setShowFavOnly((v) => !v)}
+          active={showFavOnly}
+        />
+        <IconButton
+          title={m.profiles.add}
+          icon={<PlusIcon />}
+          accent
+          onClick={() => openImportDialog()}
+        />
+      </div>
+    </div>
+  );
+
+  const searchField = (
+    <div className="relative mb-6">
+      <span className="pointer-events-none absolute left-4 top-1/2 grid -translate-y-1/2 place-items-center text-[var(--color-text-faint)]">
+        <SearchIcon />
+      </span>
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={m.profiles.searchServers}
+        className="dark-input py-4 pl-12 pr-12 text-lg"
+      />
+      {query && (
+        <button
+          type="button"
+          aria-label={m.tunnelLogs.clear}
+          title={m.tunnelLogs.clear}
+          onClick={() => setQuery("")}
+          className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-[var(--color-text-faint)] transition-colors hover:bg-[var(--color-glass-bg)] hover:text-white"
+        >
+          <XIcon />
+        </button>
+      )}
+    </div>
+  );
+
+  /** Пингует все серверы подписки — то же действие, что и в старой карточке. */
+  const pingSubscriptionServers = async (url: string) => {
+    const sub = subs.find((item) => item.url === url);
+    if (!sub) return;
+    setPingingUrl(url);
+    try {
+      await pingServersProgressively(
+        sub.servers.map((server) => server.id),
+        (result) => {
+          if (result.latency_ms != null) setPageServerPing(result.server_id, result.latency_ms);
+        },
+      );
+    } catch (e) {
+      notifyError(String(e));
+    } finally {
+      setPingingUrl(null);
+    }
+  };
+
+  /** Пинг одного сервера из таблицы. */
+  const pingSingleServer = async (serverId: string) => {
+    try {
+      await pingServersProgressively([serverId], (result) => {
+        if (result.latency_ms != null) setPageServerPing(result.server_id, result.latency_ms);
+      });
+    } catch (e) {
+      notifyError(String(e));
+    }
+  };
+
+  // ── Signal ────────────────────────────────────────────────────
+  // Профили — полноценными карточками (трафик, срок, описание, ссылки,
+  // порядок, настройки и удаление), серверы — общей таблицей ниже.
+  // Старый список карточек не дублируется.
+  if (preferences.ui_style === "signal") {
+    const settingsSub = signalSettingsUrl ? subs.find((item) => item.url === signalSettingsUrl) ?? null : null;
+    const removeSub = signalRemoveUrl ? subs.find((item) => item.url === signalRemoveUrl) ?? null : null;
+    const allServers = subs.flatMap((item) => item.servers);
+    const renameServerTarget = signalRenameServerId
+      ? allServers.find((item) => item.id === signalRenameServerId) ?? null
+      : null;
+    const hideServerTarget = signalHideServerId
+      ? allServers.find((item) => item.id === signalHideServerId) ?? null
+      : null;
+    return (
+      <div className="page-view page-view-wide">
+        {subs.length === 0 ? (
+          <>
+            {pageHead}
+            <EmptyProfiles onAdd={() => openImportDialog()} />
+          </>
+        ) : (
+          <SignalProfiles
+            labels={m}
+            subs={filteredSubs}
+            activeId={activeId}
+            connectingId={connectingServerId || switchingServerId}
+            pingByServer={serverPings}
+            favorites={favorites}
+            onPickServer={(_sub, server) => void onSelect(server)}
+            onToggleFavorite={toggleFavorite}
+            hiddenServerIds={new Set<string>()}
+            serverOverrides={serverOverrides}
+            onRenameServer={(id) => setSignalRenameServerId(id)}
+            onHideServer={(id) => setSignalHideServerId(id)}
+            onPingServer={(id) => void pingSingleServer(id)}
+            query={query}
+            head={
+              <>
+                {pageHead}
+                {searchField}
+              </>
+            }
+            order={subs.map((item) => item.url)}
+            onRefreshSubscription={(url) => {
+              setRefreshingUrl(url);
+              void refreshSubscription(url).finally(() => setRefreshingUrl(null));
+            }}
+            onPingSubscription={(url) => void pingSubscriptionServers(url)}
+            onOpenSettings={(url) => setSignalSettingsUrl(url)}
+            onDeleteSubscription={(url) => setSignalRemoveUrl(url)}
+            onMoveSubscription={(url, direction) => moveSubscription(url, direction)}
+            refreshingUrl={refreshingUrl}
+            pingingUrl={pingingUrl}
+            updatedLabel={(sub) => formatFetchedAt(sub.fetched_at, m)}
+            supportUrl={(sub) => sub.meta?.support_url?.trim() || "https://t.me/nebulaguard_channel"}
+            siteUrl={(sub) => sub.meta?.website_url?.trim() || subscriptionSiteUrl(sub.url)}
+          />
+        )}
+        {settingsSub && (
+          <SubscriptionSettingsDialog
+            sub={settingsSub}
+            showOnHome={settingsSub.meta?.show_on_home !== false}
+            updateInterval={settingsSub.meta?.update_interval_minutes ?? 720}
+            supportUrl={settingsSub.meta?.support_url?.trim() || "https://t.me/nebulaguard_channel"}
+            siteUrl={settingsSub.meta?.website_url?.trim() || subscriptionSiteUrl(settingsSub.url)}
+            description={settingsSub.meta?.description?.trim() || ""}
+            sourceUrl={settingsSub.url}
+            onDelete={() => {
+              setSignalSettingsUrl(null);
+              setSignalRemoveUrl(settingsSub.url);
+            }}
+            onSave={(settings) => updateSubscriptionSettings(settingsSub.url, settings)}
+            onClose={() => setSignalSettingsUrl(null)}
+          />
+        )}
+        {removeSub && (
+          <ConfirmDialog
+            title={m.profiles.deleteSubscriptionTitle}
+            description={fillTemplate(m.profiles.deleteSubscriptionDescription, {
+              name: removeSub.name?.trim() || m.profiles.thisSubscription,
+            })}
+            confirmLabel={m.profiles.delete}
+            danger
+            onConfirm={() => {
+              void (async () => {
+                try {
+                  await removeSubscription(removeSub.url);
+                  notifyInfo(m.profiles.deleted);
+                } catch (e) {
+                  notifyError(String(e));
+                } finally {
+                  setSignalRemoveUrl(null);
+                }
+              })();
+            }}
+            onClose={() => setSignalRemoveUrl(null)}
+          />
+        )}
+        {renameServerTarget && (
+          <RenameServerDialog
+            initialName={serverDisplayLabel(renameServerTarget, serverOverrides)}
+            onSave={(name) => {
+              renameServer(renameServerTarget.id, name);
+              notifyInfo(m.profiles.serverRenamed);
+              setSignalRenameServerId(null);
+            }}
+            onClose={() => setSignalRenameServerId(null)}
+          />
+        )}
+        {hideServerTarget && (
+          <ConfirmDialog
+            title={m.profiles.deleteServerTitle}
+            description={fillTemplate(m.profiles.deleteServerDescription, {
+              name: serverDisplayLabel(hideServerTarget, serverOverrides),
+            })}
+            confirmLabel={m.profiles.deleteServer}
+            danger
+            onConfirm={() => {
+              hideServer(hideServerTarget.id);
+              setSignalHideServerId(null);
+            }}
+            onClose={() => setSignalHideServerId(null)}
+          />
+        )}
+        {importOpen && <ImportDialog onClose={closeImportDialog} />}
+        {adminDialogOpen && <AdminRestartDialog onClose={() => setAdminDialogOpen(false)} />}
+      </div>
+    );
+  }
+
   return (
     <div className="page-view page-view-wide">
       <div className="mb-7 flex items-start justify-between gap-4 mobile-column">
@@ -168,7 +400,7 @@ export function Subscriptions() {
         </div>
         <div className="flex gap-3">
           <IconButton
-            title={showFavOnly ? "Все профили" : m.profiles.favorite}
+            title={showFavOnly ? m.profiles.allProfiles : m.profiles.favorite}
             icon={<StarIcon filled={showFavOnly} />}
             onClick={() => setShowFavOnly((v) => !v)}
             active={showFavOnly}
@@ -238,6 +470,17 @@ export function Subscriptions() {
       {adminDialogOpen && <AdminRestartDialog onClose={() => setAdminDialogOpen(false)} />}
     </div>
   );
+}
+
+/** Хост ссылки — для короткой подписи активного зеркала. */
+function hostOfUrl(value: string | null | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  try {
+    return new URL(raw).host;
+  } catch {
+    return null;
+  }
 }
 
 function EmptyProfiles({ onAdd }: { onAdd: () => void }) {
@@ -310,6 +553,13 @@ function ProfileCard({
   const used = (sub.info?.upload ?? 0) + (sub.info?.download ?? 0);
   const total = sub.info?.total ?? null;
   const expires = formatExpire(sub.info?.expire, expireLabels(m));
+  const mirrorCount = sub.meta?.mirrors?.length ?? 0;
+  // Активный домен показываем, только когда подписка реально уехала на зеркало:
+  // при работе основного домена active_url пустой.
+  const activeMirrorHost = hostOfUrl(sub.meta?.active_url);
+  const mirrorHint = [sub.meta?.mirrors?.join(", "), sub.meta?.active_url]
+    .filter(Boolean)
+    .join(" — ");
   const supportUrl = sub.meta?.support_url?.trim() || "https://t.me/nebulaguard_channel";
   const siteUrl = sub.meta?.website_url?.trim() || subscriptionSiteUrl(sub.url);
   const description = sub.meta?.description?.trim() || "";
@@ -452,6 +702,12 @@ function ProfileCard({
               <span>{intervalLabel(updateInterval, m)}</span>
               <span>{m.profiles.updated}: {updatedAt}</span>
               {!showOnHome && <span>{m.profiles.hiddenFromHome}</span>}
+              {mirrorCount > 0 && (
+                <span title={mirrorHint}>
+                  {fillTemplate(m.profiles.mirrors, { count: mirrorCount })}
+                  {activeMirrorHost ? ` · ${activeMirrorHost}` : ""}
+                </span>
+              )}
             </div>
           </div>
           <div className="subscription-summary-actions flex items-center gap-1.5" data-no-toggle>

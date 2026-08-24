@@ -9,6 +9,10 @@ import type { Messages } from "../lib/i18n";
 import { pingServersProgressively } from "../lib/ping";
 import { useCachedSubscriptionLogo } from "../lib/subscriptionLogo";
 import { useAppStore } from "../store";
+import { fillTemplate } from "../lib/i18n";
+import { SignalSpeedChart } from "./home/SignalSpeedChart";
+import { SignalHome, type SignalTile } from "./home/SignalHome";
+import { SignalServerRail } from "./home/SignalServerRail";
 import {
   api,
   formatBytes,
@@ -250,6 +254,8 @@ export function Home() {
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [memorySamples, setMemorySamples] = useState<number[]>([]);
+  // Плитка «Исключения» показывает, сколько приложений выведено из туннеля.
+  const [appRuleCount, setAppRuleCount] = useState(0);
   const [currentMemoryBytes, setCurrentMemoryBytes] = useState(0);
 
   // Server list features
@@ -259,12 +265,28 @@ export function Home() {
   const [showFavOnly, setShowFavOnly] = useState(false);
   const [compactSheetOpen, setCompactSheetOpen] = useState(false);
   const { favorites, toggle: toggleFavorite } = useFavorites();
-  const { overrides: serverOverrides } = useServerUiOverrides();
+  const {
+    overrides: serverOverrides,
+    hiddenCount: hiddenServerCount,
+    showAllServers: showAllHiddenServers,
+  } = useServerUiOverrides();
   const serversPanelWidth = useResizableServersPanel();
 
   useEffect(() => {
     setSortMode(preferenceSortMode(preferences.servers_sorting));
   }, [preferences.servers_sorting]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.listAppProxyRules()
+      .then((rules) => {
+        if (!cancelled) setAppRuleCount(rules.filter((rule) => rule.enabled).length);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [widgetsCollapsed, setWidgetsCollapsed] = useState(() => {
     try {
@@ -559,6 +581,8 @@ export function Home() {
     onReorder,
     listCollapsed: serverListCollapsed,
     onToggleListCollapsed: toggleServerListCollapsed,
+    hiddenCount: hiddenServerCount,
+    onShowHidden: showAllHiddenServers,
     labels: m,
   };
 
@@ -572,6 +596,189 @@ export function Home() {
         : connected
           ? `${m.home.connected} ${formatDuration(elapsedSeconds)}`
           : m.home.pressToConnect;
+
+  // ── Signal ────────────────────────────────────────────────────
+  // Приборная панель включается вместе со стилем: остальные стили
+  // продолжают работать с прежней разметкой ниже.
+  if (preferences.ui_style === "signal") {
+    const signalState = switching
+      ? "switching"
+      : disconnecting
+        ? "disconnecting"
+        : connecting
+          ? "connecting"
+          : connected
+            ? "connected"
+            : "idle";
+    const stateWord = switching
+      ? (m.home.switching || m.home.connecting)
+      : disconnecting
+        ? m.home.disconnecting
+        : connecting
+          ? m.home.connecting
+          : connected
+            ? m.home.connected
+            : m.signal.disconnected;
+    const modeLabel = status?.connection_mode === "system_proxy"
+      ? "PROXY"
+      : status?.connection_mode === "both"
+        ? "TUN + PROXY"
+        : "TUN";
+    const activeServer = activeEntry?.server ?? null;
+    const activePing = activeId ? serverPings[activeId] : undefined;
+    const rateUnits = (bytesPerSecond: number) => {
+      const text = formatBytes(Math.max(0, bytesPerSecond));
+      const parts = text.split(" ");
+      return { value: parts[0] ?? "0", unit: `${parts[1] ?? "B"}/s` };
+    };
+    const download = rateUnits(trafficStats?.download_speed ?? 0);
+    const upload = rateUnits(trafficStats?.upload_speed ?? 0);
+    // Плиток ровно три: на узком окне четвёртая ломала текст внутри блоков.
+    const protectionParts = [
+      preferences.connection_kill_switch ? m.signal.killSwitchShort : null,
+      preferences.tunnel_tls_fragmentation ? m.signal.tlsShort : null,
+    ].filter(Boolean) as string[];
+    const signalTiles: SignalTile[] = [
+      {
+        key: "routing",
+        label: m.signal.routing,
+        value: modeLabel,
+        tone: connected ? "ok" : "off",
+      },
+      {
+        key: "protection",
+        label: m.signal.protection,
+        value: protectionParts.length > 0 ? protectionParts.join(" · ") : m.signal.protectionOff,
+        tone: protectionParts.length > 0 ? "ok" : "off",
+      },
+      {
+        key: "apps",
+        label: m.signal.exceptions,
+        value: appRuleCount > 0
+          ? fillTemplate(m.signal.exceptionsCount, { count: appRuleCount })
+          : m.signal.exceptionsNone,
+        tone: appRuleCount > 0 ? "ok" : "off",
+      },
+    ];
+
+    return (
+      <>
+        <SignalHome
+          labels={m}
+          state={signalState}
+          stateWord={stateWord}
+          modeLabel={modeLabel}
+          sessionLabel={connected ? formatDuration(elapsedSeconds) : m.signal.idleSession}
+          sessionProgress={connected ? ((elapsedSeconds % 3600) / 3600) : 0}
+          metaLine={!connected
+            ? m.home.pressToConnect
+            : activeEntry
+              ? `${activeEntry.sub.name?.trim() || m.common.subscription} · ${protocolLabel(activeEntry.server.protocol)}`
+              : m.home.addProfileFirst}
+          profileTitle={currentSub?.name?.trim() || m.common.subscription}
+          profileSubtitle={`${sortedEntries.length} ${m.common.servers} · ${visibleSubs.length} ${m.common.subscriptions}`}
+          serverFlag={activeServer
+            ? <CountryFlag serverName={activeServer.name} fallback={<GlobeIcon />} className="country-flag-sm" />
+            : <GlobeIcon />}
+          serverName={activeServer ? serverDisplayLabel(activeServer) : m.signal.noServer}
+          serverProtocol={activeServer
+            ? `${protocolLabel(activeServer.protocol)} · ${transportLabel(activeServer.protocol) || "JSON"}`
+            : ""}
+          serverPing={activePing != null ? `${activePing} ms` : null}
+          serverDescription={activeServer
+            ? (serverListDescription(activeServer, activeEntry?.sub.servers ?? []) || null)
+            : null}
+          downloadRate={download.value}
+          downloadUnit={download.unit}
+          downloadTotal={formatBytes(trafficStats?.session_download ?? 0)}
+          uploadRate={upload.value}
+          uploadUnit={upload.unit}
+          uploadTotal={formatBytes(trafficStats?.session_upload ?? 0)}
+          tiles={signalTiles}
+          chart={preferences.show_speed_chart
+            ? (
+              <SignalSpeedChart
+                labels={m}
+                samples={trafficHistory}
+                available={trafficMonitoringAvailable}
+                downloadLabel={`${download.value} ${download.unit}`}
+                uploadLabel={`${upload.value} ${upload.unit}`}
+              />
+            )
+            : null}
+          extras={null}
+          actions={
+            <>
+              <button
+                type="button"
+                className="signal-btn signal-btn--primary"
+                onClick={() => void onToggleConnection()}
+                disabled={!activeEntry || connecting || disconnecting || switching}
+              >
+                {connecting
+                  ? m.home.connecting
+                  : disconnecting
+                    ? m.home.disconnecting
+                    : connected
+                      ? m.home.disconnect
+                      : m.home.connect}
+              </button>
+            </>
+          }
+          serverRail={
+            <SignalServerRail
+              labels={m}
+              subs={visibleSubs}
+              currentSub={currentSub}
+              entries={sortedEntries}
+              activeId={activeId}
+              pingByServer={serverPings}
+              pingingServerIds={pingingServerIds}
+              favorites={favorites}
+              onToggleFavorite={toggleFavorite}
+              sortMode={sortMode}
+              onSortMode={setSortMode}
+              pingOrder={pingOrder}
+              onPingOrder={setPingOrder}
+              protocolFilter={protocolFilter}
+              onProtocolFilter={setProtocolFilter}
+              availableProtocols={availableProtocols}
+              showFavOnly={showFavOnly}
+              onShowFavOnly={setShowFavOnly}
+              onPickServer={(server) => void onToggleServer(server.id)}
+              pinging={pinging}
+              onPing={() => void onPingServers()}
+              onSwitchSubscription={(url) => void onSwitchSubscription(url)}
+              onCollapse={toggleSidePanelCollapsed}
+              hiddenCount={hiddenServerCount}
+              onShowHidden={showAllHiddenServers}
+            />
+          }
+          onOpenServers={() => {
+            // Рельс скрыт разметкой ниже 900px; если он свёрнут — разворачиваем,
+            // в остальных случаях показываем полный список отдельным экраном.
+            const railHidden = window.matchMedia("(max-width: 900px)").matches;
+            if (!railHidden && sidePanelCollapsed) toggleSidePanelCollapsed();
+            else setCompactSheetOpen(true);
+          }}
+          onCheckPings={() => void onPingServers()}
+          onRefreshSubscription={currentSub ? () => void onRefreshSelected() : undefined}
+          refreshing={refreshingUrl === currentSub?.url}
+          pinging={pinging}
+          railWidth={serversPanelWidth.width}
+          railCollapsed={sidePanelCollapsed}
+          onResizeStart={serversPanelWidth.onResizeStart}
+          onResizeReset={serversPanelWidth.reset}
+          onExpandRail={toggleSidePanelCollapsed}
+          expandLabel={m.signal.expandRail}
+        />
+        {compactSheetOpen && (
+          <CompactServerSheet {...sharedPanelProps} onClose={() => setCompactSheetOpen(false)} />
+        )}
+        {adminDialogOpen && <AdminRestartDialog onClose={() => setAdminDialogOpen(false)} />}
+      </>
+    );
+  }
 
   return (
     <div
@@ -864,6 +1071,8 @@ type PanelProps = {
   listCollapsed: boolean;
   onToggleListCollapsed: () => void;
   onCollapseSidePanel?: () => void;
+  hiddenCount?: number;
+  onShowHidden?: () => void;
   labels: Messages;
 };
 
@@ -871,6 +1080,7 @@ function CompactServerSheet({
   onClose,
   ...panelProps
 }: PanelProps & { onClose: () => void }) {
+  const uiStyle = useAppStore((s) => s.preferences.ui_style);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -878,6 +1088,65 @@ function CompactServerSheet({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // В Signal лист показывает тот же рельс, что и на главной: поиск,
+  // выпадающие фильтры и плотные строки. Раньше сюда попадала боковая
+  // панель прежнего стиля — со свёрнутой группой и пустым экраном.
+  if (uiStyle === "signal") {
+    return (
+      <div className="signal-sheet">
+        <div className="signal-sheet-head">
+          <span className="signal-sheet-title">{panelProps.labels.signal.serversTitle}</span>
+          <span className="signal-sheet-count">
+            {fillTemplate(panelProps.labels.signal.railCount, {
+              servers: panelProps.entries.length,
+              profiles: panelProps.subs.length,
+            })}
+          </span>
+          <button
+            type="button"
+            className="signal-icon-btn"
+            onClick={onClose}
+            title={panelProps.labels.common.close}
+            aria-label={panelProps.labels.common.close}
+          >
+            <CloseIcon />
+          </button>
+        </div>
+        <div className="signal-sheet-body">
+          <SignalServerRail
+            labels={panelProps.labels}
+            subs={panelProps.subs}
+            currentSub={panelProps.currentSub}
+            entries={panelProps.entries}
+            activeId={panelProps.activeId}
+            pingByServer={panelProps.pingByServer}
+            pingingServerIds={panelProps.pingingServerIds as Set<string>}
+            favorites={panelProps.favorites as Set<string>}
+            onToggleFavorite={panelProps.onToggleFavorite}
+            sortMode={panelProps.sortMode}
+            onSortMode={panelProps.onSortMode}
+            pingOrder={panelProps.pingOrder}
+            onPingOrder={panelProps.onPingOrder}
+            protocolFilter={panelProps.protocolFilter}
+            onProtocolFilter={panelProps.onProtocolFilter}
+            availableProtocols={panelProps.availableProtocols}
+            showFavOnly={panelProps.showFavOnly}
+            onShowFavOnly={panelProps.onShowFavOnly}
+            onPickServer={(server) => {
+              void panelProps.onPickServer(server.id);
+              onClose();
+            }}
+            pinging={panelProps.pinging}
+            onPing={panelProps.onPing}
+            onSwitchSubscription={(url) => void panelProps.onSwitchSubscription(url)}
+            hiddenCount={panelProps.hiddenCount ?? 0}
+            onShowHidden={panelProps.onShowHidden}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1224,7 +1493,7 @@ function ServerSidePanel({
                   />
                   <button
                     onClick={() => onToggleFavorite(server.id)}
-                    title={isFav ? "Убрать из избранных" : "В избранное"}
+                    title={isFav ? labels.home.removeFromFavorites : labels.home.addToFavorites}
                     className={[
                       "server-side-action-button grid h-7 w-7 shrink-0 place-items-center rounded-md transition-all",
                       isFav
@@ -1491,6 +1760,7 @@ function ProfileSummary({
 // ── PingBadge ─────────────────────────────────────────────────
 
 function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean }) {
+  const m = useMessages();
   if (loading) {
     return (
       <span className="server-side-ping-badge shrink-0 rounded-full bg-[var(--color-accent-active-bg)] px-2 py-1 text-[11px] font-semibold tabular-nums text-[var(--color-accent-bright)]">
@@ -1504,21 +1774,29 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
     <span
       className="server-side-ping-badge shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold tabular-nums"
       style={{ background: tier.bg, color: tier.fg }}
-      title={tier.label}
+      title={pingLevelLabel(tier.level, m)}
     >
       {ping} ms
     </span>
   );
 }
 
-function pingTier(ping: number): { bg: string; fg: string; label: string } {
+type PingLevel = "good" | "average" | "high";
+
+function pingTier(ping: number): { bg: string; fg: string; level: PingLevel } {
   if (ping < 100) {
-    return { bg: "rgba(76, 217, 100, 0.16)", fg: "#7be084", label: "Хороший пинг" };
+    return { bg: "rgba(76, 217, 100, 0.16)", fg: "#7be084", level: "good" };
   }
   if (ping < 300) {
-    return { bg: "rgba(245, 192, 64, 0.16)", fg: "#f5c040", label: "Средний пинг" };
+    return { bg: "rgba(245, 192, 64, 0.16)", fg: "#f5c040", level: "average" };
   }
-  return { bg: "rgba(239, 83, 80, 0.18)", fg: "#ff8080", label: "Высокий пинг" };
+  return { bg: "rgba(239, 83, 80, 0.18)", fg: "#ff8080", level: "high" };
+}
+
+function pingLevelLabel(level: PingLevel, m: Messages): string {
+  if (level === "good") return m.home.pingGood;
+  if (level === "average") return m.home.pingAverage;
+  return m.home.pingHigh;
 }
 
 // ── SessionTrafficBlocks ──────────────────────────────────────

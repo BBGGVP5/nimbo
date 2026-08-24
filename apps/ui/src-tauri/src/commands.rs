@@ -18,8 +18,8 @@ use tokio::process::Command as TokioCommand;
 use nimbo_device::{device_info, reset_cache, DeviceInfo};
 use nimbo_ipc::PROTOCOL_VERSION;
 use nimbo_subscription::{
-    build_subscription, extract_xray_templates_from_value, fetch_subscription,
-    happ_compatible_user_agent, parse_aggregate, parse_subscription_userinfo, FetchOptions,
+    build_subscription, extract_mirrors_from_url, extract_xray_templates_from_value,
+    fetch_subscription_with_mirrors, happ_compatible_user_agent, merge_mirrors, parse_aggregate, parse_subscription_userinfo, FetchOptions,
     Fetched, NaiveTransport, Server, Subscription, TlsFragmentConfig,
     CURRENT_SUBSCRIPTION_PARSER_REVISION, HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS,
     HAPP_COMPAT_OS_VERSION, USER_AGENT,
@@ -890,13 +890,37 @@ pub async fn add_subscription(
     name: Option<String>,
 ) -> Result<Subscription, String> {
     let snapshot_before = state.snapshot();
-    let source = url.trim();
-    if snapshot_before
+    // Ссылка может нести домены-зеркала: ?mirrors=sub2.example.com,sub3.example.net
+    // Их запоминаем отдельно, а из URL подписки вырезаем.
+    let link = extract_mirrors_from_url(url.trim());
+    let source = link.url.trim();
+    let link_mirrors = link.mirrors.clone();
+
+    if let Some(existing) = snapshot_before
         .subscriptions
         .iter()
-        .any(|s| s.url == source)
+        .find(|s| s.url == source)
     {
-        return Err("Подписка с таким URL уже добавлена".into());
+        // Повторный импорт той же ссылки с новыми зеркалами — не ошибка, а штатный
+        // способ выдать пользователю запасной домен, когда основной уже недоступен.
+        if link_mirrors.is_empty() {
+            return Err("Подписка с таким URL уже добавлена".into());
+        }
+        let merged = merge_mirrors(&existing.meta.mirrors, &link_mirrors);
+        let updated = state
+            .mutate(|s| {
+                if let Some(item) = s.subscriptions.iter_mut().find(|item| item.url == source) {
+                    item.meta.mirrors = merged.clone();
+                }
+            })
+            .map_err(|e| format!("Не удалось сохранить: {e}"))?;
+        let _ = updated;
+        return state
+            .snapshot()
+            .subscriptions
+            .into_iter()
+            .find(|item| item.url == source)
+            .ok_or_else(|| "Подписка не найдена".to_string());
     }
 
     if source.is_empty() {
@@ -905,7 +929,7 @@ pub async fn add_subscription(
 
     let fetched = if is_remote_subscription(source) {
         let opts = build_fetch_options(&snapshot_before);
-        fetch_subscription(source, &opts)
+        fetch_subscription_with_mirrors(source, &opts, &link_mirrors, None)
             .await
             .map_err(|e| format!("Не удалось загрузить: {e}"))?
     } else {
@@ -928,6 +952,8 @@ pub async fn add_subscription(
             theme: None,
             tls_fragment: None,
             xray_templates,
+            mirrors: Vec::new(),
+            source_url: source.to_string(),
         }
     };
 
@@ -937,7 +963,10 @@ pub async fn add_subscription(
         snapshot_before.user_agent_override.as_deref(),
     )
     .await;
-    let subscription = build_subscription(source, fetched, name);
+    let mut subscription = build_subscription(source, fetched, name);
+    // Зеркала из ссылки живут дальше вместе с подпиской, даже если панель их
+    // не продублировала заголовком.
+    subscription.meta.mirrors = merge_mirrors(&subscription.meta.mirrors, &link_mirrors);
 
     state
         .mutate(|s| {
@@ -962,8 +991,16 @@ async fn refresh_subscription_inner(state: &AppState, url: String) -> Result<Sub
     let snapshot_before = state.snapshot();
     let source = url.trim();
     let opts = build_fetch_options(&snapshot_before);
+    // Мультидомен: зеркала и последний рабочий домен берём из сохранённой
+    // подписки — после блокировки основного домена заголовок уже не прочитать.
+    let saved = snapshot_before
+        .subscriptions
+        .iter()
+        .find(|item| item.url == source);
+    let known_mirrors: Vec<String> = saved.map(|item| item.meta.mirrors.clone()).unwrap_or_default();
+    let preferred_url = saved.and_then(|item| item.meta.active_url.clone());
     let fetched = if is_remote_subscription(source) {
-        fetch_subscription(source, &opts)
+        fetch_subscription_with_mirrors(source, &opts, &known_mirrors, preferred_url.as_deref())
             .await
             .map_err(|e| format!("Не удалось обновить: {e}"))?
     } else {
@@ -986,6 +1023,8 @@ async fn refresh_subscription_inner(state: &AppState, url: String) -> Result<Sub
             theme: None,
             tls_fragment: None,
             xray_templates,
+            mirrors: Vec::new(),
+            source_url: source.to_string(),
         }
     };
 
@@ -8433,8 +8472,8 @@ fn normalize_accent_color(value: &str) -> String {
 
 fn normalize_ui_style(value: &str) -> String {
     match value.trim() {
-        "nimbo" | "material_you" | "dotted" => value.trim().into(),
-        _ => "nimbo".into(),
+        "nimbo" | "material_you" | "dotted" | "signal" => value.trim().into(),
+        _ => "signal".into(),
     }
 }
 

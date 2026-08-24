@@ -9,7 +9,14 @@ enum class ElementStyleMode(val persistedValue: Int) {
     MATERIAL_EXPRESSIVE(1),
     NOTHING_DOTS(2),
     OUTLINED(3),
-    SOFT_NEO(4);
+    SOFT_NEO(4),
+
+    /**
+     * Приборная панель: плоские поверхности, волосяные границы, малые
+     * скругления и моноширинные подписи. Добавлен последним, чтобы уже
+     * сохранённые значения не поменяли смысл.
+     */
+    SIGNAL(5);
 
     companion object {
         fun fromPersistedValue(value: Int): ElementStyleMode =

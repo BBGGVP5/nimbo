@@ -475,9 +475,11 @@ const accentPresets: Array<{
     | "accentGreen"
     | "accentRose"
     | "accentAmber"
-    | "accentCyan";
+    | "accentCyan"
+    | "accentEmber";
 }> = [
   { color: DEFAULT_ACCENT_COLOR, labelKey: "accentBlue" },
+  { color: "#ff9345", labelKey: "accentEmber" },
   { color: "#7c5dfa", labelKey: "accentViolet" },
   { color: "#21a67a", labelKey: "accentGreen" },
   { color: "#e24d70", labelKey: "accentRose" },
@@ -765,6 +767,13 @@ function AppearanceSection({
               subtitle={m.settings.dottedStyleSubtitle}
               selected={preferences.ui_style === "dotted"}
               onClick={() => onChange({ ui_style: "dotted" })}
+            />
+            <InterfaceStyleOption
+              styleId="signal"
+              title={m.settings.signalStyle}
+              subtitle={m.settings.signalStyleSubtitle}
+              selected={preferences.ui_style === "signal"}
+              onClick={() => onChange({ ui_style: "signal" })}
             />
           </div>
         </CollapsibleSection>
@@ -1230,7 +1239,7 @@ function TunnelSection({
         />
         <NumberPreferenceRow
           label="xUDP concurrency"
-          description="-1 — выкл, 0+ — включён"
+          description={m.settings.xudpDescription}
           value={preferences.tunnel_xudp_concurrency}
           min={-1}
           max={1024}
@@ -2674,7 +2683,7 @@ function InterfaceStyleOption({
   selected,
   onClick,
 }: {
-  styleId: "nimbo" | "material_you" | "dotted";
+  styleId: "signal" | "nimbo" | "material_you" | "dotted";
   title: string;
   subtitle: string;
   selected: boolean;

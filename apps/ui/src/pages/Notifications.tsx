@@ -255,12 +255,14 @@ function NotificationRow({
       <div className="notification-history-body">
         <div className="notification-history-meta">
           <span className="notification-history-tone">{toneLabel}</span>
-          <time className="notification-history-time" dateTime={new Date(item.createdAt).toISOString()}>
-            {timeLabel}
-          </time>
         </div>
         <div className="notification-history-message">{item.message}</div>
       </div>
+      {/* Время — отдельная колонка строки, иначе оно прибито к первой
+          строке текста и не выравнивается по центру карточки. */}
+      <time className="notification-history-time" dateTime={new Date(item.createdAt).toISOString()}>
+        {timeLabel}
+      </time>
       <button
         type="button"
         onClick={onRemove}

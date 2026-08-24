@@ -686,6 +686,7 @@ private fun notificationShape(elementStyle: ElementStyleMode, large: Boolean): R
         ElementStyleMode.NOTHING_DOTS -> if (large) 16.dp else 13.dp
         ElementStyleMode.OUTLINED -> if (large) 14.dp else 11.dp
         ElementStyleMode.SOFT_NEO -> if (large) 24.dp else 20.dp
+        ElementStyleMode.SIGNAL -> if (large) 18.dp else 14.dp
     }
     return RoundedCornerShape(radius)
 }

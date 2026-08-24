@@ -8,6 +8,7 @@ import {
   type HelperStatus,
   type Subscription,
   type SubscriptionSettingsPatch,
+  type ActiveConnection,
   type TrafficStats,
 } from "./lib/api";
 
@@ -44,11 +45,24 @@ interface AppStoreState {
   loading: boolean;
   error: string | null;
   trafficStats: TrafficStats | null;
+  /**
+   * Оценка трафика по процессам за текущую сессию. Ни ядро, ни системные
+   * таблицы Windows не отдают байты на процесс, поэтому прирост трафика
+   * распределяется между процессами пропорционально их активным
+   * соединениям через туннель — это оценка, а не точный счётчик.
+   */
+  appTraffic: Record<string, { download: number; upload: number }>;
+  /** Значения счётчиков на прошлом замере — от них считается прирост. */
+  appTrafficMark: { download: number; upload: number };
+  /** Завершённые сессии, чтобы было видно, куда уходил трафик раньше. */
+  sessionHistory: SessionRecord[];
   trafficSpeed: TrafficSpeed;
   trafficHistory: TrafficSample[];
   trafficMonitoringAvailable: boolean;
   sessionStartedAt: number | null;
   setTrafficStats: (stats: TrafficStats) => void;
+  recordAppTraffic: (connections: ActiveConnection[]) => void;
+  clearAppTraffic: () => void;
   recordTrafficStats: (stats: TrafficStats, at?: number) => void;
   setTrafficMonitoringAvailable: (available: boolean) => void;
   setSessionStartedAt: (at: number | null) => void;
@@ -100,12 +114,53 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   loading: false,
   error: null,
   trafficStats: null,
+  appTraffic: {},
+  appTrafficMark: { download: 0, upload: 0 },
+  sessionHistory: readSessionHistory(),
   trafficSpeed: { upload: 0, download: 0 },
   trafficHistory: [],
   trafficMonitoringAvailable: false,
   sessionStartedAt: null,
 
   setTrafficStats: (stats) => set({ trafficStats: stats }),
+
+  recordAppTraffic: (connections) =>
+    set((state) => {
+      const stats = state.trafficStats;
+      if (!stats || state.status?.state !== "connected") return {};
+
+      const mark = state.appTrafficMark;
+      const deltaDown = Math.max(0, stats.session_download - mark.download);
+      const deltaUp = Math.max(0, stats.session_upload - mark.upload);
+      const nextMark = { download: stats.session_download, upload: stats.session_upload };
+      if (deltaDown + deltaUp === 0) return { appTrafficMark: nextMark };
+
+      // Считаем только то, что реально идёт через туннель: прямые соединения
+      // к трафику VPN отношения не имеют.
+      const tunnelled = connections.filter(
+        (item) => item.route === "proxy" && item.process.trim().length > 0,
+      );
+      if (tunnelled.length === 0) return { appTrafficMark: nextMark };
+
+      const weights = new Map<string, number>();
+      for (const item of tunnelled) {
+        const name = item.process.trim();
+        weights.set(name, (weights.get(name) ?? 0) + 1);
+      }
+
+      const appTraffic = { ...state.appTraffic };
+      for (const [name, count] of weights) {
+        const share = count / tunnelled.length;
+        const current = appTraffic[name] ?? { download: 0, upload: 0 };
+        appTraffic[name] = {
+          download: current.download + deltaDown * share,
+          upload: current.upload + deltaUp * share,
+        };
+      }
+      return { appTraffic, appTrafficMark: nextMark };
+    }),
+
+  clearAppTraffic: () => set({ appTraffic: {}, appTrafficMark: { download: 0, upload: 0 } }),
   recordTrafficStats: (stats, at = Date.now()) =>
     set((state) => {
       const connected = state.status?.state === "connected";
@@ -136,13 +191,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({ trafficMonitoringAvailable }),
   setSessionStartedAt: (at) => set({ sessionStartedAt: at }),
   resetTrafficSession: () =>
-    set({
+    set((state) => ({
+      sessionHistory: closeSession(state),
+      appTraffic: {},
+      appTrafficMark: { download: 0, upload: 0 },
       trafficStats: null,
       trafficSpeed: { upload: 0, download: 0 },
       trafficHistory: [],
       trafficMonitoringAvailable: false,
       sessionStartedAt: null,
-    }),
+    })),
 
   hydrate: async () => {
     set({ loading: true, error: null });
@@ -504,3 +562,84 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({ importDialogSource: source });
   },
 }));
+
+const SESSION_HISTORY_KEY = "nimbo.sessionHistory.v1";
+const SESSION_HISTORY_LIMIT = 60;
+
+export interface SessionRecord {
+  id: string;
+  startedAt: number;
+  endedAt: number;
+  serverId: string | null;
+  serverName: string;
+  download: number;
+  upload: number;
+  ping: number | null;
+  apps: Array<{ name: string; bytes: number }>;
+}
+
+function readSessionHistory(): SessionRecord[] {
+  try {
+    const raw = localStorage.getItem(SESSION_HISTORY_KEY);
+    const parsed = raw ? (JSON.parse(raw) as SessionRecord[]) : [];
+    return Array.isArray(parsed) ? parsed.slice(0, SESSION_HISTORY_LIMIT) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSessionHistory(records: SessionRecord[]) {
+  try {
+    localStorage.setItem(SESSION_HISTORY_KEY, JSON.stringify(records.slice(0, SESSION_HISTORY_LIMIT)));
+  } catch {
+    /* хранилище может быть недоступно — история не критична */
+  }
+}
+
+/**
+ * Складывает завершённую сессию в историю. Пустые сессии (без трафика и
+ * длительности) пропускаем, чтобы список не засорялся переподключениями.
+ */
+function closeSession(state: {
+  sessionStartedAt: number | null;
+  trafficStats: TrafficStats | null;
+  activeServerId: string | null;
+  subscriptions: Subscription[];
+  serverPings: Record<string, number>;
+  appTraffic: Record<string, { download: number; upload: number }>;
+  sessionHistory: SessionRecord[];
+}): SessionRecord[] {
+  const startedAt = state.sessionStartedAt;
+  const stats = state.trafficStats;
+  if (!startedAt || !stats) return state.sessionHistory;
+
+  const download = stats.session_download;
+  const upload = stats.session_upload;
+  const endedAt = Date.now();
+  if (download + upload === 0 && endedAt - startedAt < 5000) return state.sessionHistory;
+
+  const server = state.subscriptions
+    .flatMap((sub) => sub.servers)
+    .find((item) => item.id === state.activeServerId);
+  const apps = Object.entries(state.appTraffic)
+    .map(([name, value]) => ({ name, bytes: Math.round(value.download + value.upload) }))
+    .filter((item) => item.bytes > 0)
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, 8);
+
+  const record: SessionRecord = {
+    id: `${startedAt}`,
+    startedAt,
+    endedAt,
+    serverId: state.activeServerId,
+    serverName: server?.name?.trim() || "",
+    download,
+    upload,
+    ping: state.activeServerId ? state.serverPings[state.activeServerId] ?? null : null,
+    apps,
+  };
+
+  const next = [record, ...state.sessionHistory.filter((item) => item.id !== record.id)];
+  writeSessionHistory(next);
+  return next.slice(0, SESSION_HISTORY_LIMIT);
+}

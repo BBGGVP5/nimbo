@@ -21,6 +21,7 @@ import {
   type AppearanceState,
 } from "./lib/appearance";
 import { useAppStore } from "./store";
+import { SignalSidebar } from "./components/SignalSidebar";
 import { APP_VERSION, CURRENT_SUBSCRIPTION_PARSER_REVISION, api, formatBytes, isTauriRuntime, type AppPostUpdateInfo, type AppUpdateInfo, type AppUpdateProgress, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
 import { cachedSubscriptionTheme } from "./lib/subscriptionTheme";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -72,6 +73,7 @@ export default function App() {
   const helperError = useAppStore((s) => s.helperError);
   const installHelper = useAppStore((s) => s.installHelper);
   const recordTrafficStats = useAppStore((s) => s.recordTrafficStats);
+  const recordAppTraffic = useAppStore((s) => s.recordAppTraffic);
   const setTrafficMonitoringAvailable = useAppStore((s) => s.setTrafficMonitoringAvailable);
   const trafficSpeed = useAppStore((s) => s.trafficSpeed);
   const serverPings = useAppStore((s) => s.serverPings);
@@ -191,6 +193,29 @@ export default function App() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (status?.state !== "connected") return;
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const sample = async () => {
+      try {
+        const connections = await api.listActiveConnections();
+        if (!cancelled) recordAppTraffic(connections);
+      } catch {
+        /* соединения могут быть недоступны без хелпера — не мешаем сессии */
+      } finally {
+        if (!cancelled) timer = window.setTimeout(() => void sample(), 3000);
+      }
+    };
+
+    void sample();
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, [status?.state, recordAppTraffic]);
 
   useEffect(() => {
     if (!status) return;
@@ -541,6 +566,27 @@ export default function App() {
           onStop={() => void stopConflictingProcesses().catch(() => undefined)}
         />
       )}
+      {preferences.ui_style === "signal" ? (
+        <SignalSidebar
+          labels={m}
+          items={navItems.map((item, index) => ({
+            to: item.to,
+            key: item.key,
+            end: item.end,
+            icon: <NavIcon name={item.icon} />,
+            // Разделители там же, где в макете: после «Приложений» и после «Уведомлений».
+            group: index === 4 || index === 8,
+          }))}
+          label={(key) => navLabel(m.app, key, false)}
+          unread={unreadNotifications}
+          version={`V${APP_VERSION}`}
+          coreLabel="XRAY"
+          coreState={status?.state === "connected" ? m.signal.coreOk : m.signal.coreIdle}
+          updateLabel={startupUpdate ? m.signal.coreUpdate : null}
+          onUpdate={startupUpdate ? () => navigate("/settings") : undefined}
+          width={sidebarWidth.width}
+        />
+      ) : (
       <aside
         className="app-sidebar shrink-0 flex flex-col p-3"
         style={{ "--sidebar-width": `${sidebarWidth.width}px` } as React.CSSProperties}
@@ -587,11 +633,12 @@ export default function App() {
           </div>
         </div>
       </aside>
+      )}
 
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="Изменить ширину панели навигации"
+        aria-label={m.app.sidebarResize}
         className="app-sidebar-resizer"
         onMouseDown={sidebarWidth.onResizeStart}
         onDoubleClick={sidebarWidth.reset}

@@ -36,8 +36,11 @@ android {
         applicationId = "com.danila.nimbo"
         minSdk = 29
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.1.0-beta.4"
+        // 11 — повторная сборка 1.1.0: с иконки снят бета-значок, исправлено
+        // предложение обновиться после ручной установки, ускорено сворачивание
+        // окна загрузки обновления. Установленная сборка 10 получит обновление.
+        versionCode = 12
+        versionName = "1.2.0-beta.1"
         buildConfigField("String", "LIBXRAY_VERSION", "\"26.7.28\"")
 
 
@@ -218,4 +221,5 @@ dependencies {
     // Bundled ML Kit: QR-сканер готов сразу и не зависит от загрузки модели
     // через Google Play Services при первом открытии камеры.
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("com.google.zxing:core:3.5.4")
 }

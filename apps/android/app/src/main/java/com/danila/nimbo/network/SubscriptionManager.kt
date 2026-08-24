@@ -42,7 +42,8 @@ data class SubscriptionInfo(
     val themeSpec: String? = null, // тема из заголовка nimbo-theme ("filter,accentHex,orb1,orb2,blur")
     val tlsFragment: TlsFragmentConfig? = null, // параметры TLS ClientHello fragmentation от сервиса
     val fallbackUrl: String? = null, // URL аварийного пула из заголовка nimbo-fallback
-    val fallbackServers: List<String> = emptyList() // ссылки аварийного пула, подмешанные в servers
+    val fallbackServers: List<String> = emptyList(), // ссылки аварийного пула, подмешанные в servers
+    val mirrors: List<String> = emptyList() // домены-зеркала сабпейджа из заголовка nimbo-mirrors
 )
 
 object SubscriptionManager {
@@ -173,39 +174,136 @@ object SubscriptionManager {
 
     private fun loadInternal(url: String): SubscriptionInfo {
         val attempts = subscriptionUserAgentAttempts()
+        // Мультидомен: обходим основной домен и зеркала, запомненные с прошлого
+        // ответа. Первым идёт домен, который сработал в прошлый раз, — иначе после
+        // блокировки основного каждый запуск начинался бы с таймаута.
+        val candidates = SubscriptionMirrors.candidates(
+            primaryUrl = url,
+            mirrors = storedMirrors(url),
+            preferredUrl = preferredSubscriptionHost(url)
+        )
         var lastInfo: SubscriptionInfo? = null
+        var primaryError: Exception? = null
         var lastError: Exception? = null
 
-        for (attemptUserAgent in attempts) {
-            try {
-                val info = loadInternalOnce(url, attemptUserAgent)
-                if (info.hasLoadableSubscriptionContent()) {
-                    return mergeFallbackPool(
-                        baseInfo = info,
-                        mainUrl = url,
-                        requestUserAgent = attemptUserAgent
+        for (candidateUrl in candidates) {
+            val isPrimary = candidateUrl.equals(url, ignoreCase = true)
+            for (attemptUserAgent in attempts) {
+                try {
+                    val info = loadInternalOnce(
+                        url = candidateUrl,
+                        requestUserAgent = attemptUserAgent,
+                        persistAsLastUrl = isPrimary
+                    )
+                    if (info.hasLoadableSubscriptionContent()) {
+                        rememberMirrors(primaryUrl = url, info = info, workingUrl = candidateUrl)
+                        if (!isPrimary) {
+                            Log.i(
+                                "SubscriptionManager",
+                                "Subscription loaded from mirror ${SubscriptionMirrors.hostOf(candidateUrl)}"
+                            )
+                        }
+                        return mergeFallbackPool(
+                            baseInfo = info,
+                            mainUrl = candidateUrl,
+                            requestUserAgent = attemptUserAgent
+                        )
+                    }
+
+                    lastInfo = info
+                    Log.w(
+                        "SubscriptionManager",
+                        "Subscription response had no server links/config with UA=${attemptUserAgent.substringBefore(' ')}, trying fallback"
+                    )
+                } catch (e: Exception) {
+                    lastError = e
+                    if (isPrimary && primaryError == null) primaryError = e
+                    Log.w(
+                        "SubscriptionManager",
+                        "Subscription load failed on ${SubscriptionMirrors.hostOf(candidateUrl)} " +
+                            "with UA=${attemptUserAgent.substringBefore(' ')}: ${e.message}"
                     )
                 }
-
-                lastInfo = info
-                Log.w(
-                    "SubscriptionManager",
-                    "Subscription response had no server links/config with UA=${attemptUserAgent.substringBefore(' ')}, trying fallback"
-                )
-            } catch (e: Exception) {
-                lastError = e
-                Log.w(
-                    "SubscriptionManager",
-                    "Subscription load failed with UA=${attemptUserAgent.substringBefore(' ')}: ${e.message}"
-                )
             }
         }
 
         if (lastInfo != null) {
             throw IllegalStateException("Ответ подписки не содержит серверов или Xray JSON-конфиг")
         }
-        throw lastError ?: IllegalStateException("Ответ подписки не содержит серверов или Xray JSON-конфиг")
+        // Ошибку основного домена показываем в первую очередь: она понятнее
+        // пользователю, чем сбой последнего зеркала.
+        throw primaryError
+            ?: lastError
+            ?: IllegalStateException("Ответ подписки не содержит серверов или Xray JSON-конфиг")
     }
+
+    // ── Мультидомен: запоминание зеркал ──────────────────────────────────────
+    // Зеркала живут в тех же prefs, что и last_subscription_url: их нужно знать
+    // ещё до первого удачного ответа, когда основной домен уже недоступен.
+
+    private const val MIRRORS_PREF_PREFIX = "subscription_mirrors::"
+    private const val PREFERRED_HOST_PREF_PREFIX = "subscription_mirror_host::"
+
+    private fun subscriptionPrefs() = appContext?.getSharedPreferences(
+        "nebulaguard_prefs",
+        Context.MODE_PRIVATE
+    )
+
+    private fun storedMirrors(primaryUrl: String): List<String> {
+        val raw = subscriptionPrefs()?.getString(MIRRORS_PREF_PREFIX + primaryUrl.trim(), null)
+        return SubscriptionMirrors.parse(raw)
+    }
+
+    private fun preferredSubscriptionHost(primaryUrl: String): String? =
+        subscriptionPrefs()
+            ?.getString(PREFERRED_HOST_PREF_PREFIX + primaryUrl.trim(), null)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
+    private fun rememberMirrors(primaryUrl: String, info: SubscriptionInfo, workingUrl: String) {
+        val prefs = subscriptionPrefs() ?: return
+        val key = primaryUrl.trim()
+        runCatching {
+            prefs.edit().apply {
+                if (info.mirrors.isNotEmpty()) {
+                    putString(MIRRORS_PREF_PREFIX + key, info.mirrors.joinToString(","))
+                }
+                if (workingUrl.equals(key, ignoreCase = true)) {
+                    remove(PREFERRED_HOST_PREF_PREFIX + key)
+                } else {
+                    putString(PREFERRED_HOST_PREF_PREFIX + key, workingUrl)
+                }
+            }.apply()
+        }.onFailure {
+            Log.w("SubscriptionManager", "Failed to persist subscription mirrors", it)
+        }
+    }
+
+    /**
+     * Добавляет зеркала, полученные вне ответа подписки — из самой ссылки при
+     * импорте. Нужно для случая, когда домен забанили до первой удачной загрузки:
+     * заголовок прочитать уже неоткуда, а ссылку с зеркалами пользователь получает
+     * из канала или бота.
+     */
+    fun seedMirrors(primaryUrl: String, mirrors: List<String>) {
+        if (mirrors.isEmpty()) return
+        val prefs = subscriptionPrefs() ?: return
+        val key = primaryUrl.trim()
+        val merged = SubscriptionMirrors.merge(storedMirrors(key), mirrors)
+        runCatching {
+            prefs.edit().putString(MIRRORS_PREF_PREFIX + key, merged.joinToString(",")).apply()
+        }.onFailure {
+            Log.w("SubscriptionManager", "Failed to seed subscription mirrors", it)
+        }
+        Log.i("SubscriptionManager", "Seeded ${merged.size} mirror domain(s) from the subscription link")
+    }
+
+    /** Зеркала, известные клиенту для этой подписки (для интерфейса и диагностики). */
+    fun knownMirrors(primaryUrl: String): List<String> = storedMirrors(primaryUrl)
+
+    /** Домен, через который подписка реально грузится сейчас. */
+    fun activeSubscriptionHost(primaryUrl: String): String? =
+        SubscriptionMirrors.hostOf(preferredSubscriptionHost(primaryUrl) ?: primaryUrl)
 
     private fun subscriptionUserAgentAttempts(): List<String> {
         val context = appContext ?: NebulaGuardApplication.instance
@@ -642,6 +740,17 @@ object SubscriptionManager {
             ?.let { decodeBase64Header(it) ?: it }
             ?.trim()?.takeIf { it.isNotBlank() }
 
+        // Мультидомен: список зеркал сабпейджа. Панель может отдать их одним
+        // заголовком, в том числе в base64 — как и nimbo-fallback.
+        val mirrors = SubscriptionMirrors.parse(
+            SubscriptionMirrors.HEADER_NAMES
+                .firstNotNullOfOrNull { response.headers[it] }
+                ?.let { decodeBase64Header(it) ?: it }
+        )
+        if (mirrors.isNotEmpty()) {
+            Log.d("SubscriptionManager", "Subscription advertises ${mirrors.size} mirror domain(s)")
+        }
+
         // App-routing rules optionally provided by the subscription via HTTP headers
         // (process-direct / app-direct → bypass, process-proxy / app-proxy → through VPN).
         runCatching { extractAndStoreSubscriptionAppRules(response) }
@@ -653,7 +762,7 @@ object SubscriptionManager {
         if (!response.isSuccessful) {
             throw Exception(buildSubscriptionHttpError(response.code, body, hwidActive, hwidMaxReached))
         }
-        if (body.isBlank()) return SubscriptionInfo(tlsFragment = tlsFragment)
+        if (body.isBlank()) return SubscriptionInfo(tlsFragment = tlsFragment, mirrors = mirrors)
         val trimmedBody = body.trim()
         var supportsJsonResponse: Boolean? = null
 
@@ -736,6 +845,7 @@ object SubscriptionManager {
                         themeSpec = themeSpec,
                         tlsFragment = tlsFragment,
                         fallbackUrl = fallbackUrl,
+                        mirrors = mirrors,
                         autoUpdateInterval = autoUpdateInterval,
                         shortUuid = url.substringAfterLast("/").substringBefore("?"),
                         numericId = null,
@@ -800,6 +910,7 @@ object SubscriptionManager {
             themeSpec = themeSpec,
             tlsFragment = tlsFragment,
             fallbackUrl = fallbackUrl,
+            mirrors = mirrors,
             autoUpdateInterval = autoUpdateInterval,
             supportsJsonResponse = supportsJsonResponse,
             shortUuid = url.substringAfterLast("/").substringBefore("?")
@@ -885,7 +996,7 @@ object SubscriptionManager {
 
         val replacements = mapOf(
             "{{DAYS_LEFT}}" to when {
-                currentDays < 0 -> "Бессрочно"
+                currentDays < 0 -> "∞"
                 currentDays == 0L -> "Истекает сегодня"
                 else -> "$currentDays"
             },
@@ -2011,6 +2122,9 @@ object SubscriptionManager {
             normalized.startsWith("hysteria2://") ||
             normalized.startsWith("hy2://") ||
             normalized.startsWith("hy://") ||
+            normalized.startsWith("naive://") ||
+            normalized.startsWith("naive+https://") ||
+            normalized.startsWith("naive+quic://") ||
             normalized.startsWith("tuic://") ||
             normalized.startsWith("awg://") ||
             normalized.startsWith("amneziawg://") ||

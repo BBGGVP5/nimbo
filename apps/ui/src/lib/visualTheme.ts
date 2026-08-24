@@ -1,5 +1,7 @@
 import {
   DEFAULT_ACCENT_COLOR,
+  SIGNAL_ACCENT_COLOR,
+  SIGNAL_ACCENT_LIGHT,
   DEFAULT_ACCENT_SOFT,
   DEFAULT_ACCENT_STRONG,
   type AppPreferences,
@@ -32,7 +34,8 @@ export function applyVisualPreferences(
       ? providerTheme.blur
       : null;
   const themeUiStyle =
-    providerTheme?.ui_style === "material_you" || providerTheme?.ui_style === "nimbo" || providerTheme?.ui_style === "dotted"
+    providerTheme?.ui_style === "material_you" || providerTheme?.ui_style === "nimbo"
+    || providerTheme?.ui_style === "dotted" || providerTheme?.ui_style === "signal"
       ? providerTheme.ui_style
       : null;
   const effectiveUiStyle = themeUiStyle ?? preferences.ui_style;
@@ -48,7 +51,16 @@ export function applyVisualPreferences(
     document.body.dataset.theme = resolvedTheme;
     document.body.dataset.uiStyle = effectiveUiStyle;
 
+    // Signal нарисован под тёплый эмбер. Пока пользователь не выбрал свой
+    // акцент, стиль показывает макетный цвет; любой выбранный цвет главнее.
+    const untouchedAccent = preferences.accent_mode === "preset"
+      && preferences.accent_color.toLowerCase() === DEFAULT_ACCENT_COLOR;
+    // В светлой теме эмбер темнеет, иначе оранжевый на белом не держит контраст.
+    const styleAccent = effectiveUiStyle === "signal" && untouchedAccent
+      ? (preferences.theme_mode === "light" ? SIGNAL_ACCENT_LIGHT : SIGNAL_ACCENT_COLOR)
+      : null;
     const accent = themeAccent
+      ?? styleAccent
       ?? (preferences.accent_mode === "system"
         ? readSystemAccentColor()
         : preferences.accent_color);
@@ -79,26 +91,37 @@ export function applyVisualPreferences(
 
     const liquidGlass = effectiveUiStyle === "nimbo";
     const dotted = effectiveUiStyle === "dotted";
+    // Signal — приборная панель: почти непрозрачные поверхности и лёгкое
+    // размытие только под навигацией, чтобы цифры и графики читались чётко.
+    const signal = effectiveUiStyle === "signal";
     const panelAlpha = liquidGlass
       ? Math.max(24, 72 - Math.round(transparency * 0.6))
       : dotted
         ? Math.max(88, 100 - Math.round(transparency * 0.2))
-        : 100 - transparency;
+        : signal
+          ? Math.max(78, 100 - Math.round(transparency * 0.34))
+          : 100 - transparency;
     const controlAlpha = liquidGlass
       ? Math.max(22, 60 - Math.round(transparency * 0.46))
       : dotted
         ? Math.max(84, 100 - Math.round(transparency * 0.22))
-        : Math.max(20, 100 - Math.round(transparency * 0.84));
+        : signal
+          ? Math.max(70, 100 - Math.round(transparency * 0.42))
+          : Math.max(20, 100 - Math.round(transparency * 0.84));
     const backdropFilter = liquidGlass
       ? `blur(${blur}px) saturate(185%) contrast(108%)`
       : dotted
         ? "none"
-        : `blur(${blur}px) saturate(118%)`;
+        : signal
+          ? `blur(${Math.round(blur * 0.5)}px) saturate(112%)`
+          : `blur(${blur}px) saturate(118%)`;
     const softBackdropFilter = liquidGlass
       ? `blur(${Math.round(blur * 0.68)}px) saturate(165%) contrast(105%)`
       : dotted
         ? "none"
-        : `blur(${Math.round(blur * 0.65)}px) saturate(112%)`;
+        : signal
+          ? `blur(${Math.round(blur * 0.36)}px) saturate(108%)`
+          : `blur(${Math.round(blur * 0.65)}px) saturate(112%)`;
 
     root.style.setProperty("--ui-panel-alpha-percent", `${panelAlpha}%`);
     root.style.setProperty("--ui-control-alpha-percent", `${controlAlpha}%`);

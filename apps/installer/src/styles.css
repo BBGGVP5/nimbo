@@ -1336,3 +1336,385 @@ body[data-ui-style="material_you"] .done-path {
   letter-spacing: 0;
   vertical-align: middle;
 }
+
+/* =============================================================
+   Signal для установщика и деинсталлятора
+   Та же приборная панель, что и в приложении: чернильная база,
+   тонкие линии, моноширинные цифры и тёплый акцент на действии.
+   ============================================================= */
+body[data-ui-style="signal"] {
+  --bg: #06080d;
+  --bg-deep: #04050a;
+  --bg-tilt: #0b101a;
+  --surface: #0e131c;
+  --surface-elev: #141a26;
+  --tile: #141a26;
+  --line: rgba(255, 255, 255, 0.075);
+  --line-strong: rgba(255, 255, 255, 0.15);
+  --text: #e9edf4;
+  --muted: rgba(233, 237, 244, 0.66);
+  --faint: rgba(233, 237, 244, 0.42);
+  --success: #43d98a;
+  --red: #ff6b6b;
+}
+
+body[data-ui-style="signal"][data-theme="light"] {
+  --bg: #f5f6f9;
+  --bg-deep: #eef0f5;
+  --bg-tilt: #ffffff;
+  --surface: #ffffff;
+  --surface-elev: #ffffff;
+  --tile: #ffffff;
+  --line: rgba(12, 16, 26, 0.1);
+  --line-strong: rgba(12, 16, 26, 0.18);
+  --text: #10141d;
+  --muted: rgba(16, 20, 29, 0.68);
+  --faint: rgba(16, 20, 29, 0.46);
+  --success: #189a5e;
+}
+
+body[data-ui-style="signal"] .installer-shell {
+  background:
+    radial-gradient(760px 420px at 14% -10%, var(--accent-tint-14), transparent 62%),
+    radial-gradient(620px 380px at 92% 4%, rgba(91, 192, 255, 0.07), transparent 60%),
+    var(--bg);
+}
+
+body[data-ui-style="signal"] .side-rail {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0.008)), var(--surface);
+  border-right: 1px solid var(--line);
+  box-shadow: none;
+}
+
+body[data-ui-style="signal"] .install-panel {
+  background: var(--bg);
+}
+
+body[data-ui-style="signal"] .detail-card,
+body[data-ui-style="signal"] .rail-step,
+body[data-ui-style="signal"] .option-row,
+body[data-ui-style="signal"] .path-row,
+body[data-ui-style="signal"] .path-row-field,
+body[data-ui-style="signal"] .current-step {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02)), var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+
+body[data-ui-style="signal"][data-theme="light"] .detail-card,
+body[data-ui-style="signal"][data-theme="light"] .rail-step,
+body[data-ui-style="signal"][data-theme="light"] .option-row,
+body[data-ui-style="signal"][data-theme="light"] .path-row,
+body[data-ui-style="signal"][data-theme="light"] .path-row-field,
+body[data-ui-style="signal"][data-theme="light"] .current-step {
+  background: #ffffff;
+}
+
+/* цифры процентов, размеров и версий — моноширинные, чтобы не прыгали */
+body[data-ui-style="signal"] .progress-number,
+body[data-ui-style="signal"] .progress-subline,
+body[data-ui-style="signal"] .install-size-pill,
+body[data-ui-style="signal"] .status-kicker,
+body[data-ui-style="signal"] .brand-caption,
+body[data-ui-style="signal"] .path-row-helper {
+  font-family: "Azeret Mono", "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+body[data-ui-style="signal"] .primary-button {
+  background: linear-gradient(150deg, var(--accent), color-mix(in srgb, var(--accent) 74%, #ff5f2e));
+  border: 1px solid transparent;
+  color: #0d1017;
+  font-weight: 700;
+  border-radius: 999px;
+  box-shadow: 0 16px 34px -20px color-mix(in srgb, var(--accent) 92%, transparent);
+}
+
+body[data-ui-style="signal"][data-theme="light"] .primary-button {
+  color: #ffffff;
+}
+
+body[data-ui-style="signal"] .ghost-button,
+body[data-ui-style="signal"] .folder-button {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--text);
+  box-shadow: none;
+}
+
+body[data-ui-style="signal"] .path-row-field textarea {
+  font-family: "Azeret Mono", "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  background: color-mix(in srgb, #000000 24%, transparent);
+  border: 1px solid var(--line);
+}
+
+body[data-ui-style="signal"][data-theme="light"] .path-row-field textarea {
+  background: rgba(12, 16, 26, 0.04);
+}
+
+body[data-ui-style="signal"] .progress-ring circle:last-child {
+  stroke: var(--accent);
+}
+
+body[data-ui-style="signal"] .ambient-glow {
+  opacity: 0.5;
+  filter: blur(90px);
+}
+
+body[data-ui-style="signal"] .step-icon-done,
+body[data-ui-style="signal"] .step-icon-running {
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+/* Dotted-стиль приложения тоже больше не остаётся без пары: окно установки
+   просто становится плоским и контрастным, без стеклянных подложек. */
+body[data-ui-style="dotted"] .detail-card,
+body[data-ui-style="dotted"] .rail-step,
+body[data-ui-style="dotted"] .option-row,
+body[data-ui-style="dotted"] .path-row,
+body[data-ui-style="dotted"] .current-step {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: none;
+}
+
+/* =============================================================
+   Signal — установщик: мелкие правки раскладки
+   Подпись про хелпер не должна вылезать за карточку, а строки
+   опций и шагов держат одинаковую сетку.
+   ============================================================= */
+body[data-ui-style="signal"] .path-row-label {
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 6px;
+}
+
+body[data-ui-style="signal"] .path-row-helper {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  font-family: "Azeret Mono", "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+body[data-ui-style="signal"] .install-size-pill {
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+/* переключатели опций — одна линия, ровные карточки */
+body[data-ui-style="signal"] .option-row {
+  padding: 12px 14px;
+  border-radius: var(--r-md, 12px);
+}
+
+body[data-ui-style="signal"] .toggle {
+  gap: 12px;
+}
+
+body[data-ui-style="signal"] .toggle-text {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* список шагов: точка, название, описание — без «плавающих» разделителей */
+body[data-ui-style="signal"] .detail-line {
+  padding: 10px 12px;
+  border-radius: var(--r-md, 12px);
+  border: 1px solid transparent;
+}
+
+body[data-ui-style="signal"] .detail-line + .detail-line {
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--r-md, 12px) var(--r-md, 12px);
+}
+
+body[data-ui-style="signal"] .detail-head {
+  font-family: "Azeret Mono", "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* кнопки внизу: одинаковая высота и радиус */
+body[data-ui-style="signal"] .actions {
+  gap: 12px;
+}
+
+body[data-ui-style="signal"] .actions .primary-button,
+body[data-ui-style="signal"] .actions .ghost-button {
+  min-height: 46px;
+  padding: 12px 22px;
+  border-radius: 999px;
+}
+
+/* =============================================================
+   Signal — блок «Папка установки»
+   Карточка получила рамку, но не получила внутренних отступов:
+   подписи и поле упирались в край. Здесь это исправляется.
+   ============================================================= */
+body[data-ui-style="signal"] .path-row {
+  padding: 14px;
+  border-radius: var(--r-lg, 16px);
+  gap: 10px;
+}
+
+body[data-ui-style="signal"] .path-row-label {
+  gap: 10px;
+  padding: 0 2px;
+}
+
+body[data-ui-style="signal"] .path-row-helper {
+  flex: none;
+  margin-left: auto;
+}
+
+body[data-ui-style="signal"] .path-row-field {
+  padding: 9px 10px 9px 12px;
+  border-radius: var(--r-md, 12px);
+  gap: 10px;
+  align-items: center;
+}
+
+body[data-ui-style="signal"] .path-row-field textarea {
+  padding: 2px 0;
+  line-height: 1.5;
+  resize: none;
+}
+
+body[data-ui-style="signal"] .folder-button {
+  flex: none;
+  min-height: 34px;
+  padding: 8px 16px;
+  font-size: 12.5px;
+}
+
+/* строка опций под путём — те же внутренние отступы */
+body[data-ui-style="signal"] .option-row {
+  padding: 12px 14px;
+}
+
+/* -----------------------------------------------------------------
+   Signal: окно 1080×680 без прокрутки. В режиме обновления к панели
+   добавляется абзац описания, поэтому вертикальные отступы плотнее —
+   иначе внизу появляется полоса прокрутки и кнопки уезжают за край.
+   ----------------------------------------------------------------- */
+body[data-ui-style="signal"] .install-panel {
+  padding: 22px 28px 18px;
+}
+
+body[data-ui-style="signal"] .hero {
+  gap: 6px;
+}
+
+body[data-ui-style="signal"] .hero h1 {
+  font-size: 30px;
+  line-height: 1.1;
+}
+
+body[data-ui-style="signal"] .hero p {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+body[data-ui-style="signal"] .path-row {
+  margin-top: 14px;
+  padding: 12px;
+  gap: 8px;
+}
+
+body[data-ui-style="signal"] .path-row-field {
+  padding: 8px 9px 8px 11px;
+}
+
+body[data-ui-style="signal"] .folder-button {
+  min-height: 32px;
+  padding: 7px 15px;
+}
+
+body[data-ui-style="signal"] .option-row {
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
+body[data-ui-style="signal"] .detail-card {
+  margin-top: 14px;
+  padding: 13px 15px;
+  gap: 10px;
+}
+
+body[data-ui-style="signal"] .detail-line {
+  padding: 6px 4px;
+  gap: 10px;
+}
+
+body[data-ui-style="signal"] .detail-line + .detail-line {
+  padding-top: 6px;
+}
+
+body[data-ui-style="signal"] .actions {
+  margin-top: 14px;
+}
+
+body[data-ui-style="signal"] .window-close {
+  height: 32px;
+}
+
+/* На низком окне ужимаем сильнее: подписи шагов уходят в подсказку,
+   иначе шесть строк с описаниями не оставляют места кнопкам. */
+@media (max-height: 640px) {
+  body[data-ui-style="signal"] .install-panel {
+    padding: 16px 24px 14px;
+  }
+
+  body[data-ui-style="signal"] .hero h1 {
+    font-size: 25px;
+  }
+
+  body[data-ui-style="signal"] .hero p {
+    font-size: 12.5px;
+  }
+
+  body[data-ui-style="signal"] .path-row,
+  body[data-ui-style="signal"] .option-row,
+  body[data-ui-style="signal"] .detail-card,
+  body[data-ui-style="signal"] .actions {
+    margin-top: 10px;
+  }
+
+  body[data-ui-style="signal"] .detail-card {
+    padding: 10px 13px;
+    gap: 6px;
+  }
+
+  body[data-ui-style="signal"] .detail-line {
+    padding: 4px;
+  }
+
+  body[data-ui-style="signal"] .detail-line-text small {
+    display: none;
+  }
+
+  /* Без описаний шаги свободно встают в две колонки даже на узком окне. */
+  body[data-ui-style="signal"] .detail-lines {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 12px;
+  }
+}

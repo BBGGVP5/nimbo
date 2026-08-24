@@ -37,6 +37,7 @@ fun GlassHeader(
         ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape(14.dp)
         ElementStyleMode.OUTLINED -> RoundedCornerShape(12.dp)
         ElementStyleMode.SOFT_NEO -> RoundedCornerShape(20.dp)
+        ElementStyleMode.SIGNAL -> RoundedCornerShape(18.dp)
     }
     val headerBackground = when (elementStyle) {
         ElementStyleMode.LIQUID_GLASS -> Brush.linearGradient(
@@ -72,6 +73,13 @@ fun GlassHeader(
                 nebulaColors.onSurface.copy(alpha = 0.11f),
                 nebulaColors.surface.copy(alpha = 0.82f),
                 nebulaColors.onSurface.copy(alpha = 0.07f)
+            )
+        )
+
+        ElementStyleMode.SIGNAL -> Brush.linearGradient(
+            listOf(
+                nebulaColors.textPrimary.copy(alpha = 0.02f),
+                nebulaColors.textPrimary.copy(alpha = 0.02f)
             )
         )
     }

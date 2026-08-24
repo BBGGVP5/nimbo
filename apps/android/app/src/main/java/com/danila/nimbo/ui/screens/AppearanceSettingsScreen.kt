@@ -1337,7 +1337,8 @@ private fun elementStyleOptions(): List<Pair<Int, String>> = listOf(
     1 to "Material You · Android 17",
     2 to "Nothing Dots",
     3 to "Outlined",
-    4 to "Soft Neo"
+    4 to "Soft Neo",
+    5 to "Signal"
 )
 
 private data class StylePreset(

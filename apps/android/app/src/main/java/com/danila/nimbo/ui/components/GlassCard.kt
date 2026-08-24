@@ -25,9 +25,10 @@ fun GlassCard(
     val shape = when (elementStyle) {
         ElementStyleMode.LIQUID_GLASS -> RoundedCornerShape(24.dp)
         ElementStyleMode.MATERIAL_EXPRESSIVE -> RoundedCornerShape(24.dp)
-        ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape(14.dp)
+        ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape(8.dp)
         ElementStyleMode.OUTLINED -> RoundedCornerShape(12.dp)
         ElementStyleMode.SOFT_NEO -> RoundedCornerShape(22.dp)
+        ElementStyleMode.SIGNAL -> RoundedCornerShape(18.dp)
     }
 
     val backgroundBrush = when (elementStyle) {
@@ -66,6 +67,15 @@ fun GlassCard(
                 nebulaColors.onSurface.copy(alpha = 0.06f)
             )
         )
+
+        // Signal: плоская поверхность без градиента — глубину даёт только
+        // волосяная граница, как в приборной панели на десктопе.
+        ElementStyleMode.SIGNAL -> Brush.linearGradient(
+            listOf(
+                nebulaColors.textPrimary.copy(alpha = 0.02f),
+                nebulaColors.textPrimary.copy(alpha = 0.02f)
+            )
+        )
     }
 
     val borderColor = when (elementStyle) {
@@ -74,6 +84,7 @@ fun GlassCard(
         ElementStyleMode.NOTHING_DOTS -> nebulaColors.accent.copy(alpha = 0.18f)
         ElementStyleMode.OUTLINED -> nebulaColors.onSurface.copy(alpha = 0.22f)
         ElementStyleMode.SOFT_NEO -> nebulaColors.accent.copy(alpha = 0.16f)
+        ElementStyleMode.SIGNAL -> nebulaColors.textPrimary.copy(alpha = 0.075f)
     }
 
     val surfaceModifier = if (elementStyle == ElementStyleMode.LIQUID_GLASS) {
@@ -87,7 +98,17 @@ fun GlassCard(
                     Modifier.dotPatternOverlay(nebulaColors.textPrimary, spacing = 10.dp, radius = 0.9.dp, alpha = 0.13f)
                 } else Modifier
             )
-            .border(1.dp, borderColor, shape)
+            .then(
+                if (elementStyle == ElementStyleMode.NOTHING_DOTS) {
+                    Modifier.dottedOutline(
+                        color = nebulaColors.accent,
+                        cornerRadius = 8.dp,
+                        alpha = 0.72f
+                    )
+                } else {
+                    Modifier.border(1.dp, borderColor, shape)
+                }
+            )
     }
 
     Box(

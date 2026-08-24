@@ -96,6 +96,10 @@ pub struct Fetched {
     /// Xray-config templates, извлечённые из тела подписки.
     /// Ключ — xrayJsonTemplateUuid/uuid/id, если есть; иначе `default`.
     pub xray_templates: HashMap<String, Value>,
+    /// Зеркала сабпейджа из заголовка `nimbo-mirrors`.
+    pub mirrors: Vec<String>,
+    /// Ссылка, по которой ответ реально пришёл (основная или зеркало).
+    pub source_url: String,
 }
 
 pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetched, FetchError> {
@@ -177,6 +181,10 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
     let logo_url = extract_subscription_logo(resp.headers());
     let theme = extract_subscription_theme(resp.headers());
     let tls_fragment = extract_tls_fragment_config(resp.headers());
+    let mirrors = extract_subscription_mirrors(resp.headers());
+    if !mirrors.is_empty() {
+        println!("subscription advertises {} mirror domain(s)", mirrors.len());
+    }
 
     let body = resp
         .text()
@@ -221,7 +229,76 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         theme,
         tls_fragment,
         xray_templates,
+        mirrors,
+        source_url: url.to_string(),
     })
+}
+
+/// Мультидомен: перебирает основной домен подписки и известные зеркала, пока
+/// какой-нибудь не ответит. Порядок задаёт [`crate::mirrors::candidates`] —
+/// первым идёт домен, сработавший в прошлый раз.
+///
+/// `known_mirrors` и `preferred_url` берутся из сохранённой подписки: после
+/// блокировки основного домена заголовок с зеркалами уже неоткуда прочитать.
+pub async fn fetch_subscription_with_mirrors(
+    url: &str,
+    opts: &FetchOptions,
+    known_mirrors: &[String],
+    preferred_url: Option<&str>,
+) -> Result<Fetched, FetchError> {
+    let candidates = crate::mirrors::candidates(url, known_mirrors, preferred_url);
+    let mut primary_error: Option<FetchError> = None;
+    let mut last_error: Option<FetchError> = None;
+
+    for candidate in &candidates {
+        let is_primary = candidate.eq_ignore_ascii_case(url.trim());
+        match fetch_subscription(candidate, opts).await {
+            Ok(mut fetched) => {
+                if !is_primary {
+                    println!(
+                        "subscription loaded from mirror {}",
+                        crate::mirrors::host_of(candidate).unwrap_or_default()
+                    );
+                }
+                // Панель может отдать заголовок только на основном домене —
+                // тогда сохраняем уже известный список, чтобы он не потерялся.
+                if fetched.mirrors.is_empty() && !known_mirrors.is_empty() {
+                    fetched.mirrors = known_mirrors.to_vec();
+                }
+                return Ok(fetched);
+            }
+            Err(err) => {
+                println!(
+                    "subscription fetch failed on {}: {}",
+                    crate::mirrors::host_of(candidate).unwrap_or_default(),
+                    err
+                );
+                if is_primary && primary_error.is_none() {
+                    primary_error = Some(err);
+                } else {
+                    last_error = Some(err);
+                }
+            }
+        }
+    }
+
+    // Ошибку основного домена показываем в первую очередь: она понятнее
+    // пользователю, чем сбой последнего зеркала.
+    Err(primary_error
+        .or(last_error)
+        .unwrap_or_else(|| FetchError::Http("no subscription hosts to try".to_string())))
+}
+
+fn extract_subscription_mirrors(headers: &reqwest::header::HeaderMap) -> Vec<String> {
+    for name in crate::mirrors::HEADER_NAMES {
+        if let Some(value) = headers.get(*name).and_then(|v| v.to_str().ok()) {
+            let parsed = crate::mirrors::parse(value);
+            if !parsed.is_empty() {
+                return parsed;
+            }
+        }
+    }
+    Vec::new()
 }
 
 /// Если body содержит XRAY_JSON config/template, возвращает все найденные шаблоны.
@@ -346,6 +423,8 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
         theme,
         tls_fragment,
         xray_templates: _,
+        mirrors,
+        source_url,
     } = fetched;
     let resolved_name = sanitize_name(name).or_else(|| sanitize_name(suggested_name));
     dedupe_subscription_servers(&mut servers);
@@ -364,6 +443,10 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
             logo_url: sanitize_name(logo_url),
             theme,
             tls_fragment,
+            mirrors,
+            // Пустое значение = работал основной домен подписки.
+            active_url: Some(source_url)
+                .filter(|source| !source.eq_ignore_ascii_case(url.trim())),
         },
         servers,
         info,
@@ -2783,6 +2866,8 @@ mod tests {
             support_url: None,
             website_url: None,
             app_proxy_rules: Vec::new(),
+            mirrors: Vec::new(),
+            source_url: String::new(),
             logo_url: None,
             theme: None,
             tls_fragment: None,

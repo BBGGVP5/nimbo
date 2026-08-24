@@ -2,6 +2,7 @@ package com.danila.nimbo.ui.components
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,8 +24,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.danila.nimbo.ui.theme.ElementStyleMode
 import com.danila.nimbo.ui.theme.LocalElementStyleMode
 import com.danila.nimbo.ui.theme.LocalNebulaColors
@@ -66,11 +69,24 @@ fun SettingsSection(
                 )
             }
             Spacer(Modifier.width(10.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                color = nebulaColors.textSecondary
-            )
+            if (elementStyle == ElementStyleMode.SIGNAL) {
+                // Signal подписывает секции разрядкой в верхнем регистре —
+                // тем же приёмом, что и приборная панель на десктопе.
+                Text(
+                    text = title.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = nebulaColors.textTertiary,
+                    fontSize = 10.sp,
+                    letterSpacing = 1.6.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            } else {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = nebulaColors.textSecondary
+                )
+            }
         }
 
         Spacer(Modifier.height(6.dp))
@@ -83,8 +99,18 @@ fun SettingsSection(
                 ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape(12.dp)
                 ElementStyleMode.OUTLINED -> RoundedCornerShape(10.dp)
                 ElementStyleMode.SOFT_NEO -> RoundedCornerShape(20.dp)
+                ElementStyleMode.SIGNAL -> RoundedCornerShape(18.dp)
             },
-            color = Color.Transparent
+            color = if (elementStyle == ElementStyleMode.SIGNAL) {
+                nebulaColors.textPrimary.copy(alpha = 0.02f)
+            } else {
+                Color.Transparent
+            },
+            border = if (elementStyle == ElementStyleMode.SIGNAL) {
+                BorderStroke(1.dp, nebulaColors.textPrimary.copy(alpha = 0.075f))
+            } else {
+                null
+            }
         ) {
             Column(
                 modifier = Modifier.padding(vertical = 6.dp)
@@ -457,6 +483,14 @@ private fun settingsIconBrush(
             Color.Transparent
         )
     )
+
+    // Signal: подложка иконки ровная и акцентная, без градиента.
+    ElementStyleMode.SIGNAL -> Brush.linearGradient(
+        colors = listOf(
+            nebulaColors.accent.copy(alpha = 0.1f),
+            nebulaColors.accent.copy(alpha = 0.1f)
+        )
+    )
 }
 
 private fun settingsRowBackground(
@@ -494,6 +528,12 @@ private fun settingsRowBackground(
             nebulaColors.surface.copy(alpha = 0.7f),
             nebulaColors.onSurface.copy(alpha = 0.06f)
         )
+    )
+
+    // Ряды настроек идут сплошным списком, поэтому фон у них прозрачный —
+    // разделяют не подложки, а границы карточки-секции.
+    ElementStyleMode.SIGNAL -> Brush.linearGradient(
+        listOf(Color.Transparent, Color.Transparent)
     )
 }
 

@@ -289,7 +289,9 @@ fn default_show_speed_chart() -> bool {
 }
 
 fn default_ui_style() -> String {
-    "nimbo".into()
+    // Signal — приборная панель 1.2: плотные данные, тёплый акцент только
+    // на действиях. Прежние стили остаются доступными в настройках.
+    "signal".into()
 }
 
 fn default_interface_panel_brightness() -> u32 {

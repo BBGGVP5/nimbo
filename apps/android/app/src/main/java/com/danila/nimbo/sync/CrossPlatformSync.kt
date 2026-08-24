@@ -1,5 +1,7 @@
 package com.danila.nimbo.sync
 
+import com.danila.nimbo.ui.theme.ElementStyleMode
+
 import android.os.Build
 import com.danila.nimbo.BuildConfig
 import com.danila.nimbo.model.UpdateChannel
@@ -15,6 +17,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
 import java.net.URLDecoder
+import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 import java.util.Base64
@@ -127,7 +130,9 @@ data class CrossSyncQr(
     val sessionId: String,
     val key: ByteArray,
     val expiresAtMs: Long,
-    val comparisonCode: String?
+    val comparisonCode: String?,
+    val bluetoothMac: String? = null,
+    val preferredTransport: String? = null
 )
 
 data class EncryptedSyncEnvelope(
@@ -182,10 +187,39 @@ data class PairedDesktopDevice(
     @SerializedName("architecture") val architecture: String? = null,
     @SerializedName("auto_sync") val autoSync: Boolean = true,
     @SerializedName("subscription_count") val lastSubscriptionCount: Int = 0,
-    @SerializedName("subscription_names") val lastSubscriptionNames: List<String> = emptyList()
+    @SerializedName("subscription_names") val lastSubscriptionNames: List<String> = emptyList(),
+    @SerializedName("bluetooth_mac") val bluetoothMac: String? = null
 )
 
 object CrossSyncProtocol {
+    fun buildQrPayload(
+        host: String,
+        port: Int,
+        sessionId: String,
+        key: ByteArray,
+        expiresAtMs: Long,
+        comparisonCode: String? = null,
+        bluetoothMac: String? = null,
+        preferredTransport: String? = null
+    ): String {
+        require(isPrivateIpv4(host)) { "Для QR нужен локальный IPv4-адрес" }
+        require(port in 1024..65535) { "Некорректный порт синхронизации" }
+        require(key.size == 32) { "AES-256 key required" }
+        fun enc(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
+        val query = buildList {
+            add("v=1")
+            add("host=${enc(host)}")
+            add("port=$port")
+            add("sid=${enc(sessionId)}")
+            add("key=${enc(Base64.getUrlEncoder().withoutPadding().encodeToString(key))}")
+            add("exp=$expiresAtMs")
+            comparisonCode?.takeIf { it.isNotBlank() }?.let { add("code=${enc(it)}") }
+            bluetoothMac?.takeIf { it.isNotBlank() }?.let { add("bt_mac=${enc(it)}") }
+            preferredTransport?.takeIf { it.isNotBlank() }?.let { add("transport=${enc(it)}") }
+        }.joinToString("&")
+        return "nimbo-sync://pair?$query"
+    }
+
     fun parseQr(raw: String, nowMs: Long = System.currentTimeMillis()): CrossSyncQr {
         val uri = runCatching { URI(raw.trim()) }
             .getOrElse { throw IllegalArgumentException("Некорректный QR синхронизации") }
@@ -206,15 +240,19 @@ object CrossSyncProtocol {
         require(key.size == 32) { "Повреждён ключ синхронизации" }
         val expiresAt = query["exp"]?.toLongOrNull()
             ?: throw IllegalArgumentException("В QR отсутствует срок действия")
-        require(expiresAt > nowMs) { "QR уже устарел. Обновите его на ПК" }
+        require(expiresAt > nowMs) { "QR уже устарел. Обновите его на втором устройстве" }
         require(expiresAt - nowMs <= 5 * 60_000L) { "Некорректный срок действия QR" }
+        val bluetoothMac = query["bt_mac"]?.trim()?.takeIf { it.isNotBlank() }
+        val transport = query["transport"]?.trim()?.takeIf { it.isNotBlank() }
         return CrossSyncQr(
             host = host,
             port = port,
             sessionId = sessionId,
             key = key,
             expiresAtMs = expiresAt,
-            comparisonCode = query["code"]?.takeIf { it.length in 4..12 }
+            comparisonCode = query["code"]?.takeIf { it.length in 4..12 },
+            bluetoothMac = bluetoothMac,
+            preferredTransport = transport
         )
     }
 
@@ -336,21 +374,111 @@ object CrossSyncCrypto {
 class CrossSyncClient(
     private val gson: Gson = Gson()
 ) {
-    suspend fun exchange(qr: CrossSyncQr, request: SyncWireRequest): SyncWireResponse =
-        withContext(Dispatchers.IO) {
-            require(System.currentTimeMillis() < qr.expiresAtMs) { "Сеанс синхронизации истёк" }
-            exchangeFrame(qr.host, qr.port, qr.key, qr.sessionId, request)
+    companion object {
+        val NIMBO_BLUETOOTH_UUID: java.util.UUID =
+            java.util.UUID.fromString("0a23e590-7d6f-4428-9d89-9a74288b835e")
+    }
+
+    suspend fun exchange(
+        qr: CrossSyncQr,
+        request: SyncWireRequest,
+        preferredTransport: String = "both"
+    ): SyncWireResponse = withContext(Dispatchers.IO) {
+        require(System.currentTimeMillis() < qr.expiresAtMs) { "Сеанс синхронизации истёк" }
+        val mode = preferredTransport.lowercase()
+        val mac = qr.bluetoothMac
+        when {
+            mode == "bluetooth" && !mac.isNullOrBlank() -> exchangeFrameBluetooth(mac, qr.key, qr.sessionId, request)
+            mode == "wifi" -> exchangeFrame(qr.host, qr.port, qr.key, qr.sessionId, request)
+            else -> {
+                // "both" or default mode: try Wi-Fi first, fallback to Bluetooth if available
+                runCatching { exchangeFrame(qr.host, qr.port, qr.key, qr.sessionId, request) }
+                    .getOrElse { wifiErr ->
+                        if (!mac.isNullOrBlank()) {
+                            runCatching { exchangeFrameBluetooth(mac, qr.key, qr.sessionId, request) }
+                                .getOrElse { throw wifiErr }
+                        } else {
+                            throw wifiErr
+                        }
+                    }
+            }
         }
+    }
 
     suspend fun exchangePaired(
         device: PairedDesktopDevice,
-        request: SyncWireRequest
+        request: SyncWireRequest,
+        preferredTransport: String = "both"
     ): SyncWireResponse {
         val key = runCatching { Base64.getUrlDecoder().decode(device.key) }
             .getOrElse { throw IllegalArgumentException("Повреждён ключ устройства") }
         require(key.size == 32) { "Повреждён ключ устройства" }
         return withContext(Dispatchers.IO) {
-            exchangeFrame(device.host, device.port, key, "resume:${device.deviceId}", request)
+            val mode = preferredTransport.lowercase()
+            val mac = device.bluetoothMac
+            // The resume id identifies the caller. Older builds used the remote id,
+            // which happened to work for the first PC but collided with multiple peers.
+            val callerId = request.deviceId?.takeIf { it.isNotBlank() } ?: device.deviceId
+            val sessionId = "resume:$callerId"
+            when {
+                mode == "bluetooth" && !mac.isNullOrBlank() -> exchangeFrameBluetooth(mac, key, sessionId, request)
+                mode == "wifi" -> exchangeFrame(device.host, device.port, key, sessionId, request)
+                else -> {
+                    runCatching { exchangeFrame(device.host, device.port, key, sessionId, request) }
+                        .getOrElse { wifiErr ->
+                            if (!mac.isNullOrBlank()) {
+                                runCatching { exchangeFrameBluetooth(mac, key, sessionId, request) }
+                                    .getOrElse { throw wifiErr }
+                            } else {
+                                throw wifiErr
+                            }
+                        }
+                }
+            }
+        }
+    }
+
+    private suspend fun exchangeFrameBluetooth(
+        macAddress: String,
+        key: ByteArray,
+        sessionId: String,
+        request: SyncWireRequest
+    ): SyncWireResponse = withContext(Dispatchers.IO) {
+        val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+            ?: throw IllegalStateException("Bluetooth недоступен на устройстве")
+        if (!adapter.isEnabled) {
+            throw IllegalStateException("Bluetooth выключен. Включите Bluetooth для подключения")
+        }
+        val device = runCatching { adapter.getRemoteDevice(macAddress) }
+            .getOrElse { throw IllegalArgumentException("Некорректный Bluetooth-адрес компьютера") }
+
+        val plaintext = gson.toJson(request).encodeToByteArray()
+        require(plaintext.size <= MAX_SYNC_FRAME_BYTES) { "Слишком большой пакет синхронизации" }
+        val envelope = CrossSyncCrypto.encrypt(key, sessionId, plaintext)
+        val frame = gson.toJson(envelope).encodeToByteArray()
+        require(frame.size <= MAX_SYNC_FRAME_BYTES) { "Слишком большой пакет синхронизации" }
+
+        val socket = device.createRfcommSocketToServiceRecord(NIMBO_BLUETOOTH_UUID)
+        socket.use { btSocket ->
+            btSocket.connect()
+            DataOutputStream(btSocket.outputStream.buffered()).use { output ->
+                output.writeInt(frame.size)
+                output.write(frame)
+                output.flush()
+
+                val input = DataInputStream(btSocket.inputStream.buffered())
+                val length = input.readInt()
+                require(length in 1..MAX_SYNC_FRAME_BYTES) { "Некорректный ответ синхронизации по Bluetooth" }
+                val responseFrame = ByteArray(length)
+                input.readFully(responseFrame)
+                val responseEnvelope = gson.fromJson(
+                    responseFrame.decodeToString(),
+                    EncryptedSyncEnvelope::class.java
+                )
+                require(responseEnvelope.sessionId == sessionId) { "Ответ другого сеанса" }
+                val responseJson = CrossSyncCrypto.decrypt(key, responseEnvelope).decodeToString()
+                gson.fromJson(responseJson, SyncWireResponse::class.java)
+            }
         }
     }
 
@@ -442,7 +570,15 @@ object AndroidCrossSyncBundleMapper {
                 },
             appearance = SyncAppearance(
                 themeMode = themeMode,
-                uiStyle = if (preferences.elementStyle == 0) "nimbo" else "material_you",
+                // Стили десктопа и телефона совпадают по названиям, поэтому
+                // Signal и Nothing Dots переносятся как есть, а не сваливаются
+                // в material_you.
+                uiStyle = when (preferences.elementStyle) {
+                    ElementStyleMode.MATERIAL_EXPRESSIVE.persistedValue -> "material_you"
+                    ElementStyleMode.NOTHING_DOTS.persistedValue -> "dotted"
+                    ElementStyleMode.SIGNAL.persistedValue -> "signal"
+                    else -> "nimbo"
+                },
                 accentColor = accent,
                 panelBrightness = (preferences.globalBrightness * 100f).toInt().coerceIn(50, 200),
                 transparency = (preferences.globalTransparency * 100f).toInt().coerceIn(0, 100),
@@ -484,7 +620,12 @@ object AndroidCrossSyncBundleMapper {
                     else -> 0
                 }
                 preferences.pureBlackMode = appearance.themeMode.equals("black", ignoreCase = true)
-                preferences.elementStyle = if (appearance.uiStyle == "material_you") 1 else 0
+                preferences.elementStyle = when (appearance.uiStyle) {
+                    "material_you" -> ElementStyleMode.MATERIAL_EXPRESSIVE.persistedValue
+                    "dotted" -> ElementStyleMode.NOTHING_DOTS.persistedValue
+                    "signal" -> ElementStyleMode.SIGNAL.persistedValue
+                    else -> ElementStyleMode.LIQUID_GLASS.persistedValue
+                }
                 parseAccent(appearance.accentColor)?.let { accent ->
                     preferences.useDynamicColor = false
                     preferences.isCustomAccent = true
@@ -612,7 +753,8 @@ object PairedSyncEngine {
                 deviceName = exported.deviceName,
                 bundle = exported.filtered(categories),
                 categories = categories
-            )
+            ),
+            preferredTransport = preferences.crossSyncTransportMode
         )
         if (!response.paired || response.state == "unpaired") {
             return PairedSyncResult(unpaired = true, deviceName = device.name)

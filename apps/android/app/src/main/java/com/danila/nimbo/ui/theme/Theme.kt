@@ -40,7 +40,12 @@ enum class BackgroundStyleMode {
     BLOSSOM,
     NONE,
     RAIN,
-    ORBIT
+    ORBIT,
+    /**
+     * Calm, separated signal capsules. Kept last so persisted background
+     * indices selected in older builds never change their meaning.
+     */
+    SIGNAL_FLOW
 }
 
 /**
@@ -121,6 +126,7 @@ fun backgroundStyleModeForIndex(index: Int): BackgroundStyleMode = when (index) 
     15 -> BackgroundStyleMode.NONE
     16 -> BackgroundStyleMode.RAIN
     17 -> BackgroundStyleMode.ORBIT
+    18 -> BackgroundStyleMode.SIGNAL_FLOW
     else -> BackgroundStyleMode.MORPHISM
 }
 
@@ -496,7 +502,16 @@ fun getNebulaColors(
 ): NebulaColors {
     val isDark = isDarkTheme(themeIndex)
     val resolvedColorScheme = colorScheme ?: getColorScheme(themeIndex)
-    val accent = if (useDynamicColor) {
+    // Signal приносит свой янтарный акцент — как на десктопе. Он достаётся
+    // только тем, кто не выбирал цвет сам: ручной выбор и динамические цвета
+    // системы важнее стиля.
+    val accent = if (
+        elementStyle == ElementStyleMode.SIGNAL.persistedValue &&
+        !useDynamicColor &&
+        !isCustomAccent
+    ) {
+        if (isDark) SignalEmber else SignalEmberLight
+    } else if (useDynamicColor) {
         resolvedColorScheme.primary
     } else if (isCustomAccent) {
         // Блендим акцентный цвет из всех выбранных цветов градиента
@@ -527,8 +542,8 @@ fun getNebulaColors(
             else -> AccentBlue
         }
     }
-    
-    val textSecondaryAlpha = if (highContrastUi) 0.86f else 0.66f
+
+        val textSecondaryAlpha = if (highContrastUi) 0.86f else 0.66f
     val textTertiaryAlpha = if (highContrastUi) 0.72f else 0.42f
     val cardAlpha = when {
         reducedTransparency -> if (isDark) 0.06f else 0.18f
@@ -551,6 +566,10 @@ fun getNebulaColors(
     // panels visibly lift off the background and the look clearly differs from glass.
     val isMaterialYou = elementStyle == ElementStyleMode.MATERIAL_EXPRESSIVE.persistedValue
     val isLiquidGlass = elementStyle == ElementStyleMode.LIQUID_GLASS.persistedValue
+    // Signal задаёт поверхности глобально: ровные подложки и волосяные
+    // границы, чтобы стиль поменял вид всех экранов, а не только тех,
+    // где стоит явная проверка.
+    val isSignal = elementStyle == ElementStyleMode.SIGNAL.persistedValue
     val m3PanelFill = resolvedColorScheme.surfaceContainer
     val m3ControlFill = resolvedColorScheme.surfaceContainerHigh
     val m3SoftFill = resolvedColorScheme.surfaceContainerLow
@@ -559,6 +578,11 @@ fun getNebulaColors(
     // Determine target raw colors based on style
     val resolvedPanelFill = when {
         isMaterialYou -> m3PanelFill
+        isSignal -> if (isDark) {
+            Color.White.copy(alpha = 0.02f)
+        } else {
+            Color.White.copy(alpha = 0.96f)
+        }
         isLiquidGlass -> if (isDark) {
             DarkSurface.copy(alpha = if (reducedTransparency) 0.90f else 0.42f)
         } else {
@@ -568,6 +592,7 @@ fun getNebulaColors(
     }
     val resolvedControlFill = when {
         isMaterialYou -> m3ControlFill
+        isSignal -> if (isDark) Color.Black.copy(alpha = 0.25f) else Color(0xFFF1F0F6)
         isLiquidGlass -> if (isDark) {
             Color.White.copy(alpha = if (reducedTransparency) 0.11f else 0.045f)
         } else {
@@ -577,15 +602,19 @@ fun getNebulaColors(
     }
     val resolvedSoftFill = when {
         isMaterialYou -> m3SoftFill
+        isSignal -> if (isDark) Color.White.copy(alpha = 0.04f) else Color(0xFFF4F3F9)
         isLiquidGlass -> if (isDark) Color.White.copy(alpha = 0.055f) else Color.White.copy(alpha = 0.50f)
         else -> if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFF1F0F7)
     }
     val resolvedPanelBorder = when {
         isMaterialYou -> Color.Transparent
+        isSignal -> if (isDark) Color.White.copy(alpha = 0.075f) else Color(0xFFE4E2EC)
         isLiquidGlass -> if (isDark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.82f)
         else -> if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFE2E0EA)
     }
-    val resolvedDivider = if (isMaterialYou) m3Divider else {
+    val resolvedDivider = if (isMaterialYou) m3Divider else if (isSignal) {
+        if (isDark) Color.White.copy(alpha = 0.075f) else Color(0xFFE7E5EE)
+    } else {
         if (isDark) Color.White.copy(alpha = 0.075f) else Color(0xFFE7E5EE)
     }
 
@@ -962,6 +991,14 @@ fun NebulaGuardTheme(
             large = RoundedCornerShape(32.dp),
             extraLarge = RoundedCornerShape(40.dp)
         )
+        // Signal: скругления заметно меньше — панель, а не «капли».
+        ElementStyleMode.SIGNAL -> Shapes(
+            extraSmall = RoundedCornerShape(8.dp),
+            small = RoundedCornerShape(12.dp),
+            medium = RoundedCornerShape(14.dp),
+            large = RoundedCornerShape(18.dp),
+            extraLarge = RoundedCornerShape(22.dp)
+        )
     }
 
     val view = LocalView.current
@@ -998,4 +1035,3 @@ fun NebulaGuardTheme(
         )
     }
 }
-

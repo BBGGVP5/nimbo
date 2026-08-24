@@ -86,15 +86,15 @@ fun BottomBar(navController: NavController) {
         BottomDestination("profiles", t("Профили", "Profiles"), Icons.Filled.Person, Icons.Outlined.Person),
         BottomDestination("settings", t("Настройки", "Settings"), Icons.Filled.Settings, Icons.Outlined.Settings)
     )
-    val panelShape = RoundedCornerShape(
-        when (elementStyle) {
-            ElementStyleMode.LIQUID_GLASS -> (34 * cornerScale).dp
-            ElementStyleMode.MATERIAL_EXPRESSIVE -> (32 * cornerScale).dp
-            ElementStyleMode.NOTHING_DOTS -> (18 * cornerScale).dp
-            ElementStyleMode.OUTLINED -> (16 * cornerScale).dp
-            ElementStyleMode.SOFT_NEO -> (28 * cornerScale).dp
-        }
-    )
+    val panelCorner = when (elementStyle) {
+        ElementStyleMode.LIQUID_GLASS -> (34 * cornerScale).dp
+        ElementStyleMode.MATERIAL_EXPRESSIVE -> (32 * cornerScale).dp
+        ElementStyleMode.NOTHING_DOTS -> (10 * cornerScale).dp
+        ElementStyleMode.OUTLINED -> (16 * cornerScale).dp
+        ElementStyleMode.SOFT_NEO -> (28 * cornerScale).dp
+        ElementStyleMode.SIGNAL -> (18 * cornerScale).dp
+    }
+    val panelShape = RoundedCornerShape(panelCorner)
     fun navigate(route: String) {
         if (currentRoute == route) return
         if (!navController.popBackStack(route, inclusive = false)) {
@@ -134,6 +134,27 @@ fun BottomBar(navController: NavController) {
                     MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.52f),
                     panelShape
                 )
+
+            ElementStyleMode.NOTHING_DOTS -> basePanelModifier
+                .clip(panelShape)
+                .background(colors.surface.copy(alpha = if (reducedTransparency) 0.99f else 0.96f))
+                .dotPatternOverlay(
+                    color = colors.textPrimary,
+                    spacing = 9.dp,
+                    radius = 0.72.dp,
+                    alpha = 0.10f
+                )
+                .dottedOutline(
+                    color = colors.accent,
+                    cornerRadius = panelCorner,
+                    alpha = 0.78f
+                )
+
+            // Signal: ровная подложка и волосяная граница вместо градиента.
+            ElementStyleMode.SIGNAL -> basePanelModifier
+                .clip(panelShape)
+                .background(colors.surface.copy(alpha = if (reducedTransparency) 0.98f else 0.94f))
+                .border(1.dp, colors.textPrimary.copy(alpha = 0.09f), panelShape)
 
             else -> basePanelModifier
                 .clip(panelShape)
@@ -198,13 +219,21 @@ private fun BottomNavItem(
         ),
         label = "navigationIconScale"
     )
-    val itemShape = RoundedCornerShape(if (elementStyle == ElementStyleMode.MATERIAL_EXPRESSIVE) 26.dp else 24.dp)
+    val itemCorner = when (elementStyle) {
+        ElementStyleMode.MATERIAL_EXPRESSIVE -> 26.dp
+        ElementStyleMode.NOTHING_DOTS -> 6.dp
+        // Signal: не капсула, а прямоугольная плашка со скруглением панели.
+        ElementStyleMode.SIGNAL -> 12.dp
+        else -> 24.dp
+    }
+    val itemShape = RoundedCornerShape(itemCorner)
     val itemBackground = when {
         !selected -> Color.Transparent
         elementStyle == ElementStyleMode.MATERIAL_EXPRESSIVE -> MaterialTheme.colorScheme.primaryContainer
         elementStyle == ElementStyleMode.LIQUID_GLASS -> colors.accent.copy(
             alpha = if (reducedTransparency) 0.26f else 0.16f
         )
+        elementStyle == ElementStyleMode.SIGNAL -> colors.accent.copy(alpha = 0.13f)
         else -> colors.accent.copy(alpha = 0.16f)
     }
     val itemBorder = when {
@@ -212,6 +241,8 @@ private fun BottomNavItem(
         elementStyle == ElementStyleMode.LIQUID_GLASS -> Color.White.copy(
             alpha = if (reducedTransparency) 0.18f else 0.30f
         )
+        elementStyle == ElementStyleMode.NOTHING_DOTS -> Color.Transparent
+        elementStyle == ElementStyleMode.SIGNAL -> colors.accent.copy(alpha = 0.32f)
         else -> colors.accent.copy(alpha = 0.28f)
     }
     val contentColor = when {
@@ -229,7 +260,17 @@ private fun BottomNavItem(
             .scale(pressedScale)
             .clip(itemShape)
             .background(itemBackground)
-            .border(1.dp, itemBorder, itemShape)
+            .then(
+                if (elementStyle == ElementStyleMode.NOTHING_DOTS && selected) {
+                    Modifier.dottedOutline(
+                        color = colors.accent,
+                        cornerRadius = itemCorner,
+                        alpha = 0.92f
+                    )
+                } else {
+                    Modifier.border(1.dp, itemBorder, itemShape)
+                }
+            )
             .animateContentSize(
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioNoBouncy,
