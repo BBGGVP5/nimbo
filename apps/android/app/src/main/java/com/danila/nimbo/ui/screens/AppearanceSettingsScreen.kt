@@ -1455,6 +1455,19 @@ private fun stylePresets(): List<StylePreset> = listOf(
         backgroundAnimationEnabled = true,
         highContrastEnabled = true,
         reducedTransparencyEnabled = true
+    ),
+    StylePreset(
+        // Приборная панель: спокойный фон без свечения, чтобы читались
+        // волосяные границы и плотные списки.
+        title = "Signal",
+        subtitle = "Приборная панель",
+        backgroundStyle = 15,
+        elementStyle = 5,
+        gradientEnabled = false,
+        glowEnabled = false,
+        backgroundAnimationEnabled = false,
+        highContrastEnabled = false,
+        reducedTransparencyEnabled = true
     )
 )
 
