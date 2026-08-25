@@ -414,7 +414,7 @@ private enum class MiniSubscriptionTab { Proxies, Profiles }
 // Open — просто открыть; Paste/File — открыть и сразу выполнить метод (как одноимённые
 // кнопки в самом диалоге); Qr — сразу открыть сканер (без диалога).
 private enum class AddProfileAction { Open, Paste, File, Qr }
-private enum class InterfacePreviewKind { IosLiquidGlass, MaterialYou, Dotted }
+private enum class InterfacePreviewKind { IosLiquidGlass, MaterialYou, Dotted, Signal }
 
 @Composable
 fun NimboMiniApp(
@@ -12569,14 +12569,24 @@ private fun ColumnScope.ThemeSettingsSection(
             )
         }
         Spacer(Modifier.height(10.dp))
-        InterfaceStylePreviewCard(
-            title = "Dotted",
-            subtitle = t("Точечная сетка и чистый контраст", "Dot grid and crisp contrast"),
-            kind = InterfacePreviewKind.Dotted,
-            selected = elementStyle == 2,
-            onClick = { preferencesManager.elementStyle = 2 },
-            modifier = Modifier.fillMaxWidth()
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            InterfaceStylePreviewCard(
+                title = "Dotted",
+                subtitle = t("Точечная сетка", "Dot grid"),
+                kind = InterfacePreviewKind.Dotted,
+                selected = elementStyle == 2,
+                onClick = { preferencesManager.elementStyle = 2 },
+                modifier = Modifier.weight(1f)
+            )
+            InterfaceStylePreviewCard(
+                title = "Signal",
+                subtitle = t("Приборная панель", "Dashboard"),
+                kind = InterfacePreviewKind.Signal,
+                selected = elementStyle == 5,
+                onClick = { preferencesManager.elementStyle = 5 },
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 
     Spacer(Modifier.height(18.dp))
@@ -13500,6 +13510,7 @@ private fun InterfaceStylePreviewCard(
     val isMaterialPreview = kind == InterfacePreviewKind.MaterialYou
     val isLiquidPreview = kind == InterfacePreviewKind.IosLiquidGlass
     val isDottedPreview = kind == InterfacePreviewKind.Dotted
+    val isSignalPreview = kind == InterfacePreviewKind.Signal
     val activeDottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     val shape = RoundedCornerShape(if (activeDottedStyle) 8.dp else 18.dp)
     val cardFill by animateColorAsState(
@@ -13514,6 +13525,9 @@ private fun InterfaceStylePreviewCard(
     )
     val previewBase = if (isDottedPreview) {
         if (nebulaColors.isLight) Color(0xFFF2F4F6) else Color(0xFF101114)
+    } else if (isSignalPreview) {
+        // Signal: спокойная чернильная подложка, на которой видны тонкие границы.
+        if (nebulaColors.isLight) Color(0xFFF6F5FB) else Color(0xFF0B0F16)
     } else if (isMaterialPreview) {
         // A quiet neutral tonal base lets dynamic accents read as Material You rather
         // than making the tiny preview look like another glass gradient.
@@ -13524,6 +13538,9 @@ private fun InterfaceStylePreviewCard(
     val panel = if (isDottedPreview) {
         nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.12f else 0.18f)
             .compositeOver(previewBase)
+    } else if (isSignalPreview) {
+        Color.White.copy(alpha = if (nebulaColors.isLight) 0.86f else 0.05f)
+            .compositeOver(previewBase)
     } else if (isMaterialPreview) {
         nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.14f else 0.20f)
             .compositeOver(previewBase)
@@ -13532,6 +13549,8 @@ private fun InterfaceStylePreviewCard(
     }
     val soft = if (isDottedPreview) {
         nebulaColors.accent.copy(alpha = 0.28f).compositeOver(previewBase)
+    } else if (isSignalPreview) {
+        nebulaColors.accent.copy(alpha = 0.42f).compositeOver(previewBase)
     } else if (isMaterialPreview) {
         nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.24f else 0.32f)
             .compositeOver(previewBase)
@@ -13548,11 +13567,17 @@ private fun InterfaceStylePreviewCard(
     val mutedDot = if (nebulaColors.isLight) Color.Black.copy(alpha = 0.26f) else Color.White.copy(alpha = 0.32f)
     val navFill = when {
         isDottedPreview -> previewBase.copy(alpha = 0.96f)
+        isSignalPreview -> Color.White.copy(alpha = if (nebulaColors.isLight) 0.9f else 0.04f)
+            .compositeOver(previewBase)
         isMaterialPreview -> nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.26f else 0.34f)
             .compositeOver(previewBase)
         else -> Color.White.copy(alpha = if (nebulaColors.isLight) 0.46f else 0.14f)
     }
-    val navBorder = if (isDottedPreview) nebulaColors.accent.copy(alpha = 0.42f) else Color.White.copy(
+    val navBorder = if (isDottedPreview) {
+        nebulaColors.accent.copy(alpha = 0.42f)
+    } else if (isSignalPreview) {
+        if (nebulaColors.isLight) Color(0xFFDCDAE4) else Color.White.copy(alpha = 0.12f)
+    } else Color.White.copy(
         alpha = if (isLiquidPreview) {
             if (nebulaColors.isLight) 0.82f else 0.38f
         } else {
