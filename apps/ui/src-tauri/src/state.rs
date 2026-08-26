@@ -534,6 +534,11 @@ pub struct TrafficRuntimeSample {
 
 #[derive(Default)]
 pub struct RuntimeState {
+    /// Живое соединение с привилегированным хелпером, пока поднят TUN.
+    /// Обрыв соединения — сигнал хелперу погасить туннель, поэтому сессия
+    /// живёт ровно столько же, сколько подключение.
+    #[cfg(target_os = "linux")]
+    pub tun_session: Option<crate::helper_linux::TunSession>,
     pub xray: Option<Child>,
     pub naive: Option<Child>,
     pub tun2socks: Option<Child>,

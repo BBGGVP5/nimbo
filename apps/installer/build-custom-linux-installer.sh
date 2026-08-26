@@ -124,6 +124,10 @@ touch "$ui_dir/src-tauri/tauri.conf.json"
 [[ -f "$ui_dir/dist/index.html" ]] && touch "$ui_dir/dist/index.html"
 
 for target_triple in "${targets[@]}"; do
+  # Хелпер вшивается в установщик, поэтому собирается первым.
+  echo "Building Linux helper for $target_triple..."
+  (cd "$repo_root" && cargo build -p nimbo-svc --release --target "$target_triple")
+
   echo "Building Linux app payload for $target_triple..."
   (cd "$repo_root" && cargo build -p nimbo-ui --release --features custom-protocol --target "$target_triple")
 

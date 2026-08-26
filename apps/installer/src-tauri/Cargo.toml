@@ -19,6 +19,10 @@ serde_json.workspace = true
 dirs.workspace = true
 tauri = { version = "2", features = [] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# getuid: владельцем службы записываем текущего пользователя.
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
 winreg = "0.55"

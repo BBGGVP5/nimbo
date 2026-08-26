@@ -34,7 +34,11 @@ use crate::state::{
     RoutingProfile, SystemProxySnapshot, TrafficRuntimeSample, TrafficTotals, TunRuntimeSnapshot,
 };
 
+#[cfg(not(target_os = "linux"))]
 const TUN_INTERFACE_NAME: &str = "wintun";
+/// На Linux интерфейс создаёт ядро, и имя должно быть валидным для netlink.
+#[cfg(target_os = "linux")]
+const TUN_INTERFACE_NAME: &str = "nimbo0";
 const TUN_ADDRESS: &str = "198.18.0.1";
 const TUN_GATEWAY_CIDR: &str = "198.18.0.1/24";
 const TUN_IPV6_GATEWAY_CIDR: &str = "fdfe:dcba:9876::1/64";
@@ -4666,7 +4670,7 @@ pub async fn connect_server(
                     status.message
                 ));
             }
-            if !is_running_as_admin() {
+            if tun_requires_local_elevation() && !is_running_as_admin() {
                 return Err(elevation_required_message());
             }
             connect_tun(&app, &state, server, &snap, status).await?;
@@ -4683,7 +4687,7 @@ pub async fn connect_server(
                     status.message
                 ));
             }
-            if !is_running_as_admin() {
+            if tun_requires_local_elevation() && !is_running_as_admin() {
                 return Err(elevation_required_message());
             }
             connect_both(&app, &state, server, &snap, status).await?;
@@ -6024,6 +6028,7 @@ async fn connect_tun(
     stop_runtime(state)?;
 
     let ports = ProxyPorts::default();
+    #[cfg_attr(target_os = "linux", allow(unused_variables))]
     let default_route = current_default_ipv4_route();
     let (server, mut naive) = prepare_naive_runtime(app, server)?;
     let mut config = match build_runtime_xray_config(&server, snapshot, ports) {
@@ -6048,11 +6053,45 @@ async fn connect_tun(
             return Err(error);
         }
     };
+    #[cfg(not(target_os = "linux"))]
     if let Err(error) = prepare_tun_runtime_files(app) {
         stop_child(&mut naive);
         return Err(error);
     }
     let bypass_ips = resolve_server_ipv4s(&server).await;
+
+    // На Linux TUN поднимает привилегированный хелпер: GUI работает под
+    // обычным пользователем и не может создать интерфейс. Соединение с
+    // хелпером остаётся открытым — если Nimbo упадёт, туннель погаснет сам.
+    #[cfg(target_os = "linux")]
+    {
+        let request = nimbo_ipc::TunRequest {
+            config_path: config_path.to_string_lossy().to_string(),
+            core_path: xray_path.to_string_lossy().to_string(),
+            interface: TUN_INTERFACE_NAME.to_string(),
+            bypass_ips: bypass_ips.clone(),
+        };
+        let session = match crate::helper_linux::TunSession::up(request) {
+            Ok(session) => session,
+            Err(error) => {
+                stop_child(&mut naive);
+                return Err(error);
+            }
+        };
+        state.runtime(|runtime| {
+            runtime.tun_session = Some(session);
+            runtime.naive = naive.take();
+            runtime.tun_snapshot = Some(TunRuntimeSnapshot {
+                bypass_ips: bypass_ips.clone(),
+                gateway: None,
+                interface_index: None,
+            });
+        });
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
     let mut xray = match spawn_xray(&xray_path, &config_path) {
         Ok(child) => child,
         Err(error) => {
@@ -6095,8 +6134,10 @@ async fn connect_tun(
     });
 
     Ok(())
+    }
 }
 
+#[cfg(not(target_os = "linux"))]
 fn prepare_tun_runtime_files(app: &AppHandle) -> Result<(), String> {
     let bin_dir = nimbo_data_dir()?.join("bin");
     std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Не удалось создать папку TUN: {e}"))?;
@@ -7617,6 +7658,12 @@ fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
     let pending = state.snapshot();
     let (tun_snapshot, proxy_snapshot) = state.runtime(|runtime| {
         runtime.traffic_samples.clear();
+        // Сессия хелпера закрывается первой: он сам погасит ядро и вернёт
+        // маршруты, а Drop отправит TunDown даже если что-то пойдёт не так.
+        #[cfg(target_os = "linux")]
+        if let Some(mut session) = runtime.tun_session.take() {
+            session.down();
+        }
         if let Some(mut child) = runtime.tun2socks.take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -7829,15 +7876,21 @@ pub(crate) async fn ensure_tun_dependencies(app: &AppHandle) -> Result<TunInstal
         tun_status(app)
     }
 
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(target_os = "linux")]
     {
-        Err(
-            "TUN в сборке для Linux пока не поддерживается: в пакет не входит tun2socks. Используйте режим «Прокси» — он работает без прав root."
-                .into(),
-        )
+        // На Linux ставить нечего: ядро уже в пакете, а привилегии даёт
+        // хелпер. Проверяем только, что он поднят.
+        if crate::helper_linux::is_available() {
+            tun_status(app)
+        } else {
+            Err(
+                "Служба Nimbo для TUN не запущена. Переустановите Nimbo или включите её командой                  `sudo systemctl enable --now nimbo-helper`."
+                    .into(),
+            )
+        }
     }
 
-    #[cfg(not(any(all(windows, target_arch = "x86_64"), all(unix, not(target_os = "macos")))))]
+    #[cfg(not(any(all(windows, target_arch = "x86_64"), target_os = "linux")))]
     {
         Err("Автоустановка TUN сейчас доступна только на Windows x64.".into())
     }
@@ -9643,7 +9696,26 @@ mod tests {
 /// Текст отказа, когда TUN требует повышенных прав. На Windows у пользователя
 /// есть кнопка перезапуска, на Linux её нет — там подсказываем рабочую команду
 /// вместо предложения, которое ничего не сделает.
+/// Нужны ли GUI собственные права для TUN. На Linux всю привилегированную
+/// работу делает хелпер, поэтому проверять root у интерфейса незачем.
+fn tun_requires_local_elevation() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        !crate::helper_linux::is_available()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
 fn elevation_required_message() -> String {
+    #[cfg(target_os = "linux")]
+    {
+        return "Служба Nimbo для TUN не запущена. Переустановите Nimbo или включите её командой                 `sudo systemctl enable --now nimbo-helper`."
+            .into();
+    }
+    #[allow(unreachable_code)]
     if cfg!(windows) {
         "TUN установлен, но для подключения нужен запуск от имени администратора. Перезапусти Nimbo от имени администратора и подключись снова."
             .into()

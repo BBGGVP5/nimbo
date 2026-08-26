@@ -104,6 +104,15 @@ const HELPER_BYTES: &[u8] = include_bytes!(concat!(
     env!("NIMBO_TARGET_TRIPLE"),
     "/release/nimbo-svc.exe"
 ));
+/// Привилегированный хелпер для Linux: без него TUN недоступен, потому что
+/// GUI работает под обычным пользователем.
+#[cfg(target_os = "linux")]
+const HELPER_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../target/",
+    env!("NIMBO_TARGET_TRIPLE"),
+    "/release/nimbo-svc"
+));
 #[cfg(windows)]
 const TUN2SOCKS_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -552,7 +561,21 @@ fn install_blocking_linux(
         replace_payload(&bin_dir.join("naive"), NAIVE_BYTES)?;
         make_executable(&bin_dir.join("naive"))?;
     }
+    let helper_path = install_dir.join(LINUX_HELPER_EXE);
+    replace_payload(&helper_path, HELPER_BYTES)?;
+    make_executable(&helper_path)?;
     emit(&app, "files", "done", 48, "Файлы Nimbo установлены");
+
+    // Юнит systemd ставится отдельным шагом под root. Отказ в повышении прав
+    // не должен ломать установку: приложение будет работать в режиме прокси,
+    // а TUN включится, когда службу поставят вручную.
+    emit(&app, "helper", "running", 56, "Настраиваем службу TUN");
+    match install_linux_helper(&helper_path) {
+        Ok(()) => emit(&app, "helper", "done", 60, "Служба TUN готова"),
+        Err(error) => {
+            emit(&app, "helper", "warning", 60, &format!("TUN без службы: {error}"));
+        }
+    }
 
     emit(
         &app,
@@ -642,9 +665,14 @@ fn perform_uninstall(
     stop_nimbo_runtime_processes();
     #[cfg(not(windows))]
     taskkill_image(APP_EXE);
-    let helper = install_dir.join(HELPER_EXE);
-    if helper.exists() {
-        let _ = run_status(&helper, &["--uninstall"]);
+    #[cfg(target_os = "linux")]
+    uninstall_linux_helper(&install_dir);
+    #[cfg(windows)]
+    {
+        let helper = install_dir.join(HELPER_EXE);
+        if helper.exists() {
+            let _ = run_status(&helper, &["--uninstall"]);
+        }
     }
     std::thread::sleep(Duration::from_millis(600));
     uemit(app.as_ref(), "prepare", "done", 20, "Процессы остановлены");
@@ -1569,3 +1597,39 @@ fn schedule_self_cleanup(install_dir: &Path) {
 
 #[cfg(all(not(windows), not(target_os = "linux")))]
 fn schedule_self_cleanup(_install_dir: &Path) {}
+
+/// Имя привилегированного хелпера рядом с приложением.
+#[cfg(target_os = "linux")]
+const LINUX_HELPER_EXE: &str = "nimbo-svc";
+
+/// Регистрирует systemd-юнит через pkexec: графическая установка не должна
+/// требовать терминала. Владельцем считаем текущего пользователя — именно
+/// ему хелпер потом разрешит поднимать туннель.
+#[cfg(target_os = "linux")]
+fn install_linux_helper(helper_path: &Path) -> Result<(), String> {
+    let uid = unsafe { libc::getuid() }.to_string();
+    let status = Command::new("pkexec")
+        .arg(helper_path)
+        .arg("--install-service")
+        .arg(&uid)
+        .status()
+        .map_err(|e| format!("не удалось запустить pkexec: {e}"))?;
+    if !status.success() {
+        return Err("установка службы отменена или не удалась".into());
+    }
+    Ok(())
+}
+
+/// Снимает юнит. Ошибки не критичны: пользователь мог отказаться от запроса
+/// прав, а файлы приложения удаляются в любом случае.
+#[cfg(target_os = "linux")]
+fn uninstall_linux_helper(install_dir: &Path) {
+    let helper_path = install_dir.join(LINUX_HELPER_EXE);
+    if !helper_path.exists() {
+        return;
+    }
+    let _ = Command::new("pkexec")
+        .arg(&helper_path)
+        .arg("--uninstall-service")
+        .status();
+}

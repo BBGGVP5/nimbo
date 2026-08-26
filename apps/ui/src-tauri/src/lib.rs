@@ -2,6 +2,8 @@ pub mod commands;
 pub mod cross_sync;
 #[cfg(windows)]
 pub mod helper;
+#[cfg(target_os = "linux")]
+pub mod helper_linux;
 pub mod logging;
 pub mod state;
 pub mod tray;
