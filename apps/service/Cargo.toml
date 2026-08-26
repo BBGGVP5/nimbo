@@ -20,6 +20,10 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 dirs.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# geteuid для проверки root; всё остальное делается через ip/systemctl.
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
 windows-sys = { version = "0.59", features = [

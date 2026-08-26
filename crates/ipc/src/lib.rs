@@ -1,7 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 pub const PIPE_NAME: &str = r"\\.\pipe\nimbo-svc";
-pub const PROTOCOL_VERSION: u32 = 1;
+/// Unix-сокет хелпера. Лежит в /run, потому что каталог создаётся systemd и
+/// очищается при перезагрузке — застрявший сокет не мешает следующему старту.
+pub const UNIX_SOCKET_PATH: &str = "/run/nimbo/helper.sock";
+
+/// Файл с uid владельца сессии: хелпер принимает команды только от него.
+pub const UNIX_ALLOWED_UID_PATH: &str = "/etc/nimbo/helper.uid";
+
+pub const PROTOCOL_VERSION: u32 = 2;
 
 pub const FRAME_LENGTH_BYTES: usize = 4;
 pub const FRAME_MAX_BYTES: u32 = 2 * 1024 * 1024;
@@ -16,7 +23,26 @@ pub enum Command {
     SetAppProxyRules { rules: Vec<AppProxyRule> },
     ReloadConfig,
     KillProcesses { pids: Vec<u32> },
+    /// Поднять TUN: хелпер запускает ядро с переданным конфигом от root и
+    /// сам восстанавливает маршруты, когда туннель гаснет.
+    TunUp(TunRequest),
+    /// Погасить TUN и вернуть маршруты в исходное состояние.
+    TunDown,
     Shutdown,
+}
+
+/// Всё, что хелперу нужно знать о туннеле. Конфиг готовит интерфейс — так
+/// логика сборки остаётся в одном месте, а привилегии нужны только на запуск.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TunRequest {
+    /// Путь к конфигу ядра, уже содержащему tun-inbound.
+    pub config_path: String,
+    /// Путь к бинарю ядра.
+    pub core_path: String,
+    /// Имя интерфейса, которое ядро создаст.
+    pub interface: String,
+    /// Адреса сервера, которые нужно пустить в обход туннеля.
+    pub bypass_ips: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,6 +54,7 @@ pub enum Response {
     },
     Status(ServiceStatus),
     KillReport(KillReport),
+    TunState(TunState),
     Ok,
     Error {
         code: ErrorCode,
@@ -42,6 +69,15 @@ pub struct ServiceStatus {
     pub uptime_seconds: u64,
     pub bytes_up: u64,
     pub bytes_down: u64,
+}
+
+/// Состояние туннеля со стороны хелпера.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TunState {
+    pub up: bool,
+    pub interface: Option<String>,
+    /// Сообщение ядра, если туннель упал сам.
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

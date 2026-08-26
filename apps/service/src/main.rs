@@ -1,5 +1,9 @@
 // Nimbo helper service.
 //
+// На Windows работает как LocalSystem, на Linux — как systemd-юнит от root.
+// Задача одна: делать то, на что у GUI нет прав (TUN, маршруты, снятие
+// конфликтующих процессов), и убирать за собой, если GUI умер.
+//
 // Runs as LocalSystem. Listens on a named pipe and currently handles process
 // kill requests so Nimbo can terminate SYSTEM-owned services (Cloudflare WARP,
 // Clash Verge service, FlClash helper) without showing a UAC prompt every
@@ -13,13 +17,21 @@
 #[cfg(windows)]
 mod platform;
 
+#[cfg(target_os = "linux")]
+mod platform_linux;
+
 #[cfg(windows)]
 fn main() -> anyhow::Result<()> {
     platform::run()
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn main() -> anyhow::Result<()> {
-    eprintln!("nimbo-svc is Windows-only.");
+    platform_linux::run()
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn main() -> anyhow::Result<()> {
+    eprintln!("nimbo-svc supports Windows and Linux only.");
     std::process::exit(1);
 }
