@@ -51,6 +51,10 @@ ring = "0.17"
 semver.workspace = true
 fs2.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+# Нужен для проверки euid: на Linux TUN требует root.
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
 winapi = { version = "0.3", features = ["shellapi", "wingdi", "winuser", "libloaderapi", "winnls"] }

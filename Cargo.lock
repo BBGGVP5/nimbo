@@ -2146,6 +2146,7 @@ dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",
  "fs2",
+ "libc",
  "nimbo-device",
  "nimbo-ipc",
  "nimbo-subscription",

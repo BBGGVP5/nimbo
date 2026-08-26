@@ -4667,10 +4667,7 @@ pub async fn connect_server(
                 ));
             }
             if !is_running_as_admin() {
-                return Err(
-                    "TUN установлен, но для подключения нужен запуск от имени администратора. Перезапусти Nimbo от имени администратора и подключись снова."
-                        .into(),
-                );
+                return Err(elevation_required_message());
             }
             connect_tun(&app, &state, server, &snap, status).await?;
         }
@@ -4687,10 +4684,7 @@ pub async fn connect_server(
                 ));
             }
             if !is_running_as_admin() {
-                return Err(
-                    "TUN установлен, но для подключения нужен запуск от имени администратора. Перезапусти Nimbo от имени администратора и подключись снова."
-                        .into(),
-                );
+                return Err(elevation_required_message());
             }
             connect_both(&app, &state, server, &snap, status).await?;
         }
@@ -7835,7 +7829,15 @@ pub(crate) async fn ensure_tun_dependencies(app: &AppHandle) -> Result<TunInstal
         tun_status(app)
     }
 
-    #[cfg(not(all(windows, target_arch = "x86_64")))]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Err(
+            "TUN в сборке для Linux пока не поддерживается: в пакет не входит tun2socks. Используйте режим «Прокси» — он работает без прав root."
+                .into(),
+        )
+    }
+
+    #[cfg(not(any(all(windows, target_arch = "x86_64"), all(unix, not(target_os = "macos")))))]
     {
         Err("Автоустановка TUN сейчас доступна только на Windows x64.".into())
     }
@@ -8201,9 +8203,13 @@ pub(crate) fn is_running_as_admin() -> bool {
         .unwrap_or(false)
 }
 
+/// На Unix «права администратора» — это root. Раньше здесь стояла заглушка
+/// `false`, поэтому запуск под sudo всё равно считался непривилегированным и
+/// TUN отказывался подключаться с предложением, которое на Linux не работает.
 #[cfg(not(windows))]
 pub(crate) fn is_running_as_admin() -> bool {
-    false
+    // SAFETY: geteuid не имеет побочных эффектов и всегда успешен.
+    unsafe { libc::geteuid() == 0 }
 }
 
 #[cfg(windows)]
@@ -9631,5 +9637,18 @@ mod tests {
 
         assert_eq!(entry.level, "warn");
         assert_eq!(entry.timestamp.as_deref(), Some("2026/06/12 14:15:16"));
+    }
+}
+
+/// Текст отказа, когда TUN требует повышенных прав. На Windows у пользователя
+/// есть кнопка перезапуска, на Linux её нет — там подсказываем рабочую команду
+/// вместо предложения, которое ничего не сделает.
+fn elevation_required_message() -> String {
+    if cfg!(windows) {
+        "TUN установлен, но для подключения нужен запуск от имени администратора. Перезапусти Nimbo от имени администратора и подключись снова."
+            .into()
+    } else {
+        "TUN требует прав root. Запусти Nimbo через pkexec или sudo — например `pkexec nimbo` — либо используй режим «Прокси», который работает без повышения прав."
+            .into()
     }
 }
