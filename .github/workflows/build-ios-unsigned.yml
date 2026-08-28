@@ -32,7 +32,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Install build tools
-        run: brew install xcodegen
+        run: brew install xcodegen ldid
 
       - name: Prepare executable build scripts
         run: chmod +x gradlew scripts/ci/build-unsigned-ios.sh scripts/ci/prepare-libxray-apple.sh scripts/ios/resign-ipa.sh

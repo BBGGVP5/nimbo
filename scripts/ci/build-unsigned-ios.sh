@@ -54,6 +54,10 @@ if ! command -v xcodegen >/dev/null 2>&1; then
   echo "xcodegen is required" >&2
   exit 3
 fi
+if ! command -v ldid >/dev/null 2>&1; then
+  echo "ldid is required to preserve Network Extension entitlements" >&2
+  exit 3
+fi
 
 (
   cd iosApp
@@ -124,9 +128,12 @@ assert_plist "${TUNNEL_PATH}/Info.plist" "NSExtension:NSExtensionPrincipalClass"
 
 # TrollStore and other private installers need the Packet Tunnel entitlement to
 # remain attached to both Mach-O executables. A byte-for-byte unsigned bundle
-# loses that contract and NetworkExtension returns `permission denied`. Ad-hoc
-# signing uses no Apple certificate or provisioning profile, remains re-signable,
-# and preserves the entitlement for TrollStore installations.
+# loses that contract and NetworkExtension returns `permission denied`.
+#
+# Xcode 26's codesign strips this restricted entitlement from an ad-hoc signed
+# containing app even when it is supplied explicitly. ldid writes the requested
+# entitlement into each executable without an Apple certificate or provisioning
+# profile. The result remains suitable for TrollStore and for later re-signing.
 find "${APP_PATH}" -type d -name _CodeSignature -prune -exec rm -rf {} +
 find "${APP_PATH}" -name embedded.mobileprovision -delete
 
@@ -138,26 +145,24 @@ while IFS= read -r library; do
   codesign --force --sign - --timestamp=none "${library}"
 done < <(find "${APP_PATH}" -type f -name '*.dylib' -print)
 
-codesign --force --sign - --timestamp=none --generate-entitlement-der \
-  --entitlements "${ROOT_DIR}/iosApp/PacketTunnel/PacketTunnel.entitlements" \
-  "${TUNNEL_PATH}"
-codesign --force --sign - --timestamp=none --generate-entitlement-der \
-  --entitlements "${ROOT_DIR}/iosApp/Nimbo/Nimbo.entitlements" \
-  "${APP_PATH}"
+APP_EXECUTABLE="${APP_PATH}/$(read_plist "${APP_PATH}/Info.plist" "CFBundleExecutable")"
+TUNNEL_EXECUTABLE="${TUNNEL_PATH}/$(read_plist "${TUNNEL_PATH}/Info.plist" "CFBundleExecutable")"
 
-codesign --verify --deep --strict "${APP_PATH}"
+ldid -S"${ROOT_DIR}/iosApp/PacketTunnel/PacketTunnel.entitlements" "${TUNNEL_EXECUTABLE}"
+ldid -S"${ROOT_DIR}/iosApp/Nimbo/Nimbo.entitlements" "${APP_EXECUTABLE}"
+
 ENTITLEMENTS_REPORT_DIR="${ARTIFACT_DIR}/codesign-entitlements"
 rm -rf "${ENTITLEMENTS_REPORT_DIR}"
 mkdir -p "${ENTITLEMENTS_REPORT_DIR}"
-for signed_bundle in "${APP_PATH}" "${TUNNEL_PATH}"; do
-  bundle_name="$(basename "${signed_bundle}")"
+for signed_executable in "${APP_EXECUTABLE}" "${TUNNEL_EXECUTABLE}"; do
+  bundle_name="$(basename "${signed_executable}")"
   report_path="${ENTITLEMENTS_REPORT_DIR}/${bundle_name}.plist"
   # Xcode 26 may emit the entitlement plist through either output stream.
   # Preserve both for verification and for diagnostics in the private artifact.
-  entitlements="$(codesign -d --entitlements :- "${signed_bundle}" 2>&1)"
+  entitlements="$(codesign -d --entitlements :- "${signed_executable}" 2>&1)"
   printf '%s\n' "${entitlements}" > "${report_path}"
   if [[ "${entitlements}" != *"packet-tunnel-provider"* ]]; then
-    echo "Packet Tunnel entitlement is missing from ${signed_bundle}" >&2
+    echo "Packet Tunnel entitlement is missing from ${signed_executable}" >&2
     sed -n '1,120p' "${report_path}" >&2
     exit 7
   fi
@@ -179,7 +184,7 @@ name=${OUTPUT_NAME}
 version=${VERSION}
 main_bundle_id=${APP_BUNDLE_ID}
 packet_tunnel_bundle_id=${TUNNEL_BUNDLE_ID}
-signed=adhoc
+signed=adhoc-ldid
 apple_certificate=false
 apple_provisioning_profile=false
 contains_packet_tunnel=true
