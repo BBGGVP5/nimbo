@@ -157,9 +157,11 @@ mkdir -p "${ENTITLEMENTS_REPORT_DIR}"
 for signed_executable in "${APP_EXECUTABLE}" "${TUNNEL_EXECUTABLE}"; do
   bundle_name="$(basename "${signed_executable}")"
   report_path="${ENTITLEMENTS_REPORT_DIR}/${bundle_name}.plist"
-  # Xcode 26 may emit the entitlement plist through either output stream.
-  # Preserve both for verification and for diagnostics in the private artifact.
-  entitlements="$(codesign -d --entitlements :- "${signed_executable}" 2>&1)"
+  # ldid's entitlement blob is intentionally verified by ldid itself. Recent
+  # macOS `codesign` versions report ldid fake signatures as "no signature" or
+  # "invalid entitlements blob" even though ldid/TrollStore can read and
+  # preserve the entitlement correctly while installing the bundle.
+  entitlements="$(ldid -e "${signed_executable}" 2>&1)"
   printf '%s\n' "${entitlements}" > "${report_path}"
   if [[ "${entitlements}" != *"packet-tunnel-provider"* ]]; then
     echo "Packet Tunnel entitlement is missing from ${signed_executable}" >&2
