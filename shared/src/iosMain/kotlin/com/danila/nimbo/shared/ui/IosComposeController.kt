@@ -7,6 +7,7 @@ import androidx.compose.ui.window.ComposeUIViewController
 import com.danila.nimbo.shared.subscription.NormalizedSubscription
 import kotlinx.serialization.json.Json
 import platform.Foundation.NSNotificationCenter
+import platform.Foundation.NSUserDefaults
 import platform.UIKit.UIViewController
 
 private const val ToggleVpnAction = "com.nimbo.action.toggle-vpn"
@@ -18,6 +19,46 @@ private const val DiagnosticsAction = "com.nimbo.action.diagnostics"
 private const val AboutAction = "com.nimbo.action.about"
 private const val SystemSettingsAction = "com.nimbo.action.system-settings"
 private const val SelectServerAction = "com.nimbo.action.select-server"
+private const val OpenUrlAction = "com.nimbo.action.open-url"
+
+/** Избранные серверы переживают перезапуск: держим их в NSUserDefaults. */
+private const val FavoritesDefaultsKey = "com.nimbo.favorite-server-ids"
+
+private fun loadFavoriteServerIds(): Set<String> {
+    val stored = NSUserDefaults.standardUserDefaults.stringArrayForKey(FavoritesDefaultsKey)
+    return stored.orEmpty().mapNotNull { it as? String }.toSet()
+}
+
+private fun storeFavoriteServerIds(value: Set<String>) {
+    NSUserDefaults.standardUserDefaults.setObject(value.toList(), FavoritesDefaultsKey)
+}
+
+private val iosFavorites = mutableStateOf(loadFavoriteServerIds())
+
+private fun toggleFavoriteServer(serverId: String) {
+    if (serverId.isBlank()) return
+    val current = iosFavorites.value
+    val next = if (serverId in current) current - serverId else current + serverId
+    iosFavorites.value = next
+    storeFavoriteServerIds(next)
+    iosUiState.value = iosUiState.value.copy(favoriteServerIds = next)
+}
+
+/**
+ * Пока подписка на iOS скачивается без разбора заголовков панели, сайт берём из
+ * адреса самой подписки — ровно так же ведёт себя десктоп, когда провайдер не
+ * прислал profile-web-page-url.
+ */
+private fun websiteFromSource(source: String?): String? {
+    val value = source?.trim().orEmpty()
+    if (!value.startsWith("http://") && !value.startsWith("https://")) return null
+    val schemeEnd = value.indexOf("://") + 3
+    val hostEnd = value.indexOf('/', schemeEnd)
+    val origin = if (hostEnd > 0) value.substring(0, hostEnd) else value
+    return origin.takeIf { it.length > schemeEnd }
+}
+
+private const val NimboSupportUrl = "https://t.me/nebulaguard_channel"
 
 private val iosUiState = mutableStateOf(NimboUiState())
 private val iosJson = Json { ignoreUnknownKeys = true }
@@ -61,7 +102,10 @@ fun NimboUpdateIosUiState(
         systemName = systemName,
         appVersion = appVersion,
         activeServerId = selectedServer?.id ?: activeServerId,
-        servers = servers
+        servers = servers,
+        supportUrl = NimboSupportUrl,
+        websiteUrl = websiteFromSource(normalizedProfile?.source),
+        favoriteServerIds = iosFavorites.value
     )
 }
 
@@ -79,7 +123,9 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onSaveAppRule = { postIosAction(SaveAppRuleAction, it) },
                 onOpenDiagnostics = { postIosAction(DiagnosticsAction) },
                 onOpenAbout = { postIosAction(AboutAction) },
-                onOpenSystemSettings = { postIosAction(SystemSettingsAction) }
+                onOpenSystemSettings = { postIosAction(SystemSettingsAction) },
+                onOpenUrl = { postIosAction(OpenUrlAction, it) },
+                onToggleFavorite = { toggleFavoriteServer(it) }
             )
         )
     }

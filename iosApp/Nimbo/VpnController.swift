@@ -16,6 +16,9 @@ final class VpnController: ObservableObject {
     @Published private(set) var manager: NETunnelProviderManager?
 
     private var statusObserver: NSObjectProtocol?
+    /// Последний увиденный системный статус: по переходу connecting -> disconnected
+    /// становится понятно, что расширение не поднялось.
+    private var lastKnownStatus: NEVPNStatus?
 
     init() {
         statusObserver = NotificationCenter.default.addObserver(
@@ -185,12 +188,104 @@ final class VpnController: ObservableObject {
 
     private func synchronizeStatus() {
         guard let status = manager?.connection.status else { return }
+        let previous = lastKnownStatus
+        lastKnownStatus = status
+
+        if previous != status {
+            let statusName = Self.statusName(status)
+            Task {
+                await NimboDiagnostics.shared.record(
+                    .info,
+                    stage: .tunnelStart,
+                    code: "IOS_VPN_STATUS",
+                    message: "Системный статус VPN: \(statusName)",
+                    metadata: [
+                        "status": statusName,
+                        "previous": previous.map(Self.statusName) ?? "unknown"
+                    ]
+                )
+            }
+        }
+
         switch status {
-        case .invalid, .disconnected: state = .idle
+        case .invalid, .disconnected:
+            // Туннель упал, не дойдя до connected: раньше это молча возвращало
+            // экран в исходное состояние, и причина терялась.
+            if previous == .connecting || previous == .reasserting {
+                reportUnexpectedDisconnect()
+            } else {
+                state = .idle
+            }
         case .connecting, .reasserting: state = .connecting
         case .connected: state = .connected
         case .disconnecting: state = .disconnecting
         @unknown default: state = .failed(code: "IOS_VPN_UNKNOWN_STATE", message: "Неизвестное состояние системного VPN")
+        }
+    }
+
+    /// Спрашиваем систему, почему соединение разорвалось. Без этого в логе
+    /// оставался только запрос на запуск, а причина не попадала никуда.
+    private func reportUnexpectedDisconnect() {
+        state = .failed(
+            code: "IOS_TUNNEL_DROPPED",
+            message: "Расширение туннеля завершилось сразу после запуска. Выясняем причину…"
+        )
+
+        guard let connection = manager?.connection else { return }
+        if #available(iOS 16.0, *) {
+            connection.fetchLastDisconnectError { [weak self] error in
+                Task { @MainActor in
+                    self?.applyDisconnectError(error)
+                }
+            }
+        }
+    }
+
+    private func applyDisconnectError(_ error: Error?) {
+        guard let error else {
+            state = .failed(
+                code: "IOS_TUNNEL_DROPPED",
+                message: "Расширение туннеля завершилось сразу после запуска, система не назвала причину. "
+                    + "Чаще всего так ведёт себя сборка, где расширение подписано без Network Extensions "
+                    + "или в нём нет рабочего ядра."
+            )
+            Task {
+                await NimboDiagnostics.shared.record(
+                    .error,
+                    stage: .tunnelStart,
+                    code: "IOS_TUNNEL_DROPPED",
+                    message: "Расширение остановилось без сообщения об ошибке",
+                    metadata: signingContractMetadata
+                )
+            }
+            return
+        }
+
+        let presentation = errorPresentation(defaultCode: "IOS_TUNNEL_DROPPED", error: error)
+        state = .failed(code: presentation.code, message: presentation.message)
+        Task {
+            var metadata = signingContractMetadata
+            metadata["error_domain"] = presentation.domain
+            metadata["error_number"] = presentation.number
+            await NimboDiagnostics.shared.record(
+                .error,
+                stage: .tunnelStart,
+                code: presentation.code,
+                message: presentation.message,
+                metadata: metadata
+            )
+        }
+    }
+
+    private static func statusName(_ status: NEVPNStatus) -> String {
+        switch status {
+        case .invalid: return "invalid"
+        case .disconnected: return "disconnected"
+        case .connecting: return "connecting"
+        case .connected: return "connected"
+        case .reasserting: return "reasserting"
+        case .disconnecting: return "disconnecting"
+        @unknown default: return "unknown"
         }
     }
 

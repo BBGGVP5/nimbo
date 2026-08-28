@@ -32,6 +32,9 @@ struct RootView: View {
             .onReceive(NotificationCenter.default.publisher(for: .nimboDiagnostics)) { _ in showDiagnostics = true }
             .onReceive(NotificationCenter.default.publisher(for: .nimboAbout)) { _ in showAbout = true }
             .onReceive(NotificationCenter.default.publisher(for: .nimboSystemSettings)) { _ in openSystemSettings() }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboOpenUrl)) { notification in
+                openExternalLink(notification.object as? String)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .nimboSaveAppRule)) { _ in openSystemSettings() }
             .onReceive(NotificationCenter.default.publisher(for: .nimboSelectServer)) { notification in
                 guard let serverID = notification.object as? String else { return }
@@ -58,6 +61,12 @@ struct RootView: View {
             }
             .sheet(isPresented: $showAbout) { AboutView() }
         .preferredColorScheme(nil)
+    }
+
+    /// Ссылки поддержки и сайта подписки открываются системным браузером.
+    private func openExternalLink(_ value: String?) {
+        guard let value, let url = URL(string: value), url.scheme?.hasPrefix("http") == true else { return }
+        UIApplication.shared.open(url)
     }
 
     private func synchronizeComposeState() {
@@ -135,4 +144,5 @@ private extension Notification.Name {
     static let nimboAbout = Notification.Name("com.nimbo.action.about")
     static let nimboSystemSettings = Notification.Name("com.nimbo.action.system-settings")
     static let nimboSelectServer = Notification.Name("com.nimbo.action.select-server")
+    static let nimboOpenUrl = Notification.Name("com.nimbo.action.open-url")
 }

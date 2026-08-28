@@ -54,7 +54,12 @@ data class NimboUiState(
     val appVersion: String = "1.2.0 Beta",
     val appBundleIds: String = "",
     val activeServerId: String? = null,
-    val servers: List<NimboServerUi> = emptyList()
+    val servers: List<NimboServerUi> = emptyList(),
+    /** Ссылка поддержки провайдера; пусто — кнопка не показывается. */
+    val supportUrl: String? = null,
+    /** Сайт подписки; пусто — кнопка не показывается. */
+    val websiteUrl: String? = null,
+    val favoriteServerIds: Set<String> = emptySet()
 )
 
 data class NimboServerUi(
@@ -81,7 +86,10 @@ data class NimboUiActions(
     val onSaveAppRule: (String) -> Unit = {},
     val onOpenDiagnostics: () -> Unit = {},
     val onOpenAbout: () -> Unit = {},
-    val onOpenSystemSettings: () -> Unit = {}
+    val onOpenSystemSettings: () -> Unit = {},
+    /** Открыть ссылку во внешнем браузере. */
+    val onOpenUrl: (String) -> Unit = {},
+    val onToggleFavorite: (String) -> Unit = {}
 )
 
 @Composable

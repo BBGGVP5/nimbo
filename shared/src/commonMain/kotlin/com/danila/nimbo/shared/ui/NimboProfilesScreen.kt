@@ -37,13 +37,16 @@ import androidx.compose.ui.unit.sp
 @Composable
 internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
     var query by remember { mutableStateOf("") }
-    val visibleServers = remember(state.servers, query) {
+    var favoritesOnly by remember { mutableStateOf(false) }
+    val visibleServers = remember(state.servers, query, favoritesOnly, state.favoriteServerIds) {
         val value = query.trim()
-        if (value.isEmpty()) state.servers
-        else state.servers.filter {
-            it.name.contains(value, ignoreCase = true) ||
-                it.connectionLabel.contains(value, ignoreCase = true)
-        }
+        state.servers
+            .filter { !favoritesOnly || it.id in state.favoriteServerIds }
+            .filter {
+                value.isEmpty() ||
+                    it.name.contains(value, ignoreCase = true) ||
+                    it.connectionLabel.contains(value, ignoreCase = true)
+            }
     }
     Column(
         modifier = Modifier
@@ -61,7 +64,14 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
                     style = NimboBodyStyle
                 )
             }
-            NimboIconButton(NimboIconName.FAVORITE, modifier = Modifier.size(50.dp), onClick = {})
+            // Сердечко фильтрует список по избранному; сами метки ставятся
+            // кнопкой «⋯» в строке сервера.
+            NimboIconButton(
+                NimboIconName.FAVORITE,
+                modifier = Modifier.size(50.dp),
+                selected = favoritesOnly,
+                onClick = { favoritesOnly = !favoritesOnly }
+            )
             Spacer(Modifier.width(8.dp))
             NimboIconButton(NimboIconName.ADD, modifier = Modifier.size(50.dp), onClick = actions.onAddProfile)
         }
@@ -104,9 +114,25 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
             }
         } else {
             ProfileSubscriptionCard(state, actions)
-            BasicText("${state.serverCount} СЕРВЕРОВ", style = NimboBodyStyle.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold))
+            BasicText(
+                if (favoritesOnly) "ИЗБРАННОЕ · ${visibleServers.size}" else "${state.serverCount} СЕРВЕРОВ",
+                style = NimboBodyStyle.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            )
+            if (favoritesOnly && visibleServers.isEmpty()) {
+                NimboSurface(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+                    BasicText(
+                        "Избранных серверов пока нет. Отметьте нужные кнопкой «⋯» в строке сервера.",
+                        style = NimboBodyStyle
+                    )
+                }
+            }
             visibleServers.forEach { server ->
-                ProfileServerCard(server, actions.onSelectServer)
+                ProfileServerCard(
+                    server = server,
+                    favorite = server.id in state.favoriteServerIds,
+                    onSelect = actions.onSelectServer,
+                    onToggleFavorite = actions.onToggleFavorite
+                )
             }
         }
     }
@@ -140,9 +166,19 @@ private fun ProfileSubscriptionCard(state: NimboUiState, actions: NimboUiActions
                 ProfileMetric("ИСТЕКАЕТ", "∞", Modifier.weight(1f))
                 ProfileMetric("ОБНОВЛЕНО", "—", Modifier.weight(1f))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NimboPill("◉ Поддержка")
-                NimboPill("◎ Сайт")
+            // Пустую ссылку не показываем: кнопка, которая ничего не делает,
+            // хуже отсутствующей.
+            val support = state.supportUrl?.takeIf { it.isNotBlank() }
+            val website = state.websiteUrl?.takeIf { it.isNotBlank() }
+            if (support != null || website != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (support != null) {
+                        NimboPill("◉ Поддержка", onClick = { actions.onOpenUrl(support) })
+                    }
+                    if (website != null) {
+                        NimboPill("◎ Сайт", onClick = { actions.onOpenUrl(website) })
+                    }
+                }
             }
         }
     }
@@ -159,7 +195,12 @@ private fun ProfileMetric(title: String, value: String, modifier: Modifier) {
 }
 
 @Composable
-private fun ProfileServerCard(server: NimboServerUi, onSelect: (String) -> Unit) {
+private fun ProfileServerCard(
+    server: NimboServerUi,
+    favorite: Boolean,
+    onSelect: (String) -> Unit,
+    onToggleFavorite: (String) -> Unit
+) {
     val interaction = remember { MutableInteractionSource() }
     NimboSurface(
         modifier = Modifier
@@ -191,7 +232,12 @@ private fun ProfileServerCard(server: NimboServerUi, onSelect: (String) -> Unit)
             }
             NimboPill(server.pingLabel, selected = server.selected)
             Spacer(Modifier.width(6.dp))
-            NimboIconButton(NimboIconName.MORE, modifier = Modifier.size(44.dp), onClick = {})
+            NimboIconButton(
+                if (favorite) NimboIconName.FAVORITE else NimboIconName.MORE,
+                modifier = Modifier.size(44.dp),
+                selected = favorite,
+                onClick = { onToggleFavorite(server.id) }
+            )
         }
     }
 }
