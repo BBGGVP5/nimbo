@@ -54,8 +54,15 @@ if ! command -v xcodegen >/dev/null 2>&1; then
   echo "xcodegen is required" >&2
   exit 3
 fi
-if ! command -v ldid >/dev/null 2>&1; then
-  echo "ldid is required to preserve Network Extension entitlements" >&2
+if command -v ldid2 >/dev/null 2>&1; then
+  LDID_BIN="$(command -v ldid2)"
+elif command -v ldid >/dev/null 2>&1; then
+  LDID_BIN="$(command -v ldid)"
+else
+  LDID_BIN=""
+fi
+if [[ -z "${LDID_BIN}" ]]; then
+  echo "ldid-procursus is required to preserve Network Extension entitlements" >&2
   exit 3
 fi
 
@@ -134,12 +141,12 @@ assert_plist "${TUNNEL_PATH}/Info.plist" "NSExtension:NSExtensionPrincipalClass"
 # containing app even when it is supplied explicitly. ldid writes the requested
 # entitlement into each executable without an Apple certificate or provisioning
 # profile. The result remains suitable for TrollStore and for later re-signing.
-if ! command -v ldid >/dev/null 2>&1; then
+if [[ -z "${LDID_BIN}" ]]; then
   echo "ldid-procursus is required to build the re-signable IPA" >&2
   exit 7
 fi
 
-LDID_BANNER="$(ldid 2>&1 | head -n 5 || true)"
+LDID_BANNER="$("${LDID_BIN}" 2>&1 | head -n 5 || true)"
 if ! printf '%s\n' "${LDID_BANNER}" | grep -qi 'procursus'; then
   echo "The installed ldid is not ldid-procursus and cannot safely embed the Packet Tunnel entitlement" >&2
   printf '%s\n' "${LDID_BANNER}" >&2
@@ -160,8 +167,9 @@ done < <(find "${APP_PATH}" -type f -name '*.dylib' -print)
 APP_EXECUTABLE="${APP_PATH}/$(read_plist "${APP_PATH}/Info.plist" "CFBundleExecutable")"
 TUNNEL_EXECUTABLE="${TUNNEL_PATH}/$(read_plist "${TUNNEL_PATH}/Info.plist" "CFBundleExecutable")"
 
-ldid -S"${ROOT_DIR}/iosApp/PacketTunnel/PacketTunnel.entitlements" "${TUNNEL_EXECUTABLE}"
-ldid -S"${ROOT_DIR}/iosApp/Nimbo/Nimbo.entitlements" "${APP_EXECUTABLE}"
+echo "Embedding Network Extension entitlements with ${LDID_BIN}"
+"${LDID_BIN}" -S"${ROOT_DIR}/iosApp/PacketTunnel/PacketTunnel.entitlements" "${TUNNEL_EXECUTABLE}"
+"${LDID_BIN}" -S"${ROOT_DIR}/iosApp/Nimbo/Nimbo.entitlements" "${APP_EXECUTABLE}"
 
 ENTITLEMENTS_REPORT_DIR="${ARTIFACT_DIR}/codesign-entitlements"
 rm -rf "${ENTITLEMENTS_REPORT_DIR}"
@@ -173,7 +181,7 @@ for signed_executable in "${APP_EXECUTABLE}" "${TUNNEL_EXECUTABLE}"; do
   # macOS `codesign` versions report ldid fake signatures as "no signature" or
   # "invalid entitlements blob" even though ldid/TrollStore can read and
   # preserve the entitlement correctly while installing the bundle.
-  entitlements="$(ldid -e "${signed_executable}" 2>&1)"
+  entitlements="$("${LDID_BIN}" -e "${signed_executable}" 2>&1)"
   printf '%s\n' "${entitlements}" > "${report_path}"
   if [[ "${entitlements}" != *"packet-tunnel-provider"* ]]; then
     echo "Packet Tunnel entitlement is missing from ${signed_executable}" >&2
