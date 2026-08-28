@@ -72,6 +72,20 @@ final class NimboSubscriptionRepository {
             source: source,
             description: profile.title
         )
+        Task {
+            await NimboDiagnostics.shared.record(
+                .info,
+                stage: .config,
+                code: "IOS_SUBSCRIPTION_PARSED",
+                message: "Подписка разобрана и сохранена",
+                metadata: [
+                    "bytes": "\(data.count)",
+                    "format": profile.format,
+                    "servers": "\(profile.servers.count)",
+                    "parser_revision": "\(profile.parserRevision)"
+                ]
+            )
+        }
         return profile
     }
 
@@ -120,13 +134,13 @@ final class NimboSubscriptionRepository {
               ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw NimboSubscriptionRepositoryError.sourceUnavailable
         }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 25
-        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        let request = NimboNetworkSession.subscriptionRequest(url: url)
         let (data, response) = try await NimboNetworkSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode) else {
             throw NimboSubscriptionRepositoryError.http((response as? HTTPURLResponse)?.statusCode ?? -1)
+        }
+        guard !data.isEmpty, data.count <= maximumInputBytes else {
+            throw NimboSubscriptionRepositoryError.invalidSize
         }
         return try importPayload(data, source: source)
     }

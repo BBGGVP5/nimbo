@@ -170,10 +170,18 @@ TUNNEL_EXECUTABLE="${TUNNEL_PATH}/$(read_plist "${TUNNEL_PATH}/Info.plist" "CFBu
 prepare_entitlements() {
   local source_plist="$1"
   local output_plist="$2"
-  # ldid consumes the XML blob verbatim. Normalising it on the macOS runner
-  # avoids carrying a plist encoding/doctype quirk into the Mach-O signature.
-  plutil -convert xml1 -o "${output_plist}" "${source_plist}"
+  # Keep the source XML byte-for-byte. On the Xcode 26 runner `plutil
+  # -convert ... -o` produced a syntactically valid but empty dictionary for
+  # entitlement files, which made NetworkExtension fail with permission denied.
+  cp "${source_plist}" "${output_plist}"
   plutil -lint "${output_plist}"
+  local tunnel_capability
+  tunnel_capability="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.networking.networkextension:0' "${output_plist}" 2>/dev/null || true)"
+  if [[ "${tunnel_capability}" != "packet-tunnel-provider" ]]; then
+    echo "Packet Tunnel entitlement source is invalid: ${source_plist}" >&2
+    plutil -p "${output_plist}" >&2 || true
+    exit 7
+  fi
   plutil -p "${output_plist}"
 }
 
@@ -184,11 +192,10 @@ prepare_entitlements "${ROOT_DIR}/iosApp/Nimbo/Nimbo.entitlements" "${APP_ENTITL
 prepare_entitlements "${ROOT_DIR}/iosApp/PacketTunnel/PacketTunnel.entitlements" "${TUNNEL_ENTITLEMENTS}"
 
 echo "Embedding Network Extension entitlements with ${LDID_BIN}"
-# Xcode 26 leaves an empty ad-hoc LC_CODE_SIGNATURE even with signing disabled.
-# Remove it first: otherwise current ldid-procursus can retain the empty
-# entitlement blob for the containing app instead of replacing it.
-"${LDID_BIN}" -r "${TUNNEL_EXECUTABLE}" || true
-"${LDID_BIN}" -r "${APP_EXECUTABLE}" || true
+# Remove any empty ad-hoc signature emitted by Xcode before ldid writes the
+# explicit entitlement blob. Re-signers will replace these signatures later.
+codesign --remove-signature "${TUNNEL_EXECUTABLE}" 2>/dev/null || true
+codesign --remove-signature "${APP_EXECUTABLE}" 2>/dev/null || true
 "${LDID_BIN}" -S"${TUNNEL_ENTITLEMENTS}" "${TUNNEL_EXECUTABLE}"
 "${LDID_BIN}" -S"${APP_ENTITLEMENTS}" "${APP_EXECUTABLE}"
 

@@ -48,11 +48,24 @@ enum NimboNetworkSession {
     /// Use this session for every native iOS request so a subscription provider
     /// never receives the Android User-Agent from a shared/default client.
     static let shared: URLSession = {
-        let configuration = URLSessionConfiguration.default
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.urlCache = nil
         var headers = configuration.httpAdditionalHeaders ?? [:]
         headers["User-Agent"] = NimboPlatformInfo.userAgent
         headers["X-Nimbo-Platform"] = "iOS"
+        headers["Accept"] = "text/plain, application/json;q=0.9, application/octet-stream;q=0.8, */*;q=0.5"
         configuration.httpAdditionalHeaders = headers
         return URLSession(configuration: configuration)
     }()
+
+    static func subscriptionRequest(url: URL, timeout: TimeInterval = 25) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+        request.setValue("text/plain, application/json;q=0.9, application/octet-stream;q=0.8, */*;q=0.5", forHTTPHeaderField: "Accept")
+        return request
+    }
 }

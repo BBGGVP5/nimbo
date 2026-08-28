@@ -192,9 +192,7 @@ struct ProfilesContainerView: View {
 
     private func resolve(_ source: String) async throws -> ResolvedConfiguration {
         if let url = URL(string: source), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 25
-            request.cachePolicy = .reloadIgnoringLocalCacheData
+            let request = NimboNetworkSession.subscriptionRequest(url: url)
             let (data, response) = try await NimboNetworkSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode) else {
                 throw ProfilesImportError.http((response as? HTTPURLResponse)?.statusCode ?? -1)
@@ -202,6 +200,17 @@ struct ProfilesContainerView: View {
             guard !data.isEmpty, data.count <= 15 * 1_024 * 1_024 else {
                 throw ProfilesImportError.invalidSize
             }
+            await NimboDiagnostics.shared.record(
+                .info,
+                stage: .config,
+                code: "IOS_SUBSCRIPTION_DOWNLOADED",
+                message: "Ответ подписки загружен",
+                metadata: [
+                    "bytes": "\(data.count)",
+                    "http_status": "\(http.statusCode)",
+                    "content_type": http.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
+                ]
+            )
             return ResolvedConfiguration(
                 data: data,
                 source: source

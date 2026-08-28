@@ -48,6 +48,20 @@ class SubscriptionPayloadParserTest {
     }
 
     @Test
+    fun keepsEveryServerFromAProviderStyleBase64Subscription() {
+        val links = (1..4).joinToString("\n") { index ->
+            "vless://11111111-1111-1111-1111-11111111111$index@edge$index.example:443?type=xhttp&security=reality#Node-$index"
+        }
+        val encoded = SubscriptionPayloadParser.encodeBase64ForTest(links, urlSafe = false).trimEnd('=')
+
+        val result = SubscriptionPayloadParser.parse(encoded, "https://provider.example/sub/redacted")
+
+        assertEquals(4, result.servers.size)
+        assertEquals(listOf("Node-1", "Node-2", "Node-3", "Node-4"), result.servers.map { it.name })
+        assertEquals(SubscriptionPayloadFormat.BASE64_LINKS, result.format)
+    }
+
+    @Test
     fun parsesLinksNestedInJson() {
         val payload = """
             {
