@@ -1,0 +1,122 @@
+name: Nimbo
+options:
+  bundleIdPrefix: com.nimbo.resignable
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CURRENT_PROJECT_VERSION: 12
+    MARKETING_VERSION: 1.2.0
+    NIMBO_DISPLAY_VERSION: 1.2.0-beta.1
+    NIMBO_APP_BUNDLE_ID: com.nimbo.resignable
+    NIMBO_PACKET_TUNNEL_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).PacketTunnel"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+    OTHER_LDFLAGS: "$(inherited) -ObjC"
+
+targets:
+  Nimbo:
+    type: application
+    platform: iOS
+    info:
+      path: Nimbo/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: ru
+        CFBundleDisplayName: Nimbo
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CADisableMinimumFrameDurationOnPhone: true
+        ITSAppUsesNonExemptEncryption: false
+        NimboPacketTunnelBundleIdentifier: "$(NIMBO_PACKET_TUNNEL_BUNDLE_ID)"
+        NimboDisplayVersion: "$(NIMBO_DISPLAY_VERSION)"
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIRequiredDeviceCapabilities:
+          - arm64
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    entitlements:
+      path: Nimbo/Nimbo.entitlements
+    sources:
+      - path: Nimbo
+      - path: Shared
+    resources:
+      - path: Nimbo/Assets.xcassets
+    dependencies:
+      - target: NimboPacketTunnel
+        embed: true
+      - framework: ../shared/build/XCFrameworks/release/NimboShared.xcframework
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(NIMBO_APP_BUNDLE_ID)"
+        PRODUCT_NAME: Nimbo
+        INFOPLIST_KEY_CFBundleDisplayName: Nimbo
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+
+  NimboPacketTunnel:
+    type: app-extension
+    platform: iOS
+    info:
+      path: PacketTunnel/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: ru
+        CFBundleDisplayName: Nimbo Tunnel
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).PacketTunnelProvider"
+    entitlements:
+      path: PacketTunnel/PacketTunnel.entitlements
+    sources:
+      - path: PacketTunnel
+      - path: Shared
+    postBuildScripts:
+      - name: Bundle Xray geo databases
+        script: |
+          set -euo pipefail
+          RESOURCE_OUTPUT="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${RESOURCE_OUTPUT}"
+          cp "${SRCROOT}/build/PacketTunnelResources/geoip.dat" "${RESOURCE_OUTPUT}/geoip.dat"
+          cp "${SRCROOT}/build/PacketTunnelResources/geosite.dat" "${RESOURCE_OUTPUT}/geosite.dat"
+        inputFiles:
+          - $(SRCROOT)/build/PacketTunnelResources/geoip.dat
+          - $(SRCROOT)/build/PacketTunnelResources/geosite.dat
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/geoip.dat
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/geosite.dat
+    dependencies:
+      - framework: Vendor/LibXray.xcframework
+        embed: false
+      - sdk: libresolv.tbd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(NIMBO_PACKET_TUNNEL_BUNDLE_ID)"
+        PRODUCT_NAME: NimboPacketTunnel
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+
+schemes:
+  Nimbo:
+    build:
+      targets:
+        Nimbo: all
+        NimboPacketTunnel: all
+    run:
+      config: Debug
+    archive:
+      config: Release
