@@ -167,9 +167,30 @@ done < <(find "${APP_PATH}" -type f -name '*.dylib' -print)
 APP_EXECUTABLE="${APP_PATH}/$(read_plist "${APP_PATH}/Info.plist" "CFBundleExecutable")"
 TUNNEL_EXECUTABLE="${TUNNEL_PATH}/$(read_plist "${TUNNEL_PATH}/Info.plist" "CFBundleExecutable")"
 
+prepare_entitlements() {
+  local source_plist="$1"
+  local output_plist="$2"
+  # ldid consumes the XML blob verbatim. Normalising it on the macOS runner
+  # avoids carrying a plist encoding/doctype quirk into the Mach-O signature.
+  plutil -convert xml1 -o "${output_plist}" "${source_plist}"
+  plutil -lint "${output_plist}"
+  plutil -p "${output_plist}"
+}
+
+LDID_ENTITLEMENTS_DIR="$(mktemp -d)"
+APP_ENTITLEMENTS="${LDID_ENTITLEMENTS_DIR}/Nimbo.entitlements"
+TUNNEL_ENTITLEMENTS="${LDID_ENTITLEMENTS_DIR}/PacketTunnel.entitlements"
+prepare_entitlements "${ROOT_DIR}/iosApp/Nimbo/Nimbo.entitlements" "${APP_ENTITLEMENTS}"
+prepare_entitlements "${ROOT_DIR}/iosApp/PacketTunnel/PacketTunnel.entitlements" "${TUNNEL_ENTITLEMENTS}"
+
 echo "Embedding Network Extension entitlements with ${LDID_BIN}"
-"${LDID_BIN}" -S"${ROOT_DIR}/iosApp/PacketTunnel/PacketTunnel.entitlements" "${TUNNEL_EXECUTABLE}"
-"${LDID_BIN}" -S"${ROOT_DIR}/iosApp/Nimbo/Nimbo.entitlements" "${APP_EXECUTABLE}"
+# Xcode 26 leaves an empty ad-hoc LC_CODE_SIGNATURE even with signing disabled.
+# Remove it first: otherwise current ldid-procursus can retain the empty
+# entitlement blob for the containing app instead of replacing it.
+"${LDID_BIN}" -r "${TUNNEL_EXECUTABLE}" || true
+"${LDID_BIN}" -r "${APP_EXECUTABLE}" || true
+"${LDID_BIN}" -S"${TUNNEL_ENTITLEMENTS}" "${TUNNEL_EXECUTABLE}"
+"${LDID_BIN}" -S"${APP_ENTITLEMENTS}" "${APP_EXECUTABLE}"
 
 ENTITLEMENTS_REPORT_DIR="${ARTIFACT_DIR}/codesign-entitlements"
 rm -rf "${ENTITLEMENTS_REPORT_DIR}"
@@ -189,6 +210,8 @@ for signed_executable in "${APP_EXECUTABLE}" "${TUNNEL_EXECUTABLE}"; do
     exit 7
   fi
 done
+
+rm -rf "${LDID_ENTITLEMENTS_DIR}"
 
 PACKAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "${PACKAGE_DIR}"' EXIT
