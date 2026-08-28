@@ -42,12 +42,24 @@ TUNNEL_PROFILE_ID="$("${PLIST_BUDDY}" -c 'Print :Entitlements:application-identi
 [[ "${APP_PROFILE_ID}" == *."${NIMBO_APP_BUNDLE_ID}" ]] || { echo "Main profile does not match ${NIMBO_APP_BUNDLE_ID}" >&2; exit 4; }
 [[ "${TUNNEL_PROFILE_ID}" == *."${TUNNEL_BUNDLE_ID}" ]] || { echo "Tunnel profile does not match ${TUNNEL_BUNDLE_ID}" >&2; exit 5; }
 
-if ! "${PLIST_BUDDY}" -c 'Print :Entitlements:com.apple.developer.networking.networkextension' "${WORK_DIR}/app-profile.plist" | grep -q 'packet-tunnel-provider'; then
+profile_has_packet_tunnel() {
+  /usr/bin/python3 - "$1" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as profile_file:
+    entitlements = plistlib.load(profile_file).get("Entitlements", {})
+values = entitlements.get("com.apple.developer.networking.networkextension", [])
+raise SystemExit(0 if "packet-tunnel-provider" in values else 1)
+PY
+}
+
+if ! profile_has_packet_tunnel "${WORK_DIR}/app-profile.plist"; then
   echo "Main app profile does not contain packet-tunnel-provider entitlement" >&2
   exit 6
 fi
 
-if ! "${PLIST_BUDDY}" -c 'Print :Entitlements:com.apple.developer.networking.networkextension' "${WORK_DIR}/tunnel-profile.plist" | grep -q 'packet-tunnel-provider'; then
+if ! profile_has_packet_tunnel "${WORK_DIR}/tunnel-profile.plist"; then
   echo "Tunnel profile does not contain packet-tunnel-provider entitlement" >&2
   exit 7
 fi
