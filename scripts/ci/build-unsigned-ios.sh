@@ -146,10 +146,19 @@ codesign --force --sign - --timestamp=none --generate-entitlement-der \
   "${APP_PATH}"
 
 codesign --verify --deep --strict "${APP_PATH}"
+ENTITLEMENTS_REPORT_DIR="${ARTIFACT_DIR}/codesign-entitlements"
+rm -rf "${ENTITLEMENTS_REPORT_DIR}"
+mkdir -p "${ENTITLEMENTS_REPORT_DIR}"
 for signed_bundle in "${APP_PATH}" "${TUNNEL_PATH}"; do
-  entitlements="$(codesign -d --entitlements :- "${signed_bundle}" 2>/dev/null)"
+  bundle_name="$(basename "${signed_bundle}")"
+  report_path="${ENTITLEMENTS_REPORT_DIR}/${bundle_name}.plist"
+  # Xcode 26 may emit the entitlement plist through either output stream.
+  # Preserve both for verification and for diagnostics in the private artifact.
+  entitlements="$(codesign -d --entitlements :- "${signed_bundle}" 2>&1)"
+  printf '%s\n' "${entitlements}" > "${report_path}"
   if [[ "${entitlements}" != *"packet-tunnel-provider"* ]]; then
     echo "Packet Tunnel entitlement is missing from ${signed_bundle}" >&2
+    sed -n '1,120p' "${report_path}" >&2
     exit 7
   fi
 done
