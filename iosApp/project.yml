@@ -48,6 +48,9 @@ targets:
           - UIInterfaceOrientationLandscapeRight
     entitlements:
       path: Nimbo/Nimbo.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
     sources:
       - path: Nimbo
       - path: Shared
@@ -82,6 +85,9 @@ targets:
           NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).PacketTunnelProvider"
     entitlements:
       path: PacketTunnel/PacketTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
     sources:
       - path: PacketTunnel
       - path: Shared
