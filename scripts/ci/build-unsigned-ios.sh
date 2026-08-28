@@ -176,7 +176,20 @@ prepare_entitlements() {
   cp "${source_plist}" "${output_plist}"
   plutil -lint "${output_plist}"
   local tunnel_capability
-  tunnel_capability="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.networking.networkextension:0' "${output_plist}" 2>/dev/null || true)"
+  # PlistBuddy treats the dots in the entitlement name as a nested key path on
+  # recent macOS runners. Read the plist as data instead, otherwise a valid
+  # `com.apple.developer.networking.networkextension` array is reported empty.
+  tunnel_capability="$(/usr/bin/python3 - "${output_plist}" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as plist_file:
+    values = plistlib.load(plist_file).get(
+        "com.apple.developer.networking.networkextension", []
+    )
+print(values[0] if values else "")
+PY
+)"
   if [[ "${tunnel_capability}" != "packet-tunnel-provider" ]]; then
     echo "Packet Tunnel entitlement source is invalid: ${source_plist}" >&2
     plutil -p "${output_plist}" >&2 || true
