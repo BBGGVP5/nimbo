@@ -175,11 +175,10 @@ prepare_entitlements() {
   # entitlement files, which made NetworkExtension fail with permission denied.
   cp "${source_plist}" "${output_plist}"
   plutil -lint "${output_plist}"
-  local tunnel_capability
   # PlistBuddy treats the dots in the entitlement name as a nested key path on
   # recent macOS runners. Read the plist as data instead, otherwise a valid
   # `com.apple.developer.networking.networkextension` array is reported empty.
-  tunnel_capability="$(/usr/bin/python3 - "${output_plist}" <<'PY'
+  if ! /usr/bin/python3 - "${output_plist}" <<'PY'
 import plistlib
 import sys
 
@@ -187,10 +186,9 @@ with open(sys.argv[1], "rb") as plist_file:
     values = plistlib.load(plist_file).get(
         "com.apple.developer.networking.networkextension", []
     )
-print(values[0] if values else "")
+raise SystemExit(0 if "packet-tunnel-provider" in values else 1)
 PY
-)"
-  if [[ "${tunnel_capability}" != "packet-tunnel-provider" ]]; then
+  then
     echo "Packet Tunnel entitlement source is invalid: ${source_plist}" >&2
     plutil -p "${output_plist}" >&2 || true
     exit 7
