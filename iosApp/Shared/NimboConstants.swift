@@ -14,8 +14,37 @@ enum NimboConstants {
     }
 
     static var packetTunnelBundleIdentifier: String {
-        resolvedInfoValue("NimboPacketTunnelBundleIdentifier")
+        embeddedPacketTunnelBundleIdentifier
+            ?? resolvedInfoValue("NimboPacketTunnelBundleIdentifier")
             ?? "\(mainBundleIdentifier).PacketTunnel"
+    }
+
+    /// Re-signing tools commonly replace the application and extension bundle
+    /// identifiers without touching custom Info.plist keys. Always prefer the
+    /// identifier of the extension that is actually embedded in this build so
+    /// NETunnelProviderManager can find it after AltStore/SideStore/TrollStore
+    /// or a private signing service has applied its own App ID.
+    private static var embeddedPacketTunnelBundleIdentifier: String? {
+        guard !Bundle.main.bundlePath.hasSuffix(".appex"),
+              let plugInsURL = Bundle.main.builtInPlugInsURL,
+              let children = try? FileManager.default.contentsOfDirectory(
+                  at: plugInsURL,
+                  includingPropertiesForKeys: nil,
+                  options: [.skipsHiddenFiles]
+              ) else {
+            return nil
+        }
+
+        for url in children where url.pathExtension == "appex" {
+            guard let bundle = Bundle(url: url),
+                  bundle.object(forInfoDictionaryKey: "NSExtension") != nil,
+                  let identifier = bundle.bundleIdentifier,
+                  !identifier.isEmpty else {
+                continue
+            }
+            return identifier
+        }
+        return nil
     }
 
     static var appGroup: String? {
