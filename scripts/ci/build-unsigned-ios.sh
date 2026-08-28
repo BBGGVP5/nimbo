@@ -134,6 +134,18 @@ assert_plist "${TUNNEL_PATH}/Info.plist" "NSExtension:NSExtensionPrincipalClass"
 # containing app even when it is supplied explicitly. ldid writes the requested
 # entitlement into each executable without an Apple certificate or provisioning
 # profile. The result remains suitable for TrollStore and for later re-signing.
+if ! command -v ldid >/dev/null 2>&1; then
+  echo "ldid-procursus is required to build the re-signable IPA" >&2
+  exit 7
+fi
+
+LDID_BANNER="$(ldid 2>&1 | head -n 5 || true)"
+if ! printf '%s\n' "${LDID_BANNER}" | grep -qi 'procursus'; then
+  echo "The installed ldid is not ldid-procursus and cannot safely embed the Packet Tunnel entitlement" >&2
+  printf '%s\n' "${LDID_BANNER}" >&2
+  exit 7
+fi
+
 find "${APP_PATH}" -type d -name _CodeSignature -prune -exec rm -rf {} +
 find "${APP_PATH}" -name embedded.mobileprovision -delete
 
