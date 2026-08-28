@@ -1,0 +1,54 @@
+name: Build private re-signable iOS IPA
+
+on:
+  push:
+    branches:
+      - codex/ios-unsigned-build
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version embedded in the IPA filename
+        required: true
+        default: 1.2.0-beta.2
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install build tools
+        run: brew install xcodegen
+
+      - name: Prepare executable build scripts
+        run: chmod +x gradlew scripts/ci/build-unsigned-ios.sh scripts/ci/prepare-libxray-apple.sh scripts/ios/resign-ipa.sh
+
+      - name: Build re-signable IPA
+        env:
+          NIMBO_VERSION: ${{ inputs.version || '1.2.0-beta.2' }}
+        run: bash scripts/ci/build-unsigned-ios.sh
+
+      - name: Upload private temporary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nimbo_v${{ inputs.version || '1.2.0-beta.2' }}_ios_resignable
+          path: |
+            artifacts/ios/Nimbo_v${{ inputs.version || '1.2.0-beta.2' }}_ios_resignable.ipa
+            artifacts/ios/Nimbo_v${{ inputs.version || '1.2.0-beta.2' }}_ios_resignable.ipa.sha256
+            artifacts/ios/build-manifest.txt
+          if-no-files-found: error
+          retention-days: 1
