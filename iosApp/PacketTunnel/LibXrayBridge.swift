@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import LibXray
 
@@ -9,6 +10,27 @@ import LibXray
 final class LibXrayBridge {
     private static let apiVersion = 1
     private static let maximumEnvelopeBytes = 16 * 1_024 * 1_024
+
+    /// Xray's iOS TUN implementation reads the NetworkExtension descriptor
+    /// and geo-data directory from the process environment. Putting these
+    /// values into the Xray JSON does not configure the Darwin TUN backend.
+    func configureRuntimeEnvironment(
+        tunnelFileDescriptor: Int32,
+        assetDirectory: String
+    ) throws {
+        guard tunnelFileDescriptor >= 0 else {
+            throw LibXrayBridgeError.invalidTunnelDescriptor
+        }
+        guard !assetDirectory.isEmpty else {
+            throw LibXrayBridgeError.invalidAssetDirectory
+        }
+
+        let descriptor = String(tunnelFileDescriptor)
+        try setEnvironmentValue(descriptor, key: "xray.tun.fd")
+        try setEnvironmentValue(descriptor, key: "XRAY_TUN_FD")
+        try setEnvironmentValue(assetDirectory, key: "xray.location.asset")
+        try setEnvironmentValue(assetDirectory, key: "XRAY_LOCATION_ASSET")
+    }
 
     func convertShareText(_ text: String) throws -> [String: Any] {
         let data = try invoke(
@@ -85,12 +107,26 @@ final class LibXrayBridge {
         }
         return response["data"] ?? [:]
     }
+
+    private func setEnvironmentValue(_ value: String, key: String) throws {
+        let result = key.withCString { keyPointer in
+            value.withCString { valuePointer in
+                Darwin.setenv(keyPointer, valuePointer, 1)
+            }
+        }
+        guard result == 0 else {
+            throw LibXrayBridgeError.environment(errno)
+        }
+    }
 }
 
 enum LibXrayBridgeError: LocalizedError {
     case requestTooLarge
     case invalidRequestEncoding
     case emptyResponse
+    case invalidTunnelDescriptor
+    case invalidAssetDirectory
+    case environment(Int32)
     case invalidResponse(String)
     case core(String)
 
@@ -102,6 +138,12 @@ enum LibXrayBridgeError: LocalizedError {
             "Не удалось подготовить запрос к VPN-ядру (IOS_CORE_REQUEST_ENCODING)."
         case .emptyResponse:
             "VPN-ядро не вернуло ответ (IOS_CORE_EMPTY_RESPONSE)."
+        case .invalidTunnelDescriptor:
+            "Packet Tunnel вернул некорректный TUN-дескриптор (IOS_TUN_FD_INVALID)."
+        case .invalidAssetDirectory:
+            "Не найден каталог данных VPN-ядра (IOS_CORE_ASSET_PATH_INVALID)."
+        case let .environment(code):
+            "Не удалось передать TUN-окружение VPN-ядру: errno \(code) (IOS_CORE_ENVIRONMENT)."
         case let .invalidResponse(details):
             "Некорректный ответ VPN-ядра: \(details) (IOS_CORE_INVALID_RESPONSE)."
         case let .core(details):

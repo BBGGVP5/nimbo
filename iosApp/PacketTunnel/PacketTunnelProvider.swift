@@ -170,7 +170,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         try await ensureStartIsCurrent(generation)
 
-        guard let descriptor = PacketTunnelNetwork.utunFileDescriptor() else {
+        guard let descriptorInfo = PacketTunnelNetwork.utunDescriptorInfo() else {
             throw await recorded(PacketTunnelError.utunUnavailable, stage: .route, code: "IOS_UTUN_FD_NOT_FOUND")
         }
         guard let assets = Bundle.main.resourceURL?.path,
@@ -183,7 +183,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             let startup = try await runCore(
                 generation: generation,
                 sourceData: data,
-                descriptor: descriptor,
+                descriptor: descriptorInfo.descriptor,
                 assetDirectory: assets
             )
 
@@ -195,7 +195,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 metadata: [
                     "core": startup.coreVersion,
                     "outbounds": "\(startup.configuration.outboundCount)",
-                    "tun_fd": "available"
+                    "tun_fd": "available",
+                    "tun_interface": descriptorInfo.interfaceName
                 ]
             )
         } catch {
@@ -229,6 +230,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 }
                 do {
                     if (try? self.core.isRunning()) == true { try self.core.stop() }
+                    try self.core.configureRuntimeEnvironment(
+                        tunnelFileDescriptor: descriptor,
+                        assetDirectory: assetDirectory
+                    )
                     let configuration = try XrayConfigurationBuilder.prepare(
                         sourceData: sourceData,
                         tunnelFileDescriptor: descriptor,

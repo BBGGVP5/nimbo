@@ -31,11 +31,6 @@ enum XrayConfigurationBuilder {
         configuration["outbounds"] = appendUtilityOutbounds(to: outbounds)
         configuration["routing"] = normalizedRouting(configuration["routing"])
 
-        var environment = configuration["env"] as? [String: Any] ?? [:]
-        environment["xray.location.asset"] = assetDirectory
-        environment["xray.tun.fd"] = String(tunnelFileDescriptor)
-        configuration["env"] = environment
-
         let data = try JSONSerialization.data(withJSONObject: configuration, options: [.sortedKeys])
         guard data.count <= maximumInputBytes,
               let json = String(data: data, encoding: .utf8) else {
@@ -59,10 +54,11 @@ enum XrayConfigurationBuilder {
     private static var tunnelInbound: [String: Any] {
         [
             "tag": "tun-in",
+            "port": 0,
             "protocol": "tun",
             "settings": [
                 "name": "tun0",
-                "MTU": 1400,
+                "mtu": 1400,
                 "userLevel": 0
             ],
             "sniffing": [

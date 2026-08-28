@@ -5,6 +5,11 @@ import NetworkExtension
 enum PacketTunnelNetwork {
     static let mtu = 1400
 
+    struct DescriptorInfo {
+        let descriptor: Int32
+        let interfaceName: String
+    }
+
     static func settings() -> NEPacketTunnelNetworkSettings {
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
 
@@ -32,8 +37,7 @@ enum PacketTunnelNetwork {
     /// NetworkExtension does not expose its utun descriptor directly. Xray's
     /// official iOS integration scans the provider process descriptors and
     /// identifies utun sockets through SYSPROTO_CONTROL/UTUN_OPT_IFNAME.
-    static func utunFileDescriptor() -> Int32? {
-        var candidates: [Int32] = []
+    static func utunDescriptorInfo() -> DescriptorInfo? {
         let prefix = Array("utun".utf8CString.dropLast())
 
         for descriptor in Int32(0) ... Int32(1024) {
@@ -43,8 +47,11 @@ enum PacketTunnelNetwork {
                 getsockopt(descriptor, 2, 2, buffer.baseAddress, &length)
             }
             guard result == 0, name.starts(with: prefix) else { continue }
-            candidates.append(descriptor)
+            return DescriptorInfo(
+                descriptor: descriptor,
+                interfaceName: String(cString: name)
+            )
         }
-        return candidates.max()
+        return nil
     }
 }
