@@ -29,6 +29,22 @@ PLIST_BUDDY=/usr/libexec/PlistBuddy
 "${PLIST_BUDDY}" -c "Set :NimboPacketTunnelBundleIdentifier ${TUNNEL_BUNDLE_ID}" "${APP_PATH}/Info.plist"
 "${PLIST_BUDDY}" -c "Set :CFBundleIdentifier ${TUNNEL_BUNDLE_ID}" "${TUNNEL_PATH}/Info.plist"
 
+# App Group lets the extension and the app share one diagnostics container, so
+# tunnel failures show up in the report the user exports. Optional: without it
+# each process keeps its own log and only the app side is visible. The group
+# must exist in the signing team and be enabled on both App IDs, otherwise the
+# profiles below will not carry it and installation fails.
+set_app_group() {
+  local plist="$1"
+  "${PLIST_BUDDY}" -c "Set :NimboAppGroupIdentifier ${NIMBO_APP_GROUP}" "${plist}" 2>/dev/null ||
+    "${PLIST_BUDDY}" -c "Add :NimboAppGroupIdentifier string ${NIMBO_APP_GROUP}" "${plist}"
+}
+
+if [[ -n "${NIMBO_APP_GROUP:-}" ]]; then
+  set_app_group "${APP_PATH}/Info.plist"
+  set_app_group "${TUNNEL_PATH}/Info.plist"
+fi
+
 cp "${NIMBO_APP_PROFILE}" "${APP_PATH}/embedded.mobileprovision"
 cp "${NIMBO_TUNNEL_PROFILE}" "${TUNNEL_PATH}/embedded.mobileprovision"
 
