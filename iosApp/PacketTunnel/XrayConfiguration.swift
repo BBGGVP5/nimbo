@@ -11,6 +11,7 @@ enum XrayConfigurationBuilder {
     static func prepare(
         sourceData: Data,
         tunnelFileDescriptor: Int32,
+        tunnelInterfaceName: String,
         assetDirectory: String,
         bridge: LibXrayBridge
     ) throws -> PreparedXrayConfiguration {
@@ -27,7 +28,15 @@ enum XrayConfigurationBuilder {
         guard !outbounds.isEmpty else { throw XrayConfigurationError.noOutbounds }
 
         configuration["log"] = normalizedLog(configuration["log"])
-        configuration["inbounds"] = [tunnelInbound]
+        // TUN-дескриптор и каталог гео-данных ядро читает из корневого объекта
+        // "env" конфигурации — ровно так их передаёт рабочая сборка Android.
+        // Одних переменных окружения процесса недостаточно.
+        configuration["env"] = runtimeEnvironment(
+            existing: configuration["env"],
+            tunnelFileDescriptor: tunnelFileDescriptor,
+            assetDirectory: assetDirectory
+        )
+        configuration["inbounds"] = [tunnelInbound(interfaceName: tunnelInterfaceName)]
         configuration["outbounds"] = appendUtilityOutbounds(to: outbounds)
         configuration["routing"] = normalizedRouting(configuration["routing"])
 
@@ -51,15 +60,16 @@ enum XrayConfigurationBuilder {
         return try bridge.convertShareText(sourceText)
     }
 
-    private static var tunnelInbound: [String: Any] {
+    /// Форма inbound'а повторяет Android (`XrayManager.buildTunInbound`):
+    /// лишний `port: 0` и `userLevel` там отсутствуют, а MTU пишется заглавным
+    /// ключом — именно такой конфиг ядро принимает.
+    private static func tunnelInbound(interfaceName: String) -> [String: Any] {
         [
             "tag": "tun-in",
-            "port": 0,
             "protocol": "tun",
             "settings": [
-                "name": "tun0",
-                "mtu": 1400,
-                "userLevel": 0
+                "name": interfaceName.isEmpty ? "tun0" : interfaceName,
+                "MTU": 1400
             ],
             "sniffing": [
                 "enabled": true,
@@ -79,6 +89,17 @@ enum XrayConfigurationBuilder {
             result.append(["tag": "block", "protocol": "blackhole", "settings": [:]])
         }
         return result
+    }
+
+    private static func runtimeEnvironment(
+        existing: Any?,
+        tunnelFileDescriptor: Int32,
+        assetDirectory: String
+    ) -> [String: Any] {
+        var environment = existing as? [String: Any] ?? [:]
+        environment["xray.tun.fd"] = String(tunnelFileDescriptor)
+        environment["xray.location.asset"] = assetDirectory
+        return environment
     }
 
     private static func normalizedRouting(_ value: Any?) -> [String: Any] {

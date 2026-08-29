@@ -184,6 +184,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 generation: generation,
                 sourceData: data,
                 descriptor: descriptorInfo.descriptor,
+                interfaceName: descriptorInfo.interfaceName,
                 assetDirectory: assets
             )
 
@@ -220,6 +221,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         generation: UInt64,
         sourceData: Data,
         descriptor: Int32,
+        interfaceName: String,
         assetDirectory: String
     ) async throws -> CoreStartupResult {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CoreStartupResult, Error>) in
@@ -237,6 +239,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     let configuration = try XrayConfigurationBuilder.prepare(
                         sourceData: sourceData,
                         tunnelFileDescriptor: descriptor,
+                        tunnelInterfaceName: interfaceName,
                         assetDirectory: assetDirectory,
                         bridge: self.core
                     )
