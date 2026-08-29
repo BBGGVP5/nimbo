@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct PreparedXrayConfiguration {
@@ -38,7 +39,7 @@ enum XrayConfigurationBuilder {
             assetDirectory: assetDirectory
         )
         configuration["inbounds"] = [tunnelInbound(interfaceName: tunnelInterfaceName)]
-        configuration["outbounds"] = appendUtilityOutbounds(to: outbounds)
+        configuration["outbounds"] = appendUtilityOutbounds(to: sanitizedOutbounds(outbounds))
         configuration["routing"] = normalizedRouting(configuration["routing"])
 
         let data = try JSONSerialization.data(withJSONObject: configuration, options: [.sortedKeys])
@@ -78,6 +79,37 @@ enum XrayConfigurationBuilder {
                 "destOverride": ["http", "tls", "quic"]
             ]
         ]
+    }
+
+    /// libXray прячет имя сервера из #fragment ссылки в поле `sendThrough`
+    /// (share/xray_json.go, setOutboundName) и использует его как переносчик
+    /// названия. Xray-core же ждёт там локальный IP-адрес и отвергает всю
+    /// конфигурацию: "unable to send through: <имя сервера>". Поэтому имя
+    /// переносим в tag, а из sendThrough оставляем только настоящие адреса.
+    private static func sanitizedOutbounds(_ outbounds: [[String: Any]]) -> [[String: Any]] {
+        outbounds.enumerated().map { index, outbound in
+            var result = outbound
+            let carried = (result["sendThrough"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let carried, !isIPAddress(carried) {
+                result.removeValue(forKey: "sendThrough")
+            }
+            let tag = (result["tag"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if tag.isEmpty {
+                result["tag"] = index == 0 ? "proxy" : "proxy-\(index + 1)"
+            }
+            return result
+        }
+    }
+
+    private static func isIPAddress(_ value: String) -> Bool {
+        var address4 = in_addr()
+        var address6 = in6_addr()
+        return value.withCString { pointer in
+            inet_pton(AF_INET, pointer, &address4) == 1 ||
+                inet_pton(AF_INET6, pointer, &address6) == 1
+        }
     }
 
     private static func appendUtilityOutbounds(to outbounds: [[String: Any]]) -> [[String: Any]] {

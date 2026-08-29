@@ -278,7 +278,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         )
         let bridged = error as NSError
         return NSError(
-            domain: "Nimbo: \(text.prefix(180))",
+            domain: "Nimbo: \(text.prefix(400))",
             code: bridged.code,
             userInfo: [NSLocalizedDescriptionKey: text]
         )
