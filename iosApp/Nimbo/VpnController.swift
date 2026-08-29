@@ -16,9 +16,15 @@ final class VpnController: ObservableObject {
     @Published private(set) var manager: NETunnelProviderManager?
 
     private var statusObserver: NSObjectProtocol?
-    /// Последний увиденный системный статус: по переходу connecting -> disconnected
-    /// становится понятно, что расширение не поднялось.
+    /// Последний увиденный системный статус — для журнала переходов.
     private var lastKnownStatus: NEVPNStatus?
+    /// Запуск запрошен, но соединение ещё ни разу не дошло до connected.
+    /// Флаг нужен потому, что система гасит неудачный старт через промежуточный
+    /// disconnecting: связка connecting -> disconnected напрямую не приходит.
+    private var pendingConnection = false
+    /// Когда был запрошен запуск: по времени до обрыва видно, «не поднялось
+    /// расширение» (доли секунды) или «не удалось достучаться до сервера».
+    private var startRequestedAt: Date?
 
     init() {
         statusObserver = NotificationCenter.default.addObserver(
@@ -157,12 +163,16 @@ final class VpnController: ObservableObject {
             state = .connecting
             await NimboDiagnostics.shared.record(.info, stage: .tunnelStart, code: "IOS_TUNNEL_START_REQUESTED", message: "Запуск Packet Tunnel запрошен пользователем")
             try manager.connection.startVPNTunnel()
+            pendingConnection = true
+            startRequestedAt = Date()
         } catch {
             fail(code: "IOS_TUNNEL_START_FAILED", error: error)
         }
     }
 
     func disconnect() async {
+        // Осознанное отключение не должно выглядеть как сбой запуска.
+        pendingConnection = false
         state = .disconnecting
         manager?.connection.stopVPNTunnel()
         await NimboDiagnostics.shared.record(.info, stage: .stop, code: "IOS_TUNNEL_STOP_REQUESTED", message: "Остановка Packet Tunnel запрошена пользователем")
@@ -211,13 +221,16 @@ final class VpnController: ObservableObject {
         case .invalid, .disconnected:
             // Туннель упал, не дойдя до connected: раньше это молча возвращало
             // экран в исходное состояние, и причина терялась.
-            if previous == .connecting || previous == .reasserting {
+            if pendingConnection {
+                pendingConnection = false
                 reportUnexpectedDisconnect()
             } else {
                 state = .idle
             }
         case .connecting, .reasserting: state = .connecting
-        case .connected: state = .connected
+        case .connected:
+            pendingConnection = false
+            state = .connected
         case .disconnecting: state = .disconnecting
         @unknown default: state = .failed(code: "IOS_VPN_UNKNOWN_STATE", message: "Неизвестное состояние системного VPN")
         }
@@ -241,6 +254,13 @@ final class VpnController: ObservableObject {
         }
     }
 
+    /// Сколько миллисекунд прожила попытка подключения.
+    private var elapsedSinceStartMetadata: [String: String] {
+        guard let startRequestedAt else { return [:] }
+        let elapsed = Int(Date().timeIntervalSince(startRequestedAt) * 1000)
+        return ["elapsed_ms": "\(elapsed)"]
+    }
+
     private func applyDisconnectError(_ error: Error?) {
         guard let error else {
             state = .failed(
@@ -255,7 +275,7 @@ final class VpnController: ObservableObject {
                     stage: .tunnelStart,
                     code: "IOS_TUNNEL_DROPPED",
                     message: "Расширение остановилось без сообщения об ошибке",
-                    metadata: signingContractMetadata
+                    metadata: signingContractMetadata.merging(elapsedSinceStartMetadata) { _, new in new }
                 )
             }
             return
@@ -267,6 +287,7 @@ final class VpnController: ObservableObject {
             var metadata = signingContractMetadata
             metadata["error_domain"] = presentation.domain
             metadata["error_number"] = presentation.number
+            metadata.merge(elapsedSinceStartMetadata) { _, new in new }
             await NimboDiagnostics.shared.record(
                 .error,
                 stage: .tunnelStart,
