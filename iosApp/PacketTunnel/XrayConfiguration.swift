@@ -15,6 +15,7 @@ enum XrayConfigurationBuilder {
         assetDirectory: String,
         bridge: LibXrayBridge
     ) throws -> PreparedXrayConfiguration {
+        guard !tunnelInterfaceName.isEmpty else { throw XrayConfigurationError.tunnelInterfaceUnknown }
         guard !sourceData.isEmpty else { throw XrayConfigurationError.empty }
         guard sourceData.count <= maximumInputBytes else { throw XrayConfigurationError.tooLarge }
         guard let sourceText = String(data: sourceData, encoding: .utf8)?
@@ -60,16 +61,16 @@ enum XrayConfigurationBuilder {
         return try bridge.convertShareText(sourceText)
     }
 
-    /// Форма inbound'а повторяет Android (`XrayManager.buildTunInbound`):
-    /// лишний `port: 0` и `userLevel` там отсутствуют, а MTU пишется заглавным
-    /// ключом — именно такой конфиг ядро принимает.
+    /// `infra/conf/tun.go` разбирает настройки как `name`/`mtu` строчными
+    /// буквами, а имя обязано быть настоящим `utunN`: на Darwin ядро без
+    /// дескриптора пытается открыть интерфейс по имени и отвергает «tun0».
     private static func tunnelInbound(interfaceName: String) -> [String: Any] {
         [
             "tag": "tun-in",
             "protocol": "tun",
             "settings": [
-                "name": interfaceName.isEmpty ? "tun0" : interfaceName,
-                "MTU": 1400
+                "name": interfaceName,
+                "mtu": PacketTunnelNetwork.mtu
             ],
             "sniffing": [
                 "enabled": true,
@@ -125,6 +126,7 @@ enum XrayConfigurationError: LocalizedError {
     case tooLarge
     case invalidEncoding
     case noOutbounds
+    case tunnelInterfaceUnknown
 
     var errorDescription: String? {
         switch self {
@@ -136,6 +138,8 @@ enum XrayConfigurationError: LocalizedError {
             "Подписка должна быть текстом UTF-8 (IOS_CONFIG_ENCODING)."
         case .noOutbounds:
             "В подписке не найдено поддерживаемых серверов (IOS_CONFIG_NO_OUTBOUNDS)."
+        case .tunnelInterfaceUnknown:
+            "Не удалось определить имя utun-интерфейса (IOS_TUN_INTERFACE_UNKNOWN)."
         }
     }
 }

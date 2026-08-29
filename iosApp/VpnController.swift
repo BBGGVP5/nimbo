@@ -16,15 +16,6 @@ final class VpnController: ObservableObject {
     @Published private(set) var manager: NETunnelProviderManager?
 
     private var statusObserver: NSObjectProtocol?
-    /// Последний увиденный системный статус — для журнала переходов.
-    private var lastKnownStatus: NEVPNStatus?
-    /// Запуск запрошен, но соединение ещё ни разу не дошло до connected.
-    /// Флаг нужен потому, что система гасит неудачный старт через промежуточный
-    /// disconnecting: связка connecting -> disconnected напрямую не приходит.
-    private var pendingConnection = false
-    /// Когда был запрошен запуск: по времени до обрыва видно, «не поднялось
-    /// расширение» (доли секунды) или «не удалось достучаться до сервера».
-    private var startRequestedAt: Date?
 
     init() {
         statusObserver = NotificationCenter.default.addObserver(
@@ -163,16 +154,12 @@ final class VpnController: ObservableObject {
             state = .connecting
             await NimboDiagnostics.shared.record(.info, stage: .tunnelStart, code: "IOS_TUNNEL_START_REQUESTED", message: "Запуск Packet Tunnel запрошен пользователем")
             try manager.connection.startVPNTunnel()
-            pendingConnection = true
-            startRequestedAt = Date()
         } catch {
             fail(code: "IOS_TUNNEL_START_FAILED", error: error)
         }
     }
 
     func disconnect() async {
-        // Осознанное отключение не должно выглядеть как сбой запуска.
-        pendingConnection = false
         state = .disconnecting
         manager?.connection.stopVPNTunnel()
         await NimboDiagnostics.shared.record(.info, stage: .stop, code: "IOS_TUNNEL_STOP_REQUESTED", message: "Остановка Packet Tunnel запрошена пользователем")
@@ -198,115 +185,12 @@ final class VpnController: ObservableObject {
 
     private func synchronizeStatus() {
         guard let status = manager?.connection.status else { return }
-        let previous = lastKnownStatus
-        lastKnownStatus = status
-
-        if previous != status {
-            let statusName = Self.statusName(status)
-            Task {
-                await NimboDiagnostics.shared.record(
-                    .info,
-                    stage: .tunnelStart,
-                    code: "IOS_VPN_STATUS",
-                    message: "Системный статус VPN: \(statusName)",
-                    metadata: [
-                        "status": statusName,
-                        "previous": previous.map(Self.statusName) ?? "unknown"
-                    ]
-                )
-            }
-        }
-
         switch status {
-        case .invalid, .disconnected:
-            // Туннель упал, не дойдя до connected: раньше это молча возвращало
-            // экран в исходное состояние, и причина терялась.
-            if pendingConnection {
-                pendingConnection = false
-                reportUnexpectedDisconnect()
-            } else {
-                state = .idle
-            }
+        case .invalid, .disconnected: state = .idle
         case .connecting, .reasserting: state = .connecting
-        case .connected:
-            pendingConnection = false
-            state = .connected
+        case .connected: state = .connected
         case .disconnecting: state = .disconnecting
         @unknown default: state = .failed(code: "IOS_VPN_UNKNOWN_STATE", message: "Неизвестное состояние системного VPN")
-        }
-    }
-
-    /// Спрашиваем систему, почему соединение разорвалось. Без этого в логе
-    /// оставался только запрос на запуск, а причина не попадала никуда.
-    private func reportUnexpectedDisconnect() {
-        state = .failed(
-            code: "IOS_TUNNEL_DROPPED",
-            message: "Расширение туннеля завершилось сразу после запуска. Выясняем причину…"
-        )
-
-        guard let connection = manager?.connection else { return }
-        if #available(iOS 16.0, *) {
-            connection.fetchLastDisconnectError { [weak self] error in
-                Task { @MainActor in
-                    self?.applyDisconnectError(error)
-                }
-            }
-        }
-    }
-
-    /// Сколько миллисекунд прожила попытка подключения.
-    private var elapsedSinceStartMetadata: [String: String] {
-        guard let startRequestedAt else { return [:] }
-        let elapsed = Int(Date().timeIntervalSince(startRequestedAt) * 1000)
-        return ["elapsed_ms": "\(elapsed)"]
-    }
-
-    private func applyDisconnectError(_ error: Error?) {
-        guard let error else {
-            state = .failed(
-                code: "IOS_TUNNEL_DROPPED",
-                message: "Расширение туннеля завершилось сразу после запуска, система не назвала причину. "
-                    + "Чаще всего так ведёт себя сборка, где расширение подписано без Network Extensions "
-                    + "или в нём нет рабочего ядра."
-            )
-            Task {
-                await NimboDiagnostics.shared.record(
-                    .error,
-                    stage: .tunnelStart,
-                    code: "IOS_TUNNEL_DROPPED",
-                    message: "Расширение остановилось без сообщения об ошибке",
-                    metadata: signingContractMetadata.merging(elapsedSinceStartMetadata) { _, new in new }
-                )
-            }
-            return
-        }
-
-        let presentation = errorPresentation(defaultCode: "IOS_TUNNEL_DROPPED", error: error)
-        state = .failed(code: presentation.code, message: presentation.message)
-        Task {
-            var metadata = signingContractMetadata
-            metadata["error_domain"] = presentation.domain
-            metadata["error_number"] = presentation.number
-            metadata.merge(elapsedSinceStartMetadata) { _, new in new }
-            await NimboDiagnostics.shared.record(
-                .error,
-                stage: .tunnelStart,
-                code: presentation.code,
-                message: presentation.message,
-                metadata: metadata
-            )
-        }
-    }
-
-    private static func statusName(_ status: NEVPNStatus) -> String {
-        switch status {
-        case .invalid: return "invalid"
-        case .disconnected: return "disconnected"
-        case .connecting: return "connecting"
-        case .connected: return "connected"
-        case .reasserting: return "reasserting"
-        case .disconnecting: return "disconnecting"
-        @unknown default: return "unknown"
         }
     }
 
@@ -341,16 +225,10 @@ final class VpnController: ObservableObject {
         error: Error
     ) -> (code: String, message: String, domain: String, number: String) {
         let nsError = error as NSError
-        // Расширение упаковывает причину в домен: только домен и код переживают
-        // передачу ошибки между процессами.
-        let smuggled = nsError.domain.hasPrefix("Nimbo: ")
-            ? String(nsError.domain.dropFirst("Nimbo: ".count))
-            : nil
-        let described = smuggled ?? error.localizedDescription
-        let raw = described.lowercased()
+        let raw = nsError.localizedDescription.lowercased()
         let permissionDenied = raw.contains("permission denied")
             || raw.contains("not permitted")
-            || (nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileWriteNoPermissionError)
+            || nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileWriteNoPermissionError
 
         if permissionDenied {
             return (
@@ -363,7 +241,7 @@ final class VpnController: ObservableObject {
 
         return (
             defaultCode,
-            NimboRedactor.redact(described),
+            NimboRedactor.redact(error.localizedDescription),
             nsError.domain,
             "\(nsError.code)"
         )

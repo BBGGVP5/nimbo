@@ -47,7 +47,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         self.starting = false
                         self.started = false
                         self.preparedConfiguration = nil
-                        completionHandler(reportedError)
+                        completionHandler(Self.transportableError(reportedError))
                     }
                 }
             }
@@ -266,6 +266,22 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 else { continuation.resume(returning: ()) }
             }
         }
+    }
+
+    /// Через границу процесса у NSError выживают только домен и код: userInfo
+    /// с текстом до приложения не доезжает, а собственные записи расширения без
+    /// App Group лежат в чужом контейнере и в выгрузку не попадают. Поэтому
+    /// причину упаковываем прямо в домен — это единственный канал наружу.
+    private static func transportableError(_ error: Error) -> NSError {
+        let text = NimboRedactor.redact(
+            (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        )
+        let bridged = error as NSError
+        return NSError(
+            domain: "Nimbo: \(text.prefix(180))",
+            code: bridged.code,
+            userInfo: [NSLocalizedDescriptionKey: text]
+        )
     }
 
     private func recorded(
