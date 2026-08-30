@@ -43,15 +43,24 @@ import androidx.compose.ui.unit.sp
 internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
     var query by remember { mutableStateOf("") }
     var favoritesOnly by remember { mutableStateOf(false) }
-    val visibleServers = remember(state.servers, query, favoritesOnly, state.favoriteServerIds) {
+    val visibleServers = remember(
+        state.servers,
+        query,
+        favoritesOnly,
+        state.favoriteServerIds,
+        state.serverSort,
+        state.favoritesFirst
+    ) {
         val value = query.trim()
-        state.servers
+        val filtered = state.servers
             .filter { !favoritesOnly || it.id in state.favoriteServerIds }
             .filter {
                 value.isEmpty() ||
                     it.name.contains(value, ignoreCase = true) ||
+                    it.description.contains(value, ignoreCase = true) ||
                     it.connectionLabel.contains(value, ignoreCase = true)
             }
+        sortServers(filtered, state.serverSort, state.favoriteServerIds, state.favoritesFirst)
     }
     Column(
         modifier = Modifier
@@ -73,7 +82,7 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
             // кнопкой «⋯» в строке сервера.
             NimboIconButton(
                 NimboIconName.FAVORITE,
-                modifier = Modifier.size(50.dp),
+                modifier = Modifier.size(46.dp),
                 selected = favoritesOnly,
                 onClick = { favoritesOnly = !favoritesOnly }
             )
@@ -119,6 +128,19 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
             }
         } else {
             ProfileSubscriptionCard(state, actions)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                NimboServerSort.entries.forEach { sort ->
+                    NimboPill(
+                        sort.title,
+                        modifier = Modifier.weight(1f),
+                        selected = state.serverSort == sort.key,
+                        onClick = { actions.onSetAppearance("serverSort", sort.key) }
+                    )
+                }
+            }
             BasicText(
                 if (favoritesOnly) "ИЗБРАННОЕ · ${visibleServers.size}" else "${state.serverCount} СЕРВЕРОВ",
                 style = NimboBodyStyle.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -301,4 +323,37 @@ private fun ProfileServerCard(
             )
         }
     }
+}
+
+
+/** Порядок списка серверов. */
+internal enum class NimboServerSort(val key: String, val title: String) {
+    SUBSCRIPTION("subscription", "Как в подписке"),
+    PING("ping", "По задержке"),
+    NAME("name", "По названию")
+}
+
+/**
+ * Узлы без замера и молчащие уходят в конец: иначе «—» и «×» оказывались бы
+ * впереди живых, а сортировка по задержке нужна ровно для обратного.
+ */
+internal fun sortServers(
+    servers: List<NimboServerUi>,
+    sort: String,
+    favorites: Set<String>,
+    favoritesFirst: Boolean
+): List<NimboServerUi> {
+    val ordered = when (sort) {
+        NimboServerSort.PING.key -> servers.sortedWith(
+            compareBy(
+                { it.ping == null || it.ping < 0 },
+                { if (it.ping != null && it.ping >= 0) it.ping else Int.MAX_VALUE },
+                { it.name.lowercase() }
+            )
+        )
+        NimboServerSort.NAME.key -> servers.sortedBy { withoutFlagEmoji(it.name).lowercase() }
+        else -> servers
+    }
+    if (!favoritesFirst || favorites.isEmpty()) return ordered
+    return ordered.sortedByDescending { it.id in favorites }
 }

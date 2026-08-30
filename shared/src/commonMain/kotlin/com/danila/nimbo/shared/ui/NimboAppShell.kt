@@ -98,8 +98,12 @@ data class NimboUiState(
     val backgroundMotion: Boolean = true,
     val showSpeedWidget: Boolean = true,
     val showMemoryWidget: Boolean = true,
-    /** Стиль элементов: glass / material / minimal. */
+    /** Стиль элементов: glass / material / dotted / signal. */
     val elementStyle: String = "glass",
+    /** Порядок серверов: subscription / ping / name. */
+    val serverSort: String = "subscription",
+    /** Избранные всегда сверху, независимо от выбранного порядка. */
+    val favoritesFirst: Boolean = true,
     /** Версия доступного обновления; пусто — обновлений нет. */
     val updateVersion: String = "",
     val updateNotes: String = ""

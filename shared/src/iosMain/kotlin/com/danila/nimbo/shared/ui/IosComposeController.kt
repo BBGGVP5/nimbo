@@ -54,7 +54,7 @@ private fun applyAppearanceChange(key: String, value: String) {
     when (key) {
         "backgroundStyle", "backgroundPalette" ->
             defaults.setInteger(value.toLongOrNull() ?: 0L, AppearanceDefaultsPrefix + key)
-        "elementStyle" -> defaults.setObject(value, AppearanceDefaultsPrefix + key)
+        "elementStyle", "serverSort" -> defaults.setObject(value, AppearanceDefaultsPrefix + key)
         else -> defaults.setBool(value == "true", AppearanceDefaultsPrefix + key)
     }
     iosUiState.value = iosUiState.value.copy(
@@ -63,7 +63,9 @@ private fun applyAppearanceChange(key: String, value: String) {
         backgroundMotion = appearanceFlag("backgroundMotion", true),
         showSpeedWidget = appearanceFlag("showSpeedWidget", true),
         showMemoryWidget = appearanceFlag("showMemoryWidget", true),
-        elementStyle = appearanceText("elementStyle", "glass")
+        elementStyle = appearanceText("elementStyle", "glass"),
+        serverSort = appearanceText("serverSort", "subscription"),
+        favoritesFirst = appearanceFlag("favoritesFirst", true)
     )
 }
 
@@ -242,7 +244,9 @@ fun NimboUpdateIosUiState(
         backgroundMotion = appearanceFlag("backgroundMotion", true),
         showSpeedWidget = appearanceFlag("showSpeedWidget", true),
         showMemoryWidget = appearanceFlag("showMemoryWidget", true),
-        elementStyle = appearanceText("elementStyle", "glass")
+        elementStyle = appearanceText("elementStyle", "glass"),
+        serverSort = appearanceText("serverSort", "subscription"),
+        favoritesFirst = appearanceFlag("favoritesFirst", true)
     )
 }
 
