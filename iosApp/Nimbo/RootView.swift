@@ -127,7 +127,9 @@ struct RootView: View {
             vpnState: presentation.state,
             errorCode: presentation.code,
             errorMessage: presentation.message,
-            activeProfileName: profile?.title ?? "Подписка не добавлена",
+            activeProfileName: NimboSubscriptionMetaStore.current.title
+                ?? profile?.title
+                ?? "Подписка не добавлена",
             activeServerName: selected?.name ?? "Выберите сервер",
             serverCount: Int32(profile?.servers.count ?? 0),
             profileCount: Int32(profile == nil ? 0 : 1),
@@ -136,6 +138,14 @@ struct RootView: View {
             appVersion: NimboPlatformInfo.displayVersion,
             profileJson: profileJson,
             activeServerId: NimboConfigurationStore.shared.activeServerID
+        )
+
+        let meta = NimboSubscriptionMetaStore.current
+        IosComposeControllerKt.NimboUpdateIosProfileMeta(
+            title: meta.title,
+            trafficLabel: meta.trafficLabel,
+            expiryLabel: meta.expiryLabel,
+            updatedLabel: profile == nil ? "" : meta.updatedLabel
         )
     }
 

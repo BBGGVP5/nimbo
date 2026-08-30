@@ -65,7 +65,7 @@ internal fun NimboHomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 58.dp, bottom = 116.dp)
+            .padding(top = 58.dp, bottom = 140.dp)
             .nimboScreenPadding(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -120,10 +120,10 @@ private fun HomeProfileCard(state: NimboUiState, actions: NimboUiActions) {
                 )
             }
 
-            val description = if (state.profileCount > 0) {
-                "${state.serverCount} серверов"
-            } else {
-                "Добавьте подписку или конфигурацию"
+            val description = when {
+                state.profileCount == 0 -> "Добавьте подписку или конфигурацию"
+                state.profileExpiryLabel.isNotBlank() -> state.profileExpiryLabel
+                else -> "${state.serverCount} серверов"
             }
             Spacer(Modifier.height(6.dp))
             BasicText(
@@ -155,7 +155,11 @@ private fun HomeProfileCard(state: NimboUiState, actions: NimboUiActions) {
             Spacer(Modifier.height(9.dp))
 
             BasicText(
-                text = if (state.profileCount > 0) "${state.serverCount} серверов / \u221E" else "Готово к импорту",
+                text = when {
+                    state.profileCount == 0 -> "Готово к импорту"
+                    state.profileTrafficLabel.isNotBlank() -> state.profileTrafficLabel
+                    else -> "${state.serverCount} серверов"
+                },
                 maxLines = 1,
                 style = TextStyle(
                     color = NimboPalette.Text.copy(alpha = 0.78f),
@@ -365,7 +369,6 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
                 .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val flag = flagEmoji(selected?.name.orEmpty())
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -373,22 +376,15 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
                     .background(NimboPalette.Soft),
                 contentAlignment = Alignment.Center
             ) {
-                if (flag.isNotBlank()) {
-                    BasicText(
-                        flag,
-                        style = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, color = NimboPalette.Text)
-                    )
-                } else {
-                    NimboIcon(
-                        NimboIconName.SITE,
-                        tint = NimboPalette.TextSecondary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
+                NimboIcon(
+                    NimboIconName.SITE,
+                    tint = NimboPalette.TextSecondary,
+                    modifier = Modifier.size(22.dp)
+                )
             }
             Spacer(Modifier.width(10.dp))
             BasicText(
-                text = selected?.name?.takeIf { it.isNotBlank() } ?: "Выберите сервер",
+                text = withoutFlagEmoji(selected?.name.orEmpty()).ifBlank { "Выберите сервер" },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -426,17 +422,7 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
     }
 }
 
-/** Флаг из названия сервера: панели ставят его первым символом. */
-private fun flagEmoji(name: String): String {
-    val trimmed = name.trimStart()
-    if (trimmed.length < 4) return ""
-    val first = trimmed.substring(0, 2)
-    val second = trimmed.substring(2, 4)
-    val isRegional = { pair: String ->
-        pair.length == 2 && pair[0] == '\uD83C' && pair[1] in '\uDDE6'..'\uDDFF'
-    }
-    return if (isRegional(first) && isRegional(second)) first + second else ""
-}
+
 
 @Composable
 private fun HomeMonitoring(state: NimboUiState) {
@@ -678,7 +664,9 @@ private fun MemoryUsageCard(memoryMb: Int, samples: List<Int>) {
             Spacer(Modifier.height(8.dp))
             Canvas(modifier = Modifier.fillMaxWidth().height(38.dp)) {
                 if (samples.isEmpty()) return@Canvas
-                val peak = samples.maxOrNull()?.coerceAtLeast(1)?.toFloat() ?: 1f
+                // Потолок берём с запасом и от нуля: без этого ровный ряд
+                // одинаковых значений рисовался прямой по самому верху.
+                val peak = ((samples.maxOrNull() ?: 1) * 1.35f).coerceAtLeast(1f)
                 val count = samples.size.coerceAtLeast(2)
                 val path = Path()
                 samples.forEachIndexed { index, value ->

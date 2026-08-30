@@ -40,7 +40,7 @@ internal fun NimboRoutingScreen(state: NimboUiState, actions: NimboUiActions) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 58.dp, bottom = 116.dp)
+            .padding(top = 58.dp, bottom = 140.dp)
             .nimboScreenPadding(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {

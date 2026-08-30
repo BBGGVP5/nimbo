@@ -149,6 +149,9 @@ final class NimboSubscriptionRepository {
         guard !data.isEmpty, data.count <= maximumInputBytes else {
             throw NimboSubscriptionRepositoryError.invalidSize
         }
+        // Имя владельца подписки, трафик и срок панель отдаёт заголовками —
+        // в самих ссылках этого нет.
+        NimboSubscriptionMetaStore.save(NimboSubscriptionMeta(headers: http.allHeaderFields))
         return try importPayload(data, source: source)
     }
 

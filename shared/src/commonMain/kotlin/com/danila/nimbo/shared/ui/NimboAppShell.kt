@@ -75,7 +75,13 @@ data class NimboUiState(
     /** Ядро читает имя сайта из соединения (нужно для правил по доменам). */
     val routingSniffing: Boolean = true,
     /** Ключ набора DNS: cloudflare / google / adguard / system. */
-    val routingDns: String = "cloudflare"
+    val routingDns: String = "cloudflare",
+    /** «Использовано / всего» из заголовка subscription-userinfo. */
+    val profileTrafficLabel: String = "",
+    /** Срок действия подписки оттуда же. */
+    val profileExpiryLabel: String = "",
+    /** Когда подписка обновлялась последний раз. */
+    val profileUpdatedLabel: String = ""
 )
 
 /** Одно измерение скорости: показания за секунду. */
@@ -176,62 +182,73 @@ private fun NimboBottomNavigation(
     onSelected: (NimboScreen) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    NimboSurface(
+    // На Android эта панель размывает фон настоящим блюром; на iOS его нет,
+    // поэтому под стеклом лежит плотная подложка — иначе сквозь панель
+    // читается прокручивающийся список.
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 18.dp),
-        cornerRadius = 32.dp,
-        strong = true,
-        padding = androidx.compose.foundation.layout.PaddingValues(7.dp)
+            .padding(horizontal = 18.dp, vertical = 18.dp)
+            .clip(RoundedCornerShape(32.dp))
+            .background(NimboPalette.Background.copy(alpha = 0.94f))
     ) {
-        Row(
+        NimboSurface(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
+            cornerRadius = 32.dp,
+            strong = true,
+            padding = androidx.compose.foundation.layout.PaddingValues(7.dp)
         ) {
-            NimboScreen.entries.forEach { screen ->
-                val isSelected = screen == selected
-                val shape = RoundedCornerShape(25.dp)
-                val interaction = remember { MutableInteractionSource() }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(62.dp)
-                        .clip(shape)
-                        .background(if (isSelected) NimboPalette.Accent.copy(alpha = 0.18f) else Color.Transparent)
-                        .then(
-                            if (isSelected) Modifier.border(
-                                1.dp,
-                                NimboPalette.Accent.copy(alpha = 0.42f),
-                                shape
-                            ) else Modifier
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                NimboScreen.entries.forEach { screen ->
+                    val isSelected = screen == selected
+                    val shape = RoundedCornerShape(25.dp)
+                    val interaction = remember { MutableInteractionSource() }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(62.dp)
+                            .clip(shape)
+                            .background(
+                                if (isSelected) NimboPalette.Accent.copy(alpha = 0.18f) else Color.Transparent
+                            )
+                            .then(
+                                if (isSelected) Modifier.border(
+                                    1.dp,
+                                    NimboPalette.Accent.copy(alpha = 0.42f),
+                                    shape
+                                ) else Modifier
+                            )
+                            .clickable(
+                                interactionSource = interaction,
+                                indication = null,
+                                enabled = !isSelected,
+                                onClick = { onSelected(screen) }
+                            ),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        NimboIcon(
+                            name = screen.iconName,
+                            selected = isSelected,
+                            tint = if (isSelected) NimboPalette.Accent else NimboPalette.TextSecondary,
+                            modifier = Modifier.size(24.dp)
                         )
-                        .clickable(
-                            interactionSource = interaction,
-                            indication = null,
-                            enabled = !isSelected,
-                            onClick = { onSelected(screen) }
-                        ),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    NimboIcon(
-                        name = screen.iconName,
-                        selected = isSelected,
-                        tint = if (isSelected) NimboPalette.Accent else NimboPalette.TextSecondary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(Modifier.size(2.dp))
-                    BasicText(
-                        text = screen.shortTitle,
-                        maxLines = 1,
-                        style = TextStyle(
-                            color = if (isSelected) NimboPalette.Text else NimboPalette.TextSecondary,
-                            fontSize = 10.sp,
-                            textAlign = TextAlign.Center,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        Spacer(Modifier.size(2.dp))
+                        BasicText(
+                            text = screen.shortTitle,
+                            maxLines = 1,
+                            style = TextStyle(
+                                color = if (isSelected) NimboPalette.Text else NimboPalette.TextSecondary,
+                                fontSize = 10.sp,
+                                textAlign = TextAlign.Center,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
                         )
-                    )
+                    }
                 }
             }
         }

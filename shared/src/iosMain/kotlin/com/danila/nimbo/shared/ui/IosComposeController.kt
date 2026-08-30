@@ -87,6 +87,24 @@ private fun websiteFromSource(source: String?): String? {
 }
 
 /**
+ * Сведения о подписке (имя владельца, трафик, срок) приходят из заголовков
+ * ответа панели — разбор ссылок их не содержит.
+ */
+fun NimboUpdateIosProfileMeta(
+    title: String?,
+    trafficLabel: String,
+    expiryLabel: String,
+    updatedLabel: String
+) {
+    iosUiState.value = iosUiState.value.copy(
+        activeProfileName = title?.takeIf { it.isNotBlank() } ?: iosUiState.value.activeProfileName,
+        profileTrafficLabel = trafficLabel,
+        profileExpiryLabel = expiryLabel,
+        profileUpdatedLabel = updatedLabel
+    )
+}
+
+/**
  * Показания туннеля приходят отдельной функцией: подпись
  * [NimboUpdateIosUiState] трогать нельзя, иначе ломается вызов из Swift.
  */

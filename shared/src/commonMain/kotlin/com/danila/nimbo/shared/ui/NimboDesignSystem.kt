@@ -230,6 +230,26 @@ internal fun Modifier.nimboRowClickable(onClick: () -> Unit): Modifier {
     return this.clickable(interactionSource = interaction, indication = null, onClick = onClick)
 }
 
+/**
+ * Имя сервера без флага-эмодзи впереди.
+ *
+ * Compose на iOS рисует цветные эмодзи не всегда: в списке вместо флага
+ * появлялись пустые прямоугольники. Страну и так видно по названию.
+ */
+internal fun withoutFlagEmoji(name: String): String {
+    val trimmed = name.trimStart()
+    var index = 0
+    while (index + 3 < trimmed.length) {
+        val isPair = trimmed[index] == '\uD83C' &&
+            trimmed[index + 1] in '\uDDE6'..'\uDDFF' &&
+            trimmed[index + 2] == '\uD83C' &&
+            trimmed[index + 3] in '\uDDE6'..'\uDDFF'
+        if (!isPair) break
+        index += 4
+    }
+    return trimmed.substring(index).trimStart()
+}
+
 @Composable
 internal fun NimboLinkButton(
     icon: NimboIconName,

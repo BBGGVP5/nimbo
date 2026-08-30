@@ -57,7 +57,7 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 58.dp, bottom = 116.dp)
+            .padding(top = 58.dp, bottom = 140.dp)
             .nimboScreenPadding(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -167,9 +167,11 @@ private fun ProfileSubscriptionCard(state: NimboUiState, actions: NimboUiActions
                 NimboIconButton(NimboIconName.MORE, modifier = Modifier.size(46.dp), onClick = actions.onOpenProfileSettings)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProfileMetric("ТРАФИК", "∞", Modifier.weight(1f))
-                ProfileMetric("ИСТЕКАЕТ", "∞", Modifier.weight(1f))
-                ProfileMetric("ОБНОВЛЕНО", "—", Modifier.weight(1f))
+                // Значения приходят из заголовков подписки; пока их нет —
+                // честнее показать прочерк, чем выдуманную бесконечность.
+                ProfileMetric("ТРАФИК", state.profileTrafficLabel.ifBlank { "—" }, Modifier.weight(1f))
+                ProfileMetric("ИСТЕКАЕТ", state.profileExpiryLabel.ifBlank { "—" }, Modifier.weight(1f))
+                ProfileMetric("ОБНОВЛЕНО", state.profileUpdatedLabel.ifBlank { "—" }, Modifier.weight(1f))
             }
             // Пустую ссылку не показываем: кнопка, которая ничего не делает,
             // хуже отсутствующей.
@@ -210,7 +212,6 @@ private fun ProfileServerCard(
     // у выбранного сервера и флаг в квадратном чипе.
     val interaction = remember { MutableInteractionSource() }
     val shape = RoundedCornerShape(16.dp)
-    val flag = serverFlagEmoji(server.name)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -260,23 +261,16 @@ private fun ProfileServerCard(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                if (flag.isNotEmpty()) {
-                    BasicText(
-                        flag,
-                        style = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, color = NimboPalette.Text)
-                    )
-                } else {
-                    NimboIcon(
-                        NimboIconName.SITE,
-                        tint = NimboPalette.Accent,
-                        modifier = Modifier.size(21.dp)
-                    )
-                }
+                NimboIcon(
+                    NimboIconName.SITE,
+                    tint = NimboPalette.Accent,
+                    modifier = Modifier.size(21.dp)
+                )
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 BasicText(
-                    text = server.name,
+                    text = withoutFlagEmoji(server.name),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = TextStyle(
@@ -307,16 +301,4 @@ private fun ProfileServerCard(
             )
         }
     }
-}
-
-/** Флаг из названия сервера: панели ставят его первым символом. */
-private fun serverFlagEmoji(name: String): String {
-    val trimmed = name.trimStart()
-    if (trimmed.length < 4) return ""
-    val first = trimmed.substring(0, 2)
-    val second = trimmed.substring(2, 4)
-    val isRegional = { pair: String ->
-        pair.length == 2 && pair[0] == '\uD83C' && pair[1] in '\uDDE6'..'\uDDFF'
-    }
-    return if (isRegional(first) && isRegional(second)) first + second else ""
 }
