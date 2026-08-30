@@ -60,7 +60,9 @@ struct NimboSubscriptionMeta: Codable, Equatable {
         }
 
         let rawTitle = header(["profile-title", "profile_title"])
-        self.title = NimboSubscriptionMeta.decodePossiblyBase64(rawTitle)
+        self.title = NimboSubscriptionMeta.accountName(
+            from: NimboSubscriptionMeta.decodePossiblyBase64(rawTitle)
+        )
         self.announce = NimboSubscriptionMeta.decodePossiblyBase64(
             header(["announce", "subscription-description"])
         )
@@ -75,16 +77,57 @@ struct NimboSubscriptionMeta: Codable, Equatable {
     }
 
     /// Панели присылают заголовки как обычным текстом, так и в base64.
+    ///
+    /// Переносы строк в объявлениях — норма, поэтому отбрасывать по ним нельзя:
+    /// именно из-за этого на экране оставалась строка «base64:8J+boe…».
+    /// Признак удачного разбора — отсутствие управляющих символов, кроме
+    /// переносов и табуляции.
     private static func decodePossiblyBase64(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return nil }
-        let payload = value.hasPrefix("base64:") ? String(value.dropFirst("base64:".count)) : value
-        if let data = Data(base64Encoded: payload),
-           let decoded = String(data: data, encoding: .utf8),
-           !decoded.trimmingCharacters(in: .whitespaces).isEmpty,
-           decoded.allSatisfy({ !$0.isNewline }) {
-            return decoded
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        let payload = value.lowercased().hasPrefix("base64:")
+            ? String(value.dropFirst("base64:".count))
+            : value
+        let normalized = payload
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let padded = normalized.padding(
+            toLength: normalized.count + (4 - normalized.count % 4) % 4,
+            withPad: "=",
+            startingAt: 0
+        )
+        if let data = Data(base64Encoded: padded, options: [.ignoreUnknownCharacters]),
+           let decoded = String(data: data, encoding: .utf8) {
+            let trimmed = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+            let readable = trimmed.unicodeScalars.allSatisfy { scalar in
+                !CharacterSet.controlCharacters.contains(scalar) || scalar == "\n" || scalar == "\t"
+            }
+            if !trimmed.isEmpty, readable {
+                return trimmed
+            }
         }
         return value
+    }
+
+    /// Владелец подписки без названия панели.
+    ///
+    /// Заголовок приходит видом «NebulaGuard · user_8f21», а на карточке нужен
+    /// только сам аккаунт: название сервиса пользователь и так знает.
+    static func accountName(from title: String?) -> String? {
+        guard let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+            return nil
+        }
+        let separators = CharacterSet(charactersIn: "·|—–\u{00B7}")
+        let parts = title
+            .components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard parts.count > 1 else { return title }
+        // Почта — самый однозначный признак аккаунта; иначе берём последнюю
+        // часть: панели ставят имя сервиса первым.
+        return parts.first(where: { $0.contains("@") }) ?? parts.last
     }
 
     /// Формат заголовка: `upload=1; download=2; total=3; expire=1700000000`.

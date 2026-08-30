@@ -29,17 +29,17 @@ struct NimboTabBar: View {
                 .buttonStyle(NimboTabButtonStyle())
             }
         }
-        .padding(5)
+        .padding(4)
         .background(barBackground)
-        .padding(.horizontal, 20)
-        .padding(.bottom, 4)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 2)
     }
 
     private func item(for tab: NimboTab) -> some View {
         let isSelected = selection == tab
         return VStack(spacing: 2) {
             Image(systemName: tab.symbol)
-                .font(.system(size: 18, weight: isSelected ? .semibold : .regular))
+                .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
                 .symbolRenderingMode(.hierarchical)
                 .frame(height: 22)
             Text(tab.title)
@@ -49,7 +49,7 @@ struct NimboTabBar: View {
         }
         .foregroundStyle(isSelected ? Color.nimboAccent : Color.nimboSecondary)
         .frame(maxWidth: .infinity)
-        .frame(height: 48)
+        .frame(height: 46)
         .background {
             if isSelected {
                 // Подсветка переезжает между вкладками одним движением, а не
@@ -85,7 +85,7 @@ struct NimboTabBar: View {
     /// бликов, поэтому кромку рисуем сами.
     @ViewBuilder
     private var barBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: 28, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
         if #available(iOS 26.0, *) {
             shape
                 .fill(.clear)

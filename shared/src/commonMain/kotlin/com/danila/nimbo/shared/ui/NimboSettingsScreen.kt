@@ -49,7 +49,7 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 52.dp, bottom = 120.dp)
+            .padding(top = 44.dp, bottom = 116.dp)
             .nimboScreenPadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {

@@ -65,7 +65,7 @@ internal fun NimboHomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 52.dp, bottom = 120.dp)
+            .padding(top = 44.dp, bottom = 116.dp)
             .nimboScreenPadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -129,6 +129,10 @@ private fun HomeProfileCard(state: NimboUiState, actions: NimboUiActions) {
             Spacer(Modifier.height(6.dp))
             BasicText(
                 text = description,
+                // Объявления бывают на десяток строк — карточка не должна
+                // превращаться в стену текста.
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
                 style = TextStyle(
                     color = NimboPalette.TextSecondary,
                     fontSize = 12.sp,
@@ -226,7 +230,7 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(modifier = Modifier.size(184.dp), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.size(200.dp), contentAlignment = Alignment.Center) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val radius = size.minDimension / 2f
                 val center = Offset(size.width / 2f, size.height / 2f)
@@ -261,7 +265,7 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
 
             Box(
                 modifier = Modifier
-                    .size(148.dp)
+                    .size(160.dp)
                     .clip(CircleShape)
                     .background(centerFill)
                     .border(1.dp, centerBorder, CircleShape)
@@ -273,7 +277,7 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
                 contentAlignment = Alignment.Center
             ) {
                 if (connecting) {
-                    Canvas(modifier = Modifier.size(54.dp)) {
+                    Canvas(modifier = Modifier.size(58.dp)) {
                         val strokeWidth = 7.dp.toPx()
                         val inset = strokeWidth / 2f
                         val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
@@ -300,7 +304,7 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
                     NimboIcon(
                         name = if (connected) NimboIconName.SECURITY else NimboIconName.POWER,
                         tint = iconTint,
-                        modifier = Modifier.size(if (connected) 50.dp else 54.dp)
+                        modifier = Modifier.size(if (connected) 54.dp else 58.dp)
                     )
                 }
             }
