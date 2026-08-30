@@ -11,7 +11,7 @@ struct LegacyComposeShell: View {
             ProfilesContainerView()
                 .tag(NimboTab.profiles)
                 .tabItem { Label(NimboTab.profiles.title, systemImage: NimboTab.profiles.systemImage) }
-            ComposeScreen(tab: .apps)
+            ComposeScreen(tab: .routing)
                 .tag(NimboTab.routing)
                 .tabItem { Label(NimboTab.routing.title, systemImage: NimboTab.routing.systemImage) }
             SettingsContainerView()
