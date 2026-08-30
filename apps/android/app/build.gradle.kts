@@ -39,8 +39,8 @@ android {
         // 11 — повторная сборка 1.1.0: с иконки снят бета-значок, исправлено
         // предложение обновиться после ручной установки, ускорено сворачивание
         // окна загрузки обновления. Установленная сборка 10 получит обновление.
-        versionCode = 12
-        versionName = "1.2.0-beta.1"
+        versionCode = 13
+        versionName = "1.2.0-beta.2"
         buildConfigField("String", "LIBXRAY_VERSION", "\"26.7.28\"")
 
 
@@ -183,6 +183,7 @@ androidComponents {
 }
 
 dependencies {
+    implementation(project(":shared"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
