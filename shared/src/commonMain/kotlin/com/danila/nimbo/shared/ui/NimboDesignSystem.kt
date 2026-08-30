@@ -54,23 +54,28 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/**
+ * Значения взяты один в один из андроидной темы (`ui/theme/Color.kt` и
+ * `getNebulaColors` для тёмной темы с акцентом по умолчанию), чтобы iOS не
+ * расходился с Android по цвету.
+ */
 internal object NimboPalette {
-    val Background = Color(0xFF071426)
-    val BackgroundDeep = Color(0xFF020A16)
-    val Surface = Color(0xDA172842)
-    val SurfaceStrong = Color(0xEE203654)
-    val Control = Color(0xA92B456A)
-    val Soft = Color(0x5C42618D)
-    val Border = Color(0x5C8DB8F4)
-    val Hairline = Color(0x2E9BC2F8)
-    val Accent = Color(0xFF72A8FF)
-    val AccentStrong = Color(0xFF4D88F1)
-    val Text = Color(0xFFF3F6FF)
-    val TextSecondary = Color(0xFF9DACCA)
-    val TextTertiary = Color(0xFF657696)
-    val Green = Color(0xFF62DFA5)
-    val Amber = Color(0xFFFFBE55)
-    val Red = Color(0xFFFF7A82)
+    val Background = Color(0xFF091321)
+    val BackgroundDeep = Color(0xFF080F1C)
+    val Surface = Color(0xFF101D31)
+    val SurfaceStrong = Color(0xFF14243A)
+    val Control = Color(0x09FFFFFF)
+    val Soft = Color(0x14FFFFFF)
+    val Border = Color(0x13FFFFFF)
+    val Hairline = Color(0x13FFFFFF)
+    val Accent = Color(0xFF75A7FF)
+    val AccentStrong = Color(0xFF4E8CFF)
+    val Text = Color(0xFFEAEBF2)
+    val TextSecondary = Color(0xA8EAEBF2)
+    val TextTertiary = Color(0x6BEAEBF2)
+    val Green = Color(0xFF5DD9A1)
+    val Amber = Color(0xFFE2A75F)
+    val Red = Color(0xFFFF7B7B)
 }
 
 internal val NimboTitleStyle = TextStyle(
@@ -97,7 +102,7 @@ internal val NimboBodyStyle = TextStyle(
 @Composable
 internal fun NimboSurface(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 26.dp,
+    cornerRadius: Dp = 24.dp,
     strong: Boolean = false,
     padding: PaddingValues = PaddingValues(18.dp),
     onClick: (() -> Unit)? = null,
@@ -107,18 +112,15 @@ internal fun NimboSurface(
     val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        if (strong) NimboPalette.SurfaceStrong.copy(alpha = 0.96f)
-                        else NimboPalette.Surface.copy(alpha = 0.90f),
-                        if (strong) NimboPalette.SurfaceStrong.copy(alpha = 0.90f)
-                        else NimboPalette.BackgroundDeep.copy(alpha = 0.58f)
-                    )
-                )
+            // Тот же стеклянный материал, что и на Android, а не самодельная
+            // карточка с градиентом: он лежит в общем модуле.
+            .nimboGlassSurface(
+                shape = shape,
+                depth = if (strong) LiquidGlassDepth.FLOATING else LiquidGlassDepth.PANEL,
+                accent = NimboPalette.Accent,
+                isDark = true,
+                panelAlpha = 1f
             )
-            .border(1.dp, NimboPalette.Border, shape)
             .then(
                 if (onClick != null) {
                     Modifier.clickable(

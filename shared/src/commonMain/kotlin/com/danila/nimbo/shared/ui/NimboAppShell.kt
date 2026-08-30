@@ -111,29 +111,15 @@ fun NimboAppShell(
             onSurface = NimboPalette.Text
         )
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(NimboPalette.Background, NimboPalette.BackgroundDeep),
-                        start = Offset.Zero,
-                        end = Offset(1000f, 1900f)
-                    )
-                )
-                .drawBehind {
-                    drawCircle(
-                        color = NimboPalette.Accent.copy(alpha = 0.12f),
-                        radius = size.minDimension * 0.58f,
-                        center = Offset(size.width * -0.04f, size.height * 0.17f)
-                    )
-                    drawCircle(
-                        color = Color(0xFF6E4CFF).copy(alpha = 0.09f),
-                        radius = size.minDimension * 0.50f,
-                        center = Offset(size.width * 1.04f, size.height * 0.54f)
-                    )
-                }
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Ровно тот же фон, что и на Android: общий код, а не похожая копия.
+            NimboBackdrop(
+                accent = NimboPalette.Accent,
+                background = NimboPalette.Background,
+                styleMode = BackgroundStyleMode.MORPHISM,
+                paletteMode = BackgroundPaletteMode.THEME
+            )
+
             AnimatedContent(
                 targetState = selectedScreen,
                 transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(110)) },
