@@ -178,6 +178,15 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
             )
         }
 
+        SettingsSection("Синхронизация") {
+            SettingsRow(
+                NimboIconName.SYNC,
+                "Перенос с другого устройства",
+                "QR с компьютера или Android — подписки и настройки",
+                onClick = actions.onOpenSync
+            )
+        }
+
         SettingsSection("Резервная копия") {
             SettingsRow(
                 NimboIconName.DOWNLOAD,

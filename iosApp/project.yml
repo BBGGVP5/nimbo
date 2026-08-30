@@ -31,6 +31,14 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CADisableMinimumFrameDurationOnPhone: true
         ITSAppUsesNonExemptEncryption: false
+        NSLocalNetworkUsageDescription: >-
+          Нужен для синхронизации подписок и настроек с компьютером или
+          Android-устройством в вашей сети Wi-Fi.
+        NSCameraUsageDescription: >-
+          Камера нужна только чтобы отсканировать QR синхронизации со второго
+          устройства.
+        NSBonjourServices:
+          - _nimbo-sync._tcp
         NimboPacketTunnelBundleIdentifier: "$(NIMBO_PACKET_TUNNEL_BUNDLE_ID)"
         NimboDisplayVersion: "$(NIMBO_DISPLAY_VERSION)"
         UILaunchScreen:

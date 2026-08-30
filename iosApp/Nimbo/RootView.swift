@@ -13,6 +13,7 @@ struct RootView: View {
     @State private var updatePageUrl: String?
     @State private var backupUrl: URL?
     @State private var showBackupPicker = false
+    @State private var showSync = false
     /// Раз в секунду — как обновляется мониторинг на Android.
     private let metricsTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -45,6 +46,12 @@ struct RootView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboImportBackup)) { _ in
                 showBackupPicker = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboOpenSync)) { _ in
+                showSync = true
+            }
+            .sheet(isPresented: $showSync, onDismiss: synchronizeComposeState) {
+                NimboSyncView()
             }
             .sheet(item: $backupUrl) { url in NimboShareSheet(url: url) }
             .sheet(isPresented: $showBackupPicker) {
@@ -346,4 +353,5 @@ private extension Notification.Name {
     static let nimboOpenUpdate = Notification.Name("com.nimbo.action.open-update")
     static let nimboExportBackup = Notification.Name("com.nimbo.action.export-backup")
     static let nimboImportBackup = Notification.Name("com.nimbo.action.import-backup")
+    static let nimboOpenSync = Notification.Name("com.nimbo.action.open-sync")
 }

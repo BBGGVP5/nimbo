@@ -176,7 +176,9 @@ data class NimboUiActions(
     /** Сохранить копию настроек и подписки в файл. */
     val onExportBackup: () -> Unit = {},
     /** Восстановить копию из файла. */
-    val onImportBackup: () -> Unit = {}
+    val onImportBackup: () -> Unit = {},
+    /** Открыть перенос данных с другого устройства. */
+    val onOpenSync: () -> Unit = {}
 )
 
 @Composable
