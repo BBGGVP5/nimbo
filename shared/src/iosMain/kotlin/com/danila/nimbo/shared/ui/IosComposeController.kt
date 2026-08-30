@@ -23,6 +23,8 @@ private const val OpenUrlAction = "com.nimbo.action.open-url"
 private const val RoutingAction = "com.nimbo.action.routing"
 private const val OpenScreenAction = "com.nimbo.action.open-screen"
 private const val OpenUpdateAction = "com.nimbo.action.open-update"
+private const val ExportBackupAction = "com.nimbo.action.export-backup"
+private const val ImportBackupAction = "com.nimbo.action.import-backup"
 
 /** Оформление хранится там же, где настройки маршрутизации. */
 private const val AppearanceDefaultsPrefix = "com.nimbo.appearance."
@@ -323,6 +325,8 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onSetRouting = { key, value -> applyRoutingChange(key, value) },
                 onSetAppearance = { key, value -> applyAppearanceChange(key, value) },
                 onOpenUpdate = { postIosAction(OpenUpdateAction) },
+                onExportBackup = { postIosAction(ExportBackupAction) },
+                onImportBackup = { postIosAction(ImportBackupAction) },
                 onOpenScreen = { wireName ->
                     iosScreen.value = NimboScreen.fromWireName(wireName)
                     postIosAction(OpenScreenAction, wireName)

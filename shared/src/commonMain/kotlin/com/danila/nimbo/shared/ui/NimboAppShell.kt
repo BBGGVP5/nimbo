@@ -168,7 +168,11 @@ data class NimboUiActions(
     /** Настройка оформления: ключ и новое значение строкой. */
     val onSetAppearance: (String, String) -> Unit = { _, _ -> },
     /** Открыть страницу релиза: установить обновление сама iOS не даст. */
-    val onOpenUpdate: () -> Unit = {}
+    val onOpenUpdate: () -> Unit = {},
+    /** Сохранить копию настроек и подписки в файл. */
+    val onExportBackup: () -> Unit = {},
+    /** Восстановить копию из файла. */
+    val onImportBackup: () -> Unit = {}
 )
 
 @Composable

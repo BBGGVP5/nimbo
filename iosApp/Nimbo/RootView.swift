@@ -11,6 +11,8 @@ struct RootView: View {
     @State private var metrics = NimboMetricsAccumulator()
     @State private var sessionStartedAt: Date?
     @State private var updatePageUrl: String?
+    @State private var backupUrl: URL?
+    @State private var showBackupPicker = false
     /// Раз в секунду — как обновляется мониторинг на Android.
     private let metricsTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -37,6 +39,19 @@ struct RootView: View {
             .task { await checkForUpdate() }
             .onReceive(NotificationCenter.default.publisher(for: .nimboOpenUpdate)) { _ in
                 openExternalLink(updatePageUrl)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboExportBackup)) { _ in
+                backupUrl = NimboBackup.export()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboImportBackup)) { _ in
+                showBackupPicker = true
+            }
+            .sheet(item: $backupUrl) { url in NimboShareSheet(url: url) }
+            .sheet(isPresented: $showBackupPicker) {
+                NimboDocumentPicker { url in
+                    showBackupPicker = false
+                    Task { await restoreBackup(from: url) }
+                }
             }
             .onReceive(vpn.$state) { state in
                 // Новая сессия — счётчики трафика начинаем с нуля.
@@ -147,6 +162,29 @@ struct RootView: View {
                 .warning,
                 stage: .config,
                 code: "IOS_ROUTING_RESTAGE_FAILED",
+                message: NimboRedactor.redact(error.localizedDescription)
+            )
+        }
+    }
+
+    /// Восстановление всегда заканчивается обновлением подписки: настройки без
+    /// свежего списка серверов бесполезны.
+    private func restoreBackup(from url: URL) async {
+        do {
+            if let source = try NimboBackup.restore(from: url) {
+                _ = try? NimboSubscriptionRepository.shared.importPayload(
+                    Data(source.utf8),
+                    source: source
+                )
+                _ = try? await NimboSubscriptionRepository.shared.refresh()
+            }
+            synchronizeComposeState()
+            await measurePings()
+        } catch {
+            await NimboDiagnostics.shared.record(
+                .warning,
+                stage: .config,
+                code: "IOS_BACKUP_RESTORE_FAILED",
                 message: NimboRedactor.redact(error.localizedDescription)
             )
         }
@@ -306,4 +344,6 @@ private extension Notification.Name {
     static let nimboRouting = Notification.Name("com.nimbo.action.routing")
     static let nimboOpenScreen = Notification.Name("com.nimbo.action.open-screen")
     static let nimboOpenUpdate = Notification.Name("com.nimbo.action.open-update")
+    static let nimboExportBackup = Notification.Name("com.nimbo.action.export-backup")
+    static let nimboImportBackup = Notification.Name("com.nimbo.action.import-backup")
 }

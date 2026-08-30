@@ -52,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -64,19 +65,29 @@ import androidx.compose.ui.unit.sp
  * `getNebulaColors` для тёмной темы с акцентом по умолчанию), чтобы iOS не
  * расходился с Android по цвету.
  */
-/** Стиль элементов — облегчённый набор андроидных: их там шесть. */
-internal enum class NimboElementStyle(val key: String, val title: String, val cornerScale: Float) {
-    GLASS("glass", "Стекло", 1f),
-    MATERIAL("material", "Материал", 1f),
-    MINIMAL("minimal", "Минимал", 0.55f);
+/**
+ * Стили интерфейса — те же, что на Android, с теми же названиями. Ключи
+ * совпадают с андроидными индексами `ElementStyleMode`, поэтому смысл
+ * сохранённого значения на обеих платформах одинаковый.
+ */
+internal enum class NimboElementStyle(
+    val key: String,
+    val title: String,
+    val subtitle: String,
+    val cornerScale: Float
+) {
+    NIMBO_GLASS("glass", "Nimbo Glass", "iOS Liquid Glass", 1f),
+    MATERIAL_YOU("material", "Material You", "Expressive", 1f),
+    DOTTED("dotted", "Dotted", "Точечная сетка", 0.34f),
+    SIGNAL("signal", "Signal", "Приборная панель", 0.75f);
 
     companion object {
         fun fromKey(value: String): NimboElementStyle =
-            entries.firstOrNull { it.key == value } ?: GLASS
+            entries.firstOrNull { it.key == value } ?: NIMBO_GLASS
     }
 }
 
-internal val LocalNimboElementStyle = staticCompositionLocalOf { NimboElementStyle.GLASS }
+internal val LocalNimboElementStyle = staticCompositionLocalOf { NimboElementStyle.NIMBO_GLASS }
 
 internal object NimboPalette {
     val Background = Color(0xFF091321)
@@ -138,24 +149,43 @@ internal fun NimboSurface(
                 when (style) {
                     // Стекло: тонировка, блик и ободок — как у системных
                     // материалов iOS.
-                    NimboElementStyle.GLASS -> Modifier.nimboGlassSurface(
+                    NimboElementStyle.NIMBO_GLASS -> Modifier.nimboGlassSurface(
                         shape = shape,
                         depth = if (strong) LiquidGlassDepth.FLOATING else LiquidGlassDepth.PANEL,
                         accent = NimboPalette.Accent,
                         isDark = true,
                         panelAlpha = 1f
                     )
-                    // Материал: ровная плотная подложка без бликов.
-                    NimboElementStyle.MATERIAL -> Modifier
+                    // Material You: плотная тональная поверхность, подкрашенная
+                    // акцентом, и никаких волосяных границ.
+                    NimboElementStyle.MATERIAL_YOU -> Modifier
                         .clip(shape)
                         .background(
-                            if (strong) NimboPalette.SurfaceStrong else NimboPalette.Surface
+                            NimboPalette.Accent
+                                .copy(alpha = if (strong) 0.20f else 0.13f)
+                                .compositeOver(NimboPalette.Surface)
                         )
-                    // Минимал: только волосяная рамка, фон просвечивает.
-                    NimboElementStyle.MINIMAL -> Modifier
+                    // Dotted: почти квадратная панель, точечная сетка внутри и
+                    // контур из отдельных точек.
+                    NimboElementStyle.DOTTED -> Modifier
                         .clip(shape)
-                        .background(NimboPalette.Background.copy(alpha = 0.28f))
-                        .border(1.dp, NimboPalette.Border, shape)
+                        .background(NimboPalette.Surface.copy(alpha = 0.94f))
+                        .nimboDotPattern(
+                            NimboPalette.Text,
+                            spacing = 11.dp,
+                            radius = 0.72.dp,
+                            alpha = 0.12f
+                        )
+                        .nimboDottedOutline(
+                            NimboPalette.Accent.copy(alpha = 0.75f),
+                            cornerRadius = cornerRadius * style.cornerScale
+                        )
+                    // Signal: ровная подложка приборной панели и одна волосяная
+                    // линия по краю — глубину даёт она, а не подсветка.
+                    NimboElementStyle.SIGNAL -> Modifier
+                        .clip(shape)
+                        .background(NimboPalette.Text.copy(alpha = 0.02f).compositeOver(NimboPalette.Background))
+                        .border(1.dp, NimboPalette.Text.copy(alpha = 0.075f), shape)
                 }
             )
             .then(

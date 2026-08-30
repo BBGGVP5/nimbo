@@ -90,17 +90,19 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
             }
         }
 
-        SettingsSection("Стиль элементов") {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                NimboElementStyle.entries.forEach { style ->
-                    NimboPill(
-                        style.title,
-                        modifier = Modifier.weight(1f),
+        BasicText("Стиль интерфейса", style = NimboSectionTitleStyle)
+        BasicText(
+            "Переключает визуальный слой: поверхности, кнопки, поля",
+            style = NimboBodyStyle
+        )
+        NimboElementStyle.entries.chunked(2).forEach { pair ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                pair.forEach { style ->
+                    NimboStylePreviewCard(
+                        style = style,
                         selected = state.elementStyle == style.key,
-                        onClick = { actions.onSetAppearance("elementStyle", style.key) }
+                        onClick = { actions.onSetAppearance("elementStyle", style.key) },
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -173,6 +175,22 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
                 "Системные настройки VPN",
                 "Профиль Nimbo в настройках iOS",
                 onClick = actions.onOpenSystemSettings
+            )
+        }
+
+        SettingsSection("Резервная копия") {
+            SettingsRow(
+                NimboIconName.DOWNLOAD,
+                "Сохранить копию",
+                "Подписка и настройки одним файлом",
+                showDivider = true,
+                onClick = actions.onExportBackup
+            )
+            SettingsRow(
+                NimboIconName.SYNC,
+                "Восстановить из файла",
+                "Заменит текущие настройки и подписку",
+                onClick = actions.onImportBackup
             )
         }
 
