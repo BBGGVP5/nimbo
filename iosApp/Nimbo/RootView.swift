@@ -71,8 +71,6 @@ struct RootView: View {
 
     private var vpnLayer: some View {
         sheetsLayer
-            // Тип параметра указан явно: без него компилятор в этой цепочке
-            // подбирал чужую перегрузку onReceive и ругался на посторонний тип.
             .onReceive(vpn.$state) { (state: VpnController.State) in
                 handleVpnState(state)
             }
@@ -165,12 +163,16 @@ struct RootView: View {
     /// Смена состояния туннеля: новая сессия обнуляет счётчики, завершённая —
     /// записывается в историю.
     private func handleVpnState(_ state: VpnController.State) {
-        if state == .connecting || state == .preparing {
+        // `failed` несёт код и сообщение, поэтому сравнивать его через `==`
+        // нельзя — только сопоставлением образца.
+        switch state {
+        case .connecting, .preparing:
             metrics.reset()
             sessionStartedAt = Date()
-        }
-        if state == .idle || state == .failed {
+        case .idle, .failed:
             finishSession()
+        default:
+            break
         }
         synchronizeComposeState()
     }
