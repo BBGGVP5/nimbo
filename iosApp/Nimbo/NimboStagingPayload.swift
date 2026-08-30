@@ -43,11 +43,7 @@ enum NimboStagingPayload {
     static func isAutoBalancer(_ server: NimboSubscriptionServer) -> Bool {
         let normalized = server.name.lowercased()
         guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        let compact = normalized.replacingOccurrences(
-            of: "[\s_-]",
-            with: "",
-            options: .regularExpression
-        )
+        let compact = normalized.filter { !$0.isWhitespace && $0 != "_" && $0 != "-" }
         return normalized.contains("balancer") ||
             normalized.contains("балансер") ||
             normalized.contains("балансиров") ||
