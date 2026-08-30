@@ -26,6 +26,7 @@ enum XrayConfigurationBuilder {
         }
 
         var configuration = try configurationObject(from: sourceText, bridge: bridge)
+        configuration = (withoutNulls(configuration) as? [String: Any]) ?? configuration
         let outbounds = configuration["outbounds"] as? [[String: Any]] ?? []
         guard !outbounds.isEmpty else { throw XrayConfigurationError.noOutbounds }
 
@@ -86,6 +87,26 @@ enum XrayConfigurationBuilder {
     /// названия. Xray-core же ждёт там локальный IP-адрес и отвергает всю
     /// конфигурацию: "unable to send through: <имя сервера>". Поэтому имя
     /// переносим в tag, а из sendThrough оставляем только настоящие адреса.
+    /// libXray сериализует структуры Xray целиком, без `omitempty`, поэтому в
+    /// готовом JSON оказываются "target": null и "dest": null. Xray-core же
+    /// смотрит на наличие ключа, а json.RawMessage от null не пуст — из-за
+    /// этого клиентский REALITY уходит в серверную ветку и требует
+    /// serverNames. Пустые значения убираем целиком.
+    private static func withoutNulls(_ value: Any) -> Any? {
+        if value is NSNull { return nil }
+        if let dictionary = value as? [String: Any] {
+            var result: [String: Any] = [:]
+            for (key, item) in dictionary {
+                if let cleaned = withoutNulls(item) { result[key] = cleaned }
+            }
+            return result
+        }
+        if let array = value as? [Any] {
+            return array.compactMap { withoutNulls($0) }
+        }
+        return value
+    }
+
     private static func sanitizedOutbounds(_ outbounds: [[String: Any]]) -> [[String: Any]] {
         outbounds.enumerated().map { index, outbound in
             var result = outbound
