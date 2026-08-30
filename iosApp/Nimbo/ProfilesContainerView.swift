@@ -173,7 +173,7 @@ struct ProfilesContainerView: View {
             guard let selected = profile.selectedServer else {
                 throw NimboSubscriptionRepositoryError.serverNotFound
             }
-            try await vpn.stageConfiguration(data: Data(selected.rawConfiguration.utf8))
+            try await vpn.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: selected))
             activeProfile = profile
             importText = ""
             resultIsError = false
@@ -228,7 +228,7 @@ struct ProfilesContainerView: View {
         do {
             let profile = try await NimboSubscriptionRepository.shared.refresh()
             if let selected = profile.selectedServer {
-                try await vpn.stageConfiguration(data: Data(selected.rawConfiguration.utf8))
+                try await vpn.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: selected))
             }
             activeProfile = profile
             resultIsError = false
@@ -244,7 +244,7 @@ struct ProfilesContainerView: View {
             let selected = try NimboSubscriptionRepository.shared.select(serverID: server.id)
             Task {
                 do {
-                    try await vpn.stageConfiguration(data: Data(selected.rawConfiguration.utf8))
+                    try await vpn.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: selected))
                 } catch {
                     resultIsError = true
                     resultMessage = NimboRedactor.redact(error.localizedDescription)

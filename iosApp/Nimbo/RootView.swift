@@ -41,7 +41,7 @@ struct RootView: View {
                 Task {
                     do {
                         let server = try NimboSubscriptionRepository.shared.select(serverID: serverID)
-                        try await vpn.stageConfiguration(data: Data(server.rawConfiguration.utf8))
+                        try await vpn.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: server))
                         synchronizeComposeState()
                     } catch {
                         await NimboDiagnostics.shared.record(
@@ -96,7 +96,7 @@ struct RootView: View {
             guard let selected = profile.selectedServer else {
                 throw NimboSubscriptionRepositoryError.serverNotFound
             }
-            try await vpn.stageConfiguration(data: Data(selected.rawConfiguration.utf8))
+            try await vpn.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: selected))
             synchronizeComposeState()
             await NimboDiagnostics.shared.record(
                 .info,

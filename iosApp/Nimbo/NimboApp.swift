@@ -18,7 +18,7 @@ struct NimboApp: App {
                     do {
                         if let migrated = try await NimboSubscriptionRepository.shared.migrateStoredProfileIfNeeded(),
                            let selected = migrated.selectedServer {
-                            try await vpnController.stageConfiguration(data: Data(selected.rawConfiguration.utf8))
+                            try await vpnController.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: selected))
                         }
                     } catch {
                         await NimboDiagnostics.shared.record(

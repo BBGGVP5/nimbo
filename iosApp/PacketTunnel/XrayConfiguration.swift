@@ -8,6 +8,8 @@ struct PreparedXrayConfiguration {
 
 enum XrayConfigurationBuilder {
     private static let maximumInputBytes = 15 * 1_024 * 1_024
+    private static let proxyTagPrefix = "proxy/"
+    private static let balancerTag = "balancer"
 
     static func prepare(
         sourceData: Data,
@@ -25,8 +27,8 @@ enum XrayConfigurationBuilder {
             throw XrayConfigurationError.invalidEncoding
         }
 
-        var configuration = try configurationObject(from: sourceText, bridge: bridge)
-        configuration = (withoutNulls(configuration) as? [String: Any]) ?? configuration
+        let source = try configurationObject(from: sourceText, bridge: bridge)
+        var configuration = (withoutNulls(source.configuration) as? [String: Any]) ?? source.configuration
         let outbounds = configuration["outbounds"] as? [[String: Any]] ?? []
         guard !outbounds.isEmpty else { throw XrayConfigurationError.noOutbounds }
 
@@ -40,8 +42,13 @@ enum XrayConfigurationBuilder {
             assetDirectory: assetDirectory
         )
         configuration["inbounds"] = [tunnelInbound(interfaceName: tunnelInterfaceName)]
-        configuration["outbounds"] = appendUtilityOutbounds(to: sanitizedOutbounds(outbounds))
-        configuration["routing"] = normalizedRouting(configuration["routing"])
+        configuration["outbounds"] = appendUtilityOutbounds(
+            to: sanitizedOutbounds(outbounds, balanced: source.balanced)
+        )
+        configuration["routing"] = normalizedRouting(configuration["routing"], balanced: source.balanced)
+        if source.balanced {
+            configuration["observatory"] = observatorySettings
+        }
 
         let data = try JSONSerialization.data(withJSONObject: configuration, options: [.sortedKeys])
         guard data.count <= maximumInputBytes,
@@ -54,13 +61,41 @@ enum XrayConfigurationBuilder {
     private static func configurationObject(
         from sourceText: String,
         bridge: LibXrayBridge
-    ) throws -> [String: Any] {
-        if let data = sourceText.data(using: .utf8),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           object["outbounds"] is [Any] {
-            return object
+    ) throws -> (configuration: [String: Any], balanced: Bool) {
+        var object: [String: Any]?
+        if let data = sourceText.data(using: .utf8) {
+            object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         }
-        return try bridge.convertShareText(sourceText)
+
+        // Конверт приложения для автобалансировщика: реальные серверы профиля
+        // приходят списком ссылок, потому что сама запись балансировщика
+        // рабочего узла не содержит.
+        if let links = object?["shareLinks"] as? [String] {
+            let text = links
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+            guard !text.isEmpty else { throw XrayConfigurationError.empty }
+            let requested = (object?["nimbo"] as? [String: Any])?["balancer"] as? Bool ?? true
+            return (try bridge.convertShareText(text), requested && links.count > 1)
+        }
+
+        if let object, object["outbounds"] is [Any] {
+            return (object, false)
+        }
+        return (try bridge.convertShareText(sourceText), false)
+    }
+
+    /// leastPing выбирает выход по замерам обсерватории; до первого замера она
+    /// пуста и стратегия возвращает пустой тег, поэтому у балансировщика есть
+    /// fallbackTag — иначе первые соединения после подключения никуда не идут.
+    private static var observatorySettings: [String: Any] {
+        [
+            "subjectSelector": [proxyTagPrefix],
+            "probeURL": "https://www.gstatic.com/generate_204",
+            "probeInterval": "1m",
+            "enableConcurrency": true
+        ]
     }
 
     /// `infra/conf/tun.go` разбирает настройки как `name`/`mtu` строчными
@@ -107,13 +142,22 @@ enum XrayConfigurationBuilder {
         return value
     }
 
-    private static func sanitizedOutbounds(_ outbounds: [[String: Any]]) -> [[String: Any]] {
+    private static func sanitizedOutbounds(
+        _ outbounds: [[String: Any]],
+        balanced: Bool
+    ) -> [[String: Any]] {
         outbounds.enumerated().map { index, outbound in
             var result = outbound
             let carried = (result["sendThrough"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if let carried, !isIPAddress(carried) {
                 result.removeValue(forKey: "sendThrough")
+            }
+            // Балансировщик выбирает выходы по префиксу тега, поэтому имена
+            // из подписки здесь не годятся — нумеруем сами.
+            if balanced {
+                result["tag"] = "\(proxyTagPrefix)\(index)"
+                return result
             }
             let tag = (result["tag"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -156,10 +200,23 @@ enum XrayConfigurationBuilder {
         return environment
     }
 
-    private static func normalizedRouting(_ value: Any?) -> [String: Any] {
+    private static func normalizedRouting(_ value: Any?, balanced: Bool) -> [String: Any] {
         var routing = value as? [String: Any] ?? [:]
         if routing["domainStrategy"] == nil { routing["domainStrategy"] = "IPIfNonMatch" }
         if routing["rules"] == nil { routing["rules"] = [] }
+        guard balanced else { return routing }
+
+        routing["balancers"] = [[
+            "tag": balancerTag,
+            "selector": [proxyTagPrefix],
+            "strategy": ["type": "leastPing"],
+            "fallbackTag": "\(proxyTagPrefix)0"
+        ]]
+        routing["rules"] = [[
+            "type": "field",
+            "network": "tcp,udp",
+            "balancerTag": balancerTag
+        ]]
         return routing
     }
 

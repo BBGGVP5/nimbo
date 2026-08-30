@@ -116,6 +116,13 @@ final class NimboSubscriptionRepository {
         return try importPayload(Data(selected.rawConfiguration.utf8), source: nil)
     }
 
+    /// Данные для Packet Tunnel: для автобалансировщика это список реальных
+    /// серверов профиля, для обычной записи — её собственная конфигурация.
+    func stagingData(for server: NimboSubscriptionServer) -> Data {
+        let profile = (try? loadProfile(migratingLegacy: false)) ?? nil
+        return NimboStagingPayload.make(for: server, in: profile)
+    }
+
     func select(serverID: String) throws -> NimboSubscriptionServer {
         guard let profile = try loadProfile(migratingLegacy: true),
               let server = profile.servers.first(where: { $0.id == serverID }) else {
