@@ -90,26 +90,6 @@ internal fun NimboRoutingScreen(state: NimboUiState, actions: NimboUiActions) {
                 }
             }
         }
-
-        NimboSurface(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(
-                    "Почему нет выбора приложений",
-                    style = TextStyle(
-                        color = NimboPalette.Text,
-                        fontSize = 16.sp,
-                        lineHeight = 24.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-                BasicText(
-                    "iOS не позволяет обычному VPN-приложению пропускать трафик отдельных программ: " +
-                        "туннель либо забирает весь трафик устройства, либо не работает вовсе. " +
-                        "На Android такой экран есть, потому что там это разрешено системой.",
-                    style = NimboBodyStyle
-                )
-            }
-        }
     }
 }
 
