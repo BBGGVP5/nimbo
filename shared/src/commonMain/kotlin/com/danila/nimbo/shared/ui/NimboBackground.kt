@@ -85,6 +85,48 @@ enum class BackgroundPaletteMode {
     FOREST
 }
 
+/**
+ * Индексы сохраняются как есть; неизвестное значение падает в первый вариант,
+ * чтобы фон никогда не оставался без движения или без цвета. Порядок совпадает
+ * с андроидным (`Theme.kt`), поэтому настройки читаются одинаково.
+ */
+fun backgroundStyleModeForIndex(index: Int): BackgroundStyleMode = when (index) {
+    1 -> BackgroundStyleMode.MATERIAL3
+    2 -> BackgroundStyleMode.NOTHING_DOTS
+    3 -> BackgroundStyleMode.AURORA
+    4 -> BackgroundStyleMode.GRID
+    5 -> BackgroundStyleMode.MESH
+    6 -> BackgroundStyleMode.WAVES
+    7 -> BackgroundStyleMode.STARFIELD
+    8 -> BackgroundStyleMode.CYBERPUNK
+    9 -> BackgroundStyleMode.DEEP_SPACE
+    10 -> BackgroundStyleMode.FIRE
+    11 -> BackgroundStyleMode.LAVA
+    12 -> BackgroundStyleMode.NEON
+    13 -> BackgroundStyleMode.NORDIC
+    14 -> BackgroundStyleMode.BLOSSOM
+    15 -> BackgroundStyleMode.NONE
+    16 -> BackgroundStyleMode.RAIN
+    17 -> BackgroundStyleMode.ORBIT
+    18 -> BackgroundStyleMode.SIGNAL_FLOW
+    else -> BackgroundStyleMode.MORPHISM
+}
+
+fun backgroundPaletteModeForIndex(index: Int): BackgroundPaletteMode = when (index) {
+    1 -> BackgroundPaletteMode.AURORA
+    2 -> BackgroundPaletteMode.CYBER
+    3 -> BackgroundPaletteMode.SPACE
+    4 -> BackgroundPaletteMode.FIRE
+    5 -> BackgroundPaletteMode.LAVA
+    6 -> BackgroundPaletteMode.NEON
+    7 -> BackgroundPaletteMode.NORDIC
+    8 -> BackgroundPaletteMode.BLOSSOM
+    9 -> BackgroundPaletteMode.OCEAN
+    10 -> BackgroundPaletteMode.SUNSET
+    11 -> BackgroundPaletteMode.FOREST
+    else -> BackgroundPaletteMode.THEME
+}
+
 private const val TWO_PI = (PI * 2.0).toFloat()
 
 /** Детерминированный псевдослучайный 0..1 — одинаковый на каждом кадре. */

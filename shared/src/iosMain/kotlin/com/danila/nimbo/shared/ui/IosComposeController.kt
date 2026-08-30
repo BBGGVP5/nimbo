@@ -23,6 +23,37 @@ private const val OpenUrlAction = "com.nimbo.action.open-url"
 private const val RoutingAction = "com.nimbo.action.routing"
 private const val OpenScreenAction = "com.nimbo.action.open-screen"
 
+/** Оформление хранится там же, где настройки маршрутизации. */
+private const val AppearanceDefaultsPrefix = "com.nimbo.appearance."
+
+private fun appearanceInt(key: String, default: Int): Int {
+    val defaults = NSUserDefaults.standardUserDefaults
+    if (defaults.objectForKey(AppearanceDefaultsPrefix + key) == null) return default
+    return defaults.integerForKey(AppearanceDefaultsPrefix + key).toInt()
+}
+
+private fun appearanceFlag(key: String, default: Boolean): Boolean {
+    val defaults = NSUserDefaults.standardUserDefaults
+    if (defaults.objectForKey(AppearanceDefaultsPrefix + key) == null) return default
+    return defaults.boolForKey(AppearanceDefaultsPrefix + key)
+}
+
+private fun applyAppearanceChange(key: String, value: String) {
+    val defaults = NSUserDefaults.standardUserDefaults
+    when (key) {
+        "backgroundStyle", "backgroundPalette" ->
+            defaults.setInteger(value.toLongOrNull() ?: 0L, AppearanceDefaultsPrefix + key)
+        else -> defaults.setBool(value == "true", AppearanceDefaultsPrefix + key)
+    }
+    iosUiState.value = iosUiState.value.copy(
+        backgroundStyle = appearanceInt("backgroundStyle", 0),
+        backgroundPalette = appearanceInt("backgroundPalette", 0),
+        backgroundMotion = appearanceFlag("backgroundMotion", true),
+        showSpeedWidget = appearanceFlag("showSpeedWidget", true),
+        showMemoryWidget = appearanceFlag("showMemoryWidget", true)
+    )
+}
+
 /** Настройки маршрутизации живут в NSUserDefaults и переживают перезапуск. */
 private const val RoutingDefaultsPrefix = "com.nimbo.routing."
 
@@ -165,6 +196,8 @@ fun NimboUpdateIosUiState(
             transport = server.transport,
             security = server.security,
             selected = server.id == activeServerId,
+            ping = iosPings.value[server.id],
+            pingInProgress = iosPingInProgress.value,
             description = server.description
         )
     }
@@ -185,9 +218,43 @@ fun NimboUpdateIosUiState(
         supportUrl = NimboSupportUrl,
         websiteUrl = websiteFromSource(normalizedProfile?.source),
         favoriteServerIds = iosFavorites.value,
+        pings = iosPings.value,
+        pingInProgress = iosPingInProgress.value,
         routingBypassLocal = loadRoutingFlag("bypassLocal", true),
         routingSniffing = loadRoutingFlag("sniffing", true),
-        routingDns = loadRoutingValue("dns", "cloudflare")
+        routingDns = loadRoutingValue("dns", "cloudflare"),
+        backgroundStyle = appearanceInt("backgroundStyle", 0),
+        backgroundPalette = appearanceInt("backgroundPalette", 0),
+        backgroundMotion = appearanceFlag("backgroundMotion", true),
+        showSpeedWidget = appearanceFlag("showSpeedWidget", true),
+        showMemoryWidget = appearanceFlag("showMemoryWidget", true)
+    )
+}
+
+/** Замеры задержки: приходят из Swift, там их считает NimboPingService. */
+private val iosPings = mutableStateOf<Map<String, Int>>(emptyMap())
+private val iosPingInProgress = mutableStateOf(false)
+
+fun NimboUpdateIosPings(serverIds: List<String>, values: List<Int>, inProgress: Boolean) {
+    val count = minOf(serverIds.size, values.size)
+    if (count > 0) {
+        val merged = iosPings.value.toMutableMap()
+        for (index in 0 until count) {
+            merged[serverIds[index]] = values[index]
+        }
+        iosPings.value = merged
+    }
+    iosPingInProgress.value = inProgress
+    val current = iosUiState.value
+    iosUiState.value = current.copy(
+        pings = iosPings.value,
+        pingInProgress = inProgress,
+        servers = current.servers.map { server ->
+            server.copy(
+                ping = iosPings.value[server.id],
+                pingInProgress = inProgress
+            )
+        }
     )
 }
 
@@ -220,6 +287,7 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onOpenUrl = { postIosAction(OpenUrlAction, it) },
                 onToggleFavorite = { toggleFavoriteServer(it) },
                 onSetRouting = { key, value -> applyRoutingChange(key, value) },
+                onSetAppearance = { key, value -> applyAppearanceChange(key, value) },
                 onOpenScreen = { wireName ->
                     iosScreen.value = NimboScreen.fromWireName(wireName)
                     postIosAction(OpenScreenAction, wireName)

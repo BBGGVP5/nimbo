@@ -57,9 +57,9 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 58.dp, bottom = 140.dp)
+            .padding(top = 52.dp, bottom = 120.dp)
             .nimboScreenPadding(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
@@ -215,7 +215,7 @@ private fun ProfileServerCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .height(58.dp)
             .nimboGlassSurface(
                 shape = shape,
                 depth = if (server.selected) LiquidGlassDepth.CONTROL else LiquidGlassDepth.PANEL,
@@ -250,7 +250,7 @@ private fun ProfileServerCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(32.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(
                         if (server.selected) {
@@ -295,7 +295,7 @@ private fun ProfileServerCard(
             Spacer(Modifier.width(6.dp))
             NimboIconButton(
                 if (favorite) NimboIconName.FAVORITE else NimboIconName.MORE,
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(36.dp),
                 selected = favorite,
                 onClick = { onToggleFavorite(server.id) }
             )

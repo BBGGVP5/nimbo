@@ -84,8 +84,8 @@ internal object NimboPalette {
 
 internal val NimboTitleStyle = TextStyle(
     color = NimboPalette.Text,
-    fontSize = 36.sp,
-    lineHeight = 40.sp,
+    fontSize = 28.sp,
+    lineHeight = 32.sp,
     fontWeight = FontWeight.ExtraBold
 )
 
@@ -108,7 +108,7 @@ internal fun NimboSurface(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 24.dp,
     strong: Boolean = false,
-    padding: PaddingValues = PaddingValues(18.dp),
+    padding: PaddingValues = PaddingValues(15.dp),
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit
 ) {

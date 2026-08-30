@@ -158,7 +158,9 @@ fun Modifier.nimboGlassSurface(
         reducedTransparency = reducedTransparency,
         panelAlpha = panelAlpha
     )
-    val base = if (isDark) Color(0xFF05070C) else Color.White
+    // На iOS системные материалы заметно светлее: чистая тень делала панель
+    // плоской заплаткой на фоне. Подмешиваем белый, сохраняя глубину.
+    val base = if (isDark) lerp(Color(0xFF05070C), Color(0xFF8FA8CE), 0.22f) else Color.White
     val materialTint = lerp(
         base,
         accent,
@@ -207,9 +209,18 @@ fun Modifier.nimboGlassSurface(
         )
     }
 
+    // Блик по верхней кромке — то, чем стекло отличается от заливки.
+    val sheen = Brush.verticalGradient(
+        colors = listOf(
+            Color.White.copy(alpha = if (isDark) 0.10f else 0.28f),
+            Color.Transparent
+        )
+    )
+
     return this
         .clip(shape)
         .background(materialTint, shape)
+        .background(sheen, shape)
         .then(
             if (showOutline) {
                 Modifier

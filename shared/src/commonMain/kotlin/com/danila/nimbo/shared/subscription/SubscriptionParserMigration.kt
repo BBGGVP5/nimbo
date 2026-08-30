@@ -5,7 +5,8 @@ package com.danila.nimbo.shared.subscription
  * Incrementing it silently reparses already stored subscriptions after an update.
  */
 object SubscriptionParserMigration {
-    const val currentRevision: Int = 2
+    // 3: имя сервера отделено от хвоста #fragment, описание больше не теряется.
+    const val currentRevision: Int = 3
 
     fun needsMigration(parserRevision: Int): Boolean = parserRevision < currentRevision
 

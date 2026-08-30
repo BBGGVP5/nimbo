@@ -40,11 +40,11 @@ internal fun NimboRoutingScreen(state: NimboUiState, actions: NimboUiActions) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 58.dp, bottom = 140.dp)
+            .padding(top = 52.dp, bottom = 120.dp)
             .nimboScreenPadding(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        BasicText("Маршрутизация", style = NimboTitleStyle.copy(fontSize = 32.sp))
+        BasicText("Маршрутизация", style = NimboTitleStyle)
         BasicText(
             "Куда и как направлять трафик. Изменения применяются при следующем подключении.",
             style = NimboBodyStyle
@@ -114,7 +114,7 @@ private fun RoutingToggleRow(
     onChange: (Boolean) -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(64.dp),
+        modifier = Modifier.fillMaxWidth().height(58.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -166,7 +166,7 @@ private fun RoutingChoiceRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
+            .height(52.dp)
             .nimboRowClickable(onClick),
         verticalAlignment = Alignment.CenterVertically
     ) {

@@ -83,7 +83,18 @@ data class NimboUiState(
     /** Когда подписка обновлялась последний раз. */
     val profileUpdatedLabel: String = "",
     /** Объявление провайдера из заголовка announce. */
-    val profileAnnounce: String = ""
+    val profileAnnounce: String = "",
+    /** Задержка до сервера, мс; -1 — не ответил. Ключ — идентификатор. */
+    val pings: Map<String, Int> = emptyMap(),
+    /** Идёт замер: пилюли показывают многоточие вместо старых цифр. */
+    val pingInProgress: Boolean = false,
+    /** Движение фона: индекс стиля из backgroundStyleModeForIndex. */
+    val backgroundStyle: Int = 0,
+    /** Палитра фона: индекс из backgroundPaletteModeForIndex. */
+    val backgroundPalette: Int = 0,
+    val backgroundMotion: Boolean = true,
+    val showSpeedWidget: Boolean = true,
+    val showMemoryWidget: Boolean = true
 )
 
 /** Одно измерение скорости: показания за секунду. */
@@ -98,11 +109,23 @@ data class NimboServerUi(
     val protocol: String,
     val transport: String = "",
     val security: String = "",
-    val pingLabel: String = "— ms",
+
     val selected: Boolean = false,
+    /** Задержка до сервера, мс: -1 — не ответил, null — ещё не мерили. */
+    val ping: Int? = null,
+    val pingInProgress: Boolean = false,
     /** Описание из подписки; пусто — показываем протокол и транспорт. */
     val description: String = ""
 ) {
+    /** Подпись пилюли: «— ms», пока не мерили, и «×», если узел молчит. */
+    val pingLabel: String
+        get() = when {
+            pingInProgress -> "…"
+            ping == null -> "— ms"
+            ping < 0 -> "×"
+            else -> "$ping ms"
+        }
+
     val connectionLabel: String
         get() = listOf(protocol.uppercase(), transport.uppercase(), security.replaceFirstChar { it.uppercase() })
             .filter(String::isNotBlank)
@@ -125,7 +148,9 @@ data class NimboUiActions(
     /** Настройка маршрутизации: ключ и новое значение строкой. */
     val onSetRouting: (String, String) -> Unit = { _, _ -> },
     /** Переход на вкладку: на iOS её показывает системная панель. */
-    val onOpenScreen: (String) -> Unit = {}
+    val onOpenScreen: (String) -> Unit = {},
+    /** Настройка оформления: ключ и новое значение строкой. */
+    val onSetAppearance: (String, String) -> Unit = { _, _ -> }
 )
 
 @Composable
@@ -160,8 +185,9 @@ fun NimboAppShell(
             NimboBackdrop(
                 accent = NimboPalette.Accent,
                 background = NimboPalette.Background,
-                styleMode = BackgroundStyleMode.MORPHISM,
-                paletteMode = BackgroundPaletteMode.THEME
+                styleMode = backgroundStyleModeForIndex(state.backgroundStyle),
+                paletteMode = backgroundPaletteModeForIndex(state.backgroundPalette),
+                motionEnabled = state.backgroundMotion
             )
 
             AnimatedContent(

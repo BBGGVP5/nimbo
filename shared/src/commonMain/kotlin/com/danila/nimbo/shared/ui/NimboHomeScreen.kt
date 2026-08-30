@@ -65,9 +65,9 @@ internal fun NimboHomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 58.dp, bottom = 140.dp)
+            .padding(top = 52.dp, bottom = 120.dp)
             .nimboScreenPadding(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         HomeProfileCard(state, actions)
         HomeConnectionButton(state, actions)
@@ -222,11 +222,11 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
     }
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(modifier = Modifier.size(216.dp), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.size(184.dp), contentAlignment = Alignment.Center) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val radius = size.minDimension / 2f
                 val center = Offset(size.width / 2f, size.height / 2f)
@@ -261,7 +261,7 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
 
             Box(
                 modifier = Modifier
-                    .size(174.dp)
+                    .size(148.dp)
                     .clip(CircleShape)
                     .background(centerFill)
                     .border(1.dp, centerBorder, CircleShape)
@@ -273,7 +273,7 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
                 contentAlignment = Alignment.Center
             ) {
                 if (connecting) {
-                    Canvas(modifier = Modifier.size(62.dp)) {
+                    Canvas(modifier = Modifier.size(54.dp)) {
                         val strokeWidth = 7.dp.toPx()
                         val inset = strokeWidth / 2f
                         val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
@@ -300,7 +300,7 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
                     NimboIcon(
                         name = if (connected) NimboIconName.SECURITY else NimboIconName.POWER,
                         tint = iconTint,
-                        modifier = Modifier.size(if (connected) 58.dp else 64.dp)
+                        modifier = Modifier.size(if (connected) 50.dp else 54.dp)
                     )
                 }
             }
@@ -320,7 +320,7 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
             modifier = Modifier.fillMaxWidth(),
             style = TextStyle(
                 color = if (connected || connecting || failed) accent else NimboPalette.Text,
-                fontSize = 24.sp,
+                fontSize = 20.sp,
                 fontWeight = FontWeight.ExtraBold,
                 textAlign = TextAlign.Center
             )
@@ -361,7 +361,7 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
         Row(
             modifier = Modifier
                 .weight(1f)
-                .height(56.dp)
+                .height(52.dp)
                 .clip(shape)
                 .background(fill)
                 .border(1.dp, border, shape)
@@ -375,7 +375,7 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(36.dp)
                     .clip(RoundedCornerShape(11.dp))
                     .background(NimboPalette.Soft),
                 contentAlignment = Alignment.Center
@@ -406,7 +406,7 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
         }
         Box(
             modifier = Modifier
-                .size(56.dp)
+                .size(52.dp)
                 .clip(shape)
                 .background(fill)
                 .border(1.dp, border, shape)
@@ -433,6 +433,7 @@ private fun HomeMonitoring(state: NimboUiState) {
     // Мониторинг показывается только на живом подключении — как на Android,
     // где виджеты привязаны к состоянию CONNECTED.
     if (state.vpnState != "connected") return
+    if (!state.showSpeedWidget && !state.showMemoryWidget) return
     var expanded by remember { mutableStateOf(true) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -464,15 +465,17 @@ private fun HomeMonitoring(state: NimboUiState) {
         }
         if (!expanded) return@Column
 
-        Spacer(Modifier.height(10.dp))
-        NetworkSpeedChartCard(
-            samples = state.speedSamples,
-            uploadSpeed = state.uploadSpeed,
-            downloadSpeed = state.downloadSpeed
-        )
-        Spacer(Modifier.height(8.dp))
-        SessionTrafficBlocks(upload = state.uploadTotal, download = state.downloadTotal)
-        if (state.memoryMb > 0) {
+        if (state.showSpeedWidget) {
+            Spacer(Modifier.height(10.dp))
+            NetworkSpeedChartCard(
+                samples = state.speedSamples,
+                uploadSpeed = state.uploadSpeed,
+                downloadSpeed = state.downloadSpeed
+            )
+            Spacer(Modifier.height(8.dp))
+            SessionTrafficBlocks(upload = state.uploadTotal, download = state.downloadTotal)
+        }
+        if (state.showMemoryWidget && state.memoryMb > 0) {
             Spacer(Modifier.height(10.dp))
             MemoryUsageCard(memoryMb = state.memoryMb, samples = state.memorySamples)
         }
@@ -485,7 +488,7 @@ private fun NetworkSpeedChartCard(
     uploadSpeed: Long,
     downloadSpeed: Long
 ) {
-    MonitorPanel(modifier = Modifier.fillMaxWidth().height(126.dp)) {
+    MonitorPanel(modifier = Modifier.fillMaxWidth().height(112.dp)) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(
@@ -516,7 +519,7 @@ private fun NetworkSpeedChartCard(
             Spacer(Modifier.height(8.dp))
             SpeedChartCanvas(
                 samples = samples,
-                modifier = Modifier.fillMaxWidth().height(72.dp)
+                modifier = Modifier.fillMaxWidth().height(62.dp)
             )
         }
     }
@@ -609,7 +612,7 @@ private fun SessionTrafficBlock(
     color: Color,
     modifier: Modifier = Modifier
 ) {
-    MonitorPanel(modifier = modifier.height(74.dp)) {
+    MonitorPanel(modifier = modifier.height(68.dp)) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 BasicText(arrow, style = TextStyle(color = color, fontSize = 13.sp, fontWeight = FontWeight.Bold))
@@ -642,7 +645,7 @@ private fun SessionTrafficBlock(
 
 @Composable
 private fun MemoryUsageCard(memoryMb: Int, samples: List<Int>) {
-    MonitorPanel(modifier = Modifier.fillMaxWidth().height(96.dp)) {
+    MonitorPanel(modifier = Modifier.fillMaxWidth().height(88.dp)) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 BasicText(
