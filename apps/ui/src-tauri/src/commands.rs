@@ -8598,10 +8598,20 @@ fn normalize_connect_button_style(value: &str) -> String {
     }
 }
 
+/// Имя задачи планировщика. Через неё автозапуск работает даже тогда, когда
+/// Nimbo запускается с правами администратора: ключ `Run` такие программы
+/// молча пропускает, потому что запросить UAC на входе в систему нельзя.
+#[cfg(windows)]
+const AUTOSTART_TASK_NAME: &str = "Nimbo Autostart";
+
 #[cfg(windows)]
 fn is_launch_at_login_enabled() -> Result<bool, String> {
     use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
     use winreg::RegKey;
+
+    if autostart_task_exists() {
+        return Ok(true);
+    }
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let key = match hkcu
@@ -8612,6 +8622,106 @@ fn is_launch_at_login_enabled() -> Result<bool, String> {
         Err(e) => return Err(format!("Не удалось открыть автозапуск Windows: {e}")),
     };
     Ok(key.get_value::<String, _>("Nimbo").is_ok())
+}
+
+#[cfg(windows)]
+fn autostart_task_exists() -> bool {
+    hidden_command("schtasks")
+        .args(["/Query", "/TN", AUTOSTART_TASK_NAME])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn remove_autostart_task() {
+    let _ = hidden_command("schtasks")
+        .args(["/Delete", "/TN", AUTOSTART_TASK_NAME, "/F"])
+        .status();
+}
+
+/// Создаёт задачу входа в систему с наивысшими правами. Работает только из
+/// уже повышенного процесса — иначе планировщик откажет, и мы честно вернём
+/// ошибку, чтобы вызывающий откатился на ключ `Run`.
+#[cfg(windows)]
+fn create_autostart_task(exe: &std::path::Path) -> Result<(), String> {
+    let user = std::env::var("USERNAME").unwrap_or_default();
+    let domain = std::env::var("USERDOMAIN").unwrap_or_default();
+    let principal = if domain.is_empty() {
+        user.clone()
+    } else {
+        format!(r"{domain}\{user}")
+    };
+    let command = exe.display().to_string().replace('&', "&amp;");
+
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Автозапуск Nimbo с правами администратора</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{principal}</UserId>
+      <Delay>PT5S</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{principal}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>false</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{command}</Command>
+    </Exec>
+  </Actions>
+</Task>
+"#
+    );
+
+    // schtasks /XML читает файл в UTF-16LE: с обычным UTF-8 он ругается на
+    // кодировку, объявленную в самом XML.
+    let mut bytes: Vec<u8> = vec![0xFF, 0xFE];
+    for unit in xml.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    let path = std::env::temp_dir().join("nimbo-autostart.xml");
+    std::fs::write(&path, &bytes)
+        .map_err(|e| format!("Не удалось подготовить задачу автозапуска: {e}"))?;
+
+    let status = hidden_command("schtasks")
+        .args(["/Create", "/TN", AUTOSTART_TASK_NAME, "/XML"])
+        .arg(&path)
+        .arg("/F")
+        .status()
+        .map_err(|e| format!("Не удалось вызвать планировщик задач: {e}"))?;
+    let _ = std::fs::remove_file(&path);
+
+    if !status.success() {
+        return Err("Планировщик задач отклонил создание задачи автозапуска.".into());
+    }
+    Ok(())
 }
 
 #[cfg(not(windows))]
@@ -8629,18 +8739,41 @@ fn set_launch_at_login(_app: &AppHandle, enabled: bool) -> Result<(), String> {
         .create_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")
         .map_err(|e| format!("Не удалось открыть автозапуск Windows: {e}"))?;
 
+    let remove_run_value = |key: &winreg::RegKey| -> Result<(), String> {
+        match key.delete_value("Nimbo") {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("Не удалось выключить автозапуск: {e}")),
+        }
+    };
+
     if enabled {
         let exe = std::env::current_exe()
             .map_err(|e| format!("Не удалось определить путь Nimbo.exe: {e}"))?;
+
+        // Программу, помеченную «запускать от имени администратора», Windows
+        // не поднимает из ключа Run: на входе в систему запросить UAC нельзя,
+        // и запуск молча пропускается. Поэтому из повышенного процесса
+        // регистрируем задачу планировщика с наивысшими правами.
+        if is_running_as_admin() {
+            match create_autostart_task(&exe) {
+                Ok(()) => {
+                    // Две записи об автозапуске одновременно не нужны.
+                    remove_run_value(&key)?;
+                    return Ok(());
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "autostart task creation failed, falling back to Run key");
+                }
+            }
+        }
+
         let value = format!("\"{}\"", exe.display());
         key.set_value("Nimbo", &value)
             .map_err(|e| format!("Не удалось включить автозапуск: {e}"))?;
     } else {
-        match key.delete_value("Nimbo") {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(format!("Не удалось выключить автозапуск: {e}")),
-        }
+        remove_autostart_task();
+        remove_run_value(&key)?;
     }
 
     Ok(())
