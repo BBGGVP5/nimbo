@@ -44,6 +44,19 @@ internal fun NimboRoutingScreen(state: NimboUiState, actions: NimboUiActions) {
             .nimboScreenPadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BasicText(
+                "‹ Настройки",
+                modifier = Modifier.nimboRowClickable {
+                    actions.onOpenScreen(NimboScreen.SETTINGS.wireName)
+                },
+                style = TextStyle(
+                    color = NimboPalette.Accent,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            )
+        }
         BasicText("Маршрутизация", style = NimboTitleStyle)
         BasicText(
             "Куда и как направлять трафик. Изменения применяются при следующем подключении.",

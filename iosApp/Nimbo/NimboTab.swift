@@ -3,7 +3,7 @@ import SwiftUI
 enum NimboTab: String, CaseIterable, Identifiable {
     case home
     case profiles
-    case routing
+    case stats
     case settings
 
     var id: String { rawValue }
@@ -12,7 +12,7 @@ enum NimboTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "Главная"
         case .profiles: "Профили"
-        case .routing: "Маршруты"
+        case .stats: "Статистика"
         case .settings: "Настройки"
         }
     }
@@ -21,7 +21,7 @@ enum NimboTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "bolt.fill"
         case .profiles: "globe.europe.africa.fill"
-        case .routing: "arrow.triangle.branch"
+        case .stats: "chart.bar.fill"
         case .settings: "gearshape.fill"
         }
     }

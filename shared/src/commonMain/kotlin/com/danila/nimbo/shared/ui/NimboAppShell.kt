@@ -24,6 +24,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,13 +89,28 @@ data class NimboUiState(
     val pings: Map<String, Int> = emptyMap(),
     /** Идёт замер: пилюли показывают многоточие вместо старых цифр. */
     val pingInProgress: Boolean = false,
+    /** Завершённые сессии, самые свежие первыми. */
+    val sessions: List<NimboSessionUi> = emptyList(),
     /** Движение фона: индекс стиля из backgroundStyleModeForIndex. */
     val backgroundStyle: Int = 0,
     /** Палитра фона: индекс из backgroundPaletteModeForIndex. */
     val backgroundPalette: Int = 0,
     val backgroundMotion: Boolean = true,
     val showSpeedWidget: Boolean = true,
-    val showMemoryWidget: Boolean = true
+    val showMemoryWidget: Boolean = true,
+    /** Стиль элементов: glass / material / minimal. */
+    val elementStyle: String = "glass",
+    /** Версия доступного обновления; пусто — обновлений нет. */
+    val updateVersion: String = "",
+    val updateNotes: String = ""
+)
+
+/** Завершённая сессия подключения для экрана статистики. */
+data class NimboSessionUi(
+    val startedAt: String,
+    val duration: String,
+    val download: Long,
+    val upload: Long
 )
 
 /** Одно измерение скорости: показания за секунду. */
@@ -150,7 +166,9 @@ data class NimboUiActions(
     /** Переход на вкладку: на iOS её показывает системная панель. */
     val onOpenScreen: (String) -> Unit = {},
     /** Настройка оформления: ключ и новое значение строкой. */
-    val onSetAppearance: (String, String) -> Unit = { _, _ -> }
+    val onSetAppearance: (String, String) -> Unit = { _, _ -> },
+    /** Открыть страницу релиза: установить обновление сама iOS не даст. */
+    val onOpenUpdate: () -> Unit = {}
 )
 
 @Composable
@@ -169,6 +187,9 @@ fun NimboAppShell(
     var internalScreen by remember(initialScreen) { mutableStateOf(initialScreen) }
     val selectedScreen = externalScreen ?: internalScreen
 
+    CompositionLocalProvider(
+        LocalNimboElementStyle provides NimboElementStyle.fromKey(state.elementStyle)
+    ) {
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = NimboPalette.Accent,
@@ -202,6 +223,7 @@ fun NimboAppShell(
                         onOpenProfiles = { actions.onOpenScreen(NimboScreen.PROFILES.wireName) }
                     )
                     NimboScreen.PROFILES -> NimboProfilesScreen(state, actions)
+                    NimboScreen.STATS -> NimboStatsScreen(state, actions)
                     NimboScreen.ROUTING -> NimboRoutingScreen(state, actions)
                     NimboScreen.SETTINGS -> NimboSettingsScreen(state, actions)
                 }
@@ -215,6 +237,7 @@ fun NimboAppShell(
                 )
             }
         }
+    }
     }
 }
 
@@ -245,7 +268,7 @@ private fun NimboBottomNavigation(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                NimboScreen.entries.forEach { screen ->
+                NimboScreen.entries.filter { it.inTabBar }.forEach { screen ->
                     val isSelected = screen == selected
                     val shape = RoundedCornerShape(25.dp)
                     val interaction = remember { MutableInteractionSource() }
@@ -301,6 +324,7 @@ private val NimboScreen.iconName: NimboIconName
     get() = when (this) {
         NimboScreen.HOME -> NimboIconName.HOME
         NimboScreen.PROFILES -> NimboIconName.PROFILES
+        NimboScreen.STATS -> NimboIconName.STATS
         NimboScreen.ROUTING -> NimboIconName.ROUTE
         NimboScreen.SETTINGS -> NimboIconName.SETTINGS
     }

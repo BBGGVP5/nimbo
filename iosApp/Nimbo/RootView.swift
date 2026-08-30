@@ -9,6 +9,8 @@ struct RootView: View {
     @State private var showAbout = false
     @State private var selectedTab: NimboTab = .home
     @State private var metrics = NimboMetricsAccumulator()
+    @State private var sessionStartedAt: Date?
+    @State private var updatePageUrl: String?
     /// Раз в секунду — как обновляется мониторинг на Android.
     private let metricsTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -31,9 +33,18 @@ struct RootView: View {
             .onAppear(perform: synchronizeComposeState)
             .task { await measurePings() }
             .task { await loadSubscriptionMetaIfNeeded() }
+            .onAppear(perform: publishSessions)
+            .task { await checkForUpdate() }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboOpenUpdate)) { _ in
+                openExternalLink(updatePageUrl)
+            }
             .onReceive(vpn.$state) { state in
                 // Новая сессия — счётчики трафика начинаем с нуля.
-                if state == .connecting || state == .preparing { metrics.reset() }
+                if state == .connecting || state == .preparing {
+                    metrics.reset()
+                    sessionStartedAt = Date()
+                }
+                if state == .idle || state == .failed { finishSession() }
                 synchronizeComposeState()
             }
             .onReceive(metricsTimer) { _ in publishMetrics() }
@@ -139,6 +150,45 @@ struct RootView: View {
                 message: NimboRedactor.redact(error.localizedDescription)
             )
         }
+    }
+
+    /// Проверка обновлений заканчивается ссылкой: поставить сборку из
+    /// приложения iOS не позволяет, её подписывают снаружи.
+    private func checkForUpdate() async {
+        guard let release = await NimboUpdateChecker.latest(
+            currentVersion: NimboPlatformInfo.displayVersion
+        ) else { return }
+        updatePageUrl = release.assetUrl ?? release.pageUrl
+        IosComposeControllerKt.NimboUpdateIosRelease(
+            version: release.version,
+            notes: String(release.notes.prefix(400))
+        )
+    }
+
+    /// Сессия закрывается при отключении: ядро своей статистики наружу не
+    /// отдаёт, поэтому итог берём из накопленных показаний интерфейса.
+    private func finishSession() {
+        guard let startedAt = sessionStartedAt else { return }
+        sessionStartedAt = nil
+        NimboSessionStore.append(
+            NimboSession(
+                startedAt: startedAt,
+                endedAt: Date(),
+                download: Int64(clamping: metrics.downloadTotal),
+                upload: Int64(clamping: metrics.uploadTotal)
+            )
+        )
+        publishSessions()
+    }
+
+    private func publishSessions() {
+        let sessions = NimboSessionStore.all
+        IosComposeControllerKt.NimboUpdateIosSessions(
+            startedAt: sessions.map(\.startedAtLabel),
+            durations: sessions.map(\.durationLabel),
+            downloads: sessions.map { KotlinLong(longLong: $0.download) },
+            uploads: sessions.map { KotlinLong(longLong: $0.upload) }
+        )
     }
 
     /// Показания снимаются со счётчиков utun-интерфейса: пакеты идут мимо
@@ -255,4 +305,5 @@ private extension Notification.Name {
     static let nimboOpenUrl = Notification.Name("com.nimbo.action.open-url")
     static let nimboRouting = Notification.Name("com.nimbo.action.routing")
     static let nimboOpenScreen = Notification.Name("com.nimbo.action.open-screen")
+    static let nimboOpenUpdate = Notification.Name("com.nimbo.action.open-update")
 }

@@ -55,6 +55,57 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
     ) {
         BasicText("Настройки", style = NimboTitleStyle)
 
+        if (state.updateVersion.isNotBlank()) {
+            NimboSurface(
+                modifier = Modifier.fillMaxWidth(),
+                cornerRadius = 22.dp,
+                padding = PaddingValues(16.dp),
+                onClick = actions.onOpenUpdate
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        BasicText(
+                            "Доступна версия ${state.updateVersion}",
+                            style = TextStyle(
+                                color = NimboPalette.Accent,
+                                fontSize = 16.sp,
+                                lineHeight = 22.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                        // Установить обновление из приложения iOS не даёт:
+                        // сборку подписывают снаружи. Ведём на страницу релиза.
+                        BasicText(
+                            "Открыть страницу релиза и скачать сборку",
+                            modifier = Modifier.padding(top = 2.dp),
+                            style = TextStyle(
+                                color = NimboPalette.TextSecondary,
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
+                            )
+                        )
+                    }
+                    BasicText("›", style = TextStyle(color = NimboPalette.Accent, fontSize = 20.sp))
+                }
+            }
+        }
+
+        SettingsSection("Стиль элементов") {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                NimboElementStyle.entries.forEach { style ->
+                    NimboPill(
+                        style.title,
+                        modifier = Modifier.weight(1f),
+                        selected = state.elementStyle == style.key,
+                        onClick = { actions.onSetAppearance("elementStyle", style.key) }
+                    )
+                }
+            }
+        }
+
         SettingsSection("Фон") {
             SettingsRowFrame(height = 52.dp) {
                 Column(modifier = Modifier.weight(1f)) {

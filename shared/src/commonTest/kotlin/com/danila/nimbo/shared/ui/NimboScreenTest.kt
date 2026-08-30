@@ -13,11 +13,13 @@ class NimboScreenTest {
     }
 
     @Test
-    fun exposesTheSameFourPrimaryDestinationsAsAndroid() {
+    fun tabBarKeepsFourDestinations() {
+        // Маршрутизация — экран настроек, а не вкладка: место в панели дорогое.
         assertEquals(
-            listOf("home", "profiles", "routing", "settings"),
-            NimboScreen.entries.map { it.wireName }
+            listOf("home", "profiles", "stats", "settings"),
+            NimboScreen.entries.filter { it.inTabBar }.map { it.wireName }
         )
+        assertEquals(NimboScreen.ROUTING, NimboScreen.fromWireName("routing"))
         assertTrue(NimboScreen.entries.all { it.title.isNotBlank() && it.glyph.isNotBlank() })
     }
 }

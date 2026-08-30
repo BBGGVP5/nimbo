@@ -12,8 +12,8 @@ struct LiquidGlassTabShell: View {
             Tab("Профили", systemImage: NimboTab.profiles.systemImage, value: NimboTab.profiles) {
                 NimboTabRoot(tab: .profiles)
             }
-            Tab("Маршруты", systemImage: NimboTab.routing.systemImage, value: NimboTab.routing) {
-                NimboTabRoot(tab: .routing)
+            Tab("Статистика", systemImage: NimboTab.stats.systemImage, value: NimboTab.stats) {
+                NimboTabRoot(tab: .stats)
             }
             Tab("Настройки", systemImage: NimboTab.settings.systemImage, value: NimboTab.settings) {
                 NimboTabRoot(tab: .settings)

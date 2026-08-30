@@ -22,6 +22,7 @@ private const val SelectServerAction = "com.nimbo.action.select-server"
 private const val OpenUrlAction = "com.nimbo.action.open-url"
 private const val RoutingAction = "com.nimbo.action.routing"
 private const val OpenScreenAction = "com.nimbo.action.open-screen"
+private const val OpenUpdateAction = "com.nimbo.action.open-update"
 
 /** Оформление хранится там же, где настройки маршрутизации. */
 private const val AppearanceDefaultsPrefix = "com.nimbo.appearance."
@@ -38,11 +39,20 @@ private fun appearanceFlag(key: String, default: Boolean): Boolean {
     return defaults.boolForKey(AppearanceDefaultsPrefix + key)
 }
 
+private fun appearanceText(key: String, default: String): String =
+    NSUserDefaults.standardUserDefaults.stringForKey(AppearanceDefaultsPrefix + key) ?: default
+
+/** Сведения о доступном обновлении приносит Swift: в сеть ходит он. */
+fun NimboUpdateIosRelease(version: String, notes: String) {
+    iosUiState.value = iosUiState.value.copy(updateVersion = version, updateNotes = notes)
+}
+
 private fun applyAppearanceChange(key: String, value: String) {
     val defaults = NSUserDefaults.standardUserDefaults
     when (key) {
         "backgroundStyle", "backgroundPalette" ->
             defaults.setInteger(value.toLongOrNull() ?: 0L, AppearanceDefaultsPrefix + key)
+        "elementStyle" -> defaults.setObject(value, AppearanceDefaultsPrefix + key)
         else -> defaults.setBool(value == "true", AppearanceDefaultsPrefix + key)
     }
     iosUiState.value = iosUiState.value.copy(
@@ -50,7 +60,8 @@ private fun applyAppearanceChange(key: String, value: String) {
         backgroundPalette = appearanceInt("backgroundPalette", 0),
         backgroundMotion = appearanceFlag("backgroundMotion", true),
         showSpeedWidget = appearanceFlag("showSpeedWidget", true),
-        showMemoryWidget = appearanceFlag("showMemoryWidget", true)
+        showMemoryWidget = appearanceFlag("showMemoryWidget", true),
+        elementStyle = appearanceText("elementStyle", "glass")
     )
 }
 
@@ -220,6 +231,7 @@ fun NimboUpdateIosUiState(
         favoriteServerIds = iosFavorites.value,
         pings = iosPings.value,
         pingInProgress = iosPingInProgress.value,
+        sessions = iosSessions.value,
         routingBypassLocal = loadRoutingFlag("bypassLocal", true),
         routingSniffing = loadRoutingFlag("sniffing", true),
         routingDns = loadRoutingValue("dns", "cloudflare"),
@@ -227,7 +239,8 @@ fun NimboUpdateIosUiState(
         backgroundPalette = appearanceInt("backgroundPalette", 0),
         backgroundMotion = appearanceFlag("backgroundMotion", true),
         showSpeedWidget = appearanceFlag("showSpeedWidget", true),
-        showMemoryWidget = appearanceFlag("showMemoryWidget", true)
+        showMemoryWidget = appearanceFlag("showMemoryWidget", true),
+        elementStyle = appearanceText("elementStyle", "glass")
     )
 }
 
@@ -256,6 +269,27 @@ fun NimboUpdateIosPings(serverIds: List<String>, values: List<Int>, inProgress: 
             )
         }
     )
+}
+
+/** Завершённые сессии: считает их приложение, ядро статистики не отдаёт. */
+private val iosSessions = mutableStateOf<List<NimboSessionUi>>(emptyList())
+
+fun NimboUpdateIosSessions(
+    startedAt: List<String>,
+    durations: List<String>,
+    downloads: List<Long>,
+    uploads: List<Long>
+) {
+    val count = minOf(startedAt.size, durations.size, downloads.size, uploads.size)
+    iosSessions.value = (0 until count).map { index ->
+        NimboSessionUi(
+            startedAt = startedAt[index],
+            duration = durations[index],
+            download = downloads[index],
+            upload = uploads[index]
+        )
+    }
+    iosUiState.value = iosUiState.value.copy(sessions = iosSessions.value)
 }
 
 /** Текущая вкладка: её задаёт системная панель из SwiftUI. */
@@ -288,6 +322,7 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onToggleFavorite = { toggleFavoriteServer(it) },
                 onSetRouting = { key, value -> applyRoutingChange(key, value) },
                 onSetAppearance = { key, value -> applyAppearanceChange(key, value) },
+                onOpenUpdate = { postIosAction(OpenUpdateAction) },
                 onOpenScreen = { wireName ->
                     iosScreen.value = NimboScreen.fromWireName(wireName)
                     postIosAction(OpenScreenAction, wireName)

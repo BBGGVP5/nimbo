@@ -47,6 +47,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -63,6 +64,20 @@ import androidx.compose.ui.unit.sp
  * `getNebulaColors` для тёмной темы с акцентом по умолчанию), чтобы iOS не
  * расходился с Android по цвету.
  */
+/** Стиль элементов — облегчённый набор андроидных: их там шесть. */
+internal enum class NimboElementStyle(val key: String, val title: String, val cornerScale: Float) {
+    GLASS("glass", "Стекло", 1f),
+    MATERIAL("material", "Материал", 1f),
+    MINIMAL("minimal", "Минимал", 0.55f);
+
+    companion object {
+        fun fromKey(value: String): NimboElementStyle =
+            entries.firstOrNull { it.key == value } ?: GLASS
+    }
+}
+
+internal val LocalNimboElementStyle = staticCompositionLocalOf { NimboElementStyle.GLASS }
+
 internal object NimboPalette {
     val Background = Color(0xFF091321)
     val BackgroundDeep = Color(0xFF080F1C)
@@ -112,18 +127,36 @@ internal fun NimboSurface(
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(cornerRadius)
+    val style = LocalNimboElementStyle.current
+    val shape = RoundedCornerShape(cornerRadius * style.cornerScale)
     val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             // Тот же стеклянный материал, что и на Android, а не самодельная
             // карточка с градиентом: он лежит в общем модуле.
-            .nimboGlassSurface(
-                shape = shape,
-                depth = if (strong) LiquidGlassDepth.FLOATING else LiquidGlassDepth.PANEL,
-                accent = NimboPalette.Accent,
-                isDark = true,
-                panelAlpha = 1f
+            .then(
+                when (style) {
+                    // Стекло: тонировка, блик и ободок — как у системных
+                    // материалов iOS.
+                    NimboElementStyle.GLASS -> Modifier.nimboGlassSurface(
+                        shape = shape,
+                        depth = if (strong) LiquidGlassDepth.FLOATING else LiquidGlassDepth.PANEL,
+                        accent = NimboPalette.Accent,
+                        isDark = true,
+                        panelAlpha = 1f
+                    )
+                    // Материал: ровная плотная подложка без бликов.
+                    NimboElementStyle.MATERIAL -> Modifier
+                        .clip(shape)
+                        .background(
+                            if (strong) NimboPalette.SurfaceStrong else NimboPalette.Surface
+                        )
+                    // Минимал: только волосяная рамка, фон просвечивает.
+                    NimboElementStyle.MINIMAL -> Modifier
+                        .clip(shape)
+                        .background(NimboPalette.Background.copy(alpha = 0.28f))
+                        .border(1.dp, NimboPalette.Border, shape)
+                }
             )
             .then(
                 if (onClick != null) {

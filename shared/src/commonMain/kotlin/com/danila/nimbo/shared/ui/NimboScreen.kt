@@ -8,8 +8,17 @@ enum class NimboScreen(
 ) {
     HOME("home", "Главная", "Главная", "ϟ"),
     PROFILES("profiles", "Профили", "Профили", "◉"),
-    ROUTING("routing", "Маршруты", "Маршруты", "⇄"),
-    SETTINGS("settings", "Настройки", "Настройки", "⚙");
+    STATS("stats", "Статистика", "Статистика", "▤"),
+    SETTINGS("settings", "Настройки", "Настройки", "⚙"),
+
+    /**
+     * Маршрутизация живёт в настройках, а не в нижней панели: настройка редкая,
+     * а место в панели дорогое. [inTabBar] отделяет вкладки от таких экранов.
+     */
+    ROUTING("routing", "Маршрутизация", "Маршруты", "⇄");
+
+    val inTabBar: Boolean
+        get() = this != ROUTING
 
     companion object {
         fun fromWireName(value: String): NimboScreen = entries
