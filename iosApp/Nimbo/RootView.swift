@@ -136,6 +136,36 @@ struct RootView: View {
             }
     }
 
+    /// Почта владельца, трафик и срок живут в заголовках ответа панели, а не
+    /// в ссылках. Пока подписку не обновляли, их просто нет — поэтому при
+    /// первом запуске после обновления приложения тянем их сами, молча.
+    private func loadSubscriptionMetaIfNeeded() async {
+        guard NimboSubscriptionMetaStore.current.updatedAt == 0,
+              (try? NimboConfigurationStore.shared.loadSource()) ?? nil != nil else { return }
+        _ = try? await NimboSubscriptionRepository.shared.refresh()
+        synchronizeComposeState()
+    }
+
+    /// ICMP обычному приложению на iOS недоступен, поэтому меряем время
+    /// установления TCP-соединения с портом сервера — то же значение, что
+    /// показывает Android для TCP-протоколов.
+    private func measurePings() async {
+        guard let profile = try? NimboSubscriptionRepository.shared.loadProfile() else { return }
+        let targets = profile.servers
+            .filter { !$0.host.isEmpty && $0.port > 0 }
+            .map { (id: $0.id, host: $0.host, port: $0.port) }
+        guard !targets.isEmpty else { return }
+
+        IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: true)
+        let results = await NimboPingService.shared.measureAll(targets)
+        let ordered = results.map { ($0.key, $0.value) }
+        IosComposeControllerKt.NimboUpdateIosPings(
+            serverIds: ordered.map { $0.0 },
+            values: ordered.map { KotlinInt(int: Int32($0.1)) },
+            inProgress: false
+        )
+    }
+
     /// Переключение туннеля вынесено из тела: там оно раздувало выражение.
     private func toggleVpn() async {
         switch vpn.state {
