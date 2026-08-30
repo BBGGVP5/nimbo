@@ -1,6 +1,7 @@
 package com.danila.nimbo.shared.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +29,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.SolidColor
@@ -201,43 +206,117 @@ private fun ProfileServerCard(
     onSelect: (String) -> Unit,
     onToggleFavorite: (String) -> Unit
 ) {
+    // Геометрия из ProxyRow: 64 dp, скругление 16 dp, полоска акцента слева
+    // у выбранного сервера и флаг в квадратном чипе.
     val interaction = remember { MutableInteractionSource() }
-    NimboSurface(
+    val shape = RoundedCornerShape(16.dp)
+    val flag = serverFlagEmoji(server.name)
+    Box(
         modifier = Modifier
             .fillMaxWidth()
+            .height(64.dp)
+            .nimboGlassSurface(
+                shape = shape,
+                depth = if (server.selected) LiquidGlassDepth.CONTROL else LiquidGlassDepth.PANEL,
+                accent = NimboPalette.Accent,
+                isDark = true,
+                panelAlpha = 1f
+            )
+            .border(
+                1.dp,
+                if (server.selected) NimboPalette.Accent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.10f),
+                shape
+            )
             .clickable(
                 interactionSource = interaction,
                 indication = null,
                 enabled = !server.selected,
                 onClick = { onSelect(server.id) }
-            ),
-        cornerRadius = 22.dp,
-        strong = server.selected
+            )
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        if (server.selected) {
             Box(
-                modifier = Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(NimboPalette.Control),
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .width(3.dp)
+                    .fillMaxHeight()
+                    .background(NimboPalette.Accent)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (server.selected) {
+                            NimboPalette.Accent.copy(alpha = 0.16f)
+                        } else {
+                            Color.White.copy(alpha = 0.08f)
+                        }
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                NimboIcon(
-                    if (server.selected) NimboIconName.SECURITY else NimboIconName.SITE,
-                    tint = if (server.selected) NimboPalette.Accent else NimboPalette.Text,
-                    modifier = Modifier.size(24.dp)
-                )
+                if (flag.isNotEmpty()) {
+                    BasicText(
+                        flag,
+                        style = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, color = NimboPalette.Text)
+                    )
+                } else {
+                    NimboIcon(
+                        NimboIconName.SITE,
+                        tint = NimboPalette.Accent,
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                BasicText(server.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = NimboSectionTitleStyle.copy(fontSize = 16.sp))
-                BasicText(server.connectionLabel, style = NimboBodyStyle.copy(fontSize = 12.sp))
+                BasicText(
+                    text = server.name,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        color = NimboPalette.Text,
+                        fontSize = 16.sp,
+                        lineHeight = 24.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                )
+                BasicText(
+                    text = server.connectionLabel,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        color = NimboPalette.TextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                )
             }
             NimboPill(server.pingLabel, selected = server.selected)
             Spacer(Modifier.width(6.dp))
             NimboIconButton(
                 if (favorite) NimboIconName.FAVORITE else NimboIconName.MORE,
-                modifier = Modifier.size(44.dp),
+                modifier = Modifier.size(40.dp),
                 selected = favorite,
                 onClick = { onToggleFavorite(server.id) }
             )
         }
     }
+}
+
+/** Флаг из названия сервера: панели ставят его первым символом. */
+private fun serverFlagEmoji(name: String): String {
+    val trimmed = name.trimStart()
+    if (trimmed.length < 4) return ""
+    val first = trimmed.substring(0, 2)
+    val second = trimmed.substring(2, 4)
+    val isRegional = { pair: String ->
+        pair.length == 2 && pair[0] == '\uD83C' && pair[1] in '\uDDE6'..'\uDDFF'
+    }
+    return if (isRegional(first) && isRegional(second)) first + second else ""
 }

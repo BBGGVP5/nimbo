@@ -19,6 +19,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,16 +55,20 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
         }
 
         BasicText("Оформление", style = NimboSectionTitleStyle)
-        NimboSurface(modifier = Modifier.fillMaxWidth(), strong = true) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SettingsRow(NimboIconName.APPS, "Nimbo Glass", "Жидкое стекло и системная плавность")
-                SettingsRow(NimboIconName.FAVORITE, "Системный акцент", "Цвет интерфейса следует настройкам устройства")
+        NimboSurface(
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 22.dp,
+            padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
+        ) {
+            Column {
+                SettingsRow(NimboIconName.APPS, "Nimbo Glass", "Жидкое стекло и системная плавность", showDivider = true)
+                SettingsRow(NimboIconName.FAVORITE, "Системный акцент", "Цвет интерфейса следует настройкам устройства", showDivider = true)
                 SettingsRow(NimboIconName.NOTIFICATIONS, "Тактильный отклик", "Используется системный Taptic Engine")
             }
         }
 
         BasicText("Система", style = NimboSectionTitleStyle)
-        NimboSurface(modifier = Modifier.fillMaxWidth()) {
+        NimboSurface(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SystemValue("Устройство", state.deviceName)
                 SystemValue("Система", state.systemName)
@@ -64,11 +76,26 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
             }
         }
 
-        NimboSurface(modifier = Modifier.fillMaxWidth(), onClick = actions.onOpenDiagnostics) {
-            SettingsRow(NimboIconName.LOGS, "Диагностика iOS", "Логи приложения и расширения без секретов")
-        }
-        NimboSurface(modifier = Modifier.fillMaxWidth(), onClick = actions.onOpenAbout) {
-            SettingsRow(NimboIconName.INFO, "О приложении", "Версия, система, устройство и лицензии")
+        NimboSurface(
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 22.dp,
+            padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
+        ) {
+            Column {
+                SettingsRow(
+                    NimboIconName.LOGS,
+                    "Диагностика iOS",
+                    "Логи приложения и расширения без секретов",
+                    showDivider = true,
+                    onClick = actions.onOpenDiagnostics
+                )
+                SettingsRow(
+                    NimboIconName.INFO,
+                    "О приложении",
+                    "Версия, система, устройство и лицензии",
+                    onClick = actions.onOpenAbout
+                )
+            }
         }
     }
 }
@@ -88,18 +115,61 @@ private fun SettingsTile(icon: NimboIconName, title: String, modifier: Modifier,
 }
 
 @Composable
-private fun SettingsRow(icon: NimboIconName, title: String, subtitle: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier.size(45.dp).clip(RoundedCornerShape(14.dp)).background(NimboPalette.Control),
-            contentAlignment = Alignment.Center
-        ) { NimboIcon(icon, tint = NimboPalette.Accent, modifier = Modifier.size(23.dp)) }
-        Spacer(Modifier.size(12.dp))
+private fun SettingsRow(
+    icon: NimboIconName,
+    title: String,
+    subtitle: String? = null,
+    showDivider: Boolean = false,
+    onClick: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(if (subtitle == null) 44.dp else 56.dp)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onClick
+                    )
+                } else {
+                    Modifier
+                }
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        NimboIcon(icon, tint = NimboPalette.TextSecondary, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            BasicText(title, style = TextStyle(color = NimboPalette.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold))
-            BasicText(subtitle, style = NimboBodyStyle.copy(fontSize = 12.sp))
+            BasicText(
+                text = title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = TextStyle(
+                    color = NimboPalette.Text,
+                    fontSize = 16.sp,
+                    lineHeight = 24.sp,
+                    fontWeight = FontWeight.Normal
+                )
+            )
+            if (subtitle != null) {
+                BasicText(
+                    text = subtitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                    style = TextStyle(
+                        color = NimboPalette.TextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                )
+            }
         }
-        BasicText("›", style = TextStyle(color = NimboPalette.TextSecondary, fontSize = 24.sp))
+    }
+    if (showDivider) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.06f)))
     }
 }
 

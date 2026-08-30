@@ -5,6 +5,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -215,6 +219,38 @@ internal fun NimboIconButton(
             name = name,
             tint = if (selected) NimboPalette.Accent else NimboPalette.Text,
             selected = selected
+        )
+    }
+}
+
+@Composable
+internal fun NimboLinkButton(
+    icon: NimboIconName,
+    label: String,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(12.dp)
+    val interaction = remember { MutableInteractionSource() }
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(NimboPalette.Accent.copy(alpha = 0.10f))
+            .border(1.dp, NimboPalette.Accent.copy(alpha = 0.55f), shape)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        NimboIcon(icon, tint = NimboPalette.Text, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        androidx.compose.foundation.text.BasicText(
+            text = label,
+            maxLines = 1,
+            style = TextStyle(
+                color = NimboPalette.Text,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
         )
     }
 }
