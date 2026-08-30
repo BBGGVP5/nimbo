@@ -352,6 +352,21 @@ final class VpnController: ObservableObject {
             || raw.contains("not permitted")
             || (nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileWriteNoPermissionError)
 
+        // NEVPNErrorDomain 5 (configurationReadWriteFailed) прилетает, пока
+        // пользователь не подтвердил системный запрос на добавление
+        // VPN-конфигурации. Это не проблема подписи, и советовать
+        // переподписывать приложение здесь неверно.
+        if nsError.domain == NEVPNErrorDomain,
+           let vpnCode = NEVPNError.Code(rawValue: nsError.code),
+           vpnCode == .configurationReadWriteFailed || vpnCode == .configurationDisabled {
+            return (
+                "IOS_VPN_CONFIG_NOT_APPROVED",
+                "iOS ещё не разрешила добавить VPN-конфигурацию. Подтвердите системный запрос — он появляется при первом подключении.",
+                nsError.domain,
+                "\(nsError.code)"
+            )
+        }
+
         if permissionDenied {
             return (
                 "IOS_VPN_PERMISSION_DENIED",
