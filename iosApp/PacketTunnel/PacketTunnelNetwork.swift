@@ -10,7 +10,7 @@ enum PacketTunnelNetwork {
         let interfaceName: String
     }
 
-    static func settings() -> NEPacketTunnelNetworkSettings {
+    static func settings(options: NimboRoutingOptions = .default) -> NEPacketTunnelNetworkSettings {
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
 
         let ipv4 = NEIPv4Settings(
@@ -18,6 +18,15 @@ enum PacketTunnelNetwork {
             subnetMasks: ["255.255.255.252"]
         )
         ipv4.includedRoutes = [NEIPv4Route.default()]
+        if options.bypassLocalNetworks {
+            // Принтеры, NAS и роутер должны оставаться доступны напрямую.
+            ipv4.excludedRoutes = [
+                NEIPv4Route(destinationAddress: "10.0.0.0", subnetMask: "255.0.0.0"),
+                NEIPv4Route(destinationAddress: "172.16.0.0", subnetMask: "255.240.0.0"),
+                NEIPv4Route(destinationAddress: "192.168.0.0", subnetMask: "255.255.0.0"),
+                NEIPv4Route(destinationAddress: "169.254.0.0", subnetMask: "255.255.0.0")
+            ]
+        }
         settings.ipv4Settings = ipv4
 
         let ipv6 = NEIPv6Settings(
@@ -27,9 +36,12 @@ enum PacketTunnelNetwork {
         ipv6.includedRoutes = [NEIPv6Route.default()]
         settings.ipv6Settings = ipv6
 
-        let dns = NEDNSSettings(servers: ["1.1.1.1", "2606:4700:4700::1111"])
-        dns.matchDomains = [""]
-        settings.dnsSettings = dns
+        // «Системный» набор означает отсутствие своих DNS: адреса выдаёт сеть.
+        if let servers = options.dnsServers {
+            let dns = NEDNSSettings(servers: servers)
+            dns.matchDomains = [""]
+            settings.dnsSettings = dns
+        }
         settings.mtu = NSNumber(value: mtu)
         return settings
     }

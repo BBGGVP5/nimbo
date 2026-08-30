@@ -59,7 +59,29 @@ data class NimboUiState(
     val supportUrl: String? = null,
     /** Сайт подписки; пусто — кнопка не показывается. */
     val websiteUrl: String? = null,
-    val favoriteServerIds: Set<String> = emptySet()
+    val favoriteServerIds: Set<String> = emptySet(),
+    /** Байты в секунду по туннелю; считаются по счётчикам utun-интерфейса. */
+    val uploadSpeed: Long = 0,
+    val downloadSpeed: Long = 0,
+    /** Накоплено за текущую сессию подключения. */
+    val uploadTotal: Long = 0,
+    val downloadTotal: Long = 0,
+    val speedSamples: List<NimboSpeedSample> = emptyList(),
+    /** Память процесса приложения, МБ. */
+    val memoryMb: Int = 0,
+    val memorySamples: List<Int> = emptyList(),
+    /** Локальные сети идут мимо туннеля. */
+    val routingBypassLocal: Boolean = true,
+    /** Ядро читает имя сайта из соединения (нужно для правил по доменам). */
+    val routingSniffing: Boolean = true,
+    /** Ключ набора DNS: cloudflare / google / adguard / system. */
+    val routingDns: String = "cloudflare"
+)
+
+/** Одно измерение скорости: показания за секунду. */
+data class NimboSpeedSample(
+    val upload: Long,
+    val download: Long
 )
 
 data class NimboServerUi(
@@ -89,7 +111,9 @@ data class NimboUiActions(
     val onOpenSystemSettings: () -> Unit = {},
     /** Открыть ссылку во внешнем браузере. */
     val onOpenUrl: (String) -> Unit = {},
-    val onToggleFavorite: (String) -> Unit = {}
+    val onToggleFavorite: (String) -> Unit = {},
+    /** Настройка маршрутизации: ключ и новое значение строкой. */
+    val onSetRouting: (String, String) -> Unit = { _, _ -> }
 )
 
 @Composable
@@ -132,7 +156,7 @@ fun NimboAppShell(
                         onOpenProfiles = { selectedScreen = NimboScreen.PROFILES }
                     )
                     NimboScreen.PROFILES -> NimboProfilesScreen(state, actions)
-                    NimboScreen.APPS -> NimboAppsScreen(state, actions)
+                    NimboScreen.ROUTING -> NimboRoutingScreen(state, actions)
                     NimboScreen.SETTINGS -> NimboSettingsScreen(state, actions)
                 }
             }
@@ -218,6 +242,6 @@ private val NimboScreen.iconName: NimboIconName
     get() = when (this) {
         NimboScreen.HOME -> NimboIconName.HOME
         NimboScreen.PROFILES -> NimboIconName.PROFILES
-        NimboScreen.APPS -> NimboIconName.APPS
+        NimboScreen.ROUTING -> NimboIconName.ROUTE
         NimboScreen.SETTINGS -> NimboIconName.SETTINGS
     }

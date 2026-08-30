@@ -78,7 +78,10 @@ final class VpnController: ObservableObject {
         }
         tunnelProtocol.providerConfiguration = [
             "schema": 2,
-            "configData": data
+            "configData": data,
+            // Маршрутизация едет отдельным ключом: конфигурацию ядра она не
+            // трогает, зато нужна расширению для системных настроек туннеля.
+            "routing": NimboRoutingSettings.current.providerValue
         ]
         manager.protocolConfiguration = tunnelProtocol
         try await manager.saveToPreferences()

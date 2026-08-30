@@ -8,7 +8,7 @@ enum class NimboScreen(
 ) {
     HOME("home", "Главная", "Главная", "ϟ"),
     PROFILES("profiles", "Профили", "Профили", "◉"),
-    APPS("apps", "Приложения", "Приложения", "▦"),
+    ROUTING("routing", "Маршруты", "Маршруты", "⇄"),
     SETTINGS("settings", "Настройки", "Настройки", "⚙");
 
     companion object {

@@ -15,7 +15,7 @@ class NimboScreenTest {
     @Test
     fun exposesTheSameFourPrimaryDestinationsAsAndroid() {
         assertEquals(
-            listOf("home", "profiles", "apps", "settings"),
+            listOf("home", "profiles", "routing", "settings"),
             NimboScreen.entries.map { it.wireName }
         )
         assertTrue(NimboScreen.entries.all { it.title.isNotBlank() && it.glyph.isNotBlank() })

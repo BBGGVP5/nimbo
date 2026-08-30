@@ -20,6 +20,34 @@ private const val AboutAction = "com.nimbo.action.about"
 private const val SystemSettingsAction = "com.nimbo.action.system-settings"
 private const val SelectServerAction = "com.nimbo.action.select-server"
 private const val OpenUrlAction = "com.nimbo.action.open-url"
+private const val RoutingAction = "com.nimbo.action.routing"
+
+/** Настройки маршрутизации живут в NSUserDefaults и переживают перезапуск. */
+private const val RoutingDefaultsPrefix = "com.nimbo.routing."
+
+private fun loadRoutingFlag(key: String, default: Boolean): Boolean {
+    val defaults = NSUserDefaults.standardUserDefaults
+    val stored = defaults.objectForKey(RoutingDefaultsPrefix + key) ?: return default
+    return (stored as? Boolean) ?: default
+}
+
+private fun loadRoutingValue(key: String, default: String): String =
+    NSUserDefaults.standardUserDefaults.stringForKey(RoutingDefaultsPrefix + key) ?: default
+
+private fun applyRoutingChange(key: String, value: String) {
+    val defaults = NSUserDefaults.standardUserDefaults
+    when (key) {
+        "bypassLocal", "sniffing" -> defaults.setBool(value == "true", RoutingDefaultsPrefix + key)
+        else -> defaults.setObject(value, RoutingDefaultsPrefix + key)
+    }
+    iosUiState.value = iosUiState.value.copy(
+        routingBypassLocal = loadRoutingFlag("bypassLocal", true),
+        routingSniffing = loadRoutingFlag("sniffing", true),
+        routingDns = loadRoutingValue("dns", "cloudflare")
+    )
+    // Пересобрать конфигурацию должен Swift: у него доступ к профилю и туннелю.
+    postIosAction(RoutingAction, key)
+}
 
 /** Избранные серверы переживают перезапуск: держим их в NSUserDefaults. */
 private const val FavoritesDefaultsKey = "com.nimbo.favorite-server-ids"
@@ -56,6 +84,35 @@ private fun websiteFromSource(source: String?): String? {
     val hostEnd = value.indexOf('/', schemeEnd)
     val origin = if (hostEnd > 0) value.substring(0, hostEnd) else value
     return origin.takeIf { it.length > schemeEnd }
+}
+
+/**
+ * Показания туннеля приходят отдельной функцией: подпись
+ * [NimboUpdateIosUiState] трогать нельзя, иначе ломается вызов из Swift.
+ */
+fun NimboUpdateIosMetrics(
+    uploadSpeed: Long,
+    downloadSpeed: Long,
+    uploadTotal: Long,
+    downloadTotal: Long,
+    uploadSamples: List<Long>,
+    downloadSamples: List<Long>,
+    memoryMb: Int,
+    memorySamples: List<Int>
+) {
+    val count = minOf(uploadSamples.size, downloadSamples.size)
+    val samples = (0 until count).map { index ->
+        NimboSpeedSample(upload = uploadSamples[index], download = downloadSamples[index])
+    }
+    iosUiState.value = iosUiState.value.copy(
+        uploadSpeed = uploadSpeed,
+        downloadSpeed = downloadSpeed,
+        uploadTotal = uploadTotal,
+        downloadTotal = downloadTotal,
+        speedSamples = samples,
+        memoryMb = memoryMb,
+        memorySamples = memorySamples
+    )
 }
 
 private const val NimboSupportUrl = "https://t.me/nebulaguard_channel"
@@ -105,7 +162,10 @@ fun NimboUpdateIosUiState(
         servers = servers,
         supportUrl = NimboSupportUrl,
         websiteUrl = websiteFromSource(normalizedProfile?.source),
-        favoriteServerIds = iosFavorites.value
+        favoriteServerIds = iosFavorites.value,
+        routingBypassLocal = loadRoutingFlag("bypassLocal", true),
+        routingSniffing = loadRoutingFlag("sniffing", true),
+        routingDns = loadRoutingValue("dns", "cloudflare")
     )
 }
 
@@ -125,7 +185,8 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onOpenAbout = { postIosAction(AboutAction) },
                 onOpenSystemSettings = { postIosAction(SystemSettingsAction) },
                 onOpenUrl = { postIosAction(OpenUrlAction, it) },
-                onToggleFavorite = { toggleFavoriteServer(it) }
+                onToggleFavorite = { toggleFavoriteServer(it) },
+                onSetRouting = { key, value -> applyRoutingChange(key, value) }
             )
         )
     }

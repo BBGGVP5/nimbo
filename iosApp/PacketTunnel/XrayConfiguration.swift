@@ -16,6 +16,7 @@ enum XrayConfigurationBuilder {
         tunnelFileDescriptor: Int32,
         tunnelInterfaceName: String,
         assetDirectory: String,
+        options: NimboRoutingOptions = .default,
         bridge: LibXrayBridge
     ) throws -> PreparedXrayConfiguration {
         guard !tunnelInterfaceName.isEmpty else { throw XrayConfigurationError.tunnelInterfaceUnknown }
@@ -41,7 +42,9 @@ enum XrayConfigurationBuilder {
             tunnelFileDescriptor: tunnelFileDescriptor,
             assetDirectory: assetDirectory
         )
-        configuration["inbounds"] = [tunnelInbound(interfaceName: tunnelInterfaceName)]
+        configuration["inbounds"] = [
+            tunnelInbound(interfaceName: tunnelInterfaceName, sniffing: options.sniffingEnabled)
+        ]
         configuration["outbounds"] = appendUtilityOutbounds(
             to: sanitizedOutbounds(outbounds, balanced: source.balanced)
         )
@@ -101,20 +104,23 @@ enum XrayConfigurationBuilder {
     /// `infra/conf/tun.go` разбирает настройки как `name`/`mtu` строчными
     /// буквами, а имя обязано быть настоящим `utunN`: на Darwin ядро без
     /// дескриптора пытается открыть интерфейс по имени и отвергает «tun0».
-    private static func tunnelInbound(interfaceName: String) -> [String: Any] {
-        [
+    private static func tunnelInbound(interfaceName: String, sniffing: Bool) -> [String: Any] {
+        var inbound: [String: Any] = [
             "tag": "tun-in",
             "protocol": "tun",
             "settings": [
                 "name": interfaceName,
                 "mtu": PacketTunnelNetwork.mtu
-            ],
-            "sniffing": [
+            ]
+        ]
+        if sniffing {
+            inbound["sniffing"] = [
                 "enabled": true,
                 "routeOnly": false,
                 "destOverride": ["http", "tls", "quic"]
             ]
-        ]
+        }
+        return inbound
     }
 
     /// libXray прячет имя сервера из #fragment ссылки в поле `sendThrough`

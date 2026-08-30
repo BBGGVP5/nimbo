@@ -157,8 +157,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             throw await recorded(PacketTunnelError.missingConfiguration, stage: .config, code: "IOS_PACKET_TUNNEL_CONFIG_MISSING")
         }
 
+        let routingOptions = NimboRoutingOptions(
+            providerValue: (protocolConfiguration as? NETunnelProviderProtocol)?
+                .providerConfiguration?["routing"]
+        )
+
         do {
-            try await applyNetworkSettings(PacketTunnelNetwork.settings())
+            try await applyNetworkSettings(PacketTunnelNetwork.settings(options: routingOptions))
             await NimboDiagnostics.shared.record(
                 .info,
                 stage: .route,
@@ -185,7 +190,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 sourceData: data,
                 descriptor: descriptorInfo.descriptor,
                 interfaceName: descriptorInfo.interfaceName,
-                assetDirectory: assets
+                assetDirectory: assets,
+                options: routingOptions
             )
 
             await NimboDiagnostics.shared.record(
@@ -222,7 +228,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         sourceData: Data,
         descriptor: Int32,
         interfaceName: String,
-        assetDirectory: String
+        assetDirectory: String,
+        options: NimboRoutingOptions
     ) async throws -> CoreStartupResult {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CoreStartupResult, Error>) in
             lifecycleQueue.async {
@@ -241,6 +248,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         tunnelFileDescriptor: descriptor,
                         tunnelInterfaceName: interfaceName,
                         assetDirectory: assetDirectory,
+                        options: options,
                         bridge: self.core
                     )
                     try self.core.run(configurationJSON: configuration.json)

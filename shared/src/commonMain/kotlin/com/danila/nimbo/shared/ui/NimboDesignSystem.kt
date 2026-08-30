@@ -148,7 +148,7 @@ internal enum class NimboIconName {
 private fun iconVector(name: NimboIconName, selected: Boolean): ImageVector = when (name) {
     NimboIconName.HOME -> if (selected) Icons.Filled.Home else Icons.Outlined.Home
     NimboIconName.PROFILES -> if (selected) Icons.Filled.Public else Icons.Outlined.Public
-    NimboIconName.APPS -> if (selected) Icons.Filled.Apps else Icons.Outlined.Apps
+    NimboIconName.APPS -> if (selected) Icons.Filled.Route else Icons.Filled.Route
     NimboIconName.SETTINGS -> if (selected) Icons.Filled.Settings else Icons.Outlined.Settings
     NimboIconName.ADD -> Icons.Filled.Add
     NimboIconName.SEARCH -> Icons.Filled.Search
@@ -221,6 +221,13 @@ internal fun NimboIconButton(
             selected = selected
         )
     }
+}
+
+/** Ряд без подсветки нажатия — так же ведут себя ряды настроек на Android. */
+@Composable
+internal fun Modifier.nimboRowClickable(onClick: () -> Unit): Modifier {
+    val interaction = remember { MutableInteractionSource() }
+    return this.clickable(interactionSource = interaction, indication = null, onClick = onClick)
 }
 
 @Composable

@@ -45,6 +45,10 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -436,28 +440,297 @@ private fun flagEmoji(name: String): String {
 
 @Composable
 private fun HomeMonitoring(state: NimboUiState) {
-    NimboSurface(modifier = Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                BasicText("Мониторинг", style = NimboSectionTitleStyle.copy(fontSize = 16.sp))
-                Spacer(Modifier.weight(1f))
-                BasicText("⌃", style = TextStyle(color = NimboPalette.TextSecondary, fontSize = 20.sp))
-            }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(NimboPalette.Hairline))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("Скорость", if (state.vpnState == "connected") "↑ 0 КБ/с" else "Нет трафика", Modifier.weight(1f))
-                MetricCard("Память", "— МБ", Modifier.weight(1f))
-            }
+    // Мониторинг показывается только на живом подключении — как на Android,
+    // где виджеты привязаны к состоянию CONNECTED.
+    if (state.vpnState != "connected") return
+    var expanded by remember { mutableStateOf(true) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { expanded = !expanded }
+                )
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BasicText(
+                "Мониторинг",
+                style = TextStyle(
+                    color = NimboPalette.TextTertiary,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            )
+            Spacer(Modifier.weight(1f))
+            BasicText(
+                if (expanded) "\u2303" else "\u2304",
+                style = TextStyle(color = NimboPalette.TextTertiary, fontSize = 16.sp)
+            )
+        }
+        if (!expanded) return@Column
+
+        Spacer(Modifier.height(10.dp))
+        NetworkSpeedChartCard(
+            samples = state.speedSamples,
+            uploadSpeed = state.uploadSpeed,
+            downloadSpeed = state.downloadSpeed
+        )
+        Spacer(Modifier.height(8.dp))
+        SessionTrafficBlocks(upload = state.uploadTotal, download = state.downloadTotal)
+        if (state.memoryMb > 0) {
+            Spacer(Modifier.height(10.dp))
+            MemoryUsageCard(memoryMb = state.memoryMb, samples = state.memorySamples)
         }
     }
 }
 
 @Composable
-private fun MetricCard(title: String, value: String, modifier: Modifier) {
-    Box(modifier = modifier.clip(RoundedCornerShape(16.dp)).background(NimboPalette.Control).padding(14.dp)) {
-        Column {
-            BasicText(title, style = NimboBodyStyle.copy(fontSize = 12.sp))
-            BasicText(value, style = TextStyle(color = NimboPalette.Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold))
+private fun NetworkSpeedChartCard(
+    samples: List<NimboSpeedSample>,
+    uploadSpeed: Long,
+    downloadSpeed: Long
+) {
+    MonitorPanel(modifier = Modifier.fillMaxWidth().height(126.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    NimboIcon(
+                        NimboIconName.STATS,
+                        tint = NimboPalette.TextTertiary,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    BasicText(
+                        "Скорость",
+                        maxLines = 1,
+                        style = TextStyle(
+                            color = NimboPalette.TextTertiary,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                }
+                SpeedValue("\u2191", formatSpeed(uploadSpeed), NimboPalette.Green)
+                Spacer(Modifier.width(10.dp))
+                SpeedValue("\u2193", formatSpeed(downloadSpeed), NimboPalette.Accent)
+            }
+            Spacer(Modifier.height(8.dp))
+            SpeedChartCanvas(
+                samples = samples,
+                modifier = Modifier.fillMaxWidth().height(72.dp)
+            )
         }
     }
+}
+
+@Composable
+private fun SpeedValue(arrow: String, text: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        BasicText(arrow, style = TextStyle(color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold))
+        Spacer(Modifier.width(3.dp))
+        BasicText(
+            text,
+            maxLines = 1,
+            style = TextStyle(color = color, fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold)
+        )
+    }
+}
+
+@Composable
+private fun SpeedChartCanvas(samples: List<NimboSpeedSample>, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        if (samples.isEmpty()) return@Canvas
+        val peak = samples
+            .flatMap { listOf(it.upload, it.download) }
+            .maxOrNull()
+            ?.coerceAtLeast(1L)
+            ?.toFloat() ?: 1f
+
+        fun buildPath(selector: (NimboSpeedSample) -> Long): Path {
+            val path = Path()
+            val count = samples.size.coerceAtLeast(2)
+            samples.forEachIndexed { index, sample ->
+                val x = if (count <= 1) 0f else size.width * index / (count - 1)
+                val y = size.height - (selector(sample).toFloat() / peak).coerceIn(0f, 1f) * size.height
+                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            return path
+        }
+
+        fun buildArea(line: Path): Path = Path().apply {
+            addPath(line)
+            lineTo(size.width, size.height)
+            lineTo(0f, size.height)
+            close()
+        }
+
+        val downPath = buildPath { it.download }
+        val upPath = buildPath { it.upload }
+        drawPath(
+            path = buildArea(downPath),
+            brush = Brush.verticalGradient(
+                listOf(NimboPalette.Accent.copy(alpha = 0.26f), Color.Transparent)
+            )
+        )
+        drawPath(
+            path = downPath,
+            color = NimboPalette.Accent,
+            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+        )
+        drawPath(
+            path = buildArea(upPath),
+            brush = Brush.verticalGradient(
+                listOf(NimboPalette.Green.copy(alpha = 0.18f), Color.Transparent)
+            )
+        )
+        drawPath(
+            path = upPath,
+            color = NimboPalette.Green,
+            style = Stroke(width = 1.7.dp.toPx(), cap = StrokeCap.Round)
+        )
+    }
+}
+
+@Composable
+private fun SessionTrafficBlocks(upload: Long, download: Long) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        SessionTrafficBlock("\u2191", "Отдано", formatBytes(upload), NimboPalette.Green, Modifier.weight(1f))
+        SessionTrafficBlock("\u2193", "Скачано", formatBytes(download), NimboPalette.Accent, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun SessionTrafficBlock(
+    arrow: String,
+    label: String,
+    value: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    MonitorPanel(modifier = modifier.height(74.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BasicText(arrow, style = TextStyle(color = color, fontSize = 13.sp, fontWeight = FontWeight.Bold))
+                Spacer(Modifier.width(6.dp))
+                BasicText(
+                    label,
+                    style = TextStyle(
+                        color = NimboPalette.TextTertiary,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+            BasicText(
+                value,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 5.dp),
+                style = TextStyle(
+                    color = NimboPalette.Text,
+                    fontSize = 16.sp,
+                    lineHeight = 24.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun MemoryUsageCard(memoryMb: Int, samples: List<Int>) {
+    MonitorPanel(modifier = Modifier.fillMaxWidth().height(96.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BasicText(
+                    "Память",
+                    style = TextStyle(
+                        color = NimboPalette.TextTertiary,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                Spacer(Modifier.weight(1f))
+                BasicText(
+                    "$memoryMb МБ",
+                    style = TextStyle(
+                        color = NimboPalette.Text,
+                        fontSize = 16.sp,
+                        lineHeight = 24.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Canvas(modifier = Modifier.fillMaxWidth().height(38.dp)) {
+                if (samples.isEmpty()) return@Canvas
+                val peak = samples.maxOrNull()?.coerceAtLeast(1)?.toFloat() ?: 1f
+                val count = samples.size.coerceAtLeast(2)
+                val path = Path()
+                samples.forEachIndexed { index, value ->
+                    val x = if (count <= 1) 0f else size.width * index / (count - 1)
+                    val y = size.height - (value / peak).coerceIn(0f, 1f) * size.height
+                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(
+                    path = path,
+                    color = NimboPalette.Accent.copy(alpha = 0.85f),
+                    style = Stroke(width = 1.7.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+        }
+    }
+}
+
+/** Панель мониторинга: то же стекло, но скругление 16 dp и рамка White 10%. */
+@Composable
+private fun MonitorPanel(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    Box(
+        modifier = modifier
+            .nimboGlassSurface(
+                shape = shape,
+                depth = LiquidGlassDepth.PANEL,
+                accent = NimboPalette.Accent,
+                isDark = true,
+                panelAlpha = 1f
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
+    ) {
+        content()
+    }
+}
+
+private fun formatSpeed(bytesPerSecond: Long): String = formatBytes(bytesPerSecond) + "/с"
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes <= 0) return "0 Б"
+    val units = listOf("Б", "КБ", "МБ", "ГБ", "ТБ")
+    var value = bytes.toDouble()
+    var unit = 0
+    while (value >= 1024.0 && unit < units.lastIndex) {
+        value /= 1024.0
+        unit += 1
+    }
+    val rounded = if (value >= 100.0 || unit == 0) {
+        value.toLong().toString()
+    } else {
+        val scaled = (value * 10).toLong()
+        "${scaled / 10}.${scaled % 10}"
+    }
+    return "$rounded ${units[unit]}"
 }

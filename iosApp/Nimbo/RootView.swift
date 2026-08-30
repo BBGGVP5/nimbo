@@ -7,12 +7,20 @@ struct RootView: View {
     @State private var showProfiles = false
     @State private var showDiagnostics = false
     @State private var showAbout = false
+    @State private var metrics = NimboMetricsAccumulator()
+    /// Раз в секунду — как обновляется мониторинг на Android.
+    private let metricsTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ComposeScreen(tab: .home)
             .ignoresSafeArea()
             .onAppear(perform: synchronizeComposeState)
-            .onReceive(vpn.$state) { _ in synchronizeComposeState() }
+            .onReceive(vpn.$state) { state in
+                // Новая сессия — счётчики трафика начинаем с нуля.
+                if state == .connecting || state == .preparing { metrics.reset() }
+                synchronizeComposeState()
+            }
+            .onReceive(metricsTimer) { _ in publishMetrics() }
             .onReceive(NotificationCenter.default.publisher(for: .nimboToggleVpn)) { _ in
                 Task {
                     switch vpn.state {
@@ -34,6 +42,9 @@ struct RootView: View {
             .onReceive(NotificationCenter.default.publisher(for: .nimboSystemSettings)) { _ in openSystemSettings() }
             .onReceive(NotificationCenter.default.publisher(for: .nimboOpenUrl)) { notification in
                 openExternalLink(notification.object as? String)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboRouting)) { _ in
+                Task { await restageConfiguration() }
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboSaveAppRule)) { _ in openSystemSettings() }
             .onReceive(NotificationCenter.default.publisher(for: .nimboSelectServer)) { notification in
@@ -61,6 +72,44 @@ struct RootView: View {
             }
             .sheet(isPresented: $showAbout) { AboutView() }
         .preferredColorScheme(nil)
+    }
+
+    /// Настройки маршрутизации хранятся рядом с конфигурацией, поэтому после
+    /// их изменения конфигурацию нужно передать в туннель заново. Действующее
+    /// подключение при этом не рвём — новые правила вступят в силу при
+    /// следующем.
+    private func restageConfiguration() async {
+        do {
+            guard let profile = try NimboSubscriptionRepository.shared.loadProfile(),
+                  let selected = profile.selectedServer else { return }
+            try await vpn.stageConfiguration(
+                data: NimboSubscriptionRepository.shared.stagingData(for: selected)
+            )
+        } catch {
+            await NimboDiagnostics.shared.record(
+                .warning,
+                stage: .config,
+                code: "IOS_ROUTING_RESTAGE_FAILED",
+                message: NimboRedactor.redact(error.localizedDescription)
+            )
+        }
+    }
+
+    /// Показания снимаются со счётчиков utun-интерфейса: пакеты идут мимо
+    /// приложения, поэтому считать их самому нечем.
+    private func publishMetrics() {
+        guard vpn.state == .connected else { return }
+        metrics.tick()
+        IosComposeControllerKt.NimboUpdateIosMetrics(
+            uploadSpeed: Int64(clamping: metrics.uploadSpeed),
+            downloadSpeed: Int64(clamping: metrics.downloadSpeed),
+            uploadTotal: Int64(clamping: metrics.uploadTotal),
+            downloadTotal: Int64(clamping: metrics.downloadTotal),
+            uploadSamples: metrics.uploadSamples.map { KotlinLong(longLong: Int64(clamping: $0)) },
+            downloadSamples: metrics.downloadSamples.map { KotlinLong(longLong: Int64(clamping: $0)) },
+            memoryMb: Int32(metrics.memoryMb),
+            memorySamples: metrics.memorySamples.map { KotlinInt(int: Int32($0)) }
+        )
     }
 
     /// Ссылки поддержки и сайта подписки открываются системным браузером.
@@ -145,4 +194,5 @@ private extension Notification.Name {
     static let nimboSystemSettings = Notification.Name("com.nimbo.action.system-settings")
     static let nimboSelectServer = Notification.Name("com.nimbo.action.select-server")
     static let nimboOpenUrl = Notification.Name("com.nimbo.action.open-url")
+    static let nimboRouting = Notification.Name("com.nimbo.action.routing")
 }
