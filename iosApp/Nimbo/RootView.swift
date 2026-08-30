@@ -18,6 +18,12 @@ struct RootView: View {
     private let metricsTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
+        lifecycleLayer
+            .preferredColorScheme(nil)
+    }
+
+    /// Экран: Compose под системной панелью.
+    private var screen: some View {
         ZStack(alignment: .bottom) {
             ComposeScreen(tab: .home)
                 .ignoresSafeArea()
@@ -25,41 +31,46 @@ struct RootView: View {
             // ней, — Compose о своём фоне ничего не знает.
             NimboTabBar(selection: $selectedTab)
         }
-            .onChange(of: selectedTab) { _ in
-                IosComposeControllerKt.NimboSetIosScreen(wireName: selectedTab.rawValue)
+    }
+
+    private var lifecycleLayer: some View {
+        interfaceLayer
+            .onAppear(perform: synchronizeComposeState)
+            .onAppear(perform: publishSessions)
+            .task { await measurePings() }
+            .task { await loadSubscriptionMetaIfNeeded() }
+            .task { await checkForUpdate() }
+    }
+
+    private var interfaceLayer: some View {
+        vpnLayer
+            .onChange(of: selectedTab) { tab in
+                IosComposeControllerKt.NimboSetIosScreen(wireName: tab.rawValue)
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboOpenScreen)) { notification in
                 guard let wireName = notification.object as? String,
                       let tab = NimboTab(rawValue: wireName) else { return }
                 selectedTab = tab
             }
-            .onAppear(perform: synchronizeComposeState)
-            .task { await measurePings() }
-            .task { await loadSubscriptionMetaIfNeeded() }
-            .onAppear(perform: publishSessions)
-            .task { await checkForUpdate() }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboOpenUrl)) { notification in
+                openExternalLink(notification.object as? String)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .nimboOpenUpdate)) { _ in
                 openExternalLink(updatePageUrl)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .nimboExportBackup)) { _ in
-                backupUrl = NimboBackup.export()
+            .onReceive(NotificationCenter.default.publisher(for: .nimboSystemSettings)) { _ in
+                openSystemSettings()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .nimboImportBackup)) { _ in
-                showBackupPicker = true
+            .onReceive(NotificationCenter.default.publisher(for: .nimboSaveAppRule)) { _ in
+                openSystemSettings()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .nimboOpenSync)) { _ in
-                showSync = true
+            .onReceive(NotificationCenter.default.publisher(for: .nimboRouting)) { _ in
+                Task { await restageConfiguration() }
             }
-            .sheet(isPresented: $showSync, onDismiss: synchronizeComposeState) {
-                NimboSyncView()
-            }
-            .sheet(item: $backupUrl) { url in NimboShareSheet(url: url) }
-            .sheet(isPresented: $showBackupPicker) {
-                NimboDocumentPicker { url in
-                    showBackupPicker = false
-                    Task { await restoreBackup(from: url) }
-                }
-            }
+    }
+
+    private var vpnLayer: some View {
+        sheetsLayer
             .onReceive(vpn.$state) { state in
                 // Новая сессия — счётчики трафика начинаем с нуля.
                 if state == .connecting || state == .preparing {
@@ -71,47 +82,40 @@ struct RootView: View {
             }
             .onReceive(metricsTimer) { _ in publishMetrics() }
             .onReceive(NotificationCenter.default.publisher(for: .nimboToggleVpn)) { _ in
-                Task {
-                    switch vpn.state {
-                    case .connected, .connecting, .preparing:
-                        await vpn.disconnect()
-                    case .idle, .disconnecting, .failed:
-                        await vpn.connect()
-                    }
-                }
+                Task { await toggleVpn() }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .nimboAddProfile)) { _ in showProfiles = true }
-            .onReceive(NotificationCenter.default.publisher(for: .nimboProfileSettings)) { _ in showProfiles = true }
             .onReceive(NotificationCenter.default.publisher(for: .nimboRefreshProfile)) { _ in
                 guard vpn.state != .connected, vpn.state != .connecting else { return }
                 Task { await refreshSubscription() }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .nimboDiagnostics)) { _ in showDiagnostics = true }
-            .onReceive(NotificationCenter.default.publisher(for: .nimboAbout)) { _ in showAbout = true }
-            .onReceive(NotificationCenter.default.publisher(for: .nimboSystemSettings)) { _ in openSystemSettings() }
-            .onReceive(NotificationCenter.default.publisher(for: .nimboOpenUrl)) { notification in
-                openExternalLink(notification.object as? String)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .nimboRouting)) { _ in
-                Task { await restageConfiguration() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .nimboSaveAppRule)) { _ in openSystemSettings() }
             .onReceive(NotificationCenter.default.publisher(for: .nimboSelectServer)) { notification in
                 guard let serverID = notification.object as? String else { return }
-                Task {
-                    do {
-                        let server = try NimboSubscriptionRepository.shared.select(serverID: serverID)
-                        try await vpn.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: server))
-                        synchronizeComposeState()
-                    } catch {
-                        await NimboDiagnostics.shared.record(
-                            .error,
-                            stage: .config,
-                            code: "IOS_SERVER_SELECTION_FAILED",
-                            message: NimboRedactor.redact(error.localizedDescription)
-                        )
-                    }
-                }
+                Task { await selectServer(serverID) }
+            }
+    }
+
+    private var sheetsLayer: some View {
+        screen
+            .onReceive(NotificationCenter.default.publisher(for: .nimboAddProfile)) { _ in
+                showProfiles = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboProfileSettings)) { _ in
+                showProfiles = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboDiagnostics)) { _ in
+                showDiagnostics = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboAbout)) { _ in
+                showAbout = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboExportBackup)) { _ in
+                backupUrl = NimboBackup.export()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboImportBackup)) { _ in
+                showBackupPicker = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboOpenSync)) { _ in
+                showSync = true
             }
             .sheet(isPresented: $showProfiles, onDismiss: synchronizeComposeState) {
                 ProfilesContainerView().environmentObject(vpn)
@@ -120,37 +124,43 @@ struct RootView: View {
                 DiagnosticsView().environmentObject(vpn)
             }
             .sheet(isPresented: $showAbout) { AboutView() }
-        .preferredColorScheme(nil)
+            .sheet(isPresented: $showSync, onDismiss: synchronizeComposeState) {
+                NimboSyncView()
+            }
+            .sheet(item: $backupUrl) { url in NimboShareSheet(url: url) }
+            .sheet(isPresented: $showBackupPicker) {
+                NimboDocumentPicker { url in
+                    showBackupPicker = false
+                    Task { await restoreBackup(from: url) }
+                }
+            }
     }
 
-    /// Почта владельца, трафик и срок живут в заголовках ответа панели, а не
-    /// в ссылках. Пока подписку не обновляли, их просто нет — поэтому при
-    /// первом запуске после обновления приложения тянем их сами, молча.
-    private func loadSubscriptionMetaIfNeeded() async {
-        guard NimboSubscriptionMetaStore.current.updatedAt == 0,
-              (try? NimboConfigurationStore.shared.loadSource()) ?? nil != nil else { return }
-        _ = try? await NimboSubscriptionRepository.shared.refresh()
-        synchronizeComposeState()
+    /// Переключение туннеля вынесено из тела: там оно раздувало выражение.
+    private func toggleVpn() async {
+        switch vpn.state {
+        case .connected, .connecting, .preparing:
+            await vpn.disconnect()
+        case .idle, .disconnecting, .failed:
+            await vpn.connect()
+        }
     }
 
-    /// ICMP обычному приложению на iOS недоступен, поэтому меряем время
-    /// установления TCP-соединения с портом сервера — то же значение, что
-    /// показывает Android для TCP-протоколов.
-    private func measurePings() async {
-        guard let profile = try? NimboSubscriptionRepository.shared.loadProfile() else { return }
-        let targets = profile.servers
-            .filter { !$0.host.isEmpty && $0.port > 0 }
-            .map { (id: $0.id, host: $0.host, port: $0.port) }
-        guard !targets.isEmpty else { return }
-
-        IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: true)
-        let results = await NimboPingService.shared.measureAll(targets)
-        let ordered = results.map { ($0.key, $0.value) }
-        IosComposeControllerKt.NimboUpdateIosPings(
-            serverIds: ordered.map { $0.0 },
-            values: ordered.map { KotlinInt(int: Int32($0.1)) },
-            inProgress: false
-        )
+    private func selectServer(_ serverID: String) async {
+        do {
+            let server = try NimboSubscriptionRepository.shared.select(serverID: serverID)
+            try await vpn.stageConfiguration(
+                data: NimboSubscriptionRepository.shared.stagingData(for: server)
+            )
+            synchronizeComposeState()
+        } catch {
+            await NimboDiagnostics.shared.record(
+                .error,
+                stage: .config,
+                code: "IOS_SERVER_SELECTION_FAILED",
+                message: NimboRedactor.redact(error.localizedDescription)
+            )
+        }
     }
 
     /// Настройки маршрутизации хранятся рядом с конфигурацией, поэтому после
