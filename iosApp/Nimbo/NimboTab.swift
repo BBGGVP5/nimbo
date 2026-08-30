@@ -3,7 +3,7 @@ import SwiftUI
 enum NimboTab: String, CaseIterable, Identifiable {
     case home
     case profiles
-    case apps
+    case routing
     case settings
 
     var id: String { rawValue }
@@ -12,7 +12,7 @@ enum NimboTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "Главная"
         case .profiles: "Профили"
-        case .apps: "Приложения"
+        case .routing: "Маршруты"
         case .settings: "Настройки"
         }
     }
@@ -21,8 +21,11 @@ enum NimboTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "bolt.fill"
         case .profiles: "globe.europe.africa.fill"
-        case .apps: "apps.iphone"
+        case .routing: "arrow.triangle.branch"
         case .settings: "gearshape.fill"
         }
     }
+
+    /// Имя SF Symbol для системной панели.
+    var symbol: String { systemImage }
 }

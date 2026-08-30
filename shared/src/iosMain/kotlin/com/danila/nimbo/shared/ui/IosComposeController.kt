@@ -21,6 +21,7 @@ private const val SystemSettingsAction = "com.nimbo.action.system-settings"
 private const val SelectServerAction = "com.nimbo.action.select-server"
 private const val OpenUrlAction = "com.nimbo.action.open-url"
 private const val RoutingAction = "com.nimbo.action.routing"
+private const val OpenScreenAction = "com.nimbo.action.open-screen"
 
 /** Настройки маршрутизации живут в NSUserDefaults и переживают перезапуск. */
 private const val RoutingDefaultsPrefix = "com.nimbo.routing."
@@ -190,10 +191,21 @@ fun NimboUpdateIosUiState(
     )
 }
 
+/** Текущая вкладка: её задаёт системная панель из SwiftUI. */
+private val iosScreen = mutableStateOf(NimboScreen.HOME)
+
+fun NimboSetIosScreen(wireName: String) {
+    iosScreen.value = NimboScreen.fromWireName(wireName)
+}
+
+fun NimboCurrentIosScreen(): String = iosScreen.value.wireName
+
 fun NimboComposeViewController(screenName: String): UIViewController =
     ComposeUIViewController {
         NimboSharedScreen(
             screen = NimboScreen.fromWireName(screenName),
+            showBottomBar = false,
+            externalScreen = iosScreen.value,
             state = iosUiState.value,
             actions = NimboUiActions(
                 onToggleVpn = { postIosAction(ToggleVpnAction) },
@@ -207,7 +219,11 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onOpenSystemSettings = { postIosAction(SystemSettingsAction) },
                 onOpenUrl = { postIosAction(OpenUrlAction, it) },
                 onToggleFavorite = { toggleFavoriteServer(it) },
-                onSetRouting = { key, value -> applyRoutingChange(key, value) }
+                onSetRouting = { key, value -> applyRoutingChange(key, value) },
+                onOpenScreen = { wireName ->
+                    iosScreen.value = NimboScreen.fromWireName(wireName)
+                    postIosAction(OpenScreenAction, wireName)
+                }
             )
         )
     }

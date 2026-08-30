@@ -6,11 +6,15 @@ import androidx.compose.runtime.Composable
 fun NimboSharedScreen(
     screen: NimboScreen,
     state: NimboUiState = NimboUiState(),
-    actions: NimboUiActions = NimboUiActions()
+    actions: NimboUiActions = NimboUiActions(),
+    showBottomBar: Boolean = true,
+    externalScreen: NimboScreen? = null
 ) {
     NimboAppShell(
         initialScreen = screen,
         state = state,
-        actions = actions
+        actions = actions,
+        showBottomBar = showBottomBar,
+        externalScreen = externalScreen
     )
 }

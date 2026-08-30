@@ -123,16 +123,26 @@ data class NimboUiActions(
     val onOpenUrl: (String) -> Unit = {},
     val onToggleFavorite: (String) -> Unit = {},
     /** Настройка маршрутизации: ключ и новое значение строкой. */
-    val onSetRouting: (String, String) -> Unit = { _, _ -> }
+    val onSetRouting: (String, String) -> Unit = { _, _ -> },
+    /** Переход на вкладку: на iOS её показывает системная панель. */
+    val onOpenScreen: (String) -> Unit = {}
 )
 
 @Composable
 fun NimboAppShell(
     initialScreen: NimboScreen,
     state: NimboUiState,
-    actions: NimboUiActions
+    actions: NimboUiActions,
+    /**
+     * На iOS панель рисует система своим материалом — единственный способ
+     * получить настоящее размытие фона, поэтому здесь её отключают.
+     */
+    showBottomBar: Boolean = true,
+    /** Вкладка снаружи: когда панель системная, выбор приходит от неё. */
+    externalScreen: NimboScreen? = null
 ) {
-    var selectedScreen by remember(initialScreen) { mutableStateOf(initialScreen) }
+    var internalScreen by remember(initialScreen) { mutableStateOf(initialScreen) }
+    val selectedScreen = externalScreen ?: internalScreen
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -163,7 +173,7 @@ fun NimboAppShell(
                     NimboScreen.HOME -> NimboHomeScreen(
                         state = state,
                         actions = actions,
-                        onOpenProfiles = { selectedScreen = NimboScreen.PROFILES }
+                        onOpenProfiles = { actions.onOpenScreen(NimboScreen.PROFILES.wireName) }
                     )
                     NimboScreen.PROFILES -> NimboProfilesScreen(state, actions)
                     NimboScreen.ROUTING -> NimboRoutingScreen(state, actions)
@@ -171,11 +181,13 @@ fun NimboAppShell(
                 }
             }
 
-            NimboBottomNavigation(
-                selected = selectedScreen,
-                onSelected = { selectedScreen = it },
-                modifier = Modifier.align(Alignment.BottomCenter)
-            )
+            if (showBottomBar) {
+                NimboBottomNavigation(
+                    selected = selectedScreen,
+                    onSelected = { internalScreen = it },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
+            }
         }
     }
 }

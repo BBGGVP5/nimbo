@@ -7,13 +7,27 @@ struct RootView: View {
     @State private var showProfiles = false
     @State private var showDiagnostics = false
     @State private var showAbout = false
+    @State private var selectedTab: NimboTab = .home
     @State private var metrics = NimboMetricsAccumulator()
     /// Раз в секунду — как обновляется мониторинг на Android.
     private let metricsTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ComposeScreen(tab: .home)
-            .ignoresSafeArea()
+        ZStack(alignment: .bottom) {
+            ComposeScreen(tab: .home)
+                .ignoresSafeArea()
+            // Панель рисует система: только она умеет размывать то, что под
+            // ней, — Compose о своём фоне ничего не знает.
+            NimboTabBar(selection: $selectedTab)
+        }
+            .onChange(of: selectedTab) { _ in
+                IosComposeControllerKt.NimboSetIosScreen(wireName: selectedTab.rawValue)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboOpenScreen)) { notification in
+                guard let wireName = notification.object as? String,
+                      let tab = NimboTab(rawValue: wireName) else { return }
+                selectedTab = tab
+            }
             .onAppear(perform: synchronizeComposeState)
             .onReceive(vpn.$state) { state in
                 // Новая сессия — счётчики трафика начинаем с нуля.
@@ -206,4 +220,5 @@ private extension Notification.Name {
     static let nimboSelectServer = Notification.Name("com.nimbo.action.select-server")
     static let nimboOpenUrl = Notification.Name("com.nimbo.action.open-url")
     static let nimboRouting = Notification.Name("com.nimbo.action.routing")
+    static let nimboOpenScreen = Notification.Name("com.nimbo.action.open-screen")
 }
