@@ -22,6 +22,8 @@ data class NormalizedSubscriptionServer(
     val transport: String = "",
     val security: String = "",
     val rawConfiguration: String,
+    /** Описание сервера из ссылки: панели кладут его в хвост #fragment. */
+    val description: String = "",
     val isNativeXrayJson: Boolean = false
 )
 

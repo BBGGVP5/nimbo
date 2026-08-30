@@ -145,7 +145,8 @@ struct RootView: View {
             title: meta.title,
             trafficLabel: meta.trafficLabel,
             expiryLabel: meta.expiryLabel,
-            updatedLabel: profile == nil ? "" : meta.updatedLabel
+            updatedLabel: profile == nil ? "" : meta.updatedLabel,
+            announce: meta.announce ?? ""
         )
     }
 

@@ -159,7 +159,8 @@ object SubscriptionPayloadParser {
             else -> scheme
         }
         val fallbackName = host.ifBlank { canonicalProtocol.uppercase() }
-        val name = percentDecode(fragmentRaw).ifBlank { fallbackName }
+        val fragment = splitFragment(fragmentRaw)
+        val name = fragment.first.ifBlank { fallbackName }
         val transport = when {
             scheme.startsWith("naive+") -> scheme.substringAfter('+')
             else -> params["type"] ?: params["network"] ?: params["net"] ?: ""
@@ -177,8 +178,32 @@ object SubscriptionPayloadParser {
             port = port,
             transport = transport,
             security = security,
-            rawConfiguration = link
+            rawConfiguration = link,
+            description = fragment.second
         )
+    }
+
+    /**
+     * Панели дописывают в #fragment хвост вида `?serverDescription=<base64>`.
+     * Имя — всё до вопросительного знака, описание достаётся из хвоста и при
+     * необходимости декодируется из base64.
+     */
+    private fun splitFragment(fragmentRaw: String): Pair<String, String> {
+        val decoded = percentDecode(fragmentRaw)
+        val separator = decoded.indexOf('?')
+        if (separator < 0) return decoded.trim() to ""
+        val name = decoded.substring(0, separator).trim()
+        val params = parseQuery(decoded.substring(separator + 1))
+        val raw = params["serverdescription"]
+            ?: params["server_description"]
+            ?: params["server-description"]
+            ?: params["description"]
+            ?: ""
+        val description = raw.trim()
+            .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+            ?.let { value -> decodeBase64Text(value) ?: value }
+            .orEmpty()
+        return (name.ifBlank { decoded.trim() }) to description
     }
 
     private fun parseVmess(link: String): NormalizedSubscriptionServer? {
@@ -189,8 +214,9 @@ object SubscriptionPayloadParser {
         val port = root["port"]?.jsonPrimitive?.intOrNull
             ?: root.string("port")?.toIntOrNull()
             ?: 0
+        val fragment = splitFragment(link.substringAfterLast('#', ""))
         val name = root.string("ps")?.let(::percentDecode)?.ifBlank { null }
-            ?: percentDecode(link.substringAfterLast('#', "")).ifBlank { host.ifBlank { "VMess" } }
+            ?: fragment.first.ifBlank { host.ifBlank { "VMess" } }
         val transport = root.string("net").orEmpty()
         val security = root.string("tls").orEmpty()
         return NormalizedSubscriptionServer(
@@ -201,7 +227,8 @@ object SubscriptionPayloadParser {
             port = port,
             transport = transport,
             security = security,
-            rawConfiguration = link
+            rawConfiguration = link,
+            description = fragment.second
         )
     }
 
@@ -213,7 +240,20 @@ object SubscriptionPayloadParser {
             .toList()
     }
 
-    private fun decodeBase64(raw: String): String? {
+    /**
+     * Описание сервера — обычный текст, в нём нет ни двоеточий, ни скобок,
+     * по которым [decodeBase64] узнаёт закодированную подписку. Поэтому у него
+     * своя проверка: результат должен быть читаемой строкой без управляющих
+     * символов, иначе считаем, что base64 тут и не было.
+     */
+    private fun decodeBase64Text(raw: String): String? {
+        val decoded = decodeBase64(raw, requirePayloadMarkers = false) ?: return null
+        val trimmed = decoded.trim()
+        if (trimmed.isBlank()) return null
+        return trimmed.takeIf { text -> text.none { it.isISOControl() } }
+    }
+
+    private fun decodeBase64(raw: String, requirePayloadMarkers: Boolean = true): String? {
         val compact = raw.filterNot(Char::isWhitespace).trim()
         if (compact.length < 8 || compact.any { it !in BASE64_CHARS }) return null
         val padded = compact + "=".repeat((4 - compact.length % 4) % 4)
@@ -230,9 +270,9 @@ object SubscriptionPayloadParser {
             if (c3 >= 0 && c2 >= 0) bytes += (((c2 and 3) shl 6) or c3).toByte()
             index += 4
         }
-        return runCatching { bytes.toByteArray().decodeToString() }
-            .getOrNull()
-            ?.takeIf { decoded -> decoded.any { it == ':' || it == '{' || it == '[' } }
+        val decoded = runCatching { bytes.toByteArray().decodeToString() }.getOrNull() ?: return null
+        if (!requirePayloadMarkers) return decoded
+        return decoded.takeIf { text -> text.any { it == ':' || it == '{' || it == '[' } }
     }
 
     private fun base64Value(char: Char): Int = when (char) {

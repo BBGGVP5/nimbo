@@ -81,7 +81,9 @@ data class NimboUiState(
     /** Срок действия подписки оттуда же. */
     val profileExpiryLabel: String = "",
     /** Когда подписка обновлялась последний раз. */
-    val profileUpdatedLabel: String = ""
+    val profileUpdatedLabel: String = "",
+    /** Объявление провайдера из заголовка announce. */
+    val profileAnnounce: String = ""
 )
 
 /** Одно измерение скорости: показания за секунду. */
@@ -97,7 +99,9 @@ data class NimboServerUi(
     val transport: String = "",
     val security: String = "",
     val pingLabel: String = "— ms",
-    val selected: Boolean = false
+    val selected: Boolean = false,
+    /** Описание из подписки; пусто — показываем протокол и транспорт. */
+    val description: String = ""
 ) {
     val connectionLabel: String
         get() = listOf(protocol.uppercase(), transport.uppercase(), security.replaceFirstChar { it.uppercase() })

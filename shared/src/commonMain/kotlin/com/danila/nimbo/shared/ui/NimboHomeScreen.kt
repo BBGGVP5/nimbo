@@ -122,6 +122,7 @@ private fun HomeProfileCard(state: NimboUiState, actions: NimboUiActions) {
 
             val description = when {
                 state.profileCount == 0 -> "Добавьте подписку или конфигурацию"
+                state.profileAnnounce.isNotBlank() -> state.profileAnnounce
                 state.profileExpiryLabel.isNotBlank() -> state.profileExpiryLabel
                 else -> "${state.serverCount} серверов"
             }
@@ -155,6 +156,9 @@ private fun HomeProfileCard(state: NimboUiState, actions: NimboUiActions) {
             Spacer(Modifier.height(9.dp))
 
             BasicText(
+                // Внизу карточки — потраченный трафик, как на Android.
+                // «Серверов: N» остаётся запасным вариантом, пока панель не
+                // прислала свои цифры.
                 text = when {
                     state.profileCount == 0 -> "Готово к импорту"
                     state.profileTrafficLabel.isNotBlank() -> state.profileTrafficLabel

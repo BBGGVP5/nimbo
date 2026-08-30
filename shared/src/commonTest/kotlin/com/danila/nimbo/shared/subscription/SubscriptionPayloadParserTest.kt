@@ -96,6 +96,31 @@ class SubscriptionPayloadParserTest {
     }
 
     @Test
+    fun serverDescriptionIsSplitFromName() {
+        // Так подписку отдаёт Remnawave: описание дописано в хвост фрагмента
+        // и закодировано base64 ("Финляндия, Хельсинки").
+        val payload = "vless://uuid@node.example:443?security=reality&type=tcp" +
+            "#%E2%9C%A8%20%D0%90%D0%B2%D1%82%D0%BE%D0%B1%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%B8%D1%80%D0%BE%D0%B2%D1%89%D0%B8%D0%BA" +
+            "?serverDescription=0KTQuNC90LvRj9C90LTQuNGPLCDQpdC10LvRjNGB0LjQvdC60Lg="
+
+        val server = SubscriptionPayloadParser.parse(payload).servers.single()
+
+        assertEquals("\u2728 Автобалансировщик", server.name)
+        assertEquals("Финляндия, Хельсинки", server.description)
+    }
+
+    @Test
+    fun nameWithoutTailKeepsEmptyDescription() {
+        val server = SubscriptionPayloadParser
+            .parse("vless://uuid@node.example:443?type=tcp#Amsterdam")
+            .servers
+            .single()
+
+        assertEquals("Amsterdam", server.name)
+        assertEquals("", server.description)
+    }
+
+    @Test
     fun malformedPayloadReturnsDiagnosticAndNoFakeServer() {
         val result = SubscriptionPayloadParser.parse("not a subscription")
 

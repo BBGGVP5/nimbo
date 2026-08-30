@@ -94,13 +94,15 @@ fun NimboUpdateIosProfileMeta(
     title: String?,
     trafficLabel: String,
     expiryLabel: String,
-    updatedLabel: String
+    updatedLabel: String,
+    announce: String
 ) {
     iosUiState.value = iosUiState.value.copy(
         activeProfileName = title?.takeIf { it.isNotBlank() } ?: iosUiState.value.activeProfileName,
         profileTrafficLabel = trafficLabel,
         profileExpiryLabel = expiryLabel,
-        profileUpdatedLabel = updatedLabel
+        profileUpdatedLabel = updatedLabel,
+        profileAnnounce = announce
     )
 }
 
@@ -161,7 +163,8 @@ fun NimboUpdateIosUiState(
             protocol = server.protocol,
             transport = server.transport,
             security = server.security,
-            selected = server.id == activeServerId
+            selected = server.id == activeServerId,
+            description = server.description
         )
     }
     val selectedServer = servers.firstOrNull { it.selected } ?: servers.firstOrNull()

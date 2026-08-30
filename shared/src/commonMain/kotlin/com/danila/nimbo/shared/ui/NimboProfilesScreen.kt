@@ -281,7 +281,7 @@ private fun ProfileServerCard(
                     )
                 )
                 BasicText(
-                    text = server.connectionLabel,
+                    text = server.description.ifBlank { server.connectionLabel },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = TextStyle(
