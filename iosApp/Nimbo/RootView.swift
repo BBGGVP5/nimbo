@@ -71,14 +71,10 @@ struct RootView: View {
 
     private var vpnLayer: some View {
         sheetsLayer
-            .onReceive(vpn.$state) { state in
-                // Новая сессия — счётчики трафика начинаем с нуля.
-                if state == .connecting || state == .preparing {
-                    metrics.reset()
-                    sessionStartedAt = Date()
-                }
-                if state == .idle || state == .failed { finishSession() }
-                synchronizeComposeState()
+            // Тип параметра указан явно: без него компилятор в этой цепочке
+            // подбирал чужую перегрузку onReceive и ругался на посторонний тип.
+            .onReceive(vpn.$state) { (state: VpnController.State) in
+                handleVpnState(state)
             }
             .onReceive(metricsTimer) { _ in publishMetrics() }
             .onReceive(NotificationCenter.default.publisher(for: .nimboToggleVpn)) { _ in
@@ -164,6 +160,19 @@ struct RootView: View {
             values: ordered.map { KotlinInt(int: Int32($0.1)) },
             inProgress: false
         )
+    }
+
+    /// Смена состояния туннеля: новая сессия обнуляет счётчики, завершённая —
+    /// записывается в историю.
+    private func handleVpnState(_ state: VpnController.State) {
+        if state == .connecting || state == .preparing {
+            metrics.reset()
+            sessionStartedAt = Date()
+        }
+        if state == .idle || state == .failed {
+            finishSession()
+        }
+        synchronizeComposeState()
     }
 
     /// Переключение туннеля вынесено из тела: там оно раздувало выражение.
