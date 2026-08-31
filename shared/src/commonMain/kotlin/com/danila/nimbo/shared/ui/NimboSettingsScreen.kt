@@ -119,6 +119,16 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
                 }
             }
             SettingsDivider()
+            SettingsRowFrame(height = 52.dp) {
+                Column(modifier = Modifier.weight(1f)) {
+                    SettingsTitle("Анимация значков")
+                    SettingsSubtitle("Значки панели подпрыгивают при переходе")
+                }
+                NimboSwitch(state.navIconMotion) {
+                    actions.onSetAppearance("navIconMotion", it.toString())
+                }
+            }
+            SettingsDivider()
             BackgroundPicker(
                 title = "Эффект",
                 items = BackgroundStyleChoice.entries.map { it.title },

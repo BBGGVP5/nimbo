@@ -96,6 +96,8 @@ data class NimboUiState(
     /** Палитра фона: индекс из backgroundPaletteModeForIndex. */
     val backgroundPalette: Int = 0,
     val backgroundMotion: Boolean = true,
+    /** Прыжок значков нижней панели при переходе между вкладками. */
+    val navIconMotion: Boolean = true,
     val showSpeedWidget: Boolean = true,
     val showMemoryWidget: Boolean = true,
     /** Стиль элементов: glass / material / dotted / signal. */

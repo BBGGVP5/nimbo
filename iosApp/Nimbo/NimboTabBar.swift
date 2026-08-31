@@ -12,6 +12,16 @@ struct NimboTabBar: View {
     @Binding var selection: NimboTab
 
     @Namespace private var indicator
+    /// Вкладка, значок которой сейчас подпрыгивает.
+    @State private var bumpedTab: NimboTab?
+
+    /// Тот же ключ, что и у общего экрана настроек: выключатель один на всё
+    /// приложение, а не отдельный для панели.
+    private var motionEnabled: Bool {
+        let key = "com.nimbo.appearance.navIconMotion"
+        guard UserDefaults.standard.object(forKey: key) != nil else { return true }
+        return UserDefaults.standard.bool(forKey: key)
+    }
 
     var body: some View {
         HStack(spacing: 2) {
@@ -21,6 +31,7 @@ struct NimboTabBar: View {
                     withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
                         selection = tab
                     }
+                    bump(tab)
                     IosComposeControllerKt.NimboSetIosScreen(wireName: tab.rawValue)
                     UIImpactFeedbackGenerator(style: .soft).impactOccurred()
                 } label: {
@@ -42,6 +53,9 @@ struct NimboTabBar: View {
                 .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
                 .symbolRenderingMode(.hierarchical)
                 .frame(height: 22)
+                // Подскок: значок уходит вверх и возвращается пружиной.
+                .scaleEffect(bumpedTab == tab ? 1.18 : 1)
+                .offset(y: bumpedTab == tab ? -3 : 0)
             Text(tab.title)
                 .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
                 .lineLimit(1)
@@ -59,6 +73,20 @@ struct NimboTabBar: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    /// Короткий подскок значка при переходе. Возврат идёт пружиной, поэтому
+    /// достаточно снять признак — анимация доиграет сама.
+    private func bump(_ tab: NimboTab) {
+        guard motionEnabled else { return }
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.45)) {
+            bumpedTab = tab
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.55)) {
+                bumpedTab = nil
+            }
+        }
     }
 
     private var selectionShape: some View {
