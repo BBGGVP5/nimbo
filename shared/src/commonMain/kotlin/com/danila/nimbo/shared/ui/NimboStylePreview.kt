@@ -83,24 +83,29 @@ internal fun NimboStylePreviewCard(
 private fun StylePhoneMock(style: NimboElementStyle) {
     val screenShape = RoundedCornerShape(12.dp)
     val base = when (style) {
+        NimboElementStyle.MANGA -> NimboMangaPalette.PaperDeep
         NimboElementStyle.DOTTED -> Color(0xFF101114)
         NimboElementStyle.SIGNAL -> Color(0xFF0B0F16)
         NimboElementStyle.MATERIAL_YOU -> Color(0xFF17131C)
         NimboElementStyle.NIMBO_GLASS -> Color(0xFF0A1024)
     }
     val panel = when (style) {
+        // Чернила по бумаге: панель в превью — сплошная заливка контура.
+        NimboElementStyle.MANGA -> NimboMangaPalette.Ink
         NimboElementStyle.DOTTED -> NimboPalette.Accent.copy(alpha = 0.18f)
         NimboElementStyle.SIGNAL -> Color.White.copy(alpha = 0.05f)
         NimboElementStyle.MATERIAL_YOU -> NimboPalette.Accent.copy(alpha = 0.20f)
         NimboElementStyle.NIMBO_GLASS -> Color.White.copy(alpha = 0.16f)
     }
     val control = when (style) {
+        NimboElementStyle.MANGA -> NimboMangaPalette.Accent
         NimboElementStyle.DOTTED -> NimboPalette.Accent.copy(alpha = 0.28f)
         NimboElementStyle.SIGNAL -> NimboPalette.Accent.copy(alpha = 0.42f)
         NimboElementStyle.MATERIAL_YOU -> NimboPalette.Accent.copy(alpha = 0.32f)
         NimboElementStyle.NIMBO_GLASS -> NimboPalette.Accent.copy(alpha = 0.38f)
     }
     val panelShape = when (style) {
+        NimboElementStyle.MANGA -> RoundedCornerShape(1.dp)
         NimboElementStyle.DOTTED -> RoundedCornerShape(4.dp)
         NimboElementStyle.SIGNAL -> RoundedCornerShape(6.dp)
         else -> RoundedCornerShape(8.dp)
@@ -147,6 +152,7 @@ private fun StylePhoneMock(style: NimboElementStyle) {
                         .height(16.dp)
                         .clip(
                             when (style) {
+                                NimboElementStyle.MANGA -> RoundedCornerShape(1.dp)
                                 NimboElementStyle.DOTTED -> RoundedCornerShape(4.dp)
                                 NimboElementStyle.SIGNAL -> RoundedCornerShape(6.dp)
                                 else -> RoundedCornerShape(999.dp)
@@ -208,6 +214,14 @@ private fun ConnectMock(style: NimboElementStyle, control: Color) {
                 .size(width = 34.dp, height = 20.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(NimboPalette.Accent)
+        )
+        // Manga: квадратная кнопка с толстым контуром и смещённой тенью.
+        NimboElementStyle.MANGA -> Box(
+            modifier = Modifier
+                .size(width = 30.dp, height = 22.dp)
+                .clip(RoundedCornerShape(1.dp))
+                .background(NimboMangaPalette.Accent)
+                .border(1.5.dp, NimboMangaPalette.Ink, RoundedCornerShape(1.dp))
         )
         // Dotted: квадрат с точечным контуром.
         NimboElementStyle.DOTTED -> Box(

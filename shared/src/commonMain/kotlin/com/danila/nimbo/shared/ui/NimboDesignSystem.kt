@@ -79,7 +79,13 @@ internal enum class NimboElementStyle(
     NIMBO_GLASS("glass", "Nimbo Glass", "iOS Liquid Glass", 1f),
     MATERIAL_YOU("material", "Material You", "Expressive", 1f),
     DOTTED("dotted", "Dotted", "Точечная сетка", 0.34f),
-    SIGNAL("signal", "Signal", "Приборная панель", 0.75f);
+    SIGNAL("signal", "Signal", "Приборная панель", 0.75f),
+
+    /**
+     * Чернильные панели комикса: бумага, толстый контур, прямые углы и жёсткая
+     * тень со смещением. Идёт после Signal — там же, где на Android.
+     */
+    MANGA("manga", "Manga", "Чернильные панели", 0.12f);
 
     companion object {
         fun fromKey(value: String): NimboElementStyle =
@@ -88,6 +94,14 @@ internal enum class NimboElementStyle(
 }
 
 internal val LocalNimboElementStyle = staticCompositionLocalOf { NimboElementStyle.NIMBO_GLASS }
+
+/** Бумага и чернила стиля Manga: те же цвета, что в андроидной теме. */
+internal object NimboMangaPalette {
+    val Paper = Color(0xFF14141A)
+    val PaperDeep = Color(0xFF0E0E12)
+    val Ink = Color(0xFFF2ECDD)
+    val Accent = Color(0xFFE63329)
+}
 
 internal object NimboPalette {
     val Background = Color(0xFF091321)
@@ -186,6 +200,12 @@ internal fun NimboSurface(
                         .clip(shape)
                         .background(NimboPalette.Text.copy(alpha = 0.02f).compositeOver(NimboPalette.Background))
                         .border(1.dp, NimboPalette.Text.copy(alpha = 0.075f), shape)
+                    // Manga: бумага под чернилами. Контур вдвое толще обычного —
+                    // без него панель перестаёт читаться как нарисованная.
+                    NimboElementStyle.MANGA -> Modifier
+                        .clip(shape)
+                        .background(NimboMangaPalette.Paper)
+                        .border(2.dp, NimboMangaPalette.Ink, shape)
                 }
             )
             .then(

@@ -234,7 +234,7 @@ enum NimboSyncBundleMapper {
             let defaults = UserDefaults.standard
             // Стили именуются одинаково на обеих платформах, кроме андроидных,
             // которых на iOS нет: неизвестное значение оставляем как есть.
-            if ["glass", "material", "dotted", "signal"].contains(appearance.uiStyle) {
+            if ["glass", "material", "dotted", "signal", "manga"].contains(appearance.uiStyle) {
                 defaults.set(appearance.uiStyle, forKey: "com.nimbo.appearance.elementStyle")
             }
             applied.append("оформление")
