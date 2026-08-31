@@ -215,13 +215,20 @@ fun NimboAppShell(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             // Ровно тот же фон, что и на Android: общий код, а не похожая копия.
-            NimboBackdrop(
-                accent = NimboPalette.Accent,
-                background = NimboPalette.Background,
-                styleMode = backgroundStyleModeForIndex(state.backgroundStyle),
-                paletteMode = backgroundPaletteModeForIndex(state.backgroundPalette),
-                motionEnabled = state.backgroundMotion
-            )
+            // Manga: страница в клетку вместо свечения — иначе градиенты фона
+            // спорят с чернильными панелями и стиль не читается. Выбранный
+            // эффект сохраняется и вернётся с другим стилем.
+            if (NimboElementStyle.fromKey(state.elementStyle) == NimboElementStyle.MANGA) {
+                NimboMangaBackdrop()
+            } else {
+                NimboBackdrop(
+                    accent = NimboPalette.Accent,
+                    background = NimboPalette.Background,
+                    styleMode = backgroundStyleModeForIndex(state.backgroundStyle),
+                    paletteMode = backgroundPaletteModeForIndex(state.backgroundPalette),
+                    motionEnabled = state.backgroundMotion
+                )
+            }
 
             AnimatedContent(
                 targetState = selectedScreen,

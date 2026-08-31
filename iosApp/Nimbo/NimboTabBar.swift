@@ -14,9 +14,20 @@ struct NimboTabBar: View {
     @Namespace private var indicator
     /// Вкладка, значок которой сейчас подпрыгивает.
     @State private var bumpedTab: NimboTab?
+    /// Накопленный угол для значков, которые проворачиваются.
+    ///
+    /// Именно накопленный: если возвращать угол к нулю, глобус после оборота
+    /// откручивался бы назад — движение читалось бы как рывок туда-сюда.
+    @State private var spin: [String: Double] = [:]
 
     /// Тот же ключ, что и у общего экрана настроек: выключатель один на всё
     /// приложение, а не отдельный для панели.
+    /// Стиль интерфейса берём из тех же настроек, что и общий экран: панель
+    /// обязана меняться вместе с остальным, иначе стиль выглядит недоделанным.
+    private var isManga: Bool {
+        UserDefaults.standard.string(forKey: "com.nimbo.appearance.elementStyle") == "manga"
+    }
+
     private var motionEnabled: Bool {
         let key = "com.nimbo.appearance.navIconMotion"
         guard UserDefaults.standard.object(forKey: key) != nil else { return true }
@@ -53,15 +64,18 @@ struct NimboTabBar: View {
                 .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
                 .symbolRenderingMode(.hierarchical)
                 .frame(height: 22)
-                // Подскок: значок уходит вверх и возвращается пружиной.
-                .scaleEffect(bumpedTab == tab ? 1.18 : 1)
-                .offset(y: bumpedTab == tab ? -3 : 0)
+                // Движение объясняет сам значок: дом подпрыгивает, глобус
+                // проворачивается, статистика покачивается, шестерёнка
+                // поворачивается на четверть оборота.
+                .scaleEffect(bumpedTab == tab ? 1.14 : 1)
+                .offset(y: bumpedTab == tab ? tab.motionLift : 0)
+                .rotationEffect(.degrees(rotation(for: tab)))
             Text(tab.title)
                 .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
         }
-        .foregroundStyle(isSelected ? Color.nimboAccent : Color.nimboSecondary)
+        .foregroundStyle(tint(isSelected: isSelected))
         .frame(maxWidth: .infinity)
         .frame(height: 46)
         .background {
@@ -75,12 +89,31 @@ struct NimboTabBar: View {
         .contentShape(Rectangle())
     }
 
+    /// Проворот накапливается, покачивание — временное.
+    private func rotation(for tab: NimboTab) -> Double {
+        let accumulated = spin[tab.rawValue] ?? 0
+        guard tab.motionWobbles else { return accumulated }
+        return bumpedTab == tab ? tab.motionRotation : 0
+    }
+
+    private func tint(isSelected: Bool) -> Color {
+        if isManga {
+            return isSelected ? .white : Color.mangaInk.opacity(0.7)
+        }
+        return isSelected ? Color.nimboAccent : Color.nimboSecondary
+    }
+
     /// Короткий подскок значка при переходе. Возврат идёт пружиной, поэтому
     /// достаточно снять признак — анимация доиграет сама.
     private func bump(_ tab: NimboTab) {
         guard motionEnabled else { return }
         withAnimation(.spring(response: 0.22, dampingFraction: 0.45)) {
             bumpedTab = tab
+        }
+        if !tab.motionWobbles, tab.motionRotation != 0 {
+            withAnimation(.easeInOut(duration: 0.52)) {
+                spin[tab.rawValue] = (spin[tab.rawValue] ?? 0) + tab.motionRotation
+            }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
             withAnimation(.spring(response: 0.36, dampingFraction: 0.55)) {
@@ -90,9 +123,9 @@ struct NimboTabBar: View {
     }
 
     private var selectionShape: some View {
-        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: isManga ? 2 : 20, style: .continuous)
         return shape
-            .fill(Color.nimboAccent.opacity(0.16))
+            .fill(isManga ? Color.mangaAccent.opacity(0.9) : Color.nimboAccent.opacity(0.16))
             .overlay(
                 shape.strokeBorder(
                     LinearGradient(
@@ -113,8 +146,13 @@ struct NimboTabBar: View {
     /// бликов, поэтому кромку рисуем сами.
     @ViewBuilder
     private var barBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        if #available(iOS 26.0, *) {
+        let shape = RoundedRectangle(cornerRadius: isManga ? 3 : 26, style: .continuous)
+        if isManga {
+            // Бумага с чернильным контуром: стекло здесь противоречит стилю.
+            shape
+                .fill(Color.mangaPaper)
+                .overlay(shape.strokeBorder(Color.mangaInk, lineWidth: 2))
+        } else if #available(iOS 26.0, *) {
             shape
                 .fill(.clear)
                 .glassEffect(.regular, in: shape)
@@ -152,4 +190,9 @@ extension Color {
     /// Те же цвета, что в общем оформлении (`NimboPalette`).
     static let nimboAccent = Color(red: 0x75 / 255, green: 0xA7 / 255, blue: 0xFF / 255)
     static let nimboSecondary = Color(red: 0xEA / 255, green: 0xEB / 255, blue: 0xF2 / 255).opacity(0.62)
+
+    /// Бумага и чернила стиля Manga — те же значения, что в общем модуле.
+    static let mangaPaper = Color(red: 0x14 / 255, green: 0x14 / 255, blue: 0x1A / 255)
+    static let mangaInk = Color(red: 0xF2 / 255, green: 0xEC / 255, blue: 0xDD / 255)
+    static let mangaAccent = Color(red: 0xE6 / 255, green: 0x33 / 255, blue: 0x29 / 255)
 }

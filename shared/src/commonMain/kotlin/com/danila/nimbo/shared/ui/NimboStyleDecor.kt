@@ -1,5 +1,7 @@
 package com.danila.nimbo.shared.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -65,4 +67,27 @@ fun Modifier.nimboDottedOutline(
         cornerRadius = CornerRadius(cornerRadius.toPx()),
         style = stroke
     )
+}
+
+/** Страница в клетку — подложка стиля Manga. */
+@androidx.compose.runtime.Composable
+fun NimboMangaBackdrop() {
+    androidx.compose.foundation.Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NimboMangaPalette.PaperDeep)
+    ) {
+        val step = 26.dp.toPx()
+        val line = NimboMangaPalette.Ink.copy(alpha = 0.035f)
+        var x = 0f
+        while (x < size.width) {
+            drawLine(line, Offset(x, 0f), Offset(x, size.height), 1f)
+            x += step
+        }
+        var y = 0f
+        while (y < size.height) {
+            drawLine(line, Offset(0f, y), Offset(size.width, y), 1f)
+            y += step
+        }
+    }
 }
