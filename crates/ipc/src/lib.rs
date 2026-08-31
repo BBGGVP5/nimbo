@@ -28,21 +28,30 @@ pub enum Command {
     TunUp(TunRequest),
     /// Погасить TUN и вернуть маршруты в исходное состояние.
     TunDown,
+    /// Положить ядро в каталог хелпера. Вызывается из повышенного процесса
+    /// (pkexec), поэтому источник выбирает пользователь осознанно.
+    InstallCore { source_path: String },
     Shutdown,
 }
 
-/// Всё, что хелперу нужно знать о туннеле. Конфиг готовит интерфейс — так
-/// логика сборки остаётся в одном месте, а привилегии нужны только на запуск.
+/// Всё, что хелперу нужно знать о туннеле.
+///
+/// Конфиг передаётся телом, а не путём: файл в домашнем каталоге можно
+/// подменить между проверкой и запуском, а хелпер выполняет ядро от root.
+/// По той же причине здесь нет пути к самому ядру — хелпер берёт его только
+/// из своих каталогов, куда обычный пользователь писать не может.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TunRequest {
-    /// Путь к конфигу ядра, уже содержащему tun-inbound.
-    pub config_path: String,
-    /// Путь к бинарю ядра.
-    pub core_path: String,
+    /// Готовый конфиг ядра с tun-inbound.
+    pub config: String,
     /// Имя интерфейса, которое ядро создаст.
     pub interface: String,
     /// Адреса сервера, которые нужно пустить в обход туннеля.
     pub bypass_ips: Vec<String>,
+    /// DNS туннеля: без него запросы уходят мимо VPN.
+    pub dns: Vec<String>,
+    /// Включать ли блокировку трафика мимо туннеля.
+    pub kill_switch: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +87,9 @@ pub struct TunState {
     pub interface: Option<String>,
     /// Сообщение ядра, если туннель упал сам.
     pub last_error: Option<String>,
+    /// Есть ли у хелпера ядро в защищённом каталоге.
+    #[serde(default)]
+    pub core_ready: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -16,7 +16,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use nimbo_ipc::{
-    decode_response, encode_command, framing, Command, Response, TunRequest, UNIX_SOCKET_PATH,
+    decode_response, encode_command, framing, Command, Response, TunRequest, TunState,
+    UNIX_SOCKET_PATH,
 };
 
 /// Ответ хелпера ждём недолго: поднятие туннеля упирается в появление
@@ -92,4 +93,47 @@ fn connect() -> Result<UnixStream, String> {
         .and_then(|_| stream.set_write_timeout(Some(IO_TIMEOUT)))
         .map_err(|e| format!("Не удалось настроить соединение со службой: {e}"))?;
     Ok(stream)
+}
+
+/// Состояние службы: готово ли ядро в защищённом каталоге. По нему интерфейс
+/// понимает, нужно ли один раз попросить права на установку ядра.
+pub fn status() -> Result<TunState, String> {
+    let stream = connect()?;
+    let mut session = TunSession { stream };
+    match session.call(&Command::GetStatus)? {
+        Response::TunState(state) => Ok(state),
+        Response::Error { message, .. } => Err(message),
+        _ => Err("Служба вернула неожиданный ответ.".into()),
+    }
+}
+
+/// Кладёт ядро в каталог службы. Требует прав root, поэтому идём через
+/// pkexec: пользователь подтверждает операцию системным окном.
+pub fn install_core(source: &std::path::Path) -> Result<(), String> {
+    let helper = helper_binary()?;
+    let status = std::process::Command::new("pkexec")
+        .arg(&helper)
+        .arg("--install-core")
+        .arg(source)
+        .status()
+        .map_err(|e| format!("Не удалось запустить pkexec: {e}"))?;
+    if !status.success() {
+        return Err("Установка ядра отменена или не удалась.".into());
+    }
+    Ok(())
+}
+
+/// Хелпер лежит рядом с приложением — установщик кладёт их вместе.
+fn helper_binary() -> Result<std::path::PathBuf, String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("Не удалось определить путь Nimbo: {e}"))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| "Не удалось определить папку Nimbo.".to_string())?;
+    let helper = dir.join("nimbo-svc");
+    if helper.is_file() {
+        Ok(helper)
+    } else {
+        Err("Служба Nimbo не найдена рядом с приложением. Переустановите Nimbo.".into())
+    }
 }

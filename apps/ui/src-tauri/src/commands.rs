@@ -6065,11 +6065,31 @@ async fn connect_tun(
     // хелпером остаётся открытым — если Nimbo упадёт, туннель погаснет сам.
     #[cfg(target_os = "linux")]
     {
+        // Служба запускает ядро от root, поэтому берёт его только из своего
+        // каталога. Если ядра там ещё нет, один раз просим права и кладём.
+        if !crate::helper_linux::status()
+            .map(|state| state.core_ready)
+            .unwrap_or(false)
+        {
+            if let Err(error) = crate::helper_linux::install_core(&xray_path) {
+                stop_child(&mut naive);
+                return Err(error);
+            }
+        }
+
+        let config = match std::fs::read_to_string(&config_path) {
+            Ok(config) => config,
+            Err(error) => {
+                stop_child(&mut naive);
+                return Err(format!("Не удалось прочитать конфиг ядра: {error}"));
+            }
+        };
         let request = nimbo_ipc::TunRequest {
-            config_path: config_path.to_string_lossy().to_string(),
-            core_path: xray_path.to_string_lossy().to_string(),
+            config,
             interface: TUN_INTERFACE_NAME.to_string(),
             bypass_ips: bypass_ips.clone(),
+            dns: vec![TUN_DNS_PRIMARY.to_string(), TUN_DNS_SECONDARY.to_string()],
+            kill_switch: snapshot.preferences.connection_kill_switch,
         };
         let session = match crate::helper_linux::TunSession::up(request) {
             Ok(session) => session,
