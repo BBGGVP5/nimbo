@@ -559,6 +559,11 @@ pub struct TunRuntimeSnapshot {
     pub bypass_ips: Vec<String>,
     pub gateway: Option<String>,
     pub interface_index: Option<u32>,
+    /// Прежняя политика исходящего трафика по профилям брандмауэра. Нужна,
+    /// чтобы после kill switch вернуть ровно то, что было у пользователя,
+    /// а не «как по умолчанию».
+    #[serde(default)]
+    pub firewall_policy: Vec<(String, String)>,
 }
 
 pub struct AppState {
