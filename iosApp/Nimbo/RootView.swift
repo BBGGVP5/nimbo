@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import NimboShared
 import UIKit
@@ -14,6 +15,9 @@ struct RootView: View {
     @State private var backupUrl: URL?
     @State private var showBackupPicker = false
     @State private var showSync = false
+    @State private var elementStyle = UserDefaults.standard.string(
+        forKey: "com.nimbo.appearance.elementStyle"
+    ) ?? "glass"
     /// Раз в секунду — как обновляется мониторинг на Android.
     private let metricsTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -29,7 +33,7 @@ struct RootView: View {
                 .ignoresSafeArea()
             // Панель рисует система: только она умеет размывать то, что под
             // ней, — Compose о своём фоне ничего не знает.
-            NimboTabBar(selection: $selectedTab)
+            NimboTabBar(selection: $selectedTab, elementStyle: elementStyle)
         }
     }
 
@@ -66,6 +70,15 @@ struct RootView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboRouting)) { _ in
                 Task { await restageConfiguration() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboAppearanceChanged)) { notification in
+                elementStyle = (notification.object as? String)
+                    ?? UserDefaults.standard.string(forKey: "com.nimbo.appearance.elementStyle")
+                    ?? "glass"
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                elementStyle = UserDefaults.standard.string(forKey: "com.nimbo.appearance.elementStyle")
+                    ?? "glass"
             }
     }
 
@@ -405,4 +418,5 @@ private extension Notification.Name {
     static let nimboExportBackup = Notification.Name("com.nimbo.action.export-backup")
     static let nimboImportBackup = Notification.Name("com.nimbo.action.import-backup")
     static let nimboOpenSync = Notification.Name("com.nimbo.action.open-sync")
+    static let nimboAppearanceChanged = Notification.Name("com.nimbo.action.appearance-changed")
 }

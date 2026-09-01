@@ -167,11 +167,12 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
 
 @Composable
 private fun ProfileSubscriptionCard(state: NimboUiState, actions: NimboUiActions) {
+    val iconShape = nimboStyledShape(15.dp, 2.dp)
     NimboSurface(modifier = Modifier.fillMaxWidth(), strong = true) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)).background(NimboPalette.Control),
+                    modifier = Modifier.size(48.dp).clip(iconShape).background(nimboStyledContainer(NimboPalette.Control)),
                     contentAlignment = Alignment.Center
                 ) { NimboIcon(NimboIconName.CLOUD, tint = NimboPalette.Accent, modifier = Modifier.size(26.dp)) }
                 Spacer(Modifier.width(12.dp))
@@ -215,7 +216,15 @@ private fun ProfileSubscriptionCard(state: NimboUiState, actions: NimboUiActions
 
 @Composable
 private fun ProfileMetric(title: String, value: String, modifier: Modifier) {
-    Box(modifier.clip(RoundedCornerShape(15.dp)).background(NimboPalette.Control).padding(11.dp)) {
+    val style = LocalNimboElementStyle.current
+    val shape = nimboStyledShape(15.dp, 2.dp)
+    Box(
+        modifier
+            .clip(shape)
+            .background(nimboStyledContainer(NimboPalette.Control))
+            .border(if (style == NimboElementStyle.MANGA) 1.5.dp else 0.dp, nimboStyledBorder(Color.Transparent), shape)
+            .padding(11.dp)
+    ) {
         Column {
             BasicText(title, style = NimboBodyStyle.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold))
             BasicText(value, style = TextStyle(color = NimboPalette.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold))
@@ -233,21 +242,32 @@ private fun ProfileServerCard(
     // Геометрия из ProxyRow: 64 dp, скругление 16 dp, полоска акцента слева
     // у выбранного сервера и флаг в квадратном чипе.
     val interaction = remember { MutableInteractionSource() }
-    val shape = RoundedCornerShape(16.dp)
+    val style = LocalNimboElementStyle.current
+    val shape = nimboStyledShape(16.dp, 3.dp)
+    val baseSurface = if (style == NimboElementStyle.MANGA) {
+        Modifier
+            .clip(shape)
+            .background(nimboStyledContainer(NimboMangaPalette.Paper, selected = server.selected))
+    } else {
+        Modifier.nimboGlassSurface(
+            shape = shape,
+            depth = if (server.selected) LiquidGlassDepth.CONTROL else LiquidGlassDepth.PANEL,
+            accent = NimboPalette.Accent,
+            isDark = true,
+            panelAlpha = 1f
+        )
+    }
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(58.dp)
-            .nimboGlassSurface(
-                shape = shape,
-                depth = if (server.selected) LiquidGlassDepth.CONTROL else LiquidGlassDepth.PANEL,
-                accent = NimboPalette.Accent,
-                isDark = true,
-                panelAlpha = 1f
-            )
+            .then(baseSurface)
             .border(
-                1.dp,
-                if (server.selected) NimboPalette.Accent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.10f),
+                if (style == NimboElementStyle.MANGA) if (server.selected) 2.dp else 1.5.dp else 1.dp,
+                nimboStyledBorder(
+                    if (server.selected) NimboPalette.Accent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.10f),
+                    selected = server.selected
+                ),
                 shape
             )
             .clickable(
@@ -273,7 +293,7 @@ private fun ProfileServerCard(
             Box(
                 modifier = Modifier
                     .size(32.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(nimboStyledShape(12.dp, 2.dp))
                     .background(
                         if (server.selected) {
                             NimboPalette.Accent.copy(alpha = 0.16f)

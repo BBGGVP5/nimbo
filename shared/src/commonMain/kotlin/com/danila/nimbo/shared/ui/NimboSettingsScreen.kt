@@ -307,7 +307,7 @@ private fun BackgroundPicker(
         ) {
             items.forEachIndexed { index, label ->
                 val selected = index == selectedIndex
-                val shape = RoundedCornerShape(14.dp)
+                val shape = nimboStyledShape(14.dp, 2.dp)
                 val colors = backgroundPaletteColors(
                     previewPaletteFor(index),
                     NimboPalette.Accent,
@@ -416,22 +416,21 @@ private fun SettingsSubtitle(text: String) {
 
 @Composable
 private fun SettingsDivider() {
-    Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.06f)))
+    val style = LocalNimboElementStyle.current
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(if (style == NimboElementStyle.MANGA) 1.5.dp else 1.dp)
+            .background(
+                if (style == NimboElementStyle.MANGA) NimboMangaPalette.Ink.copy(alpha = 0.34f)
+                else Color.White.copy(alpha = 0.06f)
+            )
+    )
 }
 
 @Composable
 private fun NimboSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
-    Switch(
-        checked = checked,
-        onCheckedChange = onChange,
-        colors = SwitchDefaults.colors(
-            checkedThumbColor = Color.White,
-            checkedTrackColor = NimboPalette.Accent,
-            uncheckedThumbColor = NimboPalette.TextSecondary,
-            uncheckedTrackColor = NimboPalette.Control,
-            uncheckedBorderColor = NimboPalette.Border
-        )
-    )
+    NimboToggle(checked = checked, onChange = onChange)
 }
 
 @Composable

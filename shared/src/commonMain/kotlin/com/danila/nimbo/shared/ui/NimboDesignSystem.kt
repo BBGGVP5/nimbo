@@ -45,6 +45,8 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -94,6 +96,24 @@ internal enum class NimboElementStyle(
 }
 
 internal val LocalNimboElementStyle = staticCompositionLocalOf { NimboElementStyle.NIMBO_GLASS }
+
+@Composable
+internal fun nimboStyledShape(defaultRadius: Dp, mangaRadius: Dp = 3.dp): RoundedCornerShape {
+    val style = LocalNimboElementStyle.current
+    return RoundedCornerShape(if (style == NimboElementStyle.MANGA) mangaRadius else defaultRadius * style.cornerScale)
+}
+
+@Composable
+internal fun nimboStyledContainer(default: Color, selected: Boolean = false): Color =
+    if (LocalNimboElementStyle.current == NimboElementStyle.MANGA) {
+        if (selected) NimboPalette.Accent.copy(alpha = 0.14f) else NimboMangaPalette.Paper
+    } else default
+
+@Composable
+internal fun nimboStyledBorder(default: Color, selected: Boolean = false): Color =
+    if (LocalNimboElementStyle.current == NimboElementStyle.MANGA) {
+        if (selected) NimboPalette.Accent else NimboMangaPalette.Ink
+    } else default
 
 /** Бумага и чернила стиля Manga: те же цвета, что в андроидной теме. */
 internal object NimboMangaPalette {
@@ -278,15 +298,24 @@ internal fun NimboIconButton(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val style = LocalNimboElementStyle.current
+    val shape = nimboStyledShape(18.dp, 2.dp)
     val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .clip(shape)
-            .background(if (selected) NimboPalette.Accent.copy(alpha = 0.20f) else NimboPalette.Control)
+            .background(
+                nimboStyledContainer(
+                    if (selected) NimboPalette.Accent.copy(alpha = 0.20f) else NimboPalette.Control,
+                    selected
+                )
+            )
             .border(
-                1.dp,
-                if (selected) NimboPalette.Accent.copy(alpha = 0.72f) else NimboPalette.Border,
+                if (style == NimboElementStyle.MANGA) if (selected) 2.dp else 1.5.dp else 1.dp,
+                nimboStyledBorder(
+                    if (selected) NimboPalette.Accent.copy(alpha = 0.72f) else NimboPalette.Border,
+                    selected
+                ),
                 shape
             )
             .clickable(
@@ -339,13 +368,18 @@ internal fun NimboLinkButton(
     label: String,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val style = LocalNimboElementStyle.current
+    val shape = nimboStyledShape(12.dp, 2.dp)
     val interaction = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
             .clip(shape)
-            .background(NimboPalette.Accent.copy(alpha = 0.10f))
-            .border(1.dp, NimboPalette.Accent.copy(alpha = 0.55f), shape)
+            .background(nimboStyledContainer(NimboPalette.Accent.copy(alpha = 0.10f)))
+            .border(
+                if (style == NimboElementStyle.MANGA) 1.5.dp else 1.dp,
+                nimboStyledBorder(NimboPalette.Accent.copy(alpha = 0.55f)),
+                shape
+            )
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -372,16 +406,25 @@ internal fun NimboPill(
     selected: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val style = LocalNimboElementStyle.current
+    val shape = nimboStyledShape(18.dp, 2.dp)
     val interaction = remember { MutableInteractionSource() }
     androidx.compose.foundation.text.BasicText(
         text = text,
         modifier = modifier
             .clip(shape)
-            .background(if (selected) NimboPalette.Accent.copy(alpha = 0.22f) else NimboPalette.Control)
+            .background(
+                nimboStyledContainer(
+                    if (selected) NimboPalette.Accent.copy(alpha = 0.22f) else NimboPalette.Control,
+                    selected
+                )
+            )
             .border(
-                1.dp,
-                if (selected) NimboPalette.Accent.copy(alpha = 0.85f) else NimboPalette.Hairline,
+                if (style == NimboElementStyle.MANGA) if (selected) 2.dp else 1.5.dp else 1.dp,
+                nimboStyledBorder(
+                    if (selected) NimboPalette.Accent.copy(alpha = 0.85f) else NimboPalette.Hairline,
+                    selected
+                ),
                 shape
             )
             .then(
@@ -398,6 +441,54 @@ internal fun NimboPill(
             fontWeight = FontWeight.Bold
         )
     )
+}
+
+@Composable
+internal fun NimboToggle(
+    checked: Boolean,
+    enabled: Boolean = true,
+    onChange: (Boolean) -> Unit
+) {
+    val style = LocalNimboElementStyle.current
+    if (style == NimboElementStyle.MANGA) {
+        val shape = RoundedCornerShape(2.dp)
+        val thumbShape = RoundedCornerShape(1.dp)
+        val interaction = remember { MutableInteractionSource() }
+        Box(
+            modifier = Modifier
+                .size(width = 48.dp, height = 28.dp)
+                .clip(shape)
+                .background(if (checked) NimboPalette.Accent.copy(alpha = 0.34f) else NimboMangaPalette.Paper)
+                .border(2.dp, if (checked) NimboPalette.Accent else NimboMangaPalette.Ink, shape)
+                .clickable(
+                    enabled = enabled,
+                    interactionSource = interaction,
+                    indication = null
+                ) { onChange(!checked) },
+            contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
+        ) {
+            Box(
+                Modifier
+                    .padding(3.dp)
+                    .size(20.dp)
+                    .clip(thumbShape)
+                    .background(if (enabled) NimboMangaPalette.Ink else NimboMangaPalette.Ink.copy(alpha = 0.4f))
+            )
+        }
+    } else {
+        Switch(
+            checked = checked,
+            enabled = enabled,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = NimboPalette.Accent,
+                uncheckedThumbColor = NimboPalette.TextSecondary,
+                uncheckedTrackColor = NimboPalette.Control,
+                uncheckedBorderColor = NimboPalette.Border
+            )
+        )
+    }
 }
 
 internal fun Modifier.nimboScreenPadding(): Modifier =

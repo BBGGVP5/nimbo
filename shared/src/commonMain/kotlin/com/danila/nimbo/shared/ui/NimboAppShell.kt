@@ -266,6 +266,8 @@ private fun NimboBottomNavigation(
     onSelected: (NimboScreen) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val style = LocalNimboElementStyle.current
+    val outerShape = nimboStyledShape(32.dp, 3.dp)
     // На Android эта панель размывает фон настоящим блюром; на iOS его нет,
     // поэтому под стеклом лежит плотная подложка — иначе сквозь панель
     // читается прокручивающийся список.
@@ -273,8 +275,11 @@ private fun NimboBottomNavigation(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 18.dp, vertical = 18.dp)
-            .clip(RoundedCornerShape(32.dp))
-            .background(NimboPalette.Background.copy(alpha = 0.94f))
+            .clip(outerShape)
+            .background(
+                if (style == NimboElementStyle.MANGA) NimboMangaPalette.PaperDeep
+                else NimboPalette.Background.copy(alpha = 0.94f)
+            )
     ) {
         NimboSurface(
             modifier = Modifier.fillMaxWidth(),
@@ -289,7 +294,7 @@ private fun NimboBottomNavigation(
             ) {
                 NimboScreen.entries.filter { it.inTabBar }.forEach { screen ->
                     val isSelected = screen == selected
-                    val shape = RoundedCornerShape(25.dp)
+                    val shape = nimboStyledShape(25.dp, 2.dp)
                     val interaction = remember { MutableInteractionSource() }
                     Column(
                         modifier = Modifier
@@ -297,12 +302,15 @@ private fun NimboBottomNavigation(
                             .height(62.dp)
                             .clip(shape)
                             .background(
-                                if (isSelected) NimboPalette.Accent.copy(alpha = 0.18f) else Color.Transparent
+                                nimboStyledContainer(
+                                    if (isSelected) NimboPalette.Accent.copy(alpha = 0.18f) else Color.Transparent,
+                                    selected = isSelected
+                                )
                             )
                             .then(
                                 if (isSelected) Modifier.border(
-                                    1.dp,
-                                    NimboPalette.Accent.copy(alpha = 0.42f),
+                                    if (style == NimboElementStyle.MANGA) 2.dp else 1.dp,
+                                    nimboStyledBorder(NimboPalette.Accent.copy(alpha = 0.42f), selected = true),
                                     shape
                                 ) else Modifier
                             )

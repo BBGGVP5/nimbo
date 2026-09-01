@@ -2,6 +2,7 @@ package com.danila.nimbo.shared.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -129,9 +131,13 @@ internal fun NimboStatsScreen(state: NimboUiState, actions: NimboUiActions) {
 
 @Composable
 private fun StatValue(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    val style = LocalNimboElementStyle.current
+    val shape = nimboStyledShape(16.dp, 2.dp)
     Column(
         modifier = modifier
-            .background(NimboPalette.Control, RoundedCornerShape(16.dp))
+            .clip(shape)
+            .background(nimboStyledContainer(NimboPalette.Control), shape)
+            .border(if (style == NimboElementStyle.MANGA) 1.5.dp else 0.dp, nimboStyledBorder(Color.Transparent), shape)
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         BasicText(

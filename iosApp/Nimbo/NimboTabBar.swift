@@ -10,6 +10,7 @@ import SwiftUI
 /// iOS 26 и новее — настоящее стекло `glassEffect`.
 struct NimboTabBar: View {
     @Binding var selection: NimboTab
+    let elementStyle: String
 
     @Namespace private var indicator
     /// Вкладка, значок которой сейчас подпрыгивает.
@@ -25,7 +26,7 @@ struct NimboTabBar: View {
     /// Стиль интерфейса берём из тех же настроек, что и общий экран: панель
     /// обязана меняться вместе с остальным, иначе стиль выглядит недоделанным.
     private var isManga: Bool {
-        UserDefaults.standard.string(forKey: "com.nimbo.appearance.elementStyle") == "manga"
+        elementStyle == "manga"
     }
 
     private var motionEnabled: Bool {
@@ -98,7 +99,7 @@ struct NimboTabBar: View {
 
     private func tint(isSelected: Bool) -> Color {
         if isManga {
-            return isSelected ? .white : Color.mangaInk.opacity(0.7)
+            return isSelected ? Color.mangaInk : Color.mangaInk.opacity(0.7)
         }
         return isSelected ? Color.nimboAccent : Color.nimboSecondary
     }
@@ -122,23 +123,31 @@ struct NimboTabBar: View {
         }
     }
 
+    @ViewBuilder
     private var selectionShape: some View {
         let shape = RoundedRectangle(cornerRadius: isManga ? 2 : 20, style: .continuous)
-        return shape
-            .fill(isManga ? Color.mangaAccent.opacity(0.9) : Color.nimboAccent.opacity(0.16))
-            .overlay(
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.35),
-                            Color.nimboAccent.opacity(0.45)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
+        if isManga {
+            shape
+                .fill(Color.nimboAccent.opacity(0.18))
+                .overlay(shape.strokeBorder(Color.nimboAccent, lineWidth: 2))
+                .shadow(color: Color.mangaInk.opacity(0.16), radius: 0, x: 3, y: 3)
+        } else {
+            shape
+                .fill(Color.nimboAccent.opacity(0.16))
+                .overlay(
+                    shape.strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.35),
+                                Color.nimboAccent.opacity(0.45)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
                 )
-            )
+        }
     }
 
     /// На iOS 26 доступно настоящее стекло; на более ранних версиях его роль

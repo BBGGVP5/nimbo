@@ -187,6 +187,8 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
     val failed = state.vpnState == "failed"
     val accent = NimboPalette.Accent
     val interaction = remember { MutableInteractionSource() }
+    val style = LocalNimboElementStyle.current
+    val isManga = style == NimboElementStyle.MANGA
 
     // Геометрия и цвета повторяют WindowsConnectionButton на Android в стиле
     // Liquid Glass: два кольца, свечение под ними и круг-кнопка внутри.
@@ -231,7 +233,7 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box(modifier = Modifier.size(200.dp), contentAlignment = Alignment.Center) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
+            if (!isManga) Canvas(modifier = Modifier.fillMaxSize()) {
                 val radius = size.minDimension / 2f
                 val center = Offset(size.width / 2f, size.height / 2f)
                 drawCircle(
@@ -263,12 +265,23 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
                 }
             }
 
+            val centerShape = if (isManga) RoundedCornerShape(4.dp) else CircleShape
             Box(
                 modifier = Modifier
                     .size(160.dp)
-                    .clip(CircleShape)
-                    .background(centerFill)
-                    .border(1.dp, centerBorder, CircleShape)
+                    .clip(centerShape)
+                    .background(
+                        if (isManga) {
+                            if (connected) NimboPalette.Accent else NimboMangaPalette.Paper
+                        } else centerFill
+                    )
+                    .border(
+                        if (isManga) 2.dp else 1.dp,
+                        if (isManga) {
+                            if (connected || connecting) NimboPalette.Accent else NimboMangaPalette.Ink
+                        } else centerBorder,
+                        centerShape
+                    )
                     .clickable(
                         interactionSource = interaction,
                         indication = null,
@@ -349,7 +362,8 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
     val selected = state.servers.firstOrNull { it.id == state.activeServerId }
         ?: state.servers.firstOrNull()
     val hasServer = selected != null
-    val shape = RoundedCornerShape(16.dp)
+    val style = LocalNimboElementStyle.current
+    val shape = nimboStyledShape(16.dp, 3.dp)
     val fill = if (hasServer) {
         NimboPalette.Accent.copy(alpha = 0.08f).compositeOver(NimboPalette.Control)
     } else {
@@ -367,8 +381,12 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
                 .weight(1f)
                 .height(52.dp)
                 .clip(shape)
-                .background(fill)
-                .border(1.dp, border, shape)
+                .background(nimboStyledContainer(fill, selected = hasServer))
+                .border(
+                    if (style == NimboElementStyle.MANGA) 2.dp else 1.dp,
+                    nimboStyledBorder(border, selected = hasServer),
+                    shape
+                )
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -380,8 +398,8 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(11.dp))
-                    .background(NimboPalette.Soft),
+                    .clip(nimboStyledShape(11.dp, 2.dp))
+                    .background(nimboStyledContainer(NimboPalette.Soft)),
                 contentAlignment = Alignment.Center
             ) {
                 NimboIcon(
@@ -412,8 +430,12 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
             modifier = Modifier
                 .size(52.dp)
                 .clip(shape)
-                .background(fill)
-                .border(1.dp, border, shape)
+                .background(nimboStyledContainer(fill))
+                .border(
+                    if (style == NimboElementStyle.MANGA) 1.5.dp else 1.dp,
+                    nimboStyledBorder(border),
+                    shape
+                )
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,

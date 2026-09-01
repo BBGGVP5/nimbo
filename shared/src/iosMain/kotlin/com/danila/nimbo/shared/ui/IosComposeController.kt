@@ -26,6 +26,7 @@ private const val OpenUpdateAction = "com.nimbo.action.open-update"
 private const val ExportBackupAction = "com.nimbo.action.export-backup"
 private const val ImportBackupAction = "com.nimbo.action.import-backup"
 private const val OpenSyncAction = "com.nimbo.action.open-sync"
+private const val AppearanceChangedAction = "com.nimbo.action.appearance-changed"
 
 /** Оформление хранится там же, где настройки маршрутизации. */
 private const val AppearanceDefaultsPrefix = "com.nimbo.appearance."
@@ -69,6 +70,9 @@ private fun applyAppearanceChange(key: String, value: String) {
         serverSort = appearanceText("serverSort", "subscription"),
         favoritesFirst = appearanceFlag("favoritesFirst", true)
     )
+    // Нативная нижняя панель живёт вне Compose. Сообщаем Swift о смене
+    // оформления, чтобы Manga/Glass применялись сразу, без перезапуска экрана.
+    postIosAction(AppearanceChangedAction, appearanceText("elementStyle", "glass"))
 }
 
 /** Настройки маршрутизации живут в NSUserDefaults и переживают перезапуск. */
