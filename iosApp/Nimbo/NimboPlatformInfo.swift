@@ -37,11 +37,27 @@ enum NimboPlatformInfo {
         return "\(family) · \(identifier)"
     }()
 
-    static let userAgent: String = {
-        let platform = UIDevice.current.userInterfaceIdiom == .pad ? "iPadOS" : "iOS"
-        let version = UIDevice.current.systemVersion
-        return "Nimbo/\(displayVersion) (\(platform) \(version); \(hardwareIdentifier))"
+    /// User-Agent в том же виде, что на Android: панели разбирают его и по
+    /// нему решают, отдавать ли готовый JSON-профиль вместо списка ссылок.
+    static let userAgent: String = "Nimbo/\(displayVersion)/iOS"
+
+    /// Стабильный идентификатор устройства для подписки.
+    ///
+    /// Панель считает по нему лимит устройств, поэтому он обязан переживать
+    /// перезапуск и обновление. `identifierForVendor` для этого не годится:
+    /// он меняется после удаления приложения, и лимит расходуется впустую.
+    static let hardwareId: String = {
+        let key = "com.nimbo.subscription.hwid"
+        if let stored = UserDefaults.standard.string(forKey: key), !stored.isEmpty {
+            return stored
+        }
+        let generated = UUID().uuidString.lowercased()
+        UserDefaults.standard.set(generated, forKey: key)
+        return generated
     }()
+
+    /// Модель устройства для заголовка: «iPhone · iPhone14,5».
+    static let deviceModel: String = device
 }
 
 enum NimboNetworkSession {
@@ -66,6 +82,15 @@ enum NimboNetworkSession {
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         request.setValue("no-cache", forHTTPHeaderField: "Pragma")
         request.setValue("text/plain, application/json;q=0.9, application/octet-stream;q=0.8, */*;q=0.5", forHTTPHeaderField: "Accept")
+        // Те же заголовки, что шлёт Android. По ним панель узнаёт клиента и
+        // отдаёт готовый профиль с правилами, а не голый список ссылок.
+        request.setValue(NimboPlatformInfo.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(NimboPlatformInfo.hardwareId, forHTTPHeaderField: "x-hwid")
+        request.setValue(NimboPlatformInfo.hardwareId, forHTTPHeaderField: "x-device-id")
+        request.setValue("iOS", forHTTPHeaderField: "x-device-os")
+        request.setValue(UIDevice.current.systemVersion, forHTTPHeaderField: "x-ver-os")
+        request.setValue(NimboPlatformInfo.deviceModel, forHTTPHeaderField: "x-device-model")
+        request.setValue(NimboPlatformInfo.displayVersion, forHTTPHeaderField: "x-app-version")
         return request
     }
 }
