@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Warning
@@ -66,6 +67,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -92,8 +94,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.danila.nimbo.MainViewModel
+import com.danila.nimbo.sync.CrossSyncDiscoveryEngine
+import com.danila.nimbo.sync.CrossSyncEmbeddedServer
+import com.danila.nimbo.sync.DiscoveredPeerDevice
 import com.danila.nimbo.sync.CrossSyncPairingEngine
 import com.danila.nimbo.sync.CrossSyncPairingStage
 import com.danila.nimbo.sync.AndroidCrossSyncBundleMapper
@@ -110,7 +116,13 @@ import com.danila.nimbo.sync.SyncInventory
 import com.danila.nimbo.sync.SyncWireRequest
 import com.danila.nimbo.sync.SyncWireResponse
 import com.danila.nimbo.ui.components.NebulaMorphicDialog
+import com.danila.nimbo.ui.components.QrCodeDisplayBottomSheet
 import com.danila.nimbo.ui.components.QrScannerScreen
+import com.danila.nimbo.ui.components.NimboStyleSwitch
+import com.danila.nimbo.ui.components.nimboControlBorderColor
+import com.danila.nimbo.ui.components.nimboControlBorderWidth
+import com.danila.nimbo.ui.components.nimboControlContainer
+import com.danila.nimbo.ui.components.nimboControlShape
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.ui.theme.LocalBackgroundAnimationEnabled
@@ -153,10 +165,32 @@ fun CrossPlatformSyncScreen(
         )
     }
     var showScanner by remember { mutableStateOf(false) }
+    var localQrPayload by remember { mutableStateOf<String?>(null) }
     var pairedSyncing by remember { mutableStateOf(false) }
     var selectedDevice by remember { mutableStateOf<PairedDesktopDevice?>(null) }
     var deviceToDelete by remember { mutableStateOf<PairedDesktopDevice?>(null) }
     val scope = rememberCoroutineScope()
+
+    val discoveredPeers by CrossSyncDiscoveryEngine.discoveredPeers.collectAsState()
+    val isSearching by CrossSyncDiscoveryEngine.isSearching.collectAsState()
+    val incomingRequest by CrossSyncEmbeddedServer.incomingRequest.collectAsState()
+
+    DisposableEffect(Unit) {
+        CrossSyncDiscoveryEngine.startDiscovery(preferencesManager)
+        CrossSyncEmbeddedServer.start(preferencesManager, profiles) { receivedBundle ->
+            CrossSyncPairingEngine.applyIncomingBundle(
+                receivedBundle,
+                preferencesManager,
+                profiles,
+                mainViewModel,
+                context
+            )
+        }
+        onDispose {
+            CrossSyncDiscoveryEngine.stopDiscovery()
+            CrossSyncEmbeddedServer.stop()
+        }
+    }
 
     fun saveCategories(next: SyncCategories) {
         categories = next
@@ -174,6 +208,10 @@ fun CrossPlatformSyncScreen(
     fun handleScanned(raw: String) {
         showScanner = false
         CrossSyncPairingEngine.handleScanned(raw, preferencesManager, profiles, mainViewModel)
+    }
+
+    fun pairWithDiscovered(peer: DiscoveredPeerDevice) {
+        CrossSyncPairingEngine.pairWithDiscoveredPeer(peer, preferencesManager, profiles, mainViewModel)
     }
 
     fun transfer(direction: SyncDirection) {
@@ -245,10 +283,12 @@ fun CrossPlatformSyncScreen(
     ) { granted ->
         Logger.i("QrScanner", "source=desktop_sync event=local_network_permission_result granted=$granted")
         if (granted) continueWithCamera()
-        else CrossSyncPairingEngine.error = "Разрешите доступ к локальной сети, чтобы телефон мог напрямую подключиться к Nimbo Desktop"
+        else CrossSyncPairingEngine.error =
+            "Для синхронизации по Wi‑Fi разрешите доступ к локальной сети или выберите Bluetooth"
     }
 
     fun openScanner() {
+        val bluetoothOnly = preferencesManager.crossSyncTransportMode == "bluetooth"
         val localNetworkGranted = Build.VERSION.SDK_INT < 37 || ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.ACCESS_LOCAL_NETWORK
@@ -260,10 +300,12 @@ fun CrossPlatformSyncScreen(
         Logger.i(
             "QrScanner",
             "source=desktop_sync event=open_requested sdk=${Build.VERSION.SDK_INT} " +
+                "transport=${preferencesManager.crossSyncTransportMode} " +
                 "localNetworkPermission=$localNetworkGranted cameraPermission=$cameraGranted"
         )
         if (
             Build.VERSION.SDK_INT >= 37 &&
+            !bluetoothOnly &&
             !localNetworkGranted
         ) {
             localNetworkPermission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
@@ -276,10 +318,10 @@ fun CrossPlatformSyncScreen(
         QrScannerScreen(
             onResult = ::handleScanned,
             onBack = { showScanner = false },
-            title = t("Синхронизация с ПК", "Desktop sync"),
+            title = t("Синхронизация устройств", "Device sync"),
             instruction = t(
-                "Наведите камеру на одноразовый QR в Nimbo Desktop",
-                "Point the camera at the one-time QR in Nimbo Desktop"
+                "Наведите камеру на одноразовый QR в Nimbo на другом устройстве",
+                "Point the camera at the one-time QR in Nimbo on the other device"
             ),
             diagnosticSource = "desktop_sync"
         )
@@ -331,7 +373,7 @@ fun CrossPlatformSyncScreen(
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
-                        t("Nimbo Desktop ↔ Android", "Nimbo Desktop ↔ Android"),
+                        t("Телефоны и компьютеры Nimbo", "Nimbo phones and computers"),
                         color = colors.textSecondary,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -355,8 +397,8 @@ fun CrossPlatformSyncScreen(
                             )
                             Text(
                                 t(
-                                    "Синхронизированные устройства и автосинхронизация по локальной сети.",
-                                    "Synced devices and auto-sync over the local network."
+                                    "Синхронизированные устройства и автосинхронизация по Wi‑Fi или Bluetooth.",
+                                    "Synced devices and auto-sync over Wi-Fi or Bluetooth."
                                 ),
                                 color = colors.textSecondary,
                                 style = MaterialTheme.typography.bodySmall
@@ -369,7 +411,7 @@ fun CrossPlatformSyncScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
+                                    .clip(nimboControlShape(16.dp, 3.dp))
                                     .clickable { selectedDevice = device }
                                     .background(colors.controlFill)
                                     .padding(horizontal = 13.dp, vertical = 11.dp),
@@ -426,8 +468,8 @@ fun CrossPlatformSyncScreen(
                         Text(t("Передача напрямую", "Direct transfer"), color = colors.textPrimary, fontWeight = FontWeight.Bold)
                         Text(
                             t(
-                                "Без облака: AES‑256‑GCM, локальная Wi‑Fi сеть и одноразовый QR на 60 секунд.",
-                                "No cloud: AES-256-GCM, local Wi-Fi and a 60-second one-time QR."
+                                "Без облака: AES‑256‑GCM, Wi‑Fi или Bluetooth и одноразовый QR на 60 секунд.",
+                                "No cloud: AES-256-GCM, Wi-Fi or Bluetooth and a 60-second one-time QR."
                             ),
                             color = colors.textSecondary,
                             style = MaterialTheme.typography.bodySmall
@@ -439,6 +481,67 @@ fun CrossPlatformSyncScreen(
                     active = motionEnabled,
                     sessionActive = sessionActive
                 )
+            }
+        }
+
+        item {
+            var transportMode by remember { mutableStateOf(preferencesManager.crossSyncTransportMode) }
+            SyncGlassCard {
+                Text(t("Тип синхронизации", "Sync transport type"), color = colors.textPrimary, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isWifi = transportMode == "wifi"
+                    val isBt = transportMode == "bluetooth"
+                    val isBoth = transportMode == "both"
+
+                    OutlinedButton(
+                        onClick = {
+                            transportMode = "wifi"
+                            preferencesManager.crossSyncTransportMode = "wifi"
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = nimboControlShape(12.dp, 2.dp),
+                        border = BorderStroke(1.dp, if (isWifi) colors.accent else colors.divider),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isWifi) colors.accent.copy(alpha = 0.15f) else Color.Transparent
+                        )
+                    ) {
+                        Text("Wi-Fi", color = if (isWifi) colors.accent else colors.textSecondary, fontWeight = if (isWifi) FontWeight.Bold else FontWeight.Normal)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            transportMode = "bluetooth"
+                            preferencesManager.crossSyncTransportMode = "bluetooth"
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = nimboControlShape(12.dp, 2.dp),
+                        border = BorderStroke(1.dp, if (isBt) colors.accent else colors.divider),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isBt) colors.accent.copy(alpha = 0.15f) else Color.Transparent
+                        )
+                    ) {
+                        Text("Bluetooth", color = if (isBt) colors.accent else colors.textSecondary, fontWeight = if (isBt) FontWeight.Bold else FontWeight.Normal)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            transportMode = "both"
+                            preferencesManager.crossSyncTransportMode = "both"
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = nimboControlShape(12.dp, 2.dp),
+                        border = BorderStroke(1.dp, if (isBoth) colors.accent else colors.divider),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isBoth) colors.accent.copy(alpha = 0.15f) else Color.Transparent
+                        )
+                    ) {
+                        Text(t("Оба (Авто)", "Both (Auto)"), color = if (isBoth) colors.accent else colors.textSecondary, fontWeight = if (isBoth) FontWeight.Bold else FontWeight.Normal)
+                    }
+                }
             }
         }
 
@@ -463,16 +566,72 @@ fun CrossPlatformSyncScreen(
 
         if (stage == CrossSyncPairingStage.IDLE) {
             item {
-                Button(
-                    onClick = ::openScanner,
-                    enabled = selectedCount > 0,
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.accent)
+                NearbyDiscoveryRadar(
+                    isSearching = isSearching,
+                    peerCount = discoveredPeers.size,
+                    colors = colors,
+                    motionEnabled = motionEnabled
+                )
+            }
+
+            if (discoveredPeers.isNotEmpty()) {
+                item {
+                    Text(
+                        t("Устройства поблизости", "Nearby devices"),
+                        color = colors.textPrimary,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                items(discoveredPeers.size) { index ->
+                    val peer = discoveredPeers[index]
+                    DiscoveredPeerCard(
+                        peer = peer,
+                        colors = colors,
+                        motionEnabled = motionEnabled,
+                        onConnect = { pairWithDiscovered(peer) }
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.QrCodeScanner, null)
-                    Spacer(Modifier.size(9.dp))
-                    Text(t("Сканировать QR на ПК", "Scan QR on desktop"), fontWeight = FontWeight.Bold)
+                    OutlinedButton(
+                        onClick = ::openScanner,
+                        enabled = selectedCount > 0,
+                        modifier = Modifier.weight(1f).height(56.dp),
+                        shape = nimboControlShape(16.dp, 3.dp),
+                        border = BorderStroke(1.dp, colors.accent.copy(alpha = 0.5f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = colors.surface.copy(alpha = 0.45f)
+                        )
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, null, tint = colors.accent)
+                        Spacer(Modifier.size(7.dp))
+                        Text(t("Сканировать", "Scan"), color = colors.textPrimary, fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            runCatching {
+                                CrossSyncDiscoveryEngine.createLocalQrPayload(preferencesManager, forceNew = true)
+                            }.onSuccess { localQrPayload = it }
+                                .onFailure { CrossSyncPairingEngine.error = it.message ?: "Не удалось создать QR" }
+                        },
+                        enabled = selectedCount > 0,
+                        modifier = Modifier.weight(1f).height(56.dp),
+                        shape = nimboControlShape(16.dp, 3.dp),
+                        border = BorderStroke(1.dp, colors.accent.copy(alpha = 0.5f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = colors.surface.copy(alpha = 0.45f)
+                        )
+                    ) {
+                        Icon(Icons.Default.QrCode2, null, tint = colors.accent)
+                        Spacer(Modifier.size(7.dp))
+                        Text(t("Показать QR", "Show QR"), color = colors.textPrimary, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -497,8 +656,8 @@ fun CrossPlatformSyncScreen(
                         Column {
                             Text(
                                 when (stage) {
-                                    CrossSyncPairingStage.WAITING_DESKTOP -> t("Подтвердите телефон на ПК", "Approve this phone on desktop")
-                                    CrossSyncPairingStage.WAITING_IMPORT_CONFIRMATION -> t("Подтвердите импорт на ПК", "Confirm import on desktop")
+                                    CrossSyncPairingStage.WAITING_DESKTOP -> t("Подтвердите это устройство", "Approve this device")
+                                    CrossSyncPairingStage.WAITING_IMPORT_CONFIRMATION -> t("Подтвердите импорт на втором устройстве", "Confirm import on the other device")
                                     else -> t("Защищённое подключение…", "Secure connection…")
                                 },
                                 color = colors.textPrimary,
@@ -543,8 +702,8 @@ fun CrossPlatformSyncScreen(
             }
             item {
                 SyncDirectionCard(
-                    title = t("С компьютера на телефон", "Desktop to phone"),
-                    subtitle = t("Дополнит этот телефон данными с ПК", "Adds desktop data to this phone"),
+                    title = t("С другого устройства сюда", "From the other device to this one"),
+                    subtitle = t("Дополнит это устройство полученными данными", "Adds received data to this device"),
                     recommended = recommendation == SyncDirection.DESKTOP_TO_ANDROID,
                     iconFrom = Icons.Default.Computer,
                     iconTo = Icons.Default.PhoneAndroid,
@@ -553,8 +712,8 @@ fun CrossPlatformSyncScreen(
             }
             item {
                 SyncDirectionCard(
-                    title = t("С телефона на компьютер", "Phone to desktop"),
-                    subtitle = t("На ПК потребуется ещё одно подтверждение", "Desktop requires one more confirmation"),
+                    title = t("С этого устройства на другое", "From this device to the other one"),
+                    subtitle = t("На втором устройстве потребуется подтверждение", "The other device requires confirmation"),
                     recommended = recommendation == SyncDirection.ANDROID_TO_DESKTOP,
                     iconFrom = Icons.Default.PhoneAndroid,
                     iconTo = Icons.Default.Computer,
@@ -566,7 +725,7 @@ fun CrossPlatformSyncScreen(
         if (stage == CrossSyncPairingStage.READY_TO_IMPORT) {
             item {
                 SyncGlassCard(border = colors.accent.copy(alpha = 0.55f)) {
-                    Text(t("Применить данные с компьютера?", "Apply desktop data?"), color = colors.textPrimary, fontWeight = FontWeight.ExtraBold)
+                    Text(t("Применить данные с другого устройства?", "Apply data from the other device?"), color = colors.textPrimary, fontWeight = FontWeight.ExtraBold)
                     Spacer(Modifier.height(5.dp))
                     Text(
                         t(
@@ -616,8 +775,8 @@ fun CrossPlatformSyncScreen(
                     Spacer(Modifier.height(8.dp))
                     Text(
                         t(
-                            "Можно подключить несколько компьютеров — каждый синхронизируется отдельно.",
-                            "You can pair several desktops — each syncs separately."
+                            "Можно подключить несколько телефонов и компьютеров — каждый синхронизируется отдельно.",
+                            "You can pair several phones and computers — each syncs separately."
                         ),
                         color = colors.textTertiary,
                         style = MaterialTheme.typography.bodySmall,
@@ -728,6 +887,59 @@ fun CrossPlatformSyncScreen(
             }
         )
     }
+
+    incomingRequest?.let { req ->
+        NebulaMorphicDialog(
+            onDismissRequest = { CrossSyncEmbeddedServer.dismissIncomingRequest() },
+            title = t("Запрос на синхронизацию", "Sync request"),
+            description = t(
+                "Устройство ${req.peerName} хочет синхронизировать настройки.",
+                "Device ${req.peerName} wants to sync settings."
+            ),
+            confirmButtonText = t("Разрешить", "Allow"),
+            cancelButtonText = t("Отклонить", "Decline"),
+            headerIcon = Icons.Default.Sync,
+            onConfirm = {
+                req.onAccept()
+                CrossSyncEmbeddedServer.clearIncomingRequest()
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    t("Код подтверждения:", "Verification code:"),
+                    color = colors.textSecondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    req.comparisonCode,
+                    color = colors.accent,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 4.sp
+                )
+            }
+        }
+    }
+
+    localQrPayload?.let { payload ->
+        QrCodeDisplayBottomSheet(
+            url = payload,
+            title = t("Одноразовый QR Nimbo", "One-time Nimbo QR"),
+            description = t(
+                "Отсканируйте в Nimbo на другом устройстве. Код действует 3 минуты.",
+                "Scan with Nimbo on another device. The code expires in 3 minutes."
+            ),
+            shareTitle = t("Поделиться одноразовым QR", "Share one-time QR"),
+            allowCopyAndShare = false,
+            onDismiss = { localQrPayload = null }
+        )
+    }
 }
 
 @Composable
@@ -763,9 +975,13 @@ private fun SyncDeviceSignalBridge(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(nimboControlShape(18.dp, 3.dp))
             .background(bridgeFill)
-            .border(1.dp, bridgeBorder, RoundedCornerShape(18.dp))
+            .border(
+                nimboControlBorderWidth(),
+                nimboControlBorderColor(bridgeBorder),
+                nimboControlShape(18.dp, 3.dp)
+            )
             .padding(horizontal = 13.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -857,14 +1073,14 @@ private fun SyncCountdownIndicator(
             modifier = Modifier
                 .width(132.dp)
                 .height(9.dp)
-                .clip(RoundedCornerShape(4.5.dp))
+                .clip(nimboControlShape(4.5.dp, 1.dp))
                 .background(colors.divider)
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(fraction)
-                    .clip(RoundedCornerShape(4.5.dp))
+                    .clip(nimboControlShape(4.5.dp, 1.dp))
                     .background(barColor)
             )
         }
@@ -929,12 +1145,21 @@ private fun SyncGlassCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val colors = LocalNebulaColors.current
+    val shape = nimboControlShape(22.dp, 3.dp)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(colors.panelFill.copy(alpha = if (colors.isMaterialYou) 1f else 0.78f))
-            .border(1.dp, border.takeIf { it != Color.Transparent } ?: colors.divider, RoundedCornerShape(22.dp))
+            .clip(shape)
+            .background(
+                nimboControlContainer(
+                    colors.panelFill.copy(alpha = if (colors.isMaterialYou) 1f else 0.78f)
+                )
+            )
+            .border(
+                nimboControlBorderWidth(),
+                nimboControlBorderColor(border.takeIf { it != Color.Transparent } ?: colors.divider),
+                shape
+            )
             .padding(16.dp),
         content = content
     )
@@ -943,8 +1168,16 @@ private fun SyncGlassCard(
 @Composable
 private fun SyncRoundIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
     val colors = LocalNebulaColors.current
+    val shape = nimboControlShape(21.dp, 2.dp)
     Box(
-        modifier = Modifier.size(42.dp).background(colors.accent.copy(alpha = 0.14f), CircleShape),
+        modifier = Modifier
+            .size(42.dp)
+            .background(nimboControlContainer(colors.accent.copy(alpha = 0.14f)), shape)
+            .border(
+                nimboControlBorderWidth(default = 0.dp),
+                nimboControlBorderColor(Color.Transparent),
+                shape
+            ),
         contentAlignment = Alignment.Center
     ) {
         Icon(icon, null, tint = colors.accent)
@@ -960,10 +1193,11 @@ private fun SyncCategoryRow(
     onChange: (Boolean) -> Unit
 ) {
     val colors = LocalNebulaColors.current
+    val shape = nimboControlShape(14.dp, 2.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(shape)
             .clickable(enabled = enabled) { onChange(!checked) }
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -972,10 +1206,11 @@ private fun SyncCategoryRow(
             Text(title, color = colors.textPrimary, fontWeight = FontWeight.SemiBold)
             Text(subtitle, color = colors.textSecondary, style = MaterialTheme.typography.bodySmall)
         }
-        Switch(
+        NimboStyleSwitch(
             checked = checked,
+            enabled = enabled,
             onCheckedChange = if (enabled) onChange else null,
-            colors = SwitchDefaults.colors(checkedTrackColor = colors.accent)
+            checkedTrackColor = colors.accent
         )
     }
 }
@@ -1024,7 +1259,10 @@ private fun SyncRemoteDevicePassport(
     SyncGlassCard(border = colors.accent.copy(alpha = 0.42f)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(
-                modifier = Modifier.size(46.dp).background(colors.accent.copy(alpha = 0.16f), RoundedCornerShape(15.dp)),
+                modifier = Modifier.size(46.dp).background(
+                    nimboControlContainer(colors.accent.copy(alpha = 0.16f)),
+                    nimboControlShape(15.dp, 2.dp)
+                ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Default.Computer, null, tint = colors.accent, modifier = Modifier.size(27.dp))
@@ -1097,9 +1335,13 @@ private fun SyncSpecPill(text: String, modifier: Modifier = Modifier) {
     val colors = LocalNebulaColors.current
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(nimboControlShape(10.dp, 2.dp))
             .background(colors.controlFill)
-            .border(1.dp, colors.divider, RoundedCornerShape(10.dp))
+            .border(
+                nimboControlBorderWidth(),
+                nimboControlBorderColor(colors.divider),
+                nimboControlShape(10.dp, 2.dp)
+            )
             .padding(horizontal = 7.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -1137,14 +1379,25 @@ private fun SyncDirectionCard(
     onClick: () -> Unit
 ) {
     val colors = LocalNebulaColors.current
-    val shape = RoundedCornerShape(20.dp)
+    val shape = nimboControlShape(20.dp, 3.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(colors.panelFill.copy(alpha = if (colors.isMaterialYou) 1f else 0.78f))
+            .background(
+                nimboControlContainer(
+                    colors.panelFill.copy(alpha = if (colors.isMaterialYou) 1f else 0.78f),
+                    selected = recommended
+                )
+            )
             .border(
-                BorderStroke(1.dp, if (recommended) colors.accent.copy(alpha = 0.65f) else colors.divider),
+                BorderStroke(
+                    nimboControlBorderWidth(selected = recommended),
+                    nimboControlBorderColor(
+                        if (recommended) colors.accent.copy(alpha = 0.65f) else colors.divider,
+                        selected = recommended
+                    )
+                ),
                 shape
             )
             .clickable(onClick = onClick)
@@ -1178,7 +1431,7 @@ private fun mobileSyncError(cause: Throwable): String {
     val raw = cause.message.orEmpty()
     return when {
         raw.contains("timed out", ignoreCase = true) || raw.contains("timeout", ignoreCase = true) ->
-            "Компьютер не ответил. Проверьте, что устройства в одной Wi‑Fi сети и Nimbo разрешён в брандмауэре"
+            "Устройство не ответило. Проверьте Wi‑Fi или Bluetooth и разрешение Nimbo в брандмауэре"
         raw.contains("refused", ignoreCase = true) ->
             "Сеанс на компьютере уже закрыт. Создайте новый QR"
         raw.isNotBlank() -> raw
@@ -1311,18 +1564,16 @@ private fun DeviceDetailsSheet(
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        t("Автоматически обновлять данные при подключении к локальной сети.", "Automatically update when connected to the local network."),
+                        t("Автоматически обновлять данные по Wi‑Fi или Bluetooth.", "Automatically update over Wi-Fi or Bluetooth."),
                         color = colors.textSecondary,
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                Switch(
+                NimboStyleSwitch(
                     checked = device.autoSync,
                     onCheckedChange = onAutoSyncChange,
-                    colors = SwitchDefaults.colors(
-                        checkedTrackColor = colors.accent,
-                        checkedThumbColor = colors.surface
-                    )
+                    checkedTrackColor = colors.accent,
+                    checkedThumbColor = colors.surface
                 )
             }
 
@@ -1350,17 +1601,55 @@ private fun SyncPlatformIcon(
     size: Dp,
     tint: Color
 ) {
-    val isAndroid = platform.equals("android", ignoreCase = true)
+    val normalized = platform.trim().lowercase()
     Box(
         modifier = Modifier
             .size(size)
-            .background(tint.copy(alpha = 0.14f), RoundedCornerShape(size.value * 0.38f)),
+            .background(
+                nimboControlContainer(tint.copy(alpha = 0.14f)),
+                nimboControlShape((size.value * 0.38f).dp, 2.dp)
+            ),
         contentAlignment = Alignment.Center
     ) {
         Canvas(Modifier.fillMaxSize().padding(size * 0.2f)) {
-            if (isAndroid) drawAndroidRobot(tint) else drawMonitor(tint)
+            when (normalized) {
+                "android" -> drawAndroidRobot(tint)
+                "ios", "iphone", "ipad", "apple" -> drawAppleMark(tint)
+                else -> drawMonitor(tint)
+            }
         }
     }
+}
+
+/**
+ * Яблоко рисуется теми же примитивами, что и робот рядом: два круга образуют
+ * силуэт с вырезом справа, сверху — листок. Векторного ассета для этого
+ * заводить не стали, чтобы значок жил в одном месте с остальными.
+ */
+private fun DrawScope.drawAppleMark(color: Color) {
+    val w = size.width
+    val h = size.height
+    val body = Path().apply {
+        fillType = PathFillType.EvenOdd
+        addOval(androidx.compose.ui.geometry.Rect(w * 0.06f, h * 0.26f, w * 0.62f, h * 0.98f))
+        addOval(androidx.compose.ui.geometry.Rect(w * 0.38f, h * 0.26f, w * 0.94f, h * 0.98f))
+        // Вырез справа — характерный укус.
+        addOval(androidx.compose.ui.geometry.Rect(w * 0.82f, h * 0.42f, w * 1.16f, h * 0.76f))
+    }
+    drawPath(body, color)
+    // Черенок с листком.
+    drawLine(
+        color = color,
+        start = Offset(w * 0.52f, h * 0.30f),
+        end = Offset(w * 0.58f, h * 0.06f),
+        strokeWidth = w * 0.09f,
+        cap = StrokeCap.Round
+    )
+    drawOval(
+        color = color,
+        topLeft = Offset(w * 0.56f, h * 0.02f),
+        size = androidx.compose.ui.geometry.Size(w * 0.26f, h * 0.16f)
+    )
 }
 
 private fun DrawScope.drawAndroidRobot(color: Color) {
@@ -1402,4 +1691,117 @@ private fun DrawScope.drawMonitor(color: Color) {
     )
     drawLine(color, Offset(w * 0.5f, h * 0.66f), Offset(w * 0.5f, h * 0.84f), w * 0.09f, StrokeCap.Round)
     drawLine(color, Offset(w * 0.3f, h * 0.88f), Offset(w * 0.7f, h * 0.88f), w * 0.09f, StrokeCap.Round)
+}
+
+@Composable
+private fun NearbyDiscoveryRadar(
+    isSearching: Boolean,
+    peerCount: Int,
+    colors: com.danila.nimbo.ui.theme.NebulaColors,
+    motionEnabled: Boolean
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "radar")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.6f,
+        targetValue = 0.05f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "pulseAlpha"
+    )
+    val pulseRadius by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "pulseRadius"
+    )
+
+    SyncGlassCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(colors.accent.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSearching && motionEnabled) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        drawCircle(
+                            color = colors.accent.copy(alpha = pulseAlpha),
+                            radius = size.minDimension / 2f * pulseRadius
+                        )
+                    }
+                }
+                Icon(
+                    Icons.Default.Sync,
+                    contentDescription = null,
+                    tint = colors.accent,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (peerCount > 0) t("Найдено устройств: $peerCount", "Discovered devices: $peerCount")
+                    else t("Поиск устройств поблизости…", "Searching nearby devices…"),
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    t(
+                        "Wi-Fi и Bluetooth • ПК, телефон или планшет",
+                        "Wi-Fi & Bluetooth • PC, phone or tablet"
+                    ),
+                    color = colors.textSecondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoveredPeerCard(
+    peer: DiscoveredPeerDevice,
+    colors: com.danila.nimbo.ui.theme.NebulaColors,
+    motionEnabled: Boolean,
+    onConnect: () -> Unit
+) {
+    SyncGlassCard(border = colors.accent.copy(alpha = 0.45f)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SyncPlatformIcon(platform = peer.platform, size = 42.dp, tint = colors.accent)
+            Column(Modifier.weight(1f)) {
+                Text(peer.name, color = colors.textPrimary, fontWeight = FontWeight.Bold)
+                Text(
+                    when (peer.transport) {
+                        "bluetooth" -> "Bluetooth • ${peer.bluetoothMac ?: "nearby"}"
+                        "both" -> "Wi-Fi + Bluetooth • ${peer.host}"
+                        else -> "Wi-Fi • ${peer.host}"
+                    },
+                    color = colors.textSecondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Button(
+                onClick = onConnect,
+                shape = nimboControlShape(12.dp, 2.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.accent)
+            ) {
+                Text(t("Подключить", "Connect"), fontWeight = FontWeight.Bold)
+            }
+        }
+    }
 }

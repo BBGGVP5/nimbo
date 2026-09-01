@@ -10,7 +10,9 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.debugInspectorInfo
 import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /**
  * Оптимизированный модификатор «желе» при достижении границ прокрутки.
@@ -27,21 +29,30 @@ fun Modifier.jellyScrollAnimation(): Modifier = composed(
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
+            private var animationJob: Job? = null
+            private var lastTriggerNanos = 0L
+
             // НЕ перехватываем onPreScroll / onPostScroll — это убирает FPS падение
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (available.y != 0f) {
-                    coroutineScope.launch {
-                        // Лёгкое сжатие
+                val now = System.nanoTime()
+                val enoughVelocity = abs(available.y) >= 320f
+                val outsideDebounceWindow = now - lastTriggerNanos >= 220_000_000L
+                if (enoughVelocity && outsideDebounceWindow) {
+                    lastTriggerNanos = now
+                    animationJob?.cancel()
+                    animationJob = coroutineScope.launch {
+                        scale.stop()
+                        scale.snapTo(1f)
+                        // Один короткий отклик без повторного «дребезга» пружины.
                         scale.animateTo(
-                            targetValue = 0.985f,
-                            animationSpec = tween(80, easing = FastOutLinearInEasing)
+                            targetValue = 0.996f,
+                            animationSpec = tween(55, easing = FastOutLinearInEasing)
                         )
-                        // Отпружинивание
                         scale.animateTo(
                             targetValue = 1f,
                             animationSpec = spring(
-                                stiffness = Spring.StiffnessMediumLow,
-                                dampingRatio = Spring.DampingRatioMediumBouncy
+                                stiffness = Spring.StiffnessMedium,
+                                dampingRatio = Spring.DampingRatioNoBouncy
                             )
                         )
                     }
@@ -70,18 +81,28 @@ fun Modifier.bounceScrollAnimation(): Modifier = composed(
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
+            private var animationJob: Job? = null
+            private var lastTriggerNanos = 0L
+
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (available.y != 0f) {
-                    coroutineScope.launch {
+                val now = System.nanoTime()
+                val enoughVelocity = abs(available.y) >= 320f
+                val outsideDebounceWindow = now - lastTriggerNanos >= 220_000_000L
+                if (enoughVelocity && outsideDebounceWindow) {
+                    lastTriggerNanos = now
+                    animationJob?.cancel()
+                    animationJob = coroutineScope.launch {
+                        scale.stop()
+                        scale.snapTo(1f)
                         scale.animateTo(
-                            targetValue = 0.99f,
-                            animationSpec = tween(80, easing = FastOutLinearInEasing)
+                            targetValue = 0.997f,
+                            animationSpec = tween(55, easing = FastOutLinearInEasing)
                         )
                         scale.animateTo(
                             targetValue = 1f,
                             animationSpec = spring(
-                                stiffness = Spring.StiffnessLow,
-                                dampingRatio = Spring.DampingRatioMediumBouncy
+                                stiffness = Spring.StiffnessMedium,
+                                dampingRatio = Spring.DampingRatioNoBouncy
                             )
                         )
                     }

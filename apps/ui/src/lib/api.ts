@@ -201,7 +201,7 @@ export const DEFAULT_ACCENT_PALETTE = [
   DEFAULT_ACCENT_STRONG,
   DEFAULT_ACCENT_SOFT,
 ] as const;
-export type UiStyle = "signal" | "nimbo" | "material_you" | "dotted";
+export type UiStyle = "signal" | "nimbo" | "material_you" | "dotted" | "manga";
 export type AppLanguage = "ru" | "en" | "system";
 export type LatencyProtocol = "tcp_connect" | "icmp" | "http_head";
 export type LatencyDisplayFormat = "ms" | "badge";
@@ -224,6 +224,8 @@ export interface AppPreferences {
   provider_theme: boolean;
   show_subscription_logo: boolean;
   ui_style: UiStyle;
+  /** Подскок значков в меню при переходе. */
+  nav_icon_motion: boolean;
   interface_panel_brightness: number;
   interface_transparency: number;
   interface_blur: number;
@@ -584,6 +586,7 @@ export const defaultAppPreferences: AppPreferences = {
   provider_theme: true,
   show_subscription_logo: true,
   ui_style: "signal",
+  nav_icon_motion: true,
   interface_panel_brightness: 100,
   interface_transparency: 0,
   interface_blur: 25,
@@ -639,6 +642,7 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     : defaultAppPreferences.accent_mode;
   const uiStyle = value?.ui_style === "material_you" || value?.ui_style === "nimbo"
     || value?.ui_style === "dotted" || value?.ui_style === "signal"
+    || value?.ui_style === "manga"
     ? value.ui_style
     : defaultAppPreferences.ui_style;
   const language = value?.language === "en" || value?.language === "ru" || value?.language === "system"
@@ -720,6 +724,9 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     provider_theme: value?.provider_theme !== false,
     show_subscription_logo: value?.show_subscription_logo !== false,
     ui_style: uiStyle,
+    nav_icon_motion: typeof value?.nav_icon_motion === "boolean"
+      ? value.nav_icon_motion
+      : defaultAppPreferences.nav_icon_motion,
     interface_panel_brightness: clampNumber(value?.interface_panel_brightness, defaultAppPreferences.interface_panel_brightness, 60, 140),
     interface_transparency: clampNumber(value?.interface_transparency, defaultAppPreferences.interface_transparency, 0, 80),
     interface_blur: clampNumber(value?.interface_blur, defaultAppPreferences.interface_blur, 0, 48),

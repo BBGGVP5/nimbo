@@ -17,6 +17,7 @@ import com.danila.nimbo.network.SubscriptionManager
 import com.danila.nimbo.network.SubscriptionRefreshPolicy
 import com.danila.nimbo.service.SubscriptionRefreshSchedulePolicy
 import com.danila.nimbo.service.SubscriptionUpdateEvents
+import com.danila.nimbo.subscription.SubscriptionParserMigration
 import com.danila.nimbo.ui.screens.SubscriptionProfile
 import com.danila.nimbo.ui.screens.SubscriptionTemplateCache
 import com.danila.nimbo.ui.screens.SubscriptionProfileMetadata
@@ -57,6 +58,10 @@ import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+
+    private companion object {
+        const val SUBSCRIPTION_MIGRATION_RETRY_MS = 5 * 60 * 1000L
+    }
 
     val preferencesManager = PreferencesManager(application)
 
@@ -117,6 +122,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val pendingPings = HashMap<String, Int>()
     private val pendingPingsLock = Any()
     private val subscriptionJobs = ConcurrentHashMap<String, Job>()
+    private var subscriptionMigrationJob: Job? = null
+    @Volatile
+    private var lastSubscriptionMigrationAttemptMs: Long = 0L
     private var connectionInfoJob: Job? = null
     @Volatile
     private var lastPingCachePersistMs: Long = 0L
@@ -1004,6 +1012,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _isAutoBypassControlReachable.value = false
                 if (!hasInternet) {
                     Log.d("MainViewModel", "No internet detected, auto-bypass monitor is idle")
+                } else {
+                    // Если первый запуск после обновления был без сети, тихо
+                    // повторяем миграцию позже, но не чаще заданного интервала.
+                    scheduleSubscriptionParserMigration()
                 }
 
                 delay(15_000L)
@@ -1015,12 +1027,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Log.d("MainViewModel", "=== ViewModel created ===")
         Log.d("MainViewModel", "Application: ${application.packageName}")
         loadProfiles()
+        val migrationPending = scheduleSubscriptionParserMigration(force = true)
         refreshIPInfo()
 
         viewModelScope.launch {
             SubscriptionUpdateEvents.updates.collect {
                 Log.d("MainViewModel", "Applying profiles refreshed by background worker")
                 loadProfiles()
+                scheduleSubscriptionParserMigration(force = true)
+            }
+        }
+
+        // Отложенная во время работы VPN миграция стартует после отключения.
+        viewModelScope.launch {
+            snapshotFlow { VpnManager.state.value }.collectLatest { state ->
+                if (state == VpnState.DISCONNECTED) {
+                    scheduleSubscriptionParserMigration(force = true)
+                }
             }
         }
         
@@ -1033,7 +1056,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         
         // Оптимизация обновлений и пингов
         val currentTime = System.currentTimeMillis()
-        checkAndAutoUpdateSubscriptions()
+        if (!migrationPending) {
+            checkAndAutoUpdateSubscriptions()
+        }
         
         Log.d("MainViewModel", "Launch ping is controlled by MainActivity cold-start flow")
         
@@ -1084,6 +1109,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Пересобирает сохранённые подписки текущим парсером без повторного добавления.
+     * Пользовательские поля остаются в existingProfile.copy(), а порядок не
+     * меняется, потому что профиль заменяется строго на прежнем индексе.
+     */
+    private fun scheduleSubscriptionParserMigration(force: Boolean = false): Boolean {
+        val pendingUrls = SubscriptionParserMigration.pendingUrls(
+            _profilesState.value.map { it.url to it.parserRevision }
+        )
+        if (pendingUrls.isEmpty()) return false
+        if (isVpnActiveForSubscriptionRefresh()) {
+            Log.d("MainViewModel", "Defer subscription parser migration while VPN is active")
+            return true
+        }
+        if (subscriptionMigrationJob?.isActive == true) return true
+
+        val now = System.currentTimeMillis()
+        if (!force && now - lastSubscriptionMigrationAttemptMs < SUBSCRIPTION_MIGRATION_RETRY_MS) {
+            return true
+        }
+        lastSubscriptionMigrationAttemptMs = now
+
+        subscriptionMigrationJob = viewModelScope.launch {
+            var migrated = 0
+            for (url in pendingUrls) {
+                if (isVpnActiveForSubscriptionRefresh()) break
+
+                // Восстановительная загрузка могла стартовать в loadProfiles().
+                // Сначала ждём её и заново проверяем, осталась ли миграция нужна.
+                subscriptionJobs[url]?.join()
+                val current = _profilesState.value.firstOrNull { it.url == url } ?: continue
+                if (!SubscriptionParserMigration.needsMigration(current.parserRevision)) continue
+
+                loadSubscription(
+                    url = url,
+                    isRefresh = true,
+                    showRefreshResultNotification = false,
+                    allowPostRefreshPing = false,
+                    forceNetwork = true
+                ).join()
+
+                val updated = _profilesState.value.firstOrNull { it.url == url }
+                if (updated != null && !SubscriptionParserMigration.needsMigration(updated.parserRevision)) {
+                    migrated++
+                }
+            }
+            Log.d(
+                "MainViewModel",
+                "Subscription parser migration finished: $migrated/${pendingUrls.size}"
+            )
+        }
+        return true
+    }
+
     fun reorderProfiles(urls: List<String>) {
         val order = urls.mapIndexed { index, url ->
             com.danila.nimbo.sync.CrossSyncProtocol.canonicalSubscriptionUrl(url) to index
@@ -1119,6 +1198,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun checkAndAutoUpdateSubscriptions() {
         if (!preferencesManager.subscriptionAutoUpdate || !preferencesManager.updateSubOnStartup) return
+        if (isVpnActiveForSubscriptionRefresh()) {
+            Log.d("MainViewModel", "Skip startup subscription refresh while VPN is active")
+            return
+        }
 
         val profiles = _profilesState.value
         val currentTime = System.currentTimeMillis()
@@ -1158,16 +1241,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             profile.themeSpec?.takeIf { it.isNotBlank() }
         }
 
-    fun addSubscription(url: String) {
+    fun addSubscription(rawUrl: String) {
         Log.d("MainViewModel", "=== addSubscription ===")
         Log.d("MainViewModel", "Loading subscription")
         Log.d("MainViewModel", "Current profiles count: ${_profilesState.value.size}")
 
+        // Ссылка может нести домены-зеркала: ?mirrors=sub2.example.com,sub3.example.net
+        // Их запоминаем отдельно, а из URL подписки вырезаем.
+        val link = com.danila.nimbo.network.SubscriptionMirrors.extractFromUrl(rawUrl)
+        val url = link.url
+        if (link.mirrors.isNotEmpty()) {
+            SubscriptionManager.seedMirrors(url, link.mirrors)
+        }
+
         if (_profilesState.value.any { it.url.equals(url, ignoreCase = true) }) {
-            showTopNotification(
-                userText("Такая подписка уже существует", "This subscription already exists"),
-                com.danila.nimbo.ui.components.NotificationType.ERROR
-            )
+            // Повторный импорт той же ссылки с новыми зеркалами — не ошибка,
+            // а штатный способ выдать пользователю запасной домен.
+            if (link.mirrors.isNotEmpty()) {
+                showTopNotification(
+                    userText(
+                        "Запасные домены подписки обновлены",
+                        "Subscription backup domains updated"
+                    ),
+                    com.danila.nimbo.ui.components.NotificationType.SUCCESS
+                )
+            } else {
+                showTopNotification(
+                    userText("Такая подписка уже существует", "This subscription already exists"),
+                    com.danila.nimbo.ui.components.NotificationType.ERROR
+                )
+            }
             return
         }
         
@@ -1210,6 +1313,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshSubscription(url: String, notifyUser: Boolean = true) {
+        if (isVpnActiveForSubscriptionRefresh()) {
+            Log.d("MainViewModel", "Skip subscription refresh while VPN is active")
+            return
+        }
         if (subscriptionJobs[url]?.isActive == true) {
             if (notifyUser) {
                 showTopNotification(userText("Подписка уже обновляется...", "Subscription is already refreshing..."), com.danila.nimbo.ui.components.NotificationType.UPDATE)
@@ -1238,6 +1345,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshAllSubscriptions() {
+        if (isVpnActiveForSubscriptionRefresh()) {
+            Log.d("MainViewModel", "Skip all-subscriptions refresh while VPN is active")
+            return
+        }
         val urls = _profilesState.value.map { it.url }
         if (urls.isEmpty()) return
         
@@ -1292,6 +1403,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    private fun isVpnActiveForSubscriptionRefresh(): Boolean =
+        preferencesManager.vpnConnectionDesired || VpnManager.state.value != VpnState.DISCONNECTED
 
     private fun loadSubscription(
         url: String,
@@ -1795,7 +1909,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         // Никогда не теряем рабочий сырой конфиг из-за временного "пустого" ответа.
                         rawConfig = result.rawConfig ?: existingProfile.rawConfig,
                         configType = result.configType ?: if (supportsRemoteJson) "xray" else existingProfile.configType,
-                        templates = mergedTemplates
+                        templates = mergedTemplates,
+                        parserRevision = SubscriptionParserMigration.CURRENT_REVISION
                     )
                     _profilesState.value = _profilesState.value.toMutableList().apply {
                         set(currentIndex, updated)

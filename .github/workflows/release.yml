@@ -9,6 +9,11 @@ on:
         description: "Тег GitHub Release, например v1.1.0-beta.1"
         required: true
         type: string
+      publish:
+        description: "Прикрепить собранные файлы к релизу (иначе только артефакты прогона)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -141,6 +146,8 @@ jobs:
   publish:
     name: Прикрепить файлы к GitHub Release
     needs: [windows, linux]
+    # Пуш тега публикует как и раньше; ручной запуск — только по просьбе.
+    if: github.event_name == 'push' || inputs.publish
     runs-on: ubuntu-latest
 
     steps:

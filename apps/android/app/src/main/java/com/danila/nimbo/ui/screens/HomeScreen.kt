@@ -467,7 +467,9 @@ fun HomeScreen(
                     val text = primaryData.getItemAt(0).text?.toString()
                     if (text != null && (text.startsWith("http") || text.startsWith("vless://") || text.startsWith(
                             "vmess://"
-                        ) || text.startsWith("ss://") || text.startsWith("vmess://"))
+                        ) || text.startsWith("ss://") || text.startsWith("vmess://") ||
+                        text.startsWith("naive://") || text.startsWith("naive+https://") ||
+                        text.startsWith("naive+quic://"))
                     ) {
                         clipboardUrl = text
                     }
@@ -1395,7 +1397,7 @@ fun HomeScreen(
                                     MorphismCircularGauge(
                                         progress = progress,
                                         centerText = daysText,
-                                        subText = if (days < 0) "Бессрочно" else "Дней осталось",
+                                        subText = if (days < 0) "" else "Дней осталось",
                                         icon = Icons.Default.History,
                                         color = Color(0xFF00E676)
                                     )

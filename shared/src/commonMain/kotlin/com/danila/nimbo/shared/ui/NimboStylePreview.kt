@@ -40,16 +40,36 @@ internal fun NimboStylePreviewCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(if (style == NimboElementStyle.DOTTED) 10.dp else 18.dp)
+    val activeStyle = LocalNimboElementStyle.current
+    val activeManga = activeStyle == NimboElementStyle.MANGA
+    // Своя форма остаётся только у Manga: по ней карточку видно среди
+    // остальных. Всё прочее подчиняется включённому стилю.
+    val shape = RoundedCornerShape(
+        when {
+            activeManga || style == NimboElementStyle.MANGA -> 3.dp
+            activeStyle == NimboElementStyle.DOTTED || style == NimboElementStyle.DOTTED -> 10.dp
+            else -> 18.dp
+        }
+    )
     Column(
         modifier = modifier
             .clip(shape)
             .background(
-                if (selected) NimboPalette.Accent.copy(alpha = 0.13f) else NimboPalette.Surface
+                when {
+                    selected -> NimboPalette.Accent.copy(alpha = if (activeManga) 0.14f else 0.13f)
+                    activeManga -> NimboMangaPalette.Paper
+                    else -> NimboPalette.Surface
+                }
             )
             .border(
-                1.dp,
-                if (selected) NimboPalette.Accent.copy(alpha = 0.74f) else NimboPalette.Border,
+                if (activeManga) {
+                    if (selected) 2.5.dp else 1.5.dp
+                } else 1.dp,
+                when {
+                    selected -> NimboPalette.Accent.copy(alpha = if (activeManga) 1f else 0.74f)
+                    activeManga -> NimboMangaPalette.Ink
+                    else -> NimboPalette.Border
+                },
                 shape
             )
             .nimboRowClickable(onClick)

@@ -53,8 +53,8 @@ internal object QuickSettingsStatsProvider {
 
     fun formatDays(days: Long): String {
         return when {
-            days < -1L || days > 36500L -> "Бессрочно"
-            days == -1L -> "Бессрочно"
+            days < -1L || days > 36500L -> "∞"
+            days == -1L -> "∞"
             days == 0L -> "Сегодня"
             days == 1L -> "1 день"
             days in 2L..4L -> "$days дня"

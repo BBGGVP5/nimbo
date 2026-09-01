@@ -101,7 +101,11 @@ object CrossSyncPairingEngine {
     ): SyncWireResponse {
         while (scope.isActive && System.currentTimeMillis() < sessionQr.expiresAtMs) {
             delay(800)
-            val next = client.exchange(sessionQr, SyncWireRequest(action = "status"))
+            val next = client.exchange(
+                sessionQr,
+                SyncWireRequest(action = "status"),
+                preferredTransport = preferences.crossSyncTransportMode
+            )
             applyResponse(next)
             when (next.state) {
                 "paired" -> {
@@ -144,11 +148,76 @@ object CrossSyncPairingEngine {
                         deviceId = preferences.getOrCreateCrossSyncDeviceId(),
                         deviceName = exported.deviceName,
                         bundle = exported.filtered(currentCategories(preferences))
-                    )
+                    ),
+                    preferredTransport = preferences.crossSyncTransportMode
                 )
                 applyResponse(hello)
                 if (hello.state == "awaiting_approval") {
                     pollUntilDecision(parsed, preferences, profiles, viewModel)
+                }
+            } catch (cause: Throwable) {
+                error = mobileSyncError(cause)
+                offline = isMobileSyncOffline(cause)
+                stage = CrossSyncPairingStage.IDLE
+            }
+        }
+    }
+
+    fun pairWithDiscoveredPeer(
+        peer: DiscoveredPeerDevice,
+        preferences: PreferencesManager,
+        profiles: List<SubscriptionProfile>,
+        viewModel: MainViewModel
+    ) {
+        if (scanHandled) return
+        scanHandled = true
+        error = null
+        stage = CrossSyncPairingStage.CONNECTING
+        scope.launch {
+            try {
+                val keyBytes = (if (!peer.keyBase64.isNullOrBlank()) {
+                    runCatching { java.util.Base64.getUrlDecoder().decode(peer.keyBase64) }.getOrNull()
+                } else null)?.takeIf { it.size == 32 }
+                    ?: throw IllegalArgumentException(
+                        "Устройство не передало действительный одноразовый ключ. Обновите QR-код и попробуйте снова."
+                    )
+
+                val expiresAt = if (peer.expiresAtMs > System.currentTimeMillis()) {
+                    peer.expiresAtMs
+                } else {
+                    System.currentTimeMillis() + 180_000L
+                }
+
+                val directQr = CrossSyncQr(
+                    host = peer.host,
+                    port = peer.port,
+                    sessionId = peer.sessionId ?: "disc_${peer.deviceId}",
+                    key = keyBytes,
+                    expiresAtMs = expiresAt,
+                    comparisonCode = peer.comparisonCode,
+                    bluetoothMac = peer.bluetoothMac,
+                    preferredTransport = peer.transport
+                )
+
+                val scannedAt = System.currentTimeMillis()
+                sessionLifetimeMs = (directQr.expiresAtMs - scannedAt).coerceAtLeast(1_000L)
+                nowMs = scannedAt
+                val exported = AndroidCrossSyncBundleMapper.export(preferences, profiles)
+                qr = directQr
+                localBundle = exported
+                val hello = client.exchange(
+                    directQr,
+                    SyncWireRequest(
+                        action = "hello",
+                        deviceId = preferences.getOrCreateCrossSyncDeviceId(),
+                        deviceName = exported.deviceName,
+                        bundle = exported.filtered(currentCategories(preferences))
+                    ),
+                    preferredTransport = preferences.crossSyncTransportMode
+                )
+                applyResponse(hello)
+                if (hello.state == "awaiting_approval") {
+                    pollUntilDecision(directQr, preferences, profiles, viewModel)
                 }
             } catch (cause: Throwable) {
                 error = mobileSyncError(cause)
@@ -184,7 +253,8 @@ object CrossSyncPairingEngine {
                         bundle = exported.filtered(categories),
                         direction = direction,
                         categories = categories
-                    )
+                    ),
+                    preferredTransport = preferences.crossSyncTransportMode
                 )
                 applyResponse(next)
                 persistPairingFrom(sessionQr, next, preferences)
@@ -209,7 +279,8 @@ object CrossSyncPairingEngine {
                                     SyncWireRequest(
                                         action = "receipt",
                                         deviceId = preferences.getOrCreateCrossSyncDeviceId()
-                                    )
+                                    ),
+                                    preferredTransport = preferences.crossSyncTransportMode
                                 )
                             }.onSuccess { receipt ->
                                 persistPairingFrom(sessionQr, receipt, preferences)
@@ -269,7 +340,8 @@ object CrossSyncPairingEngine {
                     SyncWireRequest(
                         action = "receipt",
                         deviceId = preferences.getOrCreateCrossSyncDeviceId()
-                    )
+                    ),
+                    preferredTransport = preferences.crossSyncTransportMode
                 )
                 persistPairingFrom(sessionQr, receipt, preferences)
                 finishCompleted()
@@ -281,13 +353,58 @@ object CrossSyncPairingEngine {
                     }
                 )
                 if (preferences.appLanguage != languageBefore) {
-                    delay(900)
-                    (context as? Activity)?.recreate()
+                    kotlinx.coroutines.delay(900)
+                    (context as? android.app.Activity)?.recreate()
                 }
             } catch (cause: Throwable) {
                 error = mobileSyncError(cause)
                 offline = isMobileSyncOffline(cause)
                 stage = CrossSyncPairingStage.READY_TO_IMPORT
+            }
+        }
+    }
+
+    fun applyIncomingBundle(
+        incoming: CrossSyncBundle,
+        preferences: PreferencesManager,
+        profiles: List<SubscriptionProfile>,
+        viewModel: MainViewModel,
+        context: Context
+    ) {
+        scope.launch {
+            try {
+                val languageBefore = preferences.appLanguage
+                val categories = currentCategories(preferences)
+                AndroidCrossSyncBundleMapper.applySettings(preferences, incoming, categories)
+                val missing = AndroidCrossSyncBundleMapper.missingSubscriptions(
+                    profiles,
+                    incoming,
+                    categories
+                )
+                missing.forEach { subscription ->
+                    viewModel.addSubscription(subscription.url)
+                    subscription.name?.takeIf { it.isNotBlank() }?.let { name ->
+                        viewModel.renameProfile(subscription.url, name)
+                    }
+                }
+                if (categories.subscriptions && incoming.subscriptions.size >= 2) {
+                    viewModel.reorderProfiles(incoming.subscriptions.map { it.url })
+                }
+                preferences.crossSyncLastAt = System.currentTimeMillis()
+                preferences.crossSyncLastDevice = incoming.deviceName
+                viewModel.showTopNotification(
+                    if (missing.isEmpty()) {
+                        "Настройки синхронизированы"
+                    } else {
+                        "Синхронизация завершена: добавлено ${missing.size}"
+                    }
+                )
+                if (preferences.appLanguage != languageBefore) {
+                    kotlinx.coroutines.delay(900)
+                    (context as? android.app.Activity)?.recreate()
+                }
+            } catch (e: Exception) {
+                Logger.e("CrossSync", "applyIncomingBundle failed: ${e.message}")
             }
         }
     }
@@ -319,11 +436,21 @@ object CrossSyncPairingEngine {
             architecture = info?.architecture ?: existing?.architecture,
             autoSync = existing?.autoSync ?: preferences.crossSyncAutoSync,
             lastSubscriptionCount = receipt.desktopInventory?.subscriptions ?: existing?.lastSubscriptionCount ?: 0,
-            lastSubscriptionNames = receipt.desktopSubscriptions ?: existing?.lastSubscriptionNames.orEmpty()
+            lastSubscriptionNames = receipt.desktopSubscriptions ?: existing?.lastSubscriptionNames.orEmpty(),
+            bluetoothMac = sessionQr.bluetoothMac ?: existing?.bluetoothMac
         )
         preferences.crossSyncPairedDevices = preferences.crossSyncPairedDevices.let { list ->
-            if (list.any { it.deviceId == deviceId }) list.map { if (it.deviceId == deviceId) updated else it }
-            else list + updated
+            // Desktop builds before the Beta 5 mesh fix returned this phone's
+            // own id. Remove that corrupt local record when a real remote id is
+            // received so existing subscriptions/settings stay untouched.
+            val withoutLegacySelf = list.filterNot {
+                it.deviceId == preferences.getOrCreateCrossSyncDeviceId() && it.deviceId != deviceId
+            }
+            if (withoutLegacySelf.any { it.deviceId == deviceId }) {
+                withoutLegacySelf.map { if (it.deviceId == deviceId) updated else it }
+            } else {
+                withoutLegacySelf + updated
+            }
         }
         pairedDevices = preferences.crossSyncPairedDevices
         Logger.i("CrossSync", "Desktop paired for persistent sync: $deviceId @ ${updated.host}:${updated.port}")

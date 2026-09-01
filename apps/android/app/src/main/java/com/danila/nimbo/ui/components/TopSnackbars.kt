@@ -161,8 +161,11 @@ fun NotificationSurface(
         ElementStyleMode.OUTLINED -> RoundedCornerShape(10.dp)
         ElementStyleMode.SOFT_NEO -> RoundedCornerShape(22.dp)
         ElementStyleMode.SIGNAL -> RoundedCornerShape(16.dp)
+        ElementStyleMode.MANGA -> RoundedCornerShape(3.dp)
     }
     val isMaterial = nebulaColors.isMaterialYou || elementStyle == ElementStyleMode.MATERIAL_EXPRESSIVE
+    val isManga = elementStyle == ElementStyleMode.MANGA
+    val iconShape = nimboControlShape(14.dp, 2.dp)
 
     val infiniteTransition = rememberInfiniteTransition(label = "notification_motion")
     val rotation by infiniteTransition.animateFloat(
@@ -191,6 +194,7 @@ fun NotificationSurface(
     )
     val isActive = type == NotificationType.UPDATE || type == NotificationType.PING
     val baseColor = when {
+        isManga -> nebulaColors.panelFill
         isMaterial -> nebulaColors.panelFill
         isPureBlack -> Color.Black.copy(alpha = 0.94f)
         isLight -> Color.White.copy(alpha = 0.94f)
@@ -201,19 +205,21 @@ fun NotificationSurface(
         modifier = modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 18.dp,
+                elevation = if (isManga) 0.dp else 18.dp,
                 shape = shape,
                 ambientColor = accent.copy(alpha = 0.12f),
                 spotColor = accent.copy(alpha = if (isActive) glowAlpha else 0.18f)
             )
             .clip(shape)
             .background(baseColor)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        accent.copy(alpha = if (isLight) 0.09f else 0.16f),
-                        Color.Transparent,
-                        nebulaColors.textPrimary.copy(alpha = if (isLight) 0.015f else 0.035f)
+            .then(
+                if (isManga) Modifier else Modifier.background(
+                    Brush.linearGradient(
+                        listOf(
+                            accent.copy(alpha = if (isLight) 0.09f else 0.16f),
+                            Color.Transparent,
+                            nebulaColors.textPrimary.copy(alpha = if (isLight) 0.015f else 0.035f)
+                        )
                     )
                 )
             )
@@ -228,8 +234,8 @@ fun NotificationSurface(
                 } else Modifier
             )
             .border(
-                width = 1.dp,
-                color = accent.copy(alpha = if (isActive) 0.36f else 0.24f),
+                width = if (isManga) 2.dp else 1.dp,
+                color = if (isManga) nebulaColors.panelBorder else accent.copy(alpha = if (isActive) 0.36f else 0.24f),
                 shape = shape
             )
     ) {
@@ -256,8 +262,15 @@ fun NotificationSurface(
                 Box(
                     modifier = Modifier
                         .size(42.dp)
-                        .background(accent.copy(alpha = 0.14f), RoundedCornerShape(14.dp))
-                        .border(1.dp, accent.copy(alpha = 0.24f), RoundedCornerShape(14.dp)),
+                        .background(
+                            if (isManga) nebulaColors.controlFill else accent.copy(alpha = 0.14f),
+                            iconShape
+                        )
+                        .border(
+                            if (isManga) 1.5.dp else 1.dp,
+                            if (isManga) nebulaColors.panelBorder else accent.copy(alpha = 0.24f),
+                            iconShape
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     val iconModifier = when {

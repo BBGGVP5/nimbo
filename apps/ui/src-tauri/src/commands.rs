@@ -6065,11 +6065,31 @@ async fn connect_tun(
     // хелпером остаётся открытым — если Nimbo упадёт, туннель погаснет сам.
     #[cfg(target_os = "linux")]
     {
+        // Служба запускает ядро от root, поэтому берёт его только из своего
+        // каталога. Если ядра там ещё нет, один раз просим права и кладём.
+        if !crate::helper_linux::status()
+            .map(|state| state.core_ready)
+            .unwrap_or(false)
+        {
+            if let Err(error) = crate::helper_linux::install_core(&xray_path) {
+                stop_child(&mut naive);
+                return Err(error);
+            }
+        }
+
+        let config = match std::fs::read_to_string(&config_path) {
+            Ok(config) => config,
+            Err(error) => {
+                stop_child(&mut naive);
+                return Err(format!("Не удалось прочитать конфиг ядра: {error}"));
+            }
+        };
         let request = nimbo_ipc::TunRequest {
-            config_path: config_path.to_string_lossy().to_string(),
-            core_path: xray_path.to_string_lossy().to_string(),
+            config,
             interface: TUN_INTERFACE_NAME.to_string(),
             bypass_ips: bypass_ips.clone(),
+            dns: vec![TUN_DNS_PRIMARY.to_string(), TUN_DNS_SECONDARY.to_string()],
+            kill_switch: snapshot.preferences.connection_kill_switch,
         };
         let session = match crate::helper_linux::TunSession::up(request) {
             Ok(session) => session,
@@ -6085,6 +6105,7 @@ async fn connect_tun(
                 bypass_ips: bypass_ips.clone(),
                 gateway: None,
                 interface_index: None,
+                firewall_policy: Vec::new(),
             });
         });
         return Ok(());
@@ -6106,10 +6127,11 @@ async fn connect_tun(
         return Err(error);
     }
 
-    let tun_snapshot = TunRuntimeSnapshot {
+    let mut tun_snapshot = TunRuntimeSnapshot {
         bypass_ips,
         gateway: default_route.as_ref().map(|route| route.gateway.clone()),
         interface_index: default_route.as_ref().map(|route| route.interface_index),
+        firewall_policy: Vec::new(),
     };
 
     if let Err(error) = wait_for_native_tun_interface() {
@@ -6119,6 +6141,12 @@ async fn connect_tun(
         stop_child(&mut naive);
         return Err(error);
     }
+    // Kill switch включается только когда интерфейс уже поднят: раньше него
+    // блокировать нечего, а лишний блок оставил бы пользователя без сети.
+    if snapshot.preferences.connection_kill_switch {
+        tun_snapshot.firewall_policy = apply_windows_kill_switch(&tun_snapshot.bypass_ips);
+    }
+
     if let Err(error) = state.mutate(|s| s.pending_tun_snapshot = Some(tun_snapshot.clone())) {
         let _ = xray.kill();
         let _ = xray.wait();
@@ -7701,7 +7729,19 @@ fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
 
 pub fn cleanup_disconnected_runtime_on_startup(app: &AppHandle) {
     let state = app.state::<AppState>();
-    if state.snapshot().connected {
+    let snapshot = state.snapshot();
+
+    // Блокировку снимаем всегда и до всех проверок. При старте туннеля ещё
+    // нет, а после падения приложения в прошлый раз правила могли пережить
+    // перезагрузку и оставить систему без сети.
+    clear_windows_kill_switch(
+        snapshot
+            .pending_tun_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.firewall_policy.clone()),
+    );
+
+    if snapshot.connected {
         return;
     }
     if let Err(error) = stop_runtime(&state) {
@@ -7769,6 +7809,9 @@ pub fn reconnect_runtime_after_resume(app: &AppHandle) {
 
 #[cfg(windows)]
 fn cleanup_tun(snapshot: Option<TunRuntimeSnapshot>) -> Result<(), String> {
+    // Блокировку снимаем в первую очередь: если дальше что-то пойдёт не так,
+    // пользователь останется хотя бы с рабочей сетью.
+    clear_windows_kill_switch(snapshot.as_ref().map(|s| s.firewall_policy.clone()));
     let _ = delete_tun_route("0.0.0.0/0");
     let _ = delete_tun_route("0.0.0.0/1");
     let _ = delete_tun_route("128.0.0.0/1");
@@ -8531,7 +8574,7 @@ fn normalize_accent_color(value: &str) -> String {
 
 fn normalize_ui_style(value: &str) -> String {
     match value.trim() {
-        "nimbo" | "material_you" | "dotted" | "signal" => value.trim().into(),
+        "nimbo" | "material_you" | "dotted" | "signal" | "manga" => value.trim().into(),
         _ => "signal".into(),
     }
 }
@@ -8598,10 +8641,20 @@ fn normalize_connect_button_style(value: &str) -> String {
     }
 }
 
+/// Имя задачи планировщика. Через неё автозапуск работает даже тогда, когда
+/// Nimbo запускается с правами администратора: ключ `Run` такие программы
+/// молча пропускает, потому что запросить UAC на входе в систему нельзя.
+#[cfg(windows)]
+const AUTOSTART_TASK_NAME: &str = "Nimbo Autostart";
+
 #[cfg(windows)]
 fn is_launch_at_login_enabled() -> Result<bool, String> {
     use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
     use winreg::RegKey;
+
+    if autostart_task_exists() {
+        return Ok(true);
+    }
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let key = match hkcu
@@ -8612,6 +8665,106 @@ fn is_launch_at_login_enabled() -> Result<bool, String> {
         Err(e) => return Err(format!("Не удалось открыть автозапуск Windows: {e}")),
     };
     Ok(key.get_value::<String, _>("Nimbo").is_ok())
+}
+
+#[cfg(windows)]
+fn autostart_task_exists() -> bool {
+    hidden_command("schtasks")
+        .args(["/Query", "/TN", AUTOSTART_TASK_NAME])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn remove_autostart_task() {
+    let _ = hidden_command("schtasks")
+        .args(["/Delete", "/TN", AUTOSTART_TASK_NAME, "/F"])
+        .status();
+}
+
+/// Создаёт задачу входа в систему с наивысшими правами. Работает только из
+/// уже повышенного процесса — иначе планировщик откажет, и мы честно вернём
+/// ошибку, чтобы вызывающий откатился на ключ `Run`.
+#[cfg(windows)]
+fn create_autostart_task(exe: &std::path::Path) -> Result<(), String> {
+    let user = std::env::var("USERNAME").unwrap_or_default();
+    let domain = std::env::var("USERDOMAIN").unwrap_or_default();
+    let principal = if domain.is_empty() {
+        user.clone()
+    } else {
+        format!(r"{domain}\{user}")
+    };
+    let command = exe.display().to_string().replace('&', "&amp;");
+
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Автозапуск Nimbo с правами администратора</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{principal}</UserId>
+      <Delay>PT5S</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{principal}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>false</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{command}</Command>
+    </Exec>
+  </Actions>
+</Task>
+"#
+    );
+
+    // schtasks /XML читает файл в UTF-16LE: с обычным UTF-8 он ругается на
+    // кодировку, объявленную в самом XML.
+    let mut bytes: Vec<u8> = vec![0xFF, 0xFE];
+    for unit in xml.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    let path = std::env::temp_dir().join("nimbo-autostart.xml");
+    std::fs::write(&path, &bytes)
+        .map_err(|e| format!("Не удалось подготовить задачу автозапуска: {e}"))?;
+
+    let status = hidden_command("schtasks")
+        .args(["/Create", "/TN", AUTOSTART_TASK_NAME, "/XML"])
+        .arg(&path)
+        .arg("/F")
+        .status()
+        .map_err(|e| format!("Не удалось вызвать планировщик задач: {e}"))?;
+    let _ = std::fs::remove_file(&path);
+
+    if !status.success() {
+        return Err("Планировщик задач отклонил создание задачи автозапуска.".into());
+    }
+    Ok(())
 }
 
 #[cfg(not(windows))]
@@ -8629,18 +8782,41 @@ fn set_launch_at_login(_app: &AppHandle, enabled: bool) -> Result<(), String> {
         .create_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")
         .map_err(|e| format!("Не удалось открыть автозапуск Windows: {e}"))?;
 
+    let remove_run_value = |key: &winreg::RegKey| -> Result<(), String> {
+        match key.delete_value("Nimbo") {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("Не удалось выключить автозапуск: {e}")),
+        }
+    };
+
     if enabled {
         let exe = std::env::current_exe()
             .map_err(|e| format!("Не удалось определить путь Nimbo.exe: {e}"))?;
+
+        // Программу, помеченную «запускать от имени администратора», Windows
+        // не поднимает из ключа Run: на входе в систему запросить UAC нельзя,
+        // и запуск молча пропускается. Поэтому из повышенного процесса
+        // регистрируем задачу планировщика с наивысшими правами.
+        if is_running_as_admin() {
+            match create_autostart_task(&exe) {
+                Ok(()) => {
+                    // Две записи об автозапуске одновременно не нужны.
+                    remove_run_value(&key)?;
+                    return Ok(());
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "autostart task creation failed, falling back to Run key");
+                }
+            }
+        }
+
         let value = format!("\"{}\"", exe.display());
         key.set_value("Nimbo", &value)
             .map_err(|e| format!("Не удалось включить автозапуск: {e}"))?;
     } else {
-        match key.delete_value("Nimbo") {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(format!("Не удалось выключить автозапуск: {e}")),
-        }
+        remove_autostart_task();
+        remove_run_value(&key)?;
     }
 
     Ok(())
@@ -9724,3 +9900,125 @@ fn elevation_required_message() -> String {
             .into()
     }
 }
+
+/// Группа правил брандмауэра. По ней правила снимаются одним запросом и не
+/// задевают чужие.
+#[cfg(windows)]
+const KILL_SWITCH_GROUP: &str = "Nimbo Kill Switch";
+
+/// Включает kill switch: политика исходящего трафика становится «блокировать»,
+/// и разрешается только то, без чего связь не восстановится.
+///
+/// Работает через PowerShell-командлеты брандмауэра. Возвращает прежнюю
+/// политику по профилям — её нужно вернуть при выключении.
+#[cfg(windows)]
+fn apply_windows_kill_switch(bypass_ips: &[String]) -> Vec<(String, String)> {
+    let previous = read_firewall_policy();
+
+    // Снимаем возможные остатки прошлого сеанса: если приложение упало,
+    // правила могли пережить перезагрузку.
+    let _ = run_powershell(&format!(
+        "Remove-NetFirewallRule -Group '{KILL_SWITCH_GROUP}' -ErrorAction SilentlyContinue"
+    ));
+
+    let mut script = String::new();
+    // Трафик приложений уходит в туннель — разрешаем сам интерфейс целиком.
+    script.push_str(&format!(
+        "New-NetFirewallRule -DisplayName 'Nimbo tunnel' -Group '{KILL_SWITCH_GROUP}'          -Direction Outbound -Action Allow -InterfaceAlias '{TUN_INTERFACE_NAME}'          -ErrorAction SilentlyContinue | Out-Null; "
+    ));
+    // Само ядро ходит к серверу через физический адаптер.
+    if let Ok(exe) = std::env::current_exe() {
+        script.push_str(&format!(
+            "New-NetFirewallRule -DisplayName 'Nimbo app' -Group '{KILL_SWITCH_GROUP}'              -Direction Outbound -Action Allow -Program '{}' -ErrorAction SilentlyContinue | Out-Null; ",
+            exe.display()
+        ));
+    }
+    if let Ok(bin) = nimbo_data_dir().map(|dir| dir.join("bin").join(xray_exe_name())) {
+        script.push_str(&format!(
+            "New-NetFirewallRule -DisplayName 'Nimbo core' -Group '{KILL_SWITCH_GROUP}'              -Direction Outbound -Action Allow -Program '{}' -ErrorAction SilentlyContinue | Out-Null; ",
+            bin.display()
+        ));
+    }
+    if !bypass_ips.is_empty() {
+        let list = bypass_ips.join("','");
+        script.push_str(&format!(
+            "New-NetFirewallRule -DisplayName 'Nimbo server' -Group '{KILL_SWITCH_GROUP}'              -Direction Outbound -Action Allow -RemoteAddress '{list}' -ErrorAction SilentlyContinue | Out-Null; "
+        ));
+    }
+    // Локальная сеть, DHCP и петля: без них теряются принтеры, роутер и сам
+    // процесс получения адреса.
+    script.push_str(&format!(
+        "New-NetFirewallRule -DisplayName 'Nimbo local' -Group '{KILL_SWITCH_GROUP}'          -Direction Outbound -Action Allow          -RemoteAddress LocalSubnet,127.0.0.1,224.0.0.0/4 -ErrorAction SilentlyContinue | Out-Null;          New-NetFirewallRule -DisplayName 'Nimbo dhcp' -Group '{KILL_SWITCH_GROUP}'          -Direction Outbound -Action Allow -Protocol UDP -RemotePort 67,68          -ErrorAction SilentlyContinue | Out-Null; "
+    ));
+    script.push_str("Set-NetFirewallProfile -All -DefaultOutboundAction Block");
+
+    if run_powershell(&script).is_err() {
+        tracing::warn!("kill switch не включён: брандмауэр отклонил правила");
+        let _ = run_powershell(&format!(
+            "Remove-NetFirewallRule -Group '{KILL_SWITCH_GROUP}' -ErrorAction SilentlyContinue"
+        ));
+        return Vec::new();
+    }
+    previous
+}
+
+/// Снимает правила и возвращает политику, которая была до включения.
+#[cfg(windows)]
+fn clear_windows_kill_switch(previous: Option<Vec<(String, String)>>) {
+    let restore = previous.unwrap_or_default();
+    let mut script = format!(
+        "Remove-NetFirewallRule -Group '{KILL_SWITCH_GROUP}' -ErrorAction SilentlyContinue; "
+    );
+    if restore.is_empty() {
+        // Ничего не сохранили — значит и не включали; на всякий случай
+        // возвращаем стандартное поведение Windows.
+        script.push_str("Set-NetFirewallProfile -All -DefaultOutboundAction NotConfigured");
+    } else {
+        for (profile, action) in restore {
+            script.push_str(&format!(
+                "Set-NetFirewallProfile -Name '{profile}' -DefaultOutboundAction {action}; "
+            ));
+        }
+    }
+    let _ = run_powershell(&script);
+}
+
+/// Текущая политика исходящего трафика по профилям.
+#[cfg(windows)]
+fn read_firewall_policy() -> Vec<(String, String)> {
+    let output = hidden_output_command("powershell")
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-Command")
+        .arg("Get-NetFirewallProfile -All | ForEach-Object { \"$($_.Name)=$($_.DefaultOutboundAction)\" }")
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().split_once('='))
+        .map(|(name, action)| (name.to_string(), action.to_string()))
+        .collect()
+}
+
+#[cfg(windows)]
+fn run_powershell(script: &str) -> Result<(), String> {
+    let status = hidden_command("powershell")
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-Command")
+        .arg(script)
+        .status()
+        .map_err(|e| format!("Не удалось вызвать PowerShell: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("PowerShell завершился с ошибкой.".into())
+    }
+}
+
+#[cfg(not(windows))]
+fn clear_windows_kill_switch(_previous: Option<Vec<(String, String)>>) {}

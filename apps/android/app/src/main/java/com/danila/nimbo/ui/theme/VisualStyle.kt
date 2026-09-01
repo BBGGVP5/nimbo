@@ -16,7 +16,14 @@ enum class ElementStyleMode(val persistedValue: Int) {
      * скругления и моноширинные подписи. Добавлен последним, чтобы уже
      * сохранённые значения не поменяли смысл.
      */
-    SIGNAL(5);
+    SIGNAL(5),
+
+    /**
+     * Чернильные панели комикса: бумага, толстый контур, прямые углы и
+     * жёсткая тень со смещением. Идёт после Signal, чтобы сохранённые
+     * значения не поменяли смысл.
+     */
+    MANGA(6);
 
     companion object {
         fun fromPersistedValue(value: Int): ElementStyleMode =

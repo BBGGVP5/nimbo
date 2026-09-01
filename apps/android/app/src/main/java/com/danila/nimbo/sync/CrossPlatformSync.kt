@@ -577,6 +577,7 @@ object AndroidCrossSyncBundleMapper {
                     ElementStyleMode.MATERIAL_EXPRESSIVE.persistedValue -> "material_you"
                     ElementStyleMode.NOTHING_DOTS.persistedValue -> "dotted"
                     ElementStyleMode.SIGNAL.persistedValue -> "signal"
+                    ElementStyleMode.MANGA.persistedValue -> "manga"
                     else -> "nimbo"
                 },
                 accentColor = accent,
@@ -624,6 +625,7 @@ object AndroidCrossSyncBundleMapper {
                     "material_you" -> ElementStyleMode.MATERIAL_EXPRESSIVE.persistedValue
                     "dotted" -> ElementStyleMode.NOTHING_DOTS.persistedValue
                     "signal" -> ElementStyleMode.SIGNAL.persistedValue
+                    "manga" -> ElementStyleMode.MANGA.persistedValue
                     else -> ElementStyleMode.LIQUID_GLASS.persistedValue
                 }
                 parseAccent(appearance.accentColor)?.let { accent ->

@@ -72,13 +72,19 @@ fun Modifier.nimboDottedOutline(
 /** Страница в клетку — подложка стиля Manga. */
 @androidx.compose.runtime.Composable
 fun NimboMangaBackdrop() {
+    // Волокна считаются один раз: случайность с фиксированным зерном, иначе
+    // крапины плясали бы на каждом кадре.
+    val grain = androidx.compose.runtime.remember {
+        val random = kotlin.random.Random(20260901)
+        List(1200) { Offset(random.nextFloat(), random.nextFloat()) }
+    }
     androidx.compose.foundation.Canvas(
         modifier = Modifier
             .fillMaxSize()
             .background(NimboMangaPalette.PaperDeep)
     ) {
         val step = 26.dp.toPx()
-        val line = NimboMangaPalette.Ink.copy(alpha = 0.035f)
+        val line = NimboMangaPalette.Ink.copy(alpha = 0.025f)
         var x = 0f
         while (x < size.width) {
             drawLine(line, Offset(x, 0f), Offset(x, size.height), 1f)
@@ -89,5 +95,28 @@ fun NimboMangaBackdrop() {
             drawLine(line, Offset(0f, y), Offset(size.width, y), 1f)
             y += step
         }
+
+        val speckSize = androidx.compose.ui.geometry.Size(1.2f.dp.toPx(), 1.2f.dp.toPx())
+        val speck = NimboMangaPalette.Ink.copy(alpha = 0.045f)
+        grain.forEach { point ->
+            drawRect(
+                color = speck,
+                topLeft = Offset(point.x * size.width, point.y * size.height),
+                size = speckSize
+            )
+        }
+
+        // Лист лежит неровно: к краям он уходит в тень.
+        drawRect(
+            brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color.Transparent,
+                    Color.Black.copy(alpha = 0.30f)
+                ),
+                center = Offset(size.width * 0.5f, size.height * 0.42f),
+                radius = kotlin.math.max(size.width, size.height) * 0.78f
+            )
+        )
     }
 }

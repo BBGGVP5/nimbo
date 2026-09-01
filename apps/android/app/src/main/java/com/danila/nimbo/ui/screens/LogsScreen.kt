@@ -59,6 +59,10 @@ import com.danila.nimbo.model.LogLevel
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.i18n.LogPresentation
 import com.danila.nimbo.ui.components.NebulaMorphicDialog
+import com.danila.nimbo.ui.components.nimboControlBorderColor
+import com.danila.nimbo.ui.components.nimboControlBorderWidth
+import com.danila.nimbo.ui.components.nimboControlContainer
+import com.danila.nimbo.ui.components.nimboControlShape
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.ui.theme.NebulaColors
 import com.danila.nimbo.utils.Logger
@@ -293,13 +297,20 @@ fun LogsScreen(onNavigateBack: () -> Unit) {
         Spacer(Modifier.height(12.dp))
 
         // Log panel
+        val logPanelShape = nimboControlShape(16.dp, 3.dp)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(logsPanelFill(nebulaColors))
-                .border(BorderStroke(1.dp, logsPanelBorder(nebulaColors)), RoundedCornerShape(16.dp))
+                .clip(logPanelShape)
+                .background(nimboControlContainer(logsPanelFill(nebulaColors)))
+                .border(
+                    BorderStroke(
+                        nimboControlBorderWidth(),
+                        nimboControlBorderColor(logsPanelBorder(nebulaColors))
+                    ),
+                    logPanelShape
+                )
         ) {
             if (filtered.isEmpty()) {
                 Column(
@@ -392,10 +403,16 @@ fun LogsScreen(onNavigateBack: () -> Unit) {
 
 @Composable
 private fun LogLevelCountBadge(label: String, count: Int, color: Color) {
+    val shape = nimboControlShape(999.dp, 2.dp)
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(color.copy(alpha = 0.16f))
+            .clip(shape)
+            .background(nimboControlContainer(color.copy(alpha = 0.16f)))
+            .border(
+                nimboControlBorderWidth(default = 0.dp),
+                nimboControlBorderColor(Color.Transparent),
+                shape
+            )
             .padding(horizontal = 9.dp, vertical = 4.dp)
     ) {
         Text(
@@ -411,12 +428,13 @@ private fun LogLevelCountBadge(label: String, count: Int, color: Color) {
 @Composable
 private fun LogsSearchField(query: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
     val nebulaColors = LocalNebulaColors.current
+    val shape = nimboControlShape(16.dp, 3.dp)
     androidx.compose.material3.OutlinedTextField(
         value = query,
         onValueChange = onValueChange,
         modifier = modifier.height(56.dp),
         singleLine = true,
-        shape = RoundedCornerShape(16.dp),
+        shape = shape,
         leadingIcon = {
             Icon(Icons.Default.Search, null, tint = nebulaColors.textTertiary, modifier = Modifier.size(21.dp))
         },
@@ -440,9 +458,9 @@ private fun LogsSearchField(query: String, onValueChange: (String) -> Unit, modi
         ),
         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
             focusedBorderColor = nebulaColors.accent.copy(alpha = 0.55f),
-            unfocusedBorderColor = logsPanelBorder(nebulaColors),
-            focusedContainerColor = logsPanelFill(nebulaColors),
-            unfocusedContainerColor = logsPanelFill(nebulaColors),
+            unfocusedBorderColor = nimboControlBorderColor(logsPanelBorder(nebulaColors)),
+            focusedContainerColor = nimboControlContainer(logsPanelFill(nebulaColors)),
+            unfocusedContainerColor = nimboControlContainer(logsPanelFill(nebulaColors)),
             cursorColor = nebulaColors.accent
         )
     )
@@ -458,21 +476,24 @@ private fun LogsActionTile(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val tint = if (destructive) Color(0xFFFF5252) else nebulaColors.textPrimary
+    val shape = nimboControlShape(15.dp, 2.dp)
     Column(
         modifier = modifier
             .heightIn(min = 64.dp)
-            .clip(RoundedCornerShape(15.dp))
+            .clip(shape)
             .background(
-                if (destructive) Color(0xFFFF5252).copy(alpha = 0.10f)
-                else logsPanelFill(nebulaColors)
+                nimboControlContainer(
+                    if (destructive) Color(0xFFFF5252).copy(alpha = 0.10f)
+                    else logsPanelFill(nebulaColors)
+                )
             )
             .border(
                 BorderStroke(
-                    1.dp,
-                    if (destructive) Color(0xFFFF5252).copy(alpha = 0.25f)
-                    else logsPanelBorder(nebulaColors)
+                    nimboControlBorderWidth(),
+                    if (destructive) Color(0xFFFF5252).copy(alpha = 0.72f)
+                    else nimboControlBorderColor(logsPanelBorder(nebulaColors))
                 ),
-                RoundedCornerShape(15.dp)
+                shape
             )
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -496,15 +517,27 @@ private fun LogsLevelFilter(selected: LogLevel?, onSelect: (LogLevel?) -> Unit) 
     val nebulaColors = LocalNebulaColors.current
     var expanded by remember { mutableStateOf(false) }
     val active = selected != null
+    val shape = nimboControlShape(16.dp, 2.dp)
     Box {
         Box(
             modifier = Modifier
                 .size(56.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(if (active) nebulaColors.accent.copy(alpha = 0.16f) else logsPanelFill(nebulaColors))
+                .clip(shape)
+                .background(
+                    nimboControlContainer(
+                        if (active) nebulaColors.accent.copy(alpha = 0.16f) else logsPanelFill(nebulaColors),
+                        selected = active
+                    )
+                )
                 .border(
-                    BorderStroke(1.dp, if (active) nebulaColors.accent.copy(alpha = 0.55f) else logsPanelBorder(nebulaColors)),
-                    RoundedCornerShape(16.dp)
+                    BorderStroke(
+                        nimboControlBorderWidth(selected = active),
+                        nimboControlBorderColor(
+                            if (active) nebulaColors.accent.copy(alpha = 0.55f) else logsPanelBorder(nebulaColors),
+                            selected = active
+                        )
+                    ),
+                    shape
                 )
                 .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { expanded = true },
             contentAlignment = Alignment.Center
@@ -546,6 +579,7 @@ private fun LogsLevelFilter(selected: LogLevel?, onSelect: (LogLevel?) -> Unit) 
 @Composable
 private fun LogsCheck(label: String, checked: Boolean, onToggle: () -> Unit) {
     val nebulaColors = LocalNebulaColors.current
+    val shape = nimboControlShape(6.dp, 2.dp)
     Row(
         modifier = Modifier.clickable(
             indication = null,
@@ -557,12 +591,15 @@ private fun LogsCheck(label: String, checked: Boolean, onToggle: () -> Unit) {
         Box(
             modifier = Modifier
                 .size(20.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(if (checked) nebulaColors.accent else Color.Transparent)
+                .clip(shape)
+                .background(nimboControlContainer(if (checked) nebulaColors.accent else Color.Transparent, selected = checked))
                 .border(
                     1.5.dp,
-                    if (checked) nebulaColors.accent else nebulaColors.textSecondary.copy(alpha = 0.55f),
-                    RoundedCornerShape(6.dp)
+                    nimboControlBorderColor(
+                        if (checked) nebulaColors.accent else nebulaColors.textSecondary.copy(alpha = 0.55f),
+                        selected = checked
+                    ),
+                    shape
                 ),
             contentAlignment = Alignment.Center
         ) {

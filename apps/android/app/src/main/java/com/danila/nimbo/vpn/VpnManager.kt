@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import com.danila.nimbo.NebulaGuardApplication
 import com.danila.nimbo.model.Server
 import com.danila.nimbo.utils.PreferencesManager
+import com.danila.nimbo.utils.TrafficHistory
 
 enum class VpnState {
     DISCONNECTED,
@@ -28,6 +29,12 @@ object VpnManager {
     val connectedServer = mutableStateOf<Server?>(null)
     val recoveryStatus = mutableStateOf(VpnRecoveryStatus.IDLE)
     val recoveryAttempt = mutableStateOf(0)
+
+    /**
+     * Последняя ошибка подключения, из-за которой сервис сдался. UI показывает
+     * её диалогом с кнопкой «Скопировать логи»; очищается при новой попытке.
+     */
+    val lastConnectionError = mutableStateOf<ConnectionFailure?>(null)
 
     val connectedSeconds = mutableStateOf(0)
 
@@ -82,7 +89,10 @@ object VpnManager {
             downloadSpeed.value = downloadedDelta / timeDelta
             totalBytesUploaded.value += uploadedDelta
             totalBytesDownloaded.value += downloadedDelta
+            // История для графиков: точка скорости на каждый тик и расход по дням.
+            TrafficHistory.recordSpeed(uploadSpeed.value, downloadSpeed.value)
             if (uploadedDelta > 0 || downloadedDelta > 0) {
+                TrafficHistory.recordTraffic(uploadedDelta, downloadedDelta)
                 try {
                     PreferencesManager(NebulaGuardApplication.instance)
                         .addTraffic(uploadedDelta, downloadedDelta)

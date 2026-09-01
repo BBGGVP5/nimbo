@@ -152,6 +152,8 @@ object Logger {
             appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Device: ${LogSanitizer.sanitize("${Build.MANUFACTURER} ${Build.MODEL}")}")
             appendLine("VPN state: ${VpnManager.state.value}")
+            // Почему фон мог не сработать — самая частая причина обращений.
+            appendLine("Background: ${BackgroundHealthChecker.describe(appContext)}")
             appendLine("Recovery state: ${VpnManager.recoveryStatus.value}")
             appendLine("Entries: ${entries.size}")
             appendLine()

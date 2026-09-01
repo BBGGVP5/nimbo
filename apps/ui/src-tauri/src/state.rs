@@ -210,6 +210,9 @@ pub struct AppPreferences {
     pub show_subscription_logo: bool,
     #[serde(default = "default_ui_style")]
     pub ui_style: String,
+    /// Подскок значков в меню; хранится, чтобы переживать перезапуск.
+    #[serde(default = "default_nav_icon_motion")]
+    pub nav_icon_motion: bool,
     #[serde(default = "default_interface_panel_brightness")]
     pub interface_panel_brightness: u32,
     #[serde(default)]
@@ -294,6 +297,10 @@ fn default_ui_style() -> String {
     "signal".into()
 }
 
+fn default_nav_icon_motion() -> bool {
+    true
+}
+
 fn default_interface_panel_brightness() -> u32 {
     100
 }
@@ -372,6 +379,7 @@ impl Default for AppPreferences {
             provider_theme: true,
             show_subscription_logo: true,
             ui_style: default_ui_style(),
+            nav_icon_motion: default_nav_icon_motion(),
             interface_panel_brightness: default_interface_panel_brightness(),
             interface_transparency: 0,
             interface_blur: default_interface_blur(),
@@ -559,6 +567,11 @@ pub struct TunRuntimeSnapshot {
     pub bypass_ips: Vec<String>,
     pub gateway: Option<String>,
     pub interface_index: Option<u32>,
+    /// Прежняя политика исходящего трафика по профилям брандмауэра. Нужна,
+    /// чтобы после kill switch вернуть ровно то, что было у пользователя,
+    /// а не «как по умолчанию».
+    #[serde(default)]
+    pub firewall_policy: Vec<(String, String)>,
 }
 
 pub struct AppState {

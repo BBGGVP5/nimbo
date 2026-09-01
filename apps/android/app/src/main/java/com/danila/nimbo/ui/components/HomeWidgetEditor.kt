@@ -237,6 +237,7 @@ fun EditableWidgetCard(
         ElementStyleMode.OUTLINED -> RoundedCornerShape(8.dp)
         ElementStyleMode.SOFT_NEO -> RoundedCornerShape(18.dp)
         ElementStyleMode.SIGNAL -> RoundedCornerShape(14.dp)
+        ElementStyleMode.MANGA -> RoundedCornerShape(3.dp)
     }
     val cardBackground = if (widget.type == WidgetType.VPN_BUTTON) Color.Transparent else Color.Unspecified
 
@@ -535,6 +536,7 @@ private fun AvailableWidgetItem(
             ElementStyleMode.OUTLINED -> RoundedCornerShape(8.dp)
             ElementStyleMode.SOFT_NEO -> RoundedCornerShape(16.dp)
             ElementStyleMode.SIGNAL -> RoundedCornerShape(12.dp)
+            ElementStyleMode.MANGA -> RoundedCornerShape(3.dp)
         },
         color = if (elementStyle == ElementStyleMode.OUTLINED) Color.Transparent else nebulaColors.cardBackground,
         border = androidx.compose.foundation.BorderStroke(

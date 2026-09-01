@@ -44,6 +44,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.danila.nimbo.ui.components.NebulaInputField
 import com.danila.nimbo.ui.components.SettingsSwitch
+import com.danila.nimbo.ui.components.nimboControlBorderColor
+import com.danila.nimbo.ui.components.nimboControlBorderWidth
+import com.danila.nimbo.ui.components.nimboControlContainer
+import com.danila.nimbo.ui.components.nimboControlShape
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.theme.*
 import com.danila.nimbo.utils.PreferencesManager
@@ -108,6 +112,7 @@ fun AppProxySettingsScreen(
 ) {
     val context = LocalContext.current
     val nebulaColors = LocalNebulaColors.current
+    val elementStyle = LocalElementStyleMode.current
     val preferencesManager = remember { PreferencesManager(context) }
     val packageManager = context.packageManager
     var proxyMode by remember { mutableIntStateOf(preferencesManager.proxyByApp.coerceIn(0, 2).takeIf { it != 0 } ?: 1) }
@@ -256,19 +261,24 @@ fun AppProxySettingsScreen(
 
             if (android.os.Build.VERSION.SDK_INT >= 37) {
                 Spacer(Modifier.height(12.dp))
+                val systemCardShape = nimboControlShape(16.dp, 3.dp)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = systemCardShape,
                     colors = CardDefaults.cardColors(
-                        containerColor = if (nebulaColors.isMaterialYou) {
+                        containerColor = if (elementStyle == ElementStyleMode.MANGA) {
+                            nebulaColors.panelFill
+                        } else if (nebulaColors.isMaterialYou) {
                             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
                         } else {
                             nebulaColors.accent.copy(alpha = 0.08f)
                         }
                     ),
                     border = BorderStroke(
-                        1.dp,
-                        if (nebulaColors.isMaterialYou) {
+                        nimboControlBorderWidth(),
+                        if (elementStyle == ElementStyleMode.MANGA) {
+                            nebulaColors.panelBorder
+                        } else if (nebulaColors.isMaterialYou) {
                             MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
                         } else {
                             nebulaColors.accent.copy(alpha = 0.20f)
@@ -320,7 +330,7 @@ fun AppProxySettingsScreen(
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (nebulaColors.isMaterialYou) MaterialTheme.colorScheme.primary else nebulaColors.accent
                             ),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = nimboControlShape(12.dp, 2.dp),
                             modifier = Modifier.align(Alignment.End)
                         ) {
                             Text(
@@ -424,18 +434,23 @@ fun AppProxySettingsScreen(
             ) { index, entry ->
                 val isFirst = index == 0
                 val isLast = index == customEntries.lastIndex
+                val edgeRadius = if (elementStyle == ElementStyleMode.MANGA) 3.dp else 18.dp
                 val rowShape = RoundedCornerShape(
-                    topStart = if (isFirst) 18.dp else 0.dp,
-                    topEnd = if (isFirst) 18.dp else 0.dp,
-                    bottomStart = if (isLast) 18.dp else 0.dp,
-                    bottomEnd = if (isLast) 18.dp else 0.dp
+                    topStart = if (isFirst) edgeRadius else 0.dp,
+                    topEnd = if (isFirst) edgeRadius else 0.dp,
+                    bottomStart = if (isLast) edgeRadius else 0.dp,
+                    bottomEnd = if (isLast) edgeRadius else 0.dp
                 )
-                val rowBg = if (nebulaColors.isMaterialYou) {
+                val rowBg = if (elementStyle == ElementStyleMode.MANGA) {
+                    nebulaColors.controlFill
+                } else if (nebulaColors.isMaterialYou) {
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
                 } else {
                     nebulaColors.accent.copy(alpha = 0.06f)
                 }
-                val borderStroke = if (nebulaColors.isMaterialYou) {
+                val borderStroke = if (elementStyle == ElementStyleMode.MANGA) {
+                    BorderStroke(2.dp, nebulaColors.accent)
+                } else if (nebulaColors.isMaterialYou) {
                     BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
                 } else {
                     BorderStroke(1.dp, nebulaColors.accent.copy(alpha = 0.30f))
@@ -501,14 +516,17 @@ fun AppProxySettingsScreen(
                     val isSelected = selectedSet.contains(app.packageName)
                     val isFirst = index == 0
                     val isLast = index == filteredApps.lastIndex
+                    val edgeRadius = if (elementStyle == ElementStyleMode.MANGA) 3.dp else 18.dp
                     val rowShape = RoundedCornerShape(
-                        topStart = if (isFirst) 18.dp else 0.dp,
-                        topEnd = if (isFirst) 18.dp else 0.dp,
-                        bottomStart = if (isLast) 18.dp else 0.dp,
-                        bottomEnd = if (isLast) 18.dp else 0.dp
+                        topStart = if (isFirst) edgeRadius else 0.dp,
+                        topEnd = if (isFirst) edgeRadius else 0.dp,
+                        bottomStart = if (isLast) edgeRadius else 0.dp,
+                        bottomEnd = if (isLast) edgeRadius else 0.dp
                     )
                     val rowBg = if (isSelected) {
-                        if (nebulaColors.isMaterialYou) {
+                        if (elementStyle == ElementStyleMode.MANGA) {
+                            nebulaColors.accent.copy(alpha = 0.14f)
+                        } else if (nebulaColors.isMaterialYou) {
                             MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
                         } else {
                             nebulaColors.accent.copy(alpha = 0.06f)
@@ -517,13 +535,15 @@ fun AppProxySettingsScreen(
                         appPanelFill(nebulaColors)
                     }
                     val borderStroke = if (isSelected) {
-                        if (nebulaColors.isMaterialYou) {
+                        if (elementStyle == ElementStyleMode.MANGA) {
+                            BorderStroke(2.dp, nebulaColors.accent)
+                        } else if (nebulaColors.isMaterialYou) {
                             BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
                         } else {
                             BorderStroke(1.dp, nebulaColors.accent.copy(alpha = 0.30f))
                         }
                     } else {
-                        null
+                        if (elementStyle == ElementStyleMode.MANGA) BorderStroke(1.5.dp, nebulaColors.panelBorder) else null
                     }
                     val colModifier = if (borderStroke != null) {
                         Modifier
@@ -707,7 +727,7 @@ private fun WindowsAppSearchField(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val isMaterialYou = nebulaColors.isMaterialYou
-    val shape = RoundedCornerShape(16.dp)
+    val shape = nimboControlShape(16.dp, 3.dp)
     
     val containerBg = if (isMaterialYou) {
         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
@@ -750,8 +770,12 @@ private fun WindowsAppSearchField(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(shape)
-                    .background(containerBg)
-                    .border(1.dp, borderStrokeColor, shape)
+                    .background(nimboControlContainer(containerBg))
+                    .border(
+                        nimboControlBorderWidth(),
+                        nimboControlBorderColor(borderStrokeColor),
+                        shape
+                    )
                     .padding(start = 15.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -800,12 +824,12 @@ private fun WindowsAppAddButton(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val isMaterialYou = nebulaColors.isMaterialYou
-    val buttonShape = if (isMaterialYou) RoundedCornerShape(18.dp) else RoundedCornerShape(16.dp)
+    val buttonShape = nimboControlShape(if (isMaterialYou) 18.dp else 16.dp, 3.dp)
     // Material You: filled tonal container (no outline) — the Expressive look, not a thin accent border.
     val containerColor = if (isMaterialYou) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
-        nebulaColors.accent.copy(alpha = 0.12f)
+        nimboControlContainer(nebulaColors.accent.copy(alpha = 0.12f))
     }
     val contentColor = if (isMaterialYou) {
         MaterialTheme.colorScheme.onPrimaryContainer
@@ -815,7 +839,10 @@ private fun WindowsAppAddButton(
     val borderStroke = if (isMaterialYou) {
         null
     } else {
-        BorderStroke(1.dp, nebulaColors.accent.copy(alpha = 0.55f))
+        BorderStroke(
+            nimboControlBorderWidth(),
+            nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.55f))
+        )
     }
 
     Surface(
@@ -1185,6 +1212,7 @@ private fun WindowsModeButton(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val isMaterialYou = nebulaColors.isMaterialYou
+    val shape = nimboControlShape(18.dp, 3.dp)
     
     val cardColor = if (isMaterialYou) {
         if (active) MaterialTheme.colorScheme.secondaryContainer 
@@ -1196,7 +1224,13 @@ private fun WindowsModeButton(
         if (active) null 
         else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     } else {
-        BorderStroke(1.dp, if (active) nebulaColors.accent.copy(alpha = 0.72f) else appBorder(nebulaColors))
+        BorderStroke(
+            nimboControlBorderWidth(selected = active),
+            nimboControlBorderColor(
+                if (active) nebulaColors.accent.copy(alpha = 0.72f) else appBorder(nebulaColors),
+                selected = active
+            )
+        )
     }
     val textColor = if (isMaterialYou) {
         if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1208,8 +1242,8 @@ private fun WindowsModeButton(
         modifier = modifier
             .height(76.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
-        color = cardColor,
+        shape = shape,
+        color = nimboControlContainer(cardColor, selected = active),
         border = cardBorder
     ) {
         Box(
@@ -1238,6 +1272,7 @@ private fun WindowsAppActionButton(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val isMaterialYou = nebulaColors.isMaterialYou
+    val shape = nimboControlShape(16.dp, 3.dp)
     
     val containerColor = if (isMaterialYou) {
         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
@@ -1252,15 +1287,15 @@ private fun WindowsAppActionButton(
     val borderCol = if (isMaterialYou) {
         BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     } else {
-        BorderStroke(1.dp, appBorder(nebulaColors))
+        BorderStroke(nimboControlBorderWidth(), nimboControlBorderColor(appBorder(nebulaColors)))
     }
 
     Surface(
         modifier = modifier
             .height(52.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        color = containerColor,
+        shape = shape,
+        color = nimboControlContainer(containerColor),
         border = borderCol
     ) {
         Row(
@@ -1292,6 +1327,7 @@ private fun WindowsAppFilterChip(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val isMaterialYou = nebulaColors.isMaterialYou
+    val shape = nimboControlShape(14.dp, 2.dp)
     
     val chipBg = if (isMaterialYou) {
         if (active) MaterialTheme.colorScheme.secondaryContainer 
@@ -1303,7 +1339,13 @@ private fun WindowsAppFilterChip(
         if (active) BorderStroke(0.dp, Color.Transparent) 
         else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     } else {
-        if (active) BorderStroke(1.dp, nebulaColors.accent.copy(alpha = 0.82f)) else BorderStroke(1.dp, appBorder(nebulaColors))
+        BorderStroke(
+            nimboControlBorderWidth(selected = active),
+            nimboControlBorderColor(
+                if (active) nebulaColors.accent.copy(alpha = 0.82f) else appBorder(nebulaColors),
+                selected = active
+            )
+        )
     }
     val textColor = if (isMaterialYou) {
         if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1314,9 +1356,9 @@ private fun WindowsAppFilterChip(
     Box(
         modifier = Modifier
             .height(42.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(chipBg)
-            .border(chipBorder, RoundedCornerShape(14.dp))
+            .clip(shape)
+            .background(nimboControlContainer(chipBg, selected = active))
+            .border(chipBorder, shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 13.dp),
         contentAlignment = Alignment.Center
@@ -1336,6 +1378,7 @@ private fun WindowsAppFilterChip(
 private fun WindowsAppListPanel(content: @Composable ColumnScope.() -> Unit) {
     val nebulaColors = LocalNebulaColors.current
     val isMaterialYou = nebulaColors.isMaterialYou
+    val shape = nimboControlShape(18.dp, 3.dp)
     
     val fillColor = if (isMaterialYou) {
         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
@@ -1345,13 +1388,13 @@ private fun WindowsAppListPanel(content: @Composable ColumnScope.() -> Unit) {
     val borderCol = if (isMaterialYou) {
         BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f))
     } else {
-        BorderStroke(1.dp, appBorder(nebulaColors))
+        BorderStroke(nimboControlBorderWidth(), nimboControlBorderColor(appBorder(nebulaColors)))
     }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = fillColor,
+        shape = shape,
+        color = nimboControlContainer(fillColor),
         border = borderCol
     ) {
         Column(modifier = Modifier.fillMaxWidth(), content = content)
@@ -1366,6 +1409,7 @@ private fun WindowsAppRow(
     onToggle: (Boolean) -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val iconShape = nimboControlShape(13.dp, 2.dp)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1381,7 +1425,7 @@ private fun WindowsAppRow(
             Box(
                 modifier = Modifier
                     .size(46.dp)
-                    .clip(RoundedCornerShape(13.dp))
+                    .clip(iconShape)
                     .background(Color.White.copy(alpha = 0.055f)),
                 contentAlignment = Alignment.Center
             ) {
@@ -1442,7 +1486,7 @@ private fun WindowsAppRow(
 private fun WindowsCheckBox(checked: Boolean) {
     val nebulaColors = LocalNebulaColors.current
     val isMaterialYou = nebulaColors.isMaterialYou
-    val checkShape = if (isMaterialYou) CircleShape else RoundedCornerShape(9.dp)
+    val checkShape = nimboControlShape(if (isMaterialYou) 15.dp else 9.dp, 2.dp)
     val checkColor = if (isMaterialYou) MaterialTheme.colorScheme.primary else nebulaColors.accent
     val borderCol = if (checked) checkColor else {
         if (isMaterialYou) MaterialTheme.colorScheme.outline.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.16f)
@@ -1452,8 +1496,12 @@ private fun WindowsCheckBox(checked: Boolean) {
         modifier = Modifier
             .size(30.dp)
             .clip(checkShape)
-            .background(if (checked) checkColor else Color.Transparent)
-            .border(2.dp, borderCol, checkShape),
+            .background(nimboControlContainer(if (checked) checkColor else Color.Transparent, selected = checked))
+            .border(
+                2.dp,
+                nimboControlBorderColor(borderCol, selected = checked),
+                checkShape
+            ),
         contentAlignment = Alignment.Center
     ) {
         if (checked) {

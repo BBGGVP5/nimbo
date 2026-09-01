@@ -132,10 +132,19 @@ fun NavGraph(
         .bottomBarAutoHideEnabledState.value
     var bottomBarVisible by remember { mutableStateOf(true) }
     var bottomBarRevealJob by remember { mutableStateOf<Job?>(null) }
+    val bottomBarLastScheduleNanos = remember { longArrayOf(0L) }
     val canNavigateBack = navController.previousBackStackEntry != null
     val systemBackEnabled = !showAddWidgetPanel && !isAddSheetVisible
 
     fun scheduleBottomBarReveal(delayMillis: Long = 420L) {
+        val now = System.nanoTime()
+        if (
+            bottomBarRevealJob?.isActive == true &&
+            now - bottomBarLastScheduleNanos[0] < 120_000_000L
+        ) {
+            return
+        }
+        bottomBarLastScheduleNanos[0] = now
         bottomBarRevealJob?.cancel()
         bottomBarRevealJob = navigationScope.launch {
             delay(delayMillis)
@@ -145,11 +154,13 @@ fun NavGraph(
 
     val bottomBarScrollConnection = remember(bottomBarAutoHideEnabled) {
         object : NestedScrollConnection {
+            private val scrollTracker = BottomBarScrollTracker()
+
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (!bottomBarAutoHideEnabled || source != NestedScrollSource.UserInput) {
                     return Offset.Zero
                 }
-                bottomBarVisible = BottomBarScrollPolicy.visibleAfterScroll(
+                bottomBarVisible = scrollTracker.visibleAfterScroll(
                     currentlyVisible = bottomBarVisible,
                     availableY = available.y
                 )
@@ -158,6 +169,7 @@ fun NavGraph(
             }
 
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                scrollTracker.reset()
                 if (bottomBarAutoHideEnabled) {
                     delay(180L)
                     bottomBarVisible = true

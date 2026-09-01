@@ -18,59 +18,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.danila.nimbo.ui.components.LiquidGlassTilt
 import com.danila.nimbo.ui.components.rememberLiquidGlassTilt
 
-/**
- * Форма фоновой анимации. Отвечает ТОЛЬКО за движение/геометрию —
- * цвет задаётся отдельно через [BackgroundPaletteMode].
- */
-enum class BackgroundStyleMode {
-    MORPHISM,
-    MATERIAL3,
-    NOTHING_DOTS,
-    AURORA,
-    GRID,
-    MESH,
-    WAVES,
-    STARFIELD,
-    CYBERPUNK,
-    DEEP_SPACE,
-    FIRE,
-    LAVA,
-    NEON,
-    NORDIC,
-    BLOSSOM,
-    NONE,
-    RAIN,
-    ORBIT,
-    /**
-     * Calm, separated signal capsules. Kept last so persisted background
-     * indices selected in older builds never change their meaning.
-     */
-    SIGNAL_FLOW
-}
 
-/**
- * Палитра фона. Отвечает ТОЛЬКО за цвет — не влияет на то, какой эффект
- * рисуется. `THEME` наследует акцент активной темы.
- */
-enum class BackgroundPaletteMode {
-    THEME,
-    AURORA,
-    CYBER,
-    SPACE,
-    FIRE,
-    LAVA,
-    NEON,
-    NORDIC,
-    BLOSSOM,
-    OCEAN,
-    SUNSET,
-    FOREST
-}
 
 /**
  * Индексы палитры сохраняются как есть; неизвестное значение падает в `THEME`,
  * чтобы фон никогда не оставался без цвета.
  */
+/**
+ * Форма и палитра фона переехали в общий модуль: iOS обязан рисовать ровно тот
+ * же фон, что и Android, а не свою копию. Псевдонимы оставлены, чтобы весь
+ * существующий код продолжал ссылаться на прежние имена.
+ */
+typealias BackgroundStyleMode = com.danila.nimbo.shared.ui.BackgroundStyleMode
+typealias BackgroundPaletteMode = com.danila.nimbo.shared.ui.BackgroundPaletteMode
+
 fun backgroundPaletteModeForIndex(index: Int): BackgroundPaletteMode = when (index) {
     1 -> BackgroundPaletteMode.AURORA
     2 -> BackgroundPaletteMode.CYBER
@@ -557,9 +518,27 @@ fun getNebulaColors(
     val windowsLightBackground = Color(0xFFF6F5FB)
     val windowsLightSurface = Color(0xFFFFFFFF)
     val windowsLightText = Color(0xFF211D34)
-    val resolvedBackground = if (isDark) windowsBackground else windowsLightBackground
-    val resolvedSurface = if (isDark) windowsSurface else windowsLightSurface
-    val resolvedText = if (isDark) windowsText else windowsLightText
+    val isManga = elementStyle == ElementStyleMode.MANGA.persistedValue
+    // Manga рисует страницу, а не подсвеченный экран: подложка тёплая даже
+    // ночью, а текст — чернила, а не голубоватый белый.
+    val mangaPaper = if (isDark) Color(0xFF15130F) else Color(0xFFF3EDDD)
+    val mangaInk = if (isDark) Color(0xFFF4EEDF) else Color(0xFF14120E)
+    val resolvedBackground = when {
+        isManga && pureBlackMode -> Color(0xFF0A0908)
+        isManga -> mangaPaper
+        isDark -> windowsBackground
+        else -> windowsLightBackground
+    }
+    val resolvedSurface = when {
+        isManga -> if (isDark) Color(0xFF1A1713) else Color(0xFFFBF7EC)
+        isDark -> windowsSurface
+        else -> windowsLightSurface
+    }
+    val resolvedText = when {
+        isManga -> mangaInk
+        isDark -> windowsText
+        else -> windowsLightText
+    }
 
     // Material You ("Expressive"): tonal, accent-tinted surfaces and no glass hairline.
     // surfaceColorAtElevation tints surface toward the (dynamic or accent) primary, so
@@ -570,6 +549,8 @@ fun getNebulaColors(
     // границы, чтобы стиль поменял вид всех экранов, а не только тех,
     // где стоит явная проверка.
     val isSignal = elementStyle == ElementStyleMode.SIGNAL.persistedValue
+    // Manga: бумага под чернилами. Панели непрозрачные, границы контрастные —
+    // это не стекло, сквозь него ничего не просвечивает.
     val m3PanelFill = resolvedColorScheme.surfaceContainer
     val m3ControlFill = resolvedColorScheme.surfaceContainerHigh
     val m3SoftFill = resolvedColorScheme.surfaceContainerLow
@@ -577,6 +558,7 @@ fun getNebulaColors(
 
     // Determine target raw colors based on style
     val resolvedPanelFill = when {
+        isManga -> if (isDark) Color(0xFF1B1814) else Color(0xFFFBF7EC)
         isMaterialYou -> m3PanelFill
         isSignal -> if (isDark) {
             Color.White.copy(alpha = 0.02f)
@@ -591,6 +573,7 @@ fun getNebulaColors(
         else -> if (isDark) DarkSurface.copy(alpha = 0.94f) else Color.White.copy(alpha = 0.96f)
     }
     val resolvedControlFill = when {
+        isManga -> if (isDark) Color(0xFF232019) else Color(0xFFEDE6D3)
         isMaterialYou -> m3ControlFill
         isSignal -> if (isDark) Color.Black.copy(alpha = 0.25f) else Color(0xFFF1F0F6)
         isLiquidGlass -> if (isDark) {
@@ -601,18 +584,23 @@ fun getNebulaColors(
         else -> if (isDark) Color.White.copy(alpha = 0.035f) else Color(0xFFF6F5FB)
     }
     val resolvedSoftFill = when {
+        isManga -> if (isDark) Color(0xFF2C2820) else Color(0xFFE4DCC7)
         isMaterialYou -> m3SoftFill
         isSignal -> if (isDark) Color.White.copy(alpha = 0.04f) else Color(0xFFF4F3F9)
         isLiquidGlass -> if (isDark) Color.White.copy(alpha = 0.055f) else Color.White.copy(alpha = 0.50f)
         else -> if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFF1F0F7)
     }
     val resolvedPanelBorder = when {
+        // Контур — главная черта стиля, поэтому он почти непрозрачный.
+        isManga -> if (isDark) Color(0xFFF4EEDF) else Color(0xFF14120E)
         isMaterialYou -> Color.Transparent
         isSignal -> if (isDark) Color.White.copy(alpha = 0.075f) else Color(0xFFE4E2EC)
         isLiquidGlass -> if (isDark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.82f)
         else -> if (isDark) Color.White.copy(alpha = 0.10f) else Color(0xFFE2E0EA)
     }
-    val resolvedDivider = if (isMaterialYou) m3Divider else if (isSignal) {
+    val resolvedDivider = if (isManga) {
+        if (isDark) Color(0xFFF4EEDF).copy(alpha = 0.35f) else Color(0xFF14120E).copy(alpha = 0.35f)
+    } else if (isMaterialYou) m3Divider else if (isSignal) {
         if (isDark) Color.White.copy(alpha = 0.075f) else Color(0xFFE7E5EE)
     } else {
         if (isDark) Color.White.copy(alpha = 0.075f) else Color(0xFFE7E5EE)
@@ -641,6 +629,7 @@ fun getNebulaColors(
         surface = finalSurface,
         cardBackground = finalCardBackground,
         isMaterialYou = isMaterialYou,
+        isManga = isManga,
         isLiquidGlass = isLiquidGlass,
         panelFill = finalPanelFill,
         controlFill = finalControlFill,
@@ -991,6 +980,14 @@ fun NebulaGuardTheme(
             large = RoundedCornerShape(32.dp),
             extraLarge = RoundedCornerShape(40.dp)
         )
+        // Manga: почти прямые углы — панель комикса нарисована пером.
+        ElementStyleMode.MANGA -> Shapes(
+            extraSmall = RoundedCornerShape(2.dp),
+            small = RoundedCornerShape(2.dp),
+            medium = RoundedCornerShape(3.dp),
+            large = RoundedCornerShape(4.dp),
+            extraLarge = RoundedCornerShape(4.dp)
+        )
         // Signal: скругления заметно меньше — панель, а не «капли».
         ElementStyleMode.SIGNAL -> Shapes(
             extraSmall = RoundedCornerShape(8.dp),
@@ -1023,13 +1020,17 @@ fun NebulaGuardTheme(
         LocalBackgroundAnimationEnabled provides backgroundAnimationEnabled,
         LocalReducedTransparencyEnabled provides reducedTransparency,
         LocalGlobalBlurRadius provides globalBlur,
-        LocalGlobalCornerRadius provides globalCorners,
+        // Manga входит в сам множитель: половина экранов считает скругления
+        // прямым умножением на него, минуя scaleRoundedCornerShape, и там
+        // стиль до углов не доходил.
+        LocalGlobalCornerRadius provides
+            globalCorners * if (elementMode == ElementStyleMode.MANGA) 0.12f else 1f,
         LocalLiquidRefractionEnabled provides refractionEffectsEnabled,
         LocalLiquidGlassTilt provides liquidGlassTilt
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = if (elementMode == ElementStyleMode.SIGNAL) {
+            typography = if (elementMode == ElementStyleMode.SIGNAL || elementMode == ElementStyleMode.MANGA) {
                 signalTypography(textScale)
             } else {
                 scaledTypography(textScale)

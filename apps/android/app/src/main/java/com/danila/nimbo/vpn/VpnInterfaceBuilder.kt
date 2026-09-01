@@ -1,6 +1,9 @@
 package com.danila.nimbo.vpn
 
+import android.content.Context
+import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -55,7 +58,64 @@ object VpnInterfaceBuilder {
         excludeSelfFromVpnWhenPossible(builder, prefs)
         applyPerAppProxyRules(builder, prefs)
 
-        return builder.establish() ?: error("Failed to establish TUN")
+        val descriptor = try {
+            builder.establish()
+        } catch (e: IllegalArgumentException) {
+            // Кидается на кривых адресах/маршрутах и на несуществующем пакете
+            // в per-app списке — раньше это выглядело как «не удалось запустить».
+            throw IllegalStateException(
+                "${ConnectionFailureClassifier.TUN_MARKER}: система отклонила параметры интерфейса (${e.message})",
+                e
+            )
+        } catch (e: IllegalStateException) {
+            throw IllegalStateException(
+                "${ConnectionFailureClassifier.TUN_MARKER}: ${e.message ?: "система отклонила запрос"}",
+                e
+            )
+        }
+
+        return descriptor ?: error(
+            "${ConnectionFailureClassifier.TUN_MARKER}: ${describeNullDescriptor(vpnService, prefs)}"
+        )
+    }
+
+    /**
+     * `establish()` возвращает null молча — причину приходится выяснять отдельно.
+     * Это и есть «точная причина вместо “не удалось запустить”»: разрешение не
+     * выдано, его отозвали, туннель забрало другое приложение или список
+     * per-app правил оказался пустым в режиме «только выбранные».
+     */
+    private fun describeNullDescriptor(
+        vpnService: VpnService,
+        prefs: PreferencesManager
+    ): String {
+        val consentMissing = runCatching {
+            VpnService.prepare(vpnService.applicationContext) != null
+        }.getOrDefault(false)
+        if (consentMissing) {
+            return "разрешение на VPN не выдано или отозвано системой"
+        }
+
+        if (prefs.proxyByApp == 2 && prefs.getAppVpnOnlyList().none { it.isNotBlank() }) {
+            return "включён режим «только выбранные приложения», но список пуст"
+        }
+
+        val foreignVpn = runCatching { hasForeignVpnTransport(vpnService) }.getOrDefault(false)
+        if (foreignVpn) {
+            return "туннель удерживает другое VPN-приложение"
+        }
+
+        return "система вернула пустой дескриптор без объяснения"
+    }
+
+    /** Есть ли активный VPN-транспорт, который поднял не Nimbo. */
+    private fun hasForeignVpnTransport(vpnService: VpnService): Boolean {
+        val manager = vpnService.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        return manager.allNetworks.any { network ->
+            manager.getNetworkCapabilities(network)
+                ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        }
     }
 
     /**

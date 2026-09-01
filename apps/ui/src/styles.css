@@ -15916,3 +15916,415 @@ body[data-ui-style="signal"] .settings-card > .settings-row-block {
 body[data-ui-style="signal"] .settings-card > .settings-row-block:not(:first-child) {
   border-top: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
 }
+
+/* ============================================================ стиль Manga */
+/* Чернильные панели комикса. Ключевое отличие от прочих стилей: поверхности
+   непрозрачные, контур толстый, а глубину даёт не свечение, а смещённая тень —
+   как у панели, нарисованной пером. */
+
+body[data-ui-style="manga"] {
+  --manga-paper: #15130f;
+  --manga-paper-2: #1b1814;
+  --manga-paper-3: #232019;
+  --manga-ink: #f4eedf;
+  --manga-ink-dim: rgba(244, 238, 223, 0.62);
+  --manga-ink-faint: rgba(244, 238, 223, 0.36);
+  --manga-accent: #e63329;
+
+  --color-bg: var(--manga-paper);
+  --color-surface: var(--manga-paper-2);
+  --color-card: var(--manga-paper-2);
+  --color-border: var(--manga-ink);
+  --color-border-strong: var(--manga-ink);
+  --color-text: var(--manga-ink);
+  --color-text-dim: var(--manga-ink-dim);
+  --color-text-faint: var(--manga-ink-faint);
+  --color-glass-bg: var(--manga-paper-2);
+  --color-glass-bg-strong: var(--manga-paper-3);
+  --color-settings-divider: rgba(242, 236, 221, 0.28);
+
+  --ui-radius-sm: 2px;
+  --ui-radius-md: 3px;
+  --ui-radius-lg: 4px;
+  --ui-radius-xl: 4px;
+
+  --font-display: "Chivo", "Inter", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+
+  /* Лист бумаги: затемнение к краям, зерно волокон и еле заметная
+     разлиновка. Одна сетка давала тетрадь, а не страницу. */
+  background-color: var(--manga-paper);
+  background-image:
+    radial-gradient(120% 90% at 50% 42%, transparent 45%, rgba(0, 0, 0, 0.32) 100%),
+    repeating-conic-gradient(
+      rgba(244, 238, 223, 0.035) 0% 25%,
+      transparent 0% 50%
+    ),
+    linear-gradient(rgba(244, 238, 223, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(244, 238, 223, 0.025) 1px, transparent 1px);
+  background-size: 100% 100%, 3px 3px, 26px 26px, 26px 26px;
+  background-attachment: fixed, fixed, fixed, fixed;
+}
+
+body[data-ui-style="manga"][data-theme="light"] {
+  --manga-paper: #f3eddd;
+  --manga-paper-2: #fbf7ec;
+  --manga-paper-3: #ede6d3;
+  --manga-ink: #14120e;
+  --manga-ink-dim: rgba(20, 18, 14, 0.66);
+  --manga-ink-faint: rgba(20, 18, 14, 0.42);
+  --color-settings-divider: rgba(20, 18, 14, 0.26);
+  background-image:
+    radial-gradient(120% 90% at 50% 42%, transparent 48%, rgba(107, 91, 58, 0.12) 100%),
+    repeating-conic-gradient(
+      rgba(20, 18, 14, 0.04) 0% 25%,
+      transparent 0% 50%
+    ),
+    linear-gradient(rgba(20, 18, 14, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20, 18, 14, 0.035) 1px, transparent 1px);
+}
+
+body[data-ui-style="manga"][data-theme="black"] {
+  --manga-paper: #000000;
+  --manga-paper-2: #0b0b0f;
+  --manga-paper-3: #15151c;
+}
+
+/* Поверхности: сплошная бумага, толстый контур, тень со смещением. */
+body[data-ui-style="manga"] .glass,
+body[data-ui-style="manga"] .panel,
+body[data-ui-style="manga"] .liquid-card,
+body[data-ui-style="manga"] .settings-card,
+body[data-ui-style="manga"] .page-surface,
+body[data-ui-style="manga"] .server-side-panel,
+body[data-ui-style="manga"] .server-detail-card,
+body[data-ui-style="manga"] .server-detail-list {
+  background: var(--manga-paper-2) !important;
+  border: 2px solid var(--manga-ink) !important;
+  border-radius: var(--ui-radius-md) !important;
+  box-shadow: 5px 5px 0 0 var(--manga-ink) !important;
+  backdrop-filter: none !important;
+}
+
+body[data-ui-style="manga"] .settings-option,
+body[data-ui-style="manga"] .server-plaque {
+  background: var(--manga-paper-3) !important;
+  border: 1.5px solid var(--manga-ink) !important;
+  border-radius: var(--ui-radius-sm) !important;
+  box-shadow: none !important;
+}
+
+/* Рельс навигации: сплошная линия отреза вместо мягкой границы. */
+body[data-ui-style="manga"] .app-sidebar > .glass {
+  background: var(--manga-paper-2) !important;
+  border: none !important;
+  border-right: 2px solid var(--manga-ink) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-style="manga"] .app-nav-link {
+  border: 1.5px solid transparent;
+  border-radius: var(--ui-radius-sm);
+  color: var(--manga-ink-dim);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+body[data-ui-style="manga"] .app-nav-link:hover {
+  border-color: var(--manga-ink);
+  color: var(--manga-ink);
+}
+
+body[data-ui-style="manga"] .app-nav-link.is-active {
+  background: var(--manga-accent) !important;
+  border-color: var(--manga-ink);
+  color: #ffffff !important;
+}
+
+/* Кнопки: заливка акцентом и контур, никаких градиентов. */
+body[data-ui-style="manga"] .btn,
+body[data-ui-style="manga"] button.btn-primary,
+body[data-ui-style="manga"] .settings-button {
+  border: 1.5px solid var(--manga-ink) !important;
+  border-radius: var(--ui-radius-sm) !important;
+  box-shadow: 3px 3px 0 0 var(--manga-ink) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 700;
+}
+
+body[data-ui-style="manga"] .btn:active,
+body[data-ui-style="manga"] button.btn-primary:active,
+body[data-ui-style="manga"] .settings-button:active {
+  /* Нажатие «вдавливает» кнопку в бумагу: тень уходит, элемент смещается. */
+  transform: translate(3px, 3px);
+  box-shadow: none !important;
+}
+
+body[data-ui-style="manga"] input,
+body[data-ui-style="manga"] select,
+body[data-ui-style="manga"] textarea {
+  background: var(--manga-paper-3) !important;
+  border: 1.5px solid var(--manga-ink) !important;
+  border-radius: var(--ui-radius-sm) !important;
+  color: var(--manga-ink) !important;
+}
+
+/* Заголовки разделов: красная засечка слева, как в макете. */
+body[data-ui-style="manga"] .settings-section-title,
+body[data-ui-style="manga"] .page-title {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 800;
+}
+
+body[data-ui-style="manga"] .settings-section-title::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 1em;
+  margin-right: 10px;
+  background: var(--manga-accent);
+  transform: skewX(-12deg);
+  vertical-align: -0.12em;
+}
+
+/* Карточка выбора стиля в настройках. */
+body .settings-interface-card-manga .settings-interface-preview {
+  background: #0e0e12;
+  background-image:
+    linear-gradient(rgba(242, 236, 221, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(242, 236, 221, 0.06) 1px, transparent 1px);
+  background-size: 12px 12px, 12px 12px;
+}
+
+body .settings-interface-card-manga .settings-interface-preview-panel {
+  background: #f2ecdd;
+  border: 2px solid #f2ecdd;
+  border-radius: 2px;
+  box-shadow: 4px 4px 0 0 rgba(242, 236, 221, 0.45);
+}
+
+body .settings-interface-card-manga .settings-interface-preview-pill {
+  background: #e63329;
+  border-radius: 2px;
+}
+
+body .settings-interface-card-manga .settings-interface-preview-line {
+  background: #12120f;
+  border-radius: 1px;
+}
+
+body .settings-interface-card-manga .settings-interface-preview-nav {
+  background: #0e0e12;
+  border: 2px solid #f2ecdd;
+  border-radius: 2px;
+}
+
+body .settings-interface-card-manga .settings-interface-preview-nav > span {
+  background: rgba(242, 236, 221, 0.45);
+  border-radius: 1px;
+}
+
+body .settings-interface-card-manga .settings-interface-preview-nav > span.is-active {
+  background: #e63329;
+}
+
+/* Полное покрытие Manga. Многие страницы собраны из семантических классов и
+   Tailwind-утилит, поэтому базовые .glass/.btn выше не перехватывали поля,
+   фильтры, синхронизацию, уведомления и диалоги. Здесь геометрия задаётся по
+   роли компонента; круглыми остаются только настоящие индикаторы/аватары. */
+body[data-ui-style="manga"] :where(
+  button, [role="button"], [role="tab"], input, select, textarea,
+  .interactive, .primary-button, .page-back-button, .dark-input,
+  .settings-button, .settings-option, .settings-interface-card,
+  .settings-interface-preview, .settings-interface-preview-nav,
+  .server-plaque, .server-row-menu, .server-row-pill, .server-row-icon-button,
+  .routing-action-button, .routing-add-button, .routing-card-icon-btn,
+  .routing-editor-input, .routing-editor-section, .routing-editor-dialog,
+  .connections-action, .connections-icon-button, .connections-quick-button,
+  .connections-tabs, .cross-sync-primary, .cross-sync-secondary,
+  .cross-sync-direction-option, .cross-sync-link-device, .cross-sync-sync-now,
+  .notification-filter-chip, .notification-history-clear,
+  .notification-history-delete, .notification-toast-close
+) {
+  border-radius: var(--ui-radius-sm) !important;
+}
+
+body[data-ui-style="manga"] :where(
+  .page-surface, .panel, .settings-card, .settings-interface-card,
+  .server-plaque, .server-side-panel, .server-detail-card, .server-detail-list,
+  .routing-card-body, .routing-editor-dialog, .connections-section,
+  .connections-table, .cross-sync-card, .cross-sync-overview,
+  .cross-sync-pair-card, .cross-sync-status-card, .cross-sync-devices-card,
+  .notification-overview, .notification-history-list,
+  .notification-history-group-items, .notification-history-body,
+  .memory-card, .speed-card, .stats-card
+) {
+  background: var(--manga-paper-2) !important;
+  border: 2px solid var(--manga-ink) !important;
+  border-radius: var(--ui-radius-md) !important;
+  box-shadow: 5px 5px 0 var(--manga-ink) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body[data-ui-style="manga"] :where(
+  .settings-option, .server-row, .routing-card-head, .routing-editor-field,
+  .connections-row, .connections-live-row, .cross-sync-device-passport,
+  .cross-sync-subscriptions-preview, .cross-sync-option-autosync,
+  .notification-overview-stat, .notification-history-group,
+  .notification-history-tone, .notification-toast, .active-server-main,
+  .compact-server-bar
+) {
+  background: var(--manga-paper-3) !important;
+  border: 1.5px solid var(--manga-ink) !important;
+  border-radius: var(--ui-radius-sm) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body[data-ui-style="manga"] :where(
+  button, [role="button"], [role="tab"], .interactive, .primary-button,
+  .settings-button, .routing-action-button, .connections-action,
+  .connections-quick-button, .cross-sync-primary, .cross-sync-secondary,
+  .notification-filter-chip
+) {
+  border: 1.5px solid var(--manga-ink) !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body[data-ui-style="manga"] :where(
+  .is-active, .is-selected, [aria-current="page"], [aria-selected="true"],
+  [aria-pressed="true"], .server-row-selected, .server-row-pill-selected,
+  .routing-active-pill, .cross-sync-direction-option.is-active,
+  .notification-filter-chip.is-active
+) {
+  background: color-mix(in srgb, var(--color-accent) 18%, var(--manga-paper-3)) !important;
+  border: 2px solid var(--color-accent) !important;
+  color: var(--color-accent-bright) !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-style="manga"] :where(
+  .settings-toggle, .connection-toggle-switch, [role="switch"]
+) {
+  border: 2px solid var(--manga-ink) !important;
+  border-radius: var(--ui-radius-sm) !important;
+  background: var(--manga-paper-3) !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-style="manga"] :where(
+  .settings-toggle[data-on="true"], .connection-toggle-switch[data-on="true"],
+  [role="switch"][aria-checked="true"]
+) {
+  border-color: var(--color-accent) !important;
+  background: color-mix(in srgb, var(--color-accent) 28%, var(--manga-paper-3)) !important;
+}
+
+body[data-ui-style="manga"] :where(.settings-toggle-thumb, .connection-toggle-thumb) {
+  border-radius: 1px !important;
+  background: var(--manga-ink) !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-style="manga"] :where(
+  .notification-overview-progress, .cross-sync-timer-track,
+  .memory-card-svg, .speed-chart
+) {
+  border-radius: 1px !important;
+  filter: none !important;
+}
+
+body[data-ui-style="manga"] :where(
+  .app-dialog-backdrop, .routing-delete-backdrop, .routing-editor-backdrop
+) {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(0, 0, 0, 0.76) !important;
+}
+
+/* ------------------------------------------- анимация значков в меню */
+/* Значок активного пункта подскакивает один раз при переходе, при наведении
+   слегка подрастает. Всё внутри body[data-nav-motion="on"], поэтому выключение
+   настройки убирает движение целиком, а не «почти целиком». */
+
+body[data-nav-motion="on"] .app-nav-icon {
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body[data-nav-motion="on"] .app-nav-link:hover .app-nav-icon {
+  transform: scale(1.12);
+}
+
+/* Движение объясняет сам значок, поэтому оно разное: дом подпрыгивает,
+   глобус проворачивается, шестерёнка поворачивается на четверть оборота,
+   остальные коротко подскакивают. */
+body[data-nav-motion="on"] .app-nav-link-active .app-nav-icon {
+  animation: nimbo-nav-icon-pop 420ms cubic-bezier(0.2, 1.4, 0.35, 1);
+}
+
+body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="home"] .app-nav-icon {
+  animation: nimbo-nav-icon-hop 560ms cubic-bezier(0.2, 1.4, 0.35, 1);
+}
+
+body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="profiles"] .app-nav-icon {
+  animation: nimbo-nav-icon-spin 620ms cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="settings"] .app-nav-icon {
+  animation: nimbo-nav-icon-turn 560ms cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="apps"] .app-nav-icon,
+body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="statistics"] .app-nav-icon {
+  animation: nimbo-nav-icon-wobble 520ms ease-out;
+}
+
+@keyframes nimbo-nav-icon-hop {
+  0% { transform: translateY(0) scale(1, 1); }
+  30% { transform: translateY(-6px) scale(0.94, 1.1); }
+  62% { transform: translateY(0) scale(1.12, 0.9); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+
+@keyframes nimbo-nav-icon-spin {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.08); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+@keyframes nimbo-nav-icon-turn {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(90deg); }
+}
+
+@keyframes nimbo-nav-icon-wobble {
+  0% { transform: rotate(0deg); }
+  25% { transform: rotate(-10deg); }
+  55% { transform: rotate(7deg); }
+  80% { transform: rotate(-3deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes nimbo-nav-icon-pop {
+  0% { transform: translateY(0) scale(1); }
+  38% { transform: translateY(-4px) scale(1.2); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+/* Уважение к системной настройке: если пользователь просил меньше движения,
+   значки стоят на месте независимо от нашей галочки. */
+@media (prefers-reduced-motion: reduce) {
+  body[data-nav-motion="on"] .app-nav-link-active .app-nav-icon {
+    animation: none;
+  }
+  body[data-nav-motion="on"] .app-nav-link:hover .app-nav-icon {
+    transform: none;
+  }
+}

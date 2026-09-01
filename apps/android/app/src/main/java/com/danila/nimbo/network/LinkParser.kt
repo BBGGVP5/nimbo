@@ -4,6 +4,7 @@ import android.net.Uri
 import android.util.Base64
 import com.danila.nimbo.model.Server
 import org.json.JSONObject
+import java.net.URI
 
 object LinkParser {
     private val base64LikeRegex = Regex("^[A-Za-z0-9+/=_-]{8,}$")
@@ -205,10 +206,50 @@ object LinkParser {
             "trojan" -> parseTrojan(link, uri)
             "ss" -> parseShadowsocks(link, uri)
             "hy", "hy2", "hysteria2", "hysteria" -> parseHysteria2(link, uri)
+            "naive", "naive+https", "naive+quic" -> parseNaiveProxy(trimmed)
             "awg", "amneziawg" -> parseAwgLink(link, uri)
             "wireguard", "wg" -> parseWireGuardLink(link, uri)
             else -> parseVless(link, uri)
         }
+    }
+
+    private fun parseNaiveProxy(link: String): Server {
+        val parsed = runCatching { URI(link) }
+            .getOrElse { throw IllegalArgumentException("Некорректная ссылка NaiveProxy", it) }
+        val transport = when (parsed.scheme?.lowercase()) {
+            "naive+quic" -> "quic"
+            "naive", "naive+https" -> "https"
+            else -> throw IllegalArgumentException("Поддерживаются naive+https:// и naive+quic://")
+        }
+        val host = parsed.host?.trim().orEmpty()
+        if (host.isBlank()) throw IllegalArgumentException("В ссылке NaiveProxy не указан сервер")
+
+        val rawUserInfo = parsed.rawUserInfo.orEmpty()
+        val separator = rawUserInfo.indexOf(':')
+        if (separator <= 0 || separator == rawUserInfo.lastIndex) {
+            throw IllegalArgumentException("В ссылке NaiveProxy нужны имя пользователя и пароль")
+        }
+        val username = Uri.decode(rawUserInfo.substring(0, separator)).trim()
+        val password = Uri.decode(rawUserInfo.substring(separator + 1))
+        if (username.isBlank() || password.isBlank()) {
+            throw IllegalArgumentException("В ссылке NaiveProxy нужны имя пользователя и пароль")
+        }
+
+        val port = if (parsed.port > 0) parsed.port else 443
+        val displayName = Uri.decode(parsed.rawFragment.orEmpty()).trim().ifBlank { "NaiveProxy" }
+        return Server(
+            name = displayName,
+            host = host,
+            port = port,
+            uuid = username,
+            protocol = "naive",
+            security = "tls",
+            network = transport,
+            sni = host,
+            naiveUsername = username,
+            naivePassword = password,
+            naiveTransport = transport
+        )
     }
 
     // ---------- WireGuard / AmneziaWG ----------

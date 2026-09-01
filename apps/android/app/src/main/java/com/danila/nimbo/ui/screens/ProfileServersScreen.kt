@@ -649,6 +649,7 @@ private val PROTOCOL_FILTER_ORDER = listOf(
     "Trojan",
     "Shadowsocks",
     "Hysteria2",
+    "NaiveProxy",
     "TUIC",
     "AWG",
     "WireGuard",
@@ -664,6 +665,7 @@ private fun protocolFilterKey(protocolRaw: String?): String {
         protocol.contains("trojan") -> "Trojan"
         protocol.contains("shadowsocks") || protocol == "ss" -> "Shadowsocks"
         protocol.contains("hysteria") || protocol == "hy2" -> "Hysteria2"
+        protocol.contains("naive") -> "NaiveProxy"
         protocol.contains("tuic") -> "TUIC"
         protocol.contains("awg") || protocol.contains("amnezia") -> "AWG"
         protocol.contains("wireguard") || protocol == "wg" -> "WireGuard"
@@ -1195,6 +1197,7 @@ private fun buildProtocolInfo(server: Server, showJsonBadge: Boolean): List<Stri
         protocol.contains("trojan") -> "Trojan"
         protocol.contains("shadowsocks") || protocol.contains("ss") -> "Shadowsocks"
         protocol.contains("hysteria") || protocol == "hy2" -> "Hysteria2"
+        protocol.contains("naive") -> "NaiveProxy"
         protocol.contains("tuic") -> "TUIC"
         protocol.contains("awg") || protocol.contains("amnezia") -> "AWG"
         protocol.contains("wireguard") || protocol == "wg" -> "WireGuard"

@@ -775,6 +775,19 @@ function AppearanceSection({
               selected={preferences.ui_style === "signal"}
               onClick={() => onChange({ ui_style: "signal" })}
             />
+            <ToggleRow
+              label={m.settings.navIconMotion}
+              description={m.settings.navIconMotionDescription}
+              enabled={preferences.nav_icon_motion}
+              onToggle={(enabled: boolean) => onChange({ nav_icon_motion: enabled })}
+            />
+            <InterfaceStyleOption
+              styleId="manga"
+              title={m.settings.mangaStyle}
+              subtitle={m.settings.mangaStyleSubtitle}
+              selected={preferences.ui_style === "manga"}
+              onClick={() => onChange({ ui_style: "manga" })}
+            />
           </div>
         </CollapsibleSection>
 
@@ -2683,7 +2696,7 @@ function InterfaceStyleOption({
   selected,
   onClick,
 }: {
-  styleId: "signal" | "nimbo" | "material_you" | "dotted";
+  styleId: "signal" | "nimbo" | "material_you" | "dotted" | "manga";
   title: string;
   subtitle: string;
   selected: boolean;

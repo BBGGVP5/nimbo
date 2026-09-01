@@ -29,6 +29,7 @@ fun GlassCard(
         ElementStyleMode.OUTLINED -> RoundedCornerShape(12.dp)
         ElementStyleMode.SOFT_NEO -> RoundedCornerShape(22.dp)
         ElementStyleMode.SIGNAL -> RoundedCornerShape(18.dp)
+        ElementStyleMode.MANGA -> RoundedCornerShape(3.dp)
     }
 
     val backgroundBrush = when (elementStyle) {
@@ -70,6 +71,11 @@ fun GlassCard(
 
         // Signal: плоская поверхность без градиента — глубину даёт только
         // волосяная граница, как в приборной панели на десктопе.
+        // Manga: ровная бумага без градиента — цвет задаёт тема.
+        ElementStyleMode.MANGA -> Brush.linearGradient(
+            listOf(nebulaColors.panelFill, nebulaColors.panelFill)
+        )
+
         ElementStyleMode.SIGNAL -> Brush.linearGradient(
             listOf(
                 nebulaColors.textPrimary.copy(alpha = 0.02f),
@@ -85,6 +91,8 @@ fun GlassCard(
         ElementStyleMode.OUTLINED -> nebulaColors.onSurface.copy(alpha = 0.22f)
         ElementStyleMode.SOFT_NEO -> nebulaColors.accent.copy(alpha = 0.16f)
         ElementStyleMode.SIGNAL -> nebulaColors.textPrimary.copy(alpha = 0.075f)
+        // Контур — суть стиля: он почти непрозрачный и толще обычного.
+        ElementStyleMode.MANGA -> nebulaColors.panelBorder
     }
 
     val surfaceModifier = if (elementStyle == ElementStyleMode.LIQUID_GLASS) {
@@ -106,7 +114,11 @@ fun GlassCard(
                         alpha = 0.72f
                     )
                 } else {
-                    Modifier.border(1.dp, borderColor, shape)
+                    Modifier.border(
+                        if (elementStyle == ElementStyleMode.MANGA) 2.dp else 1.dp,
+                        borderColor,
+                        shape
+                    )
                 }
             )
     }

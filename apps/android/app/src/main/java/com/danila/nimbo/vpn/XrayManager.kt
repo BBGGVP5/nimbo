@@ -210,6 +210,46 @@ object XrayManager {
         }
     }
 
+    /**
+     * libXray сериализует структуры Xray без omitempty, поэтому в готовом JSON
+     * оказываются "target": null и "dest": null. Xray-core проверяет наличие
+     * ключа, а не значение, и клиентский REALITY уходит в серверную ветку с
+     * требованием serverNames. Пустые значения убираем целиком.
+     */
+    private fun stripJsonNulls(json: JSONObject) {
+        val keys = json.keys().asSequence().toList()
+        for (key in keys) {
+            when (val value = json.opt(key)) {
+                null, JSONObject.NULL -> json.remove(key)
+                is JSONObject -> stripJsonNulls(value)
+                is JSONArray -> stripJsonNulls(value)
+            }
+        }
+    }
+
+    private fun stripJsonNulls(array: JSONArray) {
+        for (i in 0 until array.length()) {
+            when (val value = array.opt(i)) {
+                is JSONObject -> stripJsonNulls(value)
+                is JSONArray -> stripJsonNulls(value)
+            }
+        }
+    }
+
+    /** Разбор без DNS: InetAddress.getByName полез бы в сеть за доменным именем. */
+    private fun isIpLiteral(value: String): Boolean = when {
+        value.isEmpty() -> false
+        value.contains(':') -> value.all {
+            it == ':' || it == '.' || it.isDigit() || it in 'a'..'f' || it in 'A'..'F'
+        }
+        else -> value.split('.').let { parts ->
+            parts.size == 4 && parts.all { part ->
+                part.isNotEmpty() && part.length <= 3 &&
+                    part.all(Char::isDigit) && part.toInt() <= 255
+            }
+        }
+    }
+
     private fun sanitizeXrayJsonString(config: String, server: Server? = null): String {
         return runCatching {
             val json = JSONObject(config)
@@ -227,6 +267,7 @@ object XrayManager {
         proxyServers: List<Server> = emptyList()
     ): JSONObject {
         val prefs = PreferencesManager(NebulaGuardApplication.instance)
+        stripJsonNulls(json)
         var inbounds = json.optJSONArray("inbounds") ?: JSONArray().also { json.put("inbounds", it) }
         val clientInbounds = JSONArray()
         for (i in 0 until inbounds.length()) {
@@ -273,6 +314,19 @@ object XrayManager {
         val outbounds = json.optJSONArray("outbounds") ?: JSONArray().also { json.put("outbounds", it) }
         val routing = json.optJSONObject("routing") ?: JSONObject().also { json.put("routing", it) }
         val rules = routing.optJSONArray("rules") ?: JSONArray().also { routing.put("rules", it) }
+
+        // libXray прячет имя сервера из #fragment ссылки в sendThrough
+        // (share/xray_json.go, setOutboundName), а xray-core ждёт там локальный
+        // IP-адрес и отвергает всю конфигурацию. Путь сюда лежит через
+        // convertShareLinksToXrayJson, поэтому чистим до проверки тегов.
+        for (i in 0 until outbounds.length()) {
+            val ob = outbounds.optJSONObject(i) ?: continue
+            val sendThrough = ob.optString("sendThrough").trim()
+            if (sendThrough.isNotEmpty() && !isIpLiteral(sendThrough)) {
+                ob.remove("sendThrough")
+                if (ob.optString("tag").isBlank()) ob.put("tag", "proxy")
+            }
+        }
 
         var hasDirect = false
         var hasBlock = false
@@ -725,7 +779,10 @@ object XrayManager {
             put("protocol", "tun")
             put("settings", JSONObject().apply {
                 put("name", "tun0")
-                put("MTU", if (prefs.packetFragmentationEnabled) 1280 else 1400)
+                // Ключ разбирается как "mtu" (infra/conf/tun.go); с заглавным
+                // MTU значение молча игнорировалось и ядро брало 1500, хотя
+                // сам VPN-интерфейс поднят с 1280/1400.
+                put("mtu", if (prefs.packetFragmentationEnabled) 1280 else 1400)
             })
             if (RoutingRuntimePolicy.shouldEnableSniffing(
                     userEnabled = prefs.trafficSniffingEnabled,
@@ -994,6 +1051,7 @@ object XrayManager {
             protocol.contains("trojan") -> "trojan"
             protocol == "ss" || protocol.contains("shadowsocks") -> "shadowsocks"
             protocol == "hy2" || protocol.contains("hysteria") -> "hysteria"
+            protocol == "naive" || protocol == "naiveproxy" || protocol.startsWith("naive+") -> "socks"
             else -> protocol
         }
     }
@@ -1024,11 +1082,18 @@ object XrayManager {
                 .put("version", 2)
                 .put("address", server.host)
                 .put("port", server.port)
+            "socks" -> JSONObject().put("servers", JSONArray().put(
+                JSONObject()
+                    .put("address", "127.0.0.1")
+                    .put("port", server.naiveLocalPort
+                        ?: error("NaiveProxy sidecar has not supplied a local SOCKS port"))
+            ))
             else -> error("Unsupported protocol for Xray: $protocol")
         }
     }
 
     private fun buildStreamSettings(server: Server): JSONObject? {
+        if (server.isNaiveProxy()) return null
         val serverProtocol = server.protocol.trim().lowercase()
         val rawNetwork = server.network
             ?.lowercase()

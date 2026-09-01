@@ -16,9 +16,21 @@ object SubscriptionRefreshSchedulePolicy {
         return elapsedMs >= delaySeconds(configuredSeconds) * 1_000L
     }
 
+    /**
+     * Subscription refreshes are intentionally paused while the tunnel is active.
+     * Besides avoiding noisy notifications, this prevents a profile/server list
+     * replacement from racing with the configuration currently used by the VPN.
+     */
+    fun canRefreshSubscriptions(
+        autoUpdateEnabled: Boolean,
+        vpnConnectionDesired: Boolean,
+        vpnStateActive: Boolean
+    ): Boolean = autoUpdateEnabled && !vpnConnectionDesired && !vpnStateActive
+
     fun shouldShowSystemNotification(
         notificationsEnabled: Boolean,
         appInForeground: Boolean,
-        changedSubscriptions: Int
-    ): Boolean = notificationsEnabled && !appInForeground && changedSubscriptions > 0
+        changedSubscriptions: Int,
+        vpnActive: Boolean = false
+    ): Boolean = notificationsEnabled && !appInForeground && changedSubscriptions > 0 && !vpnActive
 }

@@ -19,6 +19,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.danila.nimbo.utils.BackgroundHealth
+import com.danila.nimbo.utils.BackgroundHealthChecker
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
@@ -37,6 +45,7 @@ import com.danila.nimbo.model.UpdateInfo
 import com.danila.nimbo.model.UpdateChannel
 import com.danila.nimbo.model.UpdateKind
 import com.danila.nimbo.network.UpdateManager
+import com.danila.nimbo.network.UpdateWorkScheduler
 import com.danila.nimbo.network.UpdateDownloadProgress
 import com.danila.nimbo.network.UpdateDownloadStage
 import com.danila.nimbo.ui.components.ExpressiveCircularLoader
@@ -108,6 +117,7 @@ internal fun ColumnScope.UpdatesSettingsContent() {
     }
     var isChecking by remember { mutableStateOf(false) }
     var hasChecked by remember { mutableStateOf(false) }
+    var updateCheckError by remember { mutableStateOf<String?>(null) }
 
     // Новая настройка автопроверки
     var showUpdateDialog by remember { mutableStateOf(preferencesManager.showUpdateDialog) }
@@ -117,12 +127,24 @@ internal fun ColumnScope.UpdatesSettingsContent() {
     val downloadStatus by UpdateManager.downloadStatus.collectAsState()
     val isDownloading by UpdateManager.isDownloading.collectAsState()
     val downloadError by UpdateManager.downloadError.collectAsState()
+    val backgroundRetryMessage = t(
+        "Не удалось проверить обновления. Повторим в фоне, когда появится сеть.",
+        "Couldn't check updates. We'll retry in the background when a network is available."
+    )
 
     // Функция обновления данных
     val refreshData = suspend {
         isChecking = true
+        updateCheckError = null
         // Параллельно проверяем обнову и историю
-        val updateJob = scope.launch { updateInfo = UpdateManager.checkUpdate(context) }
+        val updateJob = scope.launch {
+            val result = runCatching { UpdateManager.checkUpdateInBackground(context) }
+            updateInfo = result.getOrNull()
+            if (result.isFailure) {
+                updateCheckError = backgroundRetryMessage
+                UpdateWorkScheduler.enqueueImmediate(context)
+            }
+        }
         val historyJob = scope.launch {
             UpdateManager.getReleaseInfoForTag("v${BuildConfig.VERSION_NAME}")
                 ?.let { currentInfo = it }
@@ -143,11 +165,26 @@ internal fun ColumnScope.UpdatesSettingsContent() {
         refreshData()
     }
 
+    // Состояние фоновых ограничений перечитываем при каждом входе на экран:
+    // пользователь мог только что снять оптимизацию батареи в настройках.
+    var backgroundHealth by remember { mutableStateOf(BackgroundHealthChecker.inspect(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                backgroundHealth = BackgroundHealthChecker.inspect(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     SubPageSectionHeader(t("Состояние", "Status"), icon = Icons.Default.Info)
         Spacer(Modifier.height(8.dp))
         UpdateStatusCard(
             isChecking = isChecking,
             hasUpdate = updateInfo != null,
+            checkError = updateCheckError,
             currentVersion = "v" + BuildConfig.VERSION_NAME
                 .replaceFirst(Regex("^v+", RegexOption.IGNORE_CASE), "")
                 .trim(),
@@ -157,11 +194,18 @@ internal fun ColumnScope.UpdatesSettingsContent() {
             updateInfo = updateInfo,
             onCheck = { scope.launch { refreshData() } },
             onInstall = {
-                scope.launch {
-                    UpdateManager.downloadAndInstall(context, updateInfo!!)
-                }
+                // Загрузку ведёт UpdateManager: она переживает уход с экрана и
+                // может быть приостановлена/продолжена из окна обновления.
+                UpdateManager.startDownload(context, updateInfo!!)
             }
         )
+
+        // Если система душит фон, «обновление не пришло» — не баг проверки,
+        // а корзина ожидания или гибернация. Показываем это прямо здесь.
+        if (backgroundHealth.hasIssues) {
+            Spacer(Modifier.height(12.dp))
+            BackgroundThrottleCard(health = backgroundHealth)
+        }
 
         Spacer(Modifier.height(24.dp))
 
@@ -449,10 +493,120 @@ private fun NimboGlassSection(content: @Composable () -> Unit) {
     }
 }
 
+/**
+ * Предупреждение о том, что система ограничивает фоновые проверки.
+ * Кнопка ведёт в системные настройки приложения — снять оптимизацию батареи
+ * и запрет на работу в фоне можно только там.
+ */
+@Composable
+private fun BackgroundThrottleCard(health: BackgroundHealth) {
+    val nebulaColors = LocalNebulaColors.current
+    val context = LocalContext.current
+    val reasons = buildList {
+        if (health.notificationsBlocked) {
+            add(t("уведомления выключены", "notifications are turned off"))
+        }
+        if (health.batteryOptimized) {
+            add(t("включена оптимизация батареи", "battery optimisation is on"))
+        }
+        if (health.throttled) {
+            add(
+                t(
+                    "система перевела приложение в режим редкого запуска",
+                    "the system moved the app to a rare standby bucket"
+                )
+            )
+        }
+        if (health.hibernationEnabled) {
+            add(
+                t(
+                    "включено усыпление неиспользуемых приложений",
+                    "hibernation of unused apps is on"
+                )
+            )
+        }
+    }
+
+    NimboGlassSection {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(nebulaColors.statusError.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.CloudOff,
+                        contentDescription = null,
+                        tint = nebulaColors.statusError,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = t(
+                            "Фоновые проверки ограничены",
+                            "Background checks are limited"
+                        ),
+                        color = nebulaColors.textPrimary,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = t(
+                            "Пока приложение не открывают, уведомление об обновлении может приходить с задержкой или не приходить вовсе.",
+                            "While the app is not opened, the update notification can be delayed or never arrive."
+                        ),
+                        color = nebulaColors.textSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+            }
+
+            if (reasons.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                reasons.forEach { reason ->
+                    Row(modifier = Modifier.padding(vertical = 2.dp)) {
+                        Text("•  ", color = nebulaColors.textTertiary, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = reason,
+                            color = nebulaColors.textSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            NimboUpdateButton(
+                label = t("Открыть настройки приложения", "Open app settings"),
+                icon = Icons.Default.Settings,
+                primary = false,
+                enabled = true,
+                onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.fromParts("package", context.packageName, null)
+                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                }
+            )
+        }
+    }
+}
+
 @Composable
 private fun UpdateStatusCard(
     isChecking: Boolean,
     hasUpdate: Boolean,
+    checkError: String?,
     currentVersion: String,
     isDownloading: Boolean,
     downloadStatus: UpdateDownloadProgress?,
@@ -478,6 +632,7 @@ private fun UpdateStatusCard(
                 ) {
                     val statusIcon = when {
                         isChecking -> null
+                        !checkError.isNullOrBlank() -> Icons.Default.CloudOff
                         hasUpdate -> Icons.Default.NewReleases
                         else -> Icons.Default.Verified
                     }
@@ -496,6 +651,8 @@ private fun UpdateStatusCard(
                     Text(
                         text = when {
                             isChecking -> t("Проверяем обновления", "Checking for updates")
+                            !checkError.isNullOrBlank() ->
+                                t("Проверка отложена", "Check postponed")
                             updateInfo?.kind == UpdateKind.REPAIR ->
                                 t("Дополнительное обновление", "Additional update")
                             hasUpdate -> t("Доступно обновление", "Update available")
@@ -507,6 +664,7 @@ private fun UpdateStatusCard(
                         maxLines = 2
                     )
                     val subtitleText = when {
+                        !checkError.isNullOrBlank() -> checkError
                         hasUpdate -> "Nimbo " + (updateInfo?.versionName
                             ?.replaceFirst(Regex("^v+", RegexOption.IGNORE_CASE), "")
                             ?.let { "v$it" }
@@ -645,24 +803,38 @@ private fun UpdateStatusCard(
                         }
                     }
                     Spacer(Modifier.height(14.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(14.dp)
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(nebulaColors.textPrimary.copy(alpha = 0.08f))
-                    ) {
+                    if (nebulaColors.isMaterialYou) {
+                        // В Material You прогресс рисует волнистый индикатор
+                        // M3 Expressive — как в системных приложениях Android 16.
+                        LinearWavyProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                        )
+                    } else {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(fraction.coerceAtLeast(0.01f))
-                                .fillMaxHeight()
+                                .fillMaxWidth()
+                                .height(14.dp)
                                 .clip(RoundedCornerShape(7.dp))
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(nebulaColors.accent.copy(alpha = 0.72f), nebulaColors.accent)
+                                .background(nebulaColors.textPrimary.copy(alpha = 0.08f))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(fraction.coerceAtLeast(0.01f))
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                nebulaColors.accent.copy(alpha = 0.72f),
+                                                nebulaColors.accent
+                                            )
+                                        )
                                     )
-                                )
-                        )
+                            )
+                        }
                     }
                     Spacer(Modifier.height(9.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

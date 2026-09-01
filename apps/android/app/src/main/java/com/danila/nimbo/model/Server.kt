@@ -45,6 +45,13 @@ data class Server(
     @SerializedName("hysteriaDown") val hysteriaDown: String? = null,
     @SerializedName("hysteriaCongestion") val hysteriaCongestion: String? = null,
 
+    // NaiveProxy. The native client is started as a sidecar and exposes a
+    // loopback SOCKS endpoint consumed by Xray.
+    @SerializedName("naiveUsername") val naiveUsername: String? = null,
+    @SerializedName("naivePassword") val naivePassword: String? = null,
+    @SerializedName("naiveTransport") val naiveTransport: String? = null,
+    @Transient val naiveLocalPort: Int? = null,
+
     // WireGuard
     @SerializedName("wgPrivateKey") val wgPrivateKey: String? = null,
     @SerializedName("wgPublicKey") val wgPublicKey: String? = null,
@@ -166,7 +173,9 @@ data class Server(
             hysteriaObfs?.lowercase().orEmpty(),
             hysteriaObfsPassword.orEmpty(),
             hysteriaPorts.orEmpty(),
-            hysteriaHopInterval.orEmpty()
+            hysteriaHopInterval.orEmpty(),
+            naiveUsername.orEmpty(),
+            naiveTransport?.lowercase().orEmpty()
         ).joinToString("|")
         val pingTargetPart = if (isRemoteTemplateServer()) {
             "|${normalized(pingHost)}|${pingPort ?: 0}|${normalized(remoteBalancerTag)}|${normalized(remoteOutboundTag)}"
@@ -200,6 +209,10 @@ data class Server(
     fun isAmneziaWg(): Boolean = protocol.equals("awg", true) || protocol.equals("amneziawg", true)
 
     fun isWireGuard(): Boolean = protocol.equals("wireguard", true)
+
+    fun isNaiveProxy(): Boolean = protocol.equals("naive", true) ||
+        protocol.equals("naiveproxy", true) ||
+        protocol.startsWith("naive+", true)
 
     /**
      * Протоколы, которые обслуживает нативный движок AmneziaWG (libwg-go)

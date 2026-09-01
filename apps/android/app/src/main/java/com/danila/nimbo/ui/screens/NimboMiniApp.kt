@@ -102,6 +102,7 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.BubbleChart
@@ -292,6 +293,7 @@ import com.danila.nimbo.ui.components.LiquidGlassDepth
 import com.danila.nimbo.ui.components.LiquidInteractionPolicy
 import com.danila.nimbo.ui.components.LocalNetworkEdgeBurstEmitter
 import com.danila.nimbo.ui.components.NebulaMorphicDialog
+import com.danila.nimbo.ui.components.NimboStyleSwitch
 import com.danila.nimbo.ui.components.NetworkEdgeBurstOverlay
 import com.danila.nimbo.ui.components.NotificationType
 import com.danila.nimbo.ui.components.QrCodeDisplayBottomSheet
@@ -300,6 +302,10 @@ import com.danila.nimbo.ui.components.SubscriptionBrandLogo
 import com.danila.nimbo.ui.screens.SubscriptionProfileMetadata
 import com.danila.nimbo.ui.screens.toMetadata
 import com.danila.nimbo.ui.components.ConnectionErrorDialog
+import com.danila.nimbo.ui.components.TrafficDailyBars
+import com.danila.nimbo.ui.components.TrafficSpeedChart
+import com.danila.nimbo.utils.AppTrafficStats
+import com.danila.nimbo.utils.TrafficHistory
 import com.danila.nimbo.ui.components.UpdateDialog
 import com.danila.nimbo.ui.components.PostUpdateDialog
 import com.danila.nimbo.ui.components.cleanServerName
@@ -312,10 +318,14 @@ import com.danila.nimbo.ui.components.rememberHapticSliderValueChange
 import com.danila.nimbo.ui.components.performConnectionSuccessHaptic
 import com.danila.nimbo.ui.components.tick
 import com.danila.nimbo.ui.navigation.BottomBarScrollTracker
-import com.danila.nimbo.ui.components.backgroundPaletteColors
-import com.danila.nimbo.ui.components.drawNimboBackgroundMotion
+import com.danila.nimbo.shared.ui.backgroundPaletteColors
+import com.danila.nimbo.shared.ui.drawNimboBackgroundMotion
 import com.danila.nimbo.ui.components.dotPatternOverlay
 import com.danila.nimbo.ui.components.dottedOutline
+import com.danila.nimbo.ui.components.nimboControlBorderColor
+import com.danila.nimbo.ui.components.nimboControlBorderWidth
+import com.danila.nimbo.ui.components.nimboControlContainer
+import com.danila.nimbo.ui.components.nimboControlShape
 import com.danila.nimbo.ui.theme.BackgroundPaletteMode
 import com.danila.nimbo.ui.theme.BackgroundStyleMode
 import com.danila.nimbo.ui.theme.DEFAULT_COLOR_THEME_INDEX
@@ -414,7 +424,7 @@ private enum class MiniSubscriptionTab { Proxies, Profiles }
 // Open — просто открыть; Paste/File — открыть и сразу выполнить метод (как одноимённые
 // кнопки в самом диалоге); Qr — сразу открыть сканер (без диалога).
 private enum class AddProfileAction { Open, Paste, File, Qr }
-private enum class InterfacePreviewKind { IosLiquidGlass, MaterialYou, Dotted, Signal }
+private enum class InterfacePreviewKind { IosLiquidGlass, MaterialYou, Dotted, Signal, Manga }
 
 @Composable
 fun NimboMiniApp(
@@ -1208,6 +1218,119 @@ fun NimboMiniApp(
     }
 }
 
+/**
+ * Прыжок значков нижней панели. Отдельно от движения фона: фон можно оставить
+ * живым, а панель — спокойной, и наоборот.
+ */
+@Composable
+private fun rememberNavIconMotionEnabled(): Boolean {
+    val context = LocalContext.current
+    val preferences = remember(context) { PreferencesManager(context) }
+    val enabled by preferences.navIconAnimationEnabledState
+    return enabled && rememberMiniMotionEnabled()
+}
+
+
+/** Как именно оживает значок. Выбирается по смыслу вкладки, а не по порядку. */
+private enum class NavIconMotionKind {
+    /** Дом: подпрыгивает и мягко приседает при посадке. */
+    HOP,
+    /** Глобус: короткий оборот вокруг вертикальной оси. */
+    SPIN,
+    /** Телефон: покачивание из стороны в сторону. */
+    WOBBLE,
+    /** Шестерёнка: проворачивается на четверть оборота. */
+    TURN
+}
+
+/** Состояние движения: размеры, подъём и поворот значка. */
+private data class NavIconBounce(
+    val scale: Float,
+    val lift: Float,
+    val rotation: Float = 0f,
+    val squash: Float = 1f
+)
+
+/**
+ * Короткий отклик значка на выбор вкладки.
+ *
+ * Подскок и поворот разведены намеренно: подскок обязан вернуться в исходное
+ * состояние, а поворот — нет. Общий прогресс на оба сразу и обрывал движение:
+ * на последнем кадре угол падал к нулю.
+ */
+@Composable
+private fun rememberNavIconBounce(
+    selected: Boolean,
+    kind: NavIconMotionKind = NavIconMotionKind.HOP
+): NavIconBounce {
+    val enabled = rememberNavIconMotionEnabled()
+    if (!enabled) return NavIconBounce(scale = 1f, lift = 0f)
+
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // Проигрыш идёт вперёд, от 0 к 1, и заканчивается там же, где начался.
+    val play = remember { Animatable(0f) }
+    // Угол накапливается: шестерёнка остаётся там, куда провернулась.
+    val angle = remember { Animatable(0f) }
+    LaunchedEffect(selected, kind) {
+        if (!selected) return@LaunchedEffect
+        launch {
+            play.snapTo(0f)
+            play.animateTo(1f, tween(durationMillis = 520, easing = FastOutSlowInEasing))
+        }
+        when (kind) {
+            NavIconMotionKind.SPIN ->
+                angle.animateTo(angle.value + 360f, tween(560, easing = FastOutSlowInEasing))
+            NavIconMotionKind.TURN ->
+                angle.animateTo(angle.value + 90f, tween(520, easing = FastOutSlowInEasing))
+            NavIconMotionKind.WOBBLE -> {
+                // Трубка качнулась и замерла ровно там, откуда пошла.
+                val rest = angle.value
+                listOf(15f, -10f, 5f, 0f).forEach { offset ->
+                    angle.animateTo(rest + offset, tween(115, easing = FastOutSlowInEasing))
+                }
+            }
+            NavIconMotionKind.HOP -> Unit
+        }
+    }
+
+    val value = play.value
+    // Дуга: ноль в начале и в конце, единица в середине.
+    val arc = kotlin.math.sin(value * kotlin.math.PI.toFloat())
+    return when (kind) {
+        NavIconMotionKind.HOP -> NavIconBounce(
+            scale = 1f + 0.12f * arc,
+            lift = with(density) { (-9).dp.toPx() } * arc,
+            // В полёте значок вытягивается, на приземлении — приседает.
+            squash = 1f - 0.12f * kotlin.math.sin(2f * kotlin.math.PI.toFloat() * value)
+        )
+        NavIconMotionKind.SPIN -> NavIconBounce(
+            scale = 1f + 0.10f * arc,
+            lift = 0f,
+            rotation = angle.value
+        )
+        NavIconMotionKind.WOBBLE -> NavIconBounce(
+            scale = 1f + 0.10f * arc,
+            lift = with(density) { (-3).dp.toPx() } * arc,
+            rotation = angle.value
+        )
+        NavIconMotionKind.TURN -> NavIconBounce(
+            scale = 1f + 0.10f * arc,
+            lift = 0f,
+            rotation = angle.value
+        )
+    }
+}
+
+/** Движение подбирается по вкладке: так оно объясняет сам значок. */
+private fun navMotionKind(destination: MiniDestination): NavIconMotionKind = when (destination) {
+    MiniDestination.Home -> NavIconMotionKind.HOP
+    MiniDestination.Subscription -> NavIconMotionKind.SPIN
+    MiniDestination.AppAccess -> NavIconMotionKind.WOBBLE
+    MiniDestination.Settings -> NavIconMotionKind.TURN
+    // Остальные пункты в нижнюю панель не попадают, но перечисление общее.
+    else -> NavIconMotionKind.HOP
+}
+
 @Composable
 private fun rememberMiniMotionEnabled(): Boolean {
     val context = LocalContext.current
@@ -1269,6 +1392,65 @@ private fun NimboBackdrop() {
         backgroundPaletteColors(paletteMode, accent, isLight)
     }
     val phase = rememberBackgroundPhase(enabled = motionEnabled)
+
+    // Manga: страница в клетку вместо свечения. Эффект фона здесь неуместен —
+    // он тянет за собой градиенты, из-за которых стиль переставал читаться как
+    // нарисованный. Выбранный эффект сохраняется и вернётся с другим стилем.
+    if (LocalElementStyleMode.current == ElementStyleMode.MANGA) {
+        val paper = nebulaColors.background
+        val ink = nebulaColors.panelBorder
+        // Волокна бумаги: набор точек, посчитанный один раз. Случайность с
+        // фиксированным зерном — иначе крапины плясали бы на каждом кадре.
+        val grain = remember(paper) {
+            val random = kotlin.random.Random(20260901)
+            List(1400) { Offset(random.nextFloat(), random.nextFloat()) }
+        }
+        Box(modifier = Modifier.fillMaxSize().background(paper)) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                // Разлиновка ушла в полутон: она держит ритм страницы, но уже
+                // не читается как тетрадный лист.
+                val step = 26.dp.toPx()
+                val line = ink.copy(alpha = if (isLight) 0.035f else 0.025f)
+                var x = 0f
+                while (x < size.width) {
+                    drawLine(line, Offset(x, 0f), Offset(x, size.height), 1f)
+                    x += step
+                }
+                var y = 0f
+                while (y < size.height) {
+                    drawLine(line, Offset(0f, y), Offset(size.width, y), 1f)
+                    y += step
+                }
+
+                val speckSize = androidx.compose.ui.geometry.Size(1.2f.dp.toPx(), 1.2f.dp.toPx())
+                val speck = ink.copy(alpha = if (isLight) 0.055f else 0.045f)
+                grain.forEach { point ->
+                    drawRect(
+                        color = speck,
+                        topLeft = Offset(point.x * size.width, point.y * size.height),
+                        size = speckSize
+                    )
+                }
+
+                // Лист лежит неровно: к краям он уходит в тень, к центру —
+                // высветляется. Без этого бумага выглядела заливкой.
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Transparent,
+                            (if (isLight) Color(0xFF6B5B3A) else Color.Black).copy(
+                                alpha = if (isLight) 0.10f else 0.30f
+                            )
+                        ),
+                        center = Offset(size.width * 0.5f, size.height * 0.42f),
+                        radius = kotlin.math.max(size.width, size.height) * 0.78f
+                    )
+                )
+            }
+        }
+        return
+    }
 
     // Подложка тонируется палитрой, но сдержанно: сильная заливка делала весь
     // экран светлее темы и «съедала» контраст с панелями. Низ всегда остаётся
@@ -2017,6 +2199,7 @@ private fun AddMethodChip(
         animationSpec = if (miniMotionEnabled) tween(100, easing = FastOutSlowInEasing) else snap(),
         label = "add-method-scale"
     )
+    val controlShape = nimboControlShape(16.dp, 2.dp)
     Box(
         modifier = modifier
             .height(62.dp)
@@ -2028,9 +2211,18 @@ private fun AddMethodChip(
                     Modifier
                 }
             )
-            .clip(RoundedCornerShape(16.dp))
-            .background(nebulaColors.accent.copy(alpha = 0.08f))
-            .border(1.dp, nebulaColors.accent.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
+            .clip(controlShape)
+            .background(
+                nimboControlContainer(
+                    nebulaColors.accent.copy(alpha = 0.08f),
+                    selected = false
+                )
+            )
+            .border(
+                nimboControlBorderWidth(),
+                nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.18f)),
+                controlShape
+            )
             .clickable(
                 indication = null,
                 interactionSource = interactionSource
@@ -2113,25 +2305,30 @@ private fun WindowsConnectionButton(
     var edgeBurstSource by remember { mutableStateOf<EdgeBurstSource?>(null) }
     val edgeBurstOutsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { 5.dp.toPx() }
     // Signal: не круг и не капсула, а строгая плашка приборной панели.
+    val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
     val outerShape = when {
+        mangaStyle -> RoundedCornerShape(4.dp)
         dottedStyle -> RoundedCornerShape(20.dp)
         signalStyle -> RoundedCornerShape(28.dp)
         materialYou -> RoundedCornerShape(48.dp)
         else -> CircleShape
     }
     val centerShape = when {
+        mangaStyle -> RoundedCornerShape(3.dp)
         dottedStyle -> RoundedCornerShape(14.dp)
         signalStyle -> RoundedCornerShape(22.dp)
         materialYou -> RoundedCornerShape(34.dp)
         else -> CircleShape
     }
     val outerSize = when {
+        mangaStyle -> 200.dp
         dottedStyle -> 196.dp
         signalStyle -> 200.dp
         materialYou -> 184.dp
         else -> 216.dp
     }
     val centerSize = when {
+        mangaStyle -> 152.dp
         dottedStyle -> 150.dp
         signalStyle -> 156.dp
         materialYou -> 166.dp
@@ -2223,6 +2420,24 @@ private fun WindowsConnectionButton(
                         thickness = 1.15.dp,
                         alpha = 0.92f
                     )
+            )
+        } else if (mangaStyle) {
+            // Manga: двойной контур — внешняя рамка и подложка со смещением,
+            // как у панели комикса.
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(start = 5.dp, top = 5.dp)
+                    .clip(outerShape)
+                    .background(nebulaColors.panelBorder.copy(alpha = 0.85f))
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(end = 5.dp, bottom = 5.dp)
+                    .clip(outerShape)
+                    .background(nebulaColors.panelFill)
+                    .border(2.5.dp, nebulaColors.panelBorder, outerShape)
             )
         } else if (signalStyle) {
             // Signal: строгая рамка по форме кнопки вместо концентрических
@@ -2622,14 +2837,28 @@ private fun WindowsSelectedServerBar(
     val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     val materialYou = nebulaColors.isMaterialYou
     val hasServer = server != null
-    val serverControlShape = RoundedCornerShape(if (dottedStyle) 8.dp else if (materialYou) 22.dp else 16.dp)
-    val serverIconShape = RoundedCornerShape(if (dottedStyle) 6.dp else if (materialYou) 14.dp else 11.dp)
+    val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
+    val serverControlShape = when {
+        mangaStyle -> nimboControlShape(16.dp, 2.dp)
+        dottedStyle -> RoundedCornerShape(8.dp)
+        materialYou -> RoundedCornerShape(22.dp)
+        else -> RoundedCornerShape(16.dp)
+    }
+    val serverIconShape = when {
+        mangaStyle -> nimboControlShape(11.dp, 2.dp)
+        dottedStyle -> RoundedCornerShape(6.dp)
+        materialYou -> RoundedCornerShape(14.dp)
+        else -> RoundedCornerShape(11.dp)
+    }
     val controlFill = if (hasServer) {
         nebulaColors.accent.copy(alpha = 0.08f).compositeOver(windowsControlFill(nebulaColors))
     } else {
         windowsControlFill(nebulaColors)
     }
+    val resolvedFill = if (mangaStyle) nimboControlContainer(controlFill, selected = hasServer) else controlFill
     val border = if (hasServer) nebulaColors.accent.copy(alpha = 0.34f) else windowsBorder(nebulaColors)
+    val resolvedBorder = if (mangaStyle) nimboControlBorderColor(border, selected = hasServer) else border
+    val resolvedBorderWidth = if (mangaStyle) nimboControlBorderWidth() else 1.dp
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -2641,8 +2870,8 @@ private fun WindowsSelectedServerBar(
                 .weight(1f)
                 .height(56.dp),
             shape = serverControlShape,
-            color = controlFill,
-            border = if (dottedStyle) null else BorderStroke(1.dp, border)
+            color = resolvedFill,
+            border = if (dottedStyle) null else BorderStroke(resolvedBorderWidth, resolvedBorder)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 if (dottedStyle) {
@@ -2664,7 +2893,11 @@ private fun WindowsSelectedServerBar(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(serverIconShape)
-                        .background(windowsSoftFill(nebulaColors)),
+                        .background(if (mangaStyle) nebulaColors.softFill else windowsSoftFill(nebulaColors))
+                        .then(
+                            if (mangaStyle) Modifier.border(2.dp, nebulaColors.panelBorder, serverIconShape)
+                            else Modifier
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     if (flagEmoji.isNotBlank()) {
@@ -2688,7 +2921,11 @@ private fun WindowsSelectedServerBar(
                     Box(
                         modifier = Modifier
                         .padding(start = 8.dp)
-                            .clip(if (dottedStyle) RoundedCornerShape(5.dp) else RoundedCornerShape(999.dp))
+                            .clip(
+                                if (mangaStyle) nimboControlShape(5.dp, 2.dp)
+                                else if (dottedStyle) RoundedCornerShape(5.dp)
+                                else RoundedCornerShape(999.dp)
+                            )
                             .nimboClickable(onClick = onServerClick)
                     ) {
                         WindowsPingPill(ping = currentPing, loading = isPinging, pingDisplayMode = pingDisplayMode)
@@ -2701,8 +2938,8 @@ private fun WindowsSelectedServerBar(
             onClick = onListClick,
             modifier = Modifier.size(56.dp),
             shape = serverControlShape,
-            color = controlFill,
-            border = if (dottedStyle) null else BorderStroke(1.dp, border)
+            color = resolvedFill,
+            border = if (dottedStyle) null else BorderStroke(resolvedBorderWidth, resolvedBorder)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 if (dottedStyle) {
@@ -2727,14 +2964,16 @@ private fun WindowsSearchField(
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
     val border = windowsBorder(nebulaColors)
     val fill = windowsControlFill(nebulaColors)
+    val shape = nimboControlShape(16.dp, 2.dp)
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier.height(56.dp),
         singleLine = true,
-        shape = RoundedCornerShape(16.dp),
+        shape = shape,
         leadingIcon = {
             Icon(Icons.Default.Search, null, tint = nebulaColors.textTertiary, modifier = Modifier.size(21.dp))
         },
@@ -2761,10 +3000,10 @@ private fun WindowsSearchField(
             fontWeight = FontWeight.SemiBold
         ),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = if (nebulaColors.isLight) Color(0xFFD8D5E2) else Color.White.copy(alpha = 0.14f),
-            unfocusedBorderColor = border,
-            focusedContainerColor = fill,
-            unfocusedContainerColor = fill,
+            focusedBorderColor = if (mangaStyle) nebulaColors.accent else if (nebulaColors.isLight) Color(0xFFD8D5E2) else Color.White.copy(alpha = 0.14f),
+            unfocusedBorderColor = if (mangaStyle) nebulaColors.panelBorder else border,
+            focusedContainerColor = if (mangaStyle) nebulaColors.controlFill else fill,
+            unfocusedContainerColor = if (mangaStyle) nebulaColors.controlFill else fill,
             cursorColor = nebulaColors.accent,
             focusedTextColor = nebulaColors.textPrimary,
             unfocusedTextColor = nebulaColors.textPrimary
@@ -4758,7 +4997,12 @@ private fun WindowsProfileServerLine(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
-    val resolvedRowShape = if (dottedStyle) RoundedCornerShape(8.dp) else rowShape
+    val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
+    val resolvedRowShape = when {
+        mangaStyle -> RoundedCornerShape(3.dp)
+        dottedStyle -> RoundedCornerShape(8.dp)
+        else -> rowShape
+    }
     val flagEmoji = extractFlagEmoji(server.name)
     var menuExpanded by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
@@ -4789,9 +5033,15 @@ private fun WindowsProfileServerLine(
                                 cornerRadius = 8.dp,
                                 alpha = 0.96f
                             )
+                    } else if (mangaStyle) {
+                        Modifier.border(2.dp, nebulaColors.accent, resolvedRowShape)
                     } else {
                         Modifier.border(1.dp, nebulaColors.accent.copy(alpha = 0.68f), resolvedRowShape)
                     }
+                } else if (mangaStyle) {
+                    // Невыбранные строки тоже нарисованы — иначе список в
+                    // Manga распадался на висящий в пустоте текст.
+                    Modifier.border(1.5.dp, nebulaColors.panelBorder.copy(alpha = 0.45f), resolvedRowShape)
                 } else {
                     Modifier
                 }
@@ -4808,8 +5058,15 @@ private fun WindowsProfileServerLine(
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color.White.copy(alpha = 0.055f)),
+                    .clip(if (mangaStyle) RoundedCornerShape(2.dp) else RoundedCornerShape(10.dp))
+                    .background(
+                        if (mangaStyle) nebulaColors.softFill else Color.White.copy(alpha = 0.055f)
+                    )
+                    .then(
+                        if (mangaStyle) {
+                            Modifier.border(1.5.dp, nebulaColors.panelBorder, RoundedCornerShape(2.dp))
+                        } else Modifier
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 if (flagEmoji.isNotBlank()) {
@@ -4823,9 +5080,15 @@ private fun WindowsProfileServerLine(
                             .align(Alignment.BottomEnd)
                             .offset(x = 3.dp, y = 3.dp)
                             .size(17.dp)
-                            .clip(CircleShape)
+                            .clip(if (mangaStyle) RoundedCornerShape(2.dp) else CircleShape)
                             .background(nebulaColors.background)
-                            .border(1.dp, nebulaColors.accent.copy(alpha = 0.45f), CircleShape),
+                            .then(
+                                if (mangaStyle) {
+                                    Modifier.border(1.5.dp, nebulaColors.panelBorder, RoundedCornerShape(2.dp))
+                                } else {
+                                    Modifier.border(1.dp, nebulaColors.accent.copy(alpha = 0.45f), CircleShape)
+                                }
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -5183,15 +5446,23 @@ private fun PingPulsingDot(color: Color) {
 @Composable
 private fun WindowsTinyBadge(text: String, green: Boolean) {
     val nebulaColors = LocalNebulaColors.current
+    val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
     val fillAlpha = if (green) 0.16f else 0.10f
+    // Круглая пилюля — примета стекла. В Manga это прямоугольная врезка с
+    // чернильным контуром, как подпись в кадре.
+    val badgeShape = if (mangaStyle) RoundedCornerShape(2.dp) else RoundedCornerShape(999.dp)
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(badgeShape)
             .background(nebulaColors.accent.copy(alpha = fillAlpha))
             .border(
-                0.5.dp,
-                nebulaColors.accent.copy(alpha = if (green) 0.34f else 0.22f),
-                RoundedCornerShape(999.dp)
+                if (mangaStyle) 1.5.dp else 0.5.dp,
+                if (mangaStyle) {
+                    nebulaColors.accent
+                } else {
+                    nebulaColors.accent.copy(alpha = if (green) 0.34f else 0.22f)
+                },
+                badgeShape
             )
             .padding(horizontal = 7.dp, vertical = 3.dp)
     ) {
@@ -6550,6 +6821,107 @@ private fun BackupActionButton(
 }
 
 // ── #13 Статистика ──────────────────────────────────────────────────────────
+/** Строка расхода одного приложения: имя, полоса и объём. */
+@Composable
+private fun AppTrafficRow(
+    app: com.danila.nimbo.utils.AppTraffic,
+    fraction: Float,
+    accent: Color,
+    showDivider: Boolean
+) {
+    val nebulaColors = LocalNebulaColors.current
+    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = app.label,
+                color = nebulaColors.textPrimary,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = formatBytesPrecise(app.total),
+                color = nebulaColors.textSecondary,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(nebulaColors.textPrimary.copy(alpha = 0.07f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fraction.coerceIn(0.02f, 1f))
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(accent.copy(alpha = 0.85f))
+            )
+        }
+        if (showDivider) Spacer(Modifier.height(4.dp))
+    }
+}
+
+/** Одна строка журнала сессий: когда, сколько длилась и сколько прокачано. */
+@Composable
+private fun TrafficSessionRow(
+    session: com.danila.nimbo.utils.TrafficSession,
+    downloadColor: Color,
+    uploadColor: Color,
+    showDivider: Boolean
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val startedAt = remember(session.startMs) {
+        java.text.SimpleDateFormat("d MMM, HH:mm", Locale.getDefault())
+            .format(java.util.Date(session.startMs))
+    }
+    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = session.server.ifBlank { t("Сервер", "Server") },
+                    color = nebulaColors.textPrimary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = startedAt + " · " + formatDuration(session.durationSeconds.toInt()),
+                    color = nebulaColors.textTertiary,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = "↓ " + formatBytesPrecise(session.down),
+                    color = downloadColor,
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Text(
+                    text = "↑ " + formatBytesPrecise(session.up),
+                    color = uploadColor,
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+        }
+        if (showDivider) {
+            Spacer(Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(nebulaColors.textPrimary.copy(alpha = 0.06f))
+            )
+        }
+    }
+}
+
 @Composable
 private fun ColumnScope.StatisticsSettingsSection(
     preferencesManager: PreferencesManager
@@ -6601,6 +6973,156 @@ private fun ColumnScope.StatisticsSettingsSection(
         )
     }
 
+    // ── График скорости за последнюю минуту ────────────────────────────────
+    val speedSamples = TrafficHistory.speedSamples
+    val downloadColor = nebulaColors.accent
+    val uploadColor = nebulaColors.statusConnected
+
+    Spacer(Modifier.height(16.dp))
+    StatGroupCard(title = t("СКОРОСТЬ ЗА МИНУТУ", "SPEED, LAST MINUTE")) {
+        if (speedSamples.size < 2) {
+            Text(
+                text = if (vpnState == VpnState.CONNECTED) {
+                    t("Собираем данные…", "Collecting data…")
+                } else {
+                    t("График появится после подключения", "The chart appears once connected")
+                },
+                color = nebulaColors.textTertiary,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(vertical = 18.dp)
+            )
+        } else {
+            TrafficSpeedChart(
+                samples = speedSamples,
+                downloadColor = downloadColor,
+                uploadColor = uploadColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .padding(top = 6.dp, bottom = 10.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "↓ " + formatSpeedLabel(downloadSpeed),
+                    color = downloadColor,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "↑ " + formatSpeedLabel(uploadSpeed),
+                    color = uploadColor,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+
+    // ── Расход по дням ────────────────────────────────────────────────────
+    val historyRevision = TrafficHistory.revision.value
+    val days = remember(historyRevision, statsRefresh, connectedSeconds / 60) {
+        TrafficHistory.recentDays(limit = 7)
+    }
+
+    Spacer(Modifier.height(16.dp))
+    StatGroupCard(title = t("ЗА НЕДЕЛЮ", "LAST 7 DAYS")) {
+        TrafficDailyBars(
+            days = days,
+            downloadColor = downloadColor,
+            uploadColor = uploadColor,
+            formatBytes = { formatBytesPrecise(it) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+        )
+    }
+
+    // ── По приложениям ────────────────────────────────────────────────────
+    // Разбивку туннеля ядро не отдаёт, поэтому берём системную статистику сети.
+    // Это честные цифры системы, но по всей сети, а не только через VPN — так и
+    // подписано, чтобы никто не принял их за расход внутри туннеля.
+    var usageAccess by remember(statsRefresh) { mutableStateOf(AppTrafficStats.hasUsageAccess(context)) }
+    val appTraffic = remember(usageAccess, statsRefresh, historyRevision) {
+        if (usageAccess) {
+            val since = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L
+            AppTrafficStats.query(context, sinceMs = since)
+        } else {
+            emptyList()
+        }
+    }
+
+    Spacer(Modifier.height(16.dp))
+    StatGroupCard(title = t("ПО ПРИЛОЖЕНИЯМ · 7 ДНЕЙ", "BY APP · 7 DAYS")) {
+        if (!usageAccess) {
+            Text(
+                text = t(
+                    "Android отдаёт расход по приложениям только с разрешением «Доступ к данным использования».",
+                    "Android shares per-app usage only with the «Usage access» permission."
+                ),
+                color = nebulaColors.textSecondary,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)
+            )
+            BackupActionButton(
+                label = t("Выдать разрешение", "Grant permission"),
+                icon = Icons.Default.Settings,
+                primary = false,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    runCatching { context.startActivity(AppTrafficStats.usageAccessSettingsIntent()) }
+                    usageAccess = AppTrafficStats.hasUsageAccess(context)
+                }
+            )
+        } else if (appTraffic.isEmpty()) {
+            Text(
+                text = t("Система пока не отдала данных за период.", "The system has no data for this period yet."),
+                color = nebulaColors.textTertiary,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(vertical = 14.dp)
+            )
+        } else {
+            val peak = appTraffic.maxOf { it.total }.coerceAtLeast(1L)
+            appTraffic.forEachIndexed { index, app ->
+                AppTrafficRow(
+                    app = app,
+                    fraction = app.total.toFloat() / peak.toFloat(),
+                    accent = nebulaColors.accent,
+                    showDivider = index < appTraffic.lastIndex
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = t(
+                    "Данные системы: весь сетевой трафик приложения, включая обмен вне туннеля.",
+                    "System data: all app network traffic, including traffic outside the tunnel."
+                ),
+                color = nebulaColors.textTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                lineHeight = MaterialTheme.typography.labelSmall.lineHeight,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+        }
+    }
+
+    // ── Журнал сессий ─────────────────────────────────────────────────────
+    val sessions = remember(historyRevision, statsRefresh, vpnState) { TrafficHistory.sessions() }
+    if (sessions.isNotEmpty()) {
+        Spacer(Modifier.height(16.dp))
+        StatGroupCard(title = t("ПОСЛЕДНИЕ СЕССИИ", "RECENT SESSIONS")) {
+            sessions.take(8).forEachIndexed { index, session ->
+                TrafficSessionRow(
+                    session = session,
+                    downloadColor = downloadColor,
+                    uploadColor = uploadColor,
+                    showDivider = index < sessions.take(8).lastIndex
+                )
+            }
+        }
+    }
+
     Spacer(Modifier.height(16.dp))
     StatGroupCard(title = t("ЗА ВСЁ ВРЕМЯ", "ALL TIME")) {
         StatLine(t("Отправлено", "Sent"), formatBytesPrecise(allUp))
@@ -6644,6 +7166,7 @@ private fun ColumnScope.StatisticsSettingsSection(
         modifier = Modifier.fillMaxWidth(),
         onClick = {
             preferencesManager.resetTrafficStats()
+            TrafficHistory.clear()
             statsRefresh++
             android.widget.Toast.makeText(
                 context,
@@ -6774,7 +7297,10 @@ private fun StatGroupCard(title: String, content: @Composable ColumnScope.() -> 
             modifier = Modifier.padding(start = 2.dp, bottom = 10.dp)
         )
         WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+            // Ряды внутри держат свою высоту сами, а вот обычный текст в конце
+            // упирался в нижнюю кромку и обрезался скруглением — карточке нужен
+            // небольшой вертикальный запас.
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                 content()
             }
         }
@@ -7150,12 +7676,24 @@ private data class FirewallRowData(
     val name: String,
     val packageName: String,
     val icon: androidx.compose.ui.graphics.ImageBitmap?,
+    /** Мгновенная скорость: разница двух опросов системной статистики. */
     val rxRate: Long,
     val txRate: Long,
+    /** Накопленный объём за сутки — его система отдаёт всегда. */
+    val rxTotal: Long,
+    val txTotal: Long,
     val domains: List<String>,
     val route: String,
     val isProxied: Boolean
 )
+
+/** Полночь текущих суток — окно, за которое просим системную статистику. */
+private fun startOfTodayMillis(): Long = java.util.Calendar.getInstance().apply {
+    set(java.util.Calendar.HOUR_OF_DAY, 0)
+    set(java.util.Calendar.MINUTE, 0)
+    set(java.util.Calendar.SECOND, 0)
+    set(java.util.Calendar.MILLISECOND, 0)
+}.timeInMillis
 
 private fun getDomainsForFirewall(packageName: String, appName: String): List<String> {
     // Android's public TrafficStats API exposes per-UID byte counters, not DNS
@@ -7280,63 +7818,78 @@ private fun ColumnScope.FirewallScreenContent(
                 }
         }
 
-        val baselineStats = mutableMapOf<Int, Pair<Long, Long>>()
-        appList.forEach { app ->
-            val rx = android.net.TrafficStats.getUidRxBytes(app.uid).coerceAtLeast(0L)
-            val tx = android.net.TrafficStats.getUidTxBytes(app.uid).coerceAtLeast(0L)
-            baselineStats[app.uid] = Pair(rx, tx)
-        }
-
-        var prevStats = baselineStats.toMutableMap()
+        // TrafficStats.getUidRxBytes для чужого UID возвращает UNSUPPORTED (-1)
+        // начиная с Android 7 — из-за этого экран навсегда застревал на «ожидании
+        // активности». Реальные цифры отдаёт NetworkStatsManager, и то по
+        // разрешению «Доступ к данным использования».
+        val metaByUid = appList.associateBy { it.uid }
+        var prevTotals = mapOf<Int, Pair<Long, Long>>()
         var lastPollTime = System.currentTimeMillis()
 
         while (true) {
+            if (!AppTrafficStats.hasUsageAccess(context)) {
+                firewallRows = emptyList()
+                kotlinx.coroutines.delay(2000)
+                continue
+            }
+
             val now = System.currentTimeMillis()
             val timeDeltaSec = ((now - lastPollTime) / 1000f).coerceAtLeast(0.1f)
             lastPollTime = now
 
-            val currentRows = mutableListOf<FirewallRowData>()
-            val currentStats = mutableMapOf<Int, Pair<Long, Long>>()
-
-            appList.forEach { app ->
-                val rx = android.net.TrafficStats.getUidRxBytes(app.uid).coerceAtLeast(0L)
-                val tx = android.net.TrafficStats.getUidTxBytes(app.uid).coerceAtLeast(0L)
-                currentStats[app.uid] = Pair(rx, tx)
-
-                val prev = prevStats[app.uid] ?: Pair(rx, tx)
-                var rxRate = ((rx - prev.first) / timeDeltaSec).toLong().coerceAtLeast(0L)
-                var txRate = ((tx - prev.second) / timeDeltaSec).toLong().coerceAtLeast(0L)
-
-                if (rxRate > 0L || txRate > 0L) {
-                    val domains = getDomainsForFirewall(app.packageName, app.name)
-                    val (routeName, isProxied) = calculateRouteForFirewall(
-                        app.packageName,
-                        preferencesManager,
-                        activeServer,
-                        vpnState == VpnState.CONNECTED
-                    )
-
-                    currentRows.add(
-                        FirewallRowData(
-                            uid = app.uid,
-                            name = app.name,
-                            packageName = app.packageName,
-                            icon = app.icon,
-                            rxRate = rxRate,
-                            txRate = txRate,
-                            domains = domains,
-                            route = routeName,
-                            isProxied = isProxied
-                        )
-                    )
-                }
+            val usage = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                AppTrafficStats.query(
+                    context,
+                    sinceMs = startOfTodayMillis(),
+                    untilMs = now,
+                    limit = 60
+                )
             }
 
-            prevStats = currentStats
-            currentRows.sortByDescending { it.rxRate + it.txRate }
-            firewallRows = currentRows.take(40) // Keep top 40 most active ones for performance
+            val currentTotals = usage.associate { it.uid to (it.down to it.up) }
+            val rows = usage.map { app ->
+                val meta = metaByUid[app.uid]
+                val previous = prevTotals[app.uid]
+                val rxRate = previous
+                    ?.let { ((app.down - it.first) / timeDeltaSec).toLong().coerceAtLeast(0L) }
+                    ?: 0L
+                val txRate = previous
+                    ?.let { ((app.up - it.second) / timeDeltaSec).toLong().coerceAtLeast(0L) }
+                    ?: 0L
+                val (routeName, isProxied) = calculateRouteForFirewall(
+                    app.packageName,
+                    preferencesManager,
+                    activeServer,
+                    vpnState == VpnState.CONNECTED
+                )
+                FirewallRowData(
+                    uid = app.uid,
+                    name = meta?.name ?: app.label,
+                    packageName = app.packageName,
+                    icon = meta?.icon,
+                    rxRate = rxRate,
+                    txRate = txRate,
+                    rxTotal = app.down,
+                    txTotal = app.up,
+                    domains = getDomainsForFirewall(app.packageName, meta?.name ?: app.label),
+                    route = routeName,
+                    isProxied = isProxied
+                )
+            }
 
-            kotlinx.coroutines.delay(2000)
+            prevTotals = currentTotals
+            // Сортируем по текущей активности, но список не схлопывается в пустой,
+            // когда прямо сейчас никто ничего не качает.
+            firewallRows = rows
+                .sortedWith(
+                    compareByDescending<FirewallRowData> { it.rxRate + it.txRate }
+                        .thenByDescending { it.rxTotal + it.txTotal }
+                )
+                .take(40)
+
+            // Системная статистика обновляется рывками, чаще пяти секунд её
+            // дёргать бессмысленно — и дельта скорости получается осмысленнее.
+            kotlinx.coroutines.delay(5000)
         }
     }
 
@@ -7440,22 +7993,41 @@ private fun ColumnScope.FirewallScreenContent(
 
         if (filteredRows.isEmpty()) {
             WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(24.dp),
-                    contentAlignment = Alignment.Center
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = if (query.isNotBlank()) {
-                            t("Нет активных соединений по вашему запросу", "No active connections match your query")
-                        } else {
-                            t("Ожидание сетевой активности процессов…", "Waiting for process network activity…")
+                        text = when {
+                            query.isNotBlank() ->
+                                t("Нет активных соединений по вашему запросу", "No active connections match your query")
+                            !AppTrafficStats.hasUsageAccess(context) -> t(
+                                "Расход по приложениям Android отдаёт только с разрешением «Доступ к данным использования».",
+                                "Android shares per-app usage only with the «Usage access» permission."
+                            )
+                            else ->
+                                t("Ожидание сетевой активности процессов…", "Waiting for process network activity…")
                         },
                         color = nebulaColors.textTertiary,
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+                    if (query.isBlank() && !AppTrafficStats.hasUsageAccess(context)) {
+                        Spacer(Modifier.height(14.dp))
+                        BackupActionButton(
+                            label = t("Выдать разрешение", "Grant permission"),
+                            icon = Icons.Default.Settings,
+                            primary = false,
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                runCatching {
+                                    context.startActivity(AppTrafficStats.usageAccessSettingsIntent())
+                                }
+                            }
+                        )
+                    }
                 }
             }
         } else {
@@ -7549,63 +8121,76 @@ private fun FirewallMonitorSection(
                 }
         }
 
-        val baselineStats = mutableMapOf<Int, Pair<Long, Long>>()
-        appList.forEach { app ->
-            val rx = android.net.TrafficStats.getUidRxBytes(app.uid).coerceAtLeast(0L)
-            val tx = android.net.TrafficStats.getUidTxBytes(app.uid).coerceAtLeast(0L)
-            baselineStats[app.uid] = Pair(rx, tx)
-        }
-
-        var prevStats = baselineStats.toMutableMap()
+        // TrafficStats.getUidRxBytes для чужого UID возвращает UNSUPPORTED (-1)
+        // начиная с Android 7 — из-за этого экран навсегда застревал на «ожидании
+        // активности». Реальные цифры отдаёт NetworkStatsManager, и то по
+        // разрешению «Доступ к данным использования».
+        val metaByUid = appList.associateBy { it.uid }
+        var prevTotals = mapOf<Int, Pair<Long, Long>>()
         var lastPollTime = System.currentTimeMillis()
 
         while (true) {
+            if (!AppTrafficStats.hasUsageAccess(context)) {
+                firewallRows = emptyList()
+                kotlinx.coroutines.delay(2000)
+                continue
+            }
+
             val now = System.currentTimeMillis()
             val timeDeltaSec = ((now - lastPollTime) / 1000f).coerceAtLeast(0.1f)
             lastPollTime = now
 
-            val currentRows = mutableListOf<FirewallRowData>()
-            val currentStats = mutableMapOf<Int, Pair<Long, Long>>()
-
-            appList.forEach { app ->
-                val rx = android.net.TrafficStats.getUidRxBytes(app.uid).coerceAtLeast(0L)
-                val tx = android.net.TrafficStats.getUidTxBytes(app.uid).coerceAtLeast(0L)
-                currentStats[app.uid] = Pair(rx, tx)
-
-                val prev = prevStats[app.uid] ?: Pair(rx, tx)
-                var rxRate = ((rx - prev.first) / timeDeltaSec).toLong().coerceAtLeast(0L)
-                var txRate = ((tx - prev.second) / timeDeltaSec).toLong().coerceAtLeast(0L)
-
-                if (rxRate > 0L || txRate > 0L) {
-                    val domains = getDomainsForFirewall(app.packageName, app.name)
-                    val (routeName, isProxied) = calculateRouteForFirewall(
-                        app.packageName,
-                        preferencesManager,
-                        activeServer,
-                        vpnState == VpnState.CONNECTED
-                    )
-
-                    currentRows.add(
-                        FirewallRowData(
-                            uid = app.uid,
-                            name = app.name,
-                            packageName = app.packageName,
-                            icon = app.icon,
-                            rxRate = rxRate,
-                            txRate = txRate,
-                            domains = domains,
-                            route = routeName,
-                            isProxied = isProxied
-                        )
-                    )
-                }
+            val usage = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                AppTrafficStats.query(
+                    context,
+                    sinceMs = startOfTodayMillis(),
+                    untilMs = now,
+                    limit = 60
+                )
             }
 
-            prevStats = currentStats
-            currentRows.sortByDescending { it.rxRate + it.txRate }
-            firewallRows = currentRows.take(15) // Keep top 15 most active ones
+            val currentTotals = usage.associate { it.uid to (it.down to it.up) }
+            val rows = usage.map { app ->
+                val meta = metaByUid[app.uid]
+                val previous = prevTotals[app.uid]
+                val rxRate = previous
+                    ?.let { ((app.down - it.first) / timeDeltaSec).toLong().coerceAtLeast(0L) }
+                    ?: 0L
+                val txRate = previous
+                    ?.let { ((app.up - it.second) / timeDeltaSec).toLong().coerceAtLeast(0L) }
+                    ?: 0L
+                val (routeName, isProxied) = calculateRouteForFirewall(
+                    app.packageName,
+                    preferencesManager,
+                    activeServer,
+                    vpnState == VpnState.CONNECTED
+                )
+                FirewallRowData(
+                    uid = app.uid,
+                    name = meta?.name ?: app.label,
+                    packageName = app.packageName,
+                    icon = meta?.icon,
+                    rxRate = rxRate,
+                    txRate = txRate,
+                    rxTotal = app.down,
+                    txTotal = app.up,
+                    domains = getDomainsForFirewall(app.packageName, meta?.name ?: app.label),
+                    route = routeName,
+                    isProxied = isProxied
+                )
+            }
 
-            kotlinx.coroutines.delay(2000)
+            prevTotals = currentTotals
+            // Сортируем по текущей активности, но список не схлопывается в пустой,
+            // когда прямо сейчас никто ничего не качает.
+            firewallRows = rows
+                .sortedWith(
+                    compareByDescending<FirewallRowData> { it.rxRate + it.txRate }
+                        .thenByDescending { it.rxTotal + it.txTotal }
+                )
+                .take(15)
+
+            kotlinx.coroutines.delay(5000)
         }
     }
 
@@ -7652,22 +8237,41 @@ private fun FirewallMonitorSection(
 
         if (filteredRows.isEmpty()) {
             WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(24.dp),
-                    contentAlignment = Alignment.Center
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = if (query.isNotBlank()) {
-                            t("Нет активных соединений по вашему запросу", "No active connections match your query")
-                        } else {
-                            t("Ожидание сетевой активности процессов…", "Waiting for process network activity…")
+                        text = when {
+                            query.isNotBlank() ->
+                                t("Нет активных соединений по вашему запросу", "No active connections match your query")
+                            !AppTrafficStats.hasUsageAccess(context) -> t(
+                                "Расход по приложениям Android отдаёт только с разрешением «Доступ к данным использования».",
+                                "Android shares per-app usage only with the «Usage access» permission."
+                            )
+                            else ->
+                                t("Ожидание сетевой активности процессов…", "Waiting for process network activity…")
                         },
                         color = nebulaColors.textTertiary,
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+                    if (query.isBlank() && !AppTrafficStats.hasUsageAccess(context)) {
+                        Spacer(Modifier.height(14.dp))
+                        BackupActionButton(
+                            label = t("Выдать разрешение", "Grant permission"),
+                            icon = Icons.Default.Settings,
+                            primary = false,
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                runCatching {
+                                    context.startActivity(AppTrafficStats.usageAccessSettingsIntent())
+                                }
+                            }
+                        )
+                    }
                 }
             }
         } else {
@@ -7747,7 +8351,11 @@ private fun FirewallAppRowItem(row: FirewallRowData, onClick: (() -> Unit)? = nu
                         )
                         Spacer(Modifier.width(2.dp))
                         Text(
-                            text = formatTrafficRateBytes(row.rxRate),
+                            text = if (row.rxRate > 0L) {
+                                formatTrafficRateBytes(row.rxRate)
+                            } else {
+                                formatBytesPrecise(row.rxTotal)
+                            },
                             color = nebulaColors.textPrimary,
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold
@@ -7762,7 +8370,11 @@ private fun FirewallAppRowItem(row: FirewallRowData, onClick: (() -> Unit)? = nu
                         )
                         Spacer(Modifier.width(2.dp))
                         Text(
-                            text = formatTrafficRateBytes(row.txRate),
+                            text = if (row.txRate > 0L) {
+                                formatTrafficRateBytes(row.txRate)
+                            } else {
+                                formatBytesPrecise(row.txTotal)
+                            },
                             color = nebulaColors.textPrimary,
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold
@@ -8555,14 +9167,24 @@ private fun SettingsSectionTab(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
+    val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
     val materialYou = nebulaColors.isMaterialYou
     val haptic = LocalHapticFeedback.current
-    val shape = RoundedCornerShape(12.dp)
+    val shape = nimboControlShape(12.dp, 2.dp)
     Row(
         modifier = Modifier
             .height(44.dp)
             .clip(shape)
-            .background(if (selected) nebulaColors.accent.copy(alpha = 0.16f) else Color.Transparent)
+            .background(
+                nimboControlContainer(
+                    if (selected) nebulaColors.accent.copy(alpha = 0.16f) else Color.Transparent,
+                    selected = selected
+                )
+            )
+            .then(
+                if (mangaStyle && selected) Modifier.border(2.dp, nebulaColors.accent, shape)
+                else Modifier
+            )
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
@@ -9259,7 +9881,7 @@ private fun SettingsToggleRow(
             }
         }
         Spacer(Modifier.width(12.dp))
-        Switch(
+        NimboStyleSwitch(
             checked = checked,
             onCheckedChange = if (enabled) {
                 {
@@ -9270,13 +9892,11 @@ private fun SettingsToggleRow(
                 null
             },
             enabled = enabled,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = nebulaColors.accent,
-                uncheckedThumbColor = Color.White,
-                uncheckedTrackColor = Color.White.copy(alpha = 0.14f),
-                uncheckedBorderColor = Color.Transparent
-            )
+            checkedThumbColor = Color.White,
+            checkedTrackColor = nebulaColors.accent,
+            uncheckedThumbColor = Color.White,
+            uncheckedTrackColor = Color.White.copy(alpha = 0.14f),
+            uncheckedBorderColor = Color.Transparent
         )
     }
     if (showDivider) {
@@ -9549,6 +10169,7 @@ private fun SettingsRow(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val haptic = LocalHapticFeedback.current
+    val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -9595,8 +10216,8 @@ private fun SettingsRow(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(1.dp)
-                .background(Color.White.copy(alpha = 0.06f))
+                .height(if (mangaStyle) 1.5.dp else 1.dp)
+                .background(if (mangaStyle) nebulaColors.divider else Color.White.copy(alpha = 0.06f))
         )
     }
 }
@@ -9711,10 +10332,19 @@ private fun BoxScope.NimboBottomControls(
         // rectangle with an opaque surface, an LED perimeter and a restrained grid.
         // Keeping it out of the frosted-backdrop path is important — otherwise the
         // dots disappear into the blur and the bar still looks like Nimbo Glass.
-        val panelCorner = if (dottedStyle) 16.dp * cornerScale else 32.dp * cornerScale
+        // Manga: панель — такая же нарисованная плашка, как карточки, поэтому
+        // ни размытия, ни скруглений ей не полагается.
+        val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
+        val panelCorner = when {
+            mangaStyle -> 3.dp
+            dottedStyle -> 16.dp * cornerScale
+            else -> 32.dp * cornerScale
+        }
         val panelShape = RoundedCornerShape(panelCorner)
         val liquidGlass = nebulaColors.isLiquidGlass
-        val outlineColor = if (liquidGlass) {
+        val outlineColor = if (mangaStyle) {
+            nebulaColors.panelBorder
+        } else if (liquidGlass) {
             Color.Transparent
         } else if (dottedStyle) {
             Color.Transparent
@@ -9725,7 +10355,9 @@ private fun BoxScope.NimboBottomControls(
         }
         // Tint laid over the frosted backdrop. Its alpha tracks the transparency slider
         // (via panelFill's alpha), so the bar goes from near-solid to barely-there glass.
-        val tintColor = if (dottedStyle) {
+        val tintColor = if (mangaStyle) {
+            nebulaColors.panelFill
+        } else if (dottedStyle) {
             nebulaColors.surface.copy(alpha = if (nebulaColors.isLight) 0.98f else 0.96f)
         } else {
             nebulaColors.surface
@@ -9748,14 +10380,14 @@ private fun BoxScope.NimboBottomControls(
                 .then(visibilityModifier)
                 .clip(panelShape)
                 .then(
-                    if (dottedStyle) {
-                        Modifier
-                    } else {
-                        Modifier.border(1.dp, outlineColor, panelShape)
+                    when {
+                        dottedStyle -> Modifier
+                        mangaStyle -> Modifier.border(2.dp, outlineColor, panelShape)
+                        else -> Modifier.border(1.dp, outlineColor, panelShape)
                     }
                 )
         ) {
-            if (!dottedStyle) {
+            if (!dottedStyle && !mangaStyle) {
                 Box(Modifier.matchParentSize().frostedBackdrop(backdropLayer, panelShape, blurRadius))
             }
             Box(Modifier.matchParentSize().background(tintColor))
@@ -9804,31 +10436,35 @@ private fun BoxScope.NimboBottomControls(
                 ) {
                     WindowsBottomNavItem(
                         selected = destination == MiniDestination.Home,
-                        icon = Icons.Default.Bolt,
+                        icon = Icons.Default.Home,
                         label = t("Главная", "Home"),
                         onClick = { selectDestination(MiniDestination.Home) },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        motionKind = navMotionKind(MiniDestination.Home)
                     )
                     WindowsBottomNavItem(
                         selected = destination == MiniDestination.Subscription,
                         icon = Icons.Default.Public,
                         label = t("Профили", "Profiles"),
                         onClick = { selectDestination(MiniDestination.Subscription) },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        motionKind = navMotionKind(MiniDestination.Subscription)
                     )
                     WindowsBottomNavItem(
                         selected = destination == MiniDestination.AppAccess,
                         icon = Icons.Default.Smartphone,
                         label = t("Приложения", "Apps"),
                         onClick = { selectDestination(MiniDestination.AppAccess) },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        motionKind = navMotionKind(MiniDestination.AppAccess)
                     )
                     WindowsBottomNavItem(
                         selected = destination == MiniDestination.Settings,
                         icon = Icons.Default.Settings,
                         label = t("Настройки", "Settings"),
                         onClick = { selectDestination(MiniDestination.Settings) },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        motionKind = navMotionKind(MiniDestination.Settings)
                     )
                 }
             }
@@ -9843,7 +10479,7 @@ private fun LiquidGlassBottomNavRow(
     modifier: Modifier = Modifier
 ) {
     val items = listOf(
-        Triple(MiniDestination.Home, Icons.Default.Bolt, t("Главная", "Home")),
+        Triple(MiniDestination.Home, Icons.Default.Home, t("Главная", "Home")),
         Triple(MiniDestination.Subscription, Icons.Default.Public, t("Профили", "Profiles")),
         Triple(MiniDestination.AppAccess, Icons.Default.Smartphone, t("Приложения", "Apps")),
         Triple(MiniDestination.Settings, Icons.Default.Settings, t("Настройки", "Settings"))
@@ -10199,7 +10835,8 @@ private fun LiquidGlassBottomNavRow(
                             }
                         },
                         modifier = Modifier.weight(1f),
-                        externalSelection = true
+                        externalSelection = true,
+                        motionKind = navMotionKind(item.first)
                     )
                 }
             }
@@ -10228,8 +10865,8 @@ private fun MaterialYouBottomNavRow(
     val entries = listOf(
         MaterialYouNavEntry(
             MiniDestination.Home,
-            Icons.Default.Bolt,
-            Icons.Outlined.Bolt,
+            Icons.Default.Home,
+            Icons.Outlined.Home,
             t("Главная", "Home")
         ),
         MaterialYouNavEntry(
@@ -10321,13 +10958,20 @@ private fun RowScope.MaterialYouBottomNavItem(
             modifier = Modifier.padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val bounce = rememberNavIconBounce(selected, navMotionKind(entry.destination))
             Icon(
                 imageVector = if (selected) entry.selectedIcon else entry.icon,
                 contentDescription = entry.label,
                 tint = contentColor,
                 modifier = Modifier
                     .size(24.dp)
-                    .scale(1f + 0.08f * selection)
+                    .graphicsLayer {
+                        val base = 1f + 0.08f * selection
+                        scaleX = base * bounce.scale * bounce.squash
+                        scaleY = base * bounce.scale / bounce.squash
+                        translationY = bounce.lift
+                        rotationZ = bounce.rotation
+                    }
             )
             Spacer(Modifier.width(8.dp * selection))
             Box(
@@ -10361,7 +11005,8 @@ private fun WindowsBottomNavItem(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    externalSelection: Boolean = false
+    externalSelection: Boolean = false,
+    motionKind: NavIconMotionKind = NavIconMotionKind.HOP
 ) {
     val nebulaColors = LocalNebulaColors.current
     val materialYou = nebulaColors.isMaterialYou
@@ -10416,6 +11061,7 @@ private fun WindowsBottomNavItem(
             ),
             label = "iconScale"
         )
+        val bounce = rememberNavIconBounce(selected, motionKind)
 
         val interactionSource = remember { MutableInteractionSource() }
         Box(
@@ -10447,7 +11093,12 @@ private fun WindowsBottomNavItem(
                         tint = animatedIconColor,
                         modifier = Modifier
                             .size(22.dp)
-                            .scale(iconScale)
+                            .graphicsLayer {
+                                scaleX = iconScale * bounce.scale * bounce.squash
+                                scaleY = iconScale * bounce.scale / bounce.squash
+                                translationY = bounce.lift
+                                rotationZ = bounce.rotation
+                            }
                     )
                 }
                 Spacer(Modifier.height(6.dp))
@@ -10518,11 +11169,21 @@ private fun WindowsBottomNavItem(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
+                // Тот же прыжок, что и в раскладке Material You: панель другая,
+                // а отклик на выбор должен быть одинаковым.
+                val bounce = rememberNavIconBounce(selected, motionKind)
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
                     tint = contentColor,
-                    modifier = Modifier.size(21.dp)
+                    modifier = Modifier
+                        .size(21.dp)
+                        .graphicsLayer {
+                            scaleX = bounce.scale * bounce.squash
+                            scaleY = bounce.scale / bounce.squash
+                            translationY = bounce.lift
+                            rotationZ = bounce.rotation
+                        }
                 )
                 AnimatedVisibility(
                     visible = selected,
@@ -11250,8 +11911,8 @@ private fun windowsDivider(colors: NebulaColors): Color = colors.divider
 @Composable
 private fun scaleRoundedCornerShape(shape: RoundedCornerShape, scale: Float): RoundedCornerShape {
     val density = androidx.compose.ui.platform.LocalDensity.current
-    // Стиль задаёт общий множитель скруглений: Dotted почти квадратный,
-    // Signal — строгая панель, остальные оставляют авторскую геометрию.
+    // Manga уже учтена в самом множителе, поэтому здесь только Dotted и
+    // Signal — иначе поправка накладывалась бы дважды.
     val compactDottedCorners = when (LocalElementStyleMode.current) {
         ElementStyleMode.NOTHING_DOTS -> 0.48f
         ElementStyleMode.SIGNAL -> 0.62f
@@ -11281,7 +11942,10 @@ private fun GlassPanel(
     val resolvedShape = scaleRoundedCornerShape(shape, cornerScale)
     val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
     val signalStyle = LocalElementStyleMode.current == ElementStyleMode.SIGNAL
-    val useLiquidGlass = nebulaColors.isLiquidGlass && !forceOpaque && !signalStyle
+    // Manga — это бумага и чернила: стекло здесь неуместно, а рамка рисуется
+    // вдвое толще, иначе панель перестаёт читаться как нарисованная пером.
+    val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
+    val useLiquidGlass = nebulaColors.isLiquidGlass && !forceOpaque && !signalStyle && !mangaStyle
 
     // Flat surfaces (no glassmorphism): solid fill + thin hairline border, matching
     // the Windows app's .panel. Selected/active panels get a subtle accent tint.
@@ -11311,6 +11975,7 @@ private fun GlassPanel(
         } else {
             nebulaColors.textPrimary.copy(alpha = if (isLight) 0.10f else 0.075f)
         }
+        mangaStyle -> nebulaColors.panelBorder
         // Material You panels are borderless tonal surfaces — drop the glass hairline.
         nebulaColors.isMaterialYou -> Color.Transparent
         isLight && isWhiteishBorder ->
@@ -11326,7 +11991,11 @@ private fun GlassPanel(
         modifier
             .clip(resolvedShape)
             .then(
-                if (dottedStyle) Modifier else Modifier.border(1.dp, resolvedBorder, resolvedShape)
+                when {
+                    dottedStyle -> Modifier
+                    mangaStyle -> Modifier.border(2.dp, resolvedBorder, resolvedShape)
+                    else -> Modifier.border(1.dp, resolvedBorder, resolvedShape)
+                }
             )
     }
     Box(modifier = panelModifier) {
@@ -12488,6 +13157,7 @@ private fun ColumnScope.ThemeSettingsSection(
     val backgroundStyle by preferencesManager.backgroundStyleState
     val backgroundPalette by preferencesManager.backgroundPaletteState
     val backgroundAnimationEnabled by preferencesManager.backgroundAnimationEnabledState
+    val navIconAnimationEnabled by preferencesManager.navIconAnimationEnabledState
     val bottomBarAutoHideEnabled by preferencesManager.bottomBarAutoHideEnabledState
     val statusParticlesEnabled by preferencesManager.statusParticlesEnabledState
     val liquidRefractionEnabled by preferencesManager.liquidRefractionEnabledState
@@ -12587,6 +13257,17 @@ private fun ColumnScope.ThemeSettingsSection(
                 modifier = Modifier.weight(1f)
             )
         }
+        Spacer(Modifier.height(10.dp))
+        // Пятый стиль пары не имеет: половина ряда с пустотой смотрелась
+        // обрывом, поэтому карточка занимает ширину целиком.
+        InterfaceStylePreviewCard(
+            title = "Manga",
+            subtitle = t("Чернильные панели", "Inked comic panels"),
+            kind = InterfacePreviewKind.Manga,
+            selected = elementStyle == 6,
+            onClick = { preferencesManager.elementStyle = 6 },
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 
     Spacer(Modifier.height(18.dp))
@@ -12704,6 +13385,20 @@ private fun ColumnScope.ThemeSettingsSection(
             icon = Icons.Default.Refresh,
             checked = backgroundAnimationEnabled,
             onCheckedChange = { preferencesManager.backgroundAnimationEnabled = it }
+        )
+        Spacer(Modifier.height(10.dp))
+        // Тот же ряд, что и у движения фона: соседний SettingsToggleRow красит
+        // значок акцентом и стоит на других отступах — рядом это бросалось в
+        // глаза.
+        ThemeSwitchRow(
+            title = t("Анимация значков", "Icon motion"),
+            subtitle = t(
+                "Значки нижней панели оживают при переходе",
+                "Bottom bar icons come alive when switching tabs"
+            ),
+            icon = Icons.Default.AutoAwesome,
+            checked = navIconAnimationEnabled,
+            onCheckedChange = { preferencesManager.navIconAnimationEnabled = it }
         )
     }
 
@@ -13413,7 +14108,10 @@ private fun AppIconAppearanceCard(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val haptic = LocalHapticFeedback.current
-    val shape = RoundedCornerShape(20.dp)
+    val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
+    // Внешняя обрезка тоже должна следовать стилю: с сырой формой карточка
+    // оставалась скруглённой даже там, где панель уже стала прямоугольной.
+    val shape = scaleRoundedCornerShape(RoundedCornerShape(20.dp), LocalGlobalCornerRadius.current)
 
     GlassPanel(
         modifier = Modifier
@@ -13428,7 +14126,7 @@ private fun AppIconAppearanceCard(
             },
         shape = shape,
         borderColor = nebulaColors.accent.copy(alpha = 0.24f),
-        accentFill = true
+        accentFill = !mangaStyle
     ) {
         Row(
             modifier = Modifier
@@ -13436,15 +14134,16 @@ private fun AppIconAppearanceCard(
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val iconFrameShape = nimboControlShape(19.dp, 2.dp)
             Box(
                 modifier = Modifier
                     .size(68.dp)
-                    .clip(RoundedCornerShape(19.dp))
-                    .background(nebulaColors.background.copy(alpha = 0.62f))
+                    .clip(iconFrameShape)
+                    .background(nimboControlContainer(nebulaColors.background.copy(alpha = 0.62f)))
                     .border(
-                        width = 1.dp,
-                        color = nebulaColors.accent.copy(alpha = 0.30f),
-                        shape = RoundedCornerShape(19.dp)
+                        width = nimboControlBorderWidth(),
+                        color = nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.30f)),
+                        shape = iconFrameShape
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -13511,19 +14210,38 @@ private fun InterfaceStylePreviewCard(
     val isLiquidPreview = kind == InterfacePreviewKind.IosLiquidGlass
     val isDottedPreview = kind == InterfacePreviewKind.Dotted
     val isSignalPreview = kind == InterfacePreviewKind.Signal
+    val isMangaPreview = kind == InterfacePreviewKind.Manga
     val activeDottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
-    val shape = RoundedCornerShape(if (activeDottedStyle) 8.dp else 18.dp)
+    val activeMangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
+    // Форму задаёт включённый стиль: карточка — часть интерфейса, а не часть
+    // картинки внутри. Свои углы Manga сохраняет и как превью — так её видно
+    // среди остальных.
+    val shape = RoundedCornerShape(
+        when {
+            activeMangaStyle || isMangaPreview -> 3.dp
+            activeDottedStyle -> 8.dp
+            else -> 18.dp
+        }
+    )
     val cardFill by animateColorAsState(
         targetValue = if (selected) nebulaColors.accent.copy(alpha = 0.13f) else nebulaColors.surface,
         animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "interface_preview_card_fill"
     )
     val cardBorder by animateColorAsState(
-        targetValue = if (selected) nebulaColors.accent.copy(alpha = 0.74f) else windowsBorder(nebulaColors),
+        targetValue = when {
+            selected -> nebulaColors.accent.copy(alpha = 0.74f)
+            // Чернильный контур в Manga держит карточку сам, без заливки.
+            activeMangaStyle -> nebulaColors.panelBorder
+            else -> windowsBorder(nebulaColors)
+        },
         animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "interface_preview_card_border"
     )
-    val previewBase = if (isDottedPreview) {
+    val previewBase = if (isMangaPreview) {
+        // Бумага под чернилами: тёмная страница ночью, кремовая днём.
+        if (nebulaColors.isLight) Color(0xFFF7F3E8) else Color(0xFF0E0E12)
+    } else if (isDottedPreview) {
         if (nebulaColors.isLight) Color(0xFFF2F4F6) else Color(0xFF101114)
     } else if (isSignalPreview) {
         // Signal: спокойная чернильная подложка, на которой видны тонкие границы.
@@ -13535,7 +14253,9 @@ private fun InterfaceStylePreviewCard(
     } else {
         if (nebulaColors.isLight) Color(0xFFEAF4FF) else Color(0xFF0A1024)
     }
-    val panel = if (isDottedPreview) {
+    val panel = if (isMangaPreview) {
+        if (nebulaColors.isLight) Color(0xFF12120F) else Color(0xFFF2ECDD)
+    } else if (isDottedPreview) {
         nebulaColors.accent.copy(alpha = if (nebulaColors.isLight) 0.12f else 0.18f)
             .compositeOver(previewBase)
     } else if (isSignalPreview) {
@@ -13547,7 +14267,9 @@ private fun InterfaceStylePreviewCard(
     } else {
         Color.White.copy(alpha = if (nebulaColors.isLight) 0.52f else 0.16f)
     }
-    val soft = if (isDottedPreview) {
+    val soft = if (isMangaPreview) {
+        nebulaColors.accent
+    } else if (isDottedPreview) {
         nebulaColors.accent.copy(alpha = 0.28f).compositeOver(previewBase)
     } else if (isSignalPreview) {
         nebulaColors.accent.copy(alpha = 0.42f).compositeOver(previewBase)
@@ -13566,6 +14288,7 @@ private fun InterfaceStylePreviewCard(
     val statusTint = if (nebulaColors.isLight) Color.Black.copy(alpha = 0.30f) else Color.White.copy(alpha = 0.44f)
     val mutedDot = if (nebulaColors.isLight) Color.Black.copy(alpha = 0.26f) else Color.White.copy(alpha = 0.32f)
     val navFill = when {
+        isMangaPreview -> previewBase
         isDottedPreview -> previewBase.copy(alpha = 0.96f)
         isSignalPreview -> Color.White.copy(alpha = if (nebulaColors.isLight) 0.9f else 0.04f)
             .compositeOver(previewBase)
@@ -13573,7 +14296,9 @@ private fun InterfaceStylePreviewCard(
             .compositeOver(previewBase)
         else -> Color.White.copy(alpha = if (nebulaColors.isLight) 0.46f else 0.14f)
     }
-    val navBorder = if (isDottedPreview) {
+    val navBorder = if (isMangaPreview) {
+        if (nebulaColors.isLight) Color(0xFF12120F) else Color(0xFFF2ECDD)
+    } else if (isDottedPreview) {
         nebulaColors.accent.copy(alpha = 0.42f)
     } else if (isSignalPreview) {
         if (nebulaColors.isLight) Color(0xFFDCDAE4) else Color.White.copy(alpha = 0.12f)
@@ -13585,7 +14310,17 @@ private fun InterfaceStylePreviewCard(
         }
     )
     val chipFill = panel.copy(alpha = if (isMaterialPreview) 1f else panel.alpha)
-    val screenBrush = if (isDottedPreview) {
+    val screenBrush = if (isMangaPreview) {
+        // Ровная бумага: любой градиент здесь и превращал превью Manga в
+        // копию стеклянного.
+        Brush.verticalGradient(listOf(previewBase, previewBase))
+    } else if (isSignalPreview) {
+        // Приборная панель: спокойная чернильная подложка с еле заметным
+        // уходом в тень книзу.
+        Brush.verticalGradient(
+            listOf(previewBase, previewBase, soft.copy(alpha = 0.10f).compositeOver(previewBase))
+        )
+    } else if (isDottedPreview) {
         Brush.verticalGradient(listOf(previewBase, soft.copy(alpha = 0.72f), previewBase))
     } else if (isMaterialPreview) {
         Brush.linearGradient(
@@ -13628,6 +14363,8 @@ private fun InterfaceStylePreviewCard(
                             thickness = if (selected) 1.4.dp else 1.dp,
                             alpha = if (selected) 0.98f else 0.66f
                         )
+                } else if (activeMangaStyle) {
+                    Modifier.border(if (selected) 2.5.dp else 1.5.dp, cardBorder, shape)
                 } else {
                     Modifier.border(1.dp, cardBorder, shape)
                 }
@@ -13812,6 +14549,45 @@ private fun InterfaceStylePreviewCard(
                                             .background(Color.White.copy(alpha = 0.94f))
                                     )
                                 }
+                            } else if (isMangaPreview) {
+                                // Прямоугольная кнопка с контуром и смещённой
+                                // подложкой — та же геометрия, что в приложении.
+                                Box(modifier = Modifier.size(48.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .matchParentSize()
+                                            .padding(start = 4.dp, top = 4.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(panel.copy(alpha = 0.55f))
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .matchParentSize()
+                                            .padding(end = 4.dp, bottom = 4.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(nebulaColors.accent)
+                                            .border(2.dp, panel, RoundedCornerShape(2.dp))
+                                    )
+                                }
+                            } else if (isSignalPreview) {
+                                // Signal: не кольцо, а строгая плашка с рамкой.
+                                Box(
+                                    modifier = Modifier
+                                        .width(54.dp)
+                                        .height(40.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(panel)
+                                        .border(1.dp, nebulaColors.accent.copy(alpha = 0.55f), RoundedCornerShape(8.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(3.dp)
+                                            .height(16.dp)
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .background(nebulaColors.accent)
+                                    )
+                                }
                             } else if (isDottedPreview) {
                                 Box(
                                     modifier = Modifier
@@ -13946,7 +14722,13 @@ private fun InterfaceStylePreviewCard(
                             .align(Alignment.TopEnd)
                             .padding(5.dp)
                             .size(20.dp)
-                            .clip(if (activeDottedStyle) RoundedCornerShape(5.dp) else CircleShape)
+                            .clip(
+                                when {
+                                    activeMangaStyle -> RoundedCornerShape(2.dp)
+                                    activeDottedStyle -> RoundedCornerShape(5.dp)
+                                    else -> CircleShape
+                                }
+                            )
                             .background(
                                 if (activeDottedStyle) nebulaColors.accent.copy(alpha = 0.20f)
                                 else nebulaColors.accent
@@ -14397,21 +15179,43 @@ private fun Modifier.selectableTileFrame(
     nebulaColors: NebulaColors
 ): Modifier {
     val dottedStyle = LocalElementStyleMode.current == ElementStyleMode.NOTHING_DOTS
-    val effectiveShape = if (dottedStyle) RoundedCornerShape(8.dp) else shape
+    val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
+    val effectiveShape = when {
+        mangaStyle -> RoundedCornerShape(3.dp)
+        dottedStyle -> RoundedCornerShape(8.dp)
+        else -> shape
+    }
     val fill by animateColorAsState(
-        targetValue = if (selected) {
-            nebulaColors.accent.copy(alpha = if (dottedStyle) 0.12f else 0.20f)
-        } else nebulaColors.surface,
+        targetValue = when {
+            selected -> nebulaColors.accent.copy(
+                alpha = when {
+                    mangaStyle -> 0.14f
+                    dottedStyle -> 0.12f
+                    else -> 0.20f
+                }
+            )
+            // Плитка в Manga — нарисованная панель, а не подсвеченная подложка.
+            mangaStyle -> nebulaColors.panelFill
+            else -> nebulaColors.surface
+        },
         animationSpec = tween(180, easing = FastOutSlowInEasing),
         label = "tile_fill"
     )
     val border by animateColorAsState(
-        targetValue = if (selected) nebulaColors.accent else windowsBorder(nebulaColors),
+        targetValue = when {
+            selected -> nebulaColors.accent
+            mangaStyle -> nebulaColors.panelBorder
+            else -> windowsBorder(nebulaColors)
+        },
         animationSpec = tween(180, easing = FastOutSlowInEasing),
         label = "tile_border"
     )
     val width by animateDpAsState(
-        targetValue = if (selected) 2.dp else 1.dp,
+        targetValue = when {
+            mangaStyle -> if (selected) 2.5.dp else 1.5.dp
+            selected -> 2.dp
+            else -> 1.dp
+        },
         animationSpec = tween(180, easing = FastOutSlowInEasing),
         label = "tile_border_width"
     )
@@ -16455,13 +17259,17 @@ private fun NimboDisclaimerDialog(
 internal fun NimboBackButton(onBack: () -> Unit) {
     val nebulaColors = LocalNebulaColors.current
     val haptic = LocalHapticFeedback.current
-    val shape = RoundedCornerShape(16.dp)
+    val shape = nimboControlShape(16.dp, 2.dp)
     Box(
         modifier = Modifier
             .size(48.dp)
             .clip(shape)
-            .background(nebulaColors.accent.copy(alpha = 0.10f))
-            .border(1.dp, nebulaColors.accent.copy(alpha = 0.22f), shape)
+            .background(nimboControlContainer(nebulaColors.accent.copy(alpha = 0.10f)))
+            .border(
+                nimboControlBorderWidth(),
+                nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.22f)),
+                shape
+            )
             .clickable {
                 haptic.tick()
                 onBack()
@@ -16921,14 +17729,15 @@ private fun DialogIconActionButton(
     borderColor: Color,
     onClick: () -> Unit
 ) {
+    val shape = nimboControlShape(14.dp, 2.dp)
     Surface(
         onClick = onClick,
         modifier = Modifier.size(52.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = containerColor,
+        shape = shape,
+        color = nimboControlContainer(containerColor),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
-        border = BorderStroke(1.dp, borderColor)
+        border = BorderStroke(nimboControlBorderWidth(), nimboControlBorderColor(borderColor))
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(

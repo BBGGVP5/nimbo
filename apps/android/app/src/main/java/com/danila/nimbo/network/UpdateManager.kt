@@ -27,11 +27,19 @@ import com.danila.nimbo.model.UpdateInfo
 import com.danila.nimbo.model.UpdateKind
 import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.utils.CustomAppIconManager
+import com.danila.nimbo.utils.AppVisibilityTracker
 import com.danila.nimbo.ui.screens.UpdateUiText
 import com.google.gson.Gson
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -66,7 +74,10 @@ object UpdateManager {
     private const val TAG = "UpdateManager"
     private const val RELEASES_API_URL = "https://api.github.com/repos/BBGGVP5/nimbo/releases?per_page=20"
     private const val COMMIT_API_URL = "https://api.github.com/repos/BBGGVP5/nimbo/commits/"
-    private const val CHANNEL_ID = "app_updates"
+    // Android does not let an app raise the importance of an already-created
+    // channel. A versioned channel ensures older low-priority beta channels do
+    // not keep suppressing a newly available update notification.
+    private const val CHANNEL_ID = "app_updates_v2"
     private const val NOTIFICATION_ID = 1003
 
     private val client = OkHttpClient.Builder()
@@ -87,6 +98,54 @@ object UpdateManager {
 
     private val _downloadError = MutableStateFlow<String?>(null)
     val downloadError = _downloadError.asStateFlow()
+
+    /** True after a paused download: the partial file is kept and can be resumed. */
+    private val _isPaused = MutableStateFlow(false)
+    val isPaused = _isPaused.asStateFlow()
+
+    // The download outlives the dialog that started it: closing the update popup
+    // must not cancel a transfer that is already running.
+    private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var downloadJob: Job? = null
+
+    /** Starts (or resumes) the download outside of the caller's composition scope. */
+    fun startDownload(context: Context, updateInfo: UpdateInfo) {
+        if (_isDownloading.value) return
+        val appContext = context.applicationContext
+        downloadJob?.cancel()
+        downloadJob = downloadScope.launch {
+            downloadAndInstall(appContext, updateInfo)
+        }
+    }
+
+    /** Stops the transfer but keeps the partial file, so the next start resumes it. */
+    fun pauseDownload() {
+        if (!_isDownloading.value) return
+        _isPaused.value = true
+        downloadJob?.cancel()
+        downloadJob = null
+    }
+
+    fun clearDownloadError() {
+        _downloadError.value = null
+    }
+
+    /** Bytes already on disk for this exact artifact; > 0 means the download can be resumed. */
+    fun resumableBytes(context: Context, updateInfo: UpdateInfo): Long =
+        partialFileFor(context, updateInfo).let { if (it.isFile) it.length() else 0L }
+
+    /** The fully downloaded and verified APK, when it is still cached. */
+    fun verifiedApkFile(context: Context, updateInfo: UpdateInfo): File? =
+        verifiedFileFor(context, updateInfo).takeIf { it.isFile && it.length() > 0L }
+
+    private fun artifactHash(updateInfo: UpdateInfo): String =
+        Integer.toHexString(updateInfo.artifactId.hashCode())
+
+    private fun verifiedFileFor(context: Context, updateInfo: UpdateInfo): File =
+        File(context.cacheDir, "Nimbo_update_${artifactHash(updateInfo)}.apk")
+
+    private fun partialFileFor(context: Context, updateInfo: UpdateInfo): File =
+        File(context.cacheDir, "Nimbo_update_${artifactHash(updateInfo)}.apk.part")
 
     /** Checks the selected stable/beta channel and compares the exact release asset. */
     suspend fun checkUpdate(context: Context): UpdateInfo? = try {
@@ -111,7 +170,7 @@ object UpdateManager {
             .maxWithOrNull { left, right -> UpdatePolicy.compareVersions(left.tagName, right.tagName) }
             ?: return@withContext null
 
-        if (prefs.installedUpdateArtifactId == null && candidate.asset.sha256 != null) {
+        if (prefs.installedUpdateArtifactId == null && candidate.installedCandidates.any { it.sha256 != null }) {
             val installedApk = File(context.applicationInfo.sourceDir)
             val installedDigest = installedApk.takeIf(File::isFile)?.let(::sha256)
             val matchingIdentity = installedDigest?.let {
@@ -226,7 +285,8 @@ object UpdateManager {
             prerelease = release["prerelease"] as? Boolean ?: false,
             publishedAt = release["published_at"] as? String ?: "",
             versionCode = manualVersionCode,
-            asset = bestAsset
+            asset = bestAsset,
+            apkAssets = assets.filter { it.name.endsWith(".apk", ignoreCase = true) }
         )
     }
 
@@ -457,10 +517,10 @@ object UpdateManager {
             stage = UpdateDownloadStage.DOWNLOADING
         )
         _downloadError.value = null
+        _isPaused.value = false
 
-        val identityHash = Integer.toHexString(updateInfo.artifactId.hashCode())
-        val verifiedFile = File(context.cacheDir, "Nimbo_update_$identityHash.apk")
-        val partialFile = File(context.cacheDir, "Nimbo_update_$identityHash.apk.part")
+        val verifiedFile = verifiedFileFor(context, updateInfo)
+        val partialFile = partialFileFor(context, updateInfo)
 
         try {
             val validation = if (verifiedFile.isFile) {
@@ -523,6 +583,12 @@ object UpdateManager {
                 stage = UpdateDownloadStage.READY
             )
             withContext(Dispatchers.Main) { installApk(context, verifiedFile) }
+        } catch (e: CancellationException) {
+            // Paused by the user: the progress state stays visible so the UI can
+            // offer resuming from the bytes that are already on disk.
+            Log.i(TAG, "Update download paused at ${partialFile.length()} bytes")
+            _isPaused.value = true
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Secure update download failed", e)
             _downloadError.value = e.message ?: "Не удалось проверить обновление"
@@ -570,7 +636,7 @@ object UpdateManager {
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    private fun downloadToFile(updateInfo: UpdateInfo, target: File): Long {
+    private suspend fun downloadToFile(updateInfo: UpdateInfo, target: File): Long {
         val expectedBytes = updateInfo.fileSize
         val existingBytes = target.length()
         val rangeStart = UpdateDownloadPolicy.requestRangeStart(existingBytes, expectedBytes)
@@ -612,6 +678,9 @@ object UpdateManager {
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var downloaded = 0L
                     while (true) {
+                        // Pausing cancels the job; the loop leaves the socket at the
+                        // next chunk boundary and the partial file survives.
+                        currentCoroutineContext().ensureActive()
                         val count = input.read(buffer)
                         if (count < 0) break
                         output.write(buffer, 0, count)
@@ -803,15 +872,26 @@ object UpdateManager {
         val prefs = PreferencesManager(context)
         val identity = updateInfo.artifactId.ifBlank { normalizedVersionTag(updateInfo.versionName) }
         val now = System.currentTimeMillis()
+        val sameArtifact = identity == prefs.lastUpdateNotifiedArtifactId
         if (!UpdateNotificationPolicy.shouldPost(
                 identity = identity,
                 lastIdentity = prefs.lastUpdateNotifiedArtifactId,
                 kind = updateInfo.kind,
                 lastNotifiedAt = prefs.lastUpdateNotificationTime,
-                now = now
+                now = now,
+                notifiedCount = if (sameArtifact) prefs.updateNotificationCount else 0,
+                skippedIdentity = prefs.updateDialogSkippedArtifactId
             )
         ) {
             Log.d(TAG, "Artifact notification is not due yet. Skipping.")
+            return true
+        }
+
+        // While Nimbo is open, the update screen and foreground check show the
+        // state directly. Keep the artifact unconsumed so the same update is
+        // still delivered after the user leaves the app.
+        if (AppVisibilityTracker.isForeground) {
+            Log.d(TAG, "Update found while app is foreground; deferring system notification")
             return true
         }
 
@@ -840,7 +920,7 @@ object UpdateManager {
             NotificationChannel(
                 CHANNEL_ID,
                 if (isEnglish) "App updates" else "Обновления приложения",
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = if (isEnglish) "Notifications about new Nimbo versions"
                 else "Уведомления о новых версиях Nimbo"
@@ -886,8 +966,8 @@ object UpdateManager {
             .setContentText(content)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
             .setSubText(if (isEnglish) "Nimbo update" else "Обновление Nimbo")
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             // The same notification slot replaces an obsolete card, but a newly
             // uploaded artifact must still make sound/vibration instead of being
@@ -908,7 +988,8 @@ object UpdateManager {
         // permission/app/channel is blocked, the next background run must retry it.
         prefs.lastUpdateNotifiedArtifactId = identity
         prefs.lastUpdateNotifiedVersion = normalizedVersionTag(updateInfo.versionName)
-        prefs.updateNotificationCount = 1
+        // Счётчик нужен политике напоминаний: у той же сборки их ограниченное число.
+        prefs.updateNotificationCount = if (sameArtifact) prefs.updateNotificationCount + 1 else 1
         prefs.lastUpdateNotificationTime = now
         return true
     }

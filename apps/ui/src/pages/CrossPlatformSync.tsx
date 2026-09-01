@@ -398,7 +398,7 @@ export function CrossPlatformSync() {
                     <div className="cross-sync-device-details">
                       <div className="cross-sync-device-specs">
                         <span>Nimbo {device.app_version || "—"}</span>
-                        <span>{device.platform === "android" ? "Android" : "Desktop"}</span>
+                        <span>{platformLabel(device.platform)}</span>
                         <span>{fillTemplate(m.crossSync.addedAt, { date: new Date(device.created_at_ms).toLocaleDateString(m.common.locale) })}</span>
                         <span>{fillTemplate(m.crossSync.syncedAt, { date: new Date(device.last_seen_ms).toLocaleString(m.common.locale) })}</span>
                       </div>
@@ -593,7 +593,26 @@ function SyncOption({ title, detail, checked, disabled, className, onChange }: {
   );
 }
 
+/** Подпись платформы: имена совпадают с тем, что присылает сам узел. */
+function platformLabel(platform: string): string {
+  switch (platform.toLowerCase()) {
+    case "android": return "Android";
+    case "ios": case "iphone": case "ipad": return "iOS";
+    default: return "Desktop";
+  }
+}
+
 function PlatformIcon({ platform, className }: { platform: string; className?: string }) {
+  // Протокол носит платформу строкой, поэтому iOS-узел опознаётся сам —
+  // остаётся показать рядом яблоко, как Android показывает робота.
+  if (["ios", "iphone", "ipad", "apple"].includes(platform.toLowerCase())) {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M16.3 12.6c0-2 1.6-3 1.7-3.1-.9-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7-.6 0-1.6-.7-2.6-.7-1.3 0-2.6.8-3.3 2C4.8 12.4 5.8 16 7.2 18c.7 1 1.5 2.1 2.5 2 1-.1 1.4-.6 2.6-.6s1.5.6 2.6.6c1.1 0 1.8-1 2.4-2 .8-1.1 1.1-2.2 1.1-2.3 0 0-2.1-.8-2.1-3.1z" />
+        <path d="M14.5 6.3c.5-.7.9-1.6.8-2.6-.8 0-1.8.6-2.4 1.3-.5.6-1 1.6-.8 2.5.9.1 1.8-.5 2.4-1.2z" />
+      </svg>
+    );
+  }
   if (platform === "android") {
     return (
       <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

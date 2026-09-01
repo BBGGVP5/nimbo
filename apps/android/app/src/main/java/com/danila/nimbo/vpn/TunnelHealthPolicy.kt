@@ -8,7 +8,13 @@ internal data class TunnelProbeTarget(
 
 /** Pure policy and endpoint catalog for checks that must traverse the Xray outbound. */
 internal object TunnelHealthPolicy {
-    const val REQUEST_TIMEOUT_MS = 1_500
+    const val REQUEST_TIMEOUT_MS = 900
+
+    enum class VerificationMode {
+        SKIP,
+        BLOCKING,
+        BACKGROUND
+    }
 
     enum class StartupAcceptance {
         CONFIRMED,
@@ -32,6 +38,11 @@ internal object TunnelHealthPolicy {
     fun isHealthy(latenciesMs: List<Int>): Boolean = latenciesMs.any { it >= 0 }
 
     fun successCount(latenciesMs: List<Int>): Int = latenciesMs.count { it >= 0 }
+
+    fun verificationMode(verifyTraffic: Boolean, recoveryMode: Boolean): VerificationMode = when {
+        !verifyTraffic -> VerificationMode.SKIP
+        else -> VerificationMode.BACKGROUND
+    }
 
     fun startupAcceptance(
         coreRunning: Boolean,

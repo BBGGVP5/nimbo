@@ -337,6 +337,42 @@ fun AnimatedGradientBackground(
                     }
                 }
 
+                BackgroundStyleMode.SIGNAL_FLOW -> {
+                    // Several independent, sparse signal tracks flow across the
+                    // screen. They stay separated instead of forming one dense
+                    // staircase, while their starting points shift over time.
+                    val tracks = listOf(
+                        Triple(0.12f, 0.10f, 0.38f),
+                        Triple(0.30f, 0.25f, 0.56f),
+                        Triple(0.08f, 0.44f, 0.31f),
+                        Triple(0.50f, 0.61f, 0.47f),
+                        Triple(0.20f, 0.80f, 0.42f)
+                    )
+                    tracks.forEachIndexed { index, (x, y, length) ->
+                        val travel = ((phase * 0.24f) + index * 0.19f) % 1f
+                        val startX = (x + travel * 1.30f - 0.34f) * w
+                        val startY = (y + sin((phase * twoPi + index * 0.8f).toDouble()).toFloat() * 0.025f) * h
+                        val endX = startX + length * w
+                        val endY = startY - length * w * 0.18f
+                        val color = if (index % 2 == 0) accent else glow
+                        drawLine(
+                            color = color.copy(alpha = 0.18f * patternAlpha),
+                            start = Offset(startX, startY),
+                            end = Offset(endX, endY),
+                            strokeWidth = 9.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                        val gleam = (travel * 1.18f).coerceIn(0f, 1f)
+                        val gx = startX + (endX - startX) * gleam
+                        val gy = startY + (endY - startY) * gleam
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.26f * patternAlpha),
+                            radius = 4.dp.toPx(),
+                            center = Offset(gx, gy)
+                        )
+                    }
+                }
+
                 BackgroundStyleMode.NONE -> Unit
             }
         }

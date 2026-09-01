@@ -1452,3 +1452,50 @@ body[data-ui-style="signal"] .tray-quit svg {
   width: 16px;
   height: 16px;
 }
+
+/* Manga tray: тот же ink/paper-контракт, что в основном окне. */
+body[data-ui-style="manga"] {
+  --tray-surface: #0e0e12;
+  --tray-surface-strong: #1c1c24;
+  --tray-window-color: #0e0e12;
+  --tray-hairline: #f2ecdd;
+  --tray-panel-bg: #0e0e12;
+  --tray-card-bg: #14141a;
+}
+
+body[data-ui-style="manga"] .tray-card {
+  border: 2px solid #f2ecdd;
+  border-radius: 3px;
+  background: #14141a;
+  box-shadow: 5px 5px 0 #f2ecdd;
+}
+
+body[data-ui-style="manga"] .tray-card::before {
+  display: none;
+}
+
+body[data-ui-style="manga"] :where(
+  .tray-close-button, .tray-meta-row span, .tray-connect-toggle,
+  .tray-admin-notice, .tray-admin-action, .tray-tile,
+  .tray-shortcuts button, .tray-utility-grid button, .tray-section-toggle,
+  .tray-server, .tray-flag, .tray-quit, .tray-task
+) {
+  border: 1.5px solid #f2ecdd;
+  border-radius: 2px;
+  background: #1c1c24;
+  box-shadow: none;
+}
+
+body[data-ui-style="manga"] :where(
+  .tray-server.is-active, .tray-connect-toggle[data-on="true"]
+) {
+  border: 2px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 18%, #1c1c24);
+}
+
+body[data-ui-style="manga"] :where(
+  .tray-power, .tray-status-orb, .tray-power-ring
+) {
+  border-radius: 2px;
+  box-shadow: none;
+}

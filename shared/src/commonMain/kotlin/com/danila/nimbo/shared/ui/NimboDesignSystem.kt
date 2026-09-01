@@ -117,9 +117,11 @@ internal fun nimboStyledBorder(default: Color, selected: Boolean = false): Color
 
 /** Бумага и чернила стиля Manga: те же цвета, что в андроидной теме. */
 internal object NimboMangaPalette {
-    val Paper = Color(0xFF14141A)
-    val PaperDeep = Color(0xFF0E0E12)
-    val Ink = Color(0xFFF2ECDD)
+    // Тёплый тон вместо синевы: холодная бумага читается как погашенный
+    // экран, а не как страница.
+    val Paper = Color(0xFF1B1814)
+    val PaperDeep = Color(0xFF15130F)
+    val Ink = Color(0xFFF4EEDF)
     val Accent = Color(0xFFE63329)
 }
 

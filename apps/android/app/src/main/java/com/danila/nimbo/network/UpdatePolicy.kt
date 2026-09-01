@@ -29,8 +29,18 @@ internal data class ReleaseCandidate(
     val prerelease: Boolean,
     val publishedAt: String,
     val versionCode: Int?,
-    val asset: ReleaseAsset
+    val asset: ReleaseAsset,
+    /**
+     * Every APK published in the release, not only the one picked for this
+     * device. A build installed by hand from the site is usually the universal
+     * APK, and it still has to be recognised as "this release is installed".
+     */
+    val apkAssets: List<ReleaseAsset> = emptyList()
 ) {
+    /** Assets an installed APK may have come from; falls back to the picked one. */
+    val installedCandidates: List<ReleaseAsset>
+        get() = apkAssets.ifEmpty { listOf(asset) }
+
     val artifactIdentity: String
         get() = listOf(
             asset.id.toString(),
@@ -51,7 +61,9 @@ internal object UpdatePolicy {
         candidate: ReleaseCandidate
     ): String? {
         val sameVersion = normalizedVersionTag(candidate.tagName) == normalizedVersionTag(currentVersion)
-        val sameDigest = candidate.asset.sha256?.equals(installedSha256, ignoreCase = true) == true
+        val sameDigest = candidate.installedCandidates.any { asset ->
+            asset.sha256?.equals(installedSha256, ignoreCase = true) == true
+        }
         return candidate.artifactIdentity.takeIf { sameVersion && sameDigest }
     }
 

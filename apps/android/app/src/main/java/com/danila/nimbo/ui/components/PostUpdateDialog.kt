@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
@@ -57,11 +58,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.danila.nimbo.shared.ui.drawNimboBackgroundMotion
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.screens.UpdateUiText
+import com.danila.nimbo.ui.theme.BackgroundStyleMode
 import com.danila.nimbo.ui.theme.LocalBackgroundAnimationEnabled
+import com.danila.nimbo.ui.theme.LocalElementStyleMode
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.ui.theme.LocalReducedTransparencyEnabled
+import com.danila.nimbo.ui.theme.ElementStyleMode
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -69,7 +74,6 @@ import java.time.Instant
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.tan
 
 @Composable
 fun PostUpdateDialog(
@@ -80,6 +84,7 @@ fun PostUpdateDialog(
     onShowChanges: () -> Unit
 ) {
     val colors = LocalNebulaColors.current
+    val elementStyle = LocalElementStyleMode.current
     val language = LocalConfiguration.current.locales[0].language
     val motionEnabled = LocalBackgroundAnimationEnabled.current
     val reducedTransparency = LocalReducedTransparencyEnabled.current
@@ -94,22 +99,6 @@ fun PostUpdateDialog(
             ?.let { UpdateUiText.releaseDate(Instant.ofEpochMilli(it).toString(), language) }
     }
     val hasChangelog = remember(changelog) { changelog.isNotBlank() }
-    // Капсулы медленно ползут через весь экран слева направо и целиком уходят
-    // за правый край. Скорости держим близкими: при большом разбросе поток
-    // читался как хаотичное мельтешение, а не спокойное движение.
-    val ribbonSegments = remember {
-        listOf(
-            UpdateRibbonSegment(0.07f, 0.34f, -14f, 10.5f, 0.00f, 1.00f, 0.17f),
-            UpdateRibbonSegment(0.18f, 0.28f, -12f, 8.0f, 0.30f, 1.08f, 0.13f),
-            UpdateRibbonSegment(0.29f, 0.52f, -13f, 12.5f, 0.62f, 0.92f, 0.19f),
-            UpdateRibbonSegment(0.40f, 0.25f, -11f, 8.5f, 0.16f, 1.04f, 0.12f),
-            UpdateRibbonSegment(0.52f, 0.46f, -14f, 11.5f, 0.78f, 0.96f, 0.18f),
-            UpdateRibbonSegment(0.64f, 0.39f, -12f, 10.5f, 0.44f, 1.02f, 0.15f),
-            UpdateRibbonSegment(0.76f, 0.49f, -15f, 12.0f, 0.08f, 0.90f, 0.17f),
-            UpdateRibbonSegment(0.88f, 0.30f, -12f, 8.5f, 0.54f, 1.06f, 0.13f)
-        )
-    }
-
     val ringProgress = remember { Animatable(if (animationsEnabled) 0f else 1f) }
     val checkProgress = remember { Animatable(if (animationsEnabled) 0f else 1f) }
     val contentProgress = remember { Animatable(if (animationsEnabled) 0f else 1f) }
@@ -158,8 +147,9 @@ fun PostUpdateDialog(
         while (true) {
             withInfiniteAnimationFrameNanos { now ->
                 if (startNanos == 0L) startNanos = now
-                // 38 секунд на один проезд: должно именно ползти, а не пролетать.
-                linePhaseState.floatValue = (now - startNanos) / 1_000_000_000f / 38f
+                // 44 секунды на один проезд: фон должен медленно жить, а не
+                // превращаться в анимацию загрузки.
+                linePhaseState.floatValue = (now - startNanos) / 1_000_000_000f / 44f
             }
         }
     }
@@ -188,87 +178,22 @@ fun PostUpdateDialog(
                     )
                 )
 
-                // Каждая капсула едет по своей строке от левого края к правому и
-                // возвращается, полностью уйдя за границу, — стык проезда не виден.
-                val linePhase = linePhaseState.floatValue
-                ribbonSegments.forEachIndexed { index, segment ->
-                    val angle = segment.angleDegrees / 180f * PI
-                    val slope = tan(angle).toFloat()
-                    val length = size.width * segment.lengthFraction
-                    val travel = wrapUnit(linePhase * segment.speed + segment.phaseOffset)
-                    // Стартуем целиком слева за экраном и уезжаем целиком вправо.
-                    val startX = -length + travel * (size.width + length * 2f)
-                    // Ключевое: Y смещается по тому же наклону, что и сама капсула,
-                    // поэтому она ползёт вдоль собственной оси — наискосок. Раньше
-                    // наклонная капсула ехала строго вбок и выглядела летящей.
-                    val startY = size.height * segment.rowY + (startX - size.width * 0.5f) * slope
-                    val start = androidx.compose.ui.geometry.Offset(startX, startY)
-                    val end = androidx.compose.ui.geometry.Offset(
-                        startX + cos(angle).toFloat() * length,
-                        startY + sin(angle).toFloat() * length
-                    )
-                    val stroke = segment.strokeDp.dp.toPx()
-                    val segmentColor = when (index % 4) {
-                        0 -> colors.accent
-                        1 -> Color(0xFF79D7FF)
-                        2 -> colors.accent.copy(red = (colors.accent.red + 0.10f).coerceAtMost(1f))
-                        else -> Color(0xFFA78BFA)
-                    }
-
-                    drawLine(
-                        color = segmentColor.copy(alpha = segment.alpha * 0.20f),
-                        start = start,
-                        end = end,
-                        strokeWidth = stroke * 2.6f,
-                        cap = StrokeCap.Round
-                    )
-                    drawLine(
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                segmentColor.copy(alpha = segment.alpha * 0.18f),
-                                segmentColor.copy(alpha = segment.alpha),
-                                Color(0xFF9BE7FF).copy(alpha = segment.alpha * 0.82f)
-                            ),
-                            start = start,
-                            end = end
-                        ),
-                        start = start,
-                        end = end,
-                        strokeWidth = stroke,
-                        cap = StrokeCap.Round
-                    )
-
-                    // Блик идёт по капсуле лишь немного быстрее её самой:
-                    // на тройной скорости он мельтешил и сбивал спокойный ход.
-                    val highlightProgress = wrapUnit(linePhase * segment.speed * 1.35f + segment.phaseOffset)
-                    val highlightFade = sin(PI * highlightProgress).toFloat().coerceIn(0f, 1f)
-                    val highlightHalf = 0.11f
-                    val highlightStart = (highlightProgress - highlightHalf).coerceIn(0f, 1f)
-                    val highlightEnd = (highlightProgress + highlightHalf).coerceIn(0f, 1f)
-                    val lightStart = androidx.compose.ui.geometry.Offset(
-                        start.x + (end.x - start.x) * highlightStart,
-                        start.y + (end.y - start.y) * highlightStart
-                    )
-                    val lightEnd = androidx.compose.ui.geometry.Offset(
-                        start.x + (end.x - start.x) * highlightEnd,
-                        start.y + (end.y - start.y) * highlightEnd
-                    )
-                    drawLine(
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.White.copy(alpha = highlightFade * 0.56f),
-                                Color.Transparent
-                            ),
-                            start = lightStart,
-                            end = lightEnd
-                        ),
-                        start = lightStart,
-                        end = lightEnd,
-                        strokeWidth = stroke * 0.72f,
-                        cap = StrokeCap.Round
-                    )
+                // Completion uses the same renderer as the app background, but
+                // chooses a calm scene that matches the selected visual language.
+                // It replaces the earlier one-off diagonal ribbons and emoji rain.
+                val backdropMode = when {
+                    colors.isMaterialYou -> BackgroundStyleMode.MATERIAL3
+                    elementStyle == ElementStyleMode.NOTHING_DOTS -> BackgroundStyleMode.NOTHING_DOTS
+                    else -> BackgroundStyleMode.SIGNAL_FLOW
                 }
+                drawNimboBackgroundMotion(
+                    mode = backdropMode,
+                    phase = linePhaseState.floatValue,
+                    colors = listOf(colors.accent, Color(0xFF79D7FF), Color(0xFFA78BFA)),
+                    isLight = colors.background.luminance() > 0.5f,
+                    intensity = if (reducedTransparency) 0.34f else 0.68f,
+                    detail = 0.86f
+                )
 
                 if (burstProgress.value < 0.995f) {
                     val palette = listOf(
@@ -326,13 +251,6 @@ fun PostUpdateDialog(
                         )
                     }
                 }
-            }
-
-            if (colors.isMaterialYou) {
-                MaterialUpdateEmojiBackground(
-                    phase = linePhaseState,
-                    animated = animationsEnabled
-                )
             }
 
             Column(
@@ -465,8 +383,8 @@ fun PostUpdateDialog(
 }
 
 private data class UpdateRibbonSegment(
-    /** Вертикальная строка, по которой едет капсула, доля высоты экрана. */
-    val rowY: Float,
+    /** Небольшой сдвиг относительно общего диагонального маршрута. */
+    val pathOffsetY: Float,
     val lengthFraction: Float,
     val angleDegrees: Float,
     val strokeDp: Float,
@@ -484,9 +402,9 @@ private fun wrapUnit(value: Float): Float {
 }
 
 /**
- * Тот же поток, что и у капсул, только эмодзи: каждый едет по своей строке
- * слева направо, друг за другом. Фаза читается внутри `graphicsLayer`, то есть
- * в фазе отрисовки — кадры не вызывают рекомпозицию всего диалога.
+ * Та же диагональная «лесенка», что и у капсул, только с редкими эмодзи для
+ * Material You. Фаза читается внутри `graphicsLayer`, то есть в фазе
+ * отрисовки — кадры не вызывают рекомпозицию всего диалога.
  */
 @Composable
 private fun MaterialUpdateEmojiBackground(
@@ -513,13 +431,13 @@ private fun MaterialUpdateEmojiBackground(
                     .graphicsLayer {
                         val travel = wrapUnit(phase.value * lane.speed + lane.phaseOffset)
                         val widthPx = laneWidth.toPx()
-                        val own = size.width.coerceAtLeast(1f)
-                        val x = -own + travel * (widthPx + own * 2f)
+                        val ownWidth = size.width.coerceAtLeast(1f)
+                        val x = -ownWidth + travel * (widthPx + ownWidth * 2f)
                         translationX = x
-                        // Тот же наклон, что и у капсул: эмодзи ползёт наискосок,
-                        // а не съезжает строго вбок.
-                        val slope = tan(lane.angleDegrees / 180f * PI).toFloat()
-                        translationY = laneHeight.toPx() * lane.rowY + (x - widthPx * 0.5f) * slope
+                        val routeCenterY = laneHeight.toPx() * (
+                            0.91f - travel * 0.84f + lane.pathOffsetY
+                        )
+                        translationY = routeCenterY - size.height * 0.5f
                         alpha = 0.13f + (index % 3) * 0.02f
                         rotationZ = lane.angleDegrees * 0.5f
                     },
@@ -530,17 +448,21 @@ private fun MaterialUpdateEmojiBackground(
 }
 
 private data class MaterialEmojiLane(
-    val rowY: Float,
+    val pathOffsetY: Float,
     val phaseOffset: Float,
     val speed: Float,
     val angleDegrees: Float
 )
 
 private val MATERIAL_EMOJI_LANES = listOf(
-    MaterialEmojiLane(0.10f, 0.00f, 0.94f, -14f),
-    MaterialEmojiLane(0.26f, 0.34f, 1.04f, -12f),
-    MaterialEmojiLane(0.42f, 0.68f, 0.90f, -15f),
-    MaterialEmojiLane(0.58f, 0.18f, 1.06f, -13f),
-    MaterialEmojiLane(0.74f, 0.52f, 0.96f, -14f),
-    MaterialEmojiLane(0.90f, 0.80f, 1.00f, -12f)
+    // Редкие эмодзи повторяют направление «лесенки», но остаются достаточно
+    // прозрачными, чтобы Material You не превращался в пёстрые обои.
+    MaterialEmojiLane(-0.018f, 0.03f, 1.00f, -16f),
+    MaterialEmojiLane(0.012f, 0.16f, 1.00f, -16f),
+    MaterialEmojiLane(-0.009f, 0.29f, 1.00f, -16f),
+    MaterialEmojiLane(0.017f, 0.42f, 1.00f, -16f),
+    MaterialEmojiLane(-0.014f, 0.55f, 1.00f, -16f),
+    MaterialEmojiLane(0.009f, 0.68f, 1.00f, -16f),
+    MaterialEmojiLane(-0.016f, 0.81f, 1.00f, -16f),
+    MaterialEmojiLane(0.013f, 0.94f, 1.00f, -16f)
 )

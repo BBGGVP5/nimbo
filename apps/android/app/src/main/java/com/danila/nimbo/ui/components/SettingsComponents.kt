@@ -100,16 +100,17 @@ fun SettingsSection(
                 ElementStyleMode.OUTLINED -> RoundedCornerShape(10.dp)
                 ElementStyleMode.SOFT_NEO -> RoundedCornerShape(20.dp)
                 ElementStyleMode.SIGNAL -> RoundedCornerShape(18.dp)
+                ElementStyleMode.MANGA -> RoundedCornerShape(3.dp)
             },
-            color = if (elementStyle == ElementStyleMode.SIGNAL) {
-                nebulaColors.textPrimary.copy(alpha = 0.02f)
-            } else {
-                Color.Transparent
+            color = when (elementStyle) {
+                ElementStyleMode.SIGNAL -> nebulaColors.textPrimary.copy(alpha = 0.02f)
+                ElementStyleMode.MANGA -> nebulaColors.panelFill
+                else -> Color.Transparent
             },
-            border = if (elementStyle == ElementStyleMode.SIGNAL) {
-                BorderStroke(1.dp, nebulaColors.textPrimary.copy(alpha = 0.075f))
-            } else {
-                null
+            border = when (elementStyle) {
+                ElementStyleMode.SIGNAL -> BorderStroke(1.dp, nebulaColors.textPrimary.copy(alpha = 0.075f))
+                ElementStyleMode.MANGA -> BorderStroke(2.dp, nebulaColors.panelBorder)
+                else -> null
             }
         ) {
             Column(
@@ -133,6 +134,7 @@ fun SettingsSwitch(
     val nebulaColors = LocalNebulaColors.current
     val elementStyle = LocalElementStyleMode.current
     val isLight = nebulaColors.background.luminance() > 0.5f
+    val iconShape = nimboControlShape(10.dp, 2.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -151,9 +153,13 @@ fun SettingsSwitch(
             Box(
                 modifier = Modifier
                     .size(42.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(iconShape)
                     .background(settingsIconBrush(nebulaColors, elementStyle))
-                    .border(1.dp, nebulaColors.accent.copy(alpha = 0.24f), RoundedCornerShape(10.dp)),
+                    .border(
+                        nimboControlBorderWidth(),
+                        nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.24f)),
+                        iconShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -185,28 +191,25 @@ fun SettingsSwitch(
             }
         }
 
-        Switch(
+        NimboStyleSwitch(
             checked = checked,
             enabled = enabled,
             onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = if (isLight) Color.White else nebulaColors.accent,
-                checkedTrackColor = when (elementStyle) {
-                    ElementStyleMode.MATERIAL_EXPRESSIVE -> nebulaColors.accent.copy(alpha = if (isLight) 0.92f else 0.45f)
-                    ElementStyleMode.NOTHING_DOTS -> nebulaColors.accent.copy(alpha = if (isLight) 0.86f else 0.25f)
-                    ElementStyleMode.OUTLINED -> Color.Transparent
-                    ElementStyleMode.SOFT_NEO -> nebulaColors.accent.copy(alpha = if (isLight) 0.88f else 0.34f)
-                    else -> nebulaColors.accent.copy(alpha = if (isLight) 0.9f else 0.3f)
-                },
-                uncheckedThumbColor = if (isLight) Color.White else if (elementStyle == ElementStyleMode.OUTLINED) nebulaColors.onSurface.copy(alpha = 0.55f) else nebulaColors.textTertiary,
-                uncheckedTrackColor = when (elementStyle) {
-                    ElementStyleMode.OUTLINED -> Color.Transparent
-                    ElementStyleMode.SOFT_NEO -> nebulaColors.onSurface.copy(alpha = if (isLight) 0.32f else 0.14f)
-                    else -> nebulaColors.textTertiary.copy(alpha = if (isLight) 0.48f else 0.2f)
-                },
-                checkedBorderColor = if (elementStyle == ElementStyleMode.OUTLINED || isLight) nebulaColors.accent.copy(alpha = 0.6f) else Color.Transparent,
-                uncheckedBorderColor = if (elementStyle == ElementStyleMode.OUTLINED || isLight) nebulaColors.textSecondary.copy(alpha = 0.6f) else Color.Transparent
-            )
+            checkedThumbColor = if (isLight) Color.White else nebulaColors.accent,
+            checkedTrackColor = when (elementStyle) {
+                ElementStyleMode.MATERIAL_EXPRESSIVE -> nebulaColors.accent.copy(alpha = if (isLight) 0.92f else 0.45f)
+                ElementStyleMode.NOTHING_DOTS -> nebulaColors.accent.copy(alpha = if (isLight) 0.86f else 0.25f)
+                ElementStyleMode.OUTLINED -> Color.Transparent
+                ElementStyleMode.SOFT_NEO -> nebulaColors.accent.copy(alpha = if (isLight) 0.88f else 0.34f)
+                else -> nebulaColors.accent.copy(alpha = if (isLight) 0.9f else 0.3f)
+            },
+            uncheckedThumbColor = if (isLight) Color.White else if (elementStyle == ElementStyleMode.OUTLINED) nebulaColors.onSurface.copy(alpha = 0.55f) else nebulaColors.textTertiary,
+            uncheckedTrackColor = when (elementStyle) {
+                ElementStyleMode.OUTLINED -> Color.Transparent
+                ElementStyleMode.SOFT_NEO -> nebulaColors.onSurface.copy(alpha = if (isLight) 0.32f else 0.14f)
+                else -> nebulaColors.textTertiary.copy(alpha = if (isLight) 0.48f else 0.2f)
+            },
+            uncheckedBorderColor = if (elementStyle == ElementStyleMode.OUTLINED || isLight) nebulaColors.textSecondary.copy(alpha = 0.6f) else Color.Transparent
         )
     }
 }
@@ -219,6 +222,7 @@ fun SettingsItem(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val elementStyle = LocalElementStyleMode.current
+    val iconShape = nimboControlShape(10.dp, 2.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -228,9 +232,9 @@ fun SettingsItem(
         Box(
             modifier = Modifier
                 .size(42.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(iconShape)
                 .background(settingsIconBrush(nebulaColors, elementStyle))
-                .border(1.dp, nebulaColors.accent.copy(alpha = 0.24f), RoundedCornerShape(10.dp)),
+                .border(nimboControlBorderWidth(), nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.24f)), iconShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -272,6 +276,7 @@ fun SettingsNavigationItem(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val elementStyle = LocalElementStyleMode.current
+    val iconShape = nimboControlShape(10.dp, 2.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -287,9 +292,9 @@ fun SettingsNavigationItem(
             Box(
                 modifier = Modifier
                     .size(42.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(iconShape)
                     .background(settingsIconBrush(nebulaColors, elementStyle))
-                    .border(1.dp, nebulaColors.accent.copy(alpha = 0.24f), RoundedCornerShape(10.dp)),
+                    .border(nimboControlBorderWidth(), nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.24f)), iconShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -338,6 +343,7 @@ fun SettingsLinkItem(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val elementStyle = LocalElementStyleMode.current
+    val iconShape = nimboControlShape(10.dp, 2.dp)
 
     Row(
         modifier = Modifier
@@ -354,9 +360,9 @@ fun SettingsLinkItem(
             Box(
                 modifier = Modifier
                     .size(42.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(iconShape)
                     .background(settingsIconBrush(nebulaColors, elementStyle))
-                    .border(1.dp, nebulaColors.accent.copy(alpha = 0.24f), RoundedCornerShape(10.dp)),
+                    .border(nimboControlBorderWidth(), nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.24f)), iconShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -400,7 +406,7 @@ fun NebulaInputField(
 ) {
     val nebulaColors = LocalNebulaColors.current
     val elementStyle = LocalElementStyleMode.current
-    val shape: Shape = RoundedCornerShape(16.dp)
+    val shape: Shape = nimboControlShape(16.dp, 3.dp)
 
     Box(
         modifier = modifier
@@ -428,7 +434,7 @@ fun NebulaInputField(
                 unfocusedContainerColor = Color.Transparent,
                 disabledContainerColor = Color.Transparent,
                 focusedBorderColor = nebulaColors.accent.copy(alpha = 0.55f),
-                unfocusedBorderColor = nebulaColors.textTertiary.copy(alpha = 0.25f),
+                unfocusedBorderColor = nimboControlBorderColor(nebulaColors.textTertiary.copy(alpha = 0.25f)),
                 disabledBorderColor = nebulaColors.textTertiary.copy(alpha = 0.2f),
                 focusedTextColor = nebulaColors.textPrimary,
                 unfocusedTextColor = nebulaColors.textPrimary,
@@ -485,6 +491,11 @@ private fun settingsIconBrush(
     )
 
     // Signal: подложка иконки ровная и акцентная, без градиента.
+    // Manga: ровная бумага без градиента — цвет задаёт тема.
+    ElementStyleMode.MANGA -> Brush.linearGradient(
+        listOf(nebulaColors.panelFill, nebulaColors.panelFill)
+    )
+
     ElementStyleMode.SIGNAL -> Brush.linearGradient(
         colors = listOf(
             nebulaColors.accent.copy(alpha = 0.1f),
@@ -532,6 +543,11 @@ private fun settingsRowBackground(
 
     // Ряды настроек идут сплошным списком, поэтому фон у них прозрачный —
     // разделяют не подложки, а границы карточки-секции.
+    // Manga: ровная бумага без градиента — цвет задаёт тема.
+    ElementStyleMode.MANGA -> Brush.linearGradient(
+        listOf(nebulaColors.controlFill, nebulaColors.controlFill)
+    )
+
     ElementStyleMode.SIGNAL -> Brush.linearGradient(
         listOf(Color.Transparent, Color.Transparent)
     )

@@ -76,7 +76,11 @@ internal object UpdateWorkScheduler {
 
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             uniqueName,
-            ExistingWorkPolicy.REPLACE,
+            // Replacing a currently-running worker could cancel the network
+            // request exactly while the app was going to background. Keeping
+            // the first request preserves its retry/backoff state; the periodic
+            // worker remains the durable fallback if Android delays it.
+            ExistingWorkPolicy.KEEP,
             request
         )
     }

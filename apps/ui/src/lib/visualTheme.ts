@@ -36,6 +36,7 @@ export function applyVisualPreferences(
   const themeUiStyle =
     providerTheme?.ui_style === "material_you" || providerTheme?.ui_style === "nimbo"
     || providerTheme?.ui_style === "dotted" || providerTheme?.ui_style === "signal"
+    || providerTheme?.ui_style === "manga"
       ? providerTheme.ui_style
       : null;
   const effectiveUiStyle = themeUiStyle ?? preferences.ui_style;
@@ -50,6 +51,9 @@ export function applyVisualPreferences(
     document.documentElement.lang = resolveLanguage(preferences.language);
     document.body.dataset.theme = resolvedTheme;
     document.body.dataset.uiStyle = effectiveUiStyle;
+    // Признак вместо класса: CSS сам решает, что делать, а перерисовка
+    // ограничивается одним атрибутом.
+    document.body.dataset.navMotion = preferences.nav_icon_motion ? "on" : "off";
 
     // Signal нарисован под тёплый эмбер. Пока пользователь не выбрал свой
     // акцент, стиль показывает макетный цвет; любой выбранный цвет главнее.

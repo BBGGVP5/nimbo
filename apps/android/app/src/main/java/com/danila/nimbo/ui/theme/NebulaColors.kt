@@ -28,6 +28,8 @@ data class NebulaColors(
     // and the helpers compute their own flat-glass colors.
     val isMaterialYou: Boolean = false,
     val isLiquidGlass: Boolean = true,
+    /** Manga: бумага и чернила вместо стекла — рамка рисуется толще. */
+    val isManga: Boolean = false,
     val panelFill: Color = DarkSurface,
     val controlFill: Color = Color.White.copy(alpha = 0.035f),
     val softFill: Color = Color.White.copy(alpha = 0.08f),

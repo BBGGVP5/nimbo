@@ -38,6 +38,10 @@ import com.danila.nimbo.ui.components.AnimatedGradientBackground
 import com.danila.nimbo.ui.components.DeleteProfileDialog
 import com.danila.nimbo.ui.components.GlassHeader
 import com.danila.nimbo.ui.components.NebulaMorphicDialog
+import com.danila.nimbo.ui.components.nimboControlBorderColor
+import com.danila.nimbo.ui.components.nimboControlBorderWidth
+import com.danila.nimbo.ui.components.nimboControlContainer
+import com.danila.nimbo.ui.components.nimboControlShape
 import com.danila.nimbo.ui.components.QrScannerScreen
 import com.danila.nimbo.ui.components.SubscriptionBrandLogo
 import com.danila.nimbo.ui.theme.LocalNebulaColors
@@ -114,7 +118,11 @@ data class SubscriptionProfile(
     @SerializedName("brandLogoCache") val brandLogoCache: String? = null,
     @SerializedName("themeSpec") val themeSpec: String? = null,
     @SerializedName("tlsFragment") val tlsFragment: TlsFragmentConfig? = null,
-    @SerializedName("templates") val templates: List<SubscriptionTemplateCache> = emptyList()
+    @SerializedName("templates") val templates: List<SubscriptionTemplateCache> = emptyList(),
+    // Версия кода, которым локальный список серверов был собран из подписки.
+    // У старых записей поле отсутствует и Gson оставляет значение 0 — это
+    // намеренно ставит такую подписку в очередь безопасной миграции.
+    @SerializedName("parserRevision") val parserRevision: Int = 0
 ) {
     val displayName: String get() = customName ?: username ?: name
     val usedTraffic: Long get() = uploadTotal + downloadTotal
@@ -786,11 +794,17 @@ fun GlassIconButton(
     enabled: Boolean = true,
     contentDescription: String? = null
 ) {
+    val colors = LocalNebulaColors.current
+    val shape = nimboControlShape(14.dp, 2.dp)
     Surface(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(14.dp),
-        color = color.copy(alpha = if (enabled) 0.15f else 0.06f),
+        shape = shape,
+        color = nimboControlContainer(color.copy(alpha = if (enabled) 0.15f else 0.06f)),
+        border = BorderStroke(
+            nimboControlBorderWidth(),
+            nimboControlBorderColor(colors.panelBorder)
+        ),
         modifier = modifier.size(42.dp)
     ) {
         Box(contentAlignment = Alignment.Center) {

@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,12 +34,20 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ExpressiveCircularLoader(
     modifier: Modifier = Modifier.size(64.dp),
     color: Color = LocalNebulaColors.current.accent,
     strokeWidth: Dp = 5.dp
 ) {
+    // В Material You загрузка выглядит системной: индикатор M3 Expressive
+    // с перетекающими фигурами вместо собственной волнистой дуги.
+    if (LocalNebulaColors.current.isMaterialYou) {
+        LoadingIndicator(modifier = modifier, color = color)
+        return
+    }
+
     val infiniteTransition = rememberInfiniteTransition(label = "expressive-loader")
     
     val rotation by infiniteTransition.animateFloat(

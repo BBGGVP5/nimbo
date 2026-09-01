@@ -122,6 +122,7 @@ fun ServerCard(server: Server, ping: Int? = null, onClick: () -> Unit, onPing: (
         ElementStyleMode.OUTLINED -> RoundedCornerShape(8.dp)
         ElementStyleMode.SOFT_NEO -> RoundedCornerShape(18.dp)
         ElementStyleMode.SIGNAL -> RoundedCornerShape(14.dp)
+        ElementStyleMode.MANGA -> RoundedCornerShape(3.dp)
     }
     val cardColor = when (elementStyle) {
         ElementStyleMode.LIQUID_GLASS -> nebulaColors.cardBackground
@@ -130,6 +131,7 @@ fun ServerCard(server: Server, ping: Int? = null, onClick: () -> Unit, onPing: (
         ElementStyleMode.OUTLINED -> Color.Transparent
         ElementStyleMode.SOFT_NEO -> nebulaColors.surface.copy(alpha = 0.76f)
         ElementStyleMode.SIGNAL -> nebulaColors.textPrimary.copy(alpha = 0.02f)
+        ElementStyleMode.MANGA -> nebulaColors.panelFill
     }
     
     Card(

@@ -37,7 +37,7 @@ const APP_UPDATE_DIALOG_EVENT = "nimbo:show-update-dialog";
 type AppUpdateDialogEvent = CustomEvent<AppUpdateInfo>;
 
 const navItems = [
-  { to: "/", key: "home", icon: "bolt", end: true, compactHide: false },
+  { to: "/", key: "home", icon: "home", end: true, compactHide: false },
   { to: "/subscriptions", key: "profiles", icon: "globe", end: false, compactHide: false },
   { to: "/routing", key: "routing", icon: "route", end: false, compactHide: true },
   { to: "/apps", key: "apps", icon: "phone", end: false, compactHide: false },
@@ -607,6 +607,7 @@ export default function App() {
                 to={item.to}
                 end={item.end}
                 data-compact-hide={item.compactHide ? "true" : undefined}
+                data-nav-key={item.key}
                 className={({ isActive }) =>
                   [
                     "app-nav-link block px-3 py-2.5 my-0.5 rounded-lg text-[13px] transition-colors",
@@ -1275,6 +1276,15 @@ function NavIcon({ name }: { name: string }) {
     "aria-hidden": true,
   };
 
+  if (name === "home") {
+    return (
+      <svg {...common}>
+        <path d="M3.5 10.5 12 3.5l8.5 7" />
+        <path d="M5.5 9.5V20h13V9.5" />
+        <path d="M9.5 20v-5.5h5V20" />
+      </svg>
+    );
+  }
   if (name === "bolt") {
     return (
       <svg {...common}>

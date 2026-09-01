@@ -51,8 +51,15 @@ class NebulaGuardApplication : Application() {
         ensureXrayCoreLoaded()
         NotificationManager.createNotificationChannels(this)
         UpdateWorkScheduler.schedulePeriodic(this)
+        // A periodic WorkManager task is intentionally inexact. Queue one
+        // constrained catch-up check at each process start as well, so a device
+        // that slept through its flex window still learns about an update as
+        // soon as it gets a usable network again.
+        UpdateWorkScheduler.enqueueImmediate(this)
         SubscriptionUpdateScheduler.schedule(this)
         com.danila.nimbo.sync.CrossSyncScheduler.schedule(this)
+        com.danila.nimbo.sync.CrossSyncDiscoveryEngine.initBackground(this)
+        com.danila.nimbo.sync.CrossSyncEmbeddedServer.initBackground(this)
         com.danila.nimbo.utils.CustomAppIconManager.ensureCustomIconFile(this)
         Log.d(TAG, "Ensured periodic background update check")
     }

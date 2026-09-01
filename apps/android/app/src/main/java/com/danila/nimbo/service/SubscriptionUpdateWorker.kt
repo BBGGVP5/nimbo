@@ -11,6 +11,8 @@ import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.utils.Logger
 import com.danila.nimbo.utils.SubscriptionLogoCache
 import com.danila.nimbo.utils.AppVisibilityTracker
+import com.danila.nimbo.vpn.VpnManager
+import com.danila.nimbo.vpn.VpnState
 
 /**
  * Worker для фонового обновления подписок
@@ -26,9 +28,20 @@ class SubscriptionUpdateWorker(
 
     private val preferencesManager = PreferencesManager(applicationContext)
 
+    private fun isVpnActive(): Boolean =
+        preferencesManager.vpnConnectionDesired || VpnManager.state.value != VpnState.DISCONNECTED
+
     override suspend fun doWork(): Result {
-        if (!preferencesManager.subscriptionAutoUpdate) {
-            Log.d(TAG, "Auto-update was disabled before the worker started")
+        if (!SubscriptionRefreshSchedulePolicy.canRefreshSubscriptions(
+                autoUpdateEnabled = preferencesManager.subscriptionAutoUpdate,
+                vpnConnectionDesired = preferencesManager.vpnConnectionDesired,
+                vpnStateActive = VpnManager.state.value != VpnState.DISCONNECTED
+            )
+        ) {
+            Log.d(TAG, "Auto-update skipped: disabled or VPN is active")
+            if (preferencesManager.subscriptionAutoUpdate) {
+                SubscriptionUpdateScheduler.scheduleNext(applicationContext)
+            }
             return Result.success()
         }
         Log.d(TAG, "Starting subscription auto-update")
@@ -152,6 +165,15 @@ class SubscriptionUpdateWorker(
                 }
             }
 
+            // The tunnel may have connected while a network request was in flight.
+            // Do not replace the persisted profile list or show a notification in
+            // that case; the next scheduled check will retry after disconnection.
+            if (isVpnActive()) {
+                Log.d(TAG, "Discarding background subscription results because VPN became active")
+                SubscriptionUpdateScheduler.scheduleNext(applicationContext)
+                return Result.success()
+            }
+
             // Сохраняем обновлённые профили обратно в SharedPreferences
             if (changedCount > 0) {
                 preferencesManager.saveProfiles(updatedProfiles)
@@ -165,7 +187,8 @@ class SubscriptionUpdateWorker(
             if (SubscriptionRefreshSchedulePolicy.shouldShowSystemNotification(
                     notificationsEnabled = preferencesManager.notifyOnSubscriptionUpdate,
                     appInForeground = AppVisibilityTracker.isForeground,
-                    changedSubscriptions = changedCount
+                    changedSubscriptions = changedCount,
+                    vpnActive = isVpnActive()
                 )
             ) {
                 NotificationManager.showSubscriptionUpdateNotification(

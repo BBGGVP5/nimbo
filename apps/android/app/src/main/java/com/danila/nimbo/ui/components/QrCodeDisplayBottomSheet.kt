@@ -3,189 +3,167 @@ package com.danila.nimbo.ui.components
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
 import android.widget.Toast
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.danila.nimbo.ui.i18n.loc
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.theme.LocalNebulaColors
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Kept under the old name to avoid touching every caller, but intentionally rendered as a
+ * Nimbo dialog rather than a Material bottom sheet. QR pairing is a focused action and must stay
+ * readable over profile lists and animated backgrounds.
+ */
 @Composable
 fun QrCodeDisplayBottomSheet(
     url: String,
+    title: String = t("QR-код подписки", "Subscription QR"),
+    description: String = t(
+        "Отсканируйте этот код на другом устройстве, чтобы добавить подписку",
+        "Scan this code on another device to add the subscription"
+    ),
+    shareTitle: String = loc("Поделиться подпиской", "Share subscription"),
+    allowCopyAndShare: Boolean = true,
     onDismiss: () -> Unit
 ) {
-    val nebulaColors = LocalNebulaColors.current
+    val colors = LocalNebulaColors.current
     val context = LocalContext.current
-    val configuration = LocalConfiguration.current
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val compactLayout = configuration.screenHeightDp < 720
-    val outerPadding = if (compactLayout) 12.dp else 16.dp
-    val contentPadding = if (compactLayout) 18.dp else 24.dp
-    val qrSize = if (compactLayout) 184.dp else 220.dp
-    val qrCornerRadius = if (compactLayout) 24.dp else 32.dp
-    val primarySpacer = if (compactLayout) 14.dp else 24.dp
-    val secondarySpacer = if (compactLayout) 16.dp else 28.dp
-    val actionHeight = if (compactLayout) 52.dp else 56.dp
+    val compact = LocalConfiguration.current.screenHeightDp < 720
+    val qrSize = if (compact) 176.dp else 216.dp
+    val qrBitmap = remember(url) { generateQrBitmap(url, 768) }
 
-    ModalBottomSheet(
+    NebulaMorphicDialog(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = Color.Transparent, // We use custom glass surface
-        dragHandle = null, // Custom drag handle inside
-        scrimColor = Color.Black.copy(alpha = 0.5f)
+        title = title,
+        description = description,
+        confirmButtonText = t("Закрыть", "Close"),
+        cancelButtonText = null,
+        onConfirm = onDismiss,
+        headerIcon = Icons.Default.QrCode2
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(outerPadding)
-                .clip(RoundedCornerShape(32.dp))
-                .background(Color.Transparent)
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 18.dp)
         ) {
-            // Glass Surface with Blur
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .blur(30.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                nebulaColors.surface.copy(alpha = 0.85f),
-                                nebulaColors.surface.copy(alpha = 0.95f)
-                            )
-                        )
-                    )
-                    .border(
-                        1.dp,
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.White.copy(alpha = 0.15f),
-                                Color.White.copy(alpha = 0.05f)
-                            )
-                        ),
-                        RoundedCornerShape(32.dp)
-                    )
-            )
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(contentPadding),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = colors.controlFill,
+                border = BorderStroke(1.dp, colors.panelBorder),
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp
             ) {
-                // Custom Drag Handle
                 Box(
-                    modifier = Modifier
-                        .width(40.dp)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(nebulaColors.textTertiary.copy(alpha = 0.3f))
-                )
-
-                Spacer(Modifier.height(primarySpacer))
-
-                Text(
-                    text = t("QR-код подписки", "Subscription QR"),
-                    style = if (compactLayout) {
-                        MaterialTheme.typography.titleLarge
-                    } else {
-                        MaterialTheme.typography.headlineSmall
-                    },
-                    color = nebulaColors.textPrimary,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 0.sp
-                )
-
-                Text(
-                    text = t(
-                        "Отсканируйте этот код на другом устройстве, чтобы добавить подписку",
-                        "Scan this code on another device to add the subscription"
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = nebulaColors.textSecondary.copy(alpha = 0.8f),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(
-                        top = 8.dp,
-                        bottom = if (compactLayout) 18.dp else 26.dp
-                    )
-                )
-
-                // Premium QR Container
-                Box(
-                    modifier = Modifier
-                        .size(qrSize)
-                        .clip(RoundedCornerShape(qrCornerRadius))
-                        .background(Color.White)
-                        .border(
-                            4.dp,
-                            nebulaColors.accent.copy(alpha = 0.1f),
-                            RoundedCornerShape(qrCornerRadius)
-                        )
-                        .padding(if (compactLayout) 16.dp else 20.dp),
+                    modifier = Modifier.padding(if (compact) 12.dp else 15.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.QrCode2,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        tint = Color.Black.copy(alpha = 0.9f)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(qrSize)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color.White)
+                            .border(
+                                width = 2.dp,
+                                color = colors.accent.copy(alpha = 0.30f),
+                                shape = RoundedCornerShape(18.dp)
+                            )
+                            .padding(if (compact) 12.dp else 15.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (qrBitmap != null) {
+                            Image(
+                                bitmap = qrBitmap.asImageBitmap(),
+                                contentDescription = t("QR-код", "QR code"),
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.QrCode2,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
                 }
+            }
 
-                Spacer(Modifier.height(if (compactLayout) 18.dp else 28.dp))
-
-                // Link Card (Modernized)
+            if (!allowCopyAndShare) {
+                Text(
+                    text = t(
+                        "Защищённый одноразовый код · Wi‑Fi или Bluetooth",
+                        "Secure one-time code · Wi-Fi or Bluetooth"
+                    ),
+                    color = colors.textTertiary,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+            } else {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = Color.White.copy(alpha = 0.03f),
-                    shape = RoundedCornerShape(20.dp),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp, 
-                        Color.White.copy(alpha = 0.08f)
-                    )
+                    shape = RoundedCornerShape(16.dp),
+                    color = colors.controlFill,
+                    border = BorderStroke(1.dp, colors.panelBorder),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = url,
+                            color = colors.textSecondary,
                             style = MaterialTheme.typography.bodySmall,
-                            color = nebulaColors.textSecondary,
-                            modifier = Modifier.weight(1f),
                             maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
-                        
-                        IconButton(
+                        Surface(
                             onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 clipboard.setPrimaryClip(ClipData.newPlainText("Subscription URL", url))
@@ -194,67 +172,72 @@ fun QrCodeDisplayBottomSheet(
                                     loc("Ссылка скопирована", "Link copied"),
                                     Toast.LENGTH_SHORT
                                 ).show()
-                            }
+                            },
+                            modifier = Modifier.size(42.dp),
+                            shape = RoundedCornerShape(13.dp),
+                            color = colors.softFill,
+                            border = BorderStroke(1.dp, colors.panelBorder)
                         ) {
-                            Icon(
-                                Icons.Default.ContentCopy, 
-                                null, 
-                                tint = nebulaColors.accent,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = t("Копировать", "Copy"),
+                                    tint = colors.accent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
 
-                Spacer(Modifier.height(secondarySpacer))
-
-                // Action Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                Button(
+                    onClick = {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(android.content.Intent.EXTRA_TEXT, url)
+                        }
+                        context.startActivity(android.content.Intent.createChooser(intent, shareTitle))
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(15.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.accent,
+                        contentColor = Color.White
+                    )
                 ) {
-                    Button(
-                        onClick = {
-                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(android.content.Intent.EXTRA_TEXT, url)
-                            }
-                            context.startActivity(android.content.Intent.createChooser(intent, loc("Поделиться подпиской", "Share subscription")))
-                        },
-                        modifier = Modifier
-                            .weight(1.3f)
-                            .height(actionHeight),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = nebulaColors.accent,
-                            contentColor = Color.White
-                        ),
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
-                    ) {
-                        Icon(Icons.Default.Share, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(t("Поделиться", "Share"), fontWeight = FontWeight.Bold)
-                    }
-                    
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(actionHeight),
-                        shape = RoundedCornerShape(18.dp),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp, 
-                            nebulaColors.textTertiary.copy(alpha = 0.3f)
-                        )
-                    ) {
-                        Text(
-                            t("Закрыть", "Close"),
-                            color = nebulaColors.textPrimary,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(t("Поделиться", "Share"), fontWeight = FontWeight.ExtraBold)
                 }
             }
         }
     }
 }
+
+private fun generateQrBitmap(value: String, size: Int): Bitmap? = runCatching {
+    val matrix = QRCodeWriter().encode(
+        value,
+        BarcodeFormat.QR_CODE,
+        size,
+        size,
+        mapOf(
+            EncodeHintType.CHARACTER_SET to "UTF-8",
+            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
+            EncodeHintType.MARGIN to 1
+        )
+    )
+    val pixels = IntArray(size * size)
+    for (y in 0 until size) {
+        val offset = y * size
+        for (x in 0 until size) {
+            pixels[offset + x] = if (matrix[x, y]) {
+                android.graphics.Color.BLACK
+            } else {
+                android.graphics.Color.WHITE
+            }
+        }
+    }
+    Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
+}.getOrNull()

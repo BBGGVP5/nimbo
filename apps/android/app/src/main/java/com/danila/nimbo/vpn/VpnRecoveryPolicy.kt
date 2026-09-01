@@ -184,6 +184,7 @@ object VpnRecoveryPolicy {
                     state.copy(
                         phase = Phase.CONNECTING,
                         networkAvailable = true,
+                        retryAttempt = 0,
                         connectPending = true
                     ),
                     listOf(Command.CancelRetry, Command.StartConnection)

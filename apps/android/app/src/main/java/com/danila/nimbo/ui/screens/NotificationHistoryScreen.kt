@@ -77,6 +77,10 @@ import com.danila.nimbo.ui.components.NebulaMorphicDialog
 import com.danila.nimbo.ui.components.NotificationSurface
 import com.danila.nimbo.ui.components.NotificationType
 import com.danila.nimbo.ui.components.dotPatternOverlay
+import com.danila.nimbo.ui.components.nimboControlBorderColor
+import com.danila.nimbo.ui.components.nimboControlBorderWidth
+import com.danila.nimbo.ui.components.nimboControlContainer
+import com.danila.nimbo.ui.components.nimboControlShape
 import com.danila.nimbo.ui.theme.ElementStyleMode
 import com.danila.nimbo.ui.theme.LocalElementStyleMode
 import com.danila.nimbo.ui.theme.LocalNebulaColors
@@ -213,6 +217,7 @@ private fun NotificationHistoryHeader(
     showClear: Boolean
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val elementStyle = LocalElementStyleMode.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -240,12 +245,17 @@ private fun NotificationHistoryHeader(
         }
 
         AnimatedVisibility(visible = showClear) {
+            val clearShape = nimboControlShape(15.dp, 2.dp)
             Box(
                 modifier = Modifier
                     .size(46.dp)
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(nebulaColors.statusError.copy(alpha = 0.1f))
-                    .border(1.dp, nebulaColors.statusError.copy(alpha = 0.2f), RoundedCornerShape(15.dp))
+                    .clip(clearShape)
+                    .background(nimboControlContainer(nebulaColors.statusError.copy(alpha = 0.1f)))
+                    .border(
+                        nimboControlBorderWidth(),
+                        if (elementStyle == ElementStyleMode.MANGA) nebulaColors.statusError else nebulaColors.statusError.copy(alpha = 0.2f),
+                        clearShape
+                    )
                     .clickable(onClick = onClear)
                     .semantics { role = Role.Button },
                 contentAlignment = Alignment.Center
@@ -265,6 +275,7 @@ private fun NotificationHistoryHeader(
 private fun NotificationSummaryCard(history: List<NotificationItem>) {
     val nebulaColors = LocalNebulaColors.current
     val elementStyle = LocalElementStyleMode.current
+    val isManga = elementStyle == ElementStyleMode.MANGA
     val shape = notificationShape(elementStyle, large = true)
     val latest = history.firstOrNull()
     val successCount = history.count { it.type == NotificationType.SUCCESS }
@@ -276,9 +287,12 @@ private fun NotificationSummaryCard(history: List<NotificationItem>) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(16.dp, shape, spotColor = nebulaColors.accent.copy(alpha = 0.14f))
+            .shadow(if (isManga) 0.dp else 16.dp, shape, spotColor = nebulaColors.accent.copy(alpha = 0.14f))
             .clip(shape)
-            .background(notificationPanelBrush(nebulaColors.accent))
+            .then(
+                if (isManga) Modifier.background(nebulaColors.panelFill)
+                else Modifier.background(notificationPanelBrush(nebulaColors.accent))
+            )
             .then(
                 if (elementStyle == ElementStyleMode.NOTHING_DOTS) {
                     Modifier.dotPatternOverlay(
@@ -289,16 +303,25 @@ private fun NotificationSummaryCard(history: List<NotificationItem>) {
                     )
                 } else Modifier
             )
-            .border(1.dp, nebulaColors.accent.copy(alpha = 0.22f), shape)
+            .border(
+                if (isManga) 2.dp else 1.dp,
+                if (isManga) nebulaColors.panelBorder else nebulaColors.accent.copy(alpha = 0.22f),
+                shape
+            )
             .padding(16.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val countShape = nimboControlShape(17.dp, 2.dp)
                 Box(
                     modifier = Modifier
                         .size(52.dp)
-                        .background(nebulaColors.accent.copy(alpha = 0.14f), RoundedCornerShape(17.dp))
-                        .border(1.dp, nebulaColors.accent.copy(alpha = 0.26f), RoundedCornerShape(17.dp)),
+                        .background(nimboControlContainer(nebulaColors.accent.copy(alpha = 0.14f)), countShape)
+                        .border(
+                            nimboControlBorderWidth(),
+                            nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.26f)),
+                            countShape
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     AnimatedContent(
@@ -404,11 +427,16 @@ private fun SummaryMetric(
     color: Color
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val shape = nimboControlShape(13.dp, 2.dp)
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(13.dp))
-            .background(color.copy(alpha = 0.08f))
-            .border(1.dp, color.copy(alpha = 0.15f), RoundedCornerShape(13.dp))
+            .clip(shape)
+            .background(nimboControlContainer(color.copy(alpha = 0.08f)))
+            .border(
+                nimboControlBorderWidth(),
+                nimboControlBorderColor(color.copy(alpha = 0.15f)),
+                shape
+            )
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -466,18 +494,25 @@ private fun NotificationFilters(
                 val selectedNow = selected == filter
                 val color = filter.type?.let { notificationVisual(it).color } ?: nebulaColors.accent
                 val count = filter.type?.let { type -> history.count { it.type == type } } ?: history.size
+                val chipShape = nimboControlShape(999.dp, 2.dp)
                 Row(
                     modifier = Modifier
-                        .clip(CircleShape)
+                        .clip(chipShape)
                         .background(
-                            if (selectedNow) color.copy(alpha = 0.17f)
-                            else nebulaColors.textPrimary.copy(alpha = 0.045f)
+                            nimboControlContainer(
+                                if (selectedNow) color.copy(alpha = 0.17f)
+                                else nebulaColors.textPrimary.copy(alpha = 0.045f),
+                                selected = selectedNow
+                            )
                         )
                         .border(
-                            1.dp,
-                            if (selectedNow) color.copy(alpha = 0.42f)
-                            else nebulaColors.textPrimary.copy(alpha = 0.08f),
-                            CircleShape
+                            nimboControlBorderWidth(selected = selectedNow),
+                            nimboControlBorderColor(
+                                if (selectedNow) color.copy(alpha = 0.42f)
+                                else nebulaColors.textPrimary.copy(alpha = 0.08f),
+                                selected = selectedNow
+                            ),
+                            chipShape
                         )
                         .clickable { onSelect(filter) }
                         .semantics { role = Role.Tab }
@@ -595,18 +630,26 @@ private fun NotificationEmptyState(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = shape,
-        color = nebulaColors.textPrimary.copy(alpha = 0.035f),
-        border = BorderStroke(1.dp, nebulaColors.textPrimary.copy(alpha = 0.08f))
+        color = nimboControlContainer(nebulaColors.textPrimary.copy(alpha = 0.035f)),
+        border = BorderStroke(
+            nimboControlBorderWidth(),
+            nimboControlBorderColor(nebulaColors.textPrimary.copy(alpha = 0.08f))
+        )
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 36.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            val emptyIconShape = nimboControlShape(22.dp, 2.dp)
             Box(
                 modifier = Modifier
                     .size(66.dp)
-                    .background(nebulaColors.accent.copy(alpha = 0.09f), RoundedCornerShape(22.dp))
-                    .border(1.dp, nebulaColors.accent.copy(alpha = 0.16f), RoundedCornerShape(22.dp)),
+                    .background(nimboControlContainer(nebulaColors.accent.copy(alpha = 0.09f)), emptyIconShape)
+                    .border(
+                        nimboControlBorderWidth(),
+                        nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.16f)),
+                        emptyIconShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -687,6 +730,7 @@ private fun notificationShape(elementStyle: ElementStyleMode, large: Boolean): R
         ElementStyleMode.OUTLINED -> if (large) 14.dp else 11.dp
         ElementStyleMode.SOFT_NEO -> if (large) 24.dp else 20.dp
         ElementStyleMode.SIGNAL -> if (large) 18.dp else 14.dp
+        ElementStyleMode.MANGA -> 3.dp
     }
     return RoundedCornerShape(radius)
 }

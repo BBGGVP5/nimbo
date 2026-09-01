@@ -169,6 +169,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
             com.danila.nimbo.ui.theme.ElementStyleMode.entries.maxOf { it.persistedValue }
         private const val KEY_ELEMENT_STYLE = "element_style"
         private const val KEY_BACKGROUND_ANIMATION_ENABLED = "background_animation_enabled"
+        private const val KEY_NAV_ICON_ANIMATION_ENABLED = "nav_icon_animation_enabled"
         private const val KEY_STATUS_PARTICLES_ENABLED = "status_particles_enabled"
         private const val KEY_LIQUID_REFRACTION_ENABLED = "liquid_refraction_enabled"
         private const val KEY_HIGH_CONTRAST_UI = "high_contrast_ui"
@@ -270,6 +271,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     val backgroundPaletteState = mutableStateOf(readBackgroundPalette())
     val elementStyleState = mutableStateOf(sharedPreferences.getInt(KEY_ELEMENT_STYLE, 0))
     val backgroundAnimationEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true))
+    val navIconAnimationEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_NAV_ICON_ANIMATION_ENABLED, true))
     val statusParticlesEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true))
     val liquidRefractionEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_LIQUID_REFRACTION_ENABLED, true))
     val highContrastUiState = mutableStateOf(sharedPreferences.getBoolean(KEY_HIGH_CONTRAST_UI, false))
@@ -555,6 +557,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
             KEY_HAPTIC_FEEDBACK_STYLE -> hapticFeedbackStyleState.value =
                 prefs.getInt(KEY_HAPTIC_FEEDBACK_STYLE, 1).coerceIn(0, 5)
             KEY_BACKGROUND_ANIMATION_ENABLED -> backgroundAnimationEnabledState.value = prefs.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true)
+            KEY_NAV_ICON_ANIMATION_ENABLED -> navIconAnimationEnabledState.value = prefs.getBoolean(KEY_NAV_ICON_ANIMATION_ENABLED, true)
             KEY_STATUS_PARTICLES_ENABLED -> statusParticlesEnabledState.value = prefs.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true)
             KEY_LIQUID_REFRACTION_ENABLED -> liquidRefractionEnabledState.value = prefs.getBoolean(KEY_LIQUID_REFRACTION_ENABLED, true)
             KEY_HIGH_CONTRAST_UI -> highContrastUiState.value = prefs.getBoolean(KEY_HIGH_CONTRAST_UI, false)
@@ -620,6 +623,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         backgroundPaletteState.value = readBackgroundPalette()
         elementStyleState.value = sharedPreferences.getInt(KEY_ELEMENT_STYLE, legacyStyle)
         backgroundAnimationEnabledState.value = sharedPreferences.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true)
+        navIconAnimationEnabledState.value = sharedPreferences.getBoolean(KEY_NAV_ICON_ANIMATION_ENABLED, true)
         statusParticlesEnabledState.value = sharedPreferences.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true)
         liquidRefractionEnabledState.value = sharedPreferences.getBoolean(KEY_LIQUID_REFRACTION_ENABLED, true)
         highContrastUiState.value = sharedPreferences.getBoolean(KEY_HIGH_CONTRAST_UI, false)
@@ -826,6 +830,14 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         set(value) {
             sharedPreferences.edit().putBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, value).apply()
             backgroundAnimationEnabledState.value = value
+        }
+
+    /** Оживление значков нижней панели: прыжок и подсветка при переходе. */
+    var navIconAnimationEnabled: Boolean
+        get() = sharedPreferences.getBoolean(KEY_NAV_ICON_ANIMATION_ENABLED, true)
+        set(value) {
+            sharedPreferences.edit().putBoolean(KEY_NAV_ICON_ANIMATION_ENABLED, value).apply()
+            navIconAnimationEnabledState.value = value
         }
 
     var statusParticlesEnabled: Boolean
@@ -2202,6 +2214,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
             backgroundPaletteState.value = readBackgroundPalette()
             elementStyleState.value = sharedPreferences.getInt(KEY_ELEMENT_STYLE, legacyStyle)
             backgroundAnimationEnabledState.value = sharedPreferences.getBoolean(KEY_BACKGROUND_ANIMATION_ENABLED, true)
+        navIconAnimationEnabledState.value = sharedPreferences.getBoolean(KEY_NAV_ICON_ANIMATION_ENABLED, true)
             statusParticlesEnabledState.value = sharedPreferences.getBoolean(KEY_STATUS_PARTICLES_ENABLED, true)
             liquidRefractionEnabledState.value = sharedPreferences.getBoolean(KEY_LIQUID_REFRACTION_ENABLED, true)
             highContrastUiState.value = sharedPreferences.getBoolean(KEY_HIGH_CONTRAST_UI, false)

@@ -13,6 +13,9 @@ class UpdateWorker(
 
     override suspend fun doWork(): Result {
         Log.d("UpdateWorker", "Checking for updates in background (attempt=$runAttemptCount)...")
+        // Видно в логе, если система придержала фон: тогда «уведомление не пришло»
+        // объясняется корзиной ожидания, а не ошибкой проверки.
+        Log.d("UpdateWorker", com.danila.nimbo.utils.BackgroundHealthChecker.describe(applicationContext))
         
         return try {
             val updateInfo = UpdateManager.checkUpdateInBackground(applicationContext)

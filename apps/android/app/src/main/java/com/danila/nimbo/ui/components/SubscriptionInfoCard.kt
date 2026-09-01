@@ -806,7 +806,7 @@ private fun LinkButton(icon: ImageVector, label: String, modifier: Modifier = Mo
 
 private fun formatDays(days: Long): String {
     return when {
-        days < 0 -> "Бессрочно"
+        days < 0 -> "∞"
         days == 0L -> "Истекает сегодня"
         days == 1L -> "1 день"
         days in 2..4 -> "$days дня"

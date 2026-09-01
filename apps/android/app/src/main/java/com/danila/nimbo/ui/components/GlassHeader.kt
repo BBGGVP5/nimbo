@@ -38,6 +38,7 @@ fun GlassHeader(
         ElementStyleMode.OUTLINED -> RoundedCornerShape(12.dp)
         ElementStyleMode.SOFT_NEO -> RoundedCornerShape(20.dp)
         ElementStyleMode.SIGNAL -> RoundedCornerShape(18.dp)
+        ElementStyleMode.MANGA -> RoundedCornerShape(3.dp)
     }
     val headerBackground = when (elementStyle) {
         ElementStyleMode.LIQUID_GLASS -> Brush.linearGradient(
@@ -74,6 +75,11 @@ fun GlassHeader(
                 nebulaColors.surface.copy(alpha = 0.82f),
                 nebulaColors.onSurface.copy(alpha = 0.07f)
             )
+        )
+
+        // Manga: ровная бумага без градиента — цвет задаёт тема.
+        ElementStyleMode.MANGA -> Brush.linearGradient(
+            listOf(nebulaColors.panelFill, nebulaColors.panelFill)
         )
 
         ElementStyleMode.SIGNAL -> Brush.linearGradient(

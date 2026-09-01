@@ -93,6 +93,7 @@ fun BottomBar(navController: NavController) {
         ElementStyleMode.OUTLINED -> (16 * cornerScale).dp
         ElementStyleMode.SOFT_NEO -> (28 * cornerScale).dp
         ElementStyleMode.SIGNAL -> (18 * cornerScale).dp
+        ElementStyleMode.MANGA -> (3 * cornerScale).dp
     }
     val panelShape = RoundedCornerShape(panelCorner)
     fun navigate(route: String) {
@@ -155,6 +156,11 @@ fun BottomBar(navController: NavController) {
                 .clip(panelShape)
                 .background(colors.surface.copy(alpha = if (reducedTransparency) 0.98f else 0.94f))
                 .border(1.dp, colors.textPrimary.copy(alpha = 0.09f), panelShape)
+
+            ElementStyleMode.MANGA -> basePanelModifier
+                .clip(panelShape)
+                .background(colors.panelFill)
+                .border(2.dp, colors.panelBorder, panelShape)
 
             else -> basePanelModifier
                 .clip(panelShape)
@@ -224,6 +230,7 @@ private fun BottomNavItem(
         ElementStyleMode.NOTHING_DOTS -> 6.dp
         // Signal: не капсула, а прямоугольная плашка со скруглением панели.
         ElementStyleMode.SIGNAL -> 12.dp
+        ElementStyleMode.MANGA -> 3.dp
         else -> 24.dp
     }
     val itemShape = RoundedCornerShape(itemCorner)
@@ -234,6 +241,7 @@ private fun BottomNavItem(
             alpha = if (reducedTransparency) 0.26f else 0.16f
         )
         elementStyle == ElementStyleMode.SIGNAL -> colors.accent.copy(alpha = 0.13f)
+        elementStyle == ElementStyleMode.MANGA -> colors.accent.copy(alpha = 0.14f)
         else -> colors.accent.copy(alpha = 0.16f)
     }
     val itemBorder = when {
@@ -243,6 +251,7 @@ private fun BottomNavItem(
         )
         elementStyle == ElementStyleMode.NOTHING_DOTS -> Color.Transparent
         elementStyle == ElementStyleMode.SIGNAL -> colors.accent.copy(alpha = 0.32f)
+        elementStyle == ElementStyleMode.MANGA -> colors.accent
         else -> colors.accent.copy(alpha = 0.28f)
     }
     val contentColor = when {
@@ -268,7 +277,11 @@ private fun BottomNavItem(
                         alpha = 0.92f
                     )
                 } else {
-                    Modifier.border(1.dp, itemBorder, itemShape)
+                    Modifier.border(
+                        if (elementStyle == ElementStyleMode.MANGA && selected) 2.dp else 1.dp,
+                        itemBorder,
+                        itemShape
+                    )
                 }
             )
             .animateContentSize(
