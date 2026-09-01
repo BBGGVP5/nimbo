@@ -648,7 +648,12 @@ private fun BackgroundPicker(
 @Composable
 private fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        BasicText(title, style = NimboSectionTitleStyle)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // В Manga заголовок начинается с косой красной засечки: без неё
+            // раздел не отличить от обычной подписи.
+            if (LocalNimboElementStyle.current == NimboElementStyle.MANGA) NimboMangaSlash()
+            BasicText(title, style = NimboSectionTitleStyle)
+        }
         NimboSurface(
             modifier = Modifier.fillMaxWidth(),
             cornerRadius = 22.dp,

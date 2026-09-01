@@ -238,6 +238,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
@@ -1431,20 +1432,45 @@ private fun NimboBackdrop() {
         }
         Box(modifier = Modifier.fillMaxSize().background(paper)) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                // Разлиновка ушла в полутон: она держит ритм страницы, но уже
-                // не читается как тетрадный лист.
-                val step = 26.dp.toPx()
-                val line = ink.copy(alpha = if (isLight) 0.035f else 0.025f)
-                var x = 0f
-                while (x < size.width) {
-                    drawLine(line, Offset(x, 0f), Offset(x, size.height), 1f)
-                    x += step
+                // Волокна вместо разлиновки: клетка читалась тетрадью, а не
+                // страницей. Два направления под разными углами — так же, как
+                // сделано на компьютере.
+                val fiber = ink.copy(alpha = if (isLight) 0.03f else 0.022f)
+                val darkFiber = (if (isLight) Color(0xFF6B5B3A) else Color.Black)
+                    .copy(alpha = if (isLight) 0.035f else 0.05f)
+                val reach = size.width + size.height
+                var offset = -size.height
+                while (offset < reach) {
+                    drawLine(
+                        fiber,
+                        Offset(offset, 0f),
+                        Offset(offset + size.height * 0.3f, size.height),
+                        1f
+                    )
+                    offset += 7.dp.toPx()
                 }
-                var y = 0f
-                while (y < size.height) {
-                    drawLine(line, Offset(0f, y), Offset(size.width, y), 1f)
-                    y += step
+                offset = -size.height
+                while (offset < reach) {
+                    drawLine(
+                        darkFiber,
+                        Offset(offset + size.height * 0.34f, 0f),
+                        Offset(offset, size.height),
+                        1f
+                    )
+                    offset += 11.dp.toPx()
                 }
+
+                // Свет по листу лежит неровно: мягкое пятно ближе к углу.
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            ink.copy(alpha = if (isLight) 0.06f else 0.05f),
+                            Color.Transparent
+                        ),
+                        center = Offset(size.width * 0.18f, size.height * 0.12f),
+                        radius = size.minDimension * 0.7f
+                    )
+                )
 
                 val speckSize = androidx.compose.ui.geometry.Size(1.2f.dp.toPx(), 1.2f.dp.toPx())
                 val speck = ink.copy(alpha = if (isLight) 0.055f else 0.045f)
@@ -11984,6 +12010,48 @@ private fun scaleRoundedCornerShape(shape: RoundedCornerShape, scale: Float): Ro
     )
 }
 
+/**
+ * Чернильная тень кадра: сплошная заливка со смещением, без размытия.
+ *
+ * Именно она отличает нарисованную панель от «просто рамки» — на компьютере
+ * стиль держится на ней.
+ */
+private fun Modifier.inkShadow(
+    shape: RoundedCornerShape,
+    color: Color,
+    offset: Dp = 5.dp
+): Modifier = this.drawBehind {
+    val shift = offset.toPx()
+    val outline = shape.createOutline(size, layoutDirection, this)
+    translate(left = shift, top = shift) {
+        drawOutline(outline, color = color)
+    }
+}
+
+/** Красная косая засечка перед заголовком раздела — как на компьютере. */
+@Composable
+private fun MangaSectionSlash(modifier: Modifier = Modifier) {
+    val nebulaColors = LocalNebulaColors.current
+    Box(
+        modifier = modifier
+            .padding(end = 8.dp)
+            .width(5.dp)
+            .height(16.dp)
+            .clip(MangaSlashShape)
+            .background(nebulaColors.accent)
+    )
+}
+
+/** Скос засечки: те же двенадцать градусов, что и в десктопной вёрстке. */
+private val MangaSlashShape = androidx.compose.foundation.shape.GenericShape { size, _ ->
+    val slant = size.height * 0.21f
+    moveTo(slant, 0f)
+    lineTo(size.width, 0f)
+    lineTo(size.width - slant, size.height)
+    lineTo(0f, size.height)
+    close()
+}
+
 @Composable
 private fun GlassPanel(
     modifier: Modifier = Modifier,
@@ -12046,6 +12114,11 @@ private fun GlassPanel(
         )
     } else {
         modifier
+            // Жёсткая тень со смещением — примета кадра: размытая тень читается
+            // как глянец, а не как рисунок пером.
+            .then(
+                if (mangaStyle) Modifier.inkShadow(resolvedShape, nebulaColors.panelBorder) else Modifier
+            )
             .clip(resolvedShape)
             .then(
                 when {
@@ -14069,13 +14142,19 @@ private fun ColumnScope.ThemeSettingsSection(
 @Composable
 private fun ColumnScope.AppearanceSectionHeader(title: String, subtitle: String) {
     val nebulaColors = LocalNebulaColors.current
+    val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
     Column(modifier = Modifier.padding(start = 2.dp)) {
-        Text(
-            text = title,
-            color = nebulaColors.textPrimary,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.ExtraBold
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // Засечка ставится только в Manga: в остальных стилях заголовок
+            // держится сам, а красная полоска смотрелась бы наклейкой.
+            if (mangaStyle) MangaSectionSlash()
+            Text(
+                text = title,
+                color = nebulaColors.textPrimary,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
         Text(
             text = subtitle,
             color = nebulaColors.textTertiary,

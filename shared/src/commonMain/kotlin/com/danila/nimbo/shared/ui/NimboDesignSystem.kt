@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -58,8 +60,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
@@ -229,8 +235,11 @@ internal fun NimboSurface(
                         .background(NimboPalette.Text.copy(alpha = 0.02f).compositeOver(NimboPalette.Background))
                         .border(1.dp, NimboPalette.Text.copy(alpha = 0.075f), shape)
                     // Manga: бумага под чернилами. Контур вдвое толще обычного —
-                    // без него панель перестаёт читаться как нарисованная.
+                    // без него панель перестаёт читаться как нарисованная, — а
+                    // жёсткая тень со смещением превращает панель в кадр: на
+                    // компьютере именно она отличает стиль от «просто рамки».
                     NimboElementStyle.MANGA -> Modifier
+                        .nimboInkShadow(shape, offset = 5.dp)
                         .clip(shape)
                         .background(NimboMangaPalette.Paper)
                         .border(2.dp, NimboMangaPalette.Ink, shape)
@@ -248,6 +257,57 @@ internal fun NimboSurface(
             .padding(padding),
         content = content
     )
+}
+
+/**
+ * Жёсткая тень кадра: сплошная заливка со смещением, без размытия.
+ *
+ * Размытая тень — примета глянцевого интерфейса; в комиксе панель отбрасывает
+ * ровный чернильный прямоугольник, и именно он читается как «нарисовано».
+ */
+internal fun Modifier.nimboInkShadow(
+    shape: RoundedCornerShape,
+    offset: Dp,
+    color: Color = NimboMangaPalette.Ink
+): Modifier = drawBehind {
+    val shift = offset.toPx()
+    val outline = shape.createOutline(
+        androidx.compose.ui.geometry.Size(size.width, size.height),
+        layoutDirection,
+        this
+    )
+    translate(left = shift, top = shift) {
+        drawOutline(outline, color = color)
+    }
+}
+
+/** Красная косая засечка перед заголовком — та же, что на компьютере. */
+@Composable
+internal fun NimboMangaSlash(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .padding(end = 8.dp)
+            .width(5.dp)
+            .height(16.dp)
+            .graphicsLayer {
+                // Косой срез: прямая полоска выглядит разделителем, а не
+                // засечкой заголовка.
+                rotationZ = 0f
+                shape = ParallelogramShape
+                clip = true
+            }
+            .background(NimboMangaPalette.Accent)
+    )
+}
+
+/** Скос в 12 градусов: столько же, сколько у засечки на компьютере. */
+private val ParallelogramShape = GenericShape { size, _ ->
+    val slant = size.height * 0.21f
+    moveTo(slant, 0f)
+    lineTo(size.width, 0f)
+    lineTo(size.width - slant, size.height)
+    lineTo(0f, size.height)
+    close()
 }
 
 internal enum class NimboIconName {

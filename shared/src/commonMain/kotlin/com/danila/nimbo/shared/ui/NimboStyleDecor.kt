@@ -83,18 +83,40 @@ fun NimboMangaBackdrop() {
             .fillMaxSize()
             .background(NimboMangaPalette.PaperDeep)
     ) {
-        val step = 26.dp.toPx()
-        val line = NimboMangaPalette.Ink.copy(alpha = 0.025f)
-        var x = 0f
-        while (x < size.width) {
-            drawLine(line, Offset(x, 0f), Offset(x, size.height), 1f)
-            x += step
+        // Волокна вместо разлиновки: клетка читалась тетрадью, а не
+        // страницей. Два направления под разными углами, как на компьютере.
+        val fiber = NimboMangaPalette.Ink.copy(alpha = 0.022f)
+        val diagonal = size.width + size.height
+        var offset = -size.height
+        while (offset < diagonal) {
+            drawLine(
+                fiber,
+                Offset(offset, 0f),
+                Offset(offset + size.height * 0.3f, size.height),
+                1f
+            )
+            offset += 7.dp.toPx()
         }
-        var y = 0f
-        while (y < size.height) {
-            drawLine(line, Offset(0f, y), Offset(size.width, y), 1f)
-            y += step
+        val darkFiber = Color.Black.copy(alpha = 0.05f)
+        offset = -size.height
+        while (offset < diagonal) {
+            drawLine(
+                darkFiber,
+                Offset(offset + size.height * 0.34f, 0f),
+                Offset(offset, size.height),
+                1f
+            )
+            offset += 11.dp.toPx()
         }
+
+        // Свет по листу лежит неровно: два мягких пятна ближе к углам.
+        drawRect(
+            brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                colors = listOf(NimboMangaPalette.Ink.copy(alpha = 0.05f), Color.Transparent),
+                center = Offset(size.width * 0.18f, size.height * 0.12f),
+                radius = size.minDimension * 0.7f
+            )
+        )
 
         val speckSize = androidx.compose.ui.geometry.Size(1.2f.dp.toPx(), 1.2f.dp.toPx())
         val speck = NimboMangaPalette.Ink.copy(alpha = 0.045f)
