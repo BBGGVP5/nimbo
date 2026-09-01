@@ -38,6 +38,8 @@ private const val OpenSyncAction = "com.nimbo.action.open-sync"
 private const val PingServerAction = "com.nimbo.action.ping-server"
 private const val PingAllAction = "com.nimbo.action.ping-all"
 private const val ConnectFastestAction = "com.nimbo.action.connect-fastest"
+private const val CopyTextAction = "com.nimbo.action.copy-text"
+private const val ExportModuleAction = "com.nimbo.action.export-module"
 private const val ImportSubscriptionAction = "com.nimbo.action.import-subscription"
 private const val ImportClipboardAction = "com.nimbo.action.import-clipboard"
 private const val ImportFileAction = "com.nimbo.action.import-file"
@@ -723,6 +725,10 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onSaveModule = { id, name, text -> saveModule(id, name, text) },
                 onToggleModule = { toggleModule(it) },
                 onDeleteModule = { deleteModule(it) },
+                onCopyText = { postIosAction(CopyTextAction, it) },
+                // Имя и текст уходят одной строкой: у уведомления один объект,
+                // а разделитель переводом строки в имени встретиться не может.
+                onExportModule = { name, text -> postIosAction(ExportModuleAction, name + "\n" + text) },
                 onSelectRoutingProfile = { selectRoutingProfile(it) },
                 onSaveRoutingProfile = { saveRoutingProfile(it) },
                 onResetRoutingProfiles = { resetRoutingProfiles() },

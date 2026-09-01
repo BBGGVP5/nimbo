@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,8 +27,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -105,6 +110,7 @@ internal fun NimboAddProfileCard(actions: NimboUiActions) {
 @Composable
 private fun NimboAddProfileSheet(actions: NimboUiActions, onDismiss: () -> Unit) {
     var link by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
     val ready = link.trim().length > 6
 
     NimboSurface(
@@ -153,6 +159,13 @@ private fun NimboAddProfileSheet(actions: NimboUiActions, onDismiss: () -> Unit)
                     singleLine = true,
                     textStyle = TextStyle(color = NimboPalette.Text, fontSize = 15.sp),
                     cursorBrush = SolidColor(NimboPalette.Accent),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Done
+                    ),
+                    // Клавиатура закрывается по «Готово»: свернуть её на iOS
+                    // иначе нечем.
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                     decorationBox = { inner ->
                         if (link.isEmpty()) {
                             BasicText(
@@ -172,6 +185,7 @@ private fun NimboAddProfileSheet(actions: NimboUiActions, onDismiss: () -> Unit)
 
             Spacer(Modifier.height(14.dp))
             NimboPrimaryAction("Импорт", enabled = ready) {
+                focusManager.clearFocus()
                 actions.onImportSubscription(link.trim())
                 onDismiss()
             }

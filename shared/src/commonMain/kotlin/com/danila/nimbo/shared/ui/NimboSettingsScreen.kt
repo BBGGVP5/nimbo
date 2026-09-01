@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -442,6 +443,7 @@ private fun LatencyPage(state: NimboUiState, actions: NimboUiActions) {
  */
 @Composable
 private fun CustomPingUrlRow(state: NimboUiState, actions: NimboUiActions) {
+    val focusManager = LocalFocusManager.current
     val isPreset = PingUrlChoice.entries.any { it.url == state.pingUrl }
     var draft by remember(state.pingUrl) {
         mutableStateOf(if (isPreset) "" else state.pingUrl)
@@ -485,7 +487,12 @@ private fun CustomPingUrlRow(state: NimboUiState, actions: NimboUiActions) {
                         imeAction = ImeAction.Done
                     ),
                     keyboardActions = KeyboardActions(
-                        onDone = { if (ready) actions.onSetPing("url", trimmed) }
+                        onDone = {
+                            if (ready) actions.onSetPing("url", trimmed)
+                            // Без снятия фокуса клавиатура остаётся висеть:
+                            // системной кнопки «свернуть» у неё нет.
+                            focusManager.clearFocus()
+                        }
                     ),
                     decorationBox = { inner ->
                         if (draft.isBlank()) {
@@ -502,7 +509,10 @@ private fun CustomPingUrlRow(state: NimboUiState, actions: NimboUiActions) {
             NimboPill(
                 "Готово",
                 selected = ready,
-                onClick = { if (ready) actions.onSetPing("url", trimmed) }
+                onClick = {
+                    if (ready) actions.onSetPing("url", trimmed)
+                    focusManager.clearFocus()
+                }
             )
         }
     }

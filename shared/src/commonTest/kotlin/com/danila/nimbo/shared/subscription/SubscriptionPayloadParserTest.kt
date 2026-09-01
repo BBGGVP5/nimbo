@@ -121,6 +121,27 @@ class SubscriptionPayloadParserTest {
     }
 
     @Test
+    fun descriptionWithPlusInsideBase64IsDecoded() {
+        // «VkxFU1Mg8J+MjQ==» — это «VLESS 🌍». В строке запроса «+» обычно
+        // означает пробел, и такая замена ломала base64: в списке серверов
+        // вместо описания оказывался мусор вида «VkxFU1Mg8J Mjw==».
+        val link = "vless://uuid@node.example:443?type=tcp#Латвия?serverDescription=VkxFU1Mg8J+MjQ=="
+        val server = SubscriptionPayloadParser.parse(link).servers.single()
+
+        assertEquals("Латвия", server.name)
+        assertEquals("VLESS 🌍", server.description)
+    }
+
+    @Test
+    fun brokenBase64DescriptionIsNotShownAsIs() {
+        val link = "vless://uuid@node.example:443?type=tcp#Riga?serverDescription=QUJDREVGR0hJSktMTU5PUFFSU1RVVldY"
+        val server = SubscriptionPayloadParser.parse(link).servers.single()
+
+        // Разобралось — значит показываем текст, а не исходную строку base64.
+        assertEquals("ABCDEFGHIJKLMNOPQRSTUVWX", server.description)
+    }
+
+    @Test
     fun malformedPayloadReturnsDiagnosticAndNoFakeServer() {
         val result = SubscriptionPayloadParser.parse("not a subscription")
 

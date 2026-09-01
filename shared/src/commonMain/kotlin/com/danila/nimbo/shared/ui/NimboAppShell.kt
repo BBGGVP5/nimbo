@@ -204,6 +204,10 @@ data class NimboUiActions(
     val onSaveModule: (String, String, String) -> Unit = { _, _, _ -> },
     val onToggleModule: (String) -> Unit = {},
     val onDeleteModule: (String) -> Unit = {},
+    /** Положить текст в буфер обмена. */
+    val onCopyText: (String) -> Unit = {},
+    /** Отдать модуль файлом: имя набора и текст правил. */
+    val onExportModule: (String, String) -> Unit = { _, _ -> },
     /** Профили маршрутизации: выбор, правка и возврат к исходным наборам. */
     val onSelectRoutingProfile: (String) -> Unit = {},
     val onSaveRoutingProfile: (com.danila.nimbo.shared.routing.NimboRoutingProfile) -> Unit = {},

@@ -112,6 +112,20 @@ struct RootView: View {
             .onReceive(NotificationCenter.default.publisher(for: .nimboConnectFastest)) { _ in
                 Task { await connectFastest() }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboCopyText)) { notification in
+                guard let text = notification.object as? String, !text.isEmpty else { return }
+                UIPasteboard.general.string = text
+                notify("info", "Скопировано в буфер обмена")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboExportModule)) { notification in
+                guard let payload = notification.object as? String else { return }
+                // Имя и текст приходят одной строкой: первая строка — название.
+                let parts = payload.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+                let name = parts.first.map(String.init) ?? "module"
+                let text = parts.count > 1 ? String(parts[1]) : ""
+                guard let url = exportModuleFile(name: name, text: text) else { return }
+                backupUrl = url
+            }
             .onReceive(NotificationCenter.default.publisher(for: .nimboImportSubscription)) { notification in
                 guard let source = notification.object as? String else { return }
                 Task { await importSubscription(source) }
@@ -362,6 +376,26 @@ struct RootView: View {
         }
     }
 
+    /// Модуль файлом для системного окна обмена.
+    ///
+    /// Имя берётся из названия набора, но без символов, которые файловая система не
+    /// примет: иначе выгрузка молча не состоится.
+    private func exportModuleFile(name: String, text: String) -> URL? {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: " -_"))
+        let safe = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        let fileName = String(safe).trimmingCharacters(in: .whitespaces)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(fileName.isEmpty ? "module" : fileName)
+            .appendingPathExtension("conf")
+        do {
+            try text.data(using: .utf8)?.write(to: url, options: .atomic)
+            return url
+        } catch {
+            notify("error", "Не удалось подготовить файл модуля")
+            return nil
+        }
+    }
+
     private func selectServer(_ serverID: String) async {
         do {
             let server = try NimboSubscriptionRepository.shared.select(serverID: serverID)
@@ -582,6 +616,8 @@ private extension Notification.Name {
     static let nimboSystemSettings = Notification.Name("com.nimbo.action.system-settings")
     static let nimboSelectServer = Notification.Name("com.nimbo.action.select-server")
     static let nimboConnectFastest = Notification.Name("com.nimbo.action.connect-fastest")
+    static let nimboCopyText = Notification.Name("com.nimbo.action.copy-text")
+    static let nimboExportModule = Notification.Name("com.nimbo.action.export-module")
     static let nimboPingServer = Notification.Name("com.nimbo.action.ping-server")
     static let nimboPingAll = Notification.Name("com.nimbo.action.ping-all")
     static let nimboImportSubscription = Notification.Name("com.nimbo.action.import-subscription")

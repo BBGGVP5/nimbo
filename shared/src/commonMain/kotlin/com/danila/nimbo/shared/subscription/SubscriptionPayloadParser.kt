@@ -189,11 +189,15 @@ object SubscriptionPayloadParser {
      * необходимости декодируется из base64.
      */
     private fun splitFragment(fragmentRaw: String): Pair<String, String> {
+        // Хвост берётся из сырой строки: описание приходит в base64, где «+» —
+        // значащий символ, а при обычном разборе запроса он становится пробелом.
+        val rawSeparator = fragmentRaw.indexOf('?')
         val decoded = percentDecode(fragmentRaw)
-        val separator = decoded.indexOf('?')
+        val separator = if (rawSeparator >= 0) rawSeparator else decoded.indexOf('?')
         if (separator < 0) return decoded.trim() to ""
-        val name = decoded.substring(0, separator).trim()
-        val params = parseQuery(decoded.substring(separator + 1))
+        val source = if (rawSeparator >= 0) fragmentRaw else decoded
+        val name = percentDecode(source.substring(0, separator)).trim()
+        val params = parseQuery(source.substring(separator + 1), plusAsSpace = false)
         val raw = params["serverdescription"]
             ?: params["server_description"]
             ?: params["server-description"]
@@ -201,7 +205,11 @@ object SubscriptionPayloadParser {
             ?: ""
         val description = raw.trim()
             .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-            ?.let { value -> decodeBase64Text(value) ?: value }
+            ?.let { value ->
+                // Нерасшифрованный base64 показывать нельзя: в списке серверов
+                // он выглядит как поломка, а не как описание.
+                decodeBase64Text(value) ?: value.takeUnless { looksLikeBase64(it) }
+            }
             .orEmpty()
         return (name.ifBlank { decoded.trim() }) to description
     }
@@ -246,6 +254,12 @@ object SubscriptionPayloadParser {
      * своя проверка: результат должен быть читаемой строкой без управляющих
      * символов, иначе считаем, что base64 тут и не было.
      */
+    /** Похоже ли значение на base64: только его алфавит и достаточная длина. */
+    private fun looksLikeBase64(raw: String): Boolean {
+        val compact = raw.filterNot(Char::isWhitespace)
+        return compact.length >= 8 && compact.all { it in BASE64_CHARS }
+    }
+
     private fun decodeBase64Text(raw: String): String? {
         val decoded = decodeBase64(raw, requirePayloadMarkers = false) ?: return null
         val trimmed = decoded.trim()
@@ -285,12 +299,12 @@ object SubscriptionPayloadParser {
         else -> -2
     }
 
-    private fun parseQuery(raw: String): Map<String, String> = raw
+    private fun parseQuery(raw: String, plusAsSpace: Boolean = true): Map<String, String> = raw
         .split('&')
         .mapNotNull { part ->
             if (part.isBlank()) null else {
                 val key = percentDecode(part.substringBefore('=')).lowercase()
-                key to percentDecode(part.substringAfter('=', ""))
+                key to percentDecode(part.substringAfter('=', ""), plusAsSpace)
             }
         }
         .toMap()
@@ -307,7 +321,12 @@ object SubscriptionPayloadParser {
         else clean.substringAfterLast(':', "0").toIntOrNull() ?: 0
     }
 
-    private fun percentDecode(raw: String): String {
+    /**
+     * @param plusAsSpace в обычной строке запроса «+» означает пробел, но в
+     * base64 это значащий символ. Описание сервера приходит именно base64, и
+     * замена делала из него нечитаемый мусор.
+     */
+    private fun percentDecode(raw: String, plusAsSpace: Boolean = true): String {
         val bytes = ArrayList<Byte>(raw.length)
         var index = 0
         while (index < raw.length) {
@@ -323,7 +342,7 @@ object SubscriptionPayloadParser {
                         index++
                     }
                 }
-                char == '+' -> {
+                char == '+' && plusAsSpace -> {
                     bytes += ' '.code.toByte()
                     index++
                 }
