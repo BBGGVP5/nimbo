@@ -13,10 +13,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.min
 import kotlin.math.sin
 
 /**
@@ -41,6 +45,38 @@ enum class NimboBurstTrigger(val wireName: String) {
 /** Длительность и плотность повторяют NetworkEdgeBurstVisualSpec на Android. */
 private const val BurstDurationMillis = 1_900
 private const val BurstParticleCount = 28
+
+/**
+ * Где сейчас кнопка подключения.
+ *
+ * Частицы должны вылетать из неё, а не из края экрана: событие принадлежит
+ * кнопке, и разлёт от неё читается как отклик на нажатие. Значение ставит сам
+ * экран, потому что положение кнопки знает только он.
+ */
+internal object NimboBurstSource {
+    var bounds: Rect? by mutableStateOf(null)
+    /** Круглая кнопка или полоса: от этого зависит точка старта крупицы. */
+    var round: Boolean by mutableStateOf(true)
+}
+
+/** Точка на контуре источника в направлении угла. */
+private fun sourceStartPoint(bounds: Rect, round: Boolean, angle: Float): Offset {
+    val directionX = cos(angle)
+    val directionY = sin(angle)
+    val halfWidth = bounds.width / 2f
+    val halfHeight = bounds.height / 2f
+    val distance = if (round) {
+        min(halfWidth, halfHeight)
+    } else {
+        val horizontal = if (abs(directionX) < 0.0001f) Float.MAX_VALUE else halfWidth / abs(directionX)
+        val vertical = if (abs(directionY) < 0.0001f) Float.MAX_VALUE else halfHeight / abs(directionY)
+        min(horizontal, vertical) + 2f
+    }
+    return Offset(
+        x = bounds.center.x + directionX * distance,
+        y = bounds.center.y + directionY * distance
+    )
+}
 
 @Composable
 internal fun NimboEdgeBurstOverlay(
@@ -74,11 +110,55 @@ internal fun NimboEdgeBurstOverlay(
         NimboBurstTrigger.ACTIVITY -> NimboPalette.Accent
     }
 
+    val source = NimboBurstSource.bounds
+    val roundSource = NimboBurstSource.round
+
     Canvas(modifier = modifier) {
         val baseTile = 3.4.dp.toPx()
         val corner = 0.75.dp.toPx()
         val travel = size.height + baseTile * 4f
         val current = progress.value
+
+        if (source != null && source.width > 1f && source.height > 1f) {
+            // Разлёт от кнопки: угол по кругу, радиальный ход и поперечный
+            // изгиб — та же геометрия, что в NetworkEdgeBurst на Android.
+            repeat(BurstParticleCount) { index ->
+                val stagger = (index % 5) * 0.006f
+                if (current < stagger) return@repeat
+                val local = ((current - stagger) / (1f - stagger)).coerceIn(0f, 1f)
+                if (local >= 1f) return@repeat
+
+                val envelope = sin(local * PI).toFloat().coerceIn(0f, 1f)
+                val sizeFactor = when (index % 4) {
+                    0 -> 1.12f
+                    1 -> 0.72f
+                    2 -> 0.92f
+                    else -> 0.56f
+                }
+                val tileSize = baseTile * sizeFactor
+                val angle = index * (2f * PI.toFloat() / BurstParticleCount) + 0.35f
+                val distance = 132.dp.toPx() * (0.74f + (index % 7) * 0.055f)
+                val bend = (8.dp + 4.dp * (index % 4)).toPx() * (if (index % 2 == 0) 1f else -1f)
+
+                val start = sourceStartPoint(source, roundSource, angle)
+                val directionX = cos(angle)
+                val directionY = sin(angle)
+                val radial = distance * local
+                val tangent = sin(local * PI).toFloat() * bend
+                val point = Offset(
+                    x = start.x + directionX * radial - directionY * tangent,
+                    y = start.y + directionY * radial + directionX * tangent
+                )
+                val alpha = ((0.24f + envelope * 0.68f) * (1f - local)).coerceIn(0f, 0.88f)
+                drawRoundRect(
+                    color = color.copy(alpha = alpha),
+                    topLeft = Offset(point.x - tileSize / 2f, point.y - tileSize / 2f),
+                    size = Size(tileSize, tileSize),
+                    cornerRadius = CornerRadius(corner, corner)
+                )
+            }
+            return@Canvas
+        }
 
         repeat(BurstParticleCount) { index ->
             // Крупицы уходят вверх не строем: у каждой своя задержка.

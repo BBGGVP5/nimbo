@@ -24,6 +24,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
@@ -210,6 +212,10 @@ private fun HomeCompactConnection(state: NimboUiState, actions: NimboUiActions) 
         modifier = Modifier
             .fillMaxWidth()
             .height(74.dp)
+            .onGloballyPositioned {
+                NimboBurstSource.bounds = it.boundsInRoot()
+                NimboBurstSource.round = false
+            }
             .clip(shape)
             .background(nimboStyledContainer(fill, selected = connected))
             .border(
@@ -325,7 +331,17 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(modifier = Modifier.size(200.dp), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(200.dp)
+                // Частицам нужно знать, откуда вылетать: положение кнопки
+                // известно только ей самой.
+                .onGloballyPositioned {
+                    NimboBurstSource.bounds = it.boundsInRoot()
+                    NimboBurstSource.round = true
+                },
+            contentAlignment = Alignment.Center
+        ) {
             if (!isManga) Canvas(modifier = Modifier.fillMaxSize()) {
                 val radius = size.minDimension / 2f
                 val center = Offset(size.width / 2f, size.height / 2f)

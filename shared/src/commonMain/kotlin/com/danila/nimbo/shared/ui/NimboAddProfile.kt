@@ -144,13 +144,7 @@ private fun NimboAddProfileSheet(actions: NimboUiActions, onDismiss: () -> Unit)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(nimboStyledShape(16.dp, 2.dp))
-                    .background(nimboStyledContainer(NimboPalette.Control))
-                    .border(
-                        if (LocalNimboElementStyle.current == NimboElementStyle.MANGA) 1.5.dp else 1.dp,
-                        nimboStyledBorder(NimboPalette.Hairline),
-                        nimboStyledShape(16.dp, 2.dp)
-                    )
+                    .nimboControlSurface(nimboStyledShape(16.dp, 2.dp))
                     .padding(horizontal = 14.dp, vertical = 14.dp)
             ) {
                 BasicTextField(
@@ -282,13 +276,7 @@ private fun NimboImportTile(
     val shape = nimboStyledShape(16.dp, 2.dp)
     Column(
         modifier = modifier
-            .clip(shape)
-            .background(nimboStyledContainer(NimboPalette.Control))
-            .border(
-                if (LocalNimboElementStyle.current == NimboElementStyle.MANGA) 1.5.dp else 1.dp,
-                nimboStyledBorder(Color.White.copy(alpha = 0.10f)),
-                shape
-            )
+            .nimboControlSurface(shape)
             .nimboRowClickable(onClick)
             .padding(vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally

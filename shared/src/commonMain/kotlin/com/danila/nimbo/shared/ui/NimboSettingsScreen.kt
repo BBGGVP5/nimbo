@@ -460,13 +460,7 @@ private fun CustomPingUrlRow(state: NimboUiState, actions: NimboUiActions) {
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(nimboStyledShape(14.dp, 2.dp))
-                    .background(nimboStyledContainer(NimboPalette.Control))
-                    .border(
-                        if (LocalNimboElementStyle.current == NimboElementStyle.MANGA) 1.5.dp else 1.dp,
-                        nimboStyledBorder(NimboPalette.Hairline),
-                        nimboStyledShape(14.dp, 2.dp)
-                    )
+                    .nimboControlSurface(nimboStyledShape(14.dp, 2.dp))
                     .padding(horizontal = 12.dp, vertical = 12.dp)
             ) {
                 BasicTextField(

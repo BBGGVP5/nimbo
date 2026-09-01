@@ -474,6 +474,41 @@ internal fun NimboLinkButton(
 }
 
 /**
+ * Поверхность мелкого элемента: поля ввода, плитки, ярлыки.
+ *
+ * В стиле «жидкого стекла» это настоящее стекло, а не плоская заливка: рядом
+ * со стеклянными карточками плоский прямоугольник читается как вставка из
+ * другого приложения. В Manga — бумага с чернильным контуром, в остальных —
+ * прежняя заливка.
+ */
+@Composable
+internal fun Modifier.nimboControlSurface(
+    shape: RoundedCornerShape,
+    accented: Boolean = false
+): Modifier {
+    val style = LocalNimboElementStyle.current
+    return when (style) {
+        NimboElementStyle.NIMBO_GLASS -> this.nimboGlassSurface(
+            shape = shape,
+            depth = LiquidGlassDepth.CONTROL,
+            accent = NimboPalette.Accent,
+            isDark = true,
+            panelAlpha = 1f
+        )
+        NimboElementStyle.MANGA -> this
+            .clip(shape)
+            .background(if (accented) NimboPalette.Accent.copy(alpha = 0.14f) else NimboMangaPalette.Paper)
+            .border(1.5.dp, NimboMangaPalette.Ink, shape)
+        else -> this
+            .clip(shape)
+            .background(
+                if (accented) NimboPalette.Accent.copy(alpha = 0.16f) else NimboPalette.Control
+            )
+            .border(1.dp, NimboPalette.Hairline, shape)
+    }
+}
+
+/**
  * Плашка со значком: та же геометрия, что и у [NimboPill], но слева стоит
  * настоящая иконка. Раньше её роль играли символы вроде «◉», и на экране это
  * читалось как случайные знаки.

@@ -1,5 +1,7 @@
 import Foundation
 import NetworkExtension
+// Правила модулей разбирает общий модуль: конфигурацию туннеля собирает он же.
+import NimboShared
 
 @MainActor
 final class VpnController: ObservableObject {

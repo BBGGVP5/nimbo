@@ -255,13 +255,7 @@ private fun ModuleEditor(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(nimboStyledShape(18.dp, 2.dp))
-                .background(nimboStyledContainer(NimboPalette.Control))
-                .border(
-                    if (LocalNimboElementStyle.current == NimboElementStyle.MANGA) 1.5.dp else 1.dp,
-                    nimboStyledBorder(NimboPalette.Hairline),
-                    nimboStyledShape(18.dp, 2.dp)
-                )
+                .nimboControlSurface(nimboStyledShape(18.dp, 2.dp))
                 .padding(14.dp)
         ) {
             // Моноширинный шрифт: правила читаются столбцами, пропорциональный
