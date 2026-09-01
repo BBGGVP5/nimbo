@@ -366,18 +366,22 @@ private fun LatencyPage(state: NimboUiState, actions: NimboUiActions) {
     SettingsSection("Способ замера") {
         // ICMP на iOS недоступен обычному приложению — нужны raw-сокеты,
         // которых система не даёт. Поэтому выбор из двух, а не из трёх.
-        SettingsChoiceRow(
-            title = "TCP до узла",
-            subtitle = "Время установления соединения с портом сервера",
-            selected = state.pingProtocol != "http",
-            onClick = { actions.onSetPing("protocol", "tcp") }
-        )
-        SettingsDivider()
-        SettingsChoiceRow(
-            title = "HTTP через туннель",
-            subtitle = "Запрос к адресу проверки: показывает задержку рабочего маршрута",
-            selected = state.pingProtocol == "http",
-            onClick = { actions.onSetPing("protocol", "http") }
+        NimboDropdownRow(
+            title = "Чем мерить",
+            options = listOf(
+                NimboDropdownOption(
+                    "tcp",
+                    "TCP до узла",
+                    "Время установления соединения с портом сервера"
+                ),
+                NimboDropdownOption(
+                    "http",
+                    "HTTP через туннель",
+                    "Запрос к адресу проверки: задержка рабочего маршрута"
+                )
+            ),
+            selectedKey = if (state.pingProtocol == "http") "http" else "tcp",
+            onSelect = { actions.onSetPing("protocol", it) }
         )
     }
 
@@ -409,15 +413,22 @@ private fun LatencyPage(state: NimboUiState, actions: NimboUiActions) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             style = NimboBodyStyle
         )
-        PingUrlChoice.entries.forEach { choice ->
-            SettingsChoiceRow(
-                title = choice.title,
-                subtitle = choice.url,
-                selected = state.pingUrl == choice.url,
-                onClick = { actions.onSetPing("url", choice.url) }
-            )
-            SettingsDivider()
+        val presets = PingUrlChoice.entries.map {
+            NimboDropdownOption(it.url, it.title, it.url)
         }
+        NimboDropdownRow(
+            title = "Куда обращаться",
+            options = if (presets.none { it.key == state.pingUrl }) {
+                // Свой адрес тоже вариант списка, иначе выбранное значение
+                // выглядело бы стёртым.
+                presets + NimboDropdownOption(state.pingUrl, "Свой адрес", state.pingUrl)
+            } else {
+                presets
+            },
+            selectedKey = state.pingUrl,
+            onSelect = { actions.onSetPing("url", it) }
+        )
+        SettingsDivider()
         CustomPingUrlRow(state, actions)
     }
 }
@@ -698,37 +709,6 @@ private fun ConnectStylePreviewCard(
             )
         )
         BasicText(subtitle, style = NimboBodyStyle.copy(fontSize = 11.sp))
-    }
-}
-
-/** Строка выбора одного варианта из нескольких. */
-@Composable
-private fun SettingsChoiceRow(
-    title: String,
-    subtitle: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .nimboRowClickable(onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            SettingsTitle(title)
-            SettingsSubtitle(subtitle)
-        }
-        Spacer(Modifier.width(10.dp))
-        BasicText(
-            if (selected) "✓" else "",
-            style = TextStyle(
-                color = NimboPalette.Accent,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
-        )
     }
 }
 

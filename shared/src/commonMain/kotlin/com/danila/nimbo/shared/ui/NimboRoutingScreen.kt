@@ -116,17 +116,15 @@ internal fun NimboRoutingScreen(state: NimboUiState, actions: NimboUiActions) {
             cornerRadius = 22.dp,
             padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
         ) {
-            Column {
-                NimboDnsPreset.entries.forEachIndexed { index, preset ->
-                    RoutingChoiceRow(
-                        title = preset.title,
-                        subtitle = preset.subtitle,
-                        selected = state.routingDns == preset.key,
-                        showDivider = index != NimboDnsPreset.entries.lastIndex,
-                        onClick = { actions.onSetRouting("dns", preset.key) }
-                    )
-                }
-            }
+            NimboDropdownRow(
+                title = "Набор серверов",
+                subtitle = "Кому туннель задаёт вопросы об именах сайтов",
+                options = NimboDnsPreset.entries.map {
+                    NimboDropdownOption(it.key, it.title, it.subtitle)
+                },
+                selectedKey = state.routingDns,
+                onSelect = { actions.onSetRouting("dns", it) }
+            )
         }
     }
 }
@@ -189,53 +187,5 @@ private fun RoutingToggleRow(
                     else Color.White.copy(alpha = 0.06f)
                 )
         )
-    }
-}
-
-@Composable
-private fun RoutingChoiceRow(
-    title: String,
-    subtitle: String,
-    selected: Boolean,
-    showDivider: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(52.dp)
-            .nimboRowClickable(onClick),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            BasicText(
-                title,
-                style = TextStyle(
-                    color = NimboPalette.Text,
-                    fontSize = 16.sp,
-                    lineHeight = 24.sp,
-                    fontWeight = FontWeight.Normal
-                )
-            )
-            BasicText(
-                subtitle,
-                modifier = Modifier.padding(top = 2.dp),
-                style = TextStyle(
-                    color = NimboPalette.TextSecondary,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
-            )
-        }
-        if (selected) {
-            NimboIcon(
-                NimboIconName.SECURITY,
-                tint = NimboPalette.Accent,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-    }
-    if (showDivider) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.06f)))
     }
 }

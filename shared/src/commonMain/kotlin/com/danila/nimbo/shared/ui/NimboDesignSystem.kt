@@ -1,6 +1,13 @@
 package com.danila.nimbo.shared.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -12,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -57,6 +65,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -651,3 +662,140 @@ internal fun Modifier.nimboScreenPadding(): Modifier =
 /** Короткий идентификатор для новых записей: UUID в общем коде недоступен. */
 internal fun nimboRandomId(): String =
     kotlin.random.Random.nextLong(100_000_000L, 999_999_999L).toString(36)
+
+/** Вариант выпадающего списка. */
+internal data class NimboDropdownOption(
+    val key: String,
+    val title: String,
+    val subtitle: String? = null
+)
+
+/**
+ * Выпадающий список в духе iOS.
+ *
+ * Длинный перечень вариантов, из которых обычно не меняют ни одного, занимал
+ * целый экран строками с галочками. Здесь на виду только выбранное значение, а
+ * список раскрывается по нажатию: он в материале включённого стиля и
+ * распахивается от строки вниз, как системное меню.
+ */
+@Composable
+internal fun NimboDropdownRow(
+    title: String,
+    options: List<NimboDropdownOption>,
+    selectedKey: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    onSelect: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = options.firstOrNull { it.key == selectedKey }
+    val chevron by animateFloatAsState(if (expanded) -90f else 90f, tween(220))
+    val shape = nimboStyledShape(16.dp, 2.dp)
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .nimboRowClickable { expanded = !expanded }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                androidx.compose.foundation.text.BasicText(
+                    title,
+                    style = TextStyle(
+                        color = NimboPalette.Text,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                )
+                if (subtitle != null) {
+                    androidx.compose.foundation.text.BasicText(
+                        subtitle,
+                        style = NimboBodyStyle.copy(fontSize = 12.sp)
+                    )
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            androidx.compose.foundation.text.BasicText(
+                // Пока список свёрнут, выбранное значение — единственное, что о
+                // нём известно, поэтому оно стоит в самой строке.
+                selected?.title ?: "—",
+                style = TextStyle(
+                    color = NimboPalette.Accent,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            )
+            Spacer(Modifier.width(6.dp))
+            androidx.compose.foundation.text.BasicText(
+                "›",
+                modifier = Modifier.graphicsLayer { rotationZ = chevron },
+                style = TextStyle(color = NimboPalette.TextSecondary, fontSize = 17.sp)
+            )
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(tween(220)) + fadeIn(tween(160)),
+            exit = shrinkVertically(tween(180)) + fadeOut(tween(120))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .nimboControlSurface(shape)
+            ) {
+                options.forEachIndexed { index, option ->
+                    val active = option.key == selectedKey
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .nimboRowClickable {
+                                onSelect(option.key)
+                                expanded = false
+                            }
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            androidx.compose.foundation.text.BasicText(
+                                option.title,
+                                style = TextStyle(
+                                    color = if (active) NimboPalette.Accent else NimboPalette.Text,
+                                    fontSize = 15.sp,
+                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
+                                )
+                            )
+                            if (option.subtitle != null) {
+                                androidx.compose.foundation.text.BasicText(
+                                    option.subtitle,
+                                    style = NimboBodyStyle.copy(fontSize = 12.sp)
+                                )
+                            }
+                        }
+                        if (active) {
+                            androidx.compose.foundation.text.BasicText(
+                                "✓",
+                                style = TextStyle(
+                                    color = NimboPalette.Accent,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
+                    }
+                    if (index != options.lastIndex) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(start = 14.dp)
+                                .height(1.dp)
+                                .background(NimboPalette.Hairline)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
