@@ -10489,7 +10489,9 @@ private fun LiquidGlassBottomNavRow(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val cornerScale = LocalGlobalCornerRadius.current
     val nebulaColors = LocalNebulaColors.current
-    val miniMotionEnabled = rememberMiniMotionEnabled()
+    // Подсветка ездит под значками, поэтому подчиняется той же настройке: без
+    // неё «выключенная анимация» оставляла на панели самое заметное движение.
+    val miniMotionEnabled = rememberNavIconMotionEnabled()
     var barWidthPx by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     var dragIndex by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
