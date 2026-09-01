@@ -10959,6 +10959,10 @@ private fun RowScope.MaterialYouBottomNavItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             val bounce = rememberNavIconBounce(selected, navMotionKind(entry.destination))
+            val navMotionEnabled = rememberNavIconMotionEnabled()
+            // Плавный ход общего признака выбора оставляем подсветке, а значку
+            // при выключенном движении отдаём готовое значение.
+            val iconSelection = if (navMotionEnabled) selection else if (selected) 1f else 0f
             Icon(
                 imageVector = if (selected) entry.selectedIcon else entry.icon,
                 contentDescription = entry.label,
@@ -10966,7 +10970,7 @@ private fun RowScope.MaterialYouBottomNavItem(
                 modifier = Modifier
                     .size(24.dp)
                     .graphicsLayer {
-                        val base = 1f + 0.08f * selection
+                        val base = 1f + 0.08f * iconSelection
                         scaleX = base * bounce.scale * bounce.squash
                         scaleY = base * bounce.scale / bounce.squash
                         translationY = bounce.lift
@@ -11052,13 +11056,19 @@ private fun WindowsBottomNavItem(
             label = "pillAlpha"
         )
 
-        // Icon bounce/scale animation to feel highly tactile and premium
+        // Выбранный значок крупнее — но приезжает он к этому размеру только
+        // когда движение разрешено; иначе разница появляется сразу.
+        val navMotionEnabled = rememberNavIconMotionEnabled()
         val iconScale by animateFloatAsState(
             targetValue = if (selected) 1.12f else 1.0f,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessMediumLow
-            ),
+            animationSpec = if (navMotionEnabled) {
+                spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            } else {
+                snap()
+            },
             label = "iconScale"
         )
         val bounce = rememberNavIconBounce(selected, motionKind)
