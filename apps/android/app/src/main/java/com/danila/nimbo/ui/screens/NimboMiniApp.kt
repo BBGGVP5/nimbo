@@ -10542,7 +10542,10 @@ private fun LiquidGlassBottomNavRow(
         }
     }
 
-    LaunchedEffect(landingEpoch, miniMotionEnabled, dragging) {
+    // Признак движения намеренно не в ключах: при переключении настройки
+    // эффект запускался заново и вёз подсветку с прежнего места на текущую
+    // вкладку — выглядело это как самопроизвольный переход.
+    LaunchedEffect(landingEpoch, dragging) {
         if (dragging) {
             landingImpact.snapTo(0f)
             landingWave.snapTo(1f)
