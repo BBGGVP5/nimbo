@@ -95,6 +95,7 @@ if [[ ! -d "${APP_PATH}" ]]; then
 fi
 
 TUNNEL_PATH="${APP_PATH}/PlugIns/NimboPacketTunnel.appex"
+WIDGET_PATH="${APP_PATH}/PlugIns/NimboControlWidget.appex"
 if [[ ! -d "${TUNNEL_PATH}" ]]; then
   echo "Packet Tunnel extension is missing from the app bundle" >&2
   exit 4
@@ -166,6 +167,12 @@ done < <(find "${APP_PATH}" -type f -name '*.dylib' -print)
 
 APP_EXECUTABLE="${APP_PATH}/$(read_plist "${APP_PATH}/Info.plist" "CFBundleExecutable")"
 TUNNEL_EXECUTABLE="${TUNNEL_PATH}/$(read_plist "${TUNNEL_PATH}/Info.plist" "CFBundleExecutable")"
+# Элемент Пункта управления собирается только на новых Xcode: если его нет,
+# сборка не должна падать — кнопка приятная, но не обязательная.
+WIDGET_EXECUTABLE=""
+if [[ -d "${WIDGET_PATH}" ]]; then
+  WIDGET_EXECUTABLE="${WIDGET_PATH}/$(read_plist "${WIDGET_PATH}/Info.plist" "CFBundleExecutable")"
+fi
 
 prepare_entitlements() {
   local source_plist="$1"
@@ -201,6 +208,10 @@ APP_ENTITLEMENTS="${LDID_ENTITLEMENTS_DIR}/Nimbo.entitlements"
 TUNNEL_ENTITLEMENTS="${LDID_ENTITLEMENTS_DIR}/PacketTunnel.entitlements"
 prepare_entitlements "${ROOT_DIR}/iosApp/Nimbo/Nimbo.entitlements" "${APP_ENTITLEMENTS}"
 prepare_entitlements "${ROOT_DIR}/iosApp/PacketTunnel/PacketTunnel.entitlements" "${TUNNEL_ENTITLEMENTS}"
+WIDGET_ENTITLEMENTS="${LDID_ENTITLEMENTS_DIR}/ControlWidget.entitlements"
+if [[ -n "${WIDGET_EXECUTABLE}" ]]; then
+  prepare_entitlements "${ROOT_DIR}/iosApp/ControlWidget/NimboControlWidget.entitlements" "${WIDGET_ENTITLEMENTS}"
+fi
 
 echo "Embedding Network Extension entitlements with ${LDID_BIN}"
 # Remove any empty ad-hoc signature emitted by Xcode before ldid writes the
@@ -209,11 +220,19 @@ codesign --remove-signature "${TUNNEL_EXECUTABLE}" 2>/dev/null || true
 codesign --remove-signature "${APP_EXECUTABLE}" 2>/dev/null || true
 "${LDID_BIN}" -S"${TUNNEL_ENTITLEMENTS}" "${TUNNEL_EXECUTABLE}"
 "${LDID_BIN}" -S"${APP_ENTITLEMENTS}" "${APP_EXECUTABLE}"
+if [[ -n "${WIDGET_EXECUTABLE}" ]]; then
+  codesign --remove-signature "${WIDGET_EXECUTABLE}" 2>/dev/null || true
+  "${LDID_BIN}" -S"${WIDGET_ENTITLEMENTS}" "${WIDGET_EXECUTABLE}"
+fi
 
 ENTITLEMENTS_REPORT_DIR="${ARTIFACT_DIR}/codesign-entitlements"
 rm -rf "${ENTITLEMENTS_REPORT_DIR}"
 mkdir -p "${ENTITLEMENTS_REPORT_DIR}"
-for signed_executable in "${APP_EXECUTABLE}" "${TUNNEL_EXECUTABLE}"; do
+SIGNED_EXECUTABLES=("${APP_EXECUTABLE}" "${TUNNEL_EXECUTABLE}")
+if [[ -n "${WIDGET_EXECUTABLE}" ]]; then
+  SIGNED_EXECUTABLES+=("${WIDGET_EXECUTABLE}")
+fi
+for signed_executable in "${SIGNED_EXECUTABLES[@]}"; do
   bundle_name="$(basename "${signed_executable}")"
   report_path="${ENTITLEMENTS_REPORT_DIR}/${bundle_name}.plist"
   # ldid's entitlement blob is intentionally verified by ldid itself. Recent

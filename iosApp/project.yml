@@ -14,6 +14,7 @@ settings:
     NIMBO_DISPLAY_VERSION: 1.2.0-beta.3
     NIMBO_APP_BUNDLE_ID: com.nimbo.resignable
     NIMBO_PACKET_TUNNEL_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).PacketTunnel"
+    NIMBO_CONTROL_WIDGET_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).ControlWidget"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: minimal
     OTHER_LDFLAGS: "$(inherited) -ObjC"
@@ -66,6 +67,8 @@ targets:
       - path: Nimbo/Assets.xcassets
     dependencies:
       - target: NimboPacketTunnel
+        embed: true
+      - target: NimboControlWidget
         embed: true
       - framework: ../shared/build/XCFrameworks/release/NimboShared.xcframework
         embed: false
@@ -124,12 +127,47 @@ targets:
         SKIP_INSTALL: YES
         APPLICATION_EXTENSION_API_ONLY: YES
 
+  NimboControlWidget:
+    type: app-extension
+    platform: iOS
+    # Пункт управления умеет держать элементы приложений с iOS 18. Само
+    # расширение собирается и для более ранних систем: там связка пуста.
+    deploymentTarget:
+      iOS: "16.0"
+    info:
+      path: ControlWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Nimbo
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: ControlWidget/NimboControlWidget.entitlements
+      properties:
+        # Те же права, что у туннеля: элемент управления поднимает соединение
+        # сам, без запуска приложения.
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+    sources:
+      - path: ControlWidget
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(NIMBO_CONTROL_WIDGET_BUNDLE_ID)"
+        PRODUCT_NAME: NimboControlWidget
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+
 schemes:
   Nimbo:
     build:
       targets:
         Nimbo: all
         NimboPacketTunnel: all
+        NimboControlWidget: all
     run:
       config: Debug
     archive:
