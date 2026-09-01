@@ -203,6 +203,8 @@ struct RootView: View {
             .map { (id: $0.id, host: $0.host, port: $0.port) }
         guard !targets.isEmpty else { return }
 
+        // Замер — тоже событие: на Android он подсвечивается теми же частицами.
+        IosComposeControllerKt.NimboPushIosBurst(trigger: "activity")
         IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: true)
         let results = await NimboPingService.shared.measureAll(targets)
         let ordered = results.map { ($0.key, $0.value) }
@@ -293,8 +295,11 @@ struct RootView: View {
         case .connecting, .preparing:
             metrics.reset()
             sessionStartedAt = Date()
+        case .connected:
+            IosComposeControllerKt.NimboPushIosBurst(trigger: "connected")
         case .idle, .failed:
             finishSession()
+            IosComposeControllerKt.NimboPushIosBurst(trigger: "disconnected")
             if case let .failed(_, message) = state {
                 notify("error", message)
             }
@@ -483,6 +488,7 @@ struct RootView: View {
             try await vpn.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: selected))
             synchronizeComposeState()
             notify("success", "Подписка обновлена: \(profile.servers.count) серверов")
+            IosComposeControllerKt.NimboPushIosBurst(trigger: "activity")
             await NimboDiagnostics.shared.record(
                 .info,
                 stage: .config,

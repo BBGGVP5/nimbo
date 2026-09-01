@@ -82,7 +82,8 @@ private fun applyAppearanceChange(key: String, value: String) {
         elementStyle = appearanceText("elementStyle", "glass"),
         serverSort = appearanceText("serverSort", "subscription"),
         favoritesFirst = appearanceFlag("favoritesFirst", true),
-        connectStyle = appearanceText("connectStyle", "classic")
+        connectStyle = appearanceText("connectStyle", "classic"),
+        statusParticles = appearanceFlag("statusParticles", true)
     )
     // Нативная нижняя панель живёт вне Compose. Сообщаем Swift о смене
     // оформления, чтобы Manga/Glass применялись сразу, без перезапуска экрана.
@@ -267,6 +268,20 @@ fun NimboPushIosNotification(
     )
     storeNotifications(listOf(notification) + loadNotifications())
     iosUiState.value = iosUiState.value.copy(toast = notification)
+}
+
+/**
+ * Запустить частицы события.
+ *
+ * Номер события растёт: одинаковые подряд идущие события иначе не отличить, и
+ * вторая анимация не запускалась бы.
+ */
+fun NimboPushIosBurst(trigger: String) {
+    val current = iosUiState.value
+    iosUiState.value = current.copy(
+        burstEventId = current.burstEventId + 1,
+        burstTrigger = trigger
+    )
 }
 
 /** Скрыть всплывающую полосу: историю это не трогает. */
@@ -462,6 +477,7 @@ fun NimboUpdateIosUiState(
         serverSort = appearanceText("serverSort", "subscription"),
         favoritesFirst = appearanceFlag("favoritesFirst", true),
         connectStyle = appearanceText("connectStyle", "classic"),
+        statusParticles = appearanceFlag("statusParticles", true),
         pingProtocol = pingText("protocol", "tcp"),
         pingTimeoutMs = pingInt("timeoutMs", 3000),
         pingUrl = pingText("url", DefaultPingUrl),

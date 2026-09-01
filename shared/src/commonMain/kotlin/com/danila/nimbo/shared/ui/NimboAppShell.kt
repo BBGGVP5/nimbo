@@ -108,6 +108,11 @@ data class NimboUiState(
     val favoritesFirst: Boolean = true,
     /** Версия доступного обновления; пусто — обновлений нет. */
     /** Как мерить задержку: «tcp» до узла или «http» через туннель. */
+    /** Событие для частиц: номер растёт с каждым новым, вид задаёт цвет. */
+    val burstEventId: Long = 0,
+    val burstTrigger: String = "activity",
+    /** Статусные частицы можно выключить, как на Android. */
+    val statusParticles: Boolean = true,
     /** Стиль главной кнопки: «classic» — кольцо, «compact» — полоса. */
     val connectStyle: String = "classic",
     /** История уведомлений и сообщение, которое показывается сейчас. */
@@ -282,6 +287,15 @@ fun NimboAppShell(
                     NimboScreen.SETTINGS -> NimboSettingsScreen(state, actions)
                 }
             }
+
+            // Частицы рисуются поверх содержимого, но под сообщениями:
+            // всплывающую полосу они перекрывать не должны.
+            NimboEdgeBurstOverlay(
+                eventId = state.burstEventId,
+                trigger = NimboBurstTrigger.fromWireName(state.burstTrigger),
+                enabled = state.statusParticles && state.backgroundMotion,
+                modifier = Modifier.fillMaxSize()
+            )
 
             // Сообщение висит поверх содержимого и над панелью: на Android оно
             // тоже перекрывает экран, иначе его не замечают.

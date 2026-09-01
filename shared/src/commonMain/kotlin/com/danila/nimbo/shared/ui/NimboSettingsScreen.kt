@@ -320,6 +320,16 @@ private fun AppearancePage(state: NimboUiState, actions: NimboUiActions) {
         SettingsDivider()
         SettingsRowFrame(height = 52.dp) {
             Column(modifier = Modifier.weight(1f)) {
+                SettingsTitle("Статусные частицы")
+                SettingsSubtitle("Зелёные при подключении, красные при отключении")
+            }
+            NimboSwitch(state.statusParticles) {
+                actions.onSetAppearance("statusParticles", it.toString())
+            }
+        }
+        SettingsDivider()
+        SettingsRowFrame(height = 52.dp) {
+            Column(modifier = Modifier.weight(1f)) {
                 SettingsTitle("Анимация значков")
                 SettingsSubtitle("Значки панели подпрыгивают при переходе")
             }
