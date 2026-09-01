@@ -128,6 +128,7 @@ pub struct ConfigBuilder {
     proxy_outbound: Option<Outbound>,
     app_routing_rules: Vec<AppRoutingRule>,
     profile_routing_rules: Option<RoutingProfileRules>,
+    routing_modules: Vec<crate::modules::RoutingModule>,
     log_level: String,
     socks_account: Option<(String, String)>,
     block_socks_udp: bool,
@@ -140,6 +141,7 @@ impl ConfigBuilder {
             proxy_outbound: None,
             app_routing_rules: Vec::new(),
             profile_routing_rules: None,
+            routing_modules: Vec::new(),
             log_level: "warning".into(),
             socks_account: None,
             block_socks_udp: false,
@@ -158,6 +160,12 @@ impl ConfigBuilder {
 
     pub fn app_routing_rules(mut self, rules: impl Into<Vec<AppRoutingRule>>) -> Self {
         self.app_routing_rules = rules.into();
+        self
+    }
+
+    /// Пользовательские модули: их правила идут раньше правил профиля.
+    pub fn routing_modules(mut self, modules: impl Into<Vec<crate::modules::RoutingModule>>) -> Self {
+        self.routing_modules = modules.into();
         self
     }
 
@@ -182,6 +190,7 @@ impl ConfigBuilder {
             proxy_outbound,
             app_routing_rules,
             profile_routing_rules,
+            routing_modules,
             log_level,
             socks_account,
             block_socks_udp,
@@ -214,7 +223,11 @@ impl ConfigBuilder {
             dns: DnsConfig::default(),
             inbounds,
             outbounds,
-            routing: Routing::with_rules(&app_routing_rules, profile_routing_rules.as_ref()),
+            routing: Routing::with_rules_and_modules(
+                &app_routing_rules,
+                profile_routing_rules.as_ref(),
+                &routing_modules,
+            ),
             api: ApiConfig::default(),
             policy: Policy::default(),
             stats: Stats::default(),

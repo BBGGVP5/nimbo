@@ -1375,6 +1375,14 @@ async function browserCachedSubscriptionLogo(
   }
 }
 
+/** Пользовательский набор правил маршрутизации. */
+export interface RoutingModule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  text: string;
+}
+
 export const api = {
   appReady: () =>
     isTauriRuntime()
@@ -1600,6 +1608,45 @@ export const api = {
           const base = 220 * 1024 * 1024;
           const jitter = Math.floor(Math.random() * 30 * 1024 * 1024);
           return { bytes: base + jitter } satisfies MemoryUsage;
+        })()),
+  listRoutingModules: () =>
+    isTauriRuntime()
+      ? invoke<RoutingModule[]>("list_routing_modules")
+      : Promise.resolve(readBrowserJson<RoutingModule[]>("nimbo.routingModules", [])),
+  saveRoutingModule: (id: string, name: string, text: string) =>
+    isTauriRuntime()
+      ? invoke<RoutingModule[]>("save_routing_module", { id, name, text })
+      : Promise.resolve((() => {
+          const modules = readBrowserJson<RoutingModule[]>("nimbo.routingModules", []);
+          const existing = modules.find((module) => module.id === id);
+          if (existing) {
+            existing.name = name;
+            existing.text = text;
+          } else {
+            modules.push({ id, name, enabled: true, text });
+          }
+          writeBrowserJson("nimbo.routingModules", modules);
+          return modules;
+        })()),
+  toggleRoutingModule: (id: string) =>
+    isTauriRuntime()
+      ? invoke<RoutingModule[]>("toggle_routing_module", { id })
+      : Promise.resolve((() => {
+          const modules = readBrowserJson<RoutingModule[]>("nimbo.routingModules", []);
+          const target = modules.find((module) => module.id === id);
+          if (target) target.enabled = !target.enabled;
+          writeBrowserJson("nimbo.routingModules", modules);
+          return modules;
+        })()),
+  deleteRoutingModule: (id: string) =>
+    isTauriRuntime()
+      ? invoke<RoutingModule[]>("delete_routing_module", { id })
+      : Promise.resolve((() => {
+          const modules = readBrowserJson<RoutingModule[]>("nimbo.routingModules", []).filter(
+            (module) => module.id !== id,
+          );
+          writeBrowserJson("nimbo.routingModules", modules);
+          return modules;
         })()),
   listRoutingProfiles: () =>
     isTauriRuntime()

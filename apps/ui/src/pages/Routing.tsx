@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { api, type RoutingProfile, type RoutingProfileSummary } from "../lib/api";
@@ -156,6 +157,9 @@ export function Routing() {
           </div>
         </div>
         <div className="routing-header-actions">
+          <Link className="btn routing-modules-link" to="/routing/modules">
+            {m.routing.modules}
+          </Link>
           <RoutingActionButton title={m.routing.openFolder} onClick={() => void onOpenFolder()}>
             <FolderIcon />
           </RoutingActionButton>

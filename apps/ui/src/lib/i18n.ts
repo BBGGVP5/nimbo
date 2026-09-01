@@ -262,6 +262,7 @@ export const messages = {
       minutesShort: "мин",
     },
     routing: {
+      modules: "Модули",
       title: "Маршрутизация",
       profileCount: "{count} профилей",
       addCustom: "Добавить свой",
@@ -1073,6 +1074,7 @@ export const messages = {
       minutesShort: "min",
     },
     routing: {
+      modules: "Modules",
       title: "Routing",
       profileCount: "{count} profiles",
       addCustom: "Add custom",

@@ -7,6 +7,7 @@ import { Servers } from "./pages/Servers";
 import { Applications } from "./pages/Applications";
 import { Connections } from "./pages/Connections";
 import { Routing } from "./pages/Routing";
+import RoutingModules from "./pages/RoutingModules";
 import { Statistics } from "./pages/Statistics";
 import { TunnelLogs } from "./pages/TunnelLogs";
 import { Settings } from "./pages/Settings";
@@ -651,6 +652,7 @@ export default function App() {
           <Route path="/subscriptions" element={<Subscriptions />} />
           <Route path="/subscriptions/:url" element={<Servers />} />
           <Route path="/routing" element={<Routing />} />
+          <Route path="/routing/modules" element={<RoutingModules />} />
           <Route path="/apps" element={<Applications />} />
           <Route path="/connections" element={<Connections />} />
           <Route path="/statistics" element={<Statistics />} />

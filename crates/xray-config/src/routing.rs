@@ -51,12 +51,27 @@ impl Routing {
         app_rules: &[AppRoutingRule],
         profile_rules: Option<&RoutingProfileRules>,
     ) -> Self {
+        Self::with_rules_and_modules(app_rules, profile_rules, &[])
+    }
+
+    /// То же, но с пользовательскими модулями.
+    ///
+    /// Правила модулей встают сразу после служебного `api`: человек пишет их
+    /// под конкретную задачу, и ни профиль, ни правила приложений не должны
+    /// перебивать явно указанный маршрут.
+    pub fn with_rules_and_modules(
+        app_rules: &[AppRoutingRule],
+        profile_rules: Option<&RoutingProfileRules>,
+        modules: &[crate::modules::RoutingModule],
+    ) -> Self {
         let mut rules = vec![RoutingRule {
             rule_type: "field".into(),
             inbound_tag: Some(vec!["api".into()]),
             outbound_tag: TAG_API.into(),
             ..Default::default()
         }];
+
+        rules.extend(crate::modules::module_routing_rules(modules));
 
         rules.extend(
             app_rules

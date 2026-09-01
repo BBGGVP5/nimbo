@@ -49,6 +49,9 @@ pub struct PersistedState {
     pub active_routing_profile: String,
     #[serde(default)]
     pub routing_profiles: Vec<RoutingProfile>,
+    /// Пользовательские модули маршрутизации: текст правил как его написали.
+    #[serde(default)]
+    pub routing_modules: Vec<nimbo_xray_config::RoutingModule>,
     #[serde(default)]
     pub deleted_builtin_profiles: Vec<String>,
     #[serde(default)]

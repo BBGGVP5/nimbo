@@ -6412,6 +6412,7 @@ fn build_runtime_xray_config(
         .server(server)
         .app_routing_rules(xray_app_rules(&app_rules))
         .profile_routing_rules(xray_routing_profile_rules(snapshot, &app_rules))
+        .routing_modules(snapshot.routing_modules.clone())
         .block_socks_udp(snapshot.block_socks_udp);
     if snapshot.require_socks_auth {
         builder = builder.socks_auth(&snapshot.socks_username, &snapshot.socks_password);
@@ -10022,3 +10023,68 @@ fn run_powershell(script: &str) -> Result<(), String> {
 
 #[cfg(not(windows))]
 fn clear_windows_kill_switch(_previous: Option<Vec<(String, String)>>) {}
+
+/// Список модулей маршрутизации.
+#[tauri::command]
+pub fn list_routing_modules(state: State<'_, AppState>) -> Vec<nimbo_xray_config::RoutingModule> {
+    state.snapshot().routing_modules
+}
+
+/// Создать или обновить модуль.
+///
+/// Имя берётся из заголовка `#!name=`, если он есть: человек правит текст, и
+/// требовать отдельно менять название значит плодить расхождение.
+#[tauri::command]
+pub fn save_routing_module(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    text: String,
+) -> Result<Vec<nimbo_xray_config::RoutingModule>, String> {
+    let parsed = nimbo_xray_config::parse_module(&text);
+    let resolved_name = parsed.name.unwrap_or(name);
+    state
+        .mutate(|s| {
+            if let Some(existing) = s.routing_modules.iter_mut().find(|module| module.id == id) {
+                existing.name = resolved_name.clone();
+                existing.text = text.clone();
+            } else {
+                s.routing_modules.push(nimbo_xray_config::RoutingModule {
+                    id: id.clone(),
+                    name: resolved_name.clone(),
+                    enabled: true,
+                    text: text.clone(),
+                });
+            }
+        })
+        .map_err(|e| format!("Не удалось сохранить модуль: {e}"))?;
+    Ok(state.snapshot().routing_modules)
+}
+
+/// Включить или выключить модуль.
+#[tauri::command]
+pub fn toggle_routing_module(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<nimbo_xray_config::RoutingModule>, String> {
+    state
+        .mutate(|s| {
+            if let Some(module) = s.routing_modules.iter_mut().find(|module| module.id == id) {
+                module.enabled = !module.enabled;
+            }
+        })
+        .map_err(|e| format!("Не удалось переключить модуль: {e}"))?;
+    Ok(state.snapshot().routing_modules)
+}
+
+/// Удалить модуль.
+#[tauri::command]
+pub fn delete_routing_module(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<nimbo_xray_config::RoutingModule>, String> {
+    state
+        .mutate(|s| s.routing_modules.retain(|module| module.id != id))
+        .map_err(|e| format!("Не удалось удалить модуль: {e}"))?;
+    Ok(state.snapshot().routing_modules)
+}
