@@ -107,6 +107,10 @@ data class NimboUiState(
     /** Избранные всегда сверху, независимо от выбранного порядка. */
     val favoritesFirst: Boolean = true,
     /** Версия доступного обновления; пусто — обновлений нет. */
+    /** Как мерить задержку: «tcp» до узла или «http» через туннель. */
+    val pingProtocol: String = "tcp",
+    val pingTimeoutMs: Int = 3000,
+    val pingUrl: String = "https://www.gstatic.com/generate_204",
     val updateVersion: String = "",
     val updateNotes: String = ""
 )
@@ -175,6 +179,8 @@ data class NimboUiActions(
     val onOpenScreen: (String) -> Unit = {},
     /** Настройка оформления: ключ и новое значение строкой. */
     val onSetAppearance: (String, String) -> Unit = { _, _ -> },
+    /** Настройка замера задержки: protocol, timeoutMs или url. */
+    val onSetPing: (String, String) -> Unit = { _, _ -> },
     /** Открыть страницу релиза: установить обновление сама iOS не даст. */
     val onOpenUpdate: () -> Unit = {},
     /** Сохранить копию настроек и подписки в файл. */

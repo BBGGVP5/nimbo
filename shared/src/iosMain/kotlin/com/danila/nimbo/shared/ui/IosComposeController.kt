@@ -76,6 +76,37 @@ private fun applyAppearanceChange(key: String, value: String) {
     postIosAction(AppearanceChangedAction, appearanceText("elementStyle", "glass"))
 }
 
+/**
+ * Настройки замера задержки.
+ *
+ * Тот же приём, что и с оформлением: значения лежат в NSUserDefaults, поэтому
+ * их читает и служба замера на стороне Swift — отдельный мост не нужен.
+ */
+private const val PingDefaultsPrefix = "com.nimbo.ping."
+private const val DefaultPingUrl = "https://www.gstatic.com/generate_204"
+
+private fun pingText(key: String, default: String): String =
+    NSUserDefaults.standardUserDefaults.stringForKey(PingDefaultsPrefix + key) ?: default
+
+private fun pingInt(key: String, default: Int): Int {
+    val defaults = NSUserDefaults.standardUserDefaults
+    if (defaults.objectForKey(PingDefaultsPrefix + key) == null) return default
+    return defaults.integerForKey(PingDefaultsPrefix + key).toInt()
+}
+
+private fun applyPingChange(key: String, value: String) {
+    val defaults = NSUserDefaults.standardUserDefaults
+    when (key) {
+        "timeoutMs" -> defaults.setInteger(value.toLongOrNull() ?: 3000L, PingDefaultsPrefix + key)
+        else -> defaults.setObject(value, PingDefaultsPrefix + key)
+    }
+    iosUiState.value = iosUiState.value.copy(
+        pingProtocol = pingText("protocol", "tcp"),
+        pingTimeoutMs = pingInt("timeoutMs", 3000),
+        pingUrl = pingText("url", DefaultPingUrl)
+    )
+}
+
 /** Настройки маршрутизации живут в NSUserDefaults и переживают перезапуск. */
 private const val RoutingDefaultsPrefix = "com.nimbo.routing."
 
@@ -254,7 +285,10 @@ fun NimboUpdateIosUiState(
         showMemoryWidget = appearanceFlag("showMemoryWidget", true),
         elementStyle = appearanceText("elementStyle", "glass"),
         serverSort = appearanceText("serverSort", "subscription"),
-        favoritesFirst = appearanceFlag("favoritesFirst", true)
+        favoritesFirst = appearanceFlag("favoritesFirst", true),
+        pingProtocol = pingText("protocol", "tcp"),
+        pingTimeoutMs = pingInt("timeoutMs", 3000),
+        pingUrl = pingText("url", DefaultPingUrl)
     )
 }
 
@@ -337,6 +371,7 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onPingServer = { postIosAction(PingServerAction, it) },
                 onSetRouting = { key, value -> applyRoutingChange(key, value) },
                 onSetAppearance = { key, value -> applyAppearanceChange(key, value) },
+                onSetPing = { key, value -> applyPingChange(key, value) },
                 onOpenUpdate = { postIosAction(OpenUpdateAction) },
                 onExportBackup = { postIosAction(ExportBackupAction) },
                 onImportBackup = { postIosAction(ImportBackupAction) },

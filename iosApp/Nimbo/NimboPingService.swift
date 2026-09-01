@@ -11,7 +11,29 @@ actor NimboPingService {
     static let shared = NimboPingService()
 
     /// Дольше ждать смысла нет: такой узел всё равно непригоден.
-    private let timeout: TimeInterval = 3.0
+    /// Значение задаётся в настройках, здесь — запасное.
+    private let fallbackTimeout: TimeInterval = 3.0
+
+    /// Ключи те же, что пишет общий экран настроек.
+    private static let timeoutKey = "com.nimbo.ping.timeoutMs"
+    private static let protocolKey = "com.nimbo.ping.protocol"
+    private static let urlKey = "com.nimbo.ping.url"
+
+    private var timeout: TimeInterval {
+        let milliseconds = UserDefaults.standard.integer(forKey: NimboPingService.timeoutKey)
+        return milliseconds > 0 ? TimeInterval(milliseconds) / 1000 : fallbackTimeout
+    }
+
+    /// HTTP-замер меряет рабочий маршрут целиком, а не путь до конкретного
+    /// узла: через туннель все серверы дают одно и то же число.
+    private var usesHttp: Bool {
+        UserDefaults.standard.string(forKey: NimboPingService.protocolKey) == "http"
+    }
+
+    private var checkUrl: URL {
+        let stored = UserDefaults.standard.string(forKey: NimboPingService.urlKey)
+        return URL(string: stored ?? "") ?? URL(string: "https://www.gstatic.com/generate_204")!
+    }
     /// Одновременных проверок: подписки бывают на сотню серверов, и открывать
     /// их разом — верный способ упереться в лимит дескрипторов.
     private let parallelism = 8
@@ -20,7 +42,27 @@ actor NimboPingService {
 
     /// Один узел: замер по требованию не должен ждать очереди общего прогона.
     func measureOne(host: String, port: Int) async -> Int {
-        await NimboPingService.measure(host: host, port: port, timeout: timeout)
+        if usesHttp {
+            return await NimboPingService.measureHttp(url: checkUrl, timeout: timeout)
+        }
+        return await NimboPingService.measure(host: host, port: port, timeout: timeout)
+    }
+
+    /// Время до первого ответа по HTTP. Тело не читаем: нужен отклик, а не
+    /// содержимое, поэтому запрос идёт методом HEAD.
+    static func measureHttp(url: URL, timeout: TimeInterval) async -> Int {
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.timeoutInterval = timeout
+
+        let started = Date()
+        do {
+            _ = try await URLSession.shared.data(for: request)
+            return Int(Date().timeIntervalSince(started) * 1000)
+        } catch {
+            return -1
+        }
     }
 
     /// Возвращает задержку в миллисекундах для каждого сервера; `-1` означает,
@@ -31,16 +73,24 @@ actor NimboPingService {
         defer { inFlight = false }
 
         var results: [String: Int] = [:]
+        if usesHttp {
+            // Один запрос на весь список: маршрут общий, и сотня одинаковых
+            // запросов ничего не уточнит, только задержит.
+            let value = await NimboPingService.measureHttp(url: checkUrl, timeout: timeout)
+            for target in targets { results[target.id] = value }
+            return results
+        }
         var index = 0
         while index < targets.count {
             let slice = targets[index ..< min(index + parallelism, targets.count)]
             await withTaskGroup(of: (String, Int).self) { group in
                 for target in slice {
-                    group.addTask { [timeout] in
+                    let currentTimeout = timeout
+                    group.addTask {
                         let value = await NimboPingService.measure(
                             host: target.host,
                             port: target.port,
-                            timeout: timeout
+                            timeout: currentTimeout
                         )
                         return (target.id, value)
                     }
