@@ -22,6 +22,15 @@ final class VpnController: ObservableObject {
     /// Флаг нужен потому, что система гасит неудачный старт через промежуточный
     /// disconnecting: связка connecting -> disconnected напрямую не приходит.
     private var pendingConnection = false
+    /// Опрос статуса, пока состояние переходное.
+    ///
+    /// Уведомление `NEVPNStatusDidChange` приходит не всегда: смена статуса,
+    /// случившаяся до загрузки менеджера, теряется, и экран остаётся с
+    /// вращающейся кнопкой. Опрос закрывает эту дыру.
+    private var statusPollTimer: Timer?
+    /// Когда началось текущее переходное состояние: по нему считается предел
+    /// ожидания.
+    private var transitionStartedAt: Date?
     /// Когда был запрошен запуск: по времени до обрыва видно, «не поднялось
     /// расширение» (доли секунды) или «не удалось достучаться до сервера».
     private var startRequestedAt: Date?
@@ -172,6 +181,9 @@ final class VpnController: ObservableObject {
             try manager.connection.startVPNTunnel()
             pendingConnection = true
             startRequestedAt = Date()
+            // Статус мог смениться прямо сейчас: уведомления об этом может уже
+            // не быть, поэтому спрашиваем сами.
+            synchronizeStatus()
         } catch {
             fail(code: "IOS_TUNNEL_START_FAILED", error: error)
         }
@@ -181,7 +193,12 @@ final class VpnController: ObservableObject {
         // Осознанное отключение не должно выглядеть как сбой запуска.
         pendingConnection = false
         state = .disconnecting
+        // Менеджера может не быть: приложение перезапустили, а туннель поднят
+        // системой. Без загрузки остановка не дошла бы до него, и кнопка
+        // крутилась бы вечно.
+        if manager == nil { manager = try? await loadOrCreateManager() }
         manager?.connection.stopVPNTunnel()
+        synchronizeStatus()
         await NimboDiagnostics.shared.record(.info, stage: .stop, code: "IOS_TUNNEL_STOP_REQUESTED", message: "Остановка Packet Tunnel запрошена пользователем")
     }
 
@@ -204,7 +221,12 @@ final class VpnController: ObservableObject {
     }
 
     private func synchronizeStatus() {
-        guard let status = manager?.connection.status else { return }
+        guard let status = manager?.connection.status else {
+            // Менеджер ещё не загружен: подождём и спросим снова, иначе
+            // состояние застынет на переходном.
+            scheduleStatusPollIfNeeded()
+            return
+        }
         let previous = lastKnownStatus
         lastKnownStatus = status
 
@@ -240,6 +262,66 @@ final class VpnController: ObservableObject {
             state = .connected
         case .disconnecting: state = .disconnecting
         @unknown default: state = .failed(code: "IOS_VPN_UNKNOWN_STATE", message: "Неизвестное состояние системного VPN")
+        }
+
+        scheduleStatusPollIfNeeded()
+    }
+
+    /// Переходное ли состояние: в нём кнопка показывает вращение.
+    private var isTransitional: Bool {
+        switch state {
+        case .preparing, .connecting, .disconnecting: true
+        default: false
+        }
+    }
+
+    /// Пока состояние переходное, статус опрашивается сам.
+    ///
+    /// Заодно считается предел ожидания: висеть с вращающейся кнопкой хуже,
+    /// чем честно сказать, что не получилось.
+    private func scheduleStatusPollIfNeeded() {
+        guard isTransitional else {
+            statusPollTimer?.invalidate()
+            statusPollTimer = nil
+            transitionStartedAt = nil
+            return
+        }
+
+        if transitionStartedAt == nil { transitionStartedAt = Date() }
+        if let startedAt = transitionStartedAt {
+            let waited = Date().timeIntervalSince(startedAt)
+            // Отключение система выполняет быстро; если за пять секунд статус
+            // не пришёл, туннеля уже нет — показываем покой.
+            if case .disconnecting = state, waited > 5 {
+                statusPollTimer?.invalidate()
+                statusPollTimer = nil
+                transitionStartedAt = nil
+                pendingConnection = false
+                state = .idle
+                return
+            }
+            if waited > 30 {
+                statusPollTimer?.invalidate()
+                statusPollTimer = nil
+                transitionStartedAt = nil
+                pendingConnection = false
+                state = .failed(
+                    code: "IOS_VPN_START_TIMEOUT",
+                    message: "Система не подняла туннель за 30 секунд. Проверьте профиль VPN в настройках iOS."
+                )
+                return
+            }
+        }
+
+        guard statusPollTimer == nil else { return }
+        statusPollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.manager == nil {
+                    self.manager = try? await self.loadOrCreateManager()
+                }
+                self.synchronizeStatus()
+            }
         }
     }
 
