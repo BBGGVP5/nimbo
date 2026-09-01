@@ -179,6 +179,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         )
         XrayConfigurationBuilder.moduleRulesJSON =
             tunnelProtocol.providerConfiguration?["modules"] as? String ?? ""
+        XrayConfigurationBuilder.routingProfileJSON =
+            tunnelProtocol.providerConfiguration?["routingProfile"] as? String ?? ""
 
         do {
             try await applyNetworkSettings(PacketTunnelNetwork.settings(options: routingOptions))

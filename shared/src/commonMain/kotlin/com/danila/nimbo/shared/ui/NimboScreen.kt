@@ -20,11 +20,15 @@ enum class NimboScreen(
     /** Модули открываются со страницы маршрутизации и тоже не нужны в панели. */
     MODULES("modules", "Модули", "Модули", "❏"),
 
+    /** Профили маршрутизации — оттуда же, со страницы маршрутизации. */
+    ROUTING_PROFILES("routing-profiles", "Профили маршрутизации", "Профили", "⇉"),
+
     /** История уведомлений: открывается из настроек. */
     NOTIFICATIONS("notifications", "Уведомления", "Уведомления", "◔");
 
     val inTabBar: Boolean
-        get() = this != ROUTING && this != MODULES && this != NOTIFICATIONS
+        get() = this != ROUTING && this != MODULES && this != ROUTING_PROFILES &&
+            this != NOTIFICATIONS
 
     companion object {
         fun fromWireName(value: String): NimboScreen = entries

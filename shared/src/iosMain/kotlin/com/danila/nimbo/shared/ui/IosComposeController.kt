@@ -7,6 +7,9 @@ import androidx.compose.ui.window.ComposeUIViewController
 import com.danila.nimbo.shared.subscription.NormalizedSubscription
 import com.danila.nimbo.shared.routing.NimboModule
 import com.danila.nimbo.shared.routing.NimboModuleParser
+import com.danila.nimbo.shared.routing.NimboBuiltinRoutingProfiles
+import com.danila.nimbo.shared.routing.NimboRoutingProfile
+import com.danila.nimbo.shared.routing.NimboRoutingProfileRules
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -189,6 +192,148 @@ fun NimboIosModuleRulesJson(): String {
         }
     }
     return iosJson.encodeToString(JsonArray(rules))
+}
+
+/**
+ * Профили маршрутизации.
+ *
+ * Правки хранятся отдельно от встроенных наборов: обновление приложения
+ * приносит новые списки доменов, и перезаписывать ими то, что человек написал
+ * сам, нельзя. «Вернуть» просто убирает правки.
+ */
+private const val RoutingProfilesKey = "com.nimbo.routing.profiles"
+private const val RoutingProfileIdKey = "com.nimbo.routing.profile-id"
+
+@kotlinx.serialization.Serializable
+private data class StoredRoutingProfile(
+    val id: String,
+    val name: String,
+    val description: String,
+    val ruleOrder: String,
+    val globalProxy: Boolean,
+    val bypassLocalIp: Boolean,
+    val domainStrategy: String,
+    val directSites: List<String>,
+    val directIp: List<String>,
+    val proxySites: List<String>,
+    val proxyIp: List<String>,
+    val blockSites: List<String>,
+    val blockIp: List<String>
+)
+
+private fun StoredRoutingProfile.toProfile(builtin: Boolean) = NimboRoutingProfile(
+    id = id,
+    name = name,
+    description = description,
+    builtin = builtin,
+    ruleOrder = ruleOrder,
+    globalProxy = globalProxy,
+    bypassLocalIp = bypassLocalIp,
+    domainStrategy = domainStrategy,
+    directSites = directSites,
+    directIp = directIp,
+    proxySites = proxySites,
+    proxyIp = proxyIp,
+    blockSites = blockSites,
+    blockIp = blockIp
+)
+
+private fun NimboRoutingProfile.toStored() = StoredRoutingProfile(
+    id = id,
+    name = name,
+    description = description,
+    ruleOrder = ruleOrder,
+    globalProxy = globalProxy,
+    bypassLocalIp = bypassLocalIp,
+    domainStrategy = domainStrategy,
+    directSites = directSites,
+    directIp = directIp,
+    proxySites = proxySites,
+    proxyIp = proxyIp,
+    blockSites = blockSites,
+    blockIp = blockIp
+)
+
+private fun loadRoutingOverrides(): Map<String, StoredRoutingProfile> {
+    val raw = NSUserDefaults.standardUserDefaults.stringForKey(RoutingProfilesKey) ?: return emptyMap()
+    return runCatching { iosJson.decodeFromString<List<StoredRoutingProfile>>(raw) }
+        .getOrDefault(emptyList())
+        .associateBy { it.id }
+}
+
+private fun loadRoutingProfiles(): List<NimboRoutingProfile> {
+    val overrides = loadRoutingOverrides()
+    return NimboBuiltinRoutingProfiles.defaults().map { default ->
+        overrides[default.id]?.toProfile(builtin = true) ?: default
+    }
+}
+
+private fun activeRoutingProfileId(): String =
+    NSUserDefaults.standardUserDefaults.stringForKey(RoutingProfileIdKey)
+        ?: NimboBuiltinRoutingProfiles.GLOBAL
+
+private fun publishRoutingProfiles() {
+    iosUiState.value = iosUiState.value.copy(
+        routingProfiles = loadRoutingProfiles(),
+        routingProfileId = activeRoutingProfileId()
+    )
+    // Правила уходят в туннель при сборке конфигурации — её пересобирает Swift.
+    postIosAction(RoutingAction, "profile")
+}
+
+private fun selectRoutingProfile(id: String) {
+    NSUserDefaults.standardUserDefaults.setObject(id, RoutingProfileIdKey)
+    publishRoutingProfiles()
+}
+
+private fun saveRoutingProfile(profile: NimboRoutingProfile) {
+    val next = loadRoutingOverrides().toMutableMap()
+    next[profile.id] = profile.toStored()
+    NSUserDefaults.standardUserDefaults.setObject(
+        iosJson.encodeToString(next.values.toList()),
+        RoutingProfilesKey
+    )
+    publishRoutingProfiles()
+}
+
+private fun resetRoutingProfiles() {
+    NSUserDefaults.standardUserDefaults.removeObjectForKey(RoutingProfilesKey)
+    publishRoutingProfiles()
+}
+
+/**
+ * Правила выбранного профиля для Xray.
+ *
+ * Возвращается объект со стратегией доменов и правилами: стратегия относится ко
+ * всей маршрутизации, а не к отдельному правилу, поэтому её нельзя положить в
+ * массив.
+ */
+fun NimboIosRoutingProfileJson(): String {
+    val profile = loadRoutingProfiles().firstOrNull { it.id == activeRoutingProfileId() }
+        ?: NimboBuiltinRoutingProfiles.defaults().first()
+    val rules = NimboRoutingProfileRules.rules(profile).map { rule ->
+        buildJsonObject {
+            put("type", JsonPrimitive("field"))
+            if (rule.domains.isNotEmpty()) {
+                put("domain", JsonArray(rule.domains.map { JsonPrimitive(it) }))
+            }
+            if (rule.ips.isNotEmpty()) {
+                put("ip", JsonArray(rule.ips.map { JsonPrimitive(it) }))
+            }
+            if (rule.catchAll) {
+                // Правилу нужно хоть одно поле совпадения, иначе Xray его не
+                // примет: сеть подходит — под неё попадает весь трафик.
+                put("network", JsonPrimitive("tcp,udp"))
+            }
+            put("outboundTag", JsonPrimitive(rule.outboundTag))
+        }
+    }
+    return iosJson.encodeToString(
+        buildJsonObject {
+            put("domainStrategy", JsonPrimitive(profile.domainStrategy))
+            put("rules", JsonArray(rules))
+        }
+    )
 }
 
 /**
@@ -482,6 +627,8 @@ fun NimboUpdateIosUiState(
         pingTimeoutMs = pingInt("timeoutMs", 3000),
         pingUrl = pingText("url", DefaultPingUrl),
         modules = loadModules(),
+        routingProfiles = loadRoutingProfiles(),
+        routingProfileId = activeRoutingProfileId(),
         notifications = loadNotifications()
     )
 }
@@ -574,6 +721,9 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onSaveModule = { id, name, text -> saveModule(id, name, text) },
                 onToggleModule = { toggleModule(it) },
                 onDeleteModule = { deleteModule(it) },
+                onSelectRoutingProfile = { selectRoutingProfile(it) },
+                onSaveRoutingProfile = { saveRoutingProfile(it) },
+                onResetRoutingProfiles = { resetRoutingProfiles() },
                 onDismissToast = { NimboDismissIosToast() },
                 onDeleteNotification = { deleteNotification(it) },
                 onClearNotifications = { clearNotifications() },

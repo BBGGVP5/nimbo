@@ -120,6 +120,9 @@ data class NimboUiState(
     val toast: NimboNotification? = null,
     /** Пользовательские наборы правил. */
     val modules: List<com.danila.nimbo.shared.routing.NimboModule> = emptyList(),
+    /** Профили маршрутизации и тот, что выбран сейчас. */
+    val routingProfiles: List<com.danila.nimbo.shared.routing.NimboRoutingProfile> = emptyList(),
+    val routingProfileId: String = "global",
     val pingProtocol: String = "tcp",
     val pingTimeoutMs: Int = 3000,
     val pingUrl: String = "https://www.gstatic.com/generate_204",
@@ -199,6 +202,10 @@ data class NimboUiActions(
     val onSaveModule: (String, String, String) -> Unit = { _, _, _ -> },
     val onToggleModule: (String) -> Unit = {},
     val onDeleteModule: (String) -> Unit = {},
+    /** Профили маршрутизации: выбор, правка и возврат к исходным наборам. */
+    val onSelectRoutingProfile: (String) -> Unit = {},
+    val onSaveRoutingProfile: (com.danila.nimbo.shared.routing.NimboRoutingProfile) -> Unit = {},
+    val onResetRoutingProfiles: () -> Unit = {},
     /** Скрыть всплывающее сообщение. */
     val onDismissToast: () -> Unit = {},
     val onDeleteNotification: (String) -> Unit = {},
@@ -283,6 +290,7 @@ fun NimboAppShell(
                     NimboScreen.STATS -> NimboStatsScreen(state, actions)
                     NimboScreen.ROUTING -> NimboRoutingScreen(state, actions)
                     NimboScreen.MODULES -> NimboModulesScreen(state, actions)
+                    NimboScreen.ROUTING_PROFILES -> NimboRoutingProfilesScreen(state, actions)
                     NimboScreen.NOTIFICATIONS -> NimboNotificationsScreen(state, actions)
                     NimboScreen.SETTINGS -> NimboSettingsScreen(state, actions)
                 }
@@ -416,6 +424,7 @@ private val NimboScreen.iconName: NimboIconName
         NimboScreen.STATS -> NimboIconName.STATS
         NimboScreen.ROUTING -> NimboIconName.ROUTE
         NimboScreen.MODULES -> NimboIconName.LIST
+        NimboScreen.ROUTING_PROFILES -> NimboIconName.ROUTE
         NimboScreen.NOTIFICATIONS -> NimboIconName.NOTIFICATIONS
         NimboScreen.SETTINGS -> NimboIconName.SETTINGS
     }

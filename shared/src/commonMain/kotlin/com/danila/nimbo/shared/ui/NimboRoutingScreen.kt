@@ -63,6 +63,29 @@ internal fun NimboRoutingScreen(state: NimboUiState, actions: NimboUiActions) {
             style = NimboBodyStyle
         )
 
+        // Профиль решает, что вообще идёт через VPN, поэтому он стоит выше
+        // частных правил.
+        NimboSurface(
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 22.dp,
+            onClick = { actions.onOpenScreen(NimboScreen.ROUTING_PROFILES.wireName) }
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                NimboIcon(NimboIconName.ROUTE, tint = NimboPalette.Accent, modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    BasicText("Профили", style = NimboSectionTitleStyle.copy(fontSize = 16.sp))
+                    BasicText(
+                        state.routingProfiles.firstOrNull { it.id == state.routingProfileId }
+                            ?.let { "${it.name} · ${it.ruleCount} правил" }
+                            ?: "Что идёт через VPN, а что напрямую",
+                        style = NimboBodyStyle.copy(fontSize = 12.sp)
+                    )
+                }
+                BasicText("›", style = TextStyle(color = NimboPalette.Accent, fontSize = 20.sp))
+            }
+        }
+
         // Модули — соседний способ управлять маршрутом, поэтому кнопка стоит
         // здесь, а не прячется в настройках.
         NimboSurface(

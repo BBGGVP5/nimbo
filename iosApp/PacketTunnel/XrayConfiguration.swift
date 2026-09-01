@@ -45,10 +45,16 @@ enum XrayConfigurationBuilder {
         configuration["inbounds"] = [
             tunnelInbound(interfaceName: tunnelInterfaceName, sniffing: options.sniffingEnabled)
         ]
-        configuration["outbounds"] = appendUtilityOutbounds(
-            to: sanitizedOutbounds(outbounds, balanced: source.balanced)
+        let sanitized = sanitizedOutbounds(outbounds, balanced: source.balanced)
+        configuration["outbounds"] = appendUtilityOutbounds(to: sanitized)
+        // Тег первого выхода приходит из подписки и обычно равен имени сервера,
+        // поэтому правила, написанные про «proxy», без подстановки указывали бы
+        // на несуществующий выход.
+        configuration["routing"] = normalizedRouting(
+            configuration["routing"],
+            balanced: source.balanced,
+            proxyTag: (sanitized.first?["tag"] as? String) ?? "proxy"
         )
-        configuration["routing"] = normalizedRouting(configuration["routing"], balanced: source.balanced)
         if source.balanced {
             configuration["observatory"] = observatorySettings
         }
@@ -206,9 +212,18 @@ enum XrayConfigurationBuilder {
         return environment
     }
 
-    private static func normalizedRouting(_ value: Any?, balanced: Bool) -> [String: Any] {
+    private static func normalizedRouting(
+        _ value: Any?,
+        balanced: Bool,
+        proxyTag: String
+    ) -> [String: Any] {
         var routing = value as? [String: Any] ?? [:]
-        if routing["domainStrategy"] == nil { routing["domainStrategy"] = "IPIfNonMatch" }
+        let profile = routingProfile()
+        // Стратегия доменов относится ко всей маршрутизации, поэтому её задаёт
+        // профиль, а не отдельное правило.
+        routing["domainStrategy"] = profile.strategy
+            ?? (routing["domainStrategy"] as? String)
+            ?? "IPIfNonMatch"
         var rules = routing["rules"] as? [[String: Any]] ?? []
 
         if balanced {
@@ -228,9 +243,52 @@ enum XrayConfigurationBuilder {
         }
 
         // Модули впереди всего: человек написал их под конкретную задачу, и ни
-        // профиль, ни балансировщик не должны перебивать явный маршрут.
-        routing["rules"] = moduleRules() + rules
+        // профиль, ни балансировщик не должны перебивать явный маршрут. Затем
+        // идёт профиль — он решает, что вообще уходит в туннель.
+        routing["rules"] = retargeted(moduleRules(), balanced: balanced, proxyTag: proxyTag)
+            + retargeted(profile.rules, balanced: balanced, proxyTag: proxyTag)
+            + rules
         return routing
+    }
+
+    /// Правила профиля маршрутизации, полученные из конфигурации туннеля.
+    ///
+    /// Их собирает общий модуль на Kotlin: набор правил обязан совпадать с
+    /// андроидным, иначе один и тот же профиль вёл бы себя по-разному.
+    static var routingProfileJSON: String = ""
+
+    private static func routingProfile() -> (strategy: String?, rules: [[String: Any]]) {
+        guard let data = routingProfileJSON.data(using: .utf8),
+              let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (nil, [])
+        }
+        return (
+            parsed["domainStrategy"] as? String,
+            parsed["rules"] as? [[String: Any]] ?? []
+        )
+    }
+
+    /// Подстановка настоящего выхода вместо условного «proxy».
+    ///
+    /// В обычном режиме тег берётся у первого выхода подписки, в режиме
+    /// балансировщика правило вместо выхода указывает на сам балансировщик —
+    /// иначе выбор быстрейшего узла обходился бы стороной.
+    private static func retargeted(
+        _ rules: [[String: Any]],
+        balanced: Bool,
+        proxyTag: String
+    ) -> [[String: Any]] {
+        rules.map { rule in
+            guard (rule["outboundTag"] as? String) == "proxy" else { return rule }
+            var result = rule
+            if balanced {
+                result.removeValue(forKey: "outboundTag")
+                result["balancerTag"] = balancerTag
+            } else {
+                result["outboundTag"] = proxyTag
+            }
+            return result
+        }
     }
 
     /// Правила пользовательских модулей, полученные из конфигурации туннеля.

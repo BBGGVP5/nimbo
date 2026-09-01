@@ -96,7 +96,8 @@ final class VpnController: ObservableObject {
             // Правила пользовательских модулей. Разбирает их общий модуль на
             // Kotlin — расширение получает готовый массив, потому что общих
             // NSUserDefaults у приложения и расширения нет.
-            "modules": IosComposeControllerKt.NimboIosModuleRulesJson()
+            "modules": IosComposeControllerKt.NimboIosModuleRulesJson(),
+            "routingProfile": IosComposeControllerKt.NimboIosRoutingProfileJson()
         ]
         manager.protocolConfiguration = tunnelProtocol
         try await manager.saveToPreferences()
