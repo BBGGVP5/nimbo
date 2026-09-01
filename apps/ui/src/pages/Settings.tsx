@@ -775,18 +775,22 @@ function AppearanceSection({
               selected={preferences.ui_style === "signal"}
               onClick={() => onChange({ ui_style: "signal" })}
             />
-            <ToggleRow
-              label={m.settings.navIconMotion}
-              description={m.settings.navIconMotionDescription}
-              enabled={preferences.nav_icon_motion}
-              onToggle={(enabled: boolean) => onChange({ nav_icon_motion: enabled })}
-            />
             <InterfaceStyleOption
               styleId="manga"
               title={m.settings.mangaStyle}
               subtitle={m.settings.mangaStyleSubtitle}
               selected={preferences.ui_style === "manga"}
               onClick={() => onChange({ ui_style: "manga" })}
+            />
+          </div>
+          {/* Настройка движения — не стиль: внутри сетки она занимала место
+              карточки и вставала вплотную к Manga. */}
+          <div className="settings-interface-extras">
+            <ToggleRow
+              label={m.settings.navIconMotion}
+              description={m.settings.navIconMotionDescription}
+              enabled={preferences.nav_icon_motion}
+              onToggle={(enabled: boolean) => onChange({ nav_icon_motion: enabled })}
             />
           </div>
         </CollapsibleSection>

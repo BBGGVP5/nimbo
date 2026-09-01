@@ -878,7 +878,7 @@ function PostUpdateDialog({
         {showChanges && (
           <div className="update-dialog-notes">
             <strong>{m.settings.updateReleaseNotes}</strong>
-            <span>{notes}</span>
+            <DialogReleaseNotes content={notes} />
             {update.release_url && (
               <a
                 className="update-dialog-release-link"
