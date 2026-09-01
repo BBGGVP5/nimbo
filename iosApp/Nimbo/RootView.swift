@@ -109,6 +109,9 @@ struct RootView: View {
             .onReceive(NotificationCenter.default.publisher(for: .nimboPingAll)) { _ in
                 Task { await measurePings() }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboConnectFastest)) { _ in
+                Task { await connectFastest() }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .nimboImportSubscription)) { notification in
                 guard let source = notification.object as? String else { return }
                 Task { await importSubscription(source) }
@@ -315,6 +318,46 @@ struct RootView: View {
         case .connected, .connecting, .preparing:
             await vpn.disconnect()
         case .idle, .disconnecting, .failed:
+            await vpn.connect()
+        }
+    }
+
+    /// Замер всех узлов и подключение к лучшему.
+    ///
+    /// Замер делается заново: сохранённые числа могли быть сняты вчера, а узел
+    /// с тех пор успел деградировать — именно от такого выбора человек и
+    /// уходит, нажимая «авто».
+    private func connectFastest() async {
+        guard let profile = try? NimboSubscriptionRepository.shared.loadProfile() else { return }
+        let candidates = profile.servers.filter {
+            !$0.host.isEmpty && $0.port > 0 && !NimboStagingPayload.isAutoBalancer($0)
+        }
+        guard !candidates.isEmpty else {
+            notify("error", "Нет серверов для выбора")
+            return
+        }
+
+        IosComposeControllerKt.NimboPushIosBurst(trigger: "activity")
+        IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: true)
+        let results = await NimboPingService.shared.measureAll(
+            candidates.map { (id: $0.id, host: $0.host, port: $0.port) }
+        )
+        let ordered = results.map { ($0.key, $0.value) }
+        IosComposeControllerKt.NimboUpdateIosPings(
+            serverIds: ordered.map { $0.0 },
+            values: ordered.map { KotlinInt(int: Int32($0.1)) },
+            inProgress: false
+        )
+
+        // Молчащий узел — не «ноль миллисекунд»: такие в выбор не идут.
+        guard let best = results.filter({ $0.value > 0 }).min(by: { $0.value < $1.value }) else {
+            notify("error", "Ни один сервер не ответил на проверку")
+            return
+        }
+        let name = candidates.first { $0.id == best.key }?.name ?? ""
+        await selectServer(best.key)
+        notify("info", "Выбран \(name.isEmpty ? "самый быстрый узел" : name) · \(best.value) мс")
+        if vpn.state != .connected, vpn.state != .connecting {
             await vpn.connect()
         }
     }
@@ -538,6 +581,7 @@ private extension Notification.Name {
     static let nimboAbout = Notification.Name("com.nimbo.action.about")
     static let nimboSystemSettings = Notification.Name("com.nimbo.action.system-settings")
     static let nimboSelectServer = Notification.Name("com.nimbo.action.select-server")
+    static let nimboConnectFastest = Notification.Name("com.nimbo.action.connect-fastest")
     static let nimboPingServer = Notification.Name("com.nimbo.action.ping-server")
     static let nimboPingAll = Notification.Name("com.nimbo.action.ping-all")
     static let nimboImportSubscription = Notification.Name("com.nimbo.action.import-subscription")

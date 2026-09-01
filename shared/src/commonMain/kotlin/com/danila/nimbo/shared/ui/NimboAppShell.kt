@@ -190,6 +190,8 @@ data class NimboUiActions(
     val onPingServer: (String) -> Unit = {},
     /** Перемерить весь список сразу. */
     val onPingAll: () -> Unit = {},
+    /** Замерить узлы и подключиться к самому быстрому. */
+    val onConnectFastest: () -> Unit = {},
     /** Настройка маршрутизации: ключ и новое значение строкой. */
     val onSetRouting: (String, String) -> Unit = { _, _ -> },
     /** Переход на вкладку: на iOS её показывает системная панель. */

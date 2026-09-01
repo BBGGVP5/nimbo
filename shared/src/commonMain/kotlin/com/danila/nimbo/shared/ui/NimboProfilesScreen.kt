@@ -166,6 +166,14 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
                     )
                 }
             }
+            // Первым в списке — не сервер, а способ выбора: разница между
+            // узлами это задержка, а не название страны, и читать полсотни
+            // строк ради неё не нужно.
+            AutoFastestCard(
+                servers = state.servers,
+                searching = state.pingInProgress,
+                onConnect = actions.onConnectFastest
+            )
             visibleServers.forEach { server ->
                 ProfileServerCard(
                     server = server,
@@ -175,6 +183,69 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
                     onPing = actions.onPingServer
                 )
             }
+        }
+    }
+}
+
+/**
+ * Подключение к лучшему узлу одним нажатием.
+ *
+ * Стоит там же, где человек выбирает сервер: «авто» — это ещё один вариант
+ * выбора, а не настройка страницей глубже.
+ */
+@Composable
+private fun AutoFastestCard(
+    servers: List<NimboServerUi>,
+    searching: Boolean,
+    onConnect: () -> Unit
+) {
+    val selected = servers.firstOrNull { it.selected }
+    val selectedPing = selected?.ping?.takeIf { it > 0 }
+    val subtitle = when {
+        searching -> "Замеряю узлы…"
+        selected != null && selectedPing != null ->
+            "Сейчас: ${withoutFlagEmoji(selected.name)} · $selectedPing мс"
+        else -> "Замерит все серверы и подключится к лучшему"
+    }
+    NimboSurface(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 20.dp,
+        onClick = { if (!searching) onConnect() }
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(nimboStyledShape(13.dp, 2.dp))
+                    .background(nimboStyledContainer(NimboPalette.Accent.copy(alpha = 0.18f))),
+                contentAlignment = Alignment.Center
+            ) {
+                NimboIcon(NimboIconName.PING, tint = NimboPalette.Accent, modifier = Modifier.size(21.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                BasicText(
+                    "Авто — самый быстрый",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        color = NimboPalette.Accent,
+                        fontSize = 16.sp,
+                        lineHeight = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                BasicText(
+                    subtitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = NimboBodyStyle.copy(fontSize = 12.sp)
+                )
+            }
+            BasicText(
+                if (searching) "…" else "›",
+                style = TextStyle(color = NimboPalette.Accent, fontSize = 20.sp)
+            )
         }
     }
 }
