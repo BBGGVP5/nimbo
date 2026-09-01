@@ -1224,10 +1224,12 @@ fun NimboMiniApp(
  */
 @Composable
 private fun rememberNavIconMotionEnabled(): Boolean {
-    val context = LocalContext.current
-    val preferences = remember(context) { PreferencesManager(context) }
+    // Именно общий экземпляр: у своего собственного состояние обновлялось бы
+    // только по уведомлению, и выключатель до панели не доходил.
+    val preferences = LocalPreferencesManager.current
     val enabled by preferences.navIconAnimationEnabledState
-    return enabled && rememberMiniMotionEnabled()
+    val motionAllowed = rememberMiniMotionEnabled()
+    return enabled && motionAllowed
 }
 
 
