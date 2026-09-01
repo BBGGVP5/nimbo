@@ -1,5 +1,11 @@
 package com.danila.nimbo.shared.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,24 +52,20 @@ import androidx.compose.ui.unit.sp
  * мониторинга и системные пункты. Раздельного туннеля, языка интерфейса и
  * резервных копий здесь нет — им на iOS не на что опереться.
  */
-/** Разделы настроек. Каждый открывается своей страницей, как на Android. */
-private enum class SettingsPage(val title: String) {
-    ROOT("Настройки"),
-    APPEARANCE("Внешний вид"),
-    LATENCY("Задержка"),
-    CONNECTION("Соединение"),
-    SUBSCRIPTION("Подписка"),
-    UPDATES("Обновления"),
-    SYNC("Синхронизация"),
-    BACKUP("Резервная копия"),
-    SYSTEM("Система")
+/** Разделы настроек: те же вкладки, что и в ленте на Android. */
+private enum class SettingsTab(val title: String, val icon: NimboIconName) {
+    GENERAL("Общие", NimboIconName.SETTINGS),
+    APPEARANCE("Внешний вид", NimboIconName.PALETTE),
+    SUBSCRIPTION("Подписка", NimboIconName.CLOUD),
+    LATENCY("Задержка", NimboIconName.PING),
+    BACKUP("Резервная копия", NimboIconName.DOWNLOAD),
+    UPDATES("Обновления", NimboIconName.SYNC),
+    ABOUT("О приложении", NimboIconName.INFO)
 }
 
 @Composable
 internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
-    // Раздел живёт внутри вкладки: системная панель снизу остаётся на месте,
-    // а «назад» возвращает к списку разделов.
-    var page by remember { mutableStateOf(SettingsPage.ROOT) }
+    var tab by remember { mutableStateOf(SettingsTab.GENERAL) }
 
     Column(
         modifier = Modifier
@@ -73,137 +75,185 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
             .nimboScreenPadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        if (page == SettingsPage.ROOT) {
-            BasicText("Настройки", style = NimboTitleStyle)
-        } else {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                NimboIconButton(
-                    NimboIconName.BACK,
-                    modifier = Modifier.size(40.dp),
-                    onClick = { page = SettingsPage.ROOT }
-                )
-                Spacer(Modifier.width(10.dp))
-                BasicText(page.title, style = NimboTitleStyle.copy(fontSize = 26.sp))
+        BasicText("Настройки", style = NimboTitleStyle)
+
+        if (state.updateVersion.isNotBlank()) {
+            NimboSurface(
+                modifier = Modifier.fillMaxWidth(),
+                cornerRadius = 22.dp,
+                padding = PaddingValues(16.dp),
+                onClick = actions.onOpenUpdate
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        BasicText(
+                            "Доступна версия ${state.updateVersion}",
+                            style = TextStyle(
+                                color = NimboPalette.Accent,
+                                fontSize = 16.sp,
+                                lineHeight = 22.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                        // Установить обновление из приложения iOS не даёт:
+                        // сборку подписывают снаружи. Ведём на страницу релиза.
+                        BasicText(
+                            "Открыть страницу релиза и скачать сборку",
+                            modifier = Modifier.padding(top = 2.dp),
+                            style = TextStyle(
+                                color = NimboPalette.TextSecondary,
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
+                            )
+                        )
+                    }
+                    BasicText("›", style = TextStyle(color = NimboPalette.Accent, fontSize = 20.sp))
+                }
             }
         }
 
-        when (page) {
-            SettingsPage.ROOT -> SettingsRootPage(state, actions) { page = it }
-            SettingsPage.APPEARANCE -> AppearancePage(state, actions)
-            SettingsPage.LATENCY -> LatencyPage(state, actions)
-            SettingsPage.CONNECTION -> ConnectionPage(actions)
-            SettingsPage.SUBSCRIPTION -> SubscriptionPage(actions)
-            SettingsPage.UPDATES -> UpdatesPage(state, actions)
-            SettingsPage.SYNC -> SyncPage(actions)
-            SettingsPage.BACKUP -> BackupPage(actions)
-            SettingsPage.SYSTEM -> SystemPage(state, actions)
+        SettingsTabStrip(selected = tab, onSelect = { tab = it })
+
+        when (tab) {
+            SettingsTab.GENERAL -> GeneralPage(state, actions)
+            SettingsTab.APPEARANCE -> AppearancePage(state, actions)
+            SettingsTab.SUBSCRIPTION -> SubscriptionPage(actions)
+            SettingsTab.LATENCY -> LatencyPage(state, actions)
+            SettingsTab.BACKUP -> BackupPage(actions)
+            SettingsTab.UPDATES -> UpdatesPage(state, actions)
+            SettingsTab.ABOUT -> SystemPage(state, actions)
+        }
+    }
+}
+
+/**
+ * Лента вкладок. Выбранная раскрывается подписью — так на узком экране
+ * помещается вдвое больше разделов, чем со всеми подписями сразу.
+ */
+@Composable
+private fun SettingsTabStrip(selected: SettingsTab, onSelect: (SettingsTab) -> Unit) {
+    NimboSurface(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 18.dp,
+        padding = PaddingValues(5.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SettingsTab.entries.forEach { entry ->
+                SettingsTabItem(
+                    tab = entry,
+                    selected = entry == selected,
+                    onClick = { onSelect(entry) }
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun SettingsRootPage(
-    state: NimboUiState,
-    actions: NimboUiActions,
-    onOpen: (SettingsPage) -> Unit
-) {
-    if (state.updateVersion.isNotBlank()) {
-        NimboSurface(
-            modifier = Modifier.fillMaxWidth(),
-            cornerRadius = 22.dp,
-            padding = PaddingValues(16.dp),
-            onClick = actions.onOpenUpdate
+private fun SettingsTabItem(tab: SettingsTab, selected: Boolean, onClick: () -> Unit) {
+    val style = LocalNimboElementStyle.current
+    val shape = nimboStyledShape(12.dp, 2.dp)
+    Row(
+        modifier = Modifier
+            .height(44.dp)
+            .clip(shape)
+            .background(
+                nimboStyledContainer(
+                    if (selected) NimboPalette.Accent.copy(alpha = 0.16f) else Color.Transparent,
+                    selected = selected
+                )
+            )
+            .then(
+                if (style == NimboElementStyle.MANGA && selected) {
+                    Modifier.border(2.dp, NimboPalette.Accent, shape)
+                } else Modifier
+            )
+            .nimboRowClickable(onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        NimboIcon(
+            tab.icon,
+            tint = if (selected) NimboPalette.Text else NimboPalette.TextSecondary,
+            modifier = Modifier.size(20.dp)
+        )
+        // Подпись выезжает из-под значка, а не появляется рывком: лента при
+        // переключении заметно перестраивается, и резкая смена сбивает глаз.
+        AnimatedVisibility(
+            visible = selected,
+            enter = expandHorizontally(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
+            exit = shrinkHorizontally(animationSpec = tween(180)) + fadeOut(animationSpec = tween(120))
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    BasicText(
-                        "Доступна версия ${state.updateVersion}",
-                        style = TextStyle(
-                            color = NimboPalette.Accent,
-                            fontSize = 16.sp,
-                            lineHeight = 22.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                Spacer(Modifier.width(8.dp))
+                BasicText(
+                    tab.title,
+                    maxLines = 1,
+                    style = TextStyle(
+                        color = NimboPalette.Text,
+                        fontSize = 15.sp,
+                        lineHeight = 20.sp,
+                        fontWeight = FontWeight.ExtraBold
                     )
-                    // Установить обновление из приложения iOS не даёт:
-                    // сборку подписывают снаружи. Ведём на страницу релиза.
-                    BasicText(
-                        "Открыть страницу релиза и скачать сборку",
-                        modifier = Modifier.padding(top = 2.dp),
-                        style = TextStyle(
-                            color = NimboPalette.TextSecondary,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp
-                        )
-                    )
-                }
-                BasicText("›", style = TextStyle(color = NimboPalette.Accent, fontSize = 20.sp))
+                )
             }
         }
     }
+}
 
-    SettingsSection("Оформление") {
-        SettingsRow(
-            NimboIconName.SETTINGS,
-            SettingsPage.APPEARANCE.title,
-            "Стиль элементов, фон и виджеты мониторинга",
-            onClick = { onOpen(SettingsPage.APPEARANCE) }
-        )
-    }
-
-    SettingsSection("Сеть") {
-        SettingsRow(
-            NimboIconName.PING,
-            SettingsPage.LATENCY.title,
-            latencySummary(state),
-            showDivider = true,
-            onClick = { onOpen(SettingsPage.LATENCY) }
-        )
+@Composable
+private fun GeneralPage(state: NimboUiState, actions: NimboUiActions) {
+    SettingsSection("Соединение") {
         SettingsRow(
             NimboIconName.ROUTE,
-            SettingsPage.CONNECTION.title,
-            "Маршрутизация и профиль VPN в системе",
-            onClick = { onOpen(SettingsPage.CONNECTION) }
+            "Маршрутизация",
+            "Обход локальных сетей, DNS и определение доменов",
+            showDivider = true,
+            onClick = { actions.onOpenScreen(NimboScreen.ROUTING.wireName) }
+        )
+        SettingsRow(
+            NimboIconName.CONNECTION,
+            "Системные настройки VPN",
+            "Профиль Nimbo в настройках iOS",
+            onClick = actions.onOpenSystemSettings
         )
     }
 
-    SettingsSection("Данные") {
-        SettingsRow(
-            NimboIconName.CLOUD,
-            SettingsPage.SUBSCRIPTION.title,
-            "Обновление списка серверов и настройки источника",
-            showDivider = true,
-            onClick = { onOpen(SettingsPage.SUBSCRIPTION) }
-        )
+    SettingsSection("Синхронизация") {
         SettingsRow(
             NimboIconName.SYNC,
-            SettingsPage.SYNC.title,
-            "Перенос с компьютера или Android",
-            showDivider = true,
-            onClick = { onOpen(SettingsPage.SYNC) }
-        )
-        SettingsRow(
-            NimboIconName.DOWNLOAD,
-            SettingsPage.BACKUP.title,
-            "Сохранить или восстановить файлом",
-            onClick = { onOpen(SettingsPage.BACKUP) }
+            "Перенос с другого устройства",
+            "QR с компьютера или Android — подписки и настройки",
+            onClick = actions.onOpenSync
         )
     }
 
-    SettingsSection("Приложение") {
-        SettingsRow(
-            NimboIconName.DOWNLOAD,
-            SettingsPage.UPDATES.title,
-            if (state.updateVersion.isBlank()) "Проверка новой сборки" else "Доступна ${state.updateVersion}",
-            showDivider = true,
-            onClick = { onOpen(SettingsPage.UPDATES) }
-        )
-        SettingsRow(
-            NimboIconName.INFO,
-            SettingsPage.SYSTEM.title,
-            "${state.appVersion} · диагностика и сведения",
-            onClick = { onOpen(SettingsPage.SYSTEM) }
-        )
+    SettingsSection("Мониторинг") {
+        SettingsRowFrame(height = 52.dp) {
+            Column(modifier = Modifier.weight(1f)) {
+                SettingsTitle("График скорости")
+                SettingsSubtitle("Скорость и трафик текущей сессии")
+            }
+            NimboSwitch(state.showSpeedWidget) {
+                actions.onSetAppearance("showSpeedWidget", it.toString())
+            }
+        }
+        SettingsDivider()
+        SettingsRowFrame(height = 52.dp) {
+            Column(modifier = Modifier.weight(1f)) {
+                SettingsTitle("Память")
+                SettingsSubtitle("Сколько занимает приложение")
+            }
+            NimboSwitch(state.showMemoryWidget) {
+                actions.onSetAppearance("showMemoryWidget", it.toString())
+            }
+        }
     }
 }
 
@@ -272,33 +322,6 @@ private fun AppearancePage(state: NimboUiState, actions: NimboUiActions) {
         )
     }
 
-    SettingsSection("Мониторинг") {
-        SettingsRowFrame(height = 52.dp) {
-            Column(modifier = Modifier.weight(1f)) {
-                SettingsTitle("График скорости")
-                SettingsSubtitle("Скорость и трафик текущей сессии")
-            }
-            NimboSwitch(state.showSpeedWidget) {
-                actions.onSetAppearance("showSpeedWidget", it.toString())
-            }
-        }
-        SettingsDivider()
-        SettingsRowFrame(height = 52.dp) {
-            Column(modifier = Modifier.weight(1f)) {
-                SettingsTitle("Память")
-                SettingsSubtitle("Сколько занимает приложение")
-            }
-            NimboSwitch(state.showMemoryWidget) {
-                actions.onSetAppearance("showMemoryWidget", it.toString())
-            }
-        }
-    }
-}
-
-/** Короткая подпись раздела: видно настройку, не открывая её. */
-private fun latencySummary(state: NimboUiState): String {
-    val method = if (state.pingProtocol == "http") "HTTP через туннель" else "TCP до узла"
-    return "$method · ${state.pingTimeoutMs} мс"
 }
 
 @Composable
@@ -369,25 +392,6 @@ private enum class PingUrlChoice(val title: String, val url: String) {
 }
 
 @Composable
-private fun ConnectionPage(actions: NimboUiActions) {
-    SettingsSection("Соединение") {
-        SettingsRow(
-            NimboIconName.ROUTE,
-            "Маршрутизация",
-            "Обход локальных сетей, DNS и определение доменов",
-            showDivider = true,
-            onClick = { actions.onOpenScreen(NimboScreen.ROUTING.wireName) }
-        )
-        SettingsRow(
-            NimboIconName.CONNECTION,
-            "Системные настройки VPN",
-            "Профиль Nimbo в настройках iOS",
-            onClick = actions.onOpenSystemSettings
-        )
-    }
-}
-
-@Composable
 private fun SubscriptionPage(actions: NimboUiActions) {
     SettingsSection("Подписка") {
         SettingsRow(
@@ -430,18 +434,6 @@ private fun UpdatesPage(state: NimboUiState, actions: NimboUiActions) {
                 BasicText(state.updateNotes, style = NimboBodyStyle)
             }
         }
-    }
-}
-
-@Composable
-private fun SyncPage(actions: NimboUiActions) {
-    SettingsSection("Синхронизация") {
-        SettingsRow(
-            NimboIconName.SYNC,
-            "Перенос с другого устройства",
-            "QR с компьютера или Android — подписки и настройки",
-            onClick = actions.onOpenSync
-        )
     }
 }
 

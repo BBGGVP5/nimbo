@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SupportAgent
@@ -253,7 +254,7 @@ internal enum class NimboIconName {
     HOME, PROFILES, APPS, SETTINGS, ADD, SEARCH, REFRESH, MORE, LIST,
     CLOUD, POWER, ROUTE, CONNECTION, NOTIFICATIONS, STATS, SYNC, LOGS,
     SUPPORT, SITE, SECURITY, INFO, DELETE, DOWNLOAD, FAVORITE, FAVORITE_OFF,
-    PING, BACK
+    PING, BACK, PALETTE
 }
 
 private fun iconVector(name: NimboIconName, selected: Boolean): ImageVector = when (name) {
@@ -285,6 +286,7 @@ private fun iconVector(name: NimboIconName, selected: Boolean): ImageVector = wh
     NimboIconName.FAVORITE_OFF -> Icons.Filled.FavoriteBorder
     NimboIconName.PING -> Icons.Filled.Speed
     NimboIconName.BACK -> Icons.AutoMirrored.Filled.ArrowBack
+    NimboIconName.PALETTE -> Icons.Filled.Palette
 }
 
 @Composable
