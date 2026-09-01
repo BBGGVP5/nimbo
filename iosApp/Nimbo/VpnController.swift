@@ -124,6 +124,9 @@ final class VpnController: ObservableObject {
         }
         tunnelProtocol.providerConfiguration = ["schema": 2]
         manager.protocolConfiguration = tunnelProtocol
+        // Поднимать нечего: без конфигурации автоподъём только плодил бы
+        // неудачные запуски.
+        try? await setOnDemand(false, on: manager)
         try await manager.saveToPreferences()
         try await manager.loadFromPreferences()
     }
@@ -195,6 +198,11 @@ final class VpnController: ObservableObject {
             }
             state = .connecting
             await NimboDiagnostics.shared.record(.info, stage: .tunnelStart, code: "IOS_TUNNEL_START_REQUESTED", message: "Запуск Packet Tunnel запрошен пользователем")
+            // Система вправе выгрузить расширение — из-за памяти, при смене
+            // сети, после долгого сна. Без правила «по требованию» туннель
+            // после этого просто оставался бы выключенным, и человек узнавал
+            // бы об этом по пропавшему доступу.
+            try await setOnDemand(true, on: manager)
             try manager.connection.startVPNTunnel()
             pendingConnection = true
             startRequestedAt = Date()
@@ -214,9 +222,30 @@ final class VpnController: ObservableObject {
         // системой. Без загрузки остановка не дошла бы до него, и кнопка
         // крутилась бы вечно.
         if manager == nil { manager = try? await loadOrCreateManager() }
+        // Правило «по требованию» снимается до остановки: иначе система
+        // подняла бы туннель обратно через секунду, и кнопка выглядела бы
+        // сломанной.
+        if let manager { try? await setOnDemand(false, on: manager) }
         manager?.connection.stopVPNTunnel()
         synchronizeStatus()
         await NimboDiagnostics.shared.record(.info, stage: .stop, code: "IOS_TUNNEL_STOP_REQUESTED", message: "Остановка Packet Tunnel запрошена пользователем")
+    }
+
+    /// Включает или снимает правило автоматического подъёма туннеля.
+    private func setOnDemand(_ enabled: Bool, on manager: NETunnelProviderManager) async throws {
+        if enabled {
+            let rule = NEOnDemandRuleConnect()
+            // Без ограничения по интерфейсу: туннель нужен и на сотовой сети,
+            // и на Wi-Fi.
+            rule.interfaceTypeMatch = .any
+            manager.onDemandRules = [rule]
+        } else {
+            manager.onDemandRules = []
+        }
+        guard manager.isOnDemandEnabled != enabled else { return }
+        manager.isOnDemandEnabled = enabled
+        try await manager.saveToPreferences()
+        try await manager.loadFromPreferences()
     }
 
     private func loadOrCreateManager() async throws -> NETunnelProviderManager {
@@ -226,6 +255,9 @@ final class VpnController: ObservableObject {
         let tunnelProtocol = (value.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
         tunnelProtocol.providerBundleIdentifier = NimboConstants.packetTunnelBundleIdentifier
         tunnelProtocol.serverAddress = "Nimbo"
+        // Сон устройства не повод рвать туннель: иначе утром человек находит
+        // приложение отключённым.
+        tunnelProtocol.disconnectOnSleep = false
         if tunnelProtocol.providerConfiguration == nil {
             tunnelProtocol.providerConfiguration = ["schema": 2]
         }

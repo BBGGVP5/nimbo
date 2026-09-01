@@ -7,9 +7,16 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var lifecycleGeneration: UInt64 = 0
     private var starting = false
     private var started = false
-    private var preparedConfiguration: PreparedXrayConfiguration?
+    /// Сколько исходящих в текущей конфигурации.
+    ///
+    /// Сама конфигурация здесь не хранится: её JSON занимает сотни килобайт, а
+    /// после запуска ядра нужен только этот счётчик — при пределе памяти
+    /// расширения такую разницу видно.
+    private var outboundCount = 0
     /// Имя utun, который выдала система: по нему считаются байты туннеля.
     private var tunnelInterfaceName: String?
+    /// Проверка, жив ли ещё процесс ядра.
+    private var watchdog: DispatchSourceTimer?
 
     override func startTunnel(
         options: [String: NSObject]?,
@@ -38,6 +45,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         }
                         self.starting = false
                         self.started = true
+                        self.startWatchdog()
                         completionHandler(nil)
                     }
                 } catch {
@@ -48,7 +56,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                             : PacketTunnelError.startCancelled
                         self.starting = false
                         self.started = false
-                        self.preparedConfiguration = nil
+                        self.outboundCount = 0
                         completionHandler(Self.transportableError(reportedError))
                     }
                 }
@@ -66,6 +74,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 return
             }
             self.lifecycleGeneration &+= 1
+            self.stopWatchdog()
             let stopError: Error?
             do {
                 if (try? self.core.isRunning()) == true { try self.core.stop() }
@@ -75,7 +84,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             self.starting = false
             self.started = false
-            self.preparedConfiguration = nil
+            self.outboundCount = 0
 
             Task {
                 await NimboDiagnostics.shared.record(
@@ -110,7 +119,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     "ok": true,
                     "running": running,
                     "version": version,
-                    "outbounds": self.preparedConfiguration?.outboundCount ?? 0
+                    "outbounds": self.outboundCount
                 ]))
             case "metrics":
                 // Счётчики берём у своего интерфейса: приложение видит все utun
@@ -129,7 +138,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             case "diagnostics":
                 let running = (try? self.core.isRunning()) ?? false
                 let version = (try? self.core.version()) ?? "unknown"
-                let outboundCount = self.preparedConfiguration?.outboundCount ?? 0
+                let outboundCount = self.outboundCount
                 Task {
                     let records = (try? await NimboDiagnostics.shared.recentRecordsData(maxBytes: 384 * 1_024)) ?? Data()
                     completionHandler?(Self.responseData([
@@ -144,6 +153,39 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler?(Self.responseData(["ok": false, "error": "unsupported command"]))
             }
         }
+    }
+
+    /// Ядро может остановиться само — из-за нехватки памяти или сбоя внутри.
+    ///
+    /// Снаружи это выглядит хуже разрыва: туннель поднят, система шлёт в него
+    /// трафик, а обрабатывать его некому. Поэтому расширение само сообщает
+    /// системе об отказе: правило автоподъёма поднимет туннель заново.
+    private func startWatchdog() {
+        stopWatchdog()
+        let timer = DispatchSource.makeTimerSource(queue: lifecycleQueue)
+        timer.schedule(deadline: .now() + 60, repeating: 60, leeway: .seconds(15))
+        timer.setEventHandler { [weak self] in
+            guard let self, self.started, !self.starting else { return }
+            guard (try? self.core.isRunning()) != true else { return }
+            self.stopWatchdog()
+            self.started = false
+            Task {
+                await NimboDiagnostics.shared.record(
+                    .error,
+                    stage: .coreLoad,
+                    code: "IOS_XRAY_STOPPED_UNEXPECTEDLY",
+                    message: "VPN-ядро остановилось само — перезапуск туннеля"
+                )
+            }
+            self.cancelTunnelWithError(PacketTunnelError.coreStoppedUnexpectedly)
+        }
+        timer.resume()
+        watchdog = timer
+    }
+
+    private func stopWatchdog() {
+        watchdog?.cancel()
+        watchdog = nil
     }
 
     override func sleep(completionHandler: @escaping () -> Void) {
@@ -225,7 +267,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 message: "VPN-ядро запущено",
                 metadata: [
                     "core": startup.coreVersion,
-                    "outbounds": "\(startup.configuration.outboundCount)",
+                    "outbounds": "\(startup.outboundCount)",
                     "tun_fd": "available",
                     "tun_interface": descriptorInfo.interfaceName
                 ]
@@ -278,9 +320,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     try self.core.run(configurationJSON: configuration.json)
                     guard try self.core.isRunning() else { throw PacketTunnelError.coreDidNotStart }
                     let coreVersion = try self.core.version()
-                    self.preparedConfiguration = configuration
+                    self.outboundCount = configuration.outboundCount
                     continuation.resume(returning: CoreStartupResult(
-                        configuration: configuration,
+                        outboundCount: configuration.outboundCount,
                         coreVersion: coreVersion
                     ))
                 } catch {
@@ -336,7 +378,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 }
 
 private struct CoreStartupResult {
-    let configuration: PreparedXrayConfiguration
+    let outboundCount: Int
     let coreVersion: String
 }
 

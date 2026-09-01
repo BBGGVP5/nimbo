@@ -34,6 +34,7 @@ enum XrayConfigurationBuilder {
         guard !outbounds.isEmpty else { throw XrayConfigurationError.noOutbounds }
 
         configuration["log"] = normalizedLog(configuration["log"])
+        configuration["policy"] = memoryPolicy(configuration["policy"])
         // TUN-дескриптор и каталог гео-данных ядро читает из корневого объекта
         // "env" конфигурации — ровно так их передаёт рабочая сборка Android.
         // Одних переменных окружения процесса недостаточно.
@@ -102,8 +103,15 @@ enum XrayConfigurationBuilder {
         [
             "subjectSelector": [proxyTagPrefix],
             "probeURL": "https://www.gstatic.com/generate_204",
-            "probeInterval": "1m",
-            "enableConcurrency": true
+            // Каждая проверка — это новые соединения ко всем узлам сразу.
+            // В фоне такая частота держала расширение под нагрузкой и близко
+            // к пределу памяти.
+            "probeInterval": "5m",
+            // Одновременная проверка поднимала соединение к каждому узлу
+            // профиля разом: при полусотне серверов это десятки TLS-сессий в
+            // одну секунду внутри расширения, которому система даёт около
+            // 50 МБ. Последовательная проверка растягивает ту же работу.
+            "enableConcurrency": false
         ]
     }
 
@@ -304,6 +312,37 @@ enum XrayConfigurationBuilder {
             return []
         }
         return parsed
+    }
+
+    /// Буферы и таймауты под предел памяти расширения.
+    ///
+    /// Каждое соединение держит внутренний буфер, и при десятках соединений
+    /// умолчания ядра съедают больше, чем система вообще даёт расширению.
+    /// Простаивающие соединения закрываются быстрее по той же причине: пока
+    /// соединение живо, его буфер занят.
+    private static func memoryPolicy(_ value: Any?) -> [String: Any] {
+        var policy = value as? [String: Any] ?? [:]
+        var levels = policy["levels"] as? [String: Any] ?? [:]
+        var zero = levels["0"] as? [String: Any] ?? [:]
+        zero["handshake"] = 4
+        zero["connIdle"] = 120
+        zero["uplinkOnly"] = 1
+        zero["downlinkOnly"] = 1
+        // Размер в килобайтах на соединение.
+        zero["bufferSize"] = 4
+        levels["0"] = zero
+        policy["levels"] = levels
+
+        // Счётчики трафика ядра здесь не нужны: скорость считается по
+        // счётчикам самого интерфейса, а статистика ядра держит записи по
+        // каждому пользователю и исходящему.
+        policy["system"] = [
+            "statsInboundUplink": false,
+            "statsInboundDownlink": false,
+            "statsOutboundUplink": false,
+            "statsOutboundDownlink": false
+        ]
+        return policy
     }
 
     private static func normalizedLog(_ value: Any?) -> [String: Any] {
