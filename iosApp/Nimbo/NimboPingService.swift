@@ -40,12 +40,87 @@ actor NimboPingService {
 
     private var inFlight = false
 
+    /// Разрешённые адреса узлов: имя → адрес и время ответа.
+    ///
+    /// Кэш живёт десять минут: подписки меняют адреса редко, а держать его
+    /// дольше значит рисковать замером до узла, которого уже нет.
+    private var resolved: [String: (address: String, at: Date)] = [:]
+    private let resolutionLifetime: TimeInterval = 600
+
+    /// Адрес узла: литерал возвращается как есть, имя — разрешается и
+    /// запоминается.
+    private func address(for host: String) async -> String? {
+        if host.isEmpty { return nil }
+        if NimboPingService.isAddressLiteral(host) { return host }
+        if let cached = resolved[host], Date().timeIntervalSince(cached.at) < resolutionLifetime {
+            return cached.address
+        }
+        guard let address = await NimboPingService.resolveAddress(host) else { return nil }
+        resolved[host] = (address, Date())
+        return address
+    }
+
+    /// Похоже ли на готовый адрес: у IPv6 есть двоеточия, у IPv4 — только
+    /// цифры и точки.
+    private static func isAddressLiteral(_ host: String) -> Bool {
+        if host.contains(":") { return true }
+        let parts = host.split(separator: ".")
+        return parts.count == 4 && parts.allSatisfy { UInt8($0) != nil }
+    }
+
+    /// Разрешение имени через системный резолвер.
+    ///
+    /// Делается отдельно от замера: иначе время ответа DNS попадает в
+    /// задержку узла и на мобильной сети даёт лишние сотни миллисекунд.
+    private static func resolveAddress(_ host: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                var hints = addrinfo(
+                    ai_flags: 0,
+                    ai_family: AF_UNSPEC,
+                    ai_socktype: SOCK_STREAM,
+                    ai_protocol: IPPROTO_TCP,
+                    ai_addrlen: 0,
+                    ai_canonname: nil,
+                    ai_addr: nil,
+                    ai_next: nil
+                )
+                var result: UnsafeMutablePointer<addrinfo>?
+                defer { if let result { freeaddrinfo(result) } }
+                guard getaddrinfo(host, nil, &hints, &result) == 0, let head = result else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                var node: UnsafeMutablePointer<addrinfo>? = head
+                while let current = node {
+                    if getnameinfo(
+                        current.pointee.ai_addr,
+                        current.pointee.ai_addrlen,
+                        &buffer,
+                        socklen_t(buffer.count),
+                        nil,
+                        0,
+                        NI_NUMERICHOST
+                    ) == 0 {
+                        continuation.resume(returning: String(cString: buffer))
+                        return
+                    }
+                    node = current.pointee.ai_next
+                }
+                continuation.resume(returning: nil)
+            }
+        }
+    }
+
     /// Один узел: замер по требованию не должен ждать очереди общего прогона.
     func measureOne(host: String, port: Int) async -> Int {
         if usesHttp {
             return await NimboPingService.measureHttp(url: checkUrl, timeout: timeout)
         }
-        return await NimboPingService.measure(host: host, port: port, timeout: timeout)
+        guard let address = await address(for: host) else { return -1 }
+        return await NimboPingService.measure(host: address, port: port, timeout: timeout)
     }
 
     /// Время до первого ответа по HTTP. Тело не читаем: нужен отклик, а не
@@ -83,12 +158,22 @@ actor NimboPingService {
         var index = 0
         while index < targets.count {
             let slice = targets[index ..< min(index + parallelism, targets.count)]
+            // Адреса разрешаются до замера: иначе ответ DNS попадёт в задержку
+            // и узел рядом покажет сотни миллисекунд.
+            var addresses: [String: String] = [:]
+            for target in slice {
+                addresses[target.id] = await address(for: target.host)
+            }
             await withTaskGroup(of: (String, Int).self) { group in
                 for target in slice {
                     let currentTimeout = timeout
+                    guard let host = addresses[target.id] ?? nil else {
+                        results[target.id] = -1
+                        continue
+                    }
                     group.addTask {
                         let value = await NimboPingService.measure(
-                            host: target.host,
+                            host: host,
                             port: target.port,
                             timeout: currentTimeout
                         )

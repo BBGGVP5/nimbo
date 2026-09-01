@@ -15,6 +15,10 @@ struct NimboTabBar: View {
     @Namespace private var indicator
     /// Вкладка, значок которой сейчас подпрыгивает.
     @State private var bumpedTab: NimboTab?
+    /// Приседание при посадке: значок на миг становится шире и ниже.
+    @State private var squashedTab: NimboTab?
+    /// Текущий наклон качающегося значка.
+    @State private var wobble: Double = 0
     /// Накопленный угол для значков, которые проворачиваются.
     ///
     /// Именно накопленный: если возвращать угол к нулю, глобус после оборота
@@ -52,7 +56,7 @@ struct NimboTabBar: View {
                 .buttonStyle(NimboTabButtonStyle())
             }
         }
-        .padding(4)
+        .padding(5)
         .background(barBackground)
         .padding(.horizontal, 16)
         .padding(.bottom, 2)
@@ -62,23 +66,26 @@ struct NimboTabBar: View {
         let isSelected = selection == tab
         return VStack(spacing: 2) {
             Image(systemName: tab.symbol)
-                .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
+                .font(.system(size: 21, weight: isSelected ? .semibold : .regular))
                 .symbolRenderingMode(.hierarchical)
-                .frame(height: 22)
+                .frame(height: 24)
                 // Движение объясняет сам значок: дом подпрыгивает, глобус
                 // проворачивается, статистика покачивается, шестерёнка
                 // поворачивается на четверть оборота.
-                .scaleEffect(bumpedTab == tab ? 1.14 : 1)
+                .scaleEffect(
+                    x: (bumpedTab == tab ? 1.14 : 1) * (squashedTab == tab ? 1.10 : 1),
+                    y: (bumpedTab == tab ? 1.14 : 1) / (squashedTab == tab ? 1.10 : 1)
+                )
                 .offset(y: bumpedTab == tab ? tab.motionLift : 0)
                 .rotationEffect(.degrees(rotation(for: tab)))
             Text(tab.title)
-                .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
+                .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
         }
         .foregroundStyle(tint(isSelected: isSelected))
         .frame(maxWidth: .infinity)
-        .frame(height: 46)
+        .frame(height: 54)
         .background {
             if isSelected {
                 // Подсветка переезжает между вкладками одним движением, а не
@@ -94,7 +101,7 @@ struct NimboTabBar: View {
     private func rotation(for tab: NimboTab) -> Double {
         let accumulated = spin[tab.rawValue] ?? 0
         guard tab.motionWobbles else { return accumulated }
-        return bumpedTab == tab ? tab.motionRotation : 0
+        return bumpedTab == tab ? wobble : 0
     }
 
     private func tint(isSelected: Bool) -> Color {
@@ -114,6 +121,25 @@ struct NimboTabBar: View {
         if !tab.motionWobbles, tab.motionRotation != 0 {
             withAnimation(.easeInOut(duration: 0.52)) {
                 spin[tab.rawValue] = (spin[tab.rawValue] ?? 0) + tab.motionRotation
+            }
+        }
+        if tab.motionWobbles {
+            // Затухающее покачивание: одиночный наклон читается как сбой
+            // отрисовки, а не как отклик.
+            let sway: [(Double, Double)] = [(15, 0), (-10, 0.11), (5, 0.22), (0, 0.33)]
+            for (angle, delay) in sway {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    withAnimation(.easeInOut(duration: 0.11)) { wobble = angle }
+                }
+            }
+        }
+        if tab.motionLift != 0 {
+            // Приседание на посадке — там же, где значок касается панели.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                withAnimation(.easeOut(duration: 0.09)) { squashedTab = tab }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { squashedTab = nil }
+                }
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
