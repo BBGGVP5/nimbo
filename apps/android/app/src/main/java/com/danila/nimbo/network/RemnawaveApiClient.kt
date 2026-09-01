@@ -94,6 +94,7 @@ object RemnawaveApiClient {
     }
 
     private val client = OkHttpClient.Builder()
+        .dns(NimboDns.privacyAware)
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .writeTimeout(10, TimeUnit.SECONDS)

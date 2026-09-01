@@ -39,8 +39,8 @@ android {
         // 11 — повторная сборка 1.1.0: с иконки снят бета-значок, исправлено
         // предложение обновиться после ручной установки, ускорено сворачивание
         // окна загрузки обновления. Установленная сборка 10 получит обновление.
-        versionCode = 12
-        versionName = "1.2.0-beta.1"
+        versionCode = 14
+        versionName = "1.2.0-beta.3"
         buildConfigField("String", "LIBXRAY_VERSION", "\"26.7.28\"")
 
 
@@ -183,6 +183,7 @@ androidComponents {
 }
 
 dependencies {
+    implementation(project(":shared"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -201,7 +202,10 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-    implementation("com.squareup.okhttp3:okhttp:5.3.2")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
+    // Резолвер Android умеет спрашивать HTTPS-записи DNS: в них лежит ключ
+    // ECH, без которого имя сайта уходит в открытую даже по HTTPS.
+    implementation("com.squareup.okhttp3:okhttp-android:5.5.0")
     testImplementation("org.json:json:20240303")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.navigation:navigation-compose:2.9.7")

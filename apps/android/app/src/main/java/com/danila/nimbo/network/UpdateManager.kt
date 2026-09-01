@@ -81,6 +81,7 @@ object UpdateManager {
     private const val NOTIFICATION_ID = 1003
 
     private val client = OkHttpClient.Builder()
+        .dns(NimboDns.privacyAware)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()

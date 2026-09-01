@@ -62,6 +62,9 @@ object SubscriptionManager {
     private val requestLocks = ConcurrentHashMap<String, Any>()
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            // Имя домена подписки не должно уходить открытым: именно по нему
+            // её проще всего и заблокировать.
+            .dns(NimboDns.privacyAware)
             .addInterceptor { chain ->
                 val original = chain.request()
                 val osVersion = AppVersionManager.getOSVersion()
