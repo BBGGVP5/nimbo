@@ -15,10 +15,13 @@ enum class NimboScreen(
      * Маршрутизация живёт в настройках, а не в нижней панели: настройка редкая,
      * а место в панели дорогое. [inTabBar] отделяет вкладки от таких экранов.
      */
-    ROUTING("routing", "Маршрутизация", "Маршруты", "⇄");
+    ROUTING("routing", "Маршрутизация", "Маршруты", "⇄"),
+
+    /** Модули открываются со страницы маршрутизации и тоже не нужны в панели. */
+    MODULES("modules", "Модули", "Модули", "❏");
 
     val inTabBar: Boolean
-        get() = this != ROUTING
+        get() = this != ROUTING && this != MODULES
 
     companion object {
         fun fromWireName(value: String): NimboScreen = entries

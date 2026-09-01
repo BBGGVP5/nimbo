@@ -5,7 +5,13 @@ package com.danila.nimbo.shared.ui
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.window.ComposeUIViewController
 import com.danila.nimbo.shared.subscription.NormalizedSubscription
+import com.danila.nimbo.shared.routing.NimboModule
+import com.danila.nimbo.shared.routing.NimboModuleParser
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.encodeToString
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSUserDefaults
 import platform.UIKit.UIViewController
@@ -106,6 +112,76 @@ private fun applyPingChange(key: String, value: String) {
         pingTimeoutMs = pingInt("timeoutMs", 3000),
         pingUrl = pingText("url", DefaultPingUrl)
     )
+}
+
+/**
+ * Модули маршрутизации.
+ *
+ * Хранятся текстом в NSUserDefaults: оттуда же их читает сборка конфигурации,
+ * поэтому туннелю не нужен отдельный мост, а набор переживает перезапуск.
+ */
+private const val ModulesDefaultsKey = "com.nimbo.routing.modules"
+
+@kotlinx.serialization.Serializable
+private data class StoredModule(
+    val id: String,
+    val name: String,
+    val enabled: Boolean,
+    val text: String
+)
+
+private fun loadModules(): List<NimboModule> {
+    val raw = NSUserDefaults.standardUserDefaults.stringForKey(ModulesDefaultsKey) ?: return emptyList()
+    return runCatching { iosJson.decodeFromString<List<StoredModule>>(raw) }
+        .getOrDefault(emptyList())
+        .map { NimboModule(id = it.id, name = it.name, enabled = it.enabled, text = it.text) }
+}
+
+private fun storeModules(modules: List<NimboModule>) {
+    val payload = modules.map { StoredModule(it.id, it.name, it.enabled, it.text) }
+    NSUserDefaults.standardUserDefaults.setObject(iosJson.encodeToString(payload), ModulesDefaultsKey)
+    iosUiState.value = iosUiState.value.copy(modules = modules)
+}
+
+private fun saveModule(id: String, name: String, text: String) {
+    val current = loadModules()
+    val next = if (current.any { it.id == id }) {
+        current.map { if (it.id == id) it.copy(name = name, text = text) else it }
+    } else {
+        current + NimboModule(id = id, name = name, enabled = true, text = text)
+    }
+    storeModules(next)
+}
+
+private fun toggleModule(id: String) {
+    storeModules(loadModules().map { if (it.id == id) it.copy(enabled = !it.enabled) else it })
+}
+
+private fun deleteModule(id: String) {
+    storeModules(loadModules().filterNot { it.id == id })
+}
+
+/**
+ * Правила включённых модулей в виде JSON для Xray.
+ *
+ * Swift берёт готовый массив и вставляет его в конфигурацию: разбор текста
+ * обязан быть один на обе платформы, поэтому он остаётся здесь.
+ */
+fun NimboIosModuleRulesJson(): String {
+    val rules = NimboModuleParser.rulesOf(loadModules()).mapNotNull { rule ->
+        if (rule.domains.isEmpty() && rule.ips.isEmpty()) return@mapNotNull null
+        buildJsonObject {
+            put("type", JsonPrimitive("field"))
+            if (rule.domains.isNotEmpty()) {
+                put("domain", JsonArray(rule.domains.map { JsonPrimitive(it) }))
+            }
+            if (rule.ips.isNotEmpty()) {
+                put("ip", JsonArray(rule.ips.map { JsonPrimitive(it) }))
+            }
+            put("outboundTag", JsonPrimitive(rule.policy.outboundTag))
+        }
+    }
+    return iosJson.encodeToString(JsonArray(rules))
 }
 
 /** Настройки маршрутизации живут в NSUserDefaults и переживают перезапуск. */
@@ -289,7 +365,8 @@ fun NimboUpdateIosUiState(
         favoritesFirst = appearanceFlag("favoritesFirst", true),
         pingProtocol = pingText("protocol", "tcp"),
         pingTimeoutMs = pingInt("timeoutMs", 3000),
-        pingUrl = pingText("url", DefaultPingUrl)
+        pingUrl = pingText("url", DefaultPingUrl),
+        modules = loadModules()
     )
 }
 
@@ -374,6 +451,9 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onSetRouting = { key, value -> applyRoutingChange(key, value) },
                 onSetAppearance = { key, value -> applyAppearanceChange(key, value) },
                 onSetPing = { key, value -> applyPingChange(key, value) },
+                onSaveModule = { id, name, text -> saveModule(id, name, text) },
+                onToggleModule = { toggleModule(it) },
+                onDeleteModule = { deleteModule(it) },
                 onOpenUpdate = { postIosAction(OpenUpdateAction) },
                 onExportBackup = { postIosAction(ExportBackupAction) },
                 onImportBackup = { postIosAction(ImportBackupAction) },

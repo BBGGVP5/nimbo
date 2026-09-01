@@ -63,6 +63,31 @@ internal fun NimboRoutingScreen(state: NimboUiState, actions: NimboUiActions) {
             style = NimboBodyStyle
         )
 
+        // Модули — соседний способ управлять маршрутом, поэтому кнопка стоит
+        // здесь, а не прячется в настройках.
+        NimboSurface(
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 22.dp,
+            onClick = { actions.onOpenScreen(NimboScreen.MODULES.wireName) }
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                NimboIcon(NimboIconName.LIST, tint = NimboPalette.Accent, modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    BasicText("Модули", style = NimboSectionTitleStyle.copy(fontSize = 16.sp))
+                    BasicText(
+                        if (state.modules.isEmpty()) {
+                            "Свои правила: домены напрямую, через VPN или в блок"
+                        } else {
+                            "${state.modules.count { it.enabled }} включено из ${state.modules.size}"
+                        },
+                        style = NimboBodyStyle.copy(fontSize = 12.sp)
+                    )
+                }
+                BasicText("›", style = TextStyle(color = NimboPalette.Accent, fontSize = 20.sp))
+            }
+        }
+
         NimboSurface(
             modifier = Modifier.fillMaxWidth(),
             cornerRadius = 22.dp,

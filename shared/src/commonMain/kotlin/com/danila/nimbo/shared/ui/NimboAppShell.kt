@@ -108,6 +108,8 @@ data class NimboUiState(
     val favoritesFirst: Boolean = true,
     /** Версия доступного обновления; пусто — обновлений нет. */
     /** Как мерить задержку: «tcp» до узла или «http» через туннель. */
+    /** Пользовательские наборы правил. */
+    val modules: List<com.danila.nimbo.shared.routing.NimboModule> = emptyList(),
     val pingProtocol: String = "tcp",
     val pingTimeoutMs: Int = 3000,
     val pingUrl: String = "https://www.gstatic.com/generate_204",
@@ -183,6 +185,10 @@ data class NimboUiActions(
     val onSetAppearance: (String, String) -> Unit = { _, _ -> },
     /** Настройка замера задержки: protocol, timeoutMs или url. */
     val onSetPing: (String, String) -> Unit = { _, _ -> },
+    /** Сохранить модуль: идентификатор, имя и текст правил. */
+    val onSaveModule: (String, String, String) -> Unit = { _, _, _ -> },
+    val onToggleModule: (String) -> Unit = {},
+    val onDeleteModule: (String) -> Unit = {},
     /** Открыть страницу релиза: установить обновление сама iOS не даст. */
     val onOpenUpdate: () -> Unit = {},
     /** Сохранить копию настроек и подписки в файл. */
@@ -254,6 +260,7 @@ fun NimboAppShell(
                     NimboScreen.PROFILES -> NimboProfilesScreen(state, actions)
                     NimboScreen.STATS -> NimboStatsScreen(state, actions)
                     NimboScreen.ROUTING -> NimboRoutingScreen(state, actions)
+                    NimboScreen.MODULES -> NimboModulesScreen(state, actions)
                     NimboScreen.SETTINGS -> NimboSettingsScreen(state, actions)
                 }
             }
@@ -363,5 +370,6 @@ private val NimboScreen.iconName: NimboIconName
         NimboScreen.PROFILES -> NimboIconName.PROFILES
         NimboScreen.STATS -> NimboIconName.STATS
         NimboScreen.ROUTING -> NimboIconName.ROUTE
+        NimboScreen.MODULES -> NimboIconName.LIST
         NimboScreen.SETTINGS -> NimboIconName.SETTINGS
     }

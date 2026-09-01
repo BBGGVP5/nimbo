@@ -209,21 +209,43 @@ enum XrayConfigurationBuilder {
     private static func normalizedRouting(_ value: Any?, balanced: Bool) -> [String: Any] {
         var routing = value as? [String: Any] ?? [:]
         if routing["domainStrategy"] == nil { routing["domainStrategy"] = "IPIfNonMatch" }
-        if routing["rules"] == nil { routing["rules"] = [] }
-        guard balanced else { return routing }
+        var rules = routing["rules"] as? [[String: Any]] ?? []
 
-        routing["balancers"] = [[
-            "tag": balancerTag,
-            "selector": [proxyTagPrefix],
-            "strategy": ["type": "leastPing"],
-            "fallbackTag": "\(proxyTagPrefix)0"
-        ]]
-        routing["rules"] = [[
-            "type": "field",
-            "network": "tcp,udp",
-            "balancerTag": balancerTag
-        ]]
+        if balanced {
+            routing["balancers"] = [[
+                "tag": balancerTag,
+                "selector": [proxyTagPrefix],
+                "strategy": ["type": "leastPing"],
+                "fallbackTag": "\(proxyTagPrefix)0"
+            ]]
+            // Балансировщик забирает весь остальной трафик, поэтому его
+            // правило должно идти последним.
+            rules = [[
+                "type": "field",
+                "network": "tcp,udp",
+                "balancerTag": balancerTag
+            ]]
+        }
+
+        // Модули впереди всего: человек написал их под конкретную задачу, и ни
+        // профиль, ни балансировщик не должны перебивать явный маршрут.
+        routing["rules"] = moduleRules() + rules
         return routing
+    }
+
+    /// Правила пользовательских модулей, полученные из конфигурации туннеля.
+    ///
+    /// Текст разбирает общий модуль на Kotlin — Android и iOS обязаны понимать
+    /// один и тот же набор одинаково. Расширение получает готовый массив:
+    /// линковать сюда Kotlin ради разбора строк незачем.
+    static var moduleRulesJSON: String = ""
+
+    private static func moduleRules() -> [[String: Any]] {
+        guard let data = moduleRulesJSON.data(using: .utf8),
+              let parsed = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return []
+        }
+        return parsed
     }
 
     private static func normalizedLog(_ value: Any?) -> [String: Any] {

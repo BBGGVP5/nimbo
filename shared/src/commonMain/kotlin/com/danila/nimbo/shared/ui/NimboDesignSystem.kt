@@ -612,3 +612,7 @@ internal fun NimboToggle(
 
 internal fun Modifier.nimboScreenPadding(): Modifier =
     fillMaxWidth().padding(horizontal = 20.dp)
+
+/** Короткий идентификатор для новых записей: UUID в общем коде недоступен. */
+internal fun nimboRandomId(): String =
+    kotlin.random.Random.nextLong(100_000_000L, 999_999_999L).toString(36)

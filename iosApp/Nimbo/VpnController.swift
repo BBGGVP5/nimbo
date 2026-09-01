@@ -81,7 +81,11 @@ final class VpnController: ObservableObject {
             "configData": data,
             // Маршрутизация едет отдельным ключом: конфигурацию ядра она не
             // трогает, зато нужна расширению для системных настроек туннеля.
-            "routing": NimboRoutingSettings.current.providerValue
+            "routing": NimboRoutingSettings.current.providerValue,
+            // Правила пользовательских модулей. Разбирает их общий модуль на
+            // Kotlin — расширение получает готовый массив, потому что общих
+            // NSUserDefaults у приложения и расширения нет.
+            "modules": IosComposeControllerKt.NimboIosModuleRulesJson()
         ]
         manager.protocolConfiguration = tunnelProtocol
         try await manager.saveToPreferences()
