@@ -10909,10 +10909,11 @@ private fun RowScope.MaterialYouBottomNavItem(
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val motionEnabled = rememberMiniMotionEnabled()
+    val navMotionEnabled = rememberNavIconMotionEnabled()
     val selection by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
-        animationSpec = if (motionEnabled) {
+        // Раскрытие пункта переносит значок вбок — это тоже его движение.
+        animationSpec = if (navMotionEnabled) {
             spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow)
         } else {
             snap()
@@ -10959,7 +10960,6 @@ private fun RowScope.MaterialYouBottomNavItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             val bounce = rememberNavIconBounce(selected, navMotionKind(entry.destination))
-            val navMotionEnabled = rememberNavIconMotionEnabled()
             // Плавный ход общего признака выбора оставляем подсветке, а значку
             // при выключенном движении отдаём готовое значение.
             val iconSelection = if (navMotionEnabled) selection else if (selected) 1f else 0f
@@ -11019,6 +11019,9 @@ private fun WindowsBottomNavItem(
     // rounded bar instead of staying a fixed square while the panel becomes a pill.
     val cornerScale = LocalGlobalCornerRadius.current
     val shape = RoundedCornerShape(if (dottedStyle) 8.dp * cornerScale else 14.dp * cornerScale)
+    // Одна настройка на весь отклик значка: и на его собственное движение, и
+    // на всё, что двигает его снаружи.
+    val navMotionEnabled = rememberNavIconMotionEnabled()
 
     if (materialYou) {
         val activeIndicatorColor = nebulaColors.accent.copy(
@@ -11028,37 +11031,49 @@ private fun WindowsBottomNavItem(
         val textColor = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
 
         // Smooth transitions for colors in Material You mode
+        val colorSpec = if (navMotionEnabled) {
+            tween<Color>(durationMillis = 200, easing = FastOutSlowInEasing)
+        } else {
+            snap()
+        }
         val animatedIconColor by animateColorAsState(
             targetValue = iconColor,
-            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+            animationSpec = colorSpec,
             label = "iconColor"
         )
         val animatedTextColor by animateColorAsState(
             targetValue = textColor,
-            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+            animationSpec = colorSpec,
             label = "textColor"
         )
 
         // Pill indicator width stretching using medium-bouncy spring
         val pillWidth by animateDpAsState(
             targetValue = if (selected) 64.dp else 32.dp,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessMediumLow
-            ),
+            animationSpec = if (navMotionEnabled) {
+                spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            } else {
+                snap()
+            },
             label = "pillWidth"
         )
 
         // Pill indicator alpha fade-in/fade-out
         val pillAlpha by animateFloatAsState(
             targetValue = if (selected) 1f else 0f,
-            animationSpec = tween(durationMillis = 180, easing = EaseInOut),
+            animationSpec = if (navMotionEnabled) {
+                tween(durationMillis = 180, easing = EaseInOut)
+            } else {
+                snap()
+            },
             label = "pillAlpha"
         )
 
         // Выбранный значок крупнее — но приезжает он к этому размеру только
         // когда движение разрешено; иначе разница появляется сразу.
-        val navMotionEnabled = rememberNavIconMotionEnabled()
         val iconScale by animateFloatAsState(
             targetValue = if (selected) 1.12f else 1.0f,
             animationSpec = if (navMotionEnabled) {
@@ -11195,10 +11210,14 @@ private fun WindowsBottomNavItem(
                             rotationZ = bounce.rotation
                         }
                 )
+                // Разворот подписи поднимает значок — при выключенном
+                // движении она просто появляется на месте.
                 AnimatedVisibility(
                     visible = selected,
-                    enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
-                    exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(120))
+                    enter = expandVertically(animationSpec = tween(if (navMotionEnabled) 220 else 0)) +
+                        fadeIn(animationSpec = tween(if (navMotionEnabled) 220 else 0)),
+                    exit = shrinkVertically(animationSpec = tween(if (navMotionEnabled) 180 else 0)) +
+                        fadeOut(animationSpec = tween(if (navMotionEnabled) 120 else 0))
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Spacer(Modifier.height(3.dp))
