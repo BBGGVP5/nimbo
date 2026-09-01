@@ -99,6 +99,10 @@ struct RootView: View {
                 guard let serverID = notification.object as? String else { return }
                 Task { await selectServer(serverID) }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboPingServer)) { notification in
+                guard let serverID = notification.object as? String else { return }
+                Task { await measurePing(serverID) }
+            }
     }
 
     private var sheetsLayer: some View {
@@ -169,6 +173,26 @@ struct RootView: View {
         IosComposeControllerKt.NimboUpdateIosPings(
             serverIds: ordered.map { $0.0 },
             values: ordered.map { KotlinInt(int: Int32($0.1)) },
+            inProgress: false
+        )
+    }
+
+    /// Замер по одному серверу: нажали на плашку — перемеряли только его.
+    /// Гонять весь список ради одной строки долго и незачем.
+    private func measurePing(_ serverID: String) async {
+        guard let profile = try? NimboSubscriptionRepository.shared.loadProfile(),
+              let server = profile.servers.first(where: { $0.id == serverID }),
+              !server.host.isEmpty, server.port > 0 else { return }
+
+        IosComposeControllerKt.NimboUpdateIosPings(
+            serverIds: [serverID],
+            values: [],
+            inProgress: true
+        )
+        let value = await NimboPingService.shared.measureOne(host: server.host, port: server.port)
+        IosComposeControllerKt.NimboUpdateIosPings(
+            serverIds: [serverID],
+            values: [KotlinInt(int: Int32(value))],
             inProgress: false
         )
     }
@@ -411,6 +435,7 @@ private extension Notification.Name {
     static let nimboAbout = Notification.Name("com.nimbo.action.about")
     static let nimboSystemSettings = Notification.Name("com.nimbo.action.system-settings")
     static let nimboSelectServer = Notification.Name("com.nimbo.action.select-server")
+    static let nimboPingServer = Notification.Name("com.nimbo.action.ping-server")
     static let nimboOpenUrl = Notification.Name("com.nimbo.action.open-url")
     static let nimboRouting = Notification.Name("com.nimbo.action.routing")
     static let nimboOpenScreen = Notification.Name("com.nimbo.action.open-screen")

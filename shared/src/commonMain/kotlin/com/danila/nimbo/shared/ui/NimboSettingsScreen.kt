@@ -188,6 +188,37 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
             )
         }
 
+        SettingsSection("Подписка") {
+            SettingsRow(
+                NimboIconName.CLOUD,
+                "Настройки подписки",
+                "Обновление, описание и адрес источника",
+                showDivider = true,
+                onClick = actions.onOpenProfileSettings
+            )
+            SettingsRow(
+                NimboIconName.REFRESH,
+                "Обновить сейчас",
+                "Перечитать список серверов у панели",
+                onClick = actions.onRefreshProfile
+            )
+        }
+
+        SettingsSection("Обновления") {
+            SettingsRow(
+                NimboIconName.DOWNLOAD,
+                if (state.updateVersion.isBlank()) "Проверить обновление" else "Доступна ${state.updateVersion}",
+                // Ставить обновление сама iOS не даст: только открыть страницу
+                // релиза, где лежит файл для переподписи.
+                if (state.updateVersion.isBlank()) {
+                    "Страница релиза на GitHub"
+                } else {
+                    "Открыть страницу релиза"
+                },
+                onClick = actions.onOpenUpdate
+            )
+        }
+
         SettingsSection("Синхронизация") {
             SettingsRow(
                 NimboIconName.SYNC,
@@ -225,7 +256,17 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
                 NimboIconName.INFO,
                 "О приложении",
                 "${state.appVersion} · ${state.systemName}",
+                showDivider = true,
                 onClick = actions.onOpenAbout
+            )
+            SettingsRow(
+                NimboIconName.NOTIFICATIONS,
+                "Язык и уведомления",
+                // Своего переключателя языка на iOS нет: система задаёт язык
+                // приложения сама, и честнее отвести туда, чем показывать
+                // настройку, которая ничего не меняет.
+                "Задаются в настройках iOS",
+                onClick = actions.onOpenSystemSettings
             )
         }
 

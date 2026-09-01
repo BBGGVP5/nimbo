@@ -365,7 +365,9 @@ import com.danila.nimbo.vpn.RoutingConfigurationApplier
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -1273,6 +1275,10 @@ private fun rememberNavIconBounce(
     val play = remember { Animatable(0f) }
     // Угол накапливается: шестерёнка остаётся там, куда провернулась.
     val angle = remember { Animatable(0f) }
+    // Положение покоя хранится отдельно от анимации. Читать его из самой
+    // анимации нельзя: прерванное движение оставляло значок на случайном
+    // угле, и этот угол становился новым «нулём».
+    val restAngle = remember { mutableFloatStateOf(0f) }
     // Первый проход — это появление значка на экране, а не выбор вкладки.
     val appeared = remember { mutableStateOf(false) }
     LaunchedEffect(selected, kind) {
@@ -1283,19 +1289,31 @@ private fun rememberNavIconBounce(
             play.snapTo(0f)
             play.animateTo(1f, tween(durationMillis = 520, easing = FastOutSlowInEasing))
         }
-        when (kind) {
-            NavIconMotionKind.SPIN ->
-                angle.animateTo(angle.value + 360f, tween(560, easing = FastOutSlowInEasing))
-            NavIconMotionKind.TURN ->
-                angle.animateTo(angle.value + 90f, tween(520, easing = FastOutSlowInEasing))
-            NavIconMotionKind.WOBBLE -> {
-                // Трубка качнулась и замерла ровно там, откуда пошла.
-                val rest = angle.value
-                listOf(15f, -10f, 5f, 0f).forEach { offset ->
-                    angle.animateTo(rest + offset, tween(115, easing = FastOutSlowInEasing))
+        // Куда бы движение ни оборвалось, значок встаёт в это положение.
+        val landing = when (kind) {
+            NavIconMotionKind.SPIN -> restAngle.floatValue + 360f
+            NavIconMotionKind.TURN -> restAngle.floatValue + 90f
+            else -> restAngle.floatValue
+        }
+        restAngle.floatValue = landing
+        try {
+            when (kind) {
+                NavIconMotionKind.SPIN ->
+                    angle.animateTo(landing, tween(560, easing = FastOutSlowInEasing))
+                NavIconMotionKind.TURN ->
+                    angle.animateTo(landing, tween(520, easing = FastOutSlowInEasing))
+                NavIconMotionKind.WOBBLE -> {
+                    // Трубка качнулась и замерла ровно там, откуда пошла.
+                    listOf(15f, -10f, 5f, 0f).forEach { offset ->
+                        angle.animateTo(landing + offset, tween(115, easing = FastOutSlowInEasing))
+                    }
                 }
+                NavIconMotionKind.HOP -> Unit
             }
-            NavIconMotionKind.HOP -> Unit
+        } finally {
+            // Отмена эффекта — обычное дело при быстром переключении вкладок.
+            // NonCancellable нужен, чтобы доводка сработала и в этом случае.
+            withContext(NonCancellable) { angle.snapTo(landing) }
         }
     }
 

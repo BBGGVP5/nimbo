@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
@@ -35,6 +37,8 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
@@ -247,7 +251,8 @@ internal fun NimboSurface(
 internal enum class NimboIconName {
     HOME, PROFILES, APPS, SETTINGS, ADD, SEARCH, REFRESH, MORE, LIST,
     CLOUD, POWER, ROUTE, CONNECTION, NOTIFICATIONS, STATS, SYNC, LOGS,
-    SUPPORT, SITE, SECURITY, INFO, DELETE, DOWNLOAD, FAVORITE
+    SUPPORT, SITE, SECURITY, INFO, DELETE, DOWNLOAD, FAVORITE, FAVORITE_OFF,
+    PING
 }
 
 private fun iconVector(name: NimboIconName, selected: Boolean): ImageVector = when (name) {
@@ -268,13 +273,16 @@ private fun iconVector(name: NimboIconName, selected: Boolean): ImageVector = wh
     NimboIconName.STATS -> Icons.Filled.BarChart
     NimboIconName.SYNC -> Icons.Filled.Sync
     NimboIconName.LOGS -> Icons.Filled.Description
-    NimboIconName.SUPPORT -> Icons.Filled.Security
+    // «Поддержка» — это помощь, а не замок: щит читался как безопасность.
+    NimboIconName.SUPPORT -> Icons.Filled.SupportAgent
     NimboIconName.SITE -> Icons.Filled.Language
     NimboIconName.SECURITY -> Icons.Filled.Security
     NimboIconName.INFO -> Icons.Filled.Info
     NimboIconName.DELETE -> Icons.Filled.Delete
     NimboIconName.DOWNLOAD -> Icons.Filled.CloudDownload
     NimboIconName.FAVORITE -> Icons.Filled.Favorite
+    NimboIconName.FAVORITE_OFF -> Icons.Filled.FavoriteBorder
+    NimboIconName.PING -> Icons.Filled.Speed
 }
 
 @Composable
@@ -397,6 +405,51 @@ internal fun NimboLinkButton(
                 lineHeight = 20.sp,
                 fontWeight = FontWeight.ExtraBold
             )
+        )
+    }
+}
+
+/**
+ * Плашка со значком: та же геометрия, что и у [NimboPill], но слева стоит
+ * настоящая иконка. Раньше её роль играли символы вроде «◉», и на экране это
+ * читалось как случайные знаки.
+ */
+@Composable
+internal fun NimboIconPill(
+    icon: NimboIconName,
+    text: String,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
+) {
+    val style = LocalNimboElementStyle.current
+    val shape = nimboStyledShape(18.dp, 2.dp)
+    val interaction = remember { MutableInteractionSource() }
+    Row(
+        modifier = modifier
+            .clip(shape)
+            .background(nimboStyledContainer(NimboPalette.Control))
+            .border(
+                if (style == NimboElementStyle.MANGA) 1.5.dp else 1.dp,
+                nimboStyledBorder(NimboPalette.Hairline),
+                shape
+            )
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        onClick = onClick
+                    )
+                } else Modifier
+            )
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        NimboIcon(icon, tint = NimboPalette.Accent, modifier = Modifier.size(15.dp))
+        androidx.compose.foundation.text.BasicText(
+            text = text,
+            style = NimboBodyStyle.copy(color = NimboPalette.Text, fontWeight = FontWeight.SemiBold)
         )
     }
 }

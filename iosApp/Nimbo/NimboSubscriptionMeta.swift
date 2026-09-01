@@ -60,12 +60,17 @@ struct NimboSubscriptionMeta: Codable, Equatable {
         }
 
         let rawTitle = header(["profile-title", "profile_title"])
-        self.title = NimboSubscriptionMeta.accountName(
-            from: NimboSubscriptionMeta.decodePossiblyBase64(rawTitle)
-        )
-        self.announce = NimboSubscriptionMeta.decodePossiblyBase64(
+        let decodedAnnounce = NimboSubscriptionMeta.decodePossiblyBase64(
             header(["announce", "subscription-description"])
         )
+        // Панель присылает своё имя в profile-title («🛡 NebulaGuard»), а сам
+        // аккаунт — внутри announce. Android читает именно оттуда, поэтому на
+        // карточке и стоит почта, а не название сервиса.
+        self.title = NimboSubscriptionMeta.accountName(
+            announce: decodedAnnounce,
+            title: NimboSubscriptionMeta.decodePossiblyBase64(rawTitle)
+        )
+        self.announce = decodedAnnounce
         self.supportUrl = header(["support-url", "x-support-url"])
         self.websiteUrl = header(["website-url", "x-website-url", "profile-web-page-url"])
 
@@ -115,6 +120,23 @@ struct NimboSubscriptionMeta: Codable, Equatable {
     ///
     /// Заголовок приходит видом «NebulaGuard · user_8f21», а на карточке нужен
     /// только сам аккаунт: название сервиса пользователь и так знает.
+    static func accountName(announce: String?, title: String?) -> String? {
+        if let fromAnnounce = accountFromAnnounce(announce) { return fromAnnounce }
+        return accountName(from: title)
+    }
+
+    /// В announce аккаунт помечен человечком: «👤 user@example.com · …».
+    private static func accountFromAnnounce(_ announce: String?) -> String? {
+        guard let announce, !announce.isEmpty else { return nil }
+        guard let marker = announce.range(of: "\u{1F464}") else { return nil }
+        let tail = announce[marker.upperBound...]
+        let stop = CharacterSet(charactersIn: "·|\n\r—–")
+        let value = tail.unicodeScalars.prefix { !stop.contains($0) }
+        let name = String(String.UnicodeScalarView(value))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
     static func accountName(from title: String?) -> String? {
         guard let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
             return nil

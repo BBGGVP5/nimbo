@@ -148,7 +148,7 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
             if (favoritesOnly && visibleServers.isEmpty()) {
                 NimboSurface(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
                     BasicText(
-                        "Избранных серверов пока нет. Отметьте нужные кнопкой «⋯» в строке сервера.",
+                        "Избранных серверов пока нет. Отметьте нужные сердцем в строке сервера.",
                         style = NimboBodyStyle
                     )
                 }
@@ -158,7 +158,8 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
                     server = server,
                     favorite = server.id in state.favoriteServerIds,
                     onSelect = actions.onSelectServer,
-                    onToggleFavorite = actions.onToggleFavorite
+                    onToggleFavorite = actions.onToggleFavorite,
+                    onPing = actions.onPingServer
                 )
             }
         }
@@ -203,10 +204,18 @@ private fun ProfileSubscriptionCard(state: NimboUiState, actions: NimboUiActions
             if (support != null || website != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (support != null) {
-                        NimboPill("◉ Поддержка", onClick = { actions.onOpenUrl(support) })
+                        NimboIconPill(
+                            NimboIconName.SUPPORT,
+                            "Поддержка",
+                            onClick = { actions.onOpenUrl(support) }
+                        )
                     }
                     if (website != null) {
-                        NimboPill("◎ Сайт", onClick = { actions.onOpenUrl(website) })
+                        NimboIconPill(
+                            NimboIconName.SITE,
+                            "Сайт",
+                            onClick = { actions.onOpenUrl(website) }
+                        )
                     }
                 }
             }
@@ -237,7 +246,8 @@ private fun ProfileServerCard(
     server: NimboServerUi,
     favorite: Boolean,
     onSelect: (String) -> Unit,
-    onToggleFavorite: (String) -> Unit
+    onToggleFavorite: (String) -> Unit,
+    onPing: (String) -> Unit
 ) {
     // Геометрия из ProxyRow: 64 dp, скругление 16 dp, полоска акцента слева
     // у выбранного сервера и флаг в квадратном чипе.
@@ -333,10 +343,16 @@ private fun ProfileServerCard(
                     )
                 )
             }
-            NimboPill(server.pingLabel, selected = server.selected)
+            // Нажатие на саму плашку перемеряет задержку: отдельной кнопке
+            // в строке уже не хватает ширины, а место замера — очевидное.
+            NimboPill(
+                server.pingLabel,
+                selected = server.selected,
+                onClick = { onPing(server.id) }
+            )
             Spacer(Modifier.width(6.dp))
             NimboIconButton(
-                if (favorite) NimboIconName.FAVORITE else NimboIconName.MORE,
+                if (favorite) NimboIconName.FAVORITE else NimboIconName.FAVORITE_OFF,
                 modifier = Modifier.size(36.dp),
                 selected = favorite,
                 onClick = { onToggleFavorite(server.id) }

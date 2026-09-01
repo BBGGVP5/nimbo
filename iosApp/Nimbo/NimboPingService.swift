@@ -18,6 +18,11 @@ actor NimboPingService {
 
     private var inFlight = false
 
+    /// Один узел: замер по требованию не должен ждать очереди общего прогона.
+    func measureOne(host: String, port: Int) async -> Int {
+        await NimboPingService.measure(host: host, port: port, timeout: timeout)
+    }
+
     /// Возвращает задержку в миллисекундах для каждого сервера; `-1` означает,
     /// что узел не ответил за отведённое время.
     func measureAll(_ targets: [(id: String, host: String, port: Int)]) async -> [String: Int] {

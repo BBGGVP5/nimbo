@@ -26,6 +26,7 @@ private const val OpenUpdateAction = "com.nimbo.action.open-update"
 private const val ExportBackupAction = "com.nimbo.action.export-backup"
 private const val ImportBackupAction = "com.nimbo.action.import-backup"
 private const val OpenSyncAction = "com.nimbo.action.open-sync"
+private const val PingServerAction = "com.nimbo.action.ping-server"
 private const val AppearanceChangedAction = "com.nimbo.action.appearance-changed"
 
 /** Оформление хранится там же, где настройки маршрутизации. */
@@ -333,6 +334,7 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onOpenSystemSettings = { postIosAction(SystemSettingsAction) },
                 onOpenUrl = { postIosAction(OpenUrlAction, it) },
                 onToggleFavorite = { toggleFavoriteServer(it) },
+                onPingServer = { postIosAction(PingServerAction, it) },
                 onSetRouting = { key, value -> applyRoutingChange(key, value) },
                 onSetAppearance = { key, value -> applyAppearanceChange(key, value) },
                 onOpenUpdate = { postIosAction(OpenUpdateAction) },
