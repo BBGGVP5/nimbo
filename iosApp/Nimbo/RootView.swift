@@ -213,13 +213,36 @@ struct RootView: View {
         )
     }
 
+    /// Сообщение пользователю: всплывает сейчас и остаётся в истории.
+    ///
+    /// Время форматируется здесь: у приложения есть локаль устройства, а
+    /// общий модуль о ней ничего не знает.
+    private func notify(_ kind: String, _ message: String) {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.dateFormat = "HH:mm"
+        IosComposeControllerKt.NimboPushIosNotification(
+            kind: kind,
+            message: message,
+            timeLabel: formatter.string(from: Date()),
+            timestampSeconds: Int64(Date().timeIntervalSince1970)
+        )
+        // Полоса не должна висеть: на Android она гаснет сама через несколько
+        // секунд, история при этом остаётся.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+            IosComposeControllerKt.NimboDismissIosToast()
+        }
+    }
+
     /// Импорт подписки из строки: ссылка, конфигурация или содержимое QR.
     private func importSubscription(_ source: String) async {
         do {
-            _ = try await NimboSubscriptionImporter.importAndStage(source, vpn: vpn)
+            let profile = try await NimboSubscriptionImporter.importAndStage(source, vpn: vpn)
             synchronizeComposeState()
+            notify("success", "Подписка добавлена: \(profile.servers.count) серверов")
             await measurePings()
         } catch {
+            notify("error", NimboRedactor.redact(error.localizedDescription))
             await NimboDiagnostics.shared.record(
                 .error,
                 stage: .config,
@@ -272,6 +295,9 @@ struct RootView: View {
             sessionStartedAt = Date()
         case .idle, .failed:
             finishSession()
+            if case let .failed(_, message) = state {
+                notify("error", message)
+            }
         default:
             break
         }
@@ -456,6 +482,7 @@ struct RootView: View {
             }
             try await vpn.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: selected))
             synchronizeComposeState()
+            notify("success", "Подписка обновлена: \(profile.servers.count) серверов")
             await NimboDiagnostics.shared.record(
                 .info,
                 stage: .config,
@@ -464,6 +491,9 @@ struct RootView: View {
                 metadata: ["servers": "\(profile.servers.count)"]
             )
         } catch {
+            // Молчаливая неудача хуже ошибки: человек жмёт обновление и не
+            // понимает, произошло ли что-нибудь.
+            notify("error", NimboRedactor.redact(error.localizedDescription))
             await NimboDiagnostics.shared.record(
                 .error,
                 stage: .config,

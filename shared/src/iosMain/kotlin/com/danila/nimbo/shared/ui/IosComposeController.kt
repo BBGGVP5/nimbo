@@ -188,6 +188,98 @@ fun NimboIosModuleRulesJson(): String {
     return iosJson.encodeToString(JsonArray(rules))
 }
 
+/**
+ * Уведомления внутри приложения.
+ *
+ * История хранится на устройстве: всплывающая полоса живёт секунды, а понять
+ * задним числом, почему не обновилась подписка, без записи невозможно.
+ */
+private const val NotificationsDefaultsKey = "com.nimbo.notifications"
+private const val NotificationsLimit = 100
+
+@kotlinx.serialization.Serializable
+private data class StoredNotification(
+    val id: String,
+    val title: String,
+    val message: String,
+    val kind: String,
+    val timestampSeconds: Long,
+    val timeLabel: String
+)
+
+private fun loadNotifications(): List<NimboNotification> {
+    val raw = NSUserDefaults.standardUserDefaults.stringForKey(NotificationsDefaultsKey) ?: return emptyList()
+    return runCatching { iosJson.decodeFromString<List<StoredNotification>>(raw) }
+        .getOrDefault(emptyList())
+        .map {
+            NimboNotification(
+                id = it.id,
+                title = it.title,
+                message = it.message,
+                kind = NimboNotificationKind.fromWireName(it.kind),
+                timestampSeconds = it.timestampSeconds,
+                timeLabel = it.timeLabel
+            )
+        }
+}
+
+private fun storeNotifications(items: List<NimboNotification>) {
+    // Сотни записей никто не читает, а место и время разбора они занимают.
+    val trimmed = items.take(NotificationsLimit)
+    val payload = trimmed.map {
+        StoredNotification(
+            id = it.id,
+            title = it.title,
+            message = it.message,
+            kind = it.kind.wireName,
+            timestampSeconds = it.timestampSeconds,
+            timeLabel = it.timeLabel
+        )
+    }
+    NSUserDefaults.standardUserDefaults.setObject(
+        iosJson.encodeToString(payload),
+        NotificationsDefaultsKey
+    )
+    iosUiState.value = iosUiState.value.copy(notifications = trimmed)
+}
+
+/**
+ * Показать сообщение и записать его в историю.
+ *
+ * Время форматирует Swift: у него есть локаль устройства, а общий код о ней
+ * ничего не знает.
+ */
+fun NimboPushIosNotification(
+    kind: String,
+    message: String,
+    timeLabel: String,
+    timestampSeconds: Long
+) {
+    val notification = NimboNotification(
+        id = "n-" + timestampSeconds.toString() + "-" + message.hashCode().toString(36),
+        title = NimboNotificationKind.fromWireName(kind).title,
+        message = message,
+        kind = NimboNotificationKind.fromWireName(kind),
+        timestampSeconds = timestampSeconds,
+        timeLabel = timeLabel
+    )
+    storeNotifications(listOf(notification) + loadNotifications())
+    iosUiState.value = iosUiState.value.copy(toast = notification)
+}
+
+/** Скрыть всплывающую полосу: историю это не трогает. */
+fun NimboDismissIosToast() {
+    iosUiState.value = iosUiState.value.copy(toast = null)
+}
+
+private fun deleteNotification(id: String) {
+    storeNotifications(loadNotifications().filterNot { it.id == id })
+}
+
+private fun clearNotifications() {
+    storeNotifications(emptyList())
+}
+
 /** Настройки маршрутизации живут в NSUserDefaults и переживают перезапуск. */
 private const val RoutingDefaultsPrefix = "com.nimbo.routing."
 
@@ -370,7 +462,8 @@ fun NimboUpdateIosUiState(
         pingProtocol = pingText("protocol", "tcp"),
         pingTimeoutMs = pingInt("timeoutMs", 3000),
         pingUrl = pingText("url", DefaultPingUrl),
-        modules = loadModules()
+        modules = loadModules(),
+        notifications = loadNotifications()
     )
 }
 
@@ -462,6 +555,9 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onSaveModule = { id, name, text -> saveModule(id, name, text) },
                 onToggleModule = { toggleModule(it) },
                 onDeleteModule = { deleteModule(it) },
+                onDismissToast = { NimboDismissIosToast() },
+                onDeleteNotification = { deleteNotification(it) },
+                onClearNotifications = { clearNotifications() },
                 onOpenUpdate = { postIosAction(OpenUpdateAction) },
                 onExportBackup = { postIosAction(ExportBackupAction) },
                 onImportBackup = { postIosAction(ImportBackupAction) },

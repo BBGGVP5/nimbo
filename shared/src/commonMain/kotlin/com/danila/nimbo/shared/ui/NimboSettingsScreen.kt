@@ -548,6 +548,13 @@ private fun BackupPage(actions: NimboUiActions) {
 private fun SystemPage(state: NimboUiState, actions: NimboUiActions) {
     SettingsSection("Система") {
         SettingsRow(
+            NimboIconName.NOTIFICATIONS,
+            "Уведомления",
+            "История сообщений приложения",
+            showDivider = true,
+            onClick = { actions.onOpenScreen(NimboScreen.NOTIFICATIONS.wireName) }
+        )
+        SettingsRow(
             NimboIconName.LOGS,
             "Диагностика",
             "Логи приложения и туннеля без секретов",

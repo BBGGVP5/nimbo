@@ -108,6 +108,9 @@ data class NimboUiState(
     val favoritesFirst: Boolean = true,
     /** Версия доступного обновления; пусто — обновлений нет. */
     /** Как мерить задержку: «tcp» до узла или «http» через туннель. */
+    /** История уведомлений и сообщение, которое показывается сейчас. */
+    val notifications: List<NimboNotification> = emptyList(),
+    val toast: NimboNotification? = null,
     /** Пользовательские наборы правил. */
     val modules: List<com.danila.nimbo.shared.routing.NimboModule> = emptyList(),
     val pingProtocol: String = "tcp",
@@ -189,6 +192,10 @@ data class NimboUiActions(
     val onSaveModule: (String, String, String) -> Unit = { _, _, _ -> },
     val onToggleModule: (String) -> Unit = {},
     val onDeleteModule: (String) -> Unit = {},
+    /** Скрыть всплывающее сообщение. */
+    val onDismissToast: () -> Unit = {},
+    val onDeleteNotification: (String) -> Unit = {},
+    val onClearNotifications: () -> Unit = {},
     /** Открыть страницу релиза: установить обновление сама iOS не даст. */
     val onOpenUpdate: () -> Unit = {},
     /** Импорт подписки из введённой ссылки или конфигурации. */
@@ -269,7 +276,21 @@ fun NimboAppShell(
                     NimboScreen.STATS -> NimboStatsScreen(state, actions)
                     NimboScreen.ROUTING -> NimboRoutingScreen(state, actions)
                     NimboScreen.MODULES -> NimboModulesScreen(state, actions)
+                    NimboScreen.NOTIFICATIONS -> NimboNotificationsScreen(state, actions)
                     NimboScreen.SETTINGS -> NimboSettingsScreen(state, actions)
+                }
+            }
+
+            // Сообщение висит поверх содержимого и над панелью: на Android оно
+            // тоже перекрывает экран, иначе его не замечают.
+            state.toast?.let { toast ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 52.dp)
+                        .nimboScreenPadding()
+                ) {
+                    NimboToast(toast, onDismiss = actions.onDismissToast)
                 }
             }
 
@@ -379,5 +400,6 @@ private val NimboScreen.iconName: NimboIconName
         NimboScreen.STATS -> NimboIconName.STATS
         NimboScreen.ROUTING -> NimboIconName.ROUTE
         NimboScreen.MODULES -> NimboIconName.LIST
+        NimboScreen.NOTIFICATIONS -> NimboIconName.NOTIFICATIONS
         NimboScreen.SETTINGS -> NimboIconName.SETTINGS
     }
