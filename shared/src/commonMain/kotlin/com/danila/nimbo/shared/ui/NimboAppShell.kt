@@ -191,6 +191,14 @@ data class NimboUiActions(
     val onDeleteModule: (String) -> Unit = {},
     /** Открыть страницу релиза: установить обновление сама iOS не даст. */
     val onOpenUpdate: () -> Unit = {},
+    /** Импорт подписки из введённой ссылки или конфигурации. */
+    val onImportSubscription: (String) -> Unit = {},
+    /** Импорт из буфера обмена. */
+    val onImportClipboard: () -> Unit = {},
+    /** Импорт из файла профиля. */
+    val onImportFile: () -> Unit = {},
+    /** Сканировать QR-код с подпиской. */
+    val onScanQr: () -> Unit = {},
     /** Сохранить копию настроек и подписки в файл. */
     val onExportBackup: () -> Unit = {},
     /** Восстановить копию из файла. */

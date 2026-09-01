@@ -34,6 +34,10 @@ private const val ImportBackupAction = "com.nimbo.action.import-backup"
 private const val OpenSyncAction = "com.nimbo.action.open-sync"
 private const val PingServerAction = "com.nimbo.action.ping-server"
 private const val PingAllAction = "com.nimbo.action.ping-all"
+private const val ImportSubscriptionAction = "com.nimbo.action.import-subscription"
+private const val ImportClipboardAction = "com.nimbo.action.import-clipboard"
+private const val ImportFileAction = "com.nimbo.action.import-file"
+private const val ScanQrAction = "com.nimbo.action.scan-qr"
 private const val AppearanceChangedAction = "com.nimbo.action.appearance-changed"
 
 /** Оформление хранится там же, где настройки маршрутизации. */
@@ -448,6 +452,10 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onToggleFavorite = { toggleFavoriteServer(it) },
                 onPingServer = { postIosAction(PingServerAction, it) },
                 onPingAll = { postIosAction(PingAllAction) },
+                onImportSubscription = { postIosAction(ImportSubscriptionAction, it) },
+                onImportClipboard = { postIosAction(ImportClipboardAction) },
+                onImportFile = { postIosAction(ImportFileAction) },
+                onScanQr = { postIosAction(ScanQrAction) },
                 onSetRouting = { key, value -> applyRoutingChange(key, value) },
                 onSetAppearance = { key, value -> applyAppearanceChange(key, value) },
                 onSetPing = { key, value -> applyPingChange(key, value) },

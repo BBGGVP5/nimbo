@@ -78,6 +78,14 @@ internal fun NimboHomeScreen(
 
 @Composable
 private fun HomeProfileCard(state: NimboUiState, actions: NimboUiActions) {
+    // Подписки ещё нет: показываем способы её добавить, а не строку о том,
+    // что её нет. Раньше человек видел «Готово к импорту» и не понимал, куда
+    // нажимать.
+    if (state.profileCount == 0) {
+        NimboAddProfileCard(actions)
+        return
+    }
+
     // Вёрстка повторяет SubscriptionOverviewPanel: заголовок со щитом,
     // строка ссылок, разделитель и счётчик трафика внизу.
     NimboSurface(

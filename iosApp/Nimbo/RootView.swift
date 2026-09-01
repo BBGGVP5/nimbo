@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 import NimboShared
 import UIKit
 
@@ -15,6 +16,8 @@ struct RootView: View {
     @State private var backupUrl: URL?
     @State private var showBackupPicker = false
     @State private var showSync = false
+    @State private var showQrScanner = false
+    @State private var showFileImporter = false
     @State private var elementStyle = UserDefaults.standard.string(
         forKey: "com.nimbo.appearance.elementStyle"
     ) ?? "glass"
@@ -106,6 +109,36 @@ struct RootView: View {
             .onReceive(NotificationCenter.default.publisher(for: .nimboPingAll)) { _ in
                 Task { await measurePings() }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboImportSubscription)) { notification in
+                guard let source = notification.object as? String else { return }
+                Task { await importSubscription(source) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboImportClipboard)) { _ in
+                // Вставка из буфера — самый частый путь: ссылку присылают в
+                // мессенджере, и переписывать её руками никто не будет.
+                guard let text = UIPasteboard.general.string else { return }
+                Task { await importSubscription(text) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboImportFile)) { _ in
+                showFileImporter = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboScanQr)) { _ in
+                showQrScanner = true
+            }
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [.json, .text, .plainText, .data],
+                allowsMultipleSelection: false
+            ) { result in
+                guard case let .success(urls) = result, let url = urls.first else { return }
+                Task { await importFile(url) }
+            }
+            .sheet(isPresented: $showQrScanner) {
+                NimboQrScannerView { scanned in
+                    showQrScanner = false
+                    Task { await importSubscription(scanned) }
+                }
+            }
     }
 
     private var sheetsLayer: some View {
@@ -178,6 +211,34 @@ struct RootView: View {
             values: ordered.map { KotlinInt(int: Int32($0.1)) },
             inProgress: false
         )
+    }
+
+    /// Импорт подписки из строки: ссылка, конфигурация или содержимое QR.
+    private func importSubscription(_ source: String) async {
+        do {
+            _ = try await NimboSubscriptionImporter.importAndStage(source, vpn: vpn)
+            synchronizeComposeState()
+            await measurePings()
+        } catch {
+            await NimboDiagnostics.shared.record(
+                .error,
+                stage: .config,
+                code: "IOS_SUBSCRIPTION_IMPORT_FAILED",
+                message: NimboRedactor.redact(error.localizedDescription)
+            )
+        }
+    }
+
+    /// Импорт из файла профиля.
+    ///
+    /// Доступ к файлу за пределами песочницы даётся на время: без
+    /// `startAccessingSecurityScopedResource` чтение упало бы на выбранном в
+    /// «Файлах» документе.
+    private func importFile(_ url: URL) async {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        await importSubscription(text)
     }
 
     /// Замер по одному серверу: нажали на плашку — перемеряли только его.
@@ -440,6 +501,10 @@ private extension Notification.Name {
     static let nimboSelectServer = Notification.Name("com.nimbo.action.select-server")
     static let nimboPingServer = Notification.Name("com.nimbo.action.ping-server")
     static let nimboPingAll = Notification.Name("com.nimbo.action.ping-all")
+    static let nimboImportSubscription = Notification.Name("com.nimbo.action.import-subscription")
+    static let nimboImportClipboard = Notification.Name("com.nimbo.action.import-clipboard")
+    static let nimboImportFile = Notification.Name("com.nimbo.action.import-file")
+    static let nimboScanQr = Notification.Name("com.nimbo.action.scan-qr")
     static let nimboOpenUrl = Notification.Name("com.nimbo.action.open-url")
     static let nimboRouting = Notification.Name("com.nimbo.action.routing")
     static let nimboOpenScreen = Notification.Name("com.nimbo.action.open-screen")
