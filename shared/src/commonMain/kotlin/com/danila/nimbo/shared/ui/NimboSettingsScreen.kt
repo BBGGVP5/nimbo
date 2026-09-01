@@ -286,19 +286,24 @@ private fun AppearancePage(state: NimboUiState, actions: NimboUiActions) {
         }
     }
 
-    SettingsSection("Стиль подключения") {
-        SettingsChoiceRow(
+    BasicText("Стиль подключения", style = NimboSectionTitleStyle)
+    BasicText("Форма главной кнопки на домашнем экране", style = NimboBodyStyle)
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        ConnectStylePreviewCard(
             title = "Классический",
-            subtitle = "Кольцо во весь экран, как на Android по умолчанию",
+            subtitle = "Кольцо во весь экран",
+            compact = false,
             selected = state.connectStyle != "compact",
-            onClick = { actions.onSetAppearance("connectStyle", "classic") }
+            onClick = { actions.onSetAppearance("connectStyle", "classic") },
+            modifier = Modifier.weight(1f)
         )
-        SettingsDivider()
-        SettingsChoiceRow(
+        ConnectStylePreviewCard(
             title = "Компактный",
-            subtitle = "Полоса вместо кольца: на экране помещается больше",
+            subtitle = "Полоса вместо кольца",
+            compact = true,
             selected = state.connectStyle == "compact",
-            onClick = { actions.onSetAppearance("connectStyle", "compact") }
+            onClick = { actions.onSetAppearance("connectStyle", "compact") },
+            modifier = Modifier.weight(1f)
         )
     }
 
@@ -605,6 +610,90 @@ private fun SystemPage(state: NimboUiState, actions: NimboUiActions) {
             SystemValue("Система", state.systemName)
             SystemValue("Версия", state.appVersion)
         }
+    }
+}
+
+/**
+ * Плитка выбора формы кнопки подключения.
+ *
+ * Слова «классический» и «компактный» сами по себе ничего не показывают —
+ * человек не видит разницы, пока не переключит. Миниатюра показывает форму
+ * сразу, ровно как карточки стилей интерфейса.
+ */
+@Composable
+private fun ConnectStylePreviewCard(
+    title: String,
+    subtitle: String,
+    compact: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val style = LocalNimboElementStyle.current
+    val manga = style == NimboElementStyle.MANGA
+    val shape = nimboStyledShape(18.dp, 3.dp)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(
+                if (selected) {
+                    NimboPalette.Accent.copy(alpha = 0.13f)
+                } else if (manga) {
+                    NimboMangaPalette.Paper
+                } else {
+                    NimboPalette.Surface
+                }
+            )
+            .border(
+                if (manga) {
+                    if (selected) 2.5.dp else 1.5.dp
+                } else 1.dp,
+                if (selected) NimboPalette.Accent.copy(alpha = 0.74f) else nimboStyledBorder(NimboPalette.Border),
+                shape
+            )
+            .nimboRowClickable(onClick)
+            .padding(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(96.dp)
+                .clip(nimboStyledShape(14.dp, 2.dp))
+                .background(if (manga) NimboMangaPalette.PaperDeep else NimboPalette.Background),
+            contentAlignment = Alignment.Center
+        ) {
+            if (compact) {
+                // Полоса: та же геометрия, что у настоящей кнопки.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.82f)
+                        .height(26.dp)
+                        .clip(nimboStyledShape(9.dp, 2.dp))
+                        .background(NimboPalette.Accent)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(nimboStyledShape(27.dp, 3.dp))
+                        .border(
+                            3.dp,
+                            NimboPalette.Accent,
+                            nimboStyledShape(27.dp, 3.dp)
+                        )
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        BasicText(
+            title,
+            style = TextStyle(
+                color = if (selected) NimboPalette.Text else NimboPalette.TextSecondary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+        )
+        BasicText(subtitle, style = NimboBodyStyle.copy(fontSize = 11.sp))
     }
 }
 
