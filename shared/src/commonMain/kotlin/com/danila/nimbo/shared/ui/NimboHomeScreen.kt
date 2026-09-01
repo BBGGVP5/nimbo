@@ -137,10 +137,8 @@ private fun HomeProfileCard(state: NimboUiState, actions: NimboUiActions) {
             Spacer(Modifier.height(6.dp))
             BasicText(
                 text = description,
-                // Объявления бывают на десяток строк — карточка не должна
-                // превращаться в стену текста.
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
+                // Без обрезки: провайдер пишет описание для пользователя, и
+                // прятать его половину — значит показывать не то, что прислали.
                 style = TextStyle(
                     color = NimboPalette.TextSecondary,
                     fontSize = 12.sp,
