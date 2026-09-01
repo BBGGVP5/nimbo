@@ -42,7 +42,22 @@ data class SyncCategories(
     @SerializedName("subscriptions") val subscriptions: Boolean = true,
     @SerializedName("appearance") val appearance: Boolean = true,
     @SerializedName("connection") val connection: Boolean = true,
-    @SerializedName("automation") val automation: Boolean = true
+    @SerializedName("automation") val automation: Boolean = true,
+    /** Пользовательские модули маршрутизации. */
+    @SerializedName("routing") val routing: Boolean = true
+)
+
+/**
+ * Модуль в переносе: тот же текст, что человек написал.
+ *
+ * Переносим именно текст, а не разобранные правила: разбор у платформ общий,
+ * а исходник человек ещё будет править.
+ */
+data class SyncRoutingModule(
+    @SerializedName("id") val id: String,
+    @SerializedName("name") val name: String,
+    @SerializedName("enabled") val enabled: Boolean = true,
+    @SerializedName("text") val text: String
 )
 
 data class SyncSubscription(
@@ -98,20 +113,23 @@ data class CrossSyncBundle(
     @SerializedName("subscriptions") val subscriptions: List<SyncSubscription> = emptyList(),
     @SerializedName("appearance") val appearance: SyncAppearance? = null,
     @SerializedName("connection") val connection: SyncConnection? = null,
-    @SerializedName("automation") val automation: SyncAutomation? = null
+    @SerializedName("automation") val automation: SyncAutomation? = null,
+    @SerializedName("routing_modules") val routingModules: List<SyncRoutingModule> = emptyList()
 ) {
     fun inventory(): SyncInventory = SyncInventory(
         subscriptions = subscriptions.size,
         hasAppearance = appearance != null,
         hasConnection = connection != null,
-        hasAutomation = automation != null
+        hasAutomation = automation != null,
+        routingModules = routingModules.size
     )
 
     fun filtered(categories: SyncCategories): CrossSyncBundle = copy(
         subscriptions = if (categories.subscriptions) subscriptions else emptyList(),
         appearance = appearance.takeIf { categories.appearance },
         connection = connection.takeIf { categories.connection },
-        automation = automation.takeIf { categories.automation }
+        automation = automation.takeIf { categories.automation },
+        routingModules = if (categories.routing) routingModules else emptyList()
     )
 }
 
@@ -119,9 +137,11 @@ data class SyncInventory(
     @SerializedName("subscriptions") val subscriptions: Int,
     @SerializedName("has_appearance") val hasAppearance: Boolean,
     @SerializedName("has_connection") val hasConnection: Boolean,
-    @SerializedName("has_automation") val hasAutomation: Boolean
+    @SerializedName("has_automation") val hasAutomation: Boolean,
+    @SerializedName("routing_modules") val routingModules: Int = 0
 ) {
-    fun isEmpty(): Boolean = subscriptions == 0 && !hasAppearance && !hasConnection && !hasAutomation
+    fun isEmpty(): Boolean = subscriptions == 0 && !hasAppearance && !hasConnection &&
+        !hasAutomation && routingModules == 0
 }
 
 data class CrossSyncQr(
@@ -593,6 +613,14 @@ object AndroidCrossSyncBundleMapper {
                 tlsFragmentation = preferences.tlsFragment,
                 showSpeedChart = preferences.showSpeed
             ),
+            routingModules = preferences.routingModules().map { module ->
+                SyncRoutingModule(
+                    id = module.id,
+                    name = module.name,
+                    enabled = module.enabled,
+                    text = module.text
+                )
+            },
             automation = SyncAutomation(
                 language = preferences.appLanguage.ifBlank { "system" },
                 pingOnLaunch = preferences.pingOnStartup,
@@ -642,6 +670,25 @@ object AndroidCrossSyncBundleMapper {
                 preferences.useSubscriptionTheme = appearance.providerTheme
                 preferences.showSubscriptionLogo = appearance.showSubscriptionLogo
             }
+        }
+        if (categories.routing && incoming.routingModules.isNotEmpty()) {
+            // Совпадающие по идентификатору заменяются, остальные добавляются:
+            // затирать чужие модули целиком нельзя — человек мог написать их
+            // на этом устройстве.
+            val incomingModules = incoming.routingModules.map {
+                com.danila.nimbo.shared.routing.NimboModule(
+                    id = it.id,
+                    name = it.name,
+                    enabled = it.enabled,
+                    text = it.text
+                )
+            }
+            val merged = preferences.routingModules().toMutableList()
+            incomingModules.forEach { module ->
+                val index = merged.indexOfFirst { it.id == module.id }
+                if (index >= 0) merged[index] = module else merged.add(module)
+            }
+            preferences.saveRoutingModules(merged)
         }
         if (categories.connection) {
             incoming.connection?.let { connection ->

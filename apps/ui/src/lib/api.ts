@@ -273,6 +273,8 @@ export interface CrossSyncCategories {
   appearance: boolean;
   connection: boolean;
   automation: boolean;
+  /** Пользовательские модули маршрутизации. */
+  routing: boolean;
 }
 
 export interface CrossSyncInventory {
@@ -280,6 +282,7 @@ export interface CrossSyncInventory {
   has_appearance: boolean;
   has_connection: boolean;
   has_automation: boolean;
+  routing_modules?: number;
 }
 
 export interface CrossSyncDeviceInfo {

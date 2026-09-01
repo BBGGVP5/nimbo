@@ -221,8 +221,19 @@ enum NimboSyncBundleMapper {
             ),
             subscriptions: subscriptions,
             appearance: appearance,
-            connection: connection
+            connection: connection,
+            routingModules: storedModules()
         )
+    }
+
+    /// Модули лежат там же, где их пишет общий интерфейс.
+    private static func storedModules() -> [NimboSyncRoutingModule] {
+        guard let raw = UserDefaults.standard.string(forKey: "com.nimbo.routing.modules"),
+              let data = raw.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([NimboSyncRoutingModule].self, from: data) else {
+            return []
+        }
+        return decoded
     }
 
     /// Возвращает короткое описание того, что применилось.
@@ -242,6 +253,24 @@ enum NimboSyncBundleMapper {
 
         if let connection = bundle.connection {
             UserDefaults.standard.set(connection.showSpeedChart, forKey: "com.nimbo.appearance.showSpeedWidget")
+        }
+
+        if let incoming = bundle.routingModules, !incoming.isEmpty {
+            // Совпадающие по идентификатору заменяются, остальные добавляются:
+            // затирать чужие модули целиком нельзя — их могли написать здесь.
+            var merged = storedModules()
+            for module in incoming {
+                if let index = merged.firstIndex(where: { $0.id == module.id }) {
+                    merged[index] = module
+                } else {
+                    merged.append(module)
+                }
+            }
+            if let data = try? JSONEncoder().encode(merged),
+               let text = String(data: data, encoding: .utf8) {
+                UserDefaults.standard.set(text, forKey: "com.nimbo.routing.modules")
+                applied.append("модули (\(incoming.count))")
+            }
         }
 
         // Подписка — главное: без неё остальное бессмысленно.

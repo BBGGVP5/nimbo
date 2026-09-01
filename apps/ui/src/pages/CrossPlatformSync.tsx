@@ -18,6 +18,7 @@ const DEFAULT_CATEGORIES: CrossSyncCategories = {
   appearance: true,
   connection: true,
   automation: true,
+  routing: true,
 };
 
 type LastSync = { at: number; device: string };
@@ -425,6 +426,7 @@ export function CrossPlatformSync() {
                           <SyncOption title={m.crossSync.optAppearance} detail={m.crossSync.optAppearanceShort} checked={device.categories.appearance} disabled={busy} onChange={(v) => void setDeviceCategories(device.device_id, { ...device.categories, appearance: v })} />
                           <SyncOption title={m.crossSync.optConnection} detail={m.crossSync.optConnectionShort} checked={device.categories.connection} disabled={busy} onChange={(v) => void setDeviceCategories(device.device_id, { ...device.categories, connection: v })} />
                           <SyncOption title={m.crossSync.optAutomation} detail={m.crossSync.optAutomationShort} checked={device.categories.automation} disabled={busy} onChange={(v) => void setDeviceCategories(device.device_id, { ...device.categories, automation: v })} />
+                          <SyncOption title={m.crossSync.optRouting} detail={m.crossSync.optRoutingShort} checked={device.categories.routing} disabled={busy} onChange={(v) => void setDeviceCategories(device.device_id, { ...device.categories, routing: v })} />
                         </div>
                         <SyncOption
                           className="cross-sync-option-autosync"

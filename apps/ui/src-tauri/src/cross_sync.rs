@@ -40,6 +40,9 @@ pub struct SyncCategories {
     pub connection: bool,
     #[serde(default = "default_true")]
     pub automation: bool,
+    /// Пользовательские модули маршрутизации.
+    #[serde(default = "default_true")]
+    pub routing: bool,
 }
 
 impl SyncCategories {
@@ -49,6 +52,7 @@ impl SyncCategories {
             appearance: self.appearance && other.appearance,
             connection: self.connection && other.connection,
             automation: self.automation && other.automation,
+            routing: self.routing && other.routing,
         }
     }
 }
@@ -60,6 +64,7 @@ impl Default for SyncCategories {
             appearance: true,
             connection: true,
             automation: true,
+            routing: true,
         }
     }
 }
@@ -131,6 +136,10 @@ pub struct SyncBundle {
     pub appearance: Option<SyncAppearance>,
     pub connection: Option<SyncConnection>,
     pub automation: Option<SyncAutomation>,
+    /// Модули переносятся текстом: разбор у платформ общий, а исходник
+    /// человек ещё будет править.
+    #[serde(default, rename = "routing_modules")]
+    pub routing_modules: Vec<nimbo_xray_config::RoutingModule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -139,6 +148,8 @@ pub struct SyncInventory {
     pub has_appearance: bool,
     pub has_connection: bool,
     pub has_automation: bool,
+    #[serde(default)]
+    pub routing_modules: usize,
 }
 
 impl SyncBundle {
@@ -219,6 +230,7 @@ impl SyncBundle {
                 subscriptions_update_on_launch: prefs.subscriptions_update_on_launch,
                 subscriptions_ping_after_update: prefs.subscriptions_ping_after_update,
             }),
+            routing_modules: state.routing_modules.clone(),
         }
     }
 
@@ -228,6 +240,7 @@ impl SyncBundle {
             has_appearance: self.appearance.is_some(),
             has_connection: self.connection.is_some(),
             has_automation: self.automation.is_some(),
+            routing_modules: self.routing_modules.len(),
         }
     }
 
@@ -257,6 +270,11 @@ impl SyncBundle {
                 self.automation.clone()
             } else {
                 None
+            },
+            routing_modules: if categories.routing {
+                self.routing_modules.clone()
+            } else {
+                Vec::new()
             },
         }
     }
@@ -1462,6 +1480,22 @@ fn apply_bundle(
             state.preferences.show_subscription_logo = value.show_subscription_logo;
         }
         result.applied_categories.push("appearance".into());
+    }
+    if categories.routing && !bundle.routing_modules.is_empty() {
+        // Совпадающие по идентификатору заменяются, остальные добавляются:
+        // затирать чужие модули целиком нельзя — их могли написать здесь.
+        for module in &bundle.routing_modules {
+            if let Some(existing) = state
+                .routing_modules
+                .iter_mut()
+                .find(|item| item.id == module.id)
+            {
+                *existing = module.clone();
+            } else {
+                state.routing_modules.push(module.clone());
+            }
+        }
+        result.applied_categories.push("routing".into());
     }
     if categories.connection {
         if let Some(value) = &bundle.connection {

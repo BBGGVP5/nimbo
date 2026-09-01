@@ -237,6 +237,17 @@ struct NimboSyncConnection: Codable {
     }
 }
 
+/// Модуль маршрутизации в переносе: текст правил как его написал человек.
+///
+/// Переносим исходник, а не разобранные правила: разбор общий для платформ, а
+/// текст человек ещё будет править.
+struct NimboSyncRoutingModule: Codable {
+    let id: String
+    let name: String
+    let enabled: Bool
+    let text: String
+}
+
 struct NimboSyncBundle: Codable {
     let schema: String
     let platform: String
@@ -246,12 +257,14 @@ struct NimboSyncBundle: Codable {
     let subscriptions: [NimboSyncSubscription]
     let appearance: NimboSyncAppearance?
     let connection: NimboSyncConnection?
+    let routingModules: [NimboSyncRoutingModule]?
 
     enum CodingKeys: String, CodingKey {
         case schema, platform, subscriptions, appearance, connection
         case deviceName = "device_name"
         case createdAtMs = "created_at_ms"
         case deviceInfo = "device_info"
+        case routingModules = "routing_modules"
     }
 }
 
@@ -260,12 +273,15 @@ struct NimboSyncCategories: Codable {
     let appearance: Bool
     let connection: Bool
     let automation: Bool
+    /// Пользовательские модули маршрутизации.
+    let routing: Bool?
 
     static let all = NimboSyncCategories(
         subscriptions: true,
         appearance: true,
         connection: true,
-        automation: true
+        automation: true,
+        routing: true
     )
 }
 
