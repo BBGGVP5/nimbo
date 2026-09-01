@@ -16,16 +16,29 @@ enum NimboTunnelMetrics {
     /// Адрес туннеля из настроек Packet Tunnel: по нему находим свой utun.
     static let tunnelAddress = "198.18.0.1"
 
+    /// Счётчики туннеля.
+    ///
+    /// Сначала пробуем найти интерфейс по адресу, который выдаёт туннель, но
+    /// адрес меняется вместе с настройками, и раньше в этом случае скорость
+    /// навсегда оставалась нулевой. Поэтому есть запасной путь: самый
+    /// нагруженный utun.
     static func tunnelCounters(address: String = tunnelAddress) -> Counters? {
         var storage: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&storage) == 0, let first = storage else { return nil }
         defer { freeifaddrs(storage) }
 
-        guard let name = interfaceName(withAddress: address, in: first) else { return nil }
-        return counters(forInterface: name, in: first)
+        if let name = interfaceName(withAddress: address, in: first),
+           let byAddress = counters(forInterface: name, in: first) {
+            return byAddress
+        }
+        return NimboInterfaceCounters.busiestTunnel().map {
+            Counters(received: $0.received, sent: $0.sent)
+        }
     }
 
-    /// Память процесса приложения. Android показывает ровно её же.
+    /// Память процесса приложения — запасное значение, когда расширение
+    /// молчит. Настоящий предел система ставит расширению, поэтому обычно
+    /// показывается его память.
     static func memoryFootprintMb() -> Int {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(
@@ -120,11 +133,27 @@ final class NimboMetricsAccumulator {
         previousAt = nil
     }
 
-    func tick(now: Date = Date()) {
-        memoryMb = NimboTunnelMetrics.memoryFootprintMb()
-        appendMemory(memoryMb)
+    /// Показания расширения, если оно ответило.
+    ///
+    /// Приложение считает то же самое запасным путём, но у расширения числа
+    /// точные: оно знает своё имя интерфейса и свою память.
+    func tick(reported: (received: UInt64, sent: UInt64, memoryMb: Int)?, now: Date = Date()) {
+        if let reported {
+            applyCounters(
+                received: reported.received,
+                sent: reported.sent,
+                memoryMb: reported.memoryMb,
+                now: now
+            )
+            return
+        }
+        tick(now: now)
+    }
 
+    func tick(now: Date = Date()) {
         guard let counters = NimboTunnelMetrics.tunnelCounters() else {
+            memoryMb = NimboTunnelMetrics.memoryFootprintMb()
+            appendMemory(memoryMb)
             previous = nil
             previousAt = nil
             appendSpeed(upload: 0, download: 0)
@@ -132,7 +161,23 @@ final class NimboMetricsAccumulator {
             downloadSpeed = 0
             return
         }
+        applyCounters(
+            received: counters.received,
+            sent: counters.sent,
+            memoryMb: NimboTunnelMetrics.memoryFootprintMb(),
+            now: now
+        )
+    }
 
+    /// Общий расчёт: разница счётчиков за прошедшее время.
+    ///
+    /// Источник счётчиков разный — расширение или собственный опрос
+    /// интерфейса, — а арифметика одна, и разводить её на две копии нельзя.
+    private func applyCounters(received: UInt64, sent: UInt64, memoryMb value: Int, now: Date) {
+        memoryMb = value
+        appendMemory(value)
+
+        let counters = NimboTunnelMetrics.Counters(received: received, sent: sent)
         defer {
             previous = counters
             previousAt = now
@@ -146,12 +191,12 @@ final class NimboMetricsAccumulator {
         let seconds = now.timeIntervalSince(previousAt)
         guard seconds > 0.2 else { return }
 
-        let sent = delta(previous: previous.sent, current: counters.sent)
-        let received = delta(previous: previous.received, current: counters.received)
-        uploadTotal &+= sent
-        downloadTotal &+= received
-        uploadSpeed = UInt64(Double(sent) / seconds)
-        downloadSpeed = UInt64(Double(received) / seconds)
+        let sentDelta = delta(previous: previous.sent, current: counters.sent)
+        let receivedDelta = delta(previous: previous.received, current: counters.received)
+        uploadTotal &+= sentDelta
+        downloadTotal &+= receivedDelta
+        uploadSpeed = UInt64(Double(sentDelta) / seconds)
+        downloadSpeed = UInt64(Double(receivedDelta) / seconds)
         appendSpeed(upload: uploadSpeed, download: downloadSpeed)
     }
 

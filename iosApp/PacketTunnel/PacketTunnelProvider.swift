@@ -8,6 +8,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var starting = false
     private var started = false
     private var preparedConfiguration: PreparedXrayConfiguration?
+    /// Имя utun, который выдала система: по нему считаются байты туннеля.
+    private var tunnelInterfaceName: String?
 
     override func startTunnel(
         options: [String: NSObject]?,
@@ -110,6 +112,20 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     "version": version,
                     "outbounds": self.preparedConfiguration?.outboundCount ?? 0
                 ]))
+            case "metrics":
+                // Счётчики берём у своего интерфейса: приложение видит все utun
+                // и не может отличить наш от служебного.
+                let counters = self.tunnelInterfaceName
+                    .flatMap { NimboInterfaceCounters.counters(interface: $0) }
+                    ?? NimboInterfaceCounters.busiestTunnel()
+                completionHandler?(Self.responseData([
+                    "ok": true,
+                    "received": counters?.received ?? 0,
+                    "sent": counters?.sent ?? 0,
+                    // Предел памяти система ставит расширению, поэтому важна
+                    // именно его занятая память, а не приложения.
+                    "memoryMb": NimboInterfaceCounters.memoryFootprintMb()
+                ]))
             case "diagnostics":
                 let running = (try? self.core.isRunning()) ?? false
                 let version = (try? self.core.version()) ?? "unknown"
@@ -180,6 +196,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         guard let descriptorInfo = PacketTunnelNetwork.utunDescriptorInfo() else {
             throw await recorded(PacketTunnelError.utunUnavailable, stage: .route, code: "IOS_UTUN_FD_NOT_FOUND")
         }
+
+        // Имя интерфейса нужно позже для счётчиков: искать его повторно
+        // бессмысленно, а угадывать по адресу — ошибочно.
+        tunnelInterfaceName = descriptorInfo.interfaceName
         guard let assets = Bundle.main.resourceURL?.path,
               FileManager.default.fileExists(atPath: "\(assets)/geoip.dat"),
               FileManager.default.fileExists(atPath: "\(assets)/geosite.dat") else {

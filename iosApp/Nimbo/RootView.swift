@@ -90,7 +90,7 @@ struct RootView: View {
             .onReceive(vpn.$state) { (state: VpnController.State) in
                 handleVpnState(state)
             }
-            .onReceive(metricsTimer) { _ in publishMetrics() }
+            .onReceive(metricsTimer) { _ in Task { await publishMetrics() } }
             .onReceive(NotificationCenter.default.publisher(for: .nimboToggleVpn)) { _ in
                 Task { await toggleVpn() }
             }
@@ -390,9 +390,12 @@ struct RootView: View {
 
     /// Показания снимаются со счётчиков utun-интерфейса: пакеты идут мимо
     /// приложения, поэтому считать их самому нечем.
-    private func publishMetrics() {
+    private func publishMetrics() async {
         guard vpn.state == .connected else { return }
-        metrics.tick()
+        // Показания спрашиваем у расширения: оно знает свой интерфейс и свою
+        // занятую память, а приложение — ни того, ни другого.
+        let reported = await vpn.tunnelMetrics()
+        metrics.tick(reported: reported)
         IosComposeControllerKt.NimboUpdateIosMetrics(
             uploadSpeed: Int64(clamping: metrics.uploadSpeed),
             downloadSpeed: Int64(clamping: metrics.downloadSpeed),

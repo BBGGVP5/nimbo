@@ -203,6 +203,34 @@ private fun ProfileSubscriptionCard(state: NimboUiState, actions: NimboUiActions
                 Spacer(Modifier.width(6.dp))
                 NimboIconButton(NimboIconName.MORE, modifier = Modifier.size(46.dp), onClick = actions.onOpenProfileSettings)
             }
+            // Описание провайдера целиком: на главной оно обрезано, чтобы
+            // карточка не превращалась в стену текста, и посмотреть его было
+            // негде.
+            if (state.profileAnnounce.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(nimboStyledShape(16.dp, 2.dp))
+                        .background(nimboStyledContainer(NimboPalette.Control))
+                        .padding(14.dp)
+                ) {
+                    Column {
+                        BasicText(
+                            "ОПИСАНИЕ",
+                            style = NimboBodyStyle.copy(
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        BasicText(
+                            state.profileAnnounce,
+                            style = NimboBodyStyle.copy(fontSize = 13.sp, lineHeight = 19.sp)
+                        )
+                    }
+                }
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Значения приходят из заголовков подписки; пока их нет —
                 // честнее показать прочерк, чем выдуманную бесконечность.
