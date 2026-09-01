@@ -36,7 +36,7 @@ actor NimboPingService {
     }
     /// Одновременных проверок: подписки бывают на сотню серверов, и открывать
     /// их разом — верный способ упереться в лимит дескрипторов.
-    private let parallelism = 8
+    private let parallelism = 16
 
     private var inFlight = false
 
@@ -58,6 +58,25 @@ actor NimboPingService {
         guard let address = await NimboPingService.resolveAddress(host) else { return nil }
         resolved[host] = (address, Date())
         return address
+    }
+
+    /// Адрес с ограничением по времени.
+    ///
+    /// У системного резолвера своего предела нет: пока туннель поднимается,
+    /// DNS может не отвечать вовсе, и одно имя задерживало весь список на
+    /// десятки секунд. Не успели — узел считается молчащим.
+    private func resolvedAddress(for host: String) async -> String? {
+        let deadline = timeout
+        return await withTaskGroup(of: String?.self) { group in
+            group.addTask { [weak self] in await self?.address(for: host) }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(deadline * 1_000_000_000))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
     }
 
     /// Похоже ли на готовый адрес: у IPv6 есть двоеточия, у IPv4 — только
@@ -159,10 +178,20 @@ actor NimboPingService {
         while index < targets.count {
             let slice = targets[index ..< min(index + parallelism, targets.count)]
             // Адреса разрешаются до замера: иначе ответ DNS попадёт в задержку
-            // и узел рядом покажет сотни миллисекунд.
+            // и узел рядом покажет сотни миллисекунд. Разрешаются они разом:
+            // по одному сотня имён складывалась в минуты ожидания, и список
+            // просто висел на «Проверяю…».
             var addresses: [String: String] = [:]
-            for target in slice {
-                addresses[target.id] = await address(for: target.host)
+            await withTaskGroup(of: (String, String?).self) { group in
+                for target in slice {
+                    group.addTask { [weak self] in
+                        guard let self else { return (target.id, nil) }
+                        return (target.id, await self.resolvedAddress(for: target.host))
+                    }
+                }
+                for await (id, value) in group where value != nil {
+                    addresses[id] = value
+                }
             }
             await withTaskGroup(of: (String, Int).self) { group in
                 for target in slice {

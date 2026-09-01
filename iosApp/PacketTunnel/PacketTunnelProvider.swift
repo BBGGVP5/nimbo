@@ -17,6 +17,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var tunnelInterfaceName: String?
     /// Проверка, жив ли ещё процесс ядра.
     private var watchdog: DispatchSourceTimer?
+    /// Сколько проверок подряд ядро промолчало.
+    private var watchdogMisses = 0
 
     override func startTunnel(
         options: [String: NSObject]?,
@@ -155,29 +157,35 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
-    /// Ядро может остановиться само — из-за нехватки памяти или сбоя внутри.
+    /// Наблюдение за ядром.
     ///
-    /// Снаружи это выглядит хуже разрыва: туннель поднят, система шлёт в него
-    /// трафик, а обрабатывать его некому. Поэтому расширение само сообщает
-    /// системе об отказе: правило автоподъёма поднимет туннель заново.
+    /// Раньше сторож при первой же неудачной проверке отменял туннель. Но
+    /// «не ответило» и «остановилось» — разные вещи: вызов к ядру может
+    /// не пройти на секунду, а туннель при этом жив. Из-за этого рабочее
+    /// соединение обрывалось на ровном месте, поэтому сторож только пишет в
+    /// диагностику, и лишь после трёх молчаливых проверок подряд.
     private func startWatchdog() {
         stopWatchdog()
+        watchdogMisses = 0
         let timer = DispatchSource.makeTimerSource(queue: lifecycleQueue)
         timer.schedule(deadline: .now() + 60, repeating: 60, leeway: .seconds(15))
         timer.setEventHandler { [weak self] in
             guard let self, self.started, !self.starting else { return }
-            guard (try? self.core.isRunning()) != true else { return }
+            if (try? self.core.isRunning()) == true {
+                self.watchdogMisses = 0
+                return
+            }
+            self.watchdogMisses += 1
+            guard self.watchdogMisses >= 3 else { return }
             self.stopWatchdog()
-            self.started = false
             Task {
                 await NimboDiagnostics.shared.record(
-                    .error,
+                    .warning,
                     stage: .coreLoad,
-                    code: "IOS_XRAY_STOPPED_UNEXPECTEDLY",
-                    message: "VPN-ядро остановилось само — перезапуск туннеля"
+                    code: "IOS_XRAY_SILENT",
+                    message: "VPN-ядро не отвечает на проверки состояния"
                 )
             }
-            self.cancelTunnelWithError(PacketTunnelError.coreStoppedUnexpectedly)
         }
         timer.resume()
         watchdog = timer
@@ -195,7 +203,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     override func wake() {
         lifecycleQueue.async { [weak self] in
             guard let self, self.started else { return }
-            if (try? self.core.isRunning()) != true {
+            guard (try? self.core.isRunning()) != true else { return }
+            // Сразу после пробуждения ядро может не ответить, оставаясь живым.
+            // Рвать из-за этого рабочее соединение нельзя, поэтому спрашиваем
+            // ещё раз чуть погодя.
+            self.lifecycleQueue.asyncAfter(deadline: .now() + 3) {
+                guard self.started, (try? self.core.isRunning()) != true else { return }
                 self.cancelTunnelWithError(PacketTunnelError.coreStoppedUnexpectedly)
             }
         }

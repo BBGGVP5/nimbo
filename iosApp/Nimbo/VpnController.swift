@@ -198,11 +198,11 @@ final class VpnController: ObservableObject {
             }
             state = .connecting
             await NimboDiagnostics.shared.record(.info, stage: .tunnelStart, code: "IOS_TUNNEL_START_REQUESTED", message: "Запуск Packet Tunnel запрошен пользователем")
-            // Система вправе выгрузить расширение — из-за памяти, при смене
-            // сети, после долгого сна. Без правила «по требованию» туннель
-            // после этого просто оставался бы выключенным, и человек узнавал
-            // бы об этом по пропавшему доступу.
-            try await setOnDemand(true, on: manager)
+            // Правило «по требованию» здесь не включается намеренно. Оно
+            // поднимает туннель само, и если запуск падает — а на пределе
+            // памяти он падает, — система повторяет попытку по кругу:
+            // со стороны это выглядит как VPN, который сам включается и
+            // выключается, и кнопка перестаёт что-либо значить.
             try manager.connection.startVPNTunnel()
             pendingConnection = true
             startRequestedAt = Date()
@@ -222,7 +222,7 @@ final class VpnController: ObservableObject {
         // системой. Без загрузки остановка не дошла бы до него, и кнопка
         // крутилась бы вечно.
         if manager == nil { manager = try? await loadOrCreateManager() }
-        // Правило «по требованию» снимается до остановки: иначе система
+        // Правило могло остаться от прежней версии: без снятия система
         // подняла бы туннель обратно через секунду, и кнопка выглядела бы
         // сломанной.
         if let manager { try? await setOnDemand(false, on: manager) }
@@ -264,6 +264,10 @@ final class VpnController: ObservableObject {
         value.protocolConfiguration = tunnelProtocol
         value.localizedDescription = "Nimbo"
         value.isEnabled = true
+        // У тех, кто успел получить прошлую сборку, правило осталось
+        // включённым и продолжало бы поднимать туннель само.
+        value.isOnDemandEnabled = false
+        value.onDemandRules = []
         try await value.saveToPreferences()
         try await value.loadFromPreferences()
         return value
