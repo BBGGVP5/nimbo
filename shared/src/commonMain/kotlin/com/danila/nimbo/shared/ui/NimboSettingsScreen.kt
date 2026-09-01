@@ -27,6 +27,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -39,7 +42,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -372,14 +378,96 @@ private fun LatencyPage(state: NimboUiState, actions: NimboUiActions) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             style = NimboBodyStyle
         )
-        PingUrlChoice.entries.forEachIndexed { index, choice ->
+        PingUrlChoice.entries.forEach { choice ->
             SettingsChoiceRow(
                 title = choice.title,
                 subtitle = choice.url,
                 selected = state.pingUrl == choice.url,
                 onClick = { actions.onSetPing("url", choice.url) }
             )
-            if (index != PingUrlChoice.entries.lastIndex) SettingsDivider()
+            SettingsDivider()
+        }
+        CustomPingUrlRow(state, actions)
+    }
+}
+
+/**
+ * Поле для своего адреса.
+ *
+ * Значение применяется по кнопке, а не по каждому нажатию клавиши: иначе
+ * недописанный адрес успевал уйти в настройки и первый же замер уходил в
+ * никуда.
+ */
+@Composable
+private fun CustomPingUrlRow(state: NimboUiState, actions: NimboUiActions) {
+    val isPreset = PingUrlChoice.entries.any { it.url == state.pingUrl }
+    var draft by remember(state.pingUrl) {
+        mutableStateOf(if (isPreset) "" else state.pingUrl)
+    }
+    val trimmed = draft.trim()
+    // Без схемы запрос не уйдёт, поэтому кнопка ждёт полный адрес.
+    val ready = trimmed.startsWith("http://") || trimmed.startsWith("https://")
+
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SettingsTitle("Свой адрес")
+            Spacer(Modifier.width(8.dp))
+            if (!isPreset && state.pingUrl.isNotBlank()) {
+                BasicText(
+                    "✓",
+                    style = TextStyle(
+                        color = NimboPalette.Accent,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+        }
+        SettingsSubtitle("Например, страница отклика вашего сервера")
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(nimboStyledShape(14.dp, 2.dp))
+                    .background(nimboStyledContainer(NimboPalette.Control))
+                    .border(
+                        if (LocalNimboElementStyle.current == NimboElementStyle.MANGA) 1.5.dp else 1.dp,
+                        nimboStyledBorder(NimboPalette.Hairline),
+                        nimboStyledShape(14.dp, 2.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 12.dp)
+            ) {
+                BasicTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    singleLine = true,
+                    textStyle = TextStyle(color = NimboPalette.Text, fontSize = 15.sp),
+                    cursorBrush = SolidColor(NimboPalette.Accent),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = { if (ready) actions.onSetPing("url", trimmed) }
+                    ),
+                    decorationBox = { inner ->
+                        if (draft.isBlank()) {
+                            BasicText(
+                                "https://example.com/health",
+                                style = NimboBodyStyle.copy(fontSize = 15.sp)
+                            )
+                        }
+                        inner()
+                    }
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            NimboPill(
+                "Готово",
+                selected = ready,
+                onClick = { if (ready) actions.onSetPing("url", trimmed) }
+            )
         }
     }
 }

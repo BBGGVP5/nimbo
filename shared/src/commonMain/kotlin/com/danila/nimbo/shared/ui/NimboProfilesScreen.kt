@@ -141,10 +141,23 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
                     )
                 }
             }
-            BasicText(
-                if (favoritesOnly) "ИЗБРАННОЕ · ${visibleServers.size}" else "${state.serverCount} СЕРВЕРОВ",
-                style = NimboBodyStyle.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BasicText(
+                    if (favoritesOnly) "ИЗБРАННОЕ · ${visibleServers.size}" else "${state.serverCount} СЕРВЕРОВ",
+                    modifier = Modifier.weight(1f),
+                    style = NimboBodyStyle.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                )
+                // Кнопка на виду: пока замер запускался нажатием на число,
+                // догадаться о нём было нельзя.
+                NimboIconPill(
+                    NimboIconName.PING,
+                    if (state.pingInProgress) "Проверяю…" else "Проверить все",
+                    onClick = { if (!state.pingInProgress) actions.onPingAll() }
+                )
+            }
             if (favoritesOnly && visibleServers.isEmpty()) {
                 NimboSurface(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
                     BasicText(
@@ -343,11 +356,13 @@ private fun ProfileServerCard(
                     )
                 )
             }
-            // Нажатие на саму плашку перемеряет задержку: отдельной кнопке
-            // в строке уже не хватает ширины, а место замера — очевидное.
-            NimboPill(
-                server.pingLabel,
-                selected = server.selected,
+            NimboPill(server.pingLabel, selected = server.selected)
+            Spacer(Modifier.width(6.dp))
+            // Отдельная кнопка со спидометром: нажатие на само число оставили,
+            // но полагаться на него нельзя — его никто не находит.
+            NimboIconButton(
+                NimboIconName.PING,
+                modifier = Modifier.size(36.dp),
                 onClick = { onPing(server.id) }
             )
             Spacer(Modifier.width(6.dp))

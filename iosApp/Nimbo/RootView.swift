@@ -103,6 +103,9 @@ struct RootView: View {
                 guard let serverID = notification.object as? String else { return }
                 Task { await measurePing(serverID) }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboPingAll)) { _ in
+                Task { await measurePings() }
+            }
     }
 
     private var sheetsLayer: some View {
@@ -436,6 +439,7 @@ private extension Notification.Name {
     static let nimboSystemSettings = Notification.Name("com.nimbo.action.system-settings")
     static let nimboSelectServer = Notification.Name("com.nimbo.action.select-server")
     static let nimboPingServer = Notification.Name("com.nimbo.action.ping-server")
+    static let nimboPingAll = Notification.Name("com.nimbo.action.ping-all")
     static let nimboOpenUrl = Notification.Name("com.nimbo.action.open-url")
     static let nimboRouting = Notification.Name("com.nimbo.action.routing")
     static let nimboOpenScreen = Notification.Name("com.nimbo.action.open-screen")

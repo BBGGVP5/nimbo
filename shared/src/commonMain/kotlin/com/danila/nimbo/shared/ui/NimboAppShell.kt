@@ -171,8 +171,10 @@ data class NimboUiActions(
     /** Открыть ссылку во внешнем браузере. */
     val onOpenUrl: (String) -> Unit = {},
     val onToggleFavorite: (String) -> Unit = {},
-    /** Измерить задержку до одного сервера по нажатию на его плашку. */
+    /** Измерить задержку до одного сервера. */
     val onPingServer: (String) -> Unit = {},
+    /** Перемерить весь список сразу. */
+    val onPingAll: () -> Unit = {},
     /** Настройка маршрутизации: ключ и новое значение строкой. */
     val onSetRouting: (String, String) -> Unit = { _, _ -> },
     /** Переход на вкладку: на iOS её показывает системная панель. */
