@@ -108,6 +108,8 @@ data class NimboUiState(
     val favoritesFirst: Boolean = true,
     /** Версия доступного обновления; пусто — обновлений нет. */
     /** Как мерить задержку: «tcp» до узла или «http» через туннель. */
+    /** Стиль главной кнопки: «classic» — кольцо, «compact» — полоса. */
+    val connectStyle: String = "classic",
     /** История уведомлений и сообщение, которое показывается сейчас. */
     val notifications: List<NimboNotification> = emptyList(),
     val toast: NimboNotification? = null,

@@ -70,7 +70,11 @@ internal fun NimboHomeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         HomeProfileCard(state, actions)
-        HomeConnectionButton(state, actions)
+        if (state.connectStyle == "compact") {
+            HomeCompactConnection(state, actions)
+        } else {
+            HomeConnectionButton(state, actions)
+        }
         HomeSelectedServer(state, onOpenProfiles)
         HomeMonitoring(state)
     }
@@ -183,6 +187,89 @@ private fun HomeProfileCard(state: NimboUiState, actions: NimboUiActions) {
                 )
             )
         }
+    }
+}
+
+/**
+ * Компактное подключение: широкая полоса вместо кольца.
+ *
+ * Кольцо красивое, но занимает половину экрана — на маленьком телефоне из-за
+ * него список серверов уезжает под панель.
+ */
+@Composable
+private fun HomeCompactConnection(state: NimboUiState, actions: NimboUiActions) {
+    val connected = state.vpnState == "connected"
+    val connecting = state.vpnState in setOf("preparing", "connecting", "disconnecting")
+    val shape = nimboStyledShape(22.dp, 3.dp)
+    val fill = when {
+        connected -> NimboPalette.Accent
+        connecting -> NimboPalette.Accent.copy(alpha = 0.28f)
+        else -> NimboPalette.Control
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(74.dp)
+            .clip(shape)
+            .background(nimboStyledContainer(fill, selected = connected))
+            .border(
+                if (LocalNimboElementStyle.current == NimboElementStyle.MANGA) 2.dp else 1.dp,
+                nimboStyledBorder(
+                    if (connected) NimboPalette.Accent else Color.White.copy(alpha = 0.10f),
+                    selected = connected
+                ),
+                shape
+            )
+            .nimboRowClickable(actions.onToggleVpn)
+            .padding(horizontal = 18.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        NimboIcon(
+            NimboIconName.POWER,
+            tint = if (connected) NimboPalette.Background else NimboPalette.Accent,
+            modifier = Modifier.size(28.dp)
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            BasicText(
+                when {
+                    connected -> "Защищено"
+                    state.vpnState == "preparing" -> "Подготавливаем VPN…"
+                    state.vpnState == "connecting" -> "Подключение…"
+                    state.vpnState == "disconnecting" -> "Отключение…"
+                    state.vpnState == "failed" -> "Не удалось подключиться"
+                    else -> "Отключено"
+                },
+                style = TextStyle(
+                    color = if (connected) NimboPalette.Background else NimboPalette.Text,
+                    fontSize = 18.sp,
+                    lineHeight = 24.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            )
+            BasicText(
+                state.activeServerName,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = TextStyle(
+                    color = if (connected) {
+                        NimboPalette.Background.copy(alpha = 0.75f)
+                    } else {
+                        NimboPalette.TextSecondary
+                    },
+                    fontSize = 13.sp,
+                    lineHeight = 17.sp
+                )
+            )
+        }
+        BasicText(
+            if (connected) "Отключить" else "Подключить",
+            style = TextStyle(
+                color = if (connected) NimboPalette.Background else NimboPalette.Accent,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+        )
     }
 }
 

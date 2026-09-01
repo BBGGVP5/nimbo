@@ -286,6 +286,22 @@ private fun AppearancePage(state: NimboUiState, actions: NimboUiActions) {
         }
     }
 
+    SettingsSection("Стиль подключения") {
+        SettingsChoiceRow(
+            title = "Классический",
+            subtitle = "Кольцо во весь экран, как на Android по умолчанию",
+            selected = state.connectStyle != "compact",
+            onClick = { actions.onSetAppearance("connectStyle", "classic") }
+        )
+        SettingsDivider()
+        SettingsChoiceRow(
+            title = "Компактный",
+            subtitle = "Полоса вместо кольца: на экране помещается больше",
+            selected = state.connectStyle == "compact",
+            onClick = { actions.onSetAppearance("connectStyle", "compact") }
+        )
+    }
+
     SettingsSection("Фон") {
         SettingsRowFrame(height = 52.dp) {
             Column(modifier = Modifier.weight(1f)) {

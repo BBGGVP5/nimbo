@@ -68,7 +68,8 @@ private fun applyAppearanceChange(key: String, value: String) {
     when (key) {
         "backgroundStyle", "backgroundPalette" ->
             defaults.setInteger(value.toLongOrNull() ?: 0L, AppearanceDefaultsPrefix + key)
-        "elementStyle", "serverSort" -> defaults.setObject(value, AppearanceDefaultsPrefix + key)
+        "elementStyle", "serverSort", "connectStyle" ->
+            defaults.setObject(value, AppearanceDefaultsPrefix + key)
         else -> defaults.setBool(value == "true", AppearanceDefaultsPrefix + key)
     }
     iosUiState.value = iosUiState.value.copy(
@@ -80,7 +81,8 @@ private fun applyAppearanceChange(key: String, value: String) {
         showMemoryWidget = appearanceFlag("showMemoryWidget", true),
         elementStyle = appearanceText("elementStyle", "glass"),
         serverSort = appearanceText("serverSort", "subscription"),
-        favoritesFirst = appearanceFlag("favoritesFirst", true)
+        favoritesFirst = appearanceFlag("favoritesFirst", true),
+        connectStyle = appearanceText("connectStyle", "classic")
     )
     // Нативная нижняя панель живёт вне Compose. Сообщаем Swift о смене
     // оформления, чтобы Manga/Glass применялись сразу, без перезапуска экрана.
@@ -459,6 +461,7 @@ fun NimboUpdateIosUiState(
         elementStyle = appearanceText("elementStyle", "glass"),
         serverSort = appearanceText("serverSort", "subscription"),
         favoritesFirst = appearanceFlag("favoritesFirst", true),
+        connectStyle = appearanceText("connectStyle", "classic"),
         pingProtocol = pingText("protocol", "tcp"),
         pingTimeoutMs = pingInt("timeoutMs", 3000),
         pingUrl = pingText("url", DefaultPingUrl),
