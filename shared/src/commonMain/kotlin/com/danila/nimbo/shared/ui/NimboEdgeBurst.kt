@@ -110,7 +110,13 @@ internal fun NimboEdgeBurstOverlay(
         NimboBurstTrigger.ACTIVITY -> NimboPalette.Accent
     }
 
-    val source = NimboBurstSource.bounds
+    // Подключение и отключение принадлежат кнопке — крупицы летят от неё.
+    // Пинг и обновление подписки ей не принадлежат: они поднимаются от нижнего
+    // края, как на Android.
+    val source = when (trigger) {
+        NimboBurstTrigger.CONNECTED, NimboBurstTrigger.DISCONNECTED -> NimboBurstSource.bounds
+        NimboBurstTrigger.ACTIVITY -> null
+    }
     val roundSource = NimboBurstSource.round
 
     Canvas(modifier = modifier) {
