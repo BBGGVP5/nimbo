@@ -170,6 +170,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         private const val KEY_ELEMENT_STYLE = "element_style"
         private const val KEY_BACKGROUND_ANIMATION_ENABLED = "background_animation_enabled"
         private const val KEY_NAV_ICON_ANIMATION_ENABLED = "nav_icon_animation_enabled"
+        private const val KEY_ROUTING_MODULES = "routing_modules"
         private const val KEY_STATUS_PARTICLES_ENABLED = "status_particles_enabled"
         private const val KEY_LIQUID_REFRACTION_ENABLED = "liquid_refraction_enabled"
         private const val KEY_HIGH_CONTRAST_UI = "high_contrast_ui"
@@ -369,6 +370,28 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     var appLanguage: String
         get() = sharedPreferences.getString("app_language", "") ?: ""
         set(value) = sharedPreferences.edit().putString("app_language", value.trim()).apply()
+
+    /**
+     * Пользовательские модули маршрутизации.
+     *
+     * Хранятся текстом ровно в том виде, как их написал человек: разбор
+     * делается при сборке конфигурации. Так набор можно перенести на другое
+     * устройство или в другое приложение без потерь.
+     */
+    fun routingModules(): List<com.danila.nimbo.shared.routing.NimboModule> {
+        val raw = sharedPreferences.getString(KEY_ROUTING_MODULES, null) ?: return emptyList()
+        return runCatching {
+            val type = object : TypeToken<List<com.danila.nimbo.shared.routing.NimboModule>>() {}.type
+            gson.fromJson<List<com.danila.nimbo.shared.routing.NimboModule>>(raw, type).orEmpty()
+        }.getOrElse { emptyList() }
+    }
+
+    fun saveRoutingModules(modules: List<com.danila.nimbo.shared.routing.NimboModule>) {
+        sharedPreferences.edit().putString(KEY_ROUTING_MODULES, gson.toJson(modules)).apply()
+        routingModulesState.value = modules
+    }
+
+    val routingModulesState = mutableStateOf(routingModules())
 
     /** Built-in routing profiles with saved user edits overlaid on top of app defaults. */
     fun builtinRoutingProfiles(): List<RoutingProfile> =

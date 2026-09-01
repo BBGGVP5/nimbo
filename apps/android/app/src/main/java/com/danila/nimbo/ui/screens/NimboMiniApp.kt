@@ -92,6 +92,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -116,6 +117,7 @@ import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
@@ -238,6 +240,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
@@ -268,6 +271,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -355,6 +359,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.graphics.BlendMode
 import com.danila.nimbo.utils.PreferencesManager
+import com.danila.nimbo.shared.routing.NimboModule
+import com.danila.nimbo.shared.routing.NimboModuleParser
 import com.danila.nimbo.utils.AppIconManager
 import com.danila.nimbo.ui.LocalPreferencesManager
 import com.danila.nimbo.utils.Logger
@@ -382,13 +388,13 @@ import kotlin.math.sin
 private enum class MiniDestination {
     Home, Subscription, AppAccess, Settings,
     Theme, AppIcon, Language, PingSettings, About, Disclaimer, ConnectionId, Notifications, Updates, Logs,
-    Routing, Connections, Statistics, Firewall, WhitelistCheck, WhitelistPing, WhitelistHistory,
-    CrossPlatformSync;
+    Routing, RoutingModules, Connections, Statistics, Firewall, WhitelistCheck, WhitelistPing,
+    WhitelistHistory, CrossPlatformSync;
 
     fun isSettingsSubPage(): Boolean = when (this) {
         Theme, AppIcon, Language, PingSettings, About, ConnectionId, Notifications, Updates, Logs,
-        Routing, Connections, Statistics, Firewall, WhitelistCheck, WhitelistPing, WhitelistHistory,
-        CrossPlatformSync -> true
+        Routing, RoutingModules, Connections, Statistics, Firewall, WhitelistCheck, WhitelistPing,
+        WhitelistHistory, CrossPlatformSync -> true
         else -> false
     }
 
@@ -1043,7 +1049,13 @@ fun NimboMiniApp(
                 )
 
                 MiniDestination.Routing -> RoutingScreen(
-                    onNavigateBack = { navigateBackInMiniApp() }
+                    onNavigateBack = { navigateBackInMiniApp() },
+                    onOpenModules = { navigateTo(MiniDestination.RoutingModules) }
+                )
+
+                MiniDestination.RoutingModules -> RoutingModulesScreen(
+                    preferencesManager = preferencesManager,
+                    onBack = { navigateBackInMiniApp() }
                 )
 
                 MiniDestination.Connections -> NetworkIntelligenceScreen(
@@ -18394,3 +18406,296 @@ private fun SubscriptionSettingsDialog(
         }
     }
 }
+
+/**
+ * Модули маршрутизации: наборы правил, написанные пользователем.
+ *
+ * Формат тот же, что в Shadowrocket и Surge, — люди переносят сюда готовые
+ * наборы, и требовать переписать их в свой синтаксис значит выбросить чужую
+ * работу. Правила включённых модулей применяются раньше правил профиля.
+ */
+@Composable
+private fun RoutingModulesScreen(
+    preferencesManager: PreferencesManager,
+    onBack: () -> Unit
+) {
+    val nebulaColors = LocalNebulaColors.current
+    var modules by remember { mutableStateOf(preferencesManager.routingModules()) }
+    var editing by remember { mutableStateOf<NimboModule?>(null) }
+    // Название берётся заранее: t() читает состояние языка и внутри обработчика
+    // нажатия вызвано быть не может.
+    val newModuleName = t("Новый модуль", "New module")
+
+    fun persist(next: List<NimboModule>) {
+        modules = next
+        preferencesManager.saveRoutingModules(next)
+    }
+
+    val current = editing
+    if (current != null) {
+        RoutingModuleEditor(
+            module = current,
+            onCancel = { editing = null },
+            onSave = { saved ->
+                val next = if (modules.any { it.id == saved.id }) {
+                    modules.map { if (it.id == saved.id) saved else it }
+                } else {
+                    modules + saved
+                }
+                persist(next)
+                editing = null
+            }
+        )
+        return
+    }
+
+    NimboSubPageScaffold(
+        title = t("Модули", "Modules"),
+        onBack = onBack
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = t("Свои наборы правил", "Your rule sets"),
+                color = LocalNebulaColors.current.textSecondary,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.weight(1f)
+            )
+            MiniIconButton(
+                icon = Icons.Default.Add,
+                onClick = {
+                    editing = NimboModule(
+                        id = java.util.UUID.randomUUID().toString(),
+                        name = newModuleName,
+                        enabled = true,
+                        text = NEW_MODULE_TEMPLATE
+                    )
+                }
+            )
+        }
+        val totalRules = remember(modules) {
+            modules.sumOf { NimboModuleParser.parse(it.text).rules.size }
+        }
+        Text(
+            text = t(
+                "Свои правила поверх профиля: домены и адреса, которые всегда идут напрямую, через VPN или в блок.",
+                "Your own rules on top of the profile: domains and addresses that always go direct, through the VPN or to block."
+            ),
+            color = nebulaColors.textSecondary,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        if (modules.isEmpty()) {
+            GlassPanel(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text(
+                        text = t("Модулей пока нет", "No modules yet"),
+                        color = nebulaColors.textPrimary,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = t(
+                            "Нажмите «+» и вставьте набор правил вида DOMAIN-SUFFIX,example.com,DIRECT — подойдёт готовый список из другого приложения.",
+                            "Tap + and paste rules like DOMAIN-SUFFIX,example.com,DIRECT — a ready list from another app fits as is."
+                        ),
+                        color = nebulaColors.textSecondary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = t(
+                    "${modules.size} модулей · $totalRules правил",
+                    "${modules.size} modules · $totalRules rules"
+                ),
+                color = nebulaColors.textTertiary,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.padding(start = 2.dp, bottom = 8.dp)
+            )
+            modules.forEach { module ->
+                RoutingModuleCard(
+                    module = module,
+                    onToggle = { enabled ->
+                        persist(modules.map { if (it.id == module.id) it.copy(enabled = enabled) else it })
+                    },
+                    onEdit = { editing = module },
+                    onDelete = { persist(modules.filterNot { it.id == module.id }) }
+                )
+                Spacer(Modifier.height(10.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoutingModuleCard(
+    module: NimboModule,
+    onToggle: (Boolean) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val parsed = remember(module.text) { NimboModuleParser.parse(module.text) }
+    val cornerScale = LocalGlobalCornerRadius.current
+    GlassPanel(
+        modifier = Modifier.fillMaxWidth().nimboClickable(onClick = onEdit),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(scaleRoundedCornerShape(RoundedCornerShape(12.dp), cornerScale))
+                    .background(nebulaColors.accent.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Extension,
+                    contentDescription = null,
+                    tint = nebulaColors.accent,
+                    modifier = Modifier.size(21.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = parsed.name?.takeIf { it.isNotBlank() } ?: module.name,
+                    color = nebulaColors.textPrimary,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = buildString {
+                        append(t("${parsed.rules.size} правил", "${parsed.rules.size} rules"))
+                        // Пропущенные строки прячут ошибку: человек ждёт, что
+                        // работает весь набор, а часть могла не разобраться.
+                        if (parsed.skippedLines > 0) {
+                            append(" · ")
+                            append(t("${parsed.skippedLines} строк не понято", "${parsed.skippedLines} lines skipped"))
+                        }
+                    },
+                    color = if (parsed.skippedLines > 0) nebulaColors.accent else nebulaColors.textTertiary,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Switch(
+                checked = module.enabled,
+                onCheckedChange = onToggle,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = nebulaColors.accent,
+                    uncheckedThumbColor = nebulaColors.textSecondary,
+                    uncheckedTrackColor = nebulaColors.textSecondary.copy(alpha = 0.2f)
+                )
+            )
+            Spacer(Modifier.width(4.dp))
+            MiniIconButton(
+                icon = Icons.Default.Delete,
+                onClick = onDelete,
+                size = 38.dp,
+                iconSize = 19.dp
+            )
+        }
+    }
+}
+
+@Composable
+private fun RoutingModuleEditor(
+    module: NimboModule,
+    onCancel: () -> Unit,
+    onSave: (NimboModule) -> Unit
+) {
+    val nebulaColors = LocalNebulaColors.current
+    var text by remember(module.id) { mutableStateOf(module.text) }
+    val parsed = remember(text) { NimboModuleParser.parse(text) }
+
+    NimboSubPageScaffold(
+        title = parsed.name?.takeIf { it.isNotBlank() } ?: module.name,
+        onBack = onCancel
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = t("Правила модуля", "Module rules"),
+                color = nebulaColors.textSecondary,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.weight(1f)
+            )
+            MiniIconButton(
+                icon = Icons.Default.Check,
+                onClick = {
+                    onSave(
+                        module.copy(
+                            name = parsed.name?.takeIf { it.isNotBlank() } ?: module.name,
+                            text = text
+                        )
+                    )
+                },
+                active = true
+            )
+        }
+        Text(
+            text = t(
+                "${parsed.rules.size} правил разобрано",
+                "${parsed.rules.size} rules parsed"
+            ) + if (parsed.skippedLines > 0) {
+                " · " + t("${parsed.skippedLines} строк не понято", "${parsed.skippedLines} lines skipped")
+            } else "",
+            color = if (parsed.skippedLines > 0) nebulaColors.accent else nebulaColors.textTertiary,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier.padding(start = 2.dp, bottom = 10.dp)
+        )
+        GlassPanel(modifier = Modifier.fillMaxWidth()) {
+            // Моноширинный шрифт: правила читаются столбцами, и пропорциональный
+            // превращает их в кашу.
+            BasicTextField(
+                value = text,
+                onValueChange = { text = it },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 320.dp).padding(14.dp),
+                textStyle = MaterialTheme.typography.bodySmall.copy(
+                    color = nebulaColors.textPrimary,
+                    fontFamily = FontFamily.Monospace
+                ),
+                cursorBrush = SolidColor(nebulaColors.accent)
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = t(
+                "Поддерживаются DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, GEOIP и GEOSITE с политиками DIRECT, PROXY и REJECT. Секция [General] пропускается: её настройки относятся к другому движку.",
+                "Supported: DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, GEOIP and GEOSITE with DIRECT, PROXY and REJECT. The [General] section is skipped: it configures a different engine."
+            ),
+            color = nebulaColors.textTertiary,
+            style = MaterialTheme.typography.labelMedium
+        )
+    }
+}
+
+/** Заготовка нового модуля: сразу видно формат, не нужно искать пример. */
+private val NEW_MODULE_TEMPLATE = """
+#!name=Мой модуль
+#!desc=Свои правила маршрутизации
+
+[Rule]
+DOMAIN-SUFFIX,example.com,DIRECT
+DOMAIN-KEYWORD,analytics,REJECT
+GEOIP,ru,DIRECT
+""".trimIndent()

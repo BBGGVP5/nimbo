@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lan
@@ -98,7 +99,7 @@ private val builtinRoutingPresets = listOf(
 )
 
 @Composable
-fun RoutingScreen(onNavigateBack: () -> Unit) {
+fun RoutingScreen(onNavigateBack: () -> Unit, onOpenModules: () -> Unit = {}) {
     val context = LocalContext.current
     val application = context.applicationContext as Application
     val preferencesManager = remember { PreferencesManager(application) }
@@ -294,6 +295,16 @@ fun RoutingScreen(onNavigateBack: () -> Unit) {
                 accent = true
             ) { showImportDialog = true }
         }
+
+        Spacer(Modifier.height(10.dp))
+        // Модули — соседний способ управлять маршрутом, поэтому кнопка стоит
+        // рядом с импортом, а не прячется в настройках.
+        RoutingQuickAction(
+            icon = Icons.Default.Extension,
+            label = t("Модули · свои правила", "Modules · your rules"),
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onOpenModules
+        )
 
         Spacer(Modifier.height(20.dp))
         Row(

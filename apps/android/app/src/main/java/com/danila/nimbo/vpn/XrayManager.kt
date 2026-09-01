@@ -913,6 +913,13 @@ object XrayManager {
         val rules = routing.optJSONArray("rules") ?: JSONArray()
         val updated = JSONArray()
 
+        // Модули идут первыми: их пишет человек под свою задачу, и профиль не
+        // должен перебивать явно указанный им маршрут.
+        val moduleRules = RoutingModuleRules.build(prefs)
+        for (i in 0 until moduleRules.length()) {
+            updated.put(moduleRules.getJSONObject(i))
+        }
+
         routingProfile?.let { profile ->
             routing.put("domainStrategy", profile.domainStrategy?.takeIf { it.isNotBlank() } ?: "IPIfNonMatch")
             val profileRules = RoutingProfileRules.build(profile, includeFallback = false)
@@ -988,6 +995,8 @@ object XrayManager {
                     }
                 )
             }
+            val moduleRules = RoutingModuleRules.build(prefs)
+            for (i in 0 until moduleRules.length()) put(moduleRules.getJSONObject(i))
             if (routingProfile != null) {
                 val profileRules = RoutingProfileRules.build(routingProfile, includeFallback = true)
                 for (i in 0 until profileRules.length()) put(profileRules.getJSONObject(i))
