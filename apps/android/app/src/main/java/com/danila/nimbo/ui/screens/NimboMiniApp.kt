@@ -1273,8 +1273,12 @@ private fun rememberNavIconBounce(
     val play = remember { Animatable(0f) }
     // Угол накапливается: шестерёнка остаётся там, куда провернулась.
     val angle = remember { Animatable(0f) }
+    // Первый проход — это появление значка на экране, а не выбор вкладки.
+    val appeared = remember { mutableStateOf(false) }
     LaunchedEffect(selected, kind) {
-        if (!selected) return@LaunchedEffect
+        val firstPass = !appeared.value
+        appeared.value = true
+        if (!selected || firstPass) return@LaunchedEffect
         launch {
             play.snapTo(0f)
             play.animateTo(1f, tween(durationMillis = 520, easing = FastOutSlowInEasing))
@@ -11214,14 +11218,13 @@ private fun WindowsBottomNavItem(
                             rotationZ = bounce.rotation
                         }
                 )
-                // Разворот подписи поднимает значок — при выключенном
-                // движении она просто появляется на месте.
+                // Подпись раскрывается всегда: тумблер выключает движение
+                // значков, а это движение текста — без него выбранная вкладка
+                // возникала рывком.
                 AnimatedVisibility(
                     visible = selected,
-                    enter = expandVertically(animationSpec = tween(if (navMotionEnabled) 220 else 0)) +
-                        fadeIn(animationSpec = tween(if (navMotionEnabled) 220 else 0)),
-                    exit = shrinkVertically(animationSpec = tween(if (navMotionEnabled) 180 else 0)) +
-                        fadeOut(animationSpec = tween(if (navMotionEnabled) 120 else 0))
+                    enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
+                    exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(120))
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Spacer(Modifier.height(3.dp))

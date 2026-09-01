@@ -3,10 +3,6 @@ package com.danila.nimbo.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
 import androidx.compose.foundation.Canvas
@@ -14,7 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -38,16 +33,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -58,10 +57,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.danila.nimbo.shared.ui.drawNimboBackgroundMotion
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.screens.UpdateUiText
-import com.danila.nimbo.ui.theme.BackgroundStyleMode
 import com.danila.nimbo.ui.theme.LocalBackgroundAnimationEnabled
 import com.danila.nimbo.ui.theme.LocalElementStyleMode
 import com.danila.nimbo.ui.theme.LocalNebulaColors
@@ -72,7 +69,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
 import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
@@ -84,7 +80,7 @@ fun PostUpdateDialog(
     onShowChanges: () -> Unit
 ) {
     val colors = LocalNebulaColors.current
-    val elementStyle = LocalElementStyleMode.current
+    val mangaStyle = LocalElementStyleMode.current == ElementStyleMode.MANGA
     val language = LocalConfiguration.current.locales[0].language
     val motionEnabled = LocalBackgroundAnimationEnabled.current
     val reducedTransparency = LocalReducedTransparencyEnabled.current
@@ -134,22 +130,22 @@ fun PostUpdateDialog(
         }
     }
 
-    // Монотонное время вместо infiniteRepeatable: у капсул разные скорости, и на
-    // перезапуске 1 -> 0 они прыгали бы посреди экрана. Значение читается в фазе
-    // отрисовки, поэтому кадры не вызывают рекомпозицию.
-    val linePhaseState = remember { mutableFloatStateOf(0.32f) }
+    // Монотонное время вместо infiniteRepeatable: у волн и искр свои скорости,
+    // и на перезапуске 1 -> 0 они прыгали бы посреди экрана. Значение читается
+    // в фазе отрисовки, поэтому кадры не вызывают рекомпозицию.
+    val sceneSecondsState = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(animationsEnabled) {
         if (!animationsEnabled) {
-            linePhaseState.floatValue = 0.32f
+            sceneSecondsState.floatValue = 0f
             return@LaunchedEffect
         }
         var startNanos = 0L
         while (true) {
             withInfiniteAnimationFrameNanos { now ->
                 if (startNanos == 0L) startNanos = now
-                // 44 секунды на один проезд: фон должен медленно жить, а не
-                // превращаться в анимацию загрузки.
-                linePhaseState.floatValue = (now - startNanos) / 1_000_000_000f / 44f
+                // Секунды с начала сцены: волны и искры считают своё время сами,
+                // одного общего множителя им не хватало.
+                sceneSecondsState.floatValue = (now - startNanos) / 1_000_000_000f
             }
         }
     }
@@ -168,87 +164,90 @@ fun PostUpdateDialog(
                 .background(colors.background)
         ) {
             Canvas(Modifier.fillMaxSize()) {
+                val seconds = sceneSecondsState.floatValue
+                val heart = Offset(size.width * 0.5f, size.height * 0.46f)
+                val reach = size.minDimension
+                val glassAlpha = if (reducedTransparency) 0.55f else 1f
+
+                // Подложка: тёплая к центру, спокойная по краям.
                 drawRect(
                     brush = Brush.verticalGradient(
                         listOf(
                             colors.background,
-                            colors.accent.copy(alpha = if (reducedTransparency) 0.05f else 0.12f),
+                            colors.accent.copy(alpha = 0.07f * glassAlpha),
                             colors.background
                         )
                     )
                 )
 
-                // Completion uses the same renderer as the app background, but
-                // chooses a calm scene that matches the selected visual language.
-                // It replaces the earlier one-off diagonal ribbons and emoji rain.
-                val backdropMode = when {
-                    colors.isMaterialYou -> BackgroundStyleMode.MATERIAL3
-                    elementStyle == ElementStyleMode.NOTHING_DOTS -> BackgroundStyleMode.NOTHING_DOTS
-                    else -> BackgroundStyleMode.SIGNAL_FLOW
-                }
-                drawNimboBackgroundMotion(
-                    mode = backdropMode,
-                    phase = linePhaseState.floatValue,
-                    colors = listOf(colors.accent, Color(0xFF79D7FF), Color(0xFFA78BFA)),
-                    isLight = colors.background.luminance() > 0.5f,
-                    intensity = if (reducedTransparency) 0.34f else 0.68f,
-                    detail = 0.86f
-                )
-
-                if (burstProgress.value < 0.995f) {
-                    val palette = listOf(
-                        colors.accent,
-                        Color(0xFF79D7FF),
-                        Color(0xFFFFD166),
-                        Color(0xFFFF8DDA),
-                        Color.White
-                    )
-                    repeat(112) { index ->
-                        val fromLeft = index % 2 == 0
-                        val burstRow = (index / 2) % 2
-                        val delay = (index % 28) * 0.009f
-                        val local = ((burstProgress.value - delay) / 0.82f).coerceIn(0f, 1f)
-                        if (local <= 0f || local >= 1f) return@repeat
-                        val eased = 1f - (1f - local) * (1f - local)
-                        val spread = (index % 56) / 55f
-                        val angleDegrees = if (fromLeft) {
-                            -68f + spread * 136f
-                        } else {
-                            112f + spread * 136f
-                        }
-                        val angle = angleDegrees / 180f * PI
-                        val originY = size.height * if (burstRow == 0) 0.38f else 0.66f
-                        val origin = if (fromLeft) {
-                            androidx.compose.ui.geometry.Offset(-2.dp.toPx(), originY)
-                        } else {
-                            androidx.compose.ui.geometry.Offset(size.width + 2.dp.toPx(), originY)
-                        }
-                        val distance = size.width * (0.24f + (index % 9) * 0.042f) * eased
-                        val gravity = size.height * 0.038f * local * local
-                        val directionX = cos(angle).toFloat()
-                        val directionY = sin(angle).toFloat()
-                        val center = androidx.compose.ui.geometry.Offset(
-                            origin.x + directionX * distance,
-                            origin.y + directionY * distance + gravity
-                        )
-                        val alpha = sin(PI * local).toFloat().coerceIn(0f, 1f) * 0.96f
-                        val particleColor = palette[index % palette.size].copy(alpha = alpha)
-                        val trail = (9f + (index % 4) * 2.8f).dp.toPx() * (1f - local * 0.42f)
-                        drawLine(
-                            color = particleColor.copy(alpha = alpha * 0.62f),
-                            start = androidx.compose.ui.geometry.Offset(
-                                center.x - directionX * trail,
-                                center.y - directionY * trail
+                // Свечение дышит: без этого сцена выглядела нарисованной раз и
+                // навсегда. В Manga его нет — там бумага, а не подсветка.
+                if (!mangaStyle) {
+                    val breath = 0.5f + 0.5f * sin(seconds * 0.9f).toFloat()
+                    val glow = reach * (0.52f + breath * 0.06f)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                colors.accent.copy(alpha = 0.20f * glassAlpha),
+                                colors.accent.copy(alpha = 0.05f * glassAlpha),
+                                Color.Transparent
                             ),
-                            end = center,
-                            strokeWidth = (1.3f + (index % 3) * 0.45f).dp.toPx(),
-                            cap = StrokeCap.Round
+                            center = heart,
+                            radius = glow
+                        ),
+                        radius = glow,
+                        center = heart
+                    )
+                }
+
+                // Волны от значка: установка закончилась — сигнал разошёлся.
+                val waveColor = if (mangaStyle) colors.panelBorder else colors.accent
+                repeat(3) { index ->
+                    val wave = ((seconds * 0.34f) + index * 0.333f) % 1f
+                    val fade = (1f - wave) * (1f - wave)
+                    drawCircle(
+                        color = waveColor.copy(alpha = 0.26f * fade * glassAlpha),
+                        radius = reach * (0.18f + wave * 0.52f),
+                        center = heart,
+                        // Чернильный контур ровный по всей длине, световая волна
+                        // истончается к краю — это разные вещи.
+                        style = Stroke(
+                            width = if (mangaStyle) 1.6f.dp.toPx() else (2.2f - wave * 1.1f).dp.toPx()
                         )
-                        drawCircle(
-                            color = particleColor,
-                            radius = (2.4f + (index % 4) * 0.62f).dp.toPx(),
-                            center = center
+                    )
+                }
+
+                // Искры поднимаются медленно и вразнобой: положение выведено из
+                // номера искры, поэтому между кадрами набор не пляшет.
+                val sparkPalette = if (mangaStyle) {
+                    listOf(colors.panelBorder, colors.accent)
+                } else {
+                    listOf(colors.accent, Color(0xFF79D7FF), Color(0xFFFFD166), Color.White)
+                }
+                repeat(38) { index ->
+                    val column = (index * 0.6180339887f) % 1f
+                    val speed = 0.05f + ((index * 7 % 11) / 11f) * 0.055f
+                    val rise = ((seconds * speed) + (index % 13) / 13f) % 1f
+                    val sway = sin(seconds * 0.6f + index).toFloat() * size.width * 0.015f
+                    // Гаснут у краёв пути, ярче всего посередине.
+                    val alpha = sin(PI * rise).toFloat().coerceIn(0f, 1f) * 0.42f * glassAlpha
+                    if (alpha <= 0.01f) return@repeat
+                    val sparkColor = sparkPalette[index % sparkPalette.size].copy(alpha = alpha)
+                    val sparkRadius = (1.1f + (index % 4) * 0.5f).dp.toPx()
+                    val sparkCenter = Offset(
+                        column * size.width + sway,
+                        size.height * (1.04f - rise * 1.12f)
+                    )
+                    if (mangaStyle) {
+                        // Крапины, а не огоньки: круглая искра на бумаге читается
+                        // как блик, которого в чернилах не бывает.
+                        drawRect(
+                            color = sparkColor,
+                            topLeft = Offset(sparkCenter.x - sparkRadius, sparkCenter.y - sparkRadius),
+                            size = Size(sparkRadius * 2f, sparkRadius * 2f)
                         )
+                    } else {
+                        drawCircle(color = sparkColor, radius = sparkRadius, center = sparkCenter)
                     }
                 }
             }
@@ -296,35 +295,105 @@ fun PostUpdateDialog(
                         modifier = Modifier
                             .size(138.dp)
                             .graphicsLayer {
-                                scaleX = 0.88f + ringProgress.value * 0.12f
-                                scaleY = scaleX
+                                // Знак встаёт с лёгким перелётом: сухая посадка
+                                // читалась как подгрузившаяся картинка.
+                                val settle = sin(PI * checkProgress.value).toFloat()
+                                val scale = 0.90f + ringProgress.value * 0.10f + settle * 0.05f
+                                scaleX = scale
+                                scaleY = scale
                             }
                     ) {
-                        val stroke = 7.dp.toPx()
-                        drawCircle(colors.accent.copy(alpha = 0.12f), radius = size.minDimension * 0.46f)
+                        val heart = center
+                        val discRadius = size.minDimension * 0.34f
+
+                        // Свечение вокруг знака — тот же приём, что и на фоне:
+                        // иначе знак выглядел наклейкой поверх сцены. В Manga
+                        // ореола нет, его роль играет толстый контур.
+                        if (!mangaStyle) {
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        colors.accent.copy(alpha = 0.34f),
+                                        Color.Transparent
+                                    ),
+                                    center = heart,
+                                    radius = discRadius * 1.9f
+                                ),
+                                radius = discRadius * 1.9f,
+                                center = heart
+                            )
+                        }
+
+                        // Кольцо замыкается по ходу установки.
                         drawArc(
-                            color = colors.accent,
+                            color = colors.accent.copy(alpha = 0.9f),
                             startAngle = -90f,
                             sweepAngle = 360f * ringProgress.value,
                             useCenter = false,
-                            style = Stroke(width = stroke, cap = StrokeCap.Round)
+                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+                            topLeft = Offset(
+                                heart.x - discRadius * 1.42f,
+                                heart.y - discRadius * 1.42f
+                            ),
+                            size = Size(discRadius * 2.84f, discRadius * 2.84f)
                         )
-                        val first = (checkProgress.value * 2f).coerceIn(0f, 1f)
-                        val second = ((checkProgress.value - 0.5f) * 2f).coerceIn(0f, 1f)
-                        val a = androidx.compose.ui.geometry.Offset(size.width * 0.31f, size.height * 0.53f)
-                        val b = androidx.compose.ui.geometry.Offset(size.width * 0.45f, size.height * 0.66f)
-                        val c = androidx.compose.ui.geometry.Offset(size.width * 0.71f, size.height * 0.39f)
-                        val firstEnd = androidx.compose.ui.geometry.Offset(
-                            a.x + (b.x - a.x) * first,
-                            a.y + (b.y - a.y) * first
+
+                        // Заполненный круг вместо пустого контура: галочка должна
+                        // читаться знаком, а не чертежом.
+                        drawCircle(
+                            color = colors.accent,
+                            radius = discRadius * ringProgress.value,
+                            center = heart
                         )
-                        if (first > 0f) drawLine(colors.textPrimary, a, firstEnd, stroke, StrokeCap.Round)
-                        if (second > 0f) {
-                            val secondEnd = androidx.compose.ui.geometry.Offset(
-                                b.x + (c.x - b.x) * second,
-                                b.y + (c.y - b.y) * second
+                        if (mangaStyle) {
+                            drawCircle(
+                                color = colors.panelBorder,
+                                radius = discRadius * ringProgress.value,
+                                center = heart,
+                                style = Stroke(width = 2.5f.dp.toPx())
                             )
-                            drawLine(colors.textPrimary, b, secondEnd, stroke, StrokeCap.Round)
+                        } else {
+                            // Блик сверху: плоская заливка выглядела наклейкой.
+                            drawCircle(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.22f),
+                                        Color.Transparent
+                                    ),
+                                    startY = heart.y - discRadius,
+                                    endY = heart.y + discRadius * 0.2f
+                                ),
+                                radius = discRadius * ringProgress.value,
+                                center = heart
+                            )
+                        }
+
+                        if (checkProgress.value > 0f) {
+                            // Единый росчерк: два отрезка стыковались углом и на
+                            // толстой линии давали заметный залом.
+                            val path = Path().apply {
+                                moveTo(size.width * 0.36f, size.height * 0.50f)
+                                lineTo(size.width * 0.46f, size.height * 0.60f)
+                                lineTo(size.width * 0.66f, size.height * 0.40f)
+                            }
+                            val measure = PathMeasure().apply { setPath(path, false) }
+                            val drawn = Path()
+                            measure.getSegment(0f, measure.length * checkProgress.value, drawn, true)
+                            drawPath(
+                                path = drawn,
+                                // Контраст к акценту, а не к теме: на светлом
+                                // акценте белая галочка пропадала.
+                                color = if (colors.accent.luminance() > 0.6f) {
+                                    Color(0xFF10131A)
+                                } else {
+                                    Color.White
+                                },
+                                style = Stroke(
+                                    width = 8.dp.toPx(),
+                                    cap = StrokeCap.Round,
+                                    join = StrokeJoin.Round
+                                )
+                            )
                         }
                     }
                     Spacer(Modifier.height(22.dp))
@@ -381,88 +450,3 @@ fun PostUpdateDialog(
         }
     }
 }
-
-private data class UpdateRibbonSegment(
-    /** Небольшой сдвиг относительно общего диагонального маршрута. */
-    val pathOffsetY: Float,
-    val lengthFraction: Float,
-    val angleDegrees: Float,
-    val strokeDp: Float,
-    /** Стартовый сдвиг по времени: разносит капсулы, чтобы шли друг за другом. */
-    val phaseOffset: Float,
-    /** Своя скорость у каждой капсулы — поток не выглядит марширующим строем. */
-    val speed: Float,
-    val alpha: Float
-)
-
-/** Нормализует время в 0..1 для бесконечного проезда. */
-private fun wrapUnit(value: Float): Float {
-    val v = value % 1f
-    return if (v < 0f) v + 1f else v
-}
-
-/**
- * Та же диагональная «лесенка», что и у капсул, только с редкими эмодзи для
- * Material You. Фаза читается внутри `graphicsLayer`, то есть в фазе
- * отрисовки — кадры не вызывают рекомпозицию всего диалога.
- */
-@Composable
-private fun MaterialUpdateEmojiBackground(
-    phase: State<Float>,
-    animated: Boolean
-) {
-    // remember is intentionally scoped to this dialog: reopening the update
-    // screen produces another calm combination instead of a static wallpaper.
-    val emojis = remember {
-        listOf(
-            "✨", "🛡️", "🌐", "⚡", "✅", "📱",
-            "💻", "🔄", "🎉", "☁️", "🔒", "🚀"
-        ).shuffled().take(MATERIAL_EMOJI_LANES.size)
-    }
-
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val laneWidth = maxWidth
-        val laneHeight = maxHeight
-        emojis.forEachIndexed { index, emoji ->
-            val lane = MATERIAL_EMOJI_LANES[index]
-            Text(
-                text = emoji,
-                modifier = Modifier
-                    .graphicsLayer {
-                        val travel = wrapUnit(phase.value * lane.speed + lane.phaseOffset)
-                        val widthPx = laneWidth.toPx()
-                        val ownWidth = size.width.coerceAtLeast(1f)
-                        val x = -ownWidth + travel * (widthPx + ownWidth * 2f)
-                        translationX = x
-                        val routeCenterY = laneHeight.toPx() * (
-                            0.91f - travel * 0.84f + lane.pathOffsetY
-                        )
-                        translationY = routeCenterY - size.height * 0.5f
-                        alpha = 0.13f + (index % 3) * 0.02f
-                        rotationZ = lane.angleDegrees * 0.5f
-                    },
-                fontSize = (24 + (index % 3) * 6).sp
-            )
-        }
-    }
-}
-
-private data class MaterialEmojiLane(
-    val pathOffsetY: Float,
-    val phaseOffset: Float,
-    val speed: Float,
-    val angleDegrees: Float
-)
-
-private val MATERIAL_EMOJI_LANES = listOf(
-    // Редкие эмодзи повторяют направление «лесенки», но остаются достаточно
-    // прозрачными, чтобы Material You не превращался в пёстрые обои.
-    MaterialEmojiLane(-0.018f, 0.03f, 1.00f, -16f),
-    MaterialEmojiLane(0.012f, 0.16f, 1.00f, -16f),
-    MaterialEmojiLane(-0.009f, 0.29f, 1.00f, -16f),
-    MaterialEmojiLane(0.017f, 0.42f, 1.00f, -16f),
-    MaterialEmojiLane(-0.014f, 0.55f, 1.00f, -16f),
-    MaterialEmojiLane(0.009f, 0.68f, 1.00f, -16f),
-    MaterialEmojiLane(-0.016f, 0.81f, 1.00f, -16f),
-    MaterialEmojiLane(0.013f, 0.94f, 1.00f, -16f)
-)
