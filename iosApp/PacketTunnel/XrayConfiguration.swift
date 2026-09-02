@@ -265,6 +265,22 @@ enum XrayConfigurationBuilder {
     /// андроидным, иначе один и тот же профиль вёл бы себя по-разному.
     static var routingProfileJSON: String = ""
 
+    /// Наборы `geoip:`/`geosite:`, которые ядро загрузит при старте.
+    ///
+    /// Каждый набор разворачивается в памяти расширения, а её здесь около
+    /// 50 МБ: по журналу должно быть видно, что именно загружалось.
+    static func routingGeoCodes() -> [String] {
+        let rules = routingProfile().rules + moduleRules()
+        let values = rules.flatMap { rule -> [String] in
+            let domains = rule["domain"] as? [String] ?? []
+            let ips = rule["ip"] as? [String] ?? []
+            return domains + ips
+        }
+        return Array(Set(values.filter {
+            $0.hasPrefix("geosite:") || $0.hasPrefix("geoip:")
+        })).sorted()
+    }
+
     private static func routingProfile() -> (strategy: String?, rules: [[String: Any]]) {
         guard let data = routingProfileJSON.data(using: .utf8),
               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {

@@ -184,14 +184,18 @@ private fun deleteModule(id: String) {
  */
 fun NimboIosModuleRulesJson(): String {
     val rules = NimboModuleParser.rulesOf(loadModules()).mapNotNull { rule ->
-        if (rule.domains.isEmpty() && rule.ips.isEmpty()) return@mapNotNull null
+        // Те же замены, что и у профилей: набор из модуля упирается в тот же
+        // предел памяти расширения.
+        val domains = lightenedForExtension(rule.domains)
+        val ips = lightenedForExtension(rule.ips)
+        if (domains.isEmpty() && ips.isEmpty()) return@mapNotNull null
         buildJsonObject {
             put("type", JsonPrimitive("field"))
-            if (rule.domains.isNotEmpty()) {
-                put("domain", JsonArray(rule.domains.map { JsonPrimitive(it) }))
+            if (domains.isNotEmpty()) {
+                put("domain", JsonArray(domains.map { JsonPrimitive(it) }))
             }
-            if (rule.ips.isNotEmpty()) {
-                put("ip", JsonArray(rule.ips.map { JsonPrimitive(it) }))
+            if (ips.isNotEmpty()) {
+                put("ip", JsonArray(ips.map { JsonPrimitive(it) }))
             }
             put("outboundTag", JsonPrimitive(rule.policy.outboundTag))
         }
@@ -307,6 +311,31 @@ private fun resetRoutingProfiles() {
 }
 
 /**
+ * Замена тяжёлых наборов geosite на посильные расширению.
+ *
+ * Расширению туннеля система даёт около 50 МБ. Набор `category-ads-all`
+ * занимает в geosite.dat 4,4 МБ — распакованный сопоставитель на сотни тысяч
+ * доменов съедает больше, чем расширению вообще отведено, и оно погибает при
+ * запуске ядра. Снаружи это выглядит так: с «Глобальным» профилем всё
+ * работает, а с «Россией» или «Китаем» подключение не поднимается — только
+ * они и тянут крупные наборы.
+ *
+ * Замены подобраны по смыслу: `category-ads` — тот же список рекламы, но без
+ * зеркал и вариаций (24 КБ вместо 4,4 МБ), а китайские сайты вместо набора на
+ * два мегабайта опознаются по зоне и адресам `geoip:cn`.
+ */
+private val IosHeavyGeositeReplacements = mapOf(
+    "geosite:category-ads-all" to listOf("geosite:category-ads"),
+    "geosite:cn" to listOf("domain:cn"),
+    "geosite:china-list" to listOf("domain:cn")
+)
+
+private fun lightenedForExtension(values: List<String>): List<String> =
+    values.flatMap { value ->
+        IosHeavyGeositeReplacements[value.trim().lowercase()] ?: listOf(value)
+    }.distinct()
+
+/**
  * Правила выбранного профиля для Xray.
  *
  * Возвращается объект со стратегией доменов и правилами: стратегия относится ко
@@ -316,14 +345,19 @@ private fun resetRoutingProfiles() {
 fun NimboIosRoutingProfileJson(): String {
     val profile = loadRoutingProfiles().firstOrNull { it.id == activeRoutingProfileId() }
         ?: NimboBuiltinRoutingProfiles.defaults().first()
-    val rules = NimboRoutingProfileRules.rules(profile).map { rule ->
+    val rules = NimboRoutingProfileRules.rules(profile).mapNotNull { rule ->
+        val domains = lightenedForExtension(rule.domains)
+        val ips = lightenedForExtension(rule.ips)
+        // Правило, от которого после замены ничего не осталось, Xray отвергнет:
+        // поля совпадения обязаны быть непустыми.
+        if (!rule.catchAll && domains.isEmpty() && ips.isEmpty()) return@mapNotNull null
         buildJsonObject {
             put("type", JsonPrimitive("field"))
-            if (rule.domains.isNotEmpty()) {
-                put("domain", JsonArray(rule.domains.map { JsonPrimitive(it) }))
+            if (domains.isNotEmpty()) {
+                put("domain", JsonArray(domains.map { JsonPrimitive(it) }))
             }
-            if (rule.ips.isNotEmpty()) {
-                put("ip", JsonArray(rule.ips.map { JsonPrimitive(it) }))
+            if (ips.isNotEmpty()) {
+                put("ip", JsonArray(ips.map { JsonPrimitive(it) }))
             }
             if (rule.catchAll) {
                 // Правилу нужно хоть одно поле совпадения, иначе Xray его не

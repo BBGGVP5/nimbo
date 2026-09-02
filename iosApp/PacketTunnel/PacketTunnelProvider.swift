@@ -318,6 +318,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             tunnelProtocol.providerConfiguration?["modules"] as? String ?? ""
         XrayConfigurationBuilder.routingProfileJSON =
             tunnelProtocol.providerConfiguration?["routingProfile"] as? String ?? ""
+        // Наборы geo видно в журнале: именно они упираются в предел памяти
+        // расширения, и без записи причину падения приходится угадывать.
+        await NimboDiagnostics.shared.record(
+            .info,
+            stage: .config,
+            code: "IOS_ROUTING_PROFILE_LOADED",
+            message: "Правила профиля маршрутизации получены",
+            metadata: [
+                "geo_sets": XrayConfigurationBuilder.routingGeoCodes().joined(separator: ",")
+            ]
+        )
 
         do {
             try await applyNetworkSettings(PacketTunnelNetwork.settings(options: routingOptions))
