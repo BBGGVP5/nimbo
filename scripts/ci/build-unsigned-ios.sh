@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VERSION="${NIMBO_VERSION:-1.2.0-beta.3}"
+VERSION="${NIMBO_VERSION:-1.2.0-beta.4}"
 MARKETING_VERSION="${VERSION%%-*}"
 BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-12}"
 APP_BUNDLE_ID="${NIMBO_APP_BUNDLE_ID:-com.nimbo.resignable}"
