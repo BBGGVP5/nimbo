@@ -164,6 +164,10 @@ targets:
         PRODUCT_NAME: NimboControlWidget
         SKIP_INSTALL: YES
         APPLICATION_EXTENSION_API_ONLY: YES
+        # Явно, а не только через deploymentTarget: без этого сборка
+        # компилировала расширение с минимальной системой проекта, и элемент
+        # Пункта управления оказывался недоступным по версии.
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
 
 schemes:
   Nimbo:
