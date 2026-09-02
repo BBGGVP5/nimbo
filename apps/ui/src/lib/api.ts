@@ -89,8 +89,6 @@ export interface SubscriptionInfo {
   download?: number | null;
   total?: number | null;
   expire?: number | null;
-  /** Дата пополнения трафика: у безлимитных подписок срока действия нет. */
-  refill_at?: number | null;
 }
 
 export interface SubscriptionTheme {
@@ -2396,8 +2394,6 @@ export interface ExpireLabels {
   inDays: string;
   today: string;
   expired: string;
-  refill: string;
-  unlimited: string;
 }
 
 const RU_EXPIRE_LABELS: ExpireLabels = {
@@ -2405,8 +2401,6 @@ const RU_EXPIRE_LABELS: ExpireLabels = {
   inDays: "через {days} дн.",
   today: "сегодня",
   expired: "истекла",
-  refill: "пополнение {date}",
-  unlimited: "бессрочная",
 };
 
 /** Дата окончания подписки в языке интерфейса; без подписей падает на русский. */
@@ -2436,19 +2430,11 @@ export function formatExpire(
 /**
  * Срок подписки для карточки. Панель с безлимитной подпиской присылает
  * `expire=0`: срока у неё нет, и прочерк на его месте выглядит поломкой.
- * Тогда показываем дату пополнения трафика, а если нет и её — «бессрочная».
+ * Бесконечность в этом месте читается без перевода — как и в строке трафика.
  */
 export function formatSubscriptionTerm(
   info: SubscriptionInfo | null | undefined,
   labels: ExpireLabels = RU_EXPIRE_LABELS,
 ): string {
-  if (info?.expire) return formatExpire(info.expire, labels);
-  if (info?.refill_at) {
-    const date = new Date(info.refill_at * 1000).toLocaleDateString(labels.locale, {
-      day: "2-digit",
-      month: "short",
-    });
-    return labels.refill.replace("{date}", date);
-  }
-  return labels.unlimited;
+  return info?.expire ? formatExpire(info.expire, labels) : "∞";
 }

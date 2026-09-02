@@ -6,10 +6,6 @@ pub struct SubscriptionInfo {
     pub download: Option<u64>,
     pub total: Option<u64>,
     pub expire: Option<i64>,
-    /// Дата пополнения трафика из заголовка `subscription-refill-date`.
-    /// Панели с безлимитной подпиской присылают её вместо срока действия.
-    #[serde(default)]
-    pub refill_at: Option<i64>,
 }
 
 impl SubscriptionInfo {
@@ -33,7 +29,6 @@ impl SubscriptionInfo {
             && self.download.is_none()
             && self.total.is_none()
             && self.expire.is_none()
-            && self.refill_at.is_none()
     }
 }
 
