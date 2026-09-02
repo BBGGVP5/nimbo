@@ -228,7 +228,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         pathMonitor = nil
     }
 
-    private func handleNetworkPath(_ path: NWPath) {
+    private func handleNetworkPath(_ path: Network.NWPath) {
         guard started, !starting else { return }
         let satisfied = path.status == .satisfied
         let returned = satisfied && !networkWasSatisfied
@@ -241,8 +241,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 code: "IOS_NETWORK_PATH_CHANGED",
                 message: satisfied ? "Сеть доступна" : "Сеть недоступна",
                 metadata: [
-                    "wifi": path.usesInterfaceType(.wifi) ? "да" : "нет",
-                    "cellular": path.usesInterfaceType(.cellular) ? "да" : "нет",
+                    "wifi": path.usesInterfaceType(Network.NWInterface.InterfaceType.wifi) ? "да" : "нет",
+                    "cellular": path.usesInterfaceType(Network.NWInterface.InterfaceType.cellular) ? "да" : "нет",
                     "expensive": path.isExpensive ? "да" : "нет"
                 ]
             )
