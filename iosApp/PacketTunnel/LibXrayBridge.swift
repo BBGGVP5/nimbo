@@ -30,6 +30,7 @@ final class LibXrayBridge {
         try setEnvironmentValue(descriptor, key: "XRAY_TUN_FD")
         try setEnvironmentValue(assetDirectory, key: "xray.location.asset")
         try setEnvironmentValue(assetDirectory, key: "XRAY_LOCATION_ASSET")
+
     }
 
     func convertShareText(_ text: String) throws -> [String: Any] {
