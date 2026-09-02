@@ -11587,8 +11587,7 @@ body[data-ui-style="dotted"] .settings-interface-card-dotted .settings-interface
   body[data-ui-style="nimbo"] .server-side-panel,
   body[data-ui-style="nimbo"] .app-sidebar > .glass,
   body[data-ui-style="nimbo"] .update-dialog,
-  body[data-ui-style="nimbo"] .network-glass-reactive,
-  body[data-ui-style="nimbo"] .network-glass-home {
+  body[data-ui-style="nimbo"] .network-glass-reactive {
     background: var(--ui-panel-bg-strong);
   }
 

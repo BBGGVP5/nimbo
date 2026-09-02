@@ -16,7 +16,7 @@ import { SignalServerRail } from "./home/SignalServerRail";
 import {
   api,
   formatBytes,
-  formatSubscriptionTerm,
+  formatExpire,
   protocolLabel,
   serverListDescription,
   subscriptionVisibleOnHome,
@@ -1681,7 +1681,9 @@ function ProfileSummary({
 
   const used = (sub.info?.upload ?? 0) + (sub.info?.download ?? 0);
   const total = sub.info?.total ?? null;
-  const expires = formatSubscriptionTerm(sub.info, expireLabels(labels));
+  // Под именем показываем только настоящий срок: у бессрочной подписки
+  // строка пустует, а знак бесконечности уже стоит в строке трафика.
+  const expires = sub.info?.expire ? formatExpire(sub.info.expire, expireLabels(labels)) : "";
   const description = sub.meta?.description?.trim() || "";
   const supportUrl = sub.meta?.support_url?.trim() || "";
   const siteUrl = sub.meta?.website_url?.trim() || subscriptionSiteUrl(sub.url);
@@ -1705,7 +1707,9 @@ function ProfileSummary({
             <div className="truncate text-[15px] font-semibold text-white">
               {sub.name ?? labels.common.subscription}
             </div>
-            <div className="mt-0.5 text-[12px] text-[var(--color-text-dim)]">{expires}</div>
+            {expires && (
+              <div className="mt-0.5 text-[12px] text-[var(--color-text-dim)]">{expires}</div>
+            )}
           </div>
           <div className="flex gap-2">
             <SmallActionButton title={labels.home.refreshSubscription} onClick={onRefresh}>
