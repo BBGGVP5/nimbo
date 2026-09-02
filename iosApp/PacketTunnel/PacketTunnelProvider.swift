@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import NetworkExtension
 
 final class PacketTunnelProvider: NEPacketTunnelProvider {
@@ -19,6 +20,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var watchdog: DispatchSourceTimer?
     /// Сколько проверок подряд ядро промолчало.
     private var watchdogMisses = 0
+    /// Наблюдение за сетью: смена Wi-Fi на сотовую и обратно.
+    private var pathMonitor: NWPathMonitor?
+    /// Когда маршруты переустанавливались в последний раз.
+    private var lastRouteRefresh = Date.distantPast
+    /// Была ли сеть доступна при прошлой проверке.
+    private var networkWasSatisfied = true
 
     override func startTunnel(
         options: [String: NSObject]?,
@@ -48,6 +55,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         self.starting = false
                         self.started = true
                         self.startWatchdog()
+                        self.startPathMonitor()
                         completionHandler(nil)
                     }
                 } catch {
@@ -77,6 +85,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             self.lifecycleGeneration &+= 1
             self.stopWatchdog()
+            self.stopPathMonitor()
             let stopError: Error?
             do {
                 if (try? self.core.isRunning()) == true { try self.core.stop() }
@@ -194,6 +203,79 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private func stopWatchdog() {
         watchdog?.cancel()
         watchdog = nil
+    }
+
+    /// Смена сети — обычное дело для телефона: Wi-Fi дома, сотовая на улице.
+    ///
+    /// Маршруты туннеля при этом остаются от прежнего интерфейса, и трафик
+    /// уходит в никуда: снаружи это выглядит как «подключено, но ничего не
+    /// грузится». Системе нужно сказать, что маршруты пора перечитать.
+    private func startPathMonitor() {
+        stopPathMonitor()
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            self.lifecycleQueue.async {
+                self.handleNetworkPath(path)
+            }
+        }
+        monitor.start(queue: lifecycleQueue)
+        pathMonitor = monitor
+    }
+
+    private func stopPathMonitor() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
+    }
+
+    private func handleNetworkPath(_ path: NWPath) {
+        guard started, !starting else { return }
+        let satisfied = path.status == .satisfied
+        let returned = satisfied && !networkWasSatisfied
+        networkWasSatisfied = satisfied
+
+        Task {
+            await NimboDiagnostics.shared.record(
+                .info,
+                stage: .route,
+                code: "IOS_NETWORK_PATH_CHANGED",
+                message: satisfied ? "Сеть доступна" : "Сеть недоступна",
+                metadata: [
+                    "wifi": path.usesInterfaceType(.wifi) ? "да" : "нет",
+                    "cellular": path.usesInterfaceType(.cellular) ? "да" : "нет",
+                    "expensive": path.isExpensive ? "да" : "нет"
+                ]
+            )
+        }
+
+        // Перечитывать маршруты чаще раза в десять секунд бессмысленно:
+        // при переходе между сетями система шлёт события пачкой.
+        guard returned, Date().timeIntervalSince(lastRouteRefresh) > 10 else { return }
+        lastRouteRefresh = Date()
+        refreshTunnelRoutes()
+    }
+
+    /// Переустановка сетевых настроек: тот же набор, что и при запуске.
+    ///
+    /// Это не разрыв соединения, а просьба к системе перечитать маршруты и
+    /// DNS для нового интерфейса.
+    private func refreshTunnelRoutes() {
+        let routingOptions = NimboRoutingOptions(
+            providerValue: (protocolConfiguration as? NETunnelProviderProtocol)?
+                .providerConfiguration?["routing"]
+        )
+        setTunnelNetworkSettings(PacketTunnelNetwork.settings(options: routingOptions)) { error in
+            Task {
+                await NimboDiagnostics.shared.record(
+                    error == nil ? .info : .warning,
+                    stage: .route,
+                    code: error == nil ? "IOS_ROUTES_REFRESHED" : "IOS_ROUTES_REFRESH_FAILED",
+                    message: error == nil
+                        ? "Маршруты перечитаны после смены сети"
+                        : "Не удалось перечитать маршруты после смены сети"
+                )
+            }
+        }
     }
 
     override func sleep(completionHandler: @escaping () -> Void) {

@@ -18,6 +18,7 @@ struct RootView: View {
     @State private var showSync = false
     @State private var showQrScanner = false
     @State private var showFileImporter = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var elementStyle = UserDefaults.standard.string(
         forKey: "com.nimbo.appearance.elementStyle"
     ) ?? "glass"
@@ -90,7 +91,12 @@ struct RootView: View {
             .onReceive(vpn.$state) { (state: VpnController.State) in
                 handleVpnState(state)
             }
-            .onReceive(metricsTimer) { _ in Task { await publishMetrics() } }
+            .onReceive(metricsTimer) { _ in
+                // В фоне показания читать некому: экран не виден, а каждый
+                // опрос будит расширение и тратит батарею.
+                guard scenePhase == .active else { return }
+                Task { await publishMetrics() }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .nimboToggleVpn)) { _ in
                 Task { await toggleVpn() }
             }
