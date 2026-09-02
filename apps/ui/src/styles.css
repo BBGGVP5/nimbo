@@ -245,6 +245,15 @@ body {
   --ui-panel-bg:
     linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
     color-mix(in srgb, var(--color-surface) var(--ui-panel-alpha-percent), transparent);
+  /* Тот же слой панели, но без цвета в последней позиции: такой набор можно
+     класть поверх сплошного фона, не делая объявление недействительным. */
+  --ui-panel-bg-layer:
+    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-surface) var(--ui-panel-alpha-percent), transparent),
+      color-mix(in srgb, var(--color-surface) var(--ui-panel-alpha-percent), transparent)
+    );
   --ui-panel-bg-strong:
     linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
     color-mix(in srgb, var(--color-card) var(--ui-panel-alpha-percent), transparent);
@@ -4279,7 +4288,7 @@ body[data-theme="light"] .conflict-dialog-badge {
   padding: 18px;
   /* Затемнение заметное: сквозь прежнее просвечивал интерфейс, и глаз цеплялся
      за него вместо текста обновления. */
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.78);
   backdrop-filter: var(--ui-backdrop-filter-soft);
   -webkit-backdrop-filter: var(--ui-backdrop-filter-soft);
 }
@@ -4299,21 +4308,14 @@ body[data-theme="light"] .update-dialog-backdrop {
   align-items: stretch;
   border: 1px solid var(--color-border);
   border-radius: var(--ui-radius-lg);
-  /* Нижний слой непрозрачный: подложка панелей подчиняется ползунку
-     прозрачности, и на высоких значениях сквозь окно читался весь экран. */
-  background:
-    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface) 94%, transparent),
-      color-mix(in srgb, var(--color-surface) 94%, transparent)
-    ),
-    var(--color-bg);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  /* Сплошной цвет, а не слои с прозрачностью: окно обновления — это
+     разговор, а не панель, и подчиняться ползунку прозрачности ему нечего.
+     Размытия здесь тоже нет: за непрозрачным фоном размывать нечего, зато
+     оно добавляло окну стеклянности. */
+  background: var(--color-surface);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
   padding: 24px 24px 20px;
   text-align: left;
-  backdrop-filter: var(--ui-backdrop-filter);
-  -webkit-backdrop-filter: var(--ui-backdrop-filter);
 }
 
 .update-dialog-header {
@@ -4336,8 +4338,10 @@ body[data-theme="light"] .update-dialog-backdrop {
 }
 
 body[data-theme="light"] .update-dialog {
-  background: var(--ui-panel-bg);
-  box-shadow: 0 24px 50px rgba(40, 32, 64, 0.18);
+  /* Прежде здесь стояла подложка панелей, зависящая от ползунка
+     прозрачности, и она перекрывала плотный фон окна. */
+  background: var(--color-surface);
+  box-shadow: 0 24px 50px rgba(40, 32, 64, 0.22);
 }
 
 .update-dialog-art {
@@ -6167,7 +6171,15 @@ body[data-theme="light"] .settings-input {
   padding: 15px;
   border: 1px solid color-mix(in srgb, var(--color-accent) 27%, var(--color-border));
   border-radius: 18px;
-  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  /* Плотная подложка под акцентом: на прозрачной панели полоса загрузки
+     читалась поверх содержимого страницы. */
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-accent) 7%, transparent),
+      color-mix(in srgb, var(--color-accent) 7%, transparent)
+    ),
+    var(--color-card);
 }
 
 .update-progress-heading,
@@ -10518,10 +10530,10 @@ body[data-ui-style="material_you"] .tunnel-logs-container,
 body[data-ui-style="material_you"] .update-dialog {
   border: 1px solid var(--md-outline-variant);
   border-radius: var(--md-shape-xl);
-  background: var(--ui-panel-bg);
+  /* Подложка панелей подчиняется ползунку прозрачности, поэтому под ней
+     сплошной цвет; размытие при плотном фоне только добавляло стеклянности. */
+  background: var(--ui-panel-bg-layer), var(--color-surface);
   box-shadow: var(--md-elevation-1);
-  backdrop-filter: var(--ui-backdrop-filter);
-  -webkit-backdrop-filter: var(--ui-backdrop-filter);
 }
 
 body[data-ui-style="material_you"] .app-sidebar > .glass {
@@ -10994,13 +11006,15 @@ body[data-ui-style="nimbo"] .session-traffic-card,
 body[data-ui-style="nimbo"] .tunnel-logs-container,
 body[data-ui-style="nimbo"] .update-dialog {
   border: 1px solid transparent;
+  /* Заливка стекла заканчивается цветом, а цвет в CSS допустим только в
+     последнем слое — из-за окантовки после него объявление было
+     недействительным, и окно оставалось вовсе без своего фона. Окантовка
+     переехала выше: она и так рисуется поверх заливки. */
   background:
     var(--liquid-specular) padding-box,
-    var(--liquid-fill) padding-box,
-    var(--liquid-rim) border-box;
+    var(--liquid-rim) border-box,
+    var(--liquid-fill) padding-box;
   box-shadow: var(--liquid-shadow-soft);
-  backdrop-filter: var(--ui-backdrop-filter);
-  -webkit-backdrop-filter: var(--ui-backdrop-filter);
 }
 
 body[data-ui-style="nimbo"] .app-sidebar {
@@ -13914,9 +13928,16 @@ body[data-ui-style="signal"] .tray-quit {
 body[data-ui-style="signal"] .update-dialog {
   border-radius: var(--ui-radius-3xl, 26px) !important;
   border: 1px solid var(--signal-hairline-strong, rgba(255, 255, 255, 0.15)) !important;
+  /* Последним слоем — сплошной цвет: без него сквозь окно читался
+     интерфейс, а окно обновления не панель, а разговор. */
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012)),
-    color-mix(in srgb, var(--signal-ink-2, #090d14) 97%, transparent) !important;
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--signal-ink-2, #090d14) 97%, transparent),
+      color-mix(in srgb, var(--signal-ink-2, #090d14) 97%, transparent)
+    ),
+    var(--color-surface) !important;
   box-shadow: 0 40px 90px -50px rgba(0, 0, 0, 0.95) !important;
 }
 
