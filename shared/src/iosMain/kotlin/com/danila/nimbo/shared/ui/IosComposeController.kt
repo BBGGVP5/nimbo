@@ -134,6 +134,8 @@ private fun applyPingChange(key: String, value: String) {
  * поэтому туннелю не нужен отдельный мост, а набор переживает перезапуск.
  */
 private const val ModulesDefaultsKey = "com.nimbo.routing.modules"
+/// Последние замеры задержки: идентификатор узла к миллисекундам.
+private const val PingResultsKey = "com.nimbo.ping.results"
 
 @kotlinx.serialization.Serializable
 private data class StoredModule(
@@ -648,6 +650,12 @@ fun NimboUpdateIosPings(serverIds: List<String>, values: List<Int>, inProgress: 
             merged[serverIds[index]] = values[index]
         }
         iosPings.value = merged
+        // Замеры нужны и за пределами экрана: по ним отбираются узлы для
+        // балансировщика, а собирается он в Swift при передаче конфигурации.
+        NSUserDefaults.standardUserDefaults.setObject(
+            iosJson.encodeToString(merged),
+            PingResultsKey
+        )
     }
     iosPingInProgress.value = inProgress
     val current = iosUiState.value
