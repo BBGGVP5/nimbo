@@ -19,9 +19,11 @@ struct NimboControlWidget: ControlWidget {
                 isOn: isRunning,
                 action: NimboToggleTunnelIntent()
             ) { isOn in
-                Label(isOn ? "Подключено" : "Отключено", systemImage: isOn ? "lock.shield.fill" : "lock.shield")
+                // Значок один и тот же в обоих положениях: пока элемент
+                // оставался пустым кружком, зависимость картинки от состояния
+                // мешала понять, рисуется ли он вообще.
+                Label(isOn ? "Подключено" : "Отключено", systemImage: "bolt.horizontal.circle.fill")
             }
-            .tint(.blue)
         }
         .displayName("Nimbo VPN")
         .description("Включение и отключение туннеля")
