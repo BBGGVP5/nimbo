@@ -440,9 +440,12 @@ final class VpnController: ObservableObject {
         guard let error else {
             state = .failed(
                 code: "IOS_TUNNEL_DROPPED",
-                message: "Расширение туннеля завершилось сразу после запуска, система не назвала причину. "
-                    + "Чаще всего так ведёт себя сборка, где расширение подписано без Network Extensions "
-                    + "или в нём нет рабочего ядра."
+                // Если с подписью что-то не так, называем это прямо: гадать
+                // «почему не работает» человеку не с чем.
+                message: NimboSigningReport.problem
+                    ?? "Расширение туннеля завершилось сразу после запуска, система не назвала причину. "
+                        + "Чаще всего так ведёт себя сборка, где расширение подписано без Network Extensions "
+                        + "или в нём нет рабочего ядра."
             )
             Task {
                 await NimboDiagnostics.shared.record(
@@ -457,9 +460,16 @@ final class VpnController: ObservableObject {
         }
 
         let presentation = errorPresentation(defaultCode: "IOS_TUNNEL_DROPPED", error: error)
-        state = .failed(code: presentation.code, message: presentation.message)
+        // «Внутренняя ошибка» системы почти всегда означает подпись: если
+        // видно, чего именно не хватает, показываем это вместо общей фразы.
+        let signingProblem = NimboSigningReport.problem
+        state = .failed(
+            code: presentation.code,
+            message: signingProblem.map { "\(presentation.message)\n\n\($0)" } ?? presentation.message
+        )
         Task {
             var metadata = signingContractMetadata
+            if let signingProblem { metadata["signing_problem"] = signingProblem }
             metadata["error_domain"] = presentation.domain
             metadata["error_number"] = presentation.number
             metadata.merge(elapsedSinceStartMetadata) { _, new in new }
