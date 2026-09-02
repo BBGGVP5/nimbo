@@ -145,10 +145,11 @@ targets:
     entitlements:
       path: ControlWidget/NimboControlWidget.entitlements
       properties:
-        # Те же права, что у туннеля: элемент управления поднимает соединение
-        # сам, без запуска приложения.
-        com.apple.developer.networking.networkextension:
-          - packet-tunnel-provider
+        # Виджет не поднимает свой туннель, а переключает уже настроенный,
+        # поэтому packet-tunnel-provider ему не положен: iOS 27 отвергает
+        # связку расширений, где виджет просит право туннеля.
+        com.apple.developer.networking.vpn.api:
+          - allow-vpn
     sources:
       - path: ControlWidget
     dependencies:

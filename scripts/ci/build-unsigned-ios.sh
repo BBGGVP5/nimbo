@@ -66,6 +66,29 @@ if [[ -z "${LDID_BIN}" ]]; then
   exit 3
 fi
 
+# Виджет Пункта управления можно исключить целиком: он убирается из описания
+# проекта до его генерации, поэтому сборка выходит согласованной — в отличие
+# от вырезания готового расширения, которое оставляет в подписи приложения
+# запись об удалённом файле.
+if [[ "${NIMBO_WITH_CONTROL_WIDGET:-1}" != "1" ]]; then
+  echo "Собираю без виджета Пункта управления"
+  /usr/bin/python3 - "${ROOT_DIR}/iosApp/project.yml" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as spec_file:
+    spec = spec_file.read()
+
+spec = spec.replace("      - target: NimboControlWidget\n        embed: true\n", "")
+spec = re.sub(r"\n  NimboControlWidget:\n(?:.*\n)*?(?=\nschemes:)", "\n", spec)
+spec = spec.replace("        NimboControlWidget: all\n", "")
+
+with open(path, "w", encoding="utf-8") as spec_file:
+    spec_file.write(spec)
+PY
+fi
+
 (
   cd iosApp
   xcodegen generate --spec project.yml
@@ -170,13 +193,6 @@ TUNNEL_EXECUTABLE="${TUNNEL_PATH}/$(read_plist "${TUNNEL_PATH}/Info.plist" "CFBu
 # Элемент Пункта управления собирается только на новых Xcode: если его нет,
 # сборка не должна падать — кнопка приятная, но не обязательная.
 WIDGET_EXECUTABLE=""
-# Виджет кладётся в сборку только по просьбе: пока не проверено на
-# устройстве, что он не мешает запуску туннеля, рабочее подключение важнее
-# кнопки в шторке.
-if [[ -d "${WIDGET_PATH}" && "${NIMBO_WITH_CONTROL_WIDGET:-0}" != "1" ]]; then
-  echo "Убираю виджет Пункта управления из сборки (NIMBO_WITH_CONTROL_WIDGET=1 вернёт его)"
-  rm -rf "${WIDGET_PATH}"
-fi
 if [[ -d "${WIDGET_PATH}" ]]; then
   WIDGET_EXECUTABLE="${WIDGET_PATH}/$(read_plist "${WIDGET_PATH}/Info.plist" "CFBundleExecutable")"
 fi
