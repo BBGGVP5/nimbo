@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   formatBytes,
-  formatExpire,
+  formatSubscriptionTerm,
   type Subscription,
 } from "../../lib/api";
 import { expireLabels, type Messages } from "../../lib/i18n";
@@ -203,7 +203,7 @@ export function SignalProfileCard({
         </div>
         <div className="signal-meta-cell">
           <span className="signal-tile-key">{m.profiles.expires}</span>
-          <span className="signal-meta-value">{formatExpire(sub.info?.expire, expireLabels(m)) || "—"}</span>
+          <span className="signal-meta-value">{formatSubscriptionTerm(sub.info, expireLabels(m))}</span>
         </div>
         <div className="signal-meta-cell">
           <span className="signal-tile-key">{m.profiles.updated}</span>

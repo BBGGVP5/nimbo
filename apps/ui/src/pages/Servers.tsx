@@ -7,7 +7,7 @@ import { useAppStore } from "../store";
 import {
   api,
   formatBytes,
-  formatExpire,
+  formatSubscriptionTerm,
   protocolLabel,
   serverCustomDescription,
   transportLabel,
@@ -123,7 +123,7 @@ export function Servers() {
 
   const used = (sub.info?.upload ?? 0) + (sub.info?.download ?? 0);
   const total = sub.info?.total ?? null;
-  const expires = formatExpire(sub.info?.expire, expireLabels(m));
+  const expires = formatSubscriptionTerm(sub.info, expireLabels(m));
   const description = sub.meta?.description?.trim() || "";
   const visibleDescription = /^описание подписки$/i.test(description) ? "" : description;
   const supportUrl = sub.meta?.support_url?.trim() || "";

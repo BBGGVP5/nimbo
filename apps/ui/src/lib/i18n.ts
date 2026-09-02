@@ -58,6 +58,8 @@ export const messages = {
       expireInDays: "через {days} дн.",
       expireToday: "сегодня",
       expired: "истекла",
+      expireRefill: "пополнение {date}",
+      expireUnlimited: "бессрочная",
       hiddenServers: "Скрыто серверов: {count}",
       showHiddenServers: "Показать все",
     },
@@ -890,6 +892,8 @@ export const messages = {
       expireInDays: "in {days} d.",
       expireToday: "today",
       expired: "expired",
+      expireRefill: "refills {date}",
+      expireUnlimited: "no expiry",
       hiddenServers: "Hidden servers: {count}",
       showHiddenServers: "Show all",
     },
@@ -1705,6 +1709,8 @@ export function expireLabels(m: Messages) {
     inDays: m.common.expireInDays,
     today: m.common.expireToday,
     expired: m.common.expired,
+    refill: m.common.expireRefill,
+    unlimited: m.common.expireUnlimited,
   };
 }
 

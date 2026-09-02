@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { CountryFlag } from "../components/CountryFlag";
 import { notifyError } from "../lib/notify";
-import { useMessages } from "../lib/i18n";
+import { expireLabels, useMessages } from "../lib/i18n";
 import { serverDisplayLabel, useServerUiOverrides } from "../lib/serverUiOverrides";
 import type { Messages } from "../lib/i18n";
 import { pingServersProgressively } from "../lib/ping";
@@ -16,7 +16,7 @@ import { SignalServerRail } from "./home/SignalServerRail";
 import {
   api,
   formatBytes,
-  formatExpire,
+  formatSubscriptionTerm,
   protocolLabel,
   serverListDescription,
   subscriptionVisibleOnHome,
@@ -1681,7 +1681,7 @@ function ProfileSummary({
 
   const used = (sub.info?.upload ?? 0) + (sub.info?.download ?? 0);
   const total = sub.info?.total ?? null;
-  const expires = formatExpire(sub.info?.expire);
+  const expires = formatSubscriptionTerm(sub.info, expireLabels(labels));
   const description = sub.meta?.description?.trim() || "";
   const supportUrl = sub.meta?.support_url?.trim() || "";
   const siteUrl = sub.meta?.website_url?.trim() || subscriptionSiteUrl(sub.url);

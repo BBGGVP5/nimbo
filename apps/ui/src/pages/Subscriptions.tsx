@@ -16,7 +16,7 @@ import { SignalProfiles } from "./profiles/SignalProfiles";
 import {
   api,
   formatBytes,
-  formatExpire,
+  formatSubscriptionTerm,
   protocolLabel,
   serverCustomDescription,
   serverListDescription,
@@ -552,7 +552,7 @@ function ProfileCard({
   const m = useMessages();
   const used = (sub.info?.upload ?? 0) + (sub.info?.download ?? 0);
   const total = sub.info?.total ?? null;
-  const expires = formatExpire(sub.info?.expire, expireLabels(m));
+  const expires = formatSubscriptionTerm(sub.info, expireLabels(m));
   const mirrorCount = sub.meta?.mirrors?.length ?? 0;
   // Активный домен показываем, только когда подписка реально уехала на зеркало:
   // при работе основного домена active_url пустой.

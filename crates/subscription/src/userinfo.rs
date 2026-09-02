@@ -6,6 +6,10 @@ pub struct SubscriptionInfo {
     pub download: Option<u64>,
     pub total: Option<u64>,
     pub expire: Option<i64>,
+    /// Дата пополнения трафика из заголовка `subscription-refill-date`.
+    /// Панели с безлимитной подпиской присылают её вместо срока действия.
+    #[serde(default)]
+    pub refill_at: Option<i64>,
 }
 
 impl SubscriptionInfo {
@@ -29,6 +33,7 @@ impl SubscriptionInfo {
             && self.download.is_none()
             && self.total.is_none()
             && self.expire.is_none()
+            && self.refill_at.is_none()
     }
 }
 
@@ -43,8 +48,9 @@ pub fn parse_subscription_userinfo(header_value: &str) -> SubscriptionInfo {
         match key.as_str() {
             "upload" => info.upload = val.parse().ok(),
             "download" => info.download = val.parse().ok(),
-            "total" => info.total = val.parse().ok(),
-            "expire" => info.expire = val.parse().ok(),
+            // Ноль здесь значит «без ограничения», а не «истекает в 1970».
+            "total" => info.total = val.parse().ok().filter(|value| *value > 0),
+            "expire" => info.expire = val.parse().ok().filter(|value| *value > 0),
             _ => {}
         }
     }
@@ -65,6 +71,14 @@ mod tests {
         assert_eq!(info.expire, Some(1734567890));
         assert_eq!(info.used(), Some(3072));
         assert_eq!(info.remaining(), Some(10737418240 - 3072));
+    }
+
+    #[test]
+    fn zero_total_and_expire_mean_no_limit() {
+        let info = parse_subscription_userinfo("upload=0; download=104693457348; total=0; expire=0");
+        assert_eq!(info.download, Some(104693457348));
+        assert!(info.total.is_none());
+        assert!(info.expire.is_none());
     }
 
     #[test]

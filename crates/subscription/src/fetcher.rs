@@ -156,11 +156,24 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         println!("subscription header: {}: {}", name.as_str(), value);
     }
 
+    // Пополнение трафика идёт отдельным заголовком. У безлимитных подписок
+    // срока действия нет вовсе, и это единственная дата, которую панель знает.
+    let refill_at = resp
+        .headers()
+        .get("subscription-refill-date")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|value| *value > 0);
     let info = resp
         .headers()
         .get("subscription-userinfo")
         .and_then(|v| v.to_str().ok())
-        .map(parse_subscription_userinfo);
+        .map(parse_subscription_userinfo)
+        .or_else(|| refill_at.map(|_| SubscriptionInfo::default()))
+        .map(|mut info| {
+            info.refill_at = refill_at;
+            info
+        });
     let announce = extract_announce_header(resp.headers());
     let support_url = extract_header_url(
         resp.headers(),
@@ -1341,6 +1354,7 @@ fn parse_remnawave_userinfo(value: &Value) -> Option<SubscriptionInfo> {
             download,
             total,
             expire,
+            refill_at: None,
         })
     }
 }
@@ -1479,6 +1493,7 @@ fn merge_info(
             a.download = a.download.or(b.download);
             a.total = a.total.or(b.total);
             a.expire = a.expire.or(b.expire);
+            a.refill_at = a.refill_at.or(b.refill_at);
             Some(a)
         }
         (Some(a), None) => Some(a),
