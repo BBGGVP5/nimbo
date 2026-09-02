@@ -60,6 +60,15 @@ final class VpnController: ObservableObject {
             message: "Подготовка системной конфигурации VPN",
             metadata: signingContractMetadata
         )
+        // Подпись — первое, обо что разбивается запуск туннеля на чужом
+        // сертификате, и увидеть её без Mac иначе нечем.
+        await NimboDiagnostics.shared.record(
+            NimboSigningReport.problem == nil ? .info : .warning,
+            stage: .permission,
+            code: "IOS_SIGNING_REPORT",
+            message: NimboSigningReport.problem ?? "Подпись приложения и расширения выглядит пригодной",
+            metadata: NimboSigningReport.summary
+        )
         do {
             manager = try await loadOrCreateManager()
             if !hasStagedConfiguration,
