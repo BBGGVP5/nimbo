@@ -616,6 +616,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Замерить узлы и вернуть самый быстрый.
+     *
+     * Замер делается заново, а не берётся из кеша: сохранённые числа могли быть
+     * сняты вчера, а узел с тех пор успел деградировать — именно от такого
+     * выбора человек и уходит, нажимая «авто». Балансировщик из выбора
+     * исключён: это не узел, а запись подписки.
+     */
+    fun findFastestServer(servers: List<Server>, onResult: (Server?) -> Unit) {
+        val candidates = servers.filterNot { com.danila.nimbo.utils.isAutoBalancerServer(it) }
+        if (candidates.isEmpty()) {
+            onResult(null)
+            return
+        }
+        viewModelScope.launch {
+            pingServers(candidates, silent = true)
+            pingJob?.join()
+            val measured = _serversState.value.associateBy { it.pingMeasurementKey() }
+            val best = candidates
+                .mapNotNull { candidate ->
+                    val fresh = measured[candidate.pingMeasurementKey()] ?: candidate
+                    // Молчащий узел — не «ноль миллисекунд»: такие в выбор не идут.
+                    fresh.ping?.takeIf { it > 0 }?.let { fresh to it }
+                }
+                .minByOrNull { it.second }
+                ?.first
+            onResult(best)
+        }
+    }
+
+    /**
      * Единая реализация пинга. [targetServers] == null означает "пинговать все
      * сервера всех подписок". Каждая нода измеряется отдельно: одинаковый
      * host:port не означает одинаковый CDN, outbound или маршрут. Несколько нод

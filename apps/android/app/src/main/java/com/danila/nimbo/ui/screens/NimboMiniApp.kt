@@ -59,6 +59,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -112,6 +113,7 @@ import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material.icons.filled.Close
@@ -194,6 +196,7 @@ import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import com.danila.nimbo.service.SubscriptionUpdateScheduler
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -265,6 +268,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -273,6 +277,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -953,6 +958,7 @@ fun NimboMiniApp(
                     onBack = onBackRemembered,
                     onSelectProfile = onSelectProfileRemembered,
                     onSelectServer = onSelectServerRemembered,
+                    onConnectServer = onConnectRemembered,
                     onAddSubscription = onAddSubscriptionRemembered,
                     onProfileDeleted = onProfileDeleted,
                     onProfileRefresh = onProfileRefresh,
@@ -2885,6 +2891,98 @@ private fun connectionStatusText(
     }
 }
 
+/**
+ * Подключение к лучшему узлу одним нажатием.
+ *
+ * Стоит там же, где человек выбирает сервер: «авто» — это ещё один вариант
+ * выбора, а не настройка экраном глубже. Оформление берётся у строки
+ * выбранного сервера, поэтому строка не выпадает из включённого стиля.
+ */
+@Composable
+private fun NimboAutoFastestRow(
+    selectedServer: Server?,
+    preferencesManager: PreferencesManager,
+    searching: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val style = LocalElementStyleMode.current
+    val dottedStyle = style == ElementStyleMode.NOTHING_DOTS
+    val mangaStyle = style == ElementStyleMode.MANGA
+    val shape = when {
+        mangaStyle -> nimboControlShape(16.dp, 2.dp)
+        dottedStyle -> RoundedCornerShape(8.dp)
+        nebulaColors.isMaterialYou -> RoundedCornerShape(22.dp)
+        else -> RoundedCornerShape(16.dp)
+    }
+    val fill = nebulaColors.accent.copy(alpha = 0.10f).compositeOver(windowsControlFill(nebulaColors))
+    val resolvedFill = if (mangaStyle) nimboControlContainer(fill, selected = true) else fill
+    val border = nebulaColors.accent.copy(alpha = 0.38f)
+    val resolvedBorder = if (mangaStyle) nimboControlBorderColor(border, selected = true) else border
+    val ping = selectedServer?.ping?.takeIf { it > 0 }
+    val subtitle = when {
+        searching -> t("Замеряю узлы…", "Measuring nodes…")
+        selectedServer != null && ping != null -> t(
+            "Сейчас: ${serverUiTitle(preferencesManager, selectedServer)} · $ping мс",
+            "Now: ${serverUiTitle(preferencesManager, selectedServer)} · $ping ms"
+        )
+        else -> t(
+            "Замерит все серверы и подключится к лучшему",
+            "Measures every server and connects to the best one"
+        )
+    }
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(56.dp),
+        shape = shape,
+        color = resolvedFill,
+        border = if (dottedStyle) null else BorderStroke(
+            if (mangaStyle) nimboControlBorderWidth() else 1.dp,
+            resolvedBorder
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.SignalCellularAlt,
+                contentDescription = null,
+                tint = nebulaColors.accent,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = t("Авто — самый быстрый", "Auto — fastest server"),
+                    color = nebulaColors.accent,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    color = nebulaColors.textSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (searching) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = nebulaColors.accent
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun WindowsSelectedServerBar(
     server: Server?,
@@ -3613,6 +3711,8 @@ private fun NimboSubscriptionScreen(
     onBack: () -> Unit,
     onSelectProfile: (SubscriptionProfileMetadata) -> Unit,
     onSelectServer: (Server) -> Unit,
+    /** Выбрать сервер и сразу подключиться — нужно строке автоподбора. */
+    onConnectServer: (Server) -> Unit,
     onAddSubscription: () -> Unit,
     onProfileDeleted: (String) -> Unit,
     onProfileRefresh: (String) -> Unit,
@@ -3864,6 +3964,43 @@ private fun NimboSubscriptionScreen(
 
         val context = LocalContext.current
         var deleteProfile by remember { mutableStateOf<SubscriptionProfileMetadata?>(null) }
+
+        // Первым в списке — не сервер, а способ выбора: разница между узлами
+        // это задержка, а не название страны.
+        if (tab == MiniSubscriptionTab.Proxies && visibleServers.isNotEmpty()) {
+            var searchingFastest by remember { mutableStateOf(false) }
+            NimboAutoFastestRow(
+                selectedServer = selectedServer,
+                preferencesManager = preferencesManager,
+                searching = searchingFastest,
+                onClick = {
+                    if (!searchingFastest) {
+                        searchingFastest = true
+                        mainViewModel.findFastestServer(visibleServers) { best ->
+                            searchingFastest = false
+                            if (best == null) {
+                                mainViewModel.showTopNotification(
+                                    loc(
+                                        "Ни один сервер не ответил на проверку",
+                                        "No server answered the check"
+                                    )
+                                )
+                            } else {
+                                mainViewModel.showTopNotification(
+                                    loc(
+                                        "Выбран ${serverUiTitle(preferencesManager, best)} · ${best.ping} мс",
+                                        "Picked ${serverUiTitle(preferencesManager, best)} · ${best.ping} ms"
+                                    )
+                                )
+                                onConnectServer(best)
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(10.dp))
+        }
 
         AnimatedContent(
             targetState = tab,
@@ -18464,8 +18601,10 @@ private fun RoutingModulesScreen(
                 fontWeight = FontWeight.ExtraBold,
                 modifier = Modifier.weight(1f)
             )
-            MiniIconButton(
+            MiniSquareIconButton(
                 icon = Icons.Default.Add,
+                size = 44.dp,
+                iconSize = 24.dp,
                 onClick = {
                     editing = NimboModule(
                         id = java.util.UUID.randomUUID().toString(),
@@ -18602,8 +18741,15 @@ private fun RoutingModuleCard(
                     uncheckedTrackColor = nebulaColors.textSecondary.copy(alpha = 0.2f)
                 )
             )
-            Spacer(Modifier.width(4.dp))
-            MiniIconButton(
+            Spacer(Modifier.width(6.dp))
+            MiniSquareIconButton(
+                icon = Icons.Default.Edit,
+                onClick = onEdit,
+                size = 38.dp,
+                iconSize = 19.dp
+            )
+            Spacer(Modifier.width(6.dp))
+            MiniSquareIconButton(
                 icon = Icons.Default.Delete,
                 onClick = onDelete,
                 size = 38.dp,
@@ -18620,13 +18766,55 @@ private fun RoutingModuleEditor(
     onSave: (NimboModule) -> Unit
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    var name by remember(module.id) { mutableStateOf(module.name) }
     var text by remember(module.id) { mutableStateOf(module.text) }
     val parsed = remember(text) { NimboModuleParser.parse(text) }
+    val resolvedName = name.trim()
+        .ifBlank { parsed.name?.trim().orEmpty() }
+        .ifBlank { t("Без названия", "Untitled") }
+    val copiedMessage = t("Скопировано в буфер обмена", "Copied to clipboard")
 
     NimboSubPageScaffold(
-        title = parsed.name?.takeIf { it.isNotBlank() } ?: module.name,
+        title = resolvedName,
         onBack = onCancel
     ) {
+        // Имя набора — своё, а не строка из текста правил: списки из других
+        // приложений часто приходят вообще без имени.
+        Text(
+            text = t("НАЗВАНИЕ", "NAME"),
+            color = nebulaColors.textSecondary,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier.padding(start = 2.dp, bottom = 6.dp)
+        )
+        GlassPanel(modifier = Modifier.fillMaxWidth()) {
+            BasicTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    color = nebulaColors.textPrimary,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                cursorBrush = SolidColor(nebulaColors.accent),
+                decorationBox = { inner ->
+                    if (name.isBlank()) {
+                        Text(
+                            text = t("Например, «Ozon напрямую»", "For example, «Ozon direct»"),
+                            color = nebulaColors.textTertiary,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                    inner()
+                }
+            )
+        }
+        Spacer(Modifier.height(14.dp))
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -18638,15 +18826,34 @@ private fun RoutingModuleEditor(
                 fontWeight = FontWeight.ExtraBold,
                 modifier = Modifier.weight(1f)
             )
-            MiniIconButton(
-                icon = Icons.Default.Check,
+            MiniSquareIconButton(
+                icon = Icons.Default.ContentCopy,
+                size = 40.dp,
+                iconSize = 20.dp,
                 onClick = {
-                    onSave(
-                        module.copy(
-                            name = parsed.name?.takeIf { it.isNotBlank() } ?: module.name,
-                            text = text
-                        )
-                    )
+                    focusManager.clearFocus()
+                    copyTextToClipboard(context, text)
+                    Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
+                }
+            )
+            Spacer(Modifier.width(8.dp))
+            MiniSquareIconButton(
+                icon = Icons.Default.Share,
+                size = 40.dp,
+                iconSize = 20.dp,
+                onClick = {
+                    focusManager.clearFocus()
+                    shareModuleText(context, resolvedName, text)
+                }
+            )
+            Spacer(Modifier.width(8.dp))
+            MiniSquareIconButton(
+                icon = Icons.Default.Check,
+                size = 44.dp,
+                iconSize = 23.dp,
+                onClick = {
+                    focusManager.clearFocus()
+                    onSave(module.copy(name = resolvedName, text = text))
                 },
                 active = true
             )
@@ -18685,6 +18892,36 @@ private fun RoutingModuleEditor(
             ),
             color = nebulaColors.textTertiary,
             style = MaterialTheme.typography.labelMedium
+        )
+    }
+}
+
+/** Кладёт текст набора в буфер обмена. */
+private fun copyTextToClipboard(context: Context, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+    clipboard.setPrimaryClip(ClipData.newPlainText("Nimbo", text))
+}
+
+/**
+ * Отдаёт набор файлом через системное окно обмена.
+ *
+ * Текст уходит вместе с файлом: часть приложений принимает только текст, и
+ * без него отправка в мессенджер оказывалась пустой.
+ */
+private fun shareModuleText(context: Context, name: String, text: String) {
+    val safeName = name.map { if (it.isLetterOrDigit() || it == ' ' || it == '-' || it == '_') it else '-' }
+        .joinToString("")
+        .trim()
+        .ifBlank { "module" }
+    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(android.content.Intent.EXTRA_TITLE, "$safeName.conf")
+        putExtra(android.content.Intent.EXTRA_SUBJECT, safeName)
+        putExtra(android.content.Intent.EXTRA_TEXT, text)
+    }
+    runCatching {
+        context.startActivity(
+            android.content.Intent.createChooser(intent, safeName)
         )
     }
 }
