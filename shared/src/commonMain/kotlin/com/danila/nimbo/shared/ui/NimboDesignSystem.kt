@@ -32,13 +32,17 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MoreVert
@@ -325,7 +329,7 @@ internal enum class NimboIconName {
     HOME, PROFILES, APPS, SETTINGS, ADD, SEARCH, REFRESH, MORE, LIST,
     CLOUD, POWER, ROUTE, CONNECTION, NOTIFICATIONS, STATS, SYNC, LOGS,
     SUPPORT, SITE, SECURITY, INFO, DELETE, DOWNLOAD, FAVORITE, FAVORITE_OFF,
-    PING, BACK, PALETTE
+    PING, BACK, PALETTE, SAVE, COPY, SHARE, EDIT
 }
 
 private fun iconVector(name: NimboIconName, selected: Boolean): ImageVector = when (name) {
@@ -352,6 +356,10 @@ private fun iconVector(name: NimboIconName, selected: Boolean): ImageVector = wh
     NimboIconName.SECURITY -> Icons.Filled.Security
     NimboIconName.INFO -> Icons.Filled.Info
     NimboIconName.DELETE -> Icons.Filled.Delete
+    NimboIconName.SAVE -> Icons.Filled.Check
+    NimboIconName.COPY -> Icons.Filled.ContentCopy
+    NimboIconName.SHARE -> Icons.Filled.IosShare
+    NimboIconName.EDIT -> Icons.Filled.Edit
     NimboIconName.DOWNLOAD -> Icons.Filled.CloudDownload
     NimboIconName.FAVORITE -> Icons.Filled.Favorite
     NimboIconName.FAVORITE_OFF -> Icons.Filled.FavoriteBorder

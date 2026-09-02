@@ -104,9 +104,9 @@ internal fun NimboModulesScreen(state: NimboUiState, actions: NimboUiActions) {
                 modifier = Modifier.weight(1f),
                 style = NimboBodyStyle.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold)
             )
-            NimboIconPill(
+            NimboIconButton(
                 NimboIconName.ADD,
-                "Новый",
+                modifier = Modifier.size(44.dp),
                 onClick = {
                     editing = NimboModule(
                         id = "module-" + nimboRandomId(),
@@ -201,7 +201,15 @@ private fun ModuleCard(
                     )
                 )
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(8.dp))
+            // Карандаш рядом с названием: правка и переименование — первое,
+            // зачем открывают набор, и это не должно быть догадкой.
+            NimboIconButton(
+                NimboIconName.EDIT,
+                modifier = Modifier.size(36.dp),
+                onClick = onEdit
+            )
+            Spacer(Modifier.width(8.dp))
             // Переключатель вместо пилюли: состояние набора — это «включён»
             // или «нет», и выглядеть оно должно как всякий другой тумблер.
             NimboToggle(checked = module.enabled) { onToggle() }
@@ -245,9 +253,38 @@ private fun ModuleEditor(
                     fontWeight = FontWeight.Medium
                 )
             )
-            NimboIconPill(
-                NimboIconName.SUPPORT,
-                "Сохранить",
+            NimboIconButton(
+                NimboIconName.COPY,
+                modifier = Modifier.size(40.dp),
+                onClick = {
+                    focusManager.clearFocus()
+                    actions.onCopyText(text)
+                }
+            )
+            Spacer(Modifier.width(8.dp))
+            NimboIconButton(
+                NimboIconName.SHARE,
+                modifier = Modifier.size(40.dp),
+                onClick = {
+                    focusManager.clearFocus()
+                    actions.onExportModule(resolvedName, text)
+                }
+            )
+            Spacer(Modifier.width(8.dp))
+            NimboIconButton(
+                NimboIconName.DELETE,
+                modifier = Modifier.size(40.dp),
+                onClick = {
+                    focusManager.clearFocus()
+                    actions.onDeleteModule(module.id)
+                    onCancel()
+                }
+            )
+            Spacer(Modifier.width(8.dp))
+            NimboIconButton(
+                NimboIconName.SAVE,
+                modifier = Modifier.size(44.dp),
+                selected = true,
                 onClick = {
                     focusManager.clearFocus()
                     onSave(module.copy(name = resolvedName, text = text))
@@ -302,9 +339,9 @@ private fun ModuleEditor(
             // Клавиатуру на iOS нечем убрать: у цифрового и многострочного поля
             // системной кнопки «свернуть» нет, поэтому она своя.
             if (rulesFocused) {
-                NimboIconPill(
-                    NimboIconName.BACK,
-                    "Скрыть клавиатуру",
+                NimboIconButton(
+                    NimboIconName.SAVE,
+                    modifier = Modifier.size(36.dp),
                     onClick = { focusManager.clearFocus() }
                 )
             }
@@ -336,72 +373,10 @@ private fun ModuleEditor(
             )
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ModuleAction(
-                icon = NimboIconName.LIST,
-                title = "Копировать",
-                modifier = Modifier.weight(1f)
-            ) {
-                focusManager.clearFocus()
-                actions.onCopyText(text)
-            }
-            ModuleAction(
-                icon = NimboIconName.DOWNLOAD,
-                title = "Экспорт",
-                modifier = Modifier.weight(1f)
-            ) {
-                focusManager.clearFocus()
-                actions.onExportModule(resolvedName, text)
-            }
-            ModuleAction(
-                icon = NimboIconName.DELETE,
-                title = "Удалить",
-                modifier = Modifier.weight(1f),
-                accent = false
-            ) {
-                focusManager.clearFocus()
-                actions.onDeleteModule(module.id)
-                onCancel()
-            }
-        }
-
         BasicText(
             "Поддерживаются DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, GEOIP и GEOSITE с политиками DIRECT, PROXY и REJECT. " +
                 "Секция [General] пропускается: её настройки относятся к другому движку.",
             style = NimboBodyStyle.copy(fontSize = 12.sp)
-        )
-    }
-}
-
-/** Кнопка действия под редактором: значок и подпись в один столбец. */
-@Composable
-private fun ModuleAction(
-    icon: NimboIconName,
-    title: String,
-    modifier: Modifier = Modifier,
-    accent: Boolean = true,
-    onClick: () -> Unit
-) {
-    Column(
-        modifier = modifier
-            .nimboControlSurface(nimboStyledShape(16.dp, 2.dp))
-            .nimboRowClickable(onClick)
-            .padding(vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        NimboIcon(
-            icon,
-            tint = if (accent) NimboPalette.Accent else NimboPalette.TextSecondary,
-            modifier = Modifier.size(20.dp)
-        )
-        Spacer(Modifier.height(5.dp))
-        BasicText(
-            title,
-            style = TextStyle(
-                color = if (accent) NimboPalette.Text else NimboPalette.TextSecondary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
-            )
         )
     }
 }

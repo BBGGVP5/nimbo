@@ -152,9 +152,12 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
                 )
                 // Кнопка на виду: пока замер запускался нажатием на число,
                 // догадаться о нём было нельзя.
-                NimboIconPill(
+                // Значок без подписи: рядом стоит счётчик серверов, и текст
+                // «Проверить все» отбирал у него половину строки.
+                NimboIconButton(
                     NimboIconName.PING,
-                    if (state.pingInProgress) "Проверяю…" else "Проверить все",
+                    modifier = Modifier.size(40.dp),
+                    selected = state.pingInProgress,
                     onClick = { if (!state.pingInProgress) actions.onPingAll() }
                 )
             }
