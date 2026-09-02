@@ -7,18 +7,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var lifecycleGeneration: UInt64 = 0
     private var starting = false
     private var started = false
-    /// Сколько исходящих в текущей конфигурации.
-    ///
-    /// Сама конфигурация здесь не хранится: её JSON занимает сотни килобайт, а
-    /// после запуска ядра нужен только этот счётчик — при пределе памяти
-    /// расширения такую разницу видно.
-    private var outboundCount = 0
-    /// Имя utun, который выдала система: по нему считаются байты туннеля.
-    private var tunnelInterfaceName: String?
-    /// Проверка, жив ли ещё процесс ядра.
-    private var watchdog: DispatchSourceTimer?
-    /// Сколько проверок подряд ядро промолчало.
-    private var watchdogMisses = 0
+    private var preparedConfiguration: PreparedXrayConfiguration?
 
     override func startTunnel(
         options: [String: NSObject]?,
@@ -47,7 +36,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         }
                         self.starting = false
                         self.started = true
-                        self.startWatchdog()
                         completionHandler(nil)
                     }
                 } catch {
@@ -58,7 +46,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                             : PacketTunnelError.startCancelled
                         self.starting = false
                         self.started = false
-                        self.outboundCount = 0
+                        self.preparedConfiguration = nil
                         completionHandler(Self.transportableError(reportedError))
                     }
                 }
@@ -76,7 +64,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 return
             }
             self.lifecycleGeneration &+= 1
-            self.stopWatchdog()
             let stopError: Error?
             do {
                 if (try? self.core.isRunning()) == true { try self.core.stop() }
@@ -86,7 +73,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             self.starting = false
             self.started = false
-            self.outboundCount = 0
+            self.preparedConfiguration = nil
 
             Task {
                 await NimboDiagnostics.shared.record(
@@ -121,26 +108,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     "ok": true,
                     "running": running,
                     "version": version,
-                    "outbounds": self.outboundCount
-                ]))
-            case "metrics":
-                // Счётчики берём у своего интерфейса: приложение видит все utun
-                // и не может отличить наш от служебного.
-                let counters = self.tunnelInterfaceName
-                    .flatMap { NimboInterfaceCounters.counters(interface: $0) }
-                    ?? NimboInterfaceCounters.busiestTunnel()
-                completionHandler?(Self.responseData([
-                    "ok": true,
-                    "received": counters?.received ?? 0,
-                    "sent": counters?.sent ?? 0,
-                    // Предел памяти система ставит расширению, поэтому важна
-                    // именно его занятая память, а не приложения.
-                    "memoryMb": NimboInterfaceCounters.memoryFootprintMb()
+                    "outbounds": self.preparedConfiguration?.outboundCount ?? 0
                 ]))
             case "diagnostics":
                 let running = (try? self.core.isRunning()) ?? false
                 let version = (try? self.core.version()) ?? "unknown"
-                let outboundCount = self.outboundCount
+                let outboundCount = self.preparedConfiguration?.outboundCount ?? 0
                 Task {
                     let records = (try? await NimboDiagnostics.shared.recentRecordsData(maxBytes: 384 * 1_024)) ?? Data()
                     completionHandler?(Self.responseData([
@@ -157,45 +130,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
-    /// Наблюдение за ядром.
-    ///
-    /// Раньше сторож при первой же неудачной проверке отменял туннель. Но
-    /// «не ответило» и «остановилось» — разные вещи: вызов к ядру может
-    /// не пройти на секунду, а туннель при этом жив. Из-за этого рабочее
-    /// соединение обрывалось на ровном месте, поэтому сторож только пишет в
-    /// диагностику, и лишь после трёх молчаливых проверок подряд.
-    private func startWatchdog() {
-        stopWatchdog()
-        watchdogMisses = 0
-        let timer = DispatchSource.makeTimerSource(queue: lifecycleQueue)
-        timer.schedule(deadline: .now() + 60, repeating: 60, leeway: .seconds(15))
-        timer.setEventHandler { [weak self] in
-            guard let self, self.started, !self.starting else { return }
-            if (try? self.core.isRunning()) == true {
-                self.watchdogMisses = 0
-                return
-            }
-            self.watchdogMisses += 1
-            guard self.watchdogMisses >= 3 else { return }
-            self.stopWatchdog()
-            Task {
-                await NimboDiagnostics.shared.record(
-                    .warning,
-                    stage: .coreLoad,
-                    code: "IOS_XRAY_SILENT",
-                    message: "VPN-ядро не отвечает на проверки состояния"
-                )
-            }
-        }
-        timer.resume()
-        watchdog = timer
-    }
-
-    private func stopWatchdog() {
-        watchdog?.cancel()
-        watchdog = nil
-    }
-
     override func sleep(completionHandler: @escaping () -> Void) {
         completionHandler()
     }
@@ -203,12 +137,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     override func wake() {
         lifecycleQueue.async { [weak self] in
             guard let self, self.started else { return }
-            guard (try? self.core.isRunning()) != true else { return }
-            // Сразу после пробуждения ядро может не ответить, оставаясь живым.
-            // Рвать из-за этого рабочее соединение нельзя, поэтому спрашиваем
-            // ещё раз чуть погодя.
-            self.lifecycleQueue.asyncAfter(deadline: .now() + 3) {
-                guard self.started, (try? self.core.isRunning()) != true else { return }
+            if (try? self.core.isRunning()) != true {
                 self.cancelTunnelWithError(PacketTunnelError.coreStoppedUnexpectedly)
             }
         }
@@ -232,10 +161,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             providerValue: (protocolConfiguration as? NETunnelProviderProtocol)?
                 .providerConfiguration?["routing"]
         )
-        XrayConfigurationBuilder.moduleRulesJSON =
-            tunnelProtocol.providerConfiguration?["modules"] as? String ?? ""
-        XrayConfigurationBuilder.routingProfileJSON =
-            tunnelProtocol.providerConfiguration?["routingProfile"] as? String ?? ""
 
         do {
             try await applyNetworkSettings(PacketTunnelNetwork.settings(options: routingOptions))
@@ -253,10 +178,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         guard let descriptorInfo = PacketTunnelNetwork.utunDescriptorInfo() else {
             throw await recorded(PacketTunnelError.utunUnavailable, stage: .route, code: "IOS_UTUN_FD_NOT_FOUND")
         }
-
-        // Имя интерфейса нужно позже для счётчиков: искать его повторно
-        // бессмысленно, а угадывать по адресу — ошибочно.
-        tunnelInterfaceName = descriptorInfo.interfaceName
         guard let assets = Bundle.main.resourceURL?.path,
               FileManager.default.fileExists(atPath: "\(assets)/geoip.dat"),
               FileManager.default.fileExists(atPath: "\(assets)/geosite.dat") else {
@@ -280,7 +201,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 message: "VPN-ядро запущено",
                 metadata: [
                     "core": startup.coreVersion,
-                    "outbounds": "\(startup.outboundCount)",
+                    "outbounds": "\(startup.configuration.outboundCount)",
                     "tun_fd": "available",
                     "tun_interface": descriptorInfo.interfaceName
                 ]
@@ -333,9 +254,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     try self.core.run(configurationJSON: configuration.json)
                     guard try self.core.isRunning() else { throw PacketTunnelError.coreDidNotStart }
                     let coreVersion = try self.core.version()
-                    self.outboundCount = configuration.outboundCount
+                    self.preparedConfiguration = configuration
                     continuation.resume(returning: CoreStartupResult(
-                        outboundCount: configuration.outboundCount,
+                        configuration: configuration,
                         coreVersion: coreVersion
                     ))
                 } catch {
@@ -391,7 +312,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 }
 
 private struct CoreStartupResult {
-    let outboundCount: Int
+    let configuration: PreparedXrayConfiguration
     let coreVersion: String
 }
 
