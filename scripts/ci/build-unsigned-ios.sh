@@ -271,6 +271,17 @@ for signed_executable in "${SIGNED_EXECUTABLES[@]}"; do
   # preserve the entitlement correctly while installing the bundle.
   entitlements="$("${LDID_BIN}" -e "${signed_executable}" 2>&1)"
   printf '%s\n' "${entitlements}" > "${report_path}"
+  # Право туннеля обязательно для приложения и самого туннеля. Виджету оно
+  # не положено: он переключает готовый туннель, а с лишним правом iOS 27
+  # отвергает связку расширений целиком.
+  if [[ -n "${WIDGET_EXECUTABLE}" && "${signed_executable}" == "${WIDGET_EXECUTABLE}" ]]; then
+    if [[ "${entitlements}" != *"allow-vpn"* ]]; then
+      echo "VPN entitlement is missing from ${signed_executable}" >&2
+      sed -n '1,120p' "${report_path}" >&2
+      exit 7
+    fi
+    continue
+  fi
   if [[ "${entitlements}" != *"packet-tunnel-provider"* ]]; then
     echo "Packet Tunnel entitlement is missing from ${signed_executable}" >&2
     sed -n '1,120p' "${report_path}" >&2
