@@ -37,11 +37,17 @@ enum NimboConstants {
 
         for url in children where url.pathExtension == "appex" {
             guard let bundle = Bundle(url: url),
-                  bundle.object(forInfoDictionaryKey: "NSExtension") != nil,
+                  let extensionInfo = bundle.object(forInfoDictionaryKey: "NSExtension") as? [String: Any],
                   let identifier = bundle.bundleIdentifier,
                   !identifier.isEmpty else {
                 continue
             }
+            // Расширений в приложении несколько: рядом с туннелем лежит виджет
+            // Пункта управления. Брать первое попавшееся нельзя — система
+            // отвечает, что приложение VPN не установлено, потому что в
+            // конфигурации оказывается идентификатор виджета.
+            let point = extensionInfo["NSExtensionPointIdentifier"] as? String
+            guard point == "com.apple.networkextension.packet-tunnel" else { continue }
             return identifier
         }
         return nil

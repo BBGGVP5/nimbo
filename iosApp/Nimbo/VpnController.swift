@@ -249,8 +249,32 @@ final class VpnController: ObservableObject {
     }
 
     private func loadOrCreateManager() async throws -> NETunnelProviderManager {
-        let existing = try await NETunnelProviderManager.loadAllFromPreferences()
-            .first { ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == NimboConstants.packetTunnelBundleIdentifier }
+        let wanted = NimboConstants.packetTunnelBundleIdentifier
+        let all = try await NETunnelProviderManager.loadAllFromPreferences()
+        let existing = all.first {
+            ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == wanted
+        }
+
+        // Наши прежние записи, указывающие на другое расширение, удаляем:
+        // конфигурация хранится в системе и переустановку приложения
+        // переживает, а подключиться по ней уже нельзя.
+        for stale in all where stale !== existing {
+            let identifier = (stale.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier
+            guard let identifier,
+                  identifier != wanted,
+                  identifier.hasSuffix(".PacketTunnel") || stale.localizedDescription == "Nimbo" else {
+                continue
+            }
+            try? await stale.removeFromPreferences()
+            await NimboDiagnostics.shared.record(
+                .warning,
+                stage: .config,
+                code: "IOS_VPN_STALE_PROFILE_REMOVED",
+                message: "Удалена прежняя конфигурация VPN, указывавшая на другое расширение",
+                metadata: ["previous": identifier, "current": wanted]
+            )
+        }
+
         let value = existing ?? NETunnelProviderManager()
         let tunnelProtocol = (value.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
         tunnelProtocol.providerBundleIdentifier = NimboConstants.packetTunnelBundleIdentifier
