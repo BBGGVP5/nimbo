@@ -170,6 +170,13 @@ TUNNEL_EXECUTABLE="${TUNNEL_PATH}/$(read_plist "${TUNNEL_PATH}/Info.plist" "CFBu
 # Элемент Пункта управления собирается только на новых Xcode: если его нет,
 # сборка не должна падать — кнопка приятная, но не обязательная.
 WIDGET_EXECUTABLE=""
+# Виджет кладётся в сборку только по просьбе: пока не проверено на
+# устройстве, что он не мешает запуску туннеля, рабочее подключение важнее
+# кнопки в шторке.
+if [[ -d "${WIDGET_PATH}" && "${NIMBO_WITH_CONTROL_WIDGET:-0}" != "1" ]]; then
+  echo "Убираю виджет Пункта управления из сборки (NIMBO_WITH_CONTROL_WIDGET=1 вернёт его)"
+  rm -rf "${WIDGET_PATH}"
+fi
 if [[ -d "${WIDGET_PATH}" ]]; then
   WIDGET_EXECUTABLE="${WIDGET_PATH}/$(read_plist "${WIDGET_PATH}/Info.plist" "CFBundleExecutable")"
 fi
@@ -177,6 +184,9 @@ fi
 prepare_entitlements() {
   local source_plist="$1"
   local output_plist="$2"
+  # Третьим аргументом — нужно ли право туннеля. У виджета его нет и быть
+  # не должно: он лишь переключает уже настроенный туннель.
+  local require_tunnel="${3:-1}"
   # Keep the source XML byte-for-byte. On the Xcode 26 runner `plutil
   # -convert ... -o` produced a syntactically valid but empty dictionary for
   # entitlement files, which made NetworkExtension fail with permission denied.
@@ -185,6 +195,10 @@ prepare_entitlements() {
   # PlistBuddy treats the dots in the entitlement name as a nested key path on
   # recent macOS runners. Read the plist as data instead, otherwise a valid
   # `com.apple.developer.networking.networkextension` array is reported empty.
+  if [[ "${require_tunnel}" != "1" ]]; then
+    plutil -p "${output_plist}"
+    return 0
+  fi
   if ! /usr/bin/python3 - "${output_plist}" <<'PY'
 import plistlib
 import sys
@@ -210,7 +224,7 @@ prepare_entitlements "${ROOT_DIR}/iosApp/Nimbo/Nimbo.entitlements" "${APP_ENTITL
 prepare_entitlements "${ROOT_DIR}/iosApp/PacketTunnel/PacketTunnel.entitlements" "${TUNNEL_ENTITLEMENTS}"
 WIDGET_ENTITLEMENTS="${LDID_ENTITLEMENTS_DIR}/ControlWidget.entitlements"
 if [[ -n "${WIDGET_EXECUTABLE}" ]]; then
-  prepare_entitlements "${ROOT_DIR}/iosApp/ControlWidget/NimboControlWidget.entitlements" "${WIDGET_ENTITLEMENTS}"
+  prepare_entitlements "${ROOT_DIR}/iosApp/ControlWidget/NimboControlWidget.entitlements" "${WIDGET_ENTITLEMENTS}" 0
 fi
 
 echo "Embedding Network Extension entitlements with ${LDID_BIN}"
