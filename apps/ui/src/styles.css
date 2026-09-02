@@ -11580,7 +11580,15 @@ body[data-ui-style="dotted"] .settings-interface-card-dotted .settings-interface
   body[data-ui-style="nimbo"] .panel,
   body[data-ui-style="nimbo"] .liquid-card,
   body[data-ui-style="nimbo"] .settings-card,
-  body[data-ui-style="nimbo"] .page-surface {
+  body[data-ui-style="nimbo"] .page-surface,
+  /* Эти поверхности раньше в перечень не попали и оставались стеклом без
+     размытия: светлые блики поверх полупрозрачной заливки читаются как
+     мутное серое пятно. */
+  body[data-ui-style="nimbo"] .server-side-panel,
+  body[data-ui-style="nimbo"] .app-sidebar > .glass,
+  body[data-ui-style="nimbo"] .update-dialog,
+  body[data-ui-style="nimbo"] .network-glass-reactive,
+  body[data-ui-style="nimbo"] .network-glass-home {
     background: var(--ui-panel-bg-strong);
   }
 
