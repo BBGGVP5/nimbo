@@ -11,6 +11,7 @@ import {
   type ActiveConnection,
   type TrafficStats,
 } from "./lib/api";
+import { measureFastestServer } from "./lib/fastest";
 
 export interface TrafficSpeed {
   upload: number;
@@ -33,6 +34,8 @@ interface AppStoreState {
   connectingServerId: string | null;
   disconnecting: boolean;
   switchingServerId: string | null;
+  /** Идёт поиск самого быстрого узла. */
+  searchingFastest: boolean;
   importDialogOpen: boolean;
   importDialogSource: string;
   conflictDialogOpen: boolean;
@@ -77,6 +80,8 @@ interface AppStoreState {
   setActiveServer: (serverId: string | null) => Promise<void>;
   setActiveSubscription: (url: string | null) => Promise<void>;
   connectServer: (serverId: string) => Promise<void>;
+  /** Замерить узлы и подключиться к самому быстрому. */
+  connectFastestServer: () => Promise<void>;
   disconnectServer: () => Promise<void>;
   syncStatus: () => Promise<void>;
   openConflictDialog: (conflicts: ConflictingProcess[]) => void;
@@ -102,6 +107,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   connectingServerId: null,
   disconnecting: false,
   switchingServerId: null,
+  searchingFastest: false,
   importDialogOpen: false,
   importDialogSource: "",
   conflictDialogOpen: false,
@@ -365,6 +371,39 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     });
     await get().hydrate();
     void api.refreshTrayMenu();
+  },
+
+  connectFastestServer: async () => {
+    const { subscriptions, activeSubscriptionUrl, status } = get();
+    // Ищем среди серверов активной подписки: смешивать узлы разных подписок
+    // человек не просил, и подключение «куда-то» его бы озадачило.
+    const pool = (
+      subscriptions.find((sub) => sub.url === activeSubscriptionUrl) ?? subscriptions[0]
+    )?.servers ?? [];
+    if (pool.length === 0) {
+      set({ error: "Нет серверов для выбора" });
+      return;
+    }
+
+    set({ searchingFastest: true, error: null });
+    try {
+      const best = await measureFastestServer(pool, (result) => {
+        if (result.latency_ms != null) get().setServerPing(result.server_id, result.latency_ms);
+      });
+      if (!best) {
+        // Ни один узел не ответил: подключаться наугад хуже, чем сказать об этом.
+        set({ error: "Ни один сервер не ответил на проверку" });
+        return;
+      }
+      const connected = status?.state === "connected";
+      await get().setActiveServer(best.id);
+      if (!connected) await get().connectServer(best.id);
+    } catch (e) {
+      set({ error: String(e) });
+      throw e;
+    } finally {
+      set({ searchingFastest: false });
+    }
   },
 
   connectServer: async (serverId) => {

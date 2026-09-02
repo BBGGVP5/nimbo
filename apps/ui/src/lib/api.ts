@@ -215,6 +215,7 @@ export type UpdateChannel = "stable" | "beta";
 export interface AppPreferences {
   launch_at_login: boolean;
   auto_connect_on_launch: boolean;
+  auto_connect_fastest: boolean;
   start_minimized: boolean;
   minimize_to_tray: boolean;
   ping_on_launch: boolean;
@@ -242,6 +243,10 @@ export interface AppPreferences {
   show_speed_chart: boolean;
   show_memory_usage: boolean;
   connection_kill_switch: boolean;
+  /** MTU TUN-интерфейса; 0 — значение по умолчанию. */
+  tunnel_mtu: number;
+  /** DNS внутри туннеля через запятую; пусто — встроенная пара. */
+  tunnel_dns: string;
   tunnel_sniffing: boolean;
   tunnel_mux_enabled: boolean;
   tunnel_mux_concurrency: number;
@@ -580,6 +585,7 @@ function randomUuid(): string {
 export const defaultAppPreferences: AppPreferences = {
   launch_at_login: false,
   auto_connect_on_launch: false,
+  auto_connect_fastest: false,
   start_minimized: false,
   minimize_to_tray: true,
   ping_on_launch: true,
@@ -606,6 +612,8 @@ export const defaultAppPreferences: AppPreferences = {
   show_speed_chart: true,
   show_memory_usage: false,
   connection_kill_switch: false,
+  tunnel_mtu: 0,
+  tunnel_dns: "",
   tunnel_sniffing: true,
   tunnel_mux_enabled: false,
   tunnel_mux_concurrency: 8,
@@ -718,6 +726,7 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     accent_color: accent,
     launch_at_login: Boolean(value?.launch_at_login),
     auto_connect_on_launch: Boolean(value?.auto_connect_on_launch),
+    auto_connect_fastest: Boolean(value?.auto_connect_fastest),
     start_minimized: Boolean(value?.start_minimized),
     minimize_to_tray: value?.minimize_to_tray !== false,
     ping_on_launch: value?.ping_on_launch !== false,
@@ -742,6 +751,8 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     show_speed_chart: value?.show_speed_chart !== false,
     show_memory_usage: Boolean(value?.show_memory_usage),
     connection_kill_switch: Boolean(value?.connection_kill_switch),
+    tunnel_mtu: Number.isFinite(Number(value?.tunnel_mtu)) ? Number(value?.tunnel_mtu) : 0,
+    tunnel_dns: typeof value?.tunnel_dns === "string" ? value.tunnel_dns : "",
     tunnel_sniffing: value?.tunnel_sniffing !== false,
     tunnel_mux_enabled: Boolean(value?.tunnel_mux_enabled),
     tunnel_mux_concurrency: clampNumber(value?.tunnel_mux_concurrency, defaultAppPreferences.tunnel_mux_concurrency, 1, 1024),
@@ -1434,6 +1445,11 @@ export const api = {
   refreshTrayMenu: () =>
     isTauriRuntime()
       ? invoke<void>("refresh_tray_menu")
+      : Promise.resolve(),
+  /** Снять правила брандмауэра, оставшиеся от Kill Switch. */
+  resetKillSwitch: () =>
+    isTauriRuntime()
+      ? invoke<void>("reset_kill_switch")
       : Promise.resolve(),
   getStatus: () =>
     isTauriRuntime()

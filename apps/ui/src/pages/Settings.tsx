@@ -575,6 +575,13 @@ function GeneralSection({
           icon={<ZapIcon />}
         />
         <ToggleRow
+          label={m.settings.autoConnectFastest}
+          description={m.settings.autoConnectFastestDescription}
+          enabled={preferences.auto_connect_fastest}
+          onToggle={(auto_connect_fastest) => onChange({ auto_connect_fastest })}
+          icon={<ZapIcon />}
+        />
+        <ToggleRow
           label={m.settings.startMinimized}
           enabled={preferences.start_minimized}
           onToggle={(start_minimized) => onChange({ start_minimized })}
@@ -1169,6 +1176,7 @@ function ConnectionSection({
           onToggle={(connection_kill_switch) => onPreferences({ connection_kill_switch })}
           icon={<ZapIcon />}
         />
+        <ResetKillSwitchRow />
       </SettingsCard>
       <SettingsCard>
         <ValueRow label="HTTP proxy" value={httpProxy} copyValue={httpProxy} mono icon={<PlugIcon />} />
@@ -1281,6 +1289,8 @@ function TunnelSection({
           onToggle={(tunnel_tls_fragmentation) => onChange({ tunnel_tls_fragmentation })}
           icon={<ListIcon />}
         />
+        <TunnelDnsRow value={preferences.tunnel_dns} onChange={onChange} />
+        <TunnelMtuRow value={preferences.tunnel_mtu} onChange={onChange} />
       </SettingsCard>
     </Section>
   );
@@ -1909,6 +1919,240 @@ function AboutSection({
         </SettingsCard>
       </Section>
     </Section>
+  );
+}
+
+/**
+ * Строка с выпадающим списком.
+ *
+ * Пять вариантов с длинными подписями в ряд сегментов не помещаются, а список
+ * из пяти строк с галочками занимал бы пол-экрана ради значения, которое
+ * меняют раз в жизни. Свёрнутая строка показывает выбранное, список
+ * раскрывается по нажатию.
+ */
+function SettingsDropdownRow({
+  label,
+  description,
+  value,
+  options,
+  onChange,
+  icon,
+}: {
+  label: string;
+  description?: string;
+  value: string;
+  options: Array<{ value: string; label: string; hint?: string }>;
+  onChange: (value: string) => Promise<void> | void;
+  icon?: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((option) => option.value === value);
+  return (
+    <div className="settings-dropdown">
+      <button
+        type="button"
+        className="settings-row settings-dropdown-summary"
+        aria-expanded={open}
+        onClick={() => setOpen((state) => !state)}
+      >
+        <div className="settings-row-label-container">
+          {icon && <span className="settings-row-icon">{icon}</span>}
+          <div className="min-w-0">
+            <div className="settings-row-title">{label}</div>
+            {description && <div className="settings-row-description">{description}</div>}
+          </div>
+        </div>
+        <span className="settings-dropdown-value">
+          {current?.label ?? "—"}
+          <DropdownChevron open={open} />
+        </span>
+      </button>
+      {open && (
+        <div className="settings-dropdown-list">
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={[
+                "settings-dropdown-option",
+                option.value === value ? "settings-dropdown-option-active" : "",
+              ].join(" ")}
+              onClick={() => {
+                setOpen(false);
+                if (option.value !== value) void onChange(option.value);
+              }}
+            >
+              <span className="min-w-0">
+                <span className="settings-dropdown-option-label">{option.label}</span>
+                {option.hint && <span className="settings-dropdown-option-hint">{option.hint}</span>}
+              </span>
+              {option.value === value && <span className="settings-dropdown-check">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DropdownChevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="settings-dropdown-chevron"
+      data-open={open ? "true" : undefined}
+      aria-hidden="true"
+    >
+      <path
+        d="M6 9.5 12 15.5 18 9.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** Наборы DNS: значения уходят в TUN-интерфейс ядра. */
+const TUNNEL_DNS_PRESETS = [
+  { value: "", label: "Cloudflare + Google", hint: "1.1.1.1, 8.8.8.8" },
+  { value: "8.8.8.8,8.8.4.4", label: "Google DNS", hint: "8.8.8.8, 8.8.4.4" },
+  { value: "1.1.1.1,1.0.0.1", label: "Cloudflare DNS", hint: "1.1.1.1, 1.0.0.1" },
+  { value: "9.9.9.9,149.112.112.112", label: "Quad9", hint: "9.9.9.9, 149.112.112.112" },
+];
+
+/**
+ * DNS внутри туннеля.
+ *
+ * Кроме готовых наборов есть свой: в корпоративных и домашних сетях резолвер
+ * часто единственный, кто знает внутренние имена.
+ */
+function TunnelDnsRow({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (patch: Partial<AppPreferences>) => Promise<void>;
+}) {
+  const m = useMessages();
+  const preset = TUNNEL_DNS_PRESETS.find((option) => option.value === value);
+  const [draft, setDraft] = useState(preset ? "" : value);
+
+  useEffect(() => {
+    setDraft(TUNNEL_DNS_PRESETS.some((option) => option.value === value) ? "" : value);
+  }, [value]);
+
+  return (
+    <>
+      <SettingsDropdownRow
+        label={m.settings.tunnelDns}
+        description={m.settings.tunnelDnsDescription}
+        value={preset ? preset.value : "custom"}
+        options={[
+          ...TUNNEL_DNS_PRESETS.map((option) => ({
+            value: option.value,
+            label: option.label,
+            hint: option.hint,
+          })),
+          { value: "custom", label: m.settings.tunnelDnsCustom, hint: m.settings.tunnelDnsCustomHint },
+        ]}
+        onChange={async (next) => {
+          if (next === "custom") {
+            // Пока своё поле пустое, набор не меняем: иначе выбор «свой» молча
+            // сбросил бы туннель на встроенные адреса.
+            setDraft(value);
+            return;
+          }
+          await onChange({ tunnel_dns: next });
+        }}
+        icon={<GlobeIcon />}
+      />
+      {!preset && (
+        <SettingsInputRow
+          label={m.settings.tunnelDnsCustom}
+          value={draft}
+          compact
+          inputMode="text"
+          placeholder={m.settings.tunnelDnsCustomHint}
+          onChange={setDraft}
+          onCommit={() => {
+            const next = draft.trim();
+            if (next !== value) void onChange({ tunnel_dns: next });
+          }}
+          icon={<GlobeIcon />}
+        />
+      )}
+    </>
+  );
+}
+
+/** MTU TUN-интерфейса: 0 — как у обычного Ethernet. */
+function TunnelMtuRow({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (patch: Partial<AppPreferences>) => Promise<void>;
+}) {
+  const m = useMessages();
+  return (
+    <SettingsDropdownRow
+      label={m.settings.tunnelMtu}
+      description={m.settings.tunnelMtuDescription}
+      value={String(value)}
+      options={[
+        { value: "0", label: m.settings.tunnelMtuAuto },
+        { value: "1420", label: "1420" },
+        { value: "1380", label: "1380" },
+        { value: "1280", label: "1280" },
+      ]}
+      onChange={(next) => onChange({ tunnel_mtu: Number(next) })}
+      icon={<SlidersIcon />}
+    />
+  );
+}
+
+/**
+ * Ручной сброс Kill Switch.
+ *
+ * Если приложение упало с поднятым туннелем, правила брандмауэра остаются, и
+ * интернета нет — а снять их изнутри приложения было нечем.
+ */
+function ResetKillSwitchRow() {
+  const m = useMessages();
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="settings-row">
+      <div className="settings-row-label-container">
+        <span className="settings-row-icon">
+          <RefreshIcon />
+        </span>
+        <div className="min-w-0">
+          <div className="settings-row-title">{m.settings.resetKillSwitch}</div>
+          <div className="settings-row-description">{m.settings.resetKillSwitchDescription}</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        className="settings-action"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await api.resetKillSwitch();
+            notifyInfo(m.settings.resetKillSwitchDone);
+          } catch (error) {
+            notifyError(String(error));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {m.settings.resetKillSwitch}
+      </button>
+    </div>
   );
 }
 

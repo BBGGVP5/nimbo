@@ -797,6 +797,12 @@ function ProfileCard({
 
       {expanded && (
         <div className="divide-y divide-[var(--color-border)] border-t border-[var(--color-border)] bg-[rgba(255,255,255,0.018)]">
+          <AutoFastestLine
+            servers={sub.servers}
+            activeId={activeId}
+            pings={serverPings}
+            displayName={(server) => serverDisplayLabel(server, serverOverrides)}
+          />
           {deduplicateById(sub.servers).map((server) => (
             <ServerLine
               key={server.id}
@@ -848,6 +854,96 @@ function ProfileCard({
         />
       )}
     </section>
+  );
+}
+
+/**
+ * Первая строка списка: подключение к лучшему узлу одним нажатием.
+ *
+ * Место выбрано намеренно — именно здесь человек выбирает сервер, и «авто»
+ * читается как ещё один вариант выбора, а не как настройка, спрятанная
+ * страницей глубже.
+ */
+function AutoFastestLine({
+  servers,
+  activeId,
+  pings,
+  displayName,
+}: {
+  servers: Server[];
+  activeId: string | null;
+  pings: Record<string, number>;
+  displayName: (server: Server) => string;
+}) {
+  const m = useMessages();
+  const searching = useAppStore((s) => s.searchingFastest);
+  const connectFastest = useAppStore((s) => s.connectFastestServer);
+  const active = servers.find((server) => server.id === activeId) ?? null;
+  const activePing = active ? pings[active.id] : undefined;
+
+  const subtitle = searching
+    ? m.profiles.fastestSearching
+    : active && typeof activePing === "number" && activePing > 0
+      ? fillTemplate(m.profiles.fastestCurrent, {
+          name: displayName(active),
+          ping: String(activePing),
+        })
+      : m.profiles.fastestHint;
+
+  const run = () => {
+    if (searching) return;
+    void connectFastest().catch((error) => notifyError(String(error)));
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={run}
+      onKeyDown={(event) => {
+        if (event.currentTarget !== event.target) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          run();
+        }
+      }}
+      className={[
+        "server-profile-row server-profile-row-auto group",
+        searching ? "server-profile-row-connecting" : "",
+      ].join(" ")}
+    >
+      <div className="server-profile-logo">
+        <BoltIcon />
+      </div>
+      <div className="server-profile-main">
+        <div className="server-profile-title-line">
+          <div className="server-profile-title">{m.profiles.fastestTitle}</div>
+          {searching && (
+            <span className="server-row-pill server-row-pill-selected">
+              {m.profiles.fastestSearching}
+            </span>
+          )}
+        </div>
+        <div className="server-profile-description">{subtitle}</div>
+      </div>
+      <div className="server-profile-actions" data-no-toggle>
+        <SignalIcon pulse={searching} small />
+      </div>
+    </div>
+  );
+}
+
+function BoltIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <path
+        d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

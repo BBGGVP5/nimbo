@@ -1083,11 +1083,124 @@ body[data-theme="light"] .app-sidebar > .glass {
   background: var(--ui-panel-bg-strong);
 }
 
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .app-brand-lockup {
   display: flex;
   min-width: 0;
+  flex: 1 1 auto;
   align-items: center;
   gap: 10px;
+}
+
+/* Стрелка сворачивания: тихая, пока к ней не потянулись. */
+.app-sidebar-collapse {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  transition:
+    color 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease;
+}
+
+.app-sidebar-collapse:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  border-color: var(--color-border);
+}
+
+.app-sidebar-collapse svg {
+  width: 16px;
+  height: 16px;
+  /* Разворот на пол-оборота: по самой стрелке видно, куда сработает нажатие. */
+  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.app-sidebar[data-collapsed="true"] .app-sidebar-collapse svg {
+  transform: rotate(180deg);
+}
+
+/* Свёрнутая панель: остаются значки, подписи и марка уходят. */
+.app-sidebar {
+  transition: width 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.app-sidebar[data-collapsed="true"] .app-brand {
+  flex-direction: column;
+  gap: 10px;
+}
+
+.app-sidebar[data-collapsed="true"] .app-brand-name,
+.app-sidebar[data-collapsed="true"] .app-nav-text,
+.app-sidebar[data-collapsed="true"] .app-build {
+  display: none;
+}
+
+.app-sidebar[data-collapsed="true"] .app-brand {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.app-sidebar[data-collapsed="true"] .app-brand-lockup {
+  justify-content: center;
+}
+
+.app-sidebar[data-collapsed="true"] .app-nav-link {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  min-height: 46px;
+}
+
+.app-sidebar[data-collapsed="true"] .app-nav-icon {
+  width: 22px;
+  height: 22px;
+}
+
+/* Логотипу нужен воздух: в узком рельсе он упирался в края и выглядел
+   сплющенным. Пропорции не режем — «cover» обрезал бы неквадратный знак. */
+.app-sidebar[data-collapsed="true"] .app-brand-logo {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+}
+
+.app-sidebar[data-collapsed="true"] .app-brand {
+  padding-top: 16px;
+  padding-bottom: 12px;
+}
+
+/* Счётчик непрочитанных превращается в точку: цифра рядом со значком не
+   помещается, но само уведомление скрывать нельзя. */
+.app-sidebar[data-collapsed="true"] .app-nav-badge {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  min-width: 8px;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  font-size: 0;
+  line-height: 0;
+  border-radius: 999px;
+}
+
+.app-sidebar[data-collapsed="true"] .app-nav-link {
+  position: relative;
 }
 
 .app-brand-logo {
@@ -4511,6 +4624,18 @@ body[data-theme="light"] .dark-input {
   background: color-mix(in srgb, var(--color-accent) 8%, transparent);
 }
 
+/* Автоподбор — не сервер, а действие: строка держит акцент, чтобы её не
+   искали глазами среди одинаковых названий стран. */
+.server-profile-row-auto .server-profile-logo {
+  color: var(--color-accent-bright);
+  border-color: color-mix(in srgb, var(--color-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.server-profile-row-auto .server-profile-title {
+  color: var(--color-accent-bright);
+}
+
 .server-profile-logo {
   position: relative;
   display: grid;
@@ -5478,6 +5603,96 @@ body[data-theme="light"] .settings-card {
   min-height: 72px;
   padding: 18px 24px;
   border-bottom: 1px solid var(--color-settings-divider);
+}
+
+/* Выпадающий список в настройках */
+.settings-dropdown-summary {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+  cursor: pointer;
+}
+
+.settings-dropdown-summary:hover {
+  background: color-mix(in srgb, var(--color-text) 3%, transparent);
+}
+
+.settings-dropdown-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  color: var(--color-text-dim);
+  font-size: 14px;
+}
+
+.settings-dropdown-chevron {
+  width: 16px;
+  height: 16px;
+  /* Разворот стрелки: по ней самой видно, раскрыт список или свёрнут. */
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.settings-dropdown-chevron[data-open="true"] {
+  transform: rotate(180deg);
+}
+
+.settings-dropdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 24px 16px;
+  border-bottom: 1px solid var(--color-settings-divider);
+}
+
+.settings-dropdown-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-text) 3%, transparent);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.settings-dropdown-option:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
+.settings-dropdown-option-active {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent-bright);
+}
+
+.settings-dropdown-option-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-dropdown-option-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-text-faint);
+}
+
+.settings-dropdown-check {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: var(--color-accent-bright);
 }
 
 .settings-row-label-container {
@@ -13254,6 +13469,50 @@ body[data-theme="light"] .signal-rail {
   font-family: var(--font-mono);
   font-size: 10px;
 }
+
+.signal-rail[data-collapsed="true"] .signal-rail-name,
+.signal-rail[data-collapsed="true"] .signal-nav-label,
+.signal-rail[data-collapsed="true"] .signal-nav-dot,
+/* Чипы состояния подписаны словами и в узкий рельс не помещаются. */
+.signal-rail[data-collapsed="true"] .signal-rail-foot {
+  display: none;
+}
+
+/* Значок в этом стиле обычно спрятан — подпись и есть пункт. Свёрнутый
+   рельс без него оставил бы пустые строки. */
+.signal-rail[data-collapsed="true"] .signal-nav-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+}
+
+.signal-rail[data-collapsed="true"] .signal-nav-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.signal-rail[data-collapsed="true"] .signal-rail-brand,
+.signal-rail[data-collapsed="true"] .signal-nav-item {
+  justify-content: center;
+}
+
+/* Знак марки в свёрнутом рельсе стоит один и не должен выглядеть зажатым. */
+.signal-rail[data-collapsed="true"] .signal-rail-brand {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.signal-rail[data-collapsed="true"] .signal-rail-mark {
+  width: 34px;
+  height: 34px;
+  font-size: 17px;
+}
+
+.signal-rail[data-collapsed="true"] .app-sidebar-collapse svg {
+  transform: rotate(180deg);
+}
+
 
 .signal-rail-foot {
   margin-top: auto;

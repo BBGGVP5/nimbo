@@ -33,6 +33,11 @@ export interface SignalSidebarProps {
   updateLabel?: string | null;
   onUpdate?: () => void;
   width: number;
+  /** Свёрнутый рельс оставляет одни значки. */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+  collapseLabel?: string;
+  expandLabel?: string;
 }
 
 export function SignalSidebar({
@@ -46,10 +51,16 @@ export function SignalSidebar({
   updateLabel,
   onUpdate,
   width,
+  collapsed = false,
+  onToggleCollapsed,
+  collapseLabel = "",
+  expandLabel = "",
 }: SignalSidebarProps) {
+  const collapseTitle = collapsed ? expandLabel : collapseLabel;
   return (
     <aside
       className="signal-rail"
+      data-collapsed={collapsed ? "true" : undefined}
       style={{ "--sidebar-width": `${width}px` } as React.CSSProperties}
     >
       <div className="signal-rail-brand">
@@ -57,6 +68,27 @@ export function SignalSidebar({
           N
         </span>
         <span className="signal-rail-name">Nimbo</span>
+        {onToggleCollapsed && (
+          <button
+            type="button"
+            className="app-sidebar-collapse"
+            onClick={onToggleCollapsed}
+            aria-label={collapseTitle}
+            aria-expanded={!collapsed}
+            title={collapseTitle}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M14.5 6.5 9 12l5.5 5.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        )}
       </div>
 
       <nav className="signal-rail-nav">

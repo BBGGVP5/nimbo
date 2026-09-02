@@ -203,6 +203,9 @@ pub struct TrafficTotals {
 pub struct AppPreferences {
     pub launch_at_login: bool,
     pub auto_connect_on_launch: bool,
+    /// Автоподключение выбирает узел по замеру, а не последний использованный.
+    #[serde(default)]
+    pub auto_connect_fastest: bool,
     pub start_minimized: bool,
     pub minimize_to_tray: bool,
     pub ping_on_launch: bool,
@@ -240,6 +243,12 @@ pub struct AppPreferences {
     pub show_memory_usage: bool,
     #[serde(default)]
     pub connection_kill_switch: bool,
+    /// MTU TUN-интерфейса; 0 — оставить значение по умолчанию.
+    #[serde(default)]
+    pub tunnel_mtu: u32,
+    /// DNS внутри туннеля через запятую; пусто — встроенная пара.
+    #[serde(default)]
+    pub tunnel_dns: String,
     #[serde(default = "default_true")]
     pub tunnel_sniffing: bool,
     #[serde(default)]
@@ -373,6 +382,7 @@ impl Default for AppPreferences {
         Self {
             launch_at_login: false,
             auto_connect_on_launch: false,
+            auto_connect_fastest: false,
             start_minimized: false,
             minimize_to_tray: true,
             ping_on_launch: true,
@@ -399,6 +409,8 @@ impl Default for AppPreferences {
             show_speed_chart: true,
             show_memory_usage: false,
             connection_kill_switch: false,
+            tunnel_mtu: 0,
+            tunnel_dns: String::new(),
             tunnel_sniffing: true,
             tunnel_mux_enabled: false,
             tunnel_mux_concurrency: default_tunnel_mux_concurrency(),

@@ -59,6 +59,7 @@ export default function App() {
   const activeServerId = useAppStore((s) => s.activeServerId);
   const activeSubscriptionUrl = useAppStore((s) => s.activeSubscriptionUrl);
   const connectServer = useAppStore((s) => s.connectServer);
+  const connectFastestServer = useAppStore((s) => s.connectFastestServer);
   const hydrate = useAppStore((s) => s.hydrate);
   const syncStatus = useAppStore((s) => s.syncStatus);
   const refreshSubscription = useAppStore((s) => s.refreshSubscription);
@@ -367,13 +368,18 @@ export default function App() {
       if (
         conflicts.length === 0 &&
         preferences.auto_connect_on_launch &&
-        status.state === "disconnected" &&
-        activeServerId
+        status.state === "disconnected"
       ) {
-        await connectServer(activeServerId).catch(() => undefined);
+        if (preferences.auto_connect_fastest) {
+          // Замер перед подключением: за ночь лучший узел мог смениться, и
+          // именно от подключения к вчерашнему человек и включает этот пункт.
+          await connectFastestServer().catch(() => undefined);
+        } else if (activeServerId) {
+          await connectServer(activeServerId).catch(() => undefined);
+        }
       }
     })();
-  }, [activeServerId, connectServer, hydrate, preferences.auto_connect_on_launch, preferences.ping_on_launch, preferences.subscriptions_ping_after_update, preferences.subscriptions_update_on_launch, refreshSubscription, scanConflictingProcesses, status, subscriptions]);
+  }, [activeServerId, connectFastestServer, connectServer, hydrate, preferences.auto_connect_fastest, preferences.auto_connect_on_launch, preferences.ping_on_launch, preferences.subscriptions_ping_after_update, preferences.subscriptions_update_on_launch, refreshSubscription, scanConflictingProcesses, status, subscriptions]);
 
   useEffect(() => {
     if (!preferences.subscriptions_auto_update) return;
@@ -586,20 +592,31 @@ export default function App() {
           updateLabel={startupUpdate ? m.signal.coreUpdate : null}
           onUpdate={startupUpdate ? () => navigate("/settings") : undefined}
           width={sidebarWidth.width}
+          collapsed={sidebarWidth.collapsed}
+          onToggleCollapsed={sidebarWidth.toggleCollapsed}
+          collapseLabel={m.app.sidebarCollapse}
+          expandLabel={m.app.sidebarExpand}
         />
       ) : (
       <aside
         className="app-sidebar shrink-0 flex flex-col p-3"
+        data-collapsed={sidebarWidth.collapsed ? "true" : undefined}
         style={{ "--sidebar-width": `${sidebarWidth.width}px` } as React.CSSProperties}
       >
         <div className="glass network-glass-reactive rounded-2xl flex-1 flex flex-col overflow-hidden">
           <div className="app-brand px-5 pt-5 pb-4">
             <div className="app-brand-lockup">
               <img src={nimboLogo} alt="" className="app-brand-logo" aria-hidden="true" />
-              <div className="text-[15px] font-semibold tracking-tight text-[var(--color-text)]">
+              <div className="app-brand-name text-[15px] font-semibold tracking-tight text-[var(--color-text)]">
                 Nimbo
               </div>
             </div>
+            <SidebarCollapseButton
+              collapsed={sidebarWidth.collapsed}
+              onToggle={sidebarWidth.toggleCollapsed}
+              collapseLabel={m.app.sidebarCollapse}
+              expandLabel={m.app.sidebarExpand}
+            />
           </div>
           <nav className="flex-1 px-2 space-y-1">
             {navItems.map((item) => (
@@ -1062,9 +1079,54 @@ function normalizeTrayRoute(route: unknown): string | null {
 
 const SIDEBAR_WIDTH_KEY = "nimbo.sidebarWidth";
 const SIDEBAR_WIDTH_MIGRATION_KEY = "nimbo.sidebarWidth.v2";
+const SIDEBAR_COLLAPSED_KEY = "nimbo.sidebarCollapsed";
+/** Ширина, при которой остаются одни значки. */
+const SIDEBAR_WIDTH_COLLAPSED = 96;
 const SIDEBAR_WIDTH_DEFAULT = 232;
 const SIDEBAR_WIDTH_MIN = 188;
 const SIDEBAR_WIDTH_MAX = 340;
+
+/**
+ * Стрелка у названия: сворачивает панель до одних значков.
+ *
+ * Подписи занимают четверть окна, а состав разделов запоминается за пару
+ * дней. Стрелка разворачивается на пол-оборота, поэтому по ней самой видно,
+ * в какую сторону сработает нажатие.
+ */
+function SidebarCollapseButton({
+  collapsed,
+  onToggle,
+  collapseLabel,
+  expandLabel,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  collapseLabel: string;
+  expandLabel: string;
+}) {
+  const label = collapsed ? expandLabel : collapseLabel;
+  return (
+    <button
+      type="button"
+      className="app-sidebar-collapse"
+      onClick={onToggle}
+      aria-label={label}
+      aria-expanded={!collapsed}
+      title={label}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path
+          d="M14.5 6.5 9 12l5.5 5.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  );
+}
 
 function useResizableSidebar() {
   const [width, setWidth] = useState<number>(() => {
@@ -1119,7 +1181,35 @@ function useResizableSidebar() {
 
   const reset = useCallback(() => setWidth(SIDEBAR_WIDTH_DEFAULT), []);
 
-  return { width, onResizeStart, reset };
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed]);
+
+  const toggleCollapsed = useCallback(() => setCollapsed((value) => !value), []);
+
+  // Ширина, выставленная перетаскиванием, сохраняется: свёрнутая панель
+  // возвращается к ней, а не к умолчанию.
+  return {
+    width: collapsed ? SIDEBAR_WIDTH_COLLAPSED : width,
+    collapsed,
+    toggleCollapsed,
+    onResizeStart: collapsed ? () => {} : onResizeStart,
+    reset,
+  };
 }
 
 function OnboardingRedirect({

@@ -6038,7 +6038,11 @@ async fn connect_tun(
             return Err(error);
         }
     };
-    add_native_tun_inbound(&mut config);
+    add_native_tun_inbound(
+        &mut config,
+        snapshot.preferences.tunnel_mtu,
+        &snapshot.preferences.tunnel_dns,
+    );
     let config_path = match write_xray_config(&config) {
         Ok(path) => path,
         Err(error) => {
@@ -6220,7 +6224,10 @@ fn current_default_ipv4_route() -> Option<DefaultIpv4Route> {
     })
 }
 
-fn add_native_tun_inbound(config: &mut serde_json::Value) {
+/// MTU по умолчанию: столько же, сколько у обычного Ethernet.
+const TUN_DEFAULT_MTU: u32 = 1500;
+
+fn add_native_tun_inbound(config: &mut serde_json::Value, mtu: u32, dns: &str) {
     let Some(inbounds) = config
         .get_mut("inbounds")
         .and_then(serde_json::Value::as_array_mut)
@@ -6234,6 +6241,25 @@ fn add_native_tun_inbound(config: &mut serde_json::Value) {
         return;
     }
 
+    // Заниженный MTU — лекарство от подвисаний на маршрутах, где большие
+    // пакеты режутся молча. Значения вне разумных границ туннель бы сломали.
+    let mtu = if mtu == 0 {
+        TUN_DEFAULT_MTU
+    } else {
+        mtu.clamp(576, 9000)
+    };
+    let dns_servers: Vec<String> = dns
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect();
+    let dns_servers = if dns_servers.is_empty() {
+        vec![TUN_DNS_PRIMARY.to_string(), TUN_DNS_SECONDARY.to_string()]
+    } else {
+        dns_servers
+    };
+
     inbounds.insert(
         0,
         serde_json::json!({
@@ -6241,9 +6267,9 @@ fn add_native_tun_inbound(config: &mut serde_json::Value) {
             "protocol": "tun",
             "settings": {
                 "name": TUN_INTERFACE_NAME,
-                "mtu": 1500,
+                "mtu": mtu,
                 "gateway": [TUN_GATEWAY_CIDR, TUN_IPV6_GATEWAY_CIDR],
-                "dns": [TUN_DNS_PRIMARY, TUN_DNS_SECONDARY],
+                "dns": dns_servers,
                 "userLevel": 0,
                 "autoSystemRoutingTable": ["0.0.0.0/0", "::/0"],
                 "autoOutboundsInterface": "auto"
@@ -8991,7 +9017,7 @@ mod tests {
     #[test]
     fn native_tun_captures_ipv4_and_ipv6_default_routes() {
         let mut config = serde_json::json!({ "inbounds": [] });
-        add_native_tun_inbound(&mut config);
+        add_native_tun_inbound(&mut config, 0, "");
         let settings = &config["inbounds"][0]["settings"];
 
         assert_eq!(
@@ -10023,6 +10049,32 @@ fn run_powershell(script: &str) -> Result<(), String> {
 
 #[cfg(not(windows))]
 fn clear_windows_kill_switch(_previous: Option<Vec<(String, String)>>) {}
+
+/// Снять правила Kill Switch вручную.
+///
+/// Если приложение упало при поднятом туннеле, правила фаервола остаются, и
+/// интернета нет — а выключить их изнутри приложения было нечем: единственным
+/// выходом оставалась консоль администратора.
+#[tauri::command]
+pub fn reset_kill_switch(state: State<'_, AppState>) -> Result<(), String> {
+    // Политика, которая была до включения, лежит в снимке незавершённого
+    // туннеля — том самом, что остаётся после падения. По нему и возвращаем
+    // исходное поведение брандмауэра, а не «как по умолчанию».
+    let previous = state
+        .snapshot()
+        .pending_tun_snapshot
+        .map(|snapshot| snapshot.firewall_policy)
+        .filter(|policy| !policy.is_empty());
+    clear_windows_kill_switch(previous);
+    state
+        .mutate(|value| {
+            if let Some(snapshot) = value.pending_tun_snapshot.as_mut() {
+                snapshot.firewall_policy.clear();
+            }
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
 
 /// Список модулей маршрутизации.
 #[tauri::command]
