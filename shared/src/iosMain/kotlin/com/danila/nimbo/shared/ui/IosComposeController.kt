@@ -32,6 +32,8 @@ private const val OpenUrlAction = "com.nimbo.action.open-url"
 private const val RoutingAction = "com.nimbo.action.routing"
 private const val OpenScreenAction = "com.nimbo.action.open-screen"
 private const val OpenUpdateAction = "com.nimbo.action.open-update"
+private const val CheckUpdateAction = "com.nimbo.action.check-update"
+private const val DownloadUpdateAction = "com.nimbo.action.download-update"
 private const val ExportBackupAction = "com.nimbo.action.export-backup"
 private const val ImportBackupAction = "com.nimbo.action.import-backup"
 private const val OpenSyncAction = "com.nimbo.action.open-sync"
@@ -67,6 +69,45 @@ private fun appearanceText(key: String, default: String): String =
 /** Сведения о доступном обновлении приносит Swift: в сеть ходит он. */
 fun NimboUpdateIosRelease(version: String, notes: String) {
     iosUiState.value = iosUiState.value.copy(updateVersion = version, updateNotes = notes)
+}
+
+/**
+ * Ход проверки и загрузки сборки.
+ *
+ * Подписи готовит Swift: он же ходит в сеть и знает, чем всё кончилось.
+ */
+fun NimboUpdateIosProgress(status: String, downloadStatus: String) {
+    iosUiState.value = iosUiState.value.copy(
+        updateStatus = status,
+        updateDownloadStatus = downloadStatus
+    )
+}
+
+private const val UpdateDefaultsPrefix = "com.nimbo.update."
+
+/** Канал обновлений и уведомления о них. */
+fun NimboIosUpdateChannel(): String =
+    NSUserDefaults.standardUserDefaults.stringForKey(UpdateDefaultsPrefix + "channel") ?: "beta"
+
+fun NimboIosUpdateNotify(): Boolean {
+    val defaults = NSUserDefaults.standardUserDefaults
+    if (defaults.objectForKey(UpdateDefaultsPrefix + "notify") == null) return true
+    return defaults.boolForKey(UpdateDefaultsPrefix + "notify")
+}
+
+private fun applyUpdateChange(key: String, value: String) {
+    val defaults = NSUserDefaults.standardUserDefaults
+    when (key) {
+        "notify" -> defaults.setBool(value == "true", UpdateDefaultsPrefix + key)
+        else -> defaults.setObject(value, UpdateDefaultsPrefix + key)
+    }
+    iosUiState.value = iosUiState.value.copy(
+        updateChannel = NimboIosUpdateChannel(),
+        updateNotify = NimboIosUpdateNotify()
+    )
+    // Смена канала меняет и ответ на вопрос «есть ли обновление»: проверяем
+    // заново, иначе на экране осталась бы находка из прежнего канала.
+    if (key == "channel") postIosAction(CheckUpdateAction)
 }
 
 private fun applyAppearanceChange(key: String, value: String) {
@@ -668,7 +709,9 @@ fun NimboUpdateIosUiState(
         modules = loadModules(),
         routingProfiles = loadRoutingProfiles(),
         routingProfileId = activeRoutingProfileId(),
-        notifications = loadNotifications()
+        notifications = loadNotifications(),
+        updateChannel = NimboIosUpdateChannel(),
+        updateNotify = NimboIosUpdateNotify()
     )
 }
 
@@ -778,6 +821,9 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onDeleteNotification = { deleteNotification(it) },
                 onClearNotifications = { clearNotifications() },
                 onOpenUpdate = { postIosAction(OpenUpdateAction) },
+                onCheckUpdate = { postIosAction(CheckUpdateAction) },
+                onDownloadUpdate = { postIosAction(DownloadUpdateAction) },
+                onSetUpdate = { key, value -> applyUpdateChange(key, value) },
                 onExportBackup = { postIosAction(ExportBackupAction) },
                 onImportBackup = { postIosAction(ImportBackupAction) },
                 onOpenSync = { postIosAction(OpenSyncAction) },

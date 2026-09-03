@@ -13,14 +13,60 @@ struct NimboRelease: Equatable {
     let pageUrl: String
     let assetUrl: String?
     let isPrerelease: Bool
+    /// Имя файла сборки: под ним же он сохраняется в «Файлы».
+    let assetName: String?
+}
+
+/// Какие сборки предлагать.
+enum NimboUpdateChannel: String {
+    case beta
+    case stable
+
+    init(stored: String?) {
+        self = NimboUpdateChannel(rawValue: stored ?? "") ?? .beta
+    }
+
+    var title: String { self == .stable ? "стабильный" : "бета" }
+}
+
+/// Чем закончилась проверка. Отдельные случаи нужны подписи под кнопкой:
+/// «обновлений нет» и «не дозвонились до GitHub» — разные вещи.
+enum NimboUpdateCheckResult {
+    case available(NimboRelease)
+    case upToDate
+    case failed
 }
 
 enum NimboUpdateChecker {
-    private static let releasesUrl = URL(string: "https://api.github.com/repos/BBGGVP5/nimbo/releases?per_page=10")!
+    private static let releasesUrl = URL(string: "https://api.github.com/repos/BBGGVP5/nimbo/releases?per_page=15")!
+    /// Куда вести, когда конкретной сборки ещё не нашли.
+    static let releasesPageUrl = "https://github.com/BBGGVP5/nimbo/releases"
+
+    /// Проверка канала: есть ли сборка новее установленной.
+    static func check(
+        currentVersion: String,
+        channel: NimboUpdateChannel
+    ) async -> NimboUpdateCheckResult {
+        guard let releases = await fetchReleases() else { return .failed }
+        let candidates = releases.filter { channel == .beta || !$0.isPrerelease }
+        guard let newest = candidates.first else { return .upToDate }
+        return isNewer(newest.version, than: currentVersion) ? .available(newest) : .upToDate
+    }
 
     /// Последний релиз, который новее установленной сборки. `nil` — обновлений
     /// нет либо сеть недоступна: молчание здесь лучше ложной тревоги.
-    static func latest(currentVersion: String) async -> NimboRelease? {
+    static func latest(
+        currentVersion: String,
+        channel: NimboUpdateChannel = .beta
+    ) async -> NimboRelease? {
+        if case let .available(release) = await check(currentVersion: currentVersion, channel: channel) {
+            return release
+        }
+        return nil
+    }
+
+    /// Релизы репозитория по порядку публикации, черновики отброшены.
+    private static func fetchReleases() async -> [NimboRelease]? {
         var request = URLRequest(url: releasesUrl)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 12
@@ -32,27 +78,24 @@ enum NimboUpdateChecker {
             return nil
         }
 
-        for item in items {
+        return items.compactMap { item in
             guard let tag = item["tag_name"] as? String,
                   let page = item["html_url"] as? String,
                   (item["draft"] as? Bool) != true else {
-                continue
+                return nil
             }
-            let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-            guard isNewer(version, than: currentVersion) else { continue }
-
             let assets = item["assets"] as? [[String: Any]] ?? []
             let ipa = assets.first { ($0["name"] as? String)?.hasSuffix(".ipa") == true }
             return NimboRelease(
-                version: version,
+                version: tag.hasPrefix("v") ? String(tag.dropFirst()) : tag,
                 title: (item["name"] as? String)?.trimmingCharacters(in: .whitespaces) ?? tag,
                 notes: (item["body"] as? String) ?? "",
                 pageUrl: page,
                 assetUrl: ipa?["browser_download_url"] as? String,
-                isPrerelease: (item["prerelease"] as? Bool) ?? false
+                isPrerelease: (item["prerelease"] as? Bool) ?? false,
+                assetName: ipa?["name"] as? String
             )
         }
-        return nil
     }
 
     /// Сравнение вида «1.2.0-beta.3» > «1.2.0-beta.2»: сначала числа версии,

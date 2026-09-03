@@ -546,15 +546,64 @@ private fun SubscriptionPage(actions: NimboUiActions) {
 
 @Composable
 private fun UpdatesPage(state: NimboUiState, actions: NimboUiActions) {
+    val available = state.updateVersion.isNotBlank()
     SettingsSection("Обновления") {
         SettingsRow(
             NimboIconName.DOWNLOAD,
-            if (state.updateVersion.isBlank()) "Проверить обновление" else "Доступна ${state.updateVersion}",
-            // Ставить обновление сама iOS не даст: только открыть страницу
-            // релиза, где лежит файл для переподписи.
-            "Открыть страницу релиза",
-            onClick = actions.onOpenUpdate
+            if (available) "Доступна ${state.updateVersion}" else "Проверить обновление",
+            // Подпись всегда говорит об итоге: раньше кнопка молчала, когда
+            // обновлений не было, и выглядела сломанной.
+            state.updateStatus.ifBlank { "Спросить у GitHub" },
+            showDivider = true,
+            onClick = actions.onCheckUpdate
         )
+        if (available) {
+            SettingsRow(
+                NimboIconName.DOWNLOAD,
+                "Скачать файл сборки",
+                // Поставить .ipa сама iOS не даст: файл сохраняется в «Файлы»,
+                // а ставится тем же способом, каким установлена эта сборка.
+                state.updateDownloadStatus.ifBlank { "Сохранить .ipa в «Файлы»" },
+                showDivider = true,
+                onClick = actions.onDownloadUpdate
+            )
+            SettingsRow(
+                NimboIconName.SITE,
+                "Страница релиза",
+                "Открыть описание и все файлы сборки",
+                onClick = actions.onOpenUpdate
+            )
+        }
+    }
+
+    SettingsSection("Канал") {
+        NimboDropdownRow(
+            title = "Какие сборки предлагать",
+            options = listOf(
+                NimboDropdownOption(
+                    "beta",
+                    "Бета",
+                    "Новое раньше всех, но и недоделки тоже"
+                ),
+                NimboDropdownOption(
+                    "stable",
+                    "Стабильный",
+                    "Только сборки, объявленные готовыми"
+                )
+            ),
+            selectedKey = if (state.updateChannel == "stable") "stable" else "beta",
+            onSelect = { actions.onSetUpdate("channel", it) }
+        )
+        SettingsDivider()
+        SettingsRowFrame(height = 52.dp) {
+            Column(modifier = Modifier.weight(1f)) {
+                SettingsTitle("Сообщать о новых сборках")
+                SettingsSubtitle("Уведомление, когда выходит версия новее вашей")
+            }
+            NimboSwitch(state.updateNotify) {
+                actions.onSetUpdate("notify", it.toString())
+            }
+        }
     }
     if (state.updateNotes.isNotBlank()) {
         NimboSurface(

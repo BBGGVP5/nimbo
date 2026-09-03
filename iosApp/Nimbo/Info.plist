@@ -22,6 +22,12 @@
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>CADisableMinimumFrameDurationOnPhone</key>
     <true/>
+    <!-- Скачанная сборка видна в «Файлах»: иначе её оттуда нечем достать,
+         а ставится она внешним инструментом. -->
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
 	<key>NimboPacketTunnelBundleIdentifier</key>

@@ -13,6 +13,10 @@ struct RootView: View {
     @State private var metrics = NimboMetricsAccumulator()
     @State private var sessionStartedAt: Date?
     @State private var updatePageUrl: String?
+    /// Найденная сборка: из неё берётся файл для загрузки.
+    @State private var updateRelease: NimboRelease?
+    /// Скачанный файл — его показывает окно обмена, чтобы положить куда удобно.
+    @State private var updateFileUrl: URL?
     @State private var backupUrl: URL?
     @State private var showBackupPicker = false
     @State private var showSync = false
@@ -64,7 +68,15 @@ struct RootView: View {
                 openExternalLink(notification.object as? String)
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboOpenUpdate)) { _ in
-                openExternalLink(updatePageUrl)
+                // Пока проверка не нашла сборку, ссылки на файл нет — открываем
+                // страницу релизов: раньше в этом случае кнопка молчала.
+                openExternalLink(updatePageUrl ?? NimboUpdateChecker.releasesPageUrl)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboCheckUpdate)) { _ in
+                Task { await checkForUpdate(manual: true) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboDownloadUpdate)) { _ in
+                Task { await downloadUpdate() }
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboSystemSettings)) { _ in
                 openSystemSettings()
@@ -198,6 +210,7 @@ struct RootView: View {
                 NimboSyncView()
             }
             .sheet(item: $backupUrl) { url in NimboShareSheet(url: url) }
+            .sheet(item: $updateFileUrl) { url in NimboShareSheet(url: url) }
             .sheet(isPresented: $showBackupPicker) {
                 NimboDocumentPicker { url in
                     showBackupPicker = false
@@ -479,17 +492,89 @@ struct RootView: View {
         }
     }
 
-    /// Проверка обновлений заканчивается ссылкой: поставить сборку из
-    /// приложения iOS не позволяет, её подписывают снаружи.
-    private func checkForUpdate() async {
-        guard let release = await NimboUpdateChecker.latest(
-            currentVersion: NimboPlatformInfo.displayVersion
-        ) else { return }
-        updatePageUrl = release.assetUrl ?? release.pageUrl
-        IosComposeControllerKt.NimboUpdateIosRelease(
-            version: release.version,
-            notes: String(release.notes.prefix(400))
+    /// Проверка обновлений.
+    ///
+    /// Поставить сборку сама iOS не даст — её подписывают снаружи. Всё
+    /// остальное приложение делает само: узнаёт о версии, сообщает о ней и
+    /// кладёт файл в «Файлы».
+    ///
+    /// Итог всегда виден подписью под кнопкой: молчание при отсутствии
+    /// обновлений читалось как сломанная кнопка.
+    private func checkForUpdate(manual: Bool = false) async {
+        guard manual || NimboUpdateCenter.automaticCheckIsDue else { return }
+        if manual {
+            IosComposeControllerKt.NimboUpdateIosProgress(status: "Проверяю…", downloadStatus: "")
+        }
+        let result = await NimboUpdateChecker.check(
+            currentVersion: NimboPlatformInfo.displayVersion,
+            channel: NimboUpdateCenter.channel
         )
+        NimboUpdateCenter.rememberCheck()
+
+        switch result {
+        case let .available(release):
+            updateRelease = release
+            updatePageUrl = release.pageUrl
+            IosComposeControllerKt.NimboUpdateIosRelease(
+                version: release.version,
+                notes: String(release.notes.prefix(400))
+            )
+            let saved = release.assetName.flatMap(NimboUpdateCenter.downloadedFile(named:))
+            IosComposeControllerKt.NimboUpdateIosProgress(
+                status: "Установлена \(NimboPlatformInfo.displayVersion)",
+                downloadStatus: saved == nil ? "" : "Уже скачано — открыть в «Файлах»"
+            )
+            updateFileUrl = nil
+            await NimboUpdateCenter.announce(release)
+            if manual { notify("info", "Доступна версия \(release.version)") }
+        case .upToDate:
+            updateRelease = nil
+            updatePageUrl = nil
+            IosComposeControllerKt.NimboUpdateIosRelease(version: "", notes: "")
+            IosComposeControllerKt.NimboUpdateIosProgress(
+                status: "Установлена последняя версия · канал \(NimboUpdateCenter.channel.title)",
+                downloadStatus: ""
+            )
+        case .failed:
+            IosComposeControllerKt.NimboUpdateIosProgress(
+                status: "Не удалось связаться с GitHub",
+                downloadStatus: ""
+            )
+        }
+    }
+
+    /// Загрузка файла сборки в папку приложения и окно обмена поверх неё.
+    ///
+    /// Установить `.ipa` приложение не может — этим занимается инструмент
+    /// подписи, поэтому наша задача довести файл до «Файлов».
+    private func downloadUpdate() async {
+        guard let release = updateRelease else {
+            await checkForUpdate(manual: true)
+            return
+        }
+        if let name = release.assetName, let saved = NimboUpdateCenter.downloadedFile(named: name) {
+            updateFileUrl = saved
+            return
+        }
+        IosComposeControllerKt.NimboUpdateIosProgress(
+            status: "Доступна \(release.version)",
+            downloadStatus: "Загружаю файл сборки…"
+        )
+        do {
+            let url = try await NimboUpdateCenter.download(release)
+            updateFileUrl = url
+            IosComposeControllerKt.NimboUpdateIosProgress(
+                status: "Доступна \(release.version)",
+                downloadStatus: "Сохранено: \(url.lastPathComponent)"
+            )
+            notify("success", "Файл сборки сохранён в «Файлы» → Nimbo")
+        } catch {
+            IosComposeControllerKt.NimboUpdateIosProgress(
+                status: "Доступна \(release.version)",
+                downloadStatus: "Не удалось скачать: \(error.localizedDescription)"
+            )
+            notify("error", NimboRedactor.redact(error.localizedDescription))
+        }
     }
 
     /// Сессия закрывается при отключении: ядро своей статистики наружу не
@@ -650,6 +735,8 @@ private extension Notification.Name {
     static let nimboRouting = Notification.Name("com.nimbo.action.routing")
     static let nimboOpenScreen = Notification.Name("com.nimbo.action.open-screen")
     static let nimboOpenUpdate = Notification.Name("com.nimbo.action.open-update")
+    static let nimboCheckUpdate = Notification.Name("com.nimbo.action.check-update")
+    static let nimboDownloadUpdate = Notification.Name("com.nimbo.action.download-update")
     static let nimboExportBackup = Notification.Name("com.nimbo.action.export-backup")
     static let nimboImportBackup = Notification.Name("com.nimbo.action.import-backup")
     static let nimboOpenSync = Notification.Name("com.nimbo.action.open-sync")

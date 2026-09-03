@@ -127,7 +127,15 @@ data class NimboUiState(
     val pingTimeoutMs: Int = 3000,
     val pingUrl: String = "https://www.gstatic.com/generate_204",
     val updateVersion: String = "",
-    val updateNotes: String = ""
+    val updateNotes: String = "",
+    /** Канал обновлений: `beta` — вместе с предварительными сборками. */
+    val updateChannel: String = "beta",
+    /** Сообщать ли о новой сборке уведомлением. */
+    val updateNotify: Boolean = true,
+    /** Итог последней проверки для подписи под кнопкой. */
+    val updateStatus: String = "",
+    /** Ход загрузки файла сборки: проценты или итог. */
+    val updateDownloadStatus: String = ""
 )
 
 /** Завершённая сессия подключения для экрана статистики. */
@@ -218,6 +226,12 @@ data class NimboUiActions(
     val onClearNotifications: () -> Unit = {},
     /** Открыть страницу релиза: установить обновление сама iOS не даст. */
     val onOpenUpdate: () -> Unit = {},
+    /** Спросить у GitHub, есть ли сборка новее установленной. */
+    val onCheckUpdate: () -> Unit = {},
+    /** Скачать файл сборки и отдать его системному окну сохранения. */
+    val onDownloadUpdate: () -> Unit = {},
+    /** Настройки обновлений: `channel`, `notify`. */
+    val onSetUpdate: (String, String) -> Unit = { _, _ -> },
     /** Импорт подписки из введённой ссылки или конфигурации. */
     val onImportSubscription: (String) -> Unit = {},
     /** Импорт из буфера обмена. */
