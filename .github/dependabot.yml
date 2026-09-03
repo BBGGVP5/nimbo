@@ -1,26 +1,19 @@
+# Обновления версий выключены намеренно.
+#
+# Еженедельный обход всех экосистем заводил по ветке с PR на каждую вышедшую
+# версию — два десятка за раз, включая мажорные скачки, которые сборку скорее
+# ломают, чем чинят. Их никто не смотрел, и ветки жили сами по себе.
+#
+# То, ради чего Dependabot нужен, живёт не здесь: оповещения об уязвимостях и
+# точечные исправления безопасности включены в настройках репозитория
+# (Settings → Advanced Security). Они приходят по делу — когда в зависимости
+# находят дыру, а не когда вышла новая версия.
+#
+# Вернуть обновления версий: раскомментировать нужную экосистему и выбрать
+# интервал пореже (monthly).
 version: 2
-updates:
-  - package-ecosystem: cargo
-    directory: "/"
-    schedule:
-      interval: weekly
-
-  - package-ecosystem: npm
-    directory: "/apps/ui"
-    schedule:
-      interval: weekly
-
-  - package-ecosystem: npm
-    directory: "/apps/installer"
-    schedule:
-      interval: weekly
-
-  - package-ecosystem: gradle
-    directory: "/apps/android"
-    schedule:
-      interval: weekly
-
-  - package-ecosystem: github-actions
-    directory: "/"
-    schedule:
-      interval: weekly
+updates: []
+  # - package-ecosystem: github-actions
+  #   directory: "/"
+  #   schedule:
+  #     interval: monthly
