@@ -1226,7 +1226,14 @@ object SubscriptionManager {
             "fp" to tls?.cleanString("fingerprint"),
             "alpn" to tls?.cleanStringArray("alpn"),
             "allowInsecure" to tls?.cleanBoolean("allowInsecure")?.toString(),
-            "path" to xhttp?.cleanString("path")
+            "path" to xhttp?.cleanString("path"),
+            // Транспорт XHTTP описывается не одним путём: сервер ждёт свой
+            // режим и свой блок extra, а без заголовка host запрос уходит не
+            // на тот виртуальный хост.
+            "host" to xhttp?.cleanString("host"),
+            "mode" to xhttp?.cleanString("mode"),
+            "extra" to xhttp?.optJSONObject("extra")?.toString(),
+            "flow" to user.cleanString("flow")
         ).filterValues { !it.isNullOrBlank() }
 
         val query = params.entries.joinToString("&") { (key, value) ->

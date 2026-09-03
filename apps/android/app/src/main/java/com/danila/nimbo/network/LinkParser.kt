@@ -570,6 +570,12 @@ object LinkParser {
             path = params["path"] ?: uri?.getQueryParameter("path"),
             hostHeader = params["host"] ?: params["h"] ?: uri?.getQueryParameter("host"),
             serviceName = params["servicename"] ?: uri?.getQueryParameter("serviceName"),
+            // Постквантовое шифрование VLESS и настройки XHTTP: сервер ждёт
+            // ровно то, что записано в ссылке. Раньше они отбрасывались, и
+            // соединение молча не поднималось — при живом пинге.
+            encryption = params["encryption"] ?: uri?.getQueryParameter("encryption"),
+            xhttpMode = params["mode"] ?: uri?.getQueryParameter("mode"),
+            xhttpExtra = params["extra"] ?: uri?.getQueryParameter("extra"),
             sni = params["sni"]
                 ?: params["servername"]
                 ?: params["server_name"]

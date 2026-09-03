@@ -19,6 +19,20 @@ data class Server(
     @SerializedName("path") val path: String? = null,
     @SerializedName("hostHeader") val hostHeader: String? = null,
     @SerializedName("serviceName") val serviceName: String? = null,
+    /**
+     * Шифрование VLESS. Обычно "none", но панели с постквантовым обменом
+     * присылают строку вида "mlkem768x25519plus.random.0rtt...." — без неё
+     * сервер не отвечает, хотя TCP-соединение и TLS проходят.
+     */
+    @SerializedName("encryption") val encryption: String? = null,
+    /** Режим XHTTP: auto, packet-up, stream-up, stream-one. */
+    @SerializedName("xhttpMode") val xhttpMode: String? = null,
+    /**
+     * Блок `extra` транспорта XHTTP как есть: xmux, имена ключей сессии,
+     * набивка. Сервер ждёт ровно ту раскладку, что записана в ссылке, поэтому
+     * храним текстом и подставляем без изменений.
+     */
+    @SerializedName("xhttpExtra") val xhttpExtra: String? = null,
     @SerializedName("sni") val sni: String? = null,
     @SerializedName("fingerprint") val fingerprint: String? = null,
     @SerializedName("alpn") val alpn: String? = null,

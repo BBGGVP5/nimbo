@@ -1065,13 +1065,20 @@ object XrayManager {
         }
     }
 
-    private fun buildOutboundSettings(server: Server, protocol: String): JSONObject {
+    // internal ради проверки в тестах: именно эти два куска описывают узел
+    // так, как его увидит сервер.
+    internal fun buildOutboundSettings(server: Server, protocol: String): JSONObject {
         return when (protocol) {
             "vless" -> JSONObject().put("vnext", JSONArray().put(
                 JSONObject().put("address", server.host).put("port", server.port).put("users", JSONArray().put(
-                    JSONObject().put("id", server.uuid).put("encryption", "none").apply {
-                        server.flow?.takeIf { it.isNotBlank() }?.let { put("flow", it) }
-                    }
+                    // Постквантовое шифрование VLESS приходит строкой в ссылке.
+                    // Подставленное вместо неё "none" выглядит для сервера
+                    // чужим клиентом: TLS проходит, а данные не идут.
+                    JSONObject().put("id", server.uuid)
+                        .put("encryption", server.encryption?.takeIf { it.isNotBlank() } ?: "none")
+                        .apply {
+                            server.flow?.takeIf { it.isNotBlank() }?.let { put("flow", it) }
+                        }
                 ))
             ))
             "vmess" -> JSONObject().put("vnext", JSONArray().put(
@@ -1101,7 +1108,7 @@ object XrayManager {
         }
     }
 
-    private fun buildStreamSettings(server: Server): JSONObject? {
+    internal fun buildStreamSettings(server: Server): JSONObject? {
         if (server.isNaiveProxy()) return null
         val serverProtocol = server.protocol.trim().lowercase()
         val rawNetwork = server.network
@@ -1138,9 +1145,20 @@ object XrayManager {
             "grpc" -> stream.put("grpcSettings", JSONObject().put("serviceName", server.serviceName ?: "grpc"))
             "xhttp" -> stream.put("xhttpSettings", JSONObject().apply {
                 put("path", server.path ?: "/")
-                put("mode", "auto")
+                // Режим и блок extra задаёт сервер: имена ключей сессии,
+                // набивку и мультиплексирование он ждёт ровно такими, какими
+                // записал в ссылку. Прежде здесь стояло "auto", а extra
+                // терялся — соединение устанавливалось и молчало.
+                put("mode", server.xhttpMode?.takeIf { it.isNotBlank() } ?: "auto")
                 server.hostHeader?.takeIf { it.isNotBlank() }?.let {
                     put("host", it)
+                }
+                server.xhttpExtra?.takeIf { it.isNotBlank() }?.let { raw ->
+                    runCatching { JSONObject(raw) }
+                        .onSuccess { put("extra", it) }
+                        .onFailure {
+                            Log.w(TAG, "xhttp extra is not a JSON object, ignoring")
+                        }
                 }
             })
             "h2" -> stream.put("httpSettings", JSONObject().apply {
