@@ -11570,10 +11570,25 @@ body[data-ui-style="dotted"] .settings-interface-card-dotted .settings-interface
 
 @media (prefers-reduced-transparency: reduce) {
   body[data-ui-style="nimbo"] {
-    --ui-panel-alpha-percent: 94% !important;
-    --ui-control-alpha-percent: 90% !important;
+    --ui-panel-alpha-percent: 100% !important;
+    --ui-control-alpha-percent: 100% !important;
     --ui-backdrop-filter: none !important;
     --ui-backdrop-filter-soft: none !important;
+    /* Блик и полупрозрачная заливка стекла держатся на размытии под ними.
+       Без размытия они превращаются в светлую плёнку поверх тёмного фона —
+       то самое «белое пятно» на карточках. Поэтому здесь у стекла плотная
+       заливка, а блика нет вовсе; окантовка остаётся, она и держит форму. */
+    --liquid-specular: none !important;
+    --liquid-fill: linear-gradient(180deg, var(--color-card), var(--color-card)) !important;
+    --liquid-fill-strong: linear-gradient(180deg, var(--color-surface), var(--color-surface)) !important;
+    /* Окантовка задумана как светлый край, но кроится по границе и потому
+       ложится на всю карточку. Поверх плотной заливки её белый угол читался
+       светлой полосой наискось — здесь она ровная и чуть светлее карточки. */
+    --liquid-rim: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-card) 92%, white 8%),
+      color-mix(in srgb, var(--color-card) 92%, white 8%)
+    ) !important;
   }
 
   body[data-ui-style="nimbo"] .glass,
@@ -16484,11 +16499,13 @@ body[data-ui-style="manga"] :where(
 body[data-ui-style="manga"] :where(
   .page-surface, .panel, .settings-card, .settings-interface-card,
   .server-plaque, .server-side-panel, .server-detail-card, .server-detail-list,
-  .routing-card-body, .routing-editor-dialog, .connections-section,
+  /* Кадром обводится карточка целиком, а не её начинка: раньше рамку получал
+     `.routing-card-body`, и внутри уже обведённой карточки появлялась вторая
+     коробка. То же было в истории уведомлений. */
+  .routing-card, .routing-editor-dialog, .connections-section,
   .connections-table, .cross-sync-card, .cross-sync-overview,
   .cross-sync-pair-card, .cross-sync-status-card, .cross-sync-devices-card,
   .notification-overview, .notification-history-list,
-  .notification-history-group-items, .notification-history-body,
   .memory-card, .speed-card, .stats-card
 ) {
   background: var(--manga-paper-2) !important;
@@ -16514,9 +16531,20 @@ body[data-ui-style="manga"] :where(
   box-shadow: none !important;
 }
 
+/* Внутренности кадра рисуются на его же бумаге: своя заливка и рамка внутри
+   обведённой карточки читаются как коробка в коробке. */
+body[data-ui-style="manga"] :where(
+  .routing-card-body, .routing-card-head,
+  .notification-history-group-items, .notification-history-body
+) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
 /* Отдельные блоки: у них своя рамка, они не строки списка. */
 body[data-ui-style="manga"] :where(
-  .settings-option, .routing-card-head, .routing-editor-field,
+  .settings-option, .routing-editor-field,
   .cross-sync-device-passport, .cross-sync-subscriptions-preview,
   .cross-sync-option-autosync, .notification-toast,
   .compact-server-bar
@@ -16551,9 +16579,11 @@ body[data-ui-style="manga"] :where(
   border-bottom: none !important;
 }
 
-/* Подписи-ярлыки остаются ярлыками: контур тонкий, заливки нет. */
+/* Подписи-ярлыки остаются ярлыками: контур тонкий, заливки нет. Ярлык тона
+   сюда не входит: он лежит внутри строки истории, и своя рамка превращала
+   строку в коробку с коробкой внутри. */
 body[data-ui-style="manga"] :where(
-  .notification-overview-stat, .notification-history-tone
+  .notification-overview-stat
 ) {
   background: transparent !important;
   border: 1.5px solid var(--manga-ink) !important;

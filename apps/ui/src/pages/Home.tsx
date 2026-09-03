@@ -1691,7 +1691,10 @@ function ProfileSummary({
   return (
     <div className="home-stack w-full max-w-[740px] space-y-2">
       <div className="panel px-4 py-2.5">
-        <div className="flex items-start gap-3">
+        {/* Имя выравнивается по центру логотипа: под ним больше нет строки со
+            сроком, и прижатое к верху название рядом с сорокапиксельным
+            значком выглядело съехавшим. */}
+        <div className="flex items-center gap-3">
           {logoSrc && (
             <img
               key={logoSrc}
