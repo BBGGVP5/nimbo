@@ -11,6 +11,13 @@ export default defineConfig(async () => ({
   clearScreen: false,
   // Two HTML entry points: the main app window and the tray popup flyout.
   build: {
+    // Флаги стран приходят из flag-icons отдельными SVG. По умолчанию мелкие
+    // файлы встраиваются прямо в CSS, и около четырёхсот килобайт таблицы
+    // стилей — это две с половиной сотни флагов, которые разбираются до
+    // первого кадра, хотя на экране видно от силы десяток. Пусть остаются
+    // файлами: браузер возьмёт с диска только те, что понадобились.
+    assetsInlineLimit: (filePath: string) =>
+      filePath.includes("flag-icons") ? false : undefined,
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
