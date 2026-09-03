@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { TrayMenu } from "./TrayMenu";
+import { applyBootAppearance } from "../lib/bootAppearance";
 import "../styles.css";
 import "flag-icons/css/flag-icons.min.css";
 import "./tray-menu.css";
@@ -17,6 +18,8 @@ try {
   // Browser preview does not have a Tauri webview.
 }
 
+// Меню лотка открывается мгновенно — стиль должен быть на месте до отрисовки.
+applyBootAppearance();
 ReactDOM.createRoot(document.getElementById("tray-root") as HTMLElement).render(
   <React.StrictMode>
     <TrayMenu />

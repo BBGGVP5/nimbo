@@ -8,6 +8,7 @@ import {
   type SubscriptionTheme,
 } from "./api";
 import { resolveLanguage } from "./i18n";
+import { rememberBootAppearance } from "./bootAppearance";
 
 interface VisualPreferenceOptions {
   includeUiScale?: boolean;
@@ -51,6 +52,14 @@ export function applyVisualPreferences(
     document.documentElement.lang = resolveLanguage(preferences.language);
     document.body.dataset.theme = resolvedTheme;
     document.body.dataset.uiStyle = effectiveUiStyle;
+    // Заготовка для следующего запуска: до прихода настроек интерфейс рисуется
+    // именно ею, иначе на мгновение показывается стиль по умолчанию.
+    rememberBootAppearance({
+      uiStyle: effectiveUiStyle,
+      themeMode: preferences.theme_mode,
+      theme: resolvedTheme,
+      navMotion: preferences.nav_icon_motion ? "on" : "off",
+    });
     // Признак вместо класса: CSS сам решает, что делать, а перерисовка
     // ограничивается одним атрибутом.
     document.body.dataset.navMotion = preferences.nav_icon_motion ? "on" : "off";

@@ -69,24 +69,30 @@ pub struct PersistedState {
 }
 
 impl PersistedState {
-    pub fn normalize_runtime_defaults(&mut self) {
+    /// Возвращает `true`, если что-то поправила: сохранять файл заново имеет
+    /// смысл только тогда. Прежде состояние переписывалось при каждом запуске
+    /// — несколько мегабайт на диск до появления окна.
+    pub fn normalize_runtime_defaults(&mut self) -> bool {
+        let mut changed = false;
         if self.socks_username.trim().is_empty() {
             self.socks_username = default_socks_username();
+            changed = true;
         }
         if self.socks_password.trim().is_empty() {
             self.socks_password = default_socks_password();
+            changed = true;
         }
-        self.normalize_subscription_servers();
+        changed | self.normalize_subscription_servers()
     }
 
-    fn normalize_subscription_servers(&mut self) {
+    fn normalize_subscription_servers(&mut self) -> bool {
         let mut aliases = HashMap::new();
         for subscription in &mut self.subscriptions {
             aliases.extend(dedupe_subscription_servers(&mut subscription.servers));
         }
 
         if aliases.is_empty() {
-            return;
+            return false;
         }
 
         if let Some(active_server_id) = self.active_server_id.clone() {
@@ -104,6 +110,7 @@ impl PersistedState {
                 .and_modify(|current| *current = (*current).min(removed_ping))
                 .or_insert(removed_ping);
         }
+        true
     }
 }
 
@@ -602,20 +609,19 @@ impl AppState {
     }
 
     fn load_from_path(storage_path: PathBuf) -> anyhow::Result<Self> {
-        let mut inner = if storage_path.exists() {
+        // Файл существовал — значит, значения по умолчанию уже применены при
+        // разборе, и переписывать его при каждом запуске незачем.
+        let existed = storage_path.exists();
+        let mut inner = if existed {
             let bytes = std::fs::read(&storage_path)?;
-            let had_update_launch_preference = serde_json::from_slice::<serde_json::Value>(&bytes)
-                .ok()
-                .and_then(|value| value.get("preferences").cloned())
-                .and_then(|preferences| preferences.get("check_updates_on_launch").cloned())
-                .is_some();
+            // Разбор идёт один раз. Прежде документ сначала разбирался целиком
+            // в `Value` — только чтобы узнать, есть ли в нём одна настройка, —
+            // а потом ещё раз в состояние. На файле в несколько мегабайт это
+            // была лишняя работа при каждом запуске: отсутствующий ключ и без
+            // того получает значение из `Default` (`#[serde(default)]` стоит
+            // на всей структуре настроек).
             match serde_json::from_slice::<PersistedState>(&bytes) {
-                Ok(mut s) => {
-                    if !had_update_launch_preference {
-                        s.preferences.check_updates_on_launch = true;
-                    }
-                    s
-                }
+                Ok(s) => s,
                 Err(e) => {
                     match backup_corrupted_state(&storage_path) {
                         Ok(backup) => tracing::warn!(
@@ -635,7 +641,7 @@ impl AppState {
         } else {
             PersistedState::default()
         };
-        inner.normalize_runtime_defaults();
+        let normalized = inner.normalize_runtime_defaults();
         inner.connected = false;
         inner.connected_at = None;
         let state = Self {
@@ -644,7 +650,12 @@ impl AppState {
             persist_lock: Mutex::new(()),
             storage_path,
         };
-        state.persist()?;
+        // Запись до появления окна стоит времени: несколько мегабайт с
+        // ожиданием сброса на диск. Пишем, только если файла не было или
+        // нормализация действительно что-то поправила.
+        if !existed || normalized {
+            state.persist()?;
+        }
         Ok(state)
     }
 
@@ -683,8 +694,13 @@ impl AppState {
         if let Some(parent) = self.storage_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let snapshot = self.inner.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let json = serde_json::to_vec_pretty(&snapshot)?;
+        // Компактно и без копии: отступы почти удваивали файл (на нём же потом
+        // тратится время при запуске), а `clone` копировал мегабайты шаблонов
+        // ради одной записи.
+        let json = {
+            let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            serde_json::to_vec(&*guard)?
+        };
         let temp_path = self.storage_path.with_extension("json.tmp");
         let mut temp = std::fs::OpenOptions::new()
             .create(true)

@@ -5,9 +5,13 @@ import { getCurrentWindow, LogicalSize, type Window as TauriWindow } from "@taur
 import App from "./App";
 import { isTauriRuntime } from "./lib/api";
 import { useAppStore } from "./store";
+import { applyBootAppearance } from "./lib/bootAppearance";
 import "flag-icons/css/flag-icons.min.css";
 import "./styles.css";
 
+// До первой отрисовки: настройки придут из Rust позже, а стиль меняет не
+// только цвета, но и разметку главной.
+applyBootAppearance();
 useAppStore.getState().hydrate();
 
 // Системное меню правой кнопки в десктоп-оболочке не нужно, но в полях ввода

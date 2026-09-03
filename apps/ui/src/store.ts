@@ -12,6 +12,7 @@ import {
   type TrafficStats,
 } from "./lib/api";
 import { measureFastestServer } from "./lib/fastest";
+import { readBootAppearance } from "./lib/bootAppearance";
 
 export interface TrafficSpeed {
   upload: number;
@@ -97,9 +98,27 @@ interface AppStoreState {
   setImportDialogSource: (source: string) => void;
 }
 
+/**
+ * Начальные настройки с оглядкой на прошлый запуск.
+ *
+ * Стиль интерфейса решает не только оформление, но и разметку главной, а
+ * настоящие настройки приходят из Rust асинхронно. Без этой заготовки первый
+ * кадр рисовался стилем по умолчанию, и человек видел чужой экран.
+ */
+function seededPreferences() {
+  const remembered = readBootAppearance();
+  if (!remembered) return defaultAppPreferences;
+  return {
+    ...defaultAppPreferences,
+    ui_style: remembered.uiStyle as AppPreferences["ui_style"],
+    theme_mode: remembered.themeMode as AppPreferences["theme_mode"],
+    nav_icon_motion: remembered.navMotion === "on",
+  };
+}
+
 export const useAppStore = create<AppStoreState>((set, get) => ({
   status: null,
-  preferences: defaultAppPreferences,
+  preferences: seededPreferences(),
   subscriptions: [],
   activeServerId: null,
   activeSubscriptionUrl: null,
