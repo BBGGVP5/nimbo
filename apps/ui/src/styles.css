@@ -16518,7 +16518,7 @@ body[data-ui-style="manga"] :where(
 body[data-ui-style="manga"] :where(
   .settings-option, .routing-card-head, .routing-editor-field,
   .cross-sync-device-passport, .cross-sync-subscriptions-preview,
-  .cross-sync-option-autosync, .notification-toast, .active-server-main,
+  .cross-sync-option-autosync, .notification-toast,
   .compact-server-bar
 ) {
   background: var(--manga-paper-3) !important;
@@ -16811,7 +16811,10 @@ body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="sync"] .app-nav-ic
 }
 
 /* Плашка выбранного сервера лежит внутри уже обведённой карточки: своя рамка
-   давала рамку в рамке. */
+   давала рамку в рамке. По той же причине не обводится и сам блок с текстом:
+   полей у него нет, и строки упирались в рамку — снизу подпись сервера
+   выглядела съехавшей за край. */
+body[data-ui-style="manga"] .active-server-main,
 body[data-ui-style="manga"] .active-server-main .server-plaque,
 body[data-ui-style="manga"] .compact-server-bar .server-plaque {
   background: transparent !important;
