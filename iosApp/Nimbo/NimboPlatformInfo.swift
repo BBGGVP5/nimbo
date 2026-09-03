@@ -67,6 +67,13 @@ enum NimboNetworkSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         configuration.urlCache = nil
+        // Предел на весь запрос, а не только на паузу в передаче: домен
+        // подписки бывает заблокирован, соединение при этом не рвётся и не
+        // отвечает, а обновление висит до бесконечности.
+        configuration.timeoutIntervalForResource = 45
+        // Ждать появления сети незачем: человек нажал «обновить» сейчас и
+        // должен получить ответ — хотя бы отказ.
+        configuration.waitsForConnectivity = false
         var headers = configuration.httpAdditionalHeaders ?? [:]
         headers["User-Agent"] = NimboPlatformInfo.userAgent
         headers["X-Nimbo-Platform"] = "iOS"

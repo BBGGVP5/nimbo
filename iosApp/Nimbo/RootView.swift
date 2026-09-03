@@ -229,7 +229,12 @@ struct RootView: View {
         // Замер — тоже событие: на Android он подсвечивается теми же частицами.
         IosComposeControllerKt.NimboPushIosBurst(trigger: "activity")
         IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: true)
-        let results = await NimboPingService.shared.measureAll(targets)
+        // Признак «идёт замер» снимается в любом случае: если экран закрыли и
+        // задачу отменили, надпись «Проверяю…» иначе оставалась навсегда.
+        defer {
+            IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)
+        }
+        guard let results = await NimboPingService.shared.measureAll(targets) else { return }
         let ordered = results.map { ($0.key, $0.value) }
         IosComposeControllerKt.NimboUpdateIosPings(
             serverIds: ordered.map { $0.0 },
@@ -359,9 +364,14 @@ struct RootView: View {
 
         IosComposeControllerKt.NimboPushIosBurst(trigger: "activity")
         IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: true)
-        let results = await NimboPingService.shared.measureAll(
+        defer {
+            IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)
+        }
+        // Пустой ответ означал бы «все узлы молчат»; когда замер уже идёт,
+        // служба возвращает ничего — и повторять его незачем.
+        guard let results = await NimboPingService.shared.measureAll(
             candidates.map { (id: $0.id, host: $0.host, port: $0.port) }
-        )
+        ) else { return }
         let ordered = results.map { ($0.key, $0.value) }
         IosComposeControllerKt.NimboUpdateIosPings(
             serverIds: ordered.map { $0.0 },
@@ -371,7 +381,13 @@ struct RootView: View {
 
         // Молчащий узел — не «ноль миллисекунд»: такие в выбор не идут.
         guard let best = results.filter({ $0.value > 0 }).min(by: { $0.value < $1.value }) else {
-            notify("error", "Ни один сервер не ответил на проверку")
+            // В сети, где проверка не проходит, узлы молчат все разом — а сам
+            // туннель при этом поднимается. Оставлять человека без соединения
+            // из-за неудавшегося замера незачем: подключаемся к выбранному.
+            notify("error", "Проверка не прошла — подключаюсь к выбранному серверу")
+            if vpn.state != .connected, vpn.state != .connecting {
+                await vpn.connect()
+            }
             return
         }
         let name = candidates.first { $0.id == best.key }?.name ?? ""
