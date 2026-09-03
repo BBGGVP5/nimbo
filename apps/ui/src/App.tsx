@@ -441,11 +441,17 @@ export default function App() {
 
     updateStartupScheduled.current = true;
 
-    const retryDelaysMs = [180, 1200, 3000, 7000, 15000, 30000];
+    // Проверка при запуске застаёт сеть не всегда: приложение поднимается
+    // вместе с системой, а сеть появляется позже — с автозапуском, на
+    // мобильном модеме, при активном kill switch. Прежние попытки
+    // укладывались в минуту, после чего окно обновления не появлялось до
+    // следующего запуска. Отсюда «не всегда появляется».
+    const retryDelaysMs = [180, 1200, 3000, 7000, 15000, 30000, 60000, 120000, 300000];
     let attempt = 0;
     let cancelled = false;
 
     const scheduleAttempt = (delay: number) => {
+      if (updateRetryTimer.current) clearTimeout(updateRetryTimer.current);
       updateRetryTimer.current = setTimeout(runAttempt, delay);
     };
 
@@ -482,8 +488,20 @@ export default function App() {
 
     scheduleAttempt(retryDelaysMs[attempt]);
 
+    // Сеть, вернувшаяся сама, и возвращение к окну — оба повода попробовать
+    // снова, не дожидаясь очередной задержки: к этому моменту GitHub обычно
+    // уже доступен.
+    const retryNow = () => {
+      if (cancelled || updateChecked.current || updateCheckInFlight.current) return;
+      scheduleAttempt(180);
+    };
+    window.addEventListener("online", retryNow);
+    window.addEventListener("focus", retryNow);
+
     return () => {
       cancelled = true;
+      window.removeEventListener("online", retryNow);
+      window.removeEventListener("focus", retryNow);
       if (updateRetryTimer.current) clearTimeout(updateRetryTimer.current);
       if (!updateChecked.current) updateStartupScheduled.current = false;
     };
