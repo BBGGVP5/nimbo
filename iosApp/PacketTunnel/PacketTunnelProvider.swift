@@ -248,18 +248,24 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             )
         }
 
-        // Перечитывать маршруты чаще раза в десять секунд бессмысленно:
-        // при переходе между сетями система шлёт события пачкой.
-        guard returned, Date().timeIntervalSince(lastRouteRefresh) > 10 else { return }
+        // Маршруты перечитываются на любое изменение пути, а не только когда
+        // сеть пропадала и вернулась. Смена соты или переход Wi-Fi ↔ сотовая
+        // проходят «незаметно»: путь всё это время доступен, но интерфейс уже
+        // другой, а маршруты туннеля остались от прежнего — соединение стоит,
+        // и оживает только перезапуском вручную.
+        //
+        // Система шлёт такие события пачкой, поэтому не чаще раза в десять
+        // секунд. Это не переподключение: туннель остаётся поднятым.
+        guard satisfied, Date().timeIntervalSince(lastRouteRefresh) > 10 else { return }
         lastRouteRefresh = Date()
-        refreshTunnelRoutes()
+        refreshTunnelRoutes(returned: returned)
     }
 
     /// Переустановка сетевых настроек: тот же набор, что и при запуске.
     ///
     /// Это не разрыв соединения, а просьба к системе перечитать маршруты и
     /// DNS для нового интерфейса.
-    private func refreshTunnelRoutes() {
+    private func refreshTunnelRoutes(returned: Bool) {
         let routingOptions = NimboRoutingOptions(
             providerValue: (protocolConfiguration as? NETunnelProviderProtocol)?
                 .providerConfiguration?["routing"]
@@ -272,7 +278,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     code: error == nil ? "IOS_ROUTES_REFRESHED" : "IOS_ROUTES_REFRESH_FAILED",
                     message: error == nil
                         ? "Маршруты перечитаны после смены сети"
-                        : "Не удалось перечитать маршруты после смены сети"
+                        : "Не удалось перечитать маршруты после смены сети",
+                    metadata: ["reason": returned ? "сеть вернулась" : "путь изменился"]
                 )
             }
         }

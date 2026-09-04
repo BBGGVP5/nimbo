@@ -17,6 +17,12 @@ struct RootView: View {
     @State private var updateRelease: NimboRelease?
     /// Скачанный файл — его показывает окно обмена, чтобы положить куда удобно.
     @State private var updateFileUrl: URL?
+    /// Проверка «трафик пошёл» после подключения и её однократное лечение.
+    @State private var trafficCheck: Task<Void, Never>?
+    /// Когда туннель перезапускали сами. По времени, а не по флагу: наш же
+    /// перезапуск проходит через «отключено», и флаг снимался бы сам собой —
+    /// получался бы бесконечный круг перезапусков.
+    @State private var lastSelfHealAt: Date?
     @State private var backupUrl: URL?
     @State private var showBackupPicker = false
     @State private var showSync = false
@@ -336,9 +342,14 @@ struct RootView: View {
         case .connecting, .preparing:
             metrics.reset()
             sessionStartedAt = Date()
+            trafficCheck?.cancel()
+            trafficCheck = nil
         case .connected:
             IosComposeControllerKt.NimboPushIosBurst(trigger: "connected")
+            startTrafficCheck()
         case .idle, .failed:
+            trafficCheck?.cancel()
+            trafficCheck = nil
             finishSession()
             IosComposeControllerKt.NimboPushIosBurst(trigger: "disconnected")
             if case let .failed(_, message) = state {
@@ -348,6 +359,68 @@ struct RootView: View {
             break
         }
         synchronizeComposeState()
+    }
+
+    /// Проверка, что после подключения трафик действительно пошёл.
+    ///
+    /// Туннель считается поднятым, как только система приняла настройки, но
+    /// это ещё не значит, что данные ходят: на сотовой сети маршруты иногда
+    /// встают позже ядра, и соединение оживает только после перезапуска —
+    /// вручную. Здесь приложение делает это само, не чаще раза в пять минут.
+    ///
+    /// Проверка живёт, пока приложение на экране: в фоне ему не дают работать,
+    /// и обещать самолечение всегда было бы неправдой.
+    ///
+    /// Запрос идёт из приложения, а не из расширения: свой трафик расширение
+    /// в туннель не заворачивает, и проверять им было бы нечего.
+    private func startTrafficCheck() {
+        trafficCheck?.cancel()
+        trafficCheck = Task {
+            // Пауза, чтобы маршруты и DNS успели встать: сразу после
+            // подключения неудача ничего не значит.
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled, vpn.state == .connected else { return }
+            if await tunnelCarriesTraffic() { return }
+
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled, vpn.state == .connected else { return }
+            if await tunnelCarriesTraffic() { return }
+
+            // Не чаще раза в пять минут: если не помогает и перезапуск, дело
+            // не в маршрутах, и крутить туннель по кругу — только мешать.
+            if let last = lastSelfHealAt, Date().timeIntervalSince(last) < 300 { return }
+            lastSelfHealAt = Date()
+            await NimboDiagnostics.shared.record(
+                .warning,
+                stage: .tunnelStart,
+                code: "IOS_TUNNEL_NO_TRAFFIC",
+                message: "Туннель поднят, но проверочный запрос не прошёл — перезапуск"
+            )
+            notify("info", "Трафик не пошёл — перезапускаю туннель")
+            await vpn.disconnect()
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            await vpn.connect()
+        }
+    }
+
+    /// Один короткий запрос наружу. `false` — ответа нет за отведённое время.
+    private func tunnelCarriesTraffic() async -> Bool {
+        var request = URLRequest(url: URL(string: "https://www.gstatic.com/generate_204")!)
+        request.httpMethod = "HEAD"
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.timeoutInterval = 6
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForResource = 8
+        configuration.waitsForConnectivity = false
+        configuration.urlCache = nil
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        guard let (_, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse else {
+            return false
+        }
+        return (200 ... 399).contains(http.statusCode)
     }
 
     /// Переключение туннеля вынесено из тела: там оно раздувало выражение.
