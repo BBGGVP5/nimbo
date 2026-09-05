@@ -7,7 +7,7 @@ use std::io::Cursor;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -58,6 +58,9 @@ const SUBSCRIPTION_LOGO_CACHE_BYTES: usize = 4 * 1024 * 1024;
 const SUBSCRIPTION_LOGO_CACHE_DIR: &str = "subscription-logos";
 const MAX_RUNTIME_LOG_BYTES: u64 = 5 * 1024 * 1024;
 static RESUME_RECONNECT_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static CONNECTION_INTENT: AtomicU64 = AtomicU64::new(0);
+static LAST_WAKE_RECOVERY: AtomicU64 = AtomicU64::new(0);
+static CONNECTION_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static XRAY_STATS_QUERY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4651,6 +4654,16 @@ pub async fn connect_server(
     state: State<'_, AppState>,
     server_id: String,
 ) -> Result<PersistedState, String> {
+    CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst);
+    let _operation = CONNECTION_OPERATION.lock().await;
+    connect_server_inner(app, state, server_id).await
+}
+
+async fn connect_server_inner(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    server_id: String,
+) -> Result<PersistedState, String> {
     let snap = state.snapshot();
     let Some((subscription_url, server)) = find_server_with_subscription(&snap, &server_id) else {
         return Err("Сервер не найден в подписках".into());
@@ -4711,6 +4724,9 @@ pub async fn disconnect_server(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<PersistedState, String> {
+    // Invalidate recovery immediately, even if a native startup is still finishing.
+    CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst);
+    let _operation = CONNECTION_OPERATION.lock().await;
     let snapshot = state.snapshot();
     let final_session = if snapshot.connected {
         let xray_running = state.runtime(|runtime| runtime.xray.is_some());
@@ -7789,6 +7805,7 @@ pub fn cleanup_disconnected_runtime_on_startup(app: &AppHandle) {
 }
 
 pub fn cleanup_runtime_for_exit(app: &AppHandle) {
+    CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst);
     let state = app.state::<AppState>();
     if let Err(error) = stop_runtime(&state) {
         tracing::warn!(?error, "failed to clean runtime during app exit");
@@ -7804,36 +7821,68 @@ pub fn cleanup_runtime_for_exit(app: &AppHandle) {
     }
 }
 
-pub fn reconnect_runtime_after_resume(app: &AppHandle) {
-    let snapshot = app.state::<AppState>().snapshot();
-    if !snapshot.connected {
-        return;
-    }
-    let Some(server_id) = snapshot.active_server_id.clone() else {
-        return;
-    };
-    if RESUME_RECONNECT_IN_FLIGHT.swap(true, Ordering::SeqCst) {
-        return;
-    }
-
-    let app_handle = app.clone();
+/// One owner for OS resume events and timer-gap fallback on Windows/Linux.
+pub fn start_resume_monitor(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
-        let state = app_handle.state::<AppState>();
-        let result = connect_server(app_handle.clone(), state, server_id).await;
-        if let Err(error) = result {
-            tracing::warn!(?error, "failed to reconnect runtime after resume");
-            let state = app_handle.state::<AppState>();
-            let _ = state.mutate(|s| {
-                s.connected = false;
-                s.connected_at = None;
-            });
+        let mut previous = std::time::SystemTime::now();
+        loop {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            let now = std::time::SystemTime::now();
+            let slept = now.duration_since(previous).unwrap_or_default() >= Duration::from_secs(30);
+            previous = now;
+            if slept { reconnect_runtime_after_resume(&app); }
         }
-        let _ = crate::tray::refresh_tray_menu(&app_handle);
-        RESUME_RECONNECT_IN_FLIGHT.store(false, Ordering::SeqCst);
     });
 }
 
+struct ResumeGuard;
+impl Drop for ResumeGuard {
+    fn drop(&mut self) { RESUME_RECONNECT_IN_FLIGHT.store(false, Ordering::SeqCst); }
+}
+
+pub fn reconnect_runtime_after_resume(app: &AppHandle) {
+    let ticket = CONNECTION_INTENT.load(Ordering::SeqCst);
+    let snapshot = app.state::<AppState>().snapshot();
+    if !snapshot.connected { return; }
+    let Some(server_id) = snapshot.active_server_id.clone() else { return; };
+    let now = unix_timestamp_millis() as u64;
+    if !crate::recovery_policy::accepts_wake(now, LAST_WAKE_RECOVERY.load(Ordering::SeqCst))
+        || RESUME_RECONNECT_IN_FLIGHT.swap(true, Ordering::SeqCst) { return; }
+    LAST_WAKE_RECOVERY.store(now, Ordering::SeqCst);
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _guard = ResumeGuard;
+        for attempt in 0..3 {
+            tokio::time::sleep(Duration::from_millis(crate::recovery_policy::retry_delay_ms(attempt))).await;
+            let _operation = CONNECTION_OPERATION.lock().await;
+            let state = app_handle.state::<AppState>();
+            let current = state.snapshot();
+            if !current.connected || !crate::recovery_policy::may_recover(ticket, CONNECTION_INTENT.load(Ordering::SeqCst),
+                &server_id, current.active_server_id.as_deref(), attempt) {
+                tracing::info!("wake recovery cancelled by user action");
+                return;
+            }
+            tracing::info!(attempt = attempt + 1, "restoring connection after wake");
+            match connect_server_inner(app_handle.clone(), state, server_id.clone()).await {
+                Ok(_) => {
+                    tracing::info!("connection restored after wake");
+                    let _ = crate::tray::refresh_tray_menu(&app_handle);
+                    return;
+                }
+                Err(error) => {
+                    tracing::warn!(attempt = attempt + 1, ?error, "wake recovery attempt failed");
+                    if attempt == 2 && CONNECTION_INTENT.load(Ordering::SeqCst) == ticket {
+                        let _ = app_handle.state::<AppState>().mutate(|s| {
+                            s.connected = false;
+                            s.connected_at = None;
+                        });
+                        let _ = crate::tray::refresh_tray_menu(&app_handle);
+                    }
+                }
+            }
+        }
+    });
+}
 #[cfg(windows)]
 fn cleanup_tun(snapshot: Option<TunRuntimeSnapshot>) -> Result<(), String> {
     // Блокировку снимаем в первую очередь: если дальше что-то пойдёт не так,

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { CountryFlag } from "../components/CountryFlag";
 import { notifyError } from "../lib/notify";
+import { startVisiblePolling } from "../lib/visiblePolling";
 import { expireLabels, useMessages } from "../lib/i18n";
 import { serverDisplayLabel, useServerUiOverrides } from "../lib/serverUiOverrides";
 import type { Messages } from "../lib/i18n";
@@ -254,6 +255,7 @@ export function Home() {
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [memorySamples, setMemorySamples] = useState<number[]>([]);
+  const memoryRequestInFlight = useRef(false);
   // Плитка «Исключения» показывает, сколько приложений выведено из туннеля.
   const [appRuleCount, setAppRuleCount] = useState(0);
   const [currentMemoryBytes, setCurrentMemoryBytes] = useState(0);
@@ -432,18 +434,18 @@ export function Home() {
     if (!connected || sessionStartedAt == null) return;
     const tick = () =>
       setElapsedSeconds(Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000)));
-    tick();
-    const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
+    return startVisiblePolling(tick, 1000);
   }, [connected, sessionStartedAt]);
 
   useEffect(() => {
     if (!connected || !preferences.show_memory_usage) return;
     let cancelled = false;
     const loadMemory = async () => {
+      if (memoryRequestInFlight.current) return;
+      memoryRequestInFlight.current = true;
       try {
         const usage = await api.getMemoryUsage();
-        if (cancelled) return;
+        if (cancelled || document.visibilityState !== "visible") return;
         setCurrentMemoryBytes(usage.bytes);
         setMemorySamples((current) => {
           const next = [...current, usage.bytes];
@@ -451,13 +453,14 @@ export function Home() {
         });
       } catch {
         /* ignore */
+      } finally {
+        memoryRequestInFlight.current = false;
       }
     };
-    void loadMemory();
-    const timer = window.setInterval(() => void loadMemory(), 2000);
+    const stop = startVisiblePolling(loadMemory, 2000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stop();
     };
   }, [connected, preferences.show_memory_usage]);
 

@@ -112,9 +112,8 @@ jobs:
           npm run build:linux
 
       - name: Собрать фирменный Linux-установщик
-        if: matrix.asset_arch == 'x64'
         shell: bash
-        run: bash apps/installer/build-custom-linux-installer.sh --target x86_64-unknown-linux-gnu
+        run: bash apps/installer/build-custom-linux-installer.sh --target "$(rustc -vV | awk '/^host:/ { print $2 }')"
 
       - name: Подготовить понятные имена файлов
         env:
@@ -132,9 +131,7 @@ jobs:
           cp "$appimage" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.AppImage"
           cp "$deb" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.deb"
           cp "$rpm" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.rpm"
-          if [[ "$ASSET_ARCH" == "x64" ]]; then
-            cp "target/release/bundle/custom/linux/NimboSetup_${version}_x64" release-normalized/
-          fi
+          cp "target/release/bundle/custom/linux/NimboSetup_${version}_${ASSET_ARCH}" release-normalized/
 
       - name: Сохранить Linux-пакеты
         uses: actions/upload-artifact@v4

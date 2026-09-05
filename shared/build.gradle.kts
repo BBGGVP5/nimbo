@@ -51,5 +51,10 @@ kotlin {
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
+        if (!iosOnlyBuild) {
+            getByName("desktopTest").dependencies {
+                implementation(compose.desktop.currentOs)
+            }
+        }
     }
 }

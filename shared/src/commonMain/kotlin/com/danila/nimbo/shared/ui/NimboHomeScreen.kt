@@ -185,7 +185,7 @@ private fun HomeProfileCard(state: NimboUiState, actions: NimboUiActions) {
                     color = NimboPalette.Text.copy(alpha = 0.78f),
                     fontSize = 16.sp,
                     lineHeight = 24.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    fontWeight = FontWeight.SemiBold
                 )
             )
         }
@@ -291,7 +291,7 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
 
     // Геометрия и цвета повторяют WindowsConnectionButton на Android в стиле
     // Liquid Glass: два кольца, свечение под ними и круг-кнопка внутри.
-    val ringColor = if (connected || connecting) accent else Color.White
+    val ringColor = if (connected || connecting) accent else NimboPalette.Text
     val outerAlpha = when {
         connected -> 0.42f
         connecting -> 0.34f
@@ -306,9 +306,9 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
     val centerBorder = when {
         connected -> accent.copy(alpha = 0.55f)
         connecting -> accent.copy(alpha = 0.24f)
-        else -> Color.White.copy(alpha = 0.08f)
+        else -> NimboPalette.Border
     }
-    val iconTint = if (connected) Color.White else Color.White.copy(alpha = 0.72f)
+    val iconTint = if (connected) Color.White else NimboPalette.TextSecondary
 
     val rotation = if (connecting) {
         val infinite = rememberInfiniteTransition(label = "nimbo-connect")
@@ -342,7 +342,7 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
                 },
             contentAlignment = Alignment.Center
         ) {
-            if (!isManga) Canvas(modifier = Modifier.fillMaxSize()) {
+            if (style == NimboElementStyle.NIMBO_GLASS) Canvas(modifier = Modifier.fillMaxSize()) {
                 val radius = size.minDimension / 2f
                 val center = Offset(size.width / 2f, size.height / 2f)
                 drawCircle(
@@ -374,7 +374,13 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
                 }
             }
 
-            val centerShape = if (isManga) RoundedCornerShape(4.dp) else CircleShape
+            val centerShape = when (style) {
+                NimboElementStyle.MANGA -> nimboStyledShape(4.dp, 4.dp)
+                NimboElementStyle.MATERIAL_YOU -> nimboStyledShape(38.dp)
+                NimboElementStyle.DOTTED -> nimboStyledShape(40.dp)
+                NimboElementStyle.SIGNAL -> nimboStyledShape(22.dp)
+                NimboElementStyle.NIMBO_GLASS -> CircleShape
+            }
             Box(
                 modifier = Modifier
                     .size(160.dp)
@@ -382,6 +388,8 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
                     .background(
                         if (isManga) {
                             if (connected) NimboPalette.Accent else NimboMangaPalette.Paper
+                        } else if (style == NimboElementStyle.MATERIAL_YOU || style == NimboElementStyle.DOTTED) {
+                            if (connected) accent else accent.copy(alpha = 0.12f).compositeOver(NimboPalette.Surface)
                         } else centerFill
                     )
                     .border(
@@ -399,12 +407,13 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
                 contentAlignment = Alignment.Center
             ) {
                 if (connecting) {
+                    val arcTrack = NimboPalette.Text.copy(alpha = 0.08f)
                     Canvas(modifier = Modifier.size(58.dp)) {
                         val strokeWidth = 7.dp.toPx()
                         val inset = strokeWidth / 2f
                         val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
                         drawArc(
-                            color = NimboPalette.Text.copy(alpha = 0.08f),
+                            color = arcTrack,
                             startAngle = 0f,
                             sweepAngle = 360f,
                             useCenter = false,
@@ -447,7 +456,7 @@ private fun HomeConnectionButton(state: NimboUiState, actions: NimboUiActions) {
             style = TextStyle(
                 color = if (connected || connecting || failed) accent else NimboPalette.Text,
                 fontSize = 20.sp,
-                fontWeight = FontWeight.ExtraBold,
+                fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center
             )
         )
@@ -489,13 +498,7 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
             modifier = Modifier
                 .weight(1f)
                 .height(52.dp)
-                .clip(shape)
-                .background(nimboStyledContainer(fill, selected = hasServer))
-                .border(
-                    if (style == NimboElementStyle.MANGA) 2.dp else 1.dp,
-                    nimboStyledBorder(border, selected = hasServer),
-                    shape
-                )
+                .nimboControlSurface(shape, accented = hasServer)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -520,14 +523,14 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
             Spacer(Modifier.width(10.dp))
             BasicText(
                 text = withoutFlagEmoji(selected?.name.orEmpty()).ifBlank { "Выберите сервер" },
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
                 style = TextStyle(
                     color = NimboPalette.Text,
-                    fontSize = 16.sp,
-                    lineHeight = 24.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.Medium
                 )
             )
             if (selected != null) {
@@ -538,13 +541,7 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
         Box(
             modifier = Modifier
                 .size(52.dp)
-                .clip(shape)
-                .background(nimboStyledContainer(fill))
-                .border(
-                    if (style == NimboElementStyle.MANGA) 1.5.dp else 1.dp,
-                    nimboStyledBorder(border),
-                    shape
-                )
+                .nimboControlSurface(shape)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -675,6 +672,7 @@ private fun SpeedValue(arrow: String, text: String, color: Color) {
 
 @Composable
 private fun SpeedChartCanvas(samples: List<NimboSpeedSample>, modifier: Modifier = Modifier) {
+    val colors = LocalNimboColors.current
     Canvas(modifier = modifier) {
         if (samples.isEmpty()) return@Canvas
         val peak = samples
@@ -706,23 +704,23 @@ private fun SpeedChartCanvas(samples: List<NimboSpeedSample>, modifier: Modifier
         drawPath(
             path = buildArea(downPath),
             brush = Brush.verticalGradient(
-                listOf(NimboPalette.Accent.copy(alpha = 0.26f), Color.Transparent)
+                listOf(colors.accent.copy(alpha = 0.26f), Color.Transparent)
             )
         )
         drawPath(
             path = downPath,
-            color = NimboPalette.Accent,
+            color = colors.accent,
             style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
         )
         drawPath(
             path = buildArea(upPath),
             brush = Brush.verticalGradient(
-                listOf(NimboPalette.Green.copy(alpha = 0.18f), Color.Transparent)
+                listOf(colors.green.copy(alpha = 0.18f), Color.Transparent)
             )
         )
         drawPath(
             path = upPath,
-            color = NimboPalette.Green,
+            color = colors.green,
             style = Stroke(width = 1.7.dp.toPx(), cap = StrokeCap.Round)
         )
     }
@@ -780,6 +778,7 @@ private fun SessionTrafficBlock(
 
 @Composable
 private fun MemoryUsageCard(memoryMb: Int, samples: List<Int>) {
+    val chartColor = NimboPalette.Accent.copy(alpha = 0.85f)
     MonitorPanel(modifier = Modifier.fillMaxWidth().height(88.dp)) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -818,7 +817,7 @@ private fun MemoryUsageCard(memoryMb: Int, samples: List<Int>) {
                 }
                 drawPath(
                     path = path,
-                    color = NimboPalette.Accent.copy(alpha = 0.85f),
+                    color = chartColor,
                     style = Stroke(width = 1.7.dp.toPx(), cap = StrokeCap.Round)
                 )
             }
@@ -829,20 +828,8 @@ private fun MemoryUsageCard(memoryMb: Int, samples: List<Int>) {
 /** Панель мониторинга: то же стекло, но скругление 16 dp и рамка White 10%. */
 @Composable
 private fun MonitorPanel(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val shape = RoundedCornerShape(16.dp)
-    Box(
-        modifier = modifier
-            .nimboGlassSurface(
-                shape = shape,
-                depth = LiquidGlassDepth.PANEL,
-                accent = NimboPalette.Accent,
-                isDark = true,
-                panelAlpha = 1f
-            )
-            .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
-    ) {
-        content()
-    }
+    NimboSurface(modifier = modifier, cornerRadius = 16.dp,
+        padding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { content() }
 }
 
 private fun formatSpeed(bytesPerSecond: Long): String = formatBytes(bytesPerSecond) + "/с"

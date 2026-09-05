@@ -374,13 +374,7 @@ private fun ProfileServerCard(
             .clip(shape)
             .background(nimboStyledContainer(NimboMangaPalette.Paper, selected = server.selected))
     } else {
-        Modifier.nimboGlassSurface(
-            shape = shape,
-            depth = if (server.selected) LiquidGlassDepth.CONTROL else LiquidGlassDepth.PANEL,
-            accent = NimboPalette.Accent,
-            isDark = true,
-            panelAlpha = 1f
-        )
+        Modifier.nimboControlSurface(shape, accented = server.selected)
     }
     Box(
         modifier = Modifier

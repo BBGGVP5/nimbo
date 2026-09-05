@@ -1,11 +1,12 @@
 {
   "name": "nimbo-ui",
   "private": true,
-  "version": "1.2.0-beta.4",
+  "version": "1.2.0-beta.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test:performance": "node --test tests/visiblePolling.test.mjs",
     "build:installer": "tauri build --bundles nsis",
     "build:installer:local": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/windows/build-local-installer.ps1",
     "build:installer:current": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/windows/build-local-installer.ps1 -Targets current",

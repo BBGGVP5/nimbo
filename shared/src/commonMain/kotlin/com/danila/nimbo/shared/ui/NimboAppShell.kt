@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -23,6 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -43,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 data class NimboUiState(
+    val appearance: NimboAppearance = NimboAppearance(),
     val vpnState: String = "idle",
     val errorCode: String? = null,
     val errorMessage: String? = null,
@@ -100,6 +105,9 @@ data class NimboUiState(
     val navIconMotion: Boolean = true,
     val showSpeedWidget: Boolean = true,
     val showMemoryWidget: Boolean = true,
+    val pingOnLaunch: Boolean = true,
+    val pingAfterRefresh: Boolean = true,
+    val refreshOnLaunch: Boolean = false,
     /** Стиль элементов: glass / material / dotted / signal. */
     val elementStyle: String = "glass",
     /** Порядок серверов: subscription / ping / name. */
@@ -263,12 +271,20 @@ fun NimboAppShell(
 ) {
     var internalScreen by remember(initialScreen) { mutableStateOf(initialScreen) }
     val selectedScreen = externalScreen ?: internalScreen
+    val appearance = state.appearance.normalized()
+    val systemDark = isSystemInDarkTheme()
+    val dark = appearance.isDark(systemDark)
+    val density = LocalDensity.current
 
     CompositionLocalProvider(
-        LocalNimboElementStyle provides NimboElementStyle.fromKey(state.elementStyle)
+        LocalNimboElementStyle provides NimboElementStyle.fromKey(state.elementStyle),
+        LocalNimboAppearance provides appearance,
+        LocalNimboDark provides dark,
+        LocalNimboColors provides nimboColors(appearance, systemDark),
+        LocalDensity provides Density(density.density, density.fontScale * appearance.textScale)
     ) {
     MaterialTheme(
-        colorScheme = darkColorScheme(
+        colorScheme = (if (dark) darkColorScheme() else lightColorScheme()).copy(
             primary = NimboPalette.Accent,
             secondary = NimboPalette.AccentStrong,
             background = NimboPalette.BackgroundDeep,
@@ -291,7 +307,8 @@ fun NimboAppShell(
                     background = NimboPalette.Background,
                     styleMode = backgroundStyleModeForIndex(state.backgroundStyle),
                     paletteMode = backgroundPaletteModeForIndex(state.backgroundPalette),
-                    motionEnabled = state.backgroundMotion
+                    motionEnabled = state.backgroundMotion,
+                    isLight = !dark
                 )
             }
 

@@ -29,6 +29,27 @@ enum NimboBackup {
         "com.nimbo.appearance.showSpeedWidget",
         "com.nimbo.appearance.showMemoryWidget",
         "com.nimbo.appearance.elementStyle",
+        "com.nimbo.appearance.themeMode",
+        "com.nimbo.appearance.accentHex",
+        "com.nimbo.appearance.brightness",
+        "com.nimbo.appearance.transparency",
+        "com.nimbo.appearance.corners",
+        "com.nimbo.appearance.textScale",
+        "com.nimbo.appearance.refraction",
+        "com.nimbo.appearance.haptics",
+        "com.nimbo.appearance.navIconMotion",
+        "com.nimbo.appearance.statusParticles",
+        "com.nimbo.appearance.connectStyle",
+        "com.nimbo.appearance.serverSort",
+        "com.nimbo.appearance.favoritesFirst",
+        "com.nimbo.appearance.pingOnLaunch",
+        "com.nimbo.appearance.pingAfterRefresh",
+        "com.nimbo.appearance.refreshOnLaunch",
+        "com.nimbo.ping.protocol",
+        "com.nimbo.ping.timeoutMs",
+        "com.nimbo.ping.url",
+        "com.nimbo.update.channel",
+        "com.nimbo.update.notify",
         "com.nimbo.routing.bypassLocal",
         "com.nimbo.routing.sniffing",
         "com.nimbo.routing.dns"
@@ -77,10 +98,20 @@ enum NimboBackup {
 
         let defaults = UserDefaults.standard
         for (key, raw) in payload.settings {
+            guard settingKeys.contains(key) else { continue }
+            // Текстовый HEX может состоять только из цифр: не превращаем
+            // акцент, DNS и прочие строковые ключи в NSNumber.
+            let suffix = key.components(separatedBy: ".").last ?? ""
+            if ["accentHex", "themeMode", "elementStyle", "connectStyle", "serverSort", "dns", "protocol", "url", "channel"].contains(suffix) {
+                defaults.set(raw, forKey: key)
+                continue
+            }
             switch raw {
             case "true", "false": defaults.set(raw == "true", forKey: key)
             default:
                 if let number = Int(raw) {
+                    defaults.set(number, forKey: key)
+                } else if let number = Double(raw), number.isFinite {
                     defaults.set(number, forKey: key)
                 } else {
                     defaults.set(raw, forKey: key)

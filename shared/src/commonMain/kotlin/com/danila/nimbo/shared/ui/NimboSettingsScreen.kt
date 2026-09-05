@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -124,7 +125,7 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
         when (tab) {
             SettingsTab.GENERAL -> GeneralPage(state, actions)
             SettingsTab.APPEARANCE -> AppearancePage(state, actions)
-            SettingsTab.SUBSCRIPTION -> SubscriptionPage(actions)
+            SettingsTab.SUBSCRIPTION -> SubscriptionPage(state, actions)
             SettingsTab.LATENCY -> LatencyPage(state, actions)
             SettingsTab.BACKUP -> BackupPage(actions)
             SettingsTab.UPDATES -> UpdatesPage(state, actions)
@@ -206,7 +207,7 @@ private fun SettingsTabItem(tab: SettingsTab, selected: Boolean, onClick: () -> 
                         color = NimboPalette.Text,
                         fontSize = 15.sp,
                         lineHeight = 20.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        fontWeight = FontWeight.SemiBold
                     )
                 )
             }
@@ -216,6 +217,11 @@ private fun SettingsTabItem(tab: SettingsTab, selected: Boolean, onClick: () -> 
 
 @Composable
 private fun GeneralPage(state: NimboUiState, actions: NimboUiActions) {
+    SettingsSection("Отклик") {
+        AppearanceToggle("Виброотклик", state.appearance.haptics) {
+            actions.onSetAppearance("haptics", it.toString())
+        }
+    }
     SettingsSection("Соединение") {
         SettingsRow(
             NimboIconName.ROUTE,
@@ -283,7 +289,6 @@ private fun AppearancePage(state: NimboUiState, actions: NimboUiActions) {
             }
             // Нечётный последний стиль занимает ряд целиком, иначе половина
             // ряда остаётся пустой и выглядит обрывом.
-            if (pair.size == 1) Spacer(Modifier.weight(1f))
         }
     }
 
@@ -340,30 +345,36 @@ private fun AppearancePage(state: NimboUiState, actions: NimboUiActions) {
         }
         SettingsDivider()
         BackgroundPicker(
-            title = "Эффект",
+            title = "Анимация фона",
             items = BackgroundStyleChoice.entries.map { it.title },
             selectedIndex = state.backgroundStyle,
             paletteIndex = state.backgroundPalette,
             previewStyleFor = { index -> backgroundStyleModeForIndex(index) },
             previewPaletteFor = { backgroundPaletteModeForIndex(state.backgroundPalette) },
+            previewMotion = state.backgroundMotion,
             onSelect = { actions.onSetAppearance("backgroundStyle", it.toString()) }
         )
         SettingsDivider()
         BackgroundPicker(
-            title = "Палитра",
+            title = "Цвет фона",
             items = BackgroundPaletteChoice.entries.map { it.title },
             selectedIndex = state.backgroundPalette,
             paletteIndex = state.backgroundPalette,
             previewStyleFor = { backgroundStyleModeForIndex(state.backgroundStyle) },
             previewPaletteFor = { index -> backgroundPaletteModeForIndex(index) },
+            palettePreview = true,
             onSelect = { actions.onSetAppearance("backgroundPalette", it.toString()) }
         )
     }
-
+    NimboAppearanceDetails(state, actions)
 }
 
 @Composable
 private fun LatencyPage(state: NimboUiState, actions: NimboUiActions) {
+    SettingsSection("Автоматический замер") {
+        AppearanceToggle("Пинг при запуске", state.pingOnLaunch) { actions.onSetAppearance("pingOnLaunch", it.toString()) }
+        AppearanceToggle("Пинг после обновления подписки", state.pingAfterRefresh) { actions.onSetAppearance("pingAfterRefresh", it.toString()) }
+    }
     SettingsSection("Способ замера") {
         // ICMP на iOS недоступен обычному приложению — нужны raw-сокеты,
         // которых система не даёт. Поэтому выбор из двух, а не из трёх.
@@ -526,8 +537,10 @@ private enum class PingUrlChoice(val title: String, val url: String) {
 }
 
 @Composable
-private fun SubscriptionPage(actions: NimboUiActions) {
+private fun SubscriptionPage(state: NimboUiState, actions: NimboUiActions) {
     SettingsSection("Подписка") {
+        AppearanceToggle("Обновлять при запуске", state.refreshOnLaunch) { actions.onSetAppearance("refreshOnLaunch", it.toString()) }
+        BasicText("Только при отключённом VPN", style = NimboBodyStyle, modifier = Modifier.padding(bottom = 10.dp))
         SettingsRow(
             NimboIconName.CLOUD,
             "Настройки подписки",
@@ -710,7 +723,9 @@ private fun ConnectStylePreviewCard(
         modifier = modifier
             .clip(shape)
             .background(
-                if (selected) {
+                if (manga) {
+                    nimboStyledContainer(NimboMangaPalette.Paper, selected)
+                } else if (selected) {
                     NimboPalette.Accent.copy(alpha = 0.13f)
                 } else if (manga) {
                     NimboMangaPalette.Paper
@@ -822,36 +837,41 @@ private fun BackgroundPicker(
     paletteIndex: Int,
     previewStyleFor: (Int) -> BackgroundStyleMode,
     previewPaletteFor: (Int) -> BackgroundPaletteMode,
+    palettePreview: Boolean = false,
+    previewMotion: Boolean = true,
     onSelect: (Int) -> Unit
 ) {
+    val light = !LocalNimboDark.current
+    val phase = rememberNimboBackgroundPhase(enabled = !palettePreview && previewMotion)
     Column(modifier = Modifier.padding(vertical = 10.dp)) {
         SettingsTitle(title)
         Spacer(Modifier.height(8.dp))
+        items.withIndex().chunked(3).forEach { choices ->
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+                .padding(vertical = 5.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items.forEachIndexed { index, label ->
+            choices.forEach { (index, label) ->
                 val selected = index == selectedIndex
                 val shape = nimboStyledShape(14.dp, 2.dp)
                 val colors = backgroundPaletteColors(
                     previewPaletteFor(index),
                     NimboPalette.Accent,
-                    isLight = false
+                    isLight = light
                 )
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .width(72.dp)
+                        .weight(1f)
                         .clip(shape)
                         .nimboRowClickable { onSelect(index) }
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(46.dp)
+                            .height(62.dp)
                             .clip(shape)
                             .background(NimboPalette.Background)
                             .border(
@@ -861,11 +881,13 @@ private fun BackgroundPicker(
                             )
                     ) {
                         Canvas(modifier = Modifier.fillMaxSize()) {
-                            drawNimboBackgroundMotion(
+                            if (palettePreview) {
+                                drawRect(androidx.compose.ui.graphics.Brush.linearGradient(colors))
+                            } else drawNimboBackgroundMotion(
                                 mode = previewStyleFor(index),
-                                phase = 0.12f,
+                                phase = phase.value,
                                 colors = colors,
-                                isLight = false,
+                                isLight = light,
                                 intensity = 1.7f,
                                 detail = 0.5f
                             )
@@ -884,12 +906,14 @@ private fun BackgroundPicker(
                     )
                 }
             }
+            repeat(3 - choices.size) { Spacer(Modifier.weight(1f)) }
+        }
         }
     }
 }
 
 @Composable
-private fun SettingsSection(title: String, content: @Composable () -> Unit) {
+internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // В Manga заголовок начинается с косой красной засечки: без неё
@@ -910,7 +934,7 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun SettingsRowFrame(height: Dp, content: @Composable RowScope.() -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(height),
+        modifier = Modifier.fillMaxWidth().heightIn(min = height).padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         content()
@@ -921,7 +945,7 @@ private fun SettingsRowFrame(height: Dp, content: @Composable RowScope.() -> Uni
 private fun SettingsTitle(text: String) {
     BasicText(
         text,
-        maxLines = 1,
+        maxLines = 2,
         overflow = TextOverflow.Ellipsis,
         style = TextStyle(
             color = NimboPalette.Text,
@@ -936,7 +960,7 @@ private fun SettingsTitle(text: String) {
 private fun SettingsSubtitle(text: String) {
     BasicText(
         text,
-        maxLines = 1,
+        maxLines = 2,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.padding(top = 2.dp),
         style = TextStyle(
@@ -956,7 +980,7 @@ private fun SettingsDivider() {
             .height(if (style == NimboElementStyle.MANGA) 1.5.dp else 1.dp)
             .background(
                 if (style == NimboElementStyle.MANGA) NimboMangaPalette.Ink.copy(alpha = 0.34f)
-                else Color.White.copy(alpha = 0.06f)
+                else NimboPalette.Text.copy(alpha = 0.08f)
             )
     )
 }
@@ -977,7 +1001,7 @@ private fun SettingsRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (subtitle == null) 40.dp else 52.dp)
+            .heightIn(min = if (subtitle == null) 40.dp else 52.dp)
             .then(
                 if (onClick != null) {
                     Modifier.nimboRowClickable(onClick)

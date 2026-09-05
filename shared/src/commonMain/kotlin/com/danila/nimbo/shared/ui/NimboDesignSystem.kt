@@ -79,6 +79,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.compositeOver
@@ -127,13 +129,13 @@ internal val LocalNimboElementStyle = staticCompositionLocalOf { NimboElementSty
 @Composable
 internal fun nimboStyledShape(defaultRadius: Dp, mangaRadius: Dp = 3.dp): RoundedCornerShape {
     val style = LocalNimboElementStyle.current
-    return RoundedCornerShape(if (style == NimboElementStyle.MANGA) mangaRadius else defaultRadius * style.cornerScale)
+    return RoundedCornerShape((if (style == NimboElementStyle.MANGA) mangaRadius else defaultRadius * style.cornerScale) * LocalNimboAppearance.current.corners)
 }
 
 @Composable
 internal fun nimboStyledContainer(default: Color, selected: Boolean = false): Color =
     if (LocalNimboElementStyle.current == NimboElementStyle.MANGA) {
-        if (selected) NimboPalette.Accent.copy(alpha = 0.14f) else NimboMangaPalette.Paper
+        if (selected) NimboPalette.Accent.copy(alpha = 0.14f).compositeOver(NimboMangaPalette.Paper) else NimboMangaPalette.Paper
     } else default
 
 @Composable
@@ -146,50 +148,51 @@ internal fun nimboStyledBorder(default: Color, selected: Boolean = false): Color
 internal object NimboMangaPalette {
     // Тёплый тон вместо синевы: холодная бумага читается как погашенный
     // экран, а не как страница.
-    val Paper = Color(0xFF1B1814)
-    val PaperDeep = Color(0xFF15130F)
-    val Ink = Color(0xFFF4EEDF)
+    val Paper: Color @Composable get() = LocalNimboColors.current.paper
+    val PaperDeep: Color @Composable get() = LocalNimboColors.current.paperDeep
+    val Ink: Color @Composable get() = LocalNimboColors.current.ink
     val Accent = Color(0xFFE63329)
 }
 
 internal object NimboPalette {
-    val Background = Color(0xFF091321)
-    val BackgroundDeep = Color(0xFF080F1C)
-    val Surface = Color(0xFF101D31)
-    val SurfaceStrong = Color(0xFF14243A)
-    val Control = Color(0x09FFFFFF)
-    val Soft = Color(0x14FFFFFF)
-    val Border = Color(0x13FFFFFF)
-    val Hairline = Color(0x13FFFFFF)
-    val Accent = Color(0xFF75A7FF)
-    val AccentStrong = Color(0xFF4E8CFF)
-    val Text = Color(0xFFEAEBF2)
-    val TextSecondary = Color(0xA8EAEBF2)
-    val TextTertiary = Color(0x6BEAEBF2)
-    val Green = Color(0xFF5DD9A1)
-    val Amber = Color(0xFFE2A75F)
-    val Red = Color(0xFFFF7B7B)
+    val Background: Color @Composable get() = LocalNimboColors.current.background
+    val BackgroundDeep: Color @Composable get() = LocalNimboColors.current.backgroundDeep
+    val Surface: Color @Composable get() = LocalNimboColors.current.surface
+    val SurfaceStrong: Color @Composable get() = LocalNimboColors.current.surfaceStrong
+    val Control: Color @Composable get() = LocalNimboColors.current.control
+    val Soft: Color @Composable get() = LocalNimboColors.current.soft
+    val Border: Color @Composable get() = LocalNimboColors.current.border
+    val Hairline: Color @Composable get() = LocalNimboColors.current.border
+    val Accent: Color @Composable get() = LocalNimboColors.current.accent
+    val AccentStrong: Color @Composable get() = LocalNimboColors.current.accent
+    val Text: Color @Composable get() = LocalNimboColors.current.text
+    val TextSecondary: Color @Composable get() = LocalNimboColors.current.text.copy(alpha = 0.72f)
+    val TextTertiary: Color @Composable get() = LocalNimboColors.current.text.copy(alpha = 0.55f)
+    val Green: Color @Composable get() = LocalNimboColors.current.green
+    val Amber: Color @Composable get() = LocalNimboColors.current.amber
+    val Red: Color @Composable get() = LocalNimboColors.current.red
 }
 
-internal val NimboTitleStyle = TextStyle(
+internal val NimboTitleStyle: TextStyle @Composable get() = TextStyle(
     color = NimboPalette.Text,
     fontSize = 28.sp,
     lineHeight = 32.sp,
-    fontWeight = FontWeight.ExtraBold
+    fontWeight = FontWeight.Bold,
+    letterSpacing = (-0.4).sp
 )
 
-internal val NimboSectionTitleStyle = TextStyle(
+internal val NimboSectionTitleStyle: TextStyle @Composable get() = TextStyle(
     color = NimboPalette.Text,
-    fontSize = 21.sp,
+    fontSize = 19.sp,
     lineHeight = 25.sp,
-    fontWeight = FontWeight.Bold
+    fontWeight = FontWeight.SemiBold
 )
 
-internal val NimboBodyStyle = TextStyle(
+internal val NimboBodyStyle: TextStyle @Composable get() = TextStyle(
     color = NimboPalette.TextSecondary,
     fontSize = 15.sp,
     lineHeight = 20.sp,
-    fontWeight = FontWeight.Medium
+    fontWeight = FontWeight.Normal
 )
 
 @Composable
@@ -202,7 +205,8 @@ internal fun NimboSurface(
     content: @Composable BoxScope.() -> Unit
 ) {
     val style = LocalNimboElementStyle.current
-    val shape = RoundedCornerShape(cornerRadius * style.cornerScale)
+    val appearance = LocalNimboAppearance.current
+    val shape = nimboStyledShape(cornerRadius)
     val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
@@ -216,8 +220,10 @@ internal fun NimboSurface(
                         shape = shape,
                         depth = if (strong) LiquidGlassDepth.FLOATING else LiquidGlassDepth.PANEL,
                         accent = NimboPalette.Accent,
-                        isDark = true,
-                        panelAlpha = 1f
+                        isDark = LocalNimboDark.current,
+                        panelAlpha = (1f - appearance.transparency * 0.65f),
+                        refractionEnabled = appearance.refraction,
+                        brightness = appearance.brightness
                     )
                     // Material You: плотная тональная поверхность, подкрашенная
                     // акцентом, и никаких волосяных границ.
@@ -225,7 +231,7 @@ internal fun NimboSurface(
                         .clip(shape)
                         .background(
                             NimboPalette.Accent
-                                .copy(alpha = if (strong) 0.20f else 0.13f)
+                                .copy(alpha = if (strong) 0.12f else 0.045f)
                                 .compositeOver(NimboPalette.Surface)
                         )
                     // Dotted: почти квадратная панель, точечная сетка внутри и
@@ -237,11 +243,11 @@ internal fun NimboSurface(
                             NimboPalette.Text,
                             spacing = 11.dp,
                             radius = 0.72.dp,
-                            alpha = 0.12f
+                            alpha = 0.055f
                         )
                         .nimboDottedOutline(
-                            NimboPalette.Accent.copy(alpha = 0.75f),
-                            cornerRadius = cornerRadius * style.cornerScale
+                            NimboPalette.Text.copy(alpha = 0.36f),
+                            cornerRadius = cornerRadius * style.cornerScale * appearance.corners
                         )
                     // Signal: ровная подложка приборной панели и одна волосяная
                     // линия по краю — глубину даёт она, а не подсветка.
@@ -254,10 +260,10 @@ internal fun NimboSurface(
                     // жёсткая тень со смещением превращает панель в кадр: на
                     // компьютере именно она отличает стиль от «просто рамки».
                     NimboElementStyle.MANGA -> Modifier
-                        .nimboInkShadow(shape, offset = 5.dp)
+                        .nimboInkShadow(shape, offset = if (strong) 4.dp else 2.dp)
                         .clip(shape)
                         .background(NimboMangaPalette.Paper)
-                        .border(2.dp, NimboMangaPalette.Ink, shape)
+                        .border(if (strong) 2.dp else 1.5.dp, NimboMangaPalette.Ink, shape)
                 }
             )
             .then(
@@ -280,6 +286,7 @@ internal fun NimboSurface(
  * Размытая тень — примета глянцевого интерфейса; в комиксе панель отбрасывает
  * ровный чернильный прямоугольник, и именно он читается как «нарисовано».
  */
+@Composable
 internal fun Modifier.nimboInkShadow(
     shape: RoundedCornerShape,
     offset: Dp,
@@ -396,21 +403,7 @@ internal fun NimboIconButton(
     val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
-            .clip(shape)
-            .background(
-                nimboStyledContainer(
-                    if (selected) NimboPalette.Accent.copy(alpha = 0.20f) else NimboPalette.Control,
-                    selected
-                )
-            )
-            .border(
-                if (style == NimboElementStyle.MANGA) if (selected) 2.dp else 1.5.dp else 1.dp,
-                nimboStyledBorder(
-                    if (selected) NimboPalette.Accent.copy(alpha = 0.72f) else NimboPalette.Border,
-                    selected
-                ),
-                shape
-            )
+            .nimboControlSurface(shape, accented = selected)
             .clickable(
                 enabled = enabled,
                 interactionSource = interaction,
@@ -432,7 +425,12 @@ internal fun NimboIconButton(
 @Composable
 internal fun Modifier.nimboRowClickable(onClick: () -> Unit): Modifier {
     val interaction = remember { MutableInteractionSource() }
-    return this.clickable(interactionSource = interaction, indication = null, onClick = onClick)
+    val haptic = LocalHapticFeedback.current
+    val enabled = LocalNimboAppearance.current.haptics
+    return this.clickable(interactionSource = interaction, indication = null) {
+        if (enabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        onClick()
+    }
 }
 
 /**
@@ -466,13 +464,7 @@ internal fun NimboLinkButton(
     val interaction = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
-            .clip(shape)
-            .background(nimboStyledContainer(NimboPalette.Accent.copy(alpha = 0.10f)))
-            .border(
-                if (style == NimboElementStyle.MANGA) 1.5.dp else 1.dp,
-                nimboStyledBorder(NimboPalette.Accent.copy(alpha = 0.55f)),
-                shape
-            )
+            .nimboControlSurface(shape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -511,13 +503,21 @@ internal fun Modifier.nimboControlSurface(
             shape = shape,
             depth = LiquidGlassDepth.CONTROL,
             accent = NimboPalette.Accent,
-            isDark = true,
-            panelAlpha = 1f
+            isDark = LocalNimboDark.current,
+            panelAlpha = 1f - LocalNimboAppearance.current.transparency * 0.65f,
+            refractionEnabled = LocalNimboAppearance.current.refraction,
+            brightness = LocalNimboAppearance.current.brightness
         )
         NimboElementStyle.MANGA -> this
             .clip(shape)
-            .background(if (accented) NimboPalette.Accent.copy(alpha = 0.14f) else NimboMangaPalette.Paper)
+            .background(nimboStyledContainer(Color.Transparent, selected = accented))
             .border(1.5.dp, NimboMangaPalette.Ink, shape)
+        NimboElementStyle.MATERIAL_YOU -> this.clip(shape)
+            .background(NimboPalette.Accent.copy(alpha = if (accented) 0.18f else 0.045f).compositeOver(NimboPalette.Surface))
+        NimboElementStyle.DOTTED -> this.clip(shape)
+            .background(NimboPalette.Surface)
+            .nimboDotPattern(NimboPalette.Text, spacing = 11.dp, radius = 0.72.dp, alpha = 0.055f)
+            .nimboDottedOutline(if (accented) NimboPalette.Accent else NimboPalette.Text.copy(alpha = 0.36f), cornerRadius = 6.dp * LocalNimboAppearance.current.corners)
         else -> this
             .clip(shape)
             .background(
@@ -623,6 +623,12 @@ internal fun NimboToggle(
     onChange: (Boolean) -> Unit
 ) {
     val style = LocalNimboElementStyle.current
+    val haptic = LocalHapticFeedback.current
+    val hapticEnabled = LocalNimboAppearance.current.haptics
+    val change: (Boolean) -> Unit = {
+        if (hapticEnabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        onChange(it)
+    }
     if (style == NimboElementStyle.MANGA) {
         val shape = RoundedCornerShape(2.dp)
         val thumbShape = RoundedCornerShape(1.dp)
@@ -631,13 +637,13 @@ internal fun NimboToggle(
             modifier = Modifier
                 .size(width = 48.dp, height = 28.dp)
                 .clip(shape)
-                .background(if (checked) NimboPalette.Accent.copy(alpha = 0.34f) else NimboMangaPalette.Paper)
+                .background(nimboStyledContainer(Color.Transparent, selected = checked))
                 .border(2.dp, if (checked) NimboPalette.Accent else NimboMangaPalette.Ink, shape)
                 .clickable(
                     enabled = enabled,
                     interactionSource = interaction,
                     indication = null
-                ) { onChange(!checked) },
+                ) { change(!checked) },
             contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
         ) {
             Box(
@@ -652,7 +658,7 @@ internal fun NimboToggle(
         Switch(
             checked = checked,
             enabled = enabled,
-            onCheckedChange = onChange,
+            onCheckedChange = change,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = NimboPalette.Accent,

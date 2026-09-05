@@ -6,6 +6,7 @@ import { applyBootAppearance } from "../lib/bootAppearance";
 import "../styles.css";
 import "flag-icons/css/flag-icons.min.css";
 import "./tray-menu.css";
+import { trayPreview } from "./preview";
 
 // The flyout is a menu, not a page: suppress its own context menu and any
 // text selection / drag affordances.
@@ -22,6 +23,6 @@ try {
 applyBootAppearance();
 ReactDOM.createRoot(document.getElementById("tray-root") as HTMLElement).render(
   <React.StrictMode>
-    <TrayMenu />
+    <TrayMenu previewState={import.meta.env.DEV && new URLSearchParams(location.search).has("preview") ? trayPreview : undefined} />
   </React.StrictMode>,
 );

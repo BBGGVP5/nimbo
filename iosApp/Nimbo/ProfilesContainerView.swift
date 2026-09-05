@@ -165,15 +165,7 @@ struct ProfilesContainerView: View {
         defer { isImporting = false }
 
         do {
-            let resolved = try await resolve(source)
-            let profile = try NimboSubscriptionRepository.shared.importPayload(
-                resolved.data,
-                source: resolved.source
-            )
-            guard let selected = profile.selectedServer else {
-                throw NimboSubscriptionRepositoryError.serverNotFound
-            }
-            try await vpn.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: selected))
+            let profile = try await NimboSubscriptionImporter.importProfile(source)
             activeProfile = profile
             importText = ""
             resultIsError = false
@@ -190,46 +182,20 @@ struct ProfilesContainerView: View {
         }
     }
 
-    private func resolve(_ source: String) async throws -> ResolvedConfiguration {
-        if let url = URL(string: source), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-            let request = NimboNetworkSession.subscriptionRequest(url: url)
-            let (data, response) = try await NimboNetworkSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode) else {
-                throw ProfilesImportError.http((response as? HTTPURLResponse)?.statusCode ?? -1)
-            }
-            guard !data.isEmpty, data.count <= 15 * 1_024 * 1_024 else {
-                throw ProfilesImportError.invalidSize
-            }
-            await NimboDiagnostics.shared.record(
-                .info,
-                stage: .config,
-                code: "IOS_SUBSCRIPTION_DOWNLOADED",
-                message: "Ответ подписки загружен",
-                metadata: [
-                    "bytes": "\(data.count)",
-                    "http_status": "\(http.statusCode)",
-                    "content_type": http.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
-                ]
-            )
-            return ResolvedConfiguration(
-                data: data,
-                source: source
-            )
-        }
-        guard let data = source.data(using: .utf8), data.count <= 15 * 1_024 * 1_024 else {
-            throw ProfilesImportError.invalidSize
-        }
-        return ResolvedConfiguration(data: data, source: nil)
-    }
-
     private func refreshProfile() async {
+        guard !isImporting else { return }
+        guard vpn.state != .connected, vpn.state != .connecting,
+              vpn.state != .preparing, vpn.state != .disconnecting else {
+            resultIsError = false
+            resultMessage = "Отключите VPN для обновления подписки."
+            return
+        }
         isImporting = true
+        resultIsError = false
+        resultMessage = "Обновление подписки…"
         defer { isImporting = false }
         do {
             let profile = try await NimboSubscriptionRepository.shared.refresh()
-            if let selected = profile.selectedServer {
-                try await vpn.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: selected))
-            }
             activeProfile = profile
             resultIsError = false
             resultMessage = "Подписка обновлена: \(profile.servers.count) серверов."
@@ -283,23 +249,6 @@ struct ProfilesContainerView: View {
 
     private var statusIcon: String {
         vpn.state == .connected ? "lock.shield.fill" : "power"
-    }
-}
-
-private struct ResolvedConfiguration {
-    let data: Data
-    let source: String?
-}
-
-private enum ProfilesImportError: LocalizedError {
-    case http(Int)
-    case invalidSize
-
-    var errorDescription: String? {
-        switch self {
-        case let .http(code): "Сервис подписки вернул HTTP \(code) (IOS_SUBSCRIPTION_HTTP)."
-        case .invalidSize: "Ответ подписки пуст или превышает 15 МиБ (IOS_SUBSCRIPTION_SIZE)."
-        }
     }
 }
 

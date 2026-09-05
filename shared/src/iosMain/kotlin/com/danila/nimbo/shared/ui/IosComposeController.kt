@@ -66,6 +66,23 @@ private fun appearanceFlag(key: String, default: Boolean): Boolean {
 private fun appearanceText(key: String, default: String): String =
     NSUserDefaults.standardUserDefaults.stringForKey(AppearanceDefaultsPrefix + key) ?: default
 
+private fun appearanceFloat(key: String, default: Float): Float {
+    val defaults = NSUserDefaults.standardUserDefaults
+    if (defaults.objectForKey(AppearanceDefaultsPrefix + key) == null) return default
+    return defaults.doubleForKey(AppearanceDefaultsPrefix + key).toFloat()
+}
+
+private fun loadAppearance(): NimboAppearance = NimboAppearance(
+    themeMode = appearanceText("themeMode", "system"),
+    accentHex = appearanceText("accentHex", "75A7FF"),
+    brightness = appearanceFloat("brightness", 1f),
+    transparency = appearanceFloat("transparency", 0f),
+    corners = appearanceFloat("corners", 1f),
+    textScale = appearanceFloat("textScale", 1f),
+    refraction = appearanceFlag("refraction", true),
+    haptics = appearanceFlag("haptics", true)
+).normalized()
+
 /** Сведения о доступном обновлении приносит Swift: в сеть ходит он. */
 fun NimboUpdateIosRelease(version: String, notes: String) {
     iosUiState.value = iosUiState.value.copy(updateVersion = version, updateNotes = notes)
@@ -113,13 +130,27 @@ private fun applyUpdateChange(key: String, value: String) {
 private fun applyAppearanceChange(key: String, value: String) {
     val defaults = NSUserDefaults.standardUserDefaults
     when (key) {
+        "brightness", "transparency", "corners", "textScale" -> {
+            val number = value.toDoubleOrNull()?.takeIf { it.isFinite() } ?: return
+            val range = when (key) {
+                "brightness" -> 0.5..2.0
+                "transparency" -> 0.0..1.0
+                "corners" -> 0.25..2.0
+                else -> 0.85..1.25
+            }
+            defaults.setDouble(number.coerceIn(range), AppearanceDefaultsPrefix + key)
+        }
         "backgroundStyle", "backgroundPalette" ->
             defaults.setInteger(value.toLongOrNull() ?: 0L, AppearanceDefaultsPrefix + key)
-        "elementStyle", "serverSort", "connectStyle" ->
+        "elementStyle", "serverSort", "connectStyle", "themeMode", "accentHex" ->
             defaults.setObject(value, AppearanceDefaultsPrefix + key)
         else -> defaults.setBool(value == "true", AppearanceDefaultsPrefix + key)
     }
     iosUiState.value = iosUiState.value.copy(
+        appearance = loadAppearance(),
+        pingOnLaunch = appearanceFlag("pingOnLaunch", true),
+        pingAfterRefresh = appearanceFlag("pingAfterRefresh", true),
+        refreshOnLaunch = appearanceFlag("refreshOnLaunch", false),
         backgroundStyle = appearanceInt("backgroundStyle", 0),
         backgroundPalette = appearanceInt("backgroundPalette", 0),
         backgroundMotion = appearanceFlag("backgroundMotion", true),
@@ -692,6 +723,10 @@ fun NimboUpdateIosUiState(
         routingBypassLocal = loadRoutingFlag("bypassLocal", true),
         routingSniffing = loadRoutingFlag("sniffing", true),
         routingDns = loadRoutingValue("dns", "cloudflare"),
+        pingOnLaunch = appearanceFlag("pingOnLaunch", true),
+        pingAfterRefresh = appearanceFlag("pingAfterRefresh", true),
+        refreshOnLaunch = appearanceFlag("refreshOnLaunch", false),
+        appearance = loadAppearance(),
         backgroundStyle = appearanceInt("backgroundStyle", 0),
         backgroundPalette = appearanceInt("backgroundPalette", 0),
         backgroundMotion = appearanceFlag("backgroundMotion", true),

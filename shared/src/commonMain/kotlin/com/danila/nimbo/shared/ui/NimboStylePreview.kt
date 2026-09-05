@@ -56,8 +56,8 @@ internal fun NimboStylePreviewCard(
             .clip(shape)
             .background(
                 when {
+                    activeManga -> nimboStyledContainer(NimboMangaPalette.Paper, selected)
                     selected -> NimboPalette.Accent.copy(alpha = if (activeManga) 0.14f else 0.13f)
-                    activeManga -> NimboMangaPalette.Paper
                     else -> NimboPalette.Surface
                 }
             )

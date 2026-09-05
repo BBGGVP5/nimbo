@@ -38,10 +38,9 @@ struct TunnelStateProvider: ControlValueProvider {
     var previewValue: Bool { false }
 
     func currentValue() async throws -> Bool {
-        let managers = try? await NETunnelProviderManager.loadAllFromPreferences()
-        guard let manager = managers?.first else { return false }
+        guard let manager = try await NimboTunnelControl.manager() else { return false }
         let status = manager.connection.status
-        return status == .connected || status == .connecting
+        return status == .connected || status == .connecting || status == .reasserting
     }
 }
 
@@ -65,20 +64,7 @@ struct NimboToggleTunnelIntent: SetValueIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        let managers = try await NETunnelProviderManager.loadAllFromPreferences()
-        // Профиль создаёт приложение при первом подключении: без него включать
-        // нечего, и создавать пустую настройку из шторки нельзя — система
-        // спросит разрешение, а спрашивать её некому.
-        guard let manager = managers.first else { return .result() }
-
-        if value {
-            manager.isEnabled = true
-            try await manager.saveToPreferences()
-            try await manager.loadFromPreferences()
-            try manager.connection.startVPNTunnel()
-        } else {
-            manager.connection.stopVPNTunnel()
-        }
+        try await NimboTunnelControl.setEnabled(value)
 
         // Состояние в Пункте управления обновляется по просьбе: без неё
         // переключатель остаётся в прежнем положении до следующего открытия.

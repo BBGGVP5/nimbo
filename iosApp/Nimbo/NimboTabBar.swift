@@ -11,6 +11,28 @@ import SwiftUI
 struct NimboTabBar: View {
     @Binding var selection: NimboTab
     let elementStyle: String
+    @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("com.nimbo.appearance.accentHex") private var accentHex = "75A7FF"
+    @AppStorage("com.nimbo.appearance.corners") private var corners = 1.0
+    @AppStorage("com.nimbo.appearance.brightness") private var brightness = 1.0
+    @AppStorage("com.nimbo.appearance.transparency") private var transparency = 0.0
+    @AppStorage("com.nimbo.appearance.refraction") private var refraction = true
+    @AppStorage("com.nimbo.appearance.haptics") private var haptics = true
+    @AppStorage("com.nimbo.appearance.textScale") private var textScale = 1.0
+
+    private var accent: Color {
+        let hex = accentHex.replacingOccurrences(of: "#", with: "")
+        let value = hex.count == 6 ? UInt(hex, radix: 16) ?? 0x75A7FF : 0x75A7FF
+        return Color(red: Double((value >> 16) & 255) / 255,
+                     green: Double((value >> 8) & 255) / 255,
+                     blue: Double(value & 255) / 255)
+    }
+    private var ink: Color { colorScheme == .dark ? Color(red: 244/255, green: 238/255, blue: 223/255) : Color(red: 20/255, green: 18/255, blue: 14/255) }
+    private var paper: Color { colorScheme == .dark ? Color(red: 27/255, green: 24/255, blue: 20/255) : Color(red: 251/255, green: 247/255, blue: 236/255) }
+    private var cornerScale: Double { min(max(corners, 0.25), 2) }
+    private var barRadius: Double {
+        (isManga ? 3 : elementStyle == "dotted" ? 9 : elementStyle == "signal" ? 18 : 26) * cornerScale
+    }
 
     @Namespace private var indicator
     /// Вкладка, значок которой сейчас подпрыгивает.
@@ -18,7 +40,8 @@ struct NimboTabBar: View {
     /// Приседание при посадке: значок на миг становится шире и ниже.
     @State private var squashedTab: NimboTab?
     /// Текущий наклон качающегося значка.
-    @State private var wobble: Double = 0
+    @State private var wobble: [String: Double] = [:]
+    @State private var wobbleGeneration: [String: Int] = [:]
     /// Накопленный угол для значков, которые проворачиваются.
     ///
     /// Именно накопленный: если возвращать угол к нулю, глобус после оборота
@@ -49,7 +72,7 @@ struct NimboTabBar: View {
                     }
                     bump(tab)
                     IosComposeControllerKt.NimboSetIosScreen(wireName: tab.rawValue)
-                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                    if haptics { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
                 } label: {
                     item(for: tab)
                 }
@@ -79,7 +102,7 @@ struct NimboTabBar: View {
                 .offset(y: bumpedTab == tab ? tab.motionLift : 0)
                 .rotationEffect(.degrees(rotation(for: tab)))
             Text(tab.title)
-                .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                .font(.system(size: 11 * min(max(textScale, 0.85), 1.25), weight: isSelected ? .semibold : .medium))
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
         }
@@ -101,14 +124,14 @@ struct NimboTabBar: View {
     private func rotation(for tab: NimboTab) -> Double {
         let accumulated = spin[tab.rawValue] ?? 0
         guard tab.motionWobbles else { return accumulated }
-        return bumpedTab == tab ? wobble : 0
+        return wobble[tab.rawValue] ?? 0
     }
 
     private func tint(isSelected: Bool) -> Color {
         if isManga {
-            return isSelected ? Color.mangaInk : Color.mangaInk.opacity(0.7)
+            return isSelected ? ink : ink.opacity(0.7)
         }
-        return isSelected ? Color.nimboAccent : Color.nimboSecondary
+        return isSelected ? accent : Color.primary.opacity(0.65)
     }
 
     /// Короткий подскок значка при переходе. Возврат идёт пружиной, поэтому
@@ -124,12 +147,15 @@ struct NimboTabBar: View {
             }
         }
         if tab.motionWobbles {
+            let generation = (wobbleGeneration[tab.rawValue] ?? 0) + 1
+            wobbleGeneration[tab.rawValue] = generation
             // Затухающее покачивание: одиночный наклон читается как сбой
             // отрисовки, а не как отклик.
             let sway: [(Double, Double)] = [(15, 0), (-10, 0.11), (5, 0.22), (0, 0.33)]
             for (angle, delay) in sway {
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    withAnimation(.easeInOut(duration: 0.11)) { wobble = angle }
+                    guard wobbleGeneration[tab.rawValue] == generation else { return }
+                    withAnimation(.easeInOut(duration: 0.11)) { wobble[tab.rawValue] = angle }
                 }
             }
         }
@@ -151,21 +177,27 @@ struct NimboTabBar: View {
 
     @ViewBuilder
     private var selectionShape: some View {
-        let shape = RoundedRectangle(cornerRadius: isManga ? 2 : 20, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: (isManga ? 2 : elementStyle == "dotted" ? 6 : 20) * cornerScale, style: .continuous)
         if isManga {
             shape
-                .fill(Color.nimboAccent.opacity(0.18))
-                .overlay(shape.strokeBorder(Color.nimboAccent, lineWidth: 2))
-                .shadow(color: Color.mangaInk.opacity(0.16), radius: 0, x: 3, y: 3)
+                .fill(paper)
+                .overlay(shape.fill(accent.opacity(0.18)))
+                .overlay(shape.strokeBorder(accent, lineWidth: 2))
+                .shadow(color: ink.opacity(0.16), radius: 0, x: 3, y: 3)
+        } else if elementStyle == "dotted" {
+            shape.fill(accent.opacity(0.18))
+                .overlay(shape.strokeBorder(accent, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [0.1, 4])))
+        } else if elementStyle == "material" || elementStyle == "signal" {
+            shape.fill(accent.opacity(0.22))
         } else {
             shape
-                .fill(Color.nimboAccent.opacity(0.16))
+                .fill(accent.opacity(0.16))
                 .overlay(
                     shape.strokeBorder(
                         LinearGradient(
                             colors: [
                                 Color.white.opacity(0.35),
-                                Color.nimboAccent.opacity(0.45)
+                                accent.opacity(0.45)
                             ],
                             startPoint: .top,
                             endPoint: .bottom
@@ -181,19 +213,40 @@ struct NimboTabBar: View {
     /// бликов, поэтому кромку рисуем сами.
     @ViewBuilder
     private var barBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: isManga ? 3 : 26, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: barRadius, style: .continuous)
         if isManga {
             // Бумага с чернильным контуром: стекло здесь противоречит стилю.
             shape
-                .fill(Color.mangaPaper)
-                .overlay(shape.strokeBorder(Color.mangaInk, lineWidth: 2))
-        } else if #available(iOS 26.0, *) {
+                .fill(paper)
+                .brightness((min(max(brightness, 0.5), 2) - 1) * 0.1)
+                .overlay(shape.strokeBorder(ink, lineWidth: 2))
+        } else if elementStyle == "dotted" {
+            shape.fill(Color(uiColor: .secondarySystemBackground))
+                .overlay {
+                    Canvas { context, size in
+                        for x in stride(from: 6.0, to: size.width, by: 11) {
+                            for y in stride(from: 6.0, to: size.height, by: 11) {
+                                context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 1.4, height: 1.4)), with: .color(accent.opacity(0.2)))
+                            }
+                        }
+                    }.clipShape(shape)
+                }
+                .overlay(shape.strokeBorder(accent.opacity(0.8), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [0.1, 4])))
+        } else if elementStyle == "material" || elementStyle == "signal" {
+            shape.fill(Color(uiColor: .secondarySystemBackground))
+                .overlay(shape.fill(accent.opacity(elementStyle == "material" ? 0.14 : 0.03)))
+                .brightness((min(max(brightness, 0.5), 2) - 1) * 0.1)
+        } else if #available(iOS 26.0, *), refraction {
             shape
                 .fill(.clear)
                 .glassEffect(.regular, in: shape)
+                .overlay(shape.fill(accent.opacity(0.12 * (1 - min(max(transparency, 0), 1)))))
+                .brightness((min(max(brightness, 0.5), 2) - 1) * 0.1)
         } else {
             shape
                 .fill(.ultraThinMaterial)
+                .overlay(shape.fill(accent.opacity(0.12 * (1 - min(max(transparency, 0), 1)))))
+                .brightness((min(max(brightness, 0.5), 2) - 1) * 0.1)
                 .overlay(
                     shape.strokeBorder(
                         LinearGradient(

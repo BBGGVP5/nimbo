@@ -189,13 +189,13 @@ enum NimboSyncBundleMapper {
 
         let defaults = UserDefaults.standard
         let appearance = NimboSyncAppearance(
-            themeMode: "dark",
+            themeMode: defaults.string(forKey: "com.nimbo.appearance.themeMode") ?? "system",
             uiStyle: defaults.string(forKey: "com.nimbo.appearance.elementStyle") ?? "glass",
-            accentColor: "#75a7ff",
-            panelBrightness: 100,
-            transparency: 0,
+            accentColor: "#" + (defaults.string(forKey: "com.nimbo.appearance.accentHex") ?? "75A7FF"),
+            panelBrightness: Int(((defaults.object(forKey: "com.nimbo.appearance.brightness") as? NSNumber)?.doubleValue ?? 1) * 100),
+            transparency: Int(defaults.double(forKey: "com.nimbo.appearance.transparency") * 100),
             blur: 25,
-            rounding: 100,
+            rounding: Int(((defaults.object(forKey: "com.nimbo.appearance.corners") as? NSNumber)?.doubleValue ?? 1) * 100),
             providerTheme: true,
             showSubscriptionLogo: true
         )
@@ -248,6 +248,16 @@ enum NimboSyncBundleMapper {
             if ["glass", "material", "dotted", "signal", "manga"].contains(appearance.uiStyle) {
                 defaults.set(appearance.uiStyle, forKey: "com.nimbo.appearance.elementStyle")
             }
+            if ["system", "light", "dark", "oled"].contains(appearance.themeMode) {
+                defaults.set(appearance.themeMode, forKey: "com.nimbo.appearance.themeMode")
+            }
+            let hex = appearance.accentColor.replacingOccurrences(of: "#", with: "")
+            if hex.count == 6, UInt(hex, radix: 16) != nil {
+                defaults.set(hex.uppercased(), forKey: "com.nimbo.appearance.accentHex")
+            }
+            defaults.set(Double(min(max(appearance.panelBrightness, 50), 200)) / 100, forKey: "com.nimbo.appearance.brightness")
+            defaults.set(Double(min(max(appearance.transparency, 0), 100)) / 100, forKey: "com.nimbo.appearance.transparency")
+            defaults.set(Double(min(max(appearance.rounding, 25), 200)) / 100, forKey: "com.nimbo.appearance.corners")
             applied.append("оформление")
         }
 
@@ -275,11 +285,7 @@ enum NimboSyncBundleMapper {
 
         // Подписка — главное: без неё остальное бессмысленно.
         if let subscription = bundle.subscriptions.first(where: { !$0.url.isEmpty }) {
-            _ = try NimboSubscriptionRepository.shared.importPayload(
-                Data(subscription.url.utf8),
-                source: subscription.url
-            )
-            _ = try? await NimboSubscriptionRepository.shared.refresh()
+            _ = try await NimboSubscriptionRepository.shared.importRemote(subscription.url)
             applied.append("подписка")
         }
 

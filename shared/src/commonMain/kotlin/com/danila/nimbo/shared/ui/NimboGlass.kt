@@ -100,6 +100,16 @@ object LiquidGlassRimPolicy {
  */
 object LiquidGlassMaterialPolicy {
 
+    // Quiet content surfaces; floating navigation keeps the stronger glass edge.
+    fun chromeStrength(depth: LiquidGlassDepth): Float = when (depth) {
+        LiquidGlassDepth.CONTROL -> 0.38f
+        LiquidGlassDepth.PANEL -> 0.55f
+        LiquidGlassDepth.FLOATING -> 1f
+    }
+
+    fun sheenAlpha(depth: LiquidGlassDepth, isDark: Boolean, effectStrength: Float): Float =
+        (if (isDark) 0.07f else 0.16f) * chromeStrength(depth) * effectStrength.coerceIn(0f, 1f)
+
     fun baseAlpha(
         depth: LiquidGlassDepth,
         isDark: Boolean,
@@ -145,7 +155,8 @@ fun Modifier.nimboGlassSurface(
     tiltY: Float = 0f,
     refractionEnabled: Boolean = true,
     reducedTransparency: Boolean = false,
-    showOutline: Boolean = true
+    showOutline: Boolean = true,
+    brightness: Float = 1f
 ): Modifier {
     val baseAlpha = LiquidGlassMaterialPolicy.baseAlpha(
         depth = depth,
@@ -160,7 +171,13 @@ fun Modifier.nimboGlassSurface(
     )
     // На iOS системные материалы заметно светлее: чистая тень делала панель
     // плоской заплаткой на фоне. Подмешиваем белый, сохраняя глубину.
-    val base = if (isDark) lerp(Color(0xFF05070C), Color(0xFF8FA8CE), 0.22f) else Color.White
+    val rawBase = if (isDark) lerp(Color(0xFF05070C), Color(0xFF8FA8CE), 0.22f) else Color.White
+    val level = if (brightness.isFinite()) brightness.coerceIn(0.5f, 2f) else 1f
+    val base = Color(
+        (rawBase.red * level).coerceIn(0f, 1f),
+        (rawBase.green * level).coerceIn(0f, 1f),
+        (rawBase.blue * level).coerceIn(0f, 1f)
+    )
     val materialTint = lerp(
         base,
         accent,
@@ -168,33 +185,18 @@ fun Modifier.nimboGlassSurface(
     ).copy(alpha = baseAlpha)
     val neutralRimAlpha = if (isDark) 0.09f else 0.28f
     val floatingRim = depth == LiquidGlassDepth.FLOATING
-    val completeRimColor = if (refractionEnabled) {
-        lerp(Color.White, accent, 0.16f).copy(
-            alpha = when {
-                floatingRim && isDark -> 0.12f
-                floatingRim -> 0.32f
-                isDark -> 0.065f
-                else -> 0.20f
-            }
-        )
-    } else {
-        Color.Transparent
-    }
+    val chromeStrength = LiquidGlassMaterialPolicy.chromeStrength(depth)
     val rim = if (refractionEnabled) {
-        val coolRim = Color(0xFF79D7FF)
-        val warmRim = Color(0xFFFF8DDA)
         val rimStops = LiquidGlassRimPolicy.samples(
             tiltX = tiltX,
             tiltY = tiltY,
             isDark = isDark,
             effectStrength = effectStrength
         ).map { sample ->
-            val spectrum = lerp(coolRim, warmRim, sample.spectrumMix)
-            val accentedSpectrum = lerp(spectrum, accent, 0.34f)
-            val rimColor = lerp(accentedSpectrum, Color.White, sample.whiteMix)
+            val rimColor = lerp(accent, Color.White, 0.82f + sample.whiteMix * 0.18f)
                 .copy(
                     alpha = (
-                        sample.alpha * if (floatingRim) 1.28f else 1f
+                        sample.alpha * chromeStrength
                     ).coerceAtMost(if (isDark) 0.46f else 0.88f)
                 )
             sample.fraction to rimColor
@@ -203,8 +205,8 @@ fun Modifier.nimboGlassSurface(
     } else {
         Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = neutralRimAlpha),
-                Color.White.copy(alpha = neutralRimAlpha * 0.55f)
+                Color.White.copy(alpha = neutralRimAlpha * chromeStrength),
+                Color.White.copy(alpha = neutralRimAlpha * chromeStrength * 0.55f)
             )
         )
     }
@@ -212,7 +214,7 @@ fun Modifier.nimboGlassSurface(
     // Блик по верхней кромке — то, чем стекло отличается от заливки.
     val sheen = Brush.verticalGradient(
         colors = listOf(
-            Color.White.copy(alpha = if (isDark) 0.10f else 0.28f),
+            Color.White.copy(alpha = LiquidGlassMaterialPolicy.sheenAlpha(depth, isDark, effectStrength)),
             Color.Transparent
         )
     )
@@ -224,8 +226,7 @@ fun Modifier.nimboGlassSurface(
         .then(
             if (showOutline) {
                 Modifier
-                    .border(if (floatingRim) 1.15.dp else 0.8.dp, completeRimColor, shape)
-                    .border(if (floatingRim) 1.55.dp else 1.dp, rim, shape)
+                    .border(if (floatingRim) 1.dp else 0.75.dp, rim, shape)
             } else {
                 Modifier
             }

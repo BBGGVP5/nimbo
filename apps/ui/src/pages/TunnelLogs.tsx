@@ -11,6 +11,7 @@ import { api, type TunnelLogEntry } from "../lib/api";
 import { useMessages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
 import { BackButton } from "../components/BackButton";
+import { startVisiblePolling } from "../lib/visiblePolling";
 
 type LevelFilter = "all" | "info" | "warn" | "error" | "debug";
 type LogLevel = Exclude<LevelFilter, "all">;
@@ -38,26 +39,44 @@ export function TunnelLogs() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const pendingLoad = useRef<Promise<void> | null>(null);
+  const lifecycleGeneration = useRef(0);
+
+  useEffect(() => {
+    lifecycleGeneration.current += 1;
+    return () => { lifecycleGeneration.current += 1; };
+  }, []);
 
   const loadLogs = useCallback(async () => {
+    if (pendingLoad.current) return pendingLoad.current;
+    const generation = lifecycleGeneration.current;
+    const isCurrent = () => generation === lifecycleGeneration.current;
     setRefreshing(true);
-    try {
-      const next = await api.getTunnelLogs(1000);
-      setEntries(next);
-      setLoadError(null);
-      setLastUpdated(new Date());
-    } catch (error) {
-      setLoadError(String(error));
-    } finally {
-      setRefreshing(false);
-    }
+    const request = (async () => {
+      try {
+        const next = await api.getTunnelLogs(1000);
+        if (!isCurrent() || document.visibilityState !== "visible") return;
+        // Preserve list identity when nothing changed: no refilter/autoscroll.
+        setEntries(current => current.length === next.length && current.every((entry, i) =>
+          entry.source === next[i].source && entry.level === next[i].level &&
+          entry.timestamp === next[i].timestamp && entry.message === next[i].message
+        ) ? current : next);
+        setLoadError(null);
+        setLastUpdated(new Date());
+      } catch (error) {
+        if (isCurrent()) setLoadError(String(error));
+      } finally {
+        if (isCurrent()) setRefreshing(false);
+      }
+    })();
+    pendingLoad.current = request;
+    try { await request; }
+    finally { pendingLoad.current = null; }
   }, []);
 
   useEffect(() => {
     if (paused) return;
-    void loadLogs();
-    const timer = window.setInterval(() => void loadLogs(), 2000);
-    return () => window.clearInterval(timer);
+    return startVisiblePolling(loadLogs, 2000);
   }, [loadLogs, paused]);
 
   const sources = useMemo(
@@ -96,6 +115,8 @@ export function TunnelLogs() {
 
   const onClear = async () => {
     try {
+      // Let an older snapshot finish before clearing the underlying log.
+      await pendingLoad.current;
       await api.clearTunnelLogs();
       await loadLogs();
       notifyInfo(m.tunnelLogs.cleared);

@@ -7,7 +7,15 @@ import UIKit
 struct RootView: View {
     @EnvironmentObject private var vpn: VpnController
     @State private var showProfiles = false
+    @AppStorage("com.nimbo.appearance.themeMode") private var themeMode = "system"
+    @State private var isRefreshingSubscription = false
+    @State private var didCheckLaunchSubscription = false
+    @AppStorage("com.nimbo.appearance.pingOnLaunch") private var pingOnLaunch = true
+    @AppStorage("com.nimbo.appearance.pingAfterRefresh") private var pingAfterRefresh = true
+    @AppStorage("com.nimbo.appearance.refreshOnLaunch") private var refreshOnLaunch = false
     @State private var showDiagnostics = false
+    @State private var showReadiness = false
+    @AppStorage("com.nimbo.readiness.checkedBuild") private var readinessBuild = ""
     @State private var showAbout = false
     @State private var selectedTab: NimboTab = .home
     @State private var metrics = NimboMetricsAccumulator()
@@ -31,12 +39,29 @@ struct RootView: View {
     @State private var elementStyle = UserDefaults.standard.string(
         forKey: "com.nimbo.appearance.elementStyle"
     ) ?? "glass"
-    /// Раз в секунду — как обновляется мониторинг на Android.
-    private let metricsTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var metricsRequestInFlight = false
+    private var shouldPollMetrics: Bool {
+        scenePhase == .active && vpn.state == .connected
+    }
 
     var body: some View {
         lifecycleLayer
-            .preferredColorScheme(nil)
+            .sheet(isPresented: $showReadiness) {
+                NavigationStack {
+                    ReadinessView().environmentObject(vpn)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) {
+                            Button("Готово") { showReadiness = false }
+                        } }
+                }
+            }
+            .task {
+                let build = "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "")-\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? "")"
+                if readinessBuild != build {
+                    readinessBuild = build
+                    showReadiness = true
+                }
+            }
+            .preferredColorScheme(themeMode == "light" ? .light : (themeMode == "dark" || themeMode == "oled") ? .dark : nil)
     }
 
     /// Экран: Compose под системной панелью.
@@ -54,7 +79,7 @@ struct RootView: View {
         interfaceLayer
             .onAppear(perform: synchronizeComposeState)
             .onAppear(perform: publishSessions)
-            .task { await measurePings() }
+            .task { if pingOnLaunch { await measurePings() } }
             .task { await loadSubscriptionMetaIfNeeded() }
             .task { await checkForUpdate() }
     }
@@ -107,18 +132,23 @@ struct RootView: View {
         sheetsLayer
             .onReceive(vpn.$state) { (state: VpnController.State) in
                 handleVpnState(state)
+                if state != .preparing && state != .connecting && state != .disconnecting {
+                    Task { await loadSubscriptionMetaIfNeeded() }
+                }
             }
-            .onReceive(metricsTimer) { _ in
-                // В фоне показания читать некому: экран не виден, а каждый
-                // опрос будит расширение и тратит батарею.
-                guard scenePhase == .active else { return }
-                Task { await publishMetrics() }
+            .task(id: shouldPollMetrics) {
+                guard shouldPollMetrics else { return }
+                // Только UI: расширение и восстановление туннеля работают независимо.
+                while !Task.isCancelled {
+                    await publishMetrics()
+                    do { try await Task.sleep(nanoseconds: 1_000_000_000) }
+                    catch { return }
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboToggleVpn)) { _ in
                 Task { await toggleVpn() }
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboRefreshProfile)) { _ in
-                guard vpn.state != .connected, vpn.state != .connecting else { return }
                 Task { await refreshSubscription() }
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboSelectServer)) { notification in
@@ -228,10 +258,14 @@ struct RootView: View {
     /// в ссылках. Пока подписку не обновляли, их просто нет — поэтому при
     /// первом запуске после обновления приложения тянем их сами, молча.
     private func loadSubscriptionMetaIfNeeded() async {
-        guard NimboSubscriptionMetaStore.current.updatedAt == 0,
+        guard vpn.state != .connected, vpn.state != .connecting,
+              vpn.state != .preparing, vpn.state != .disconnecting,
+              !isRefreshingSubscription,
+              !didCheckLaunchSubscription,
+              NimboSubscriptionMetaStore.current.updatedAt == 0 || refreshOnLaunch,
               (try? NimboConfigurationStore.shared.loadSource()) ?? nil != nil else { return }
-        _ = try? await NimboSubscriptionRepository.shared.refresh()
-        synchronizeComposeState()
+        didCheckLaunchSubscription = true
+        await refreshSubscription(manual: false)
     }
 
     /// ICMP обычному приложению на iOS недоступен, поэтому меряем время
@@ -285,7 +319,7 @@ struct RootView: View {
     /// Импорт подписки из строки: ссылка, конфигурация или содержимое QR.
     private func importSubscription(_ source: String) async {
         do {
-            let profile = try await NimboSubscriptionImporter.importAndStage(source, vpn: vpn)
+            let profile = try await NimboSubscriptionImporter.importProfile(source)
             synchronizeComposeState()
             notify("success", "Подписка добавлена: \(profile.servers.count) серверов")
             await measurePings()
@@ -544,11 +578,7 @@ struct RootView: View {
     private func restoreBackup(from url: URL) async {
         do {
             if let source = try NimboBackup.restore(from: url) {
-                _ = try? NimboSubscriptionRepository.shared.importPayload(
-                    Data(source.utf8),
-                    source: source
-                )
-                _ = try? await NimboSubscriptionRepository.shared.refresh()
+                _ = try await NimboSubscriptionRepository.shared.importRemote(source)
             }
             synchronizeComposeState()
             await measurePings()
@@ -675,11 +705,16 @@ struct RootView: View {
 
     /// Показания снимаются со счётчиков utun-интерфейса: пакеты идут мимо
     /// приложения, поэтому считать их самому нечем.
+    @MainActor
     private func publishMetrics() async {
-        guard vpn.state == .connected else { return }
+        guard !Task.isCancelled, shouldPollMetrics, !metricsRequestInFlight else { return }
+        metricsRequestInFlight = true
+        defer { metricsRequestInFlight = false }
         // Показания спрашиваем у расширения: оно знает свой интерфейс и свою
         // занятую память, а приложение — ни того, ни другого.
         let reported = await vpn.tunnelMetrics()
+        // IPC может завершиться после сворачивания или смены VPN-сессии.
+        guard !Task.isCancelled, shouldPollMetrics else { return }
         metrics.tick(reported: reported)
         IosComposeControllerKt.NimboUpdateIosMetrics(
             uploadSpeed: Int64(clamping: metrics.uploadSpeed),
@@ -731,29 +766,35 @@ struct RootView: View {
         )
     }
 
-    private func refreshSubscription() async {
+    private func refreshSubscription(manual: Bool = true) async {
+        guard !isRefreshingSubscription else { return }
+        guard vpn.state != .connected, vpn.state != .connecting,
+              vpn.state != .preparing, vpn.state != .disconnecting else {
+            if manual { notify("info", "Отключите VPN для обновления подписки") }
+            return
+        }
+        isRefreshingSubscription = true
+        defer { isRefreshingSubscription = false }
+        if manual { notify("info", "Обновление подписки…") }
         do {
             let profile = try await NimboSubscriptionRepository.shared.refresh()
-            // Список серверов сменился — старые замеры больше не про них.
-            Task { await measurePings() }
-            guard let selected = profile.selectedServer else {
-                throw NimboSubscriptionRepositoryError.serverNotFound
-            }
-            try await vpn.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: selected))
+            if pingAfterRefresh { Task { await measurePings() } }
+            // Обновление не требует прав VPN. Свежая конфигурация передаётся
+            // расширению непосредственно перед подключением.
             synchronizeComposeState()
-            notify("success", "Подписка обновлена: \(profile.servers.count) серверов")
+            if manual { notify("success", "Подписка обновлена: \(profile.servers.count) серверов") }
             IosComposeControllerKt.NimboPushIosBurst(trigger: "activity")
             await NimboDiagnostics.shared.record(
                 .info,
                 stage: .config,
                 code: "IOS_SUBSCRIPTION_REFRESHED",
-                message: "Подписка обновлена и активный сервер повторно передан Packet Tunnel",
+                message: "Подписка обновлена и показана в интерфейсе",
                 metadata: ["servers": "\(profile.servers.count)"]
             )
         } catch {
             // Молчаливая неудача хуже ошибки: человек жмёт обновление и не
             // понимает, произошло ли что-нибудь.
-            notify("error", NimboRedactor.redact(error.localizedDescription))
+            if manual { notify("error", NimboRedactor.redact(error.localizedDescription)) }
             await NimboDiagnostics.shared.record(
                 .error,
                 stage: .config,
