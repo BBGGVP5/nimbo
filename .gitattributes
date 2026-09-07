@@ -1,0 +1,15 @@
+# Единые окончания строк для исходников во всех средах.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Бинарные зависимости и ресурсы не должны проходить текстовую нормализацию.
+*.aar binary
+*.jar binary
+*.dat binary
+*.so binary
+*.dll binary
+*.exe binary
+*.ico binary
+*.icns binary
+*.png binary

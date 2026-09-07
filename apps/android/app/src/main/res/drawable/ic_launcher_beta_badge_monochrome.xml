@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="22dp"
+    android:height="14dp"
+    android:viewportWidth="22"
+    android:viewportHeight="14">
+    <!--
+      A compact themed-icon badge. A full BETA word becomes an unreadable
+      block after launcher masking and tinting, so the monochrome variant uses
+      one detached B mark while the coloured icon keeps the complete label.
+    -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineJoin="round"
+        android:pathData="M4,1 H18 C19.66,1 21,2.34 21,4 V10 C21,11.66 19.66,13 18,13 H4 C2.34,13 1,11.66 1,10 V4 C1,2.34 2.34,1 4,1 Z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M7,3.5 V10.5 M7,3.5 H10.2 C11.75,3.5 12.7,4.15 12.7,5.25 C12.7,6.3 11.75,7 10.2,7 H7 M10.2,7 C11.9,7 13,7.7 13,8.75 C13,9.8 11.9,10.5 10.2,10.5 H7" />
+</vector>

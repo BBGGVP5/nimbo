@@ -1,0 +1,22 @@
+[package]
+name = "nimbo-subscription"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Subscription parser: vless/vmess/trojan/ss + base64/json/yaml aggregates"
+
+[dependencies]
+nimbo-device.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+url.workspace = true
+base64.workspace = true
+percent-encoding.workspace = true
+reqwest.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }

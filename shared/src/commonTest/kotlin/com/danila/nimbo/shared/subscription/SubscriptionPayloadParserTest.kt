@@ -1,0 +1,151 @@
+package com.danila.nimbo.shared.subscription
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class SubscriptionPayloadParserTest {
+    @Test
+    fun parsesEveryPlainShareLinkWithoutInventingRows() {
+        val payload = """
+            vless://11111111-1111-1111-1111-111111111111@edge.example:443?type=xhttp&security=reality&sni=cdn.example#Primary%20XHTTP
+            trojan://secret@backup.example:443?security=tls&type=ws#Backup
+            hysteria2://pass@hy.example:8443?sni=hy.example#Fast%20HY2
+            naive+https://user:pass@naive.example:443#Naive
+        """.trimIndent()
+
+        val result = SubscriptionPayloadParser.parse(payload, "https://sub.example/user")
+
+        assertEquals(4, result.servers.size)
+        assertEquals(listOf("vless", "trojan", "hysteria2", "naive"), result.servers.map { it.protocol })
+        assertEquals("Primary XHTTP", result.servers.first().name)
+        assertEquals("xhttp", result.servers.first().transport)
+        assertEquals("reality", result.servers.first().security)
+        assertFalse(result.servers.any { it.name.contains("Резервный сервер") })
+    }
+
+    @Test
+    fun decodesStandardBase64WithoutPadding() {
+        val encoded = "dmxlc3M6Ly8xMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTFAZXhhbXBsZS5jb206NDQzI09uZQ"
+
+        val result = SubscriptionPayloadParser.parse(encoded)
+
+        assertEquals(1, result.servers.size)
+        assertEquals("One", result.servers.single().name)
+        assertEquals(SubscriptionPayloadFormat.BASE64_LINKS, result.format)
+    }
+
+    @Test
+    fun decodesUrlSafeBase64AndDeduplicatesLinks() {
+        val link = "vless://11111111-1111-1111-1111-111111111111@example.com:443#One"
+        val encoded = SubscriptionPayloadParser.encodeBase64ForTest("$link\n$link", urlSafe = true).trimEnd('=')
+
+        val result = SubscriptionPayloadParser.parse(encoded)
+
+        assertEquals(1, result.servers.size)
+        assertEquals("One", result.servers.single().name)
+    }
+
+    @Test
+    fun keepsEveryServerFromAProviderStyleBase64Subscription() {
+        val links = (1..4).joinToString("\n") { index ->
+            "vless://11111111-1111-1111-1111-11111111111$index@edge$index.example:443?type=xhttp&security=reality#Node-$index"
+        }
+        val encoded = SubscriptionPayloadParser.encodeBase64ForTest(links, urlSafe = false).trimEnd('=')
+
+        val result = SubscriptionPayloadParser.parse(encoded, "https://provider.example/sub/redacted")
+
+        assertEquals(4, result.servers.size)
+        assertEquals(listOf("Node-1", "Node-2", "Node-3", "Node-4"), result.servers.map { it.name })
+        assertEquals(SubscriptionPayloadFormat.BASE64_LINKS, result.format)
+    }
+
+    @Test
+    fun parsesLinksNestedInJson() {
+        val payload = """
+            {
+              "name": "Office",
+              "servers": [
+                {"url": "vless://11111111-1111-1111-1111-111111111111@one.example:443#One"},
+                "trojan://secret@two.example:443#Two"
+              ]
+            }
+        """.trimIndent()
+
+        val result = SubscriptionPayloadParser.parse(payload)
+
+        assertEquals("Office", result.title)
+        assertEquals(2, result.servers.size)
+        assertEquals(SubscriptionPayloadFormat.JSON_LINKS, result.format)
+    }
+
+    @Test
+    fun keepsNativeXrayJsonAsOneRunnableConfiguration() {
+        val payload = """
+            {"remarks":"Remote config","outbounds":[{"tag":"proxy","protocol":"vless","settings":{"vnext":[{"address":"edge.example","port":443}]}}]}
+        """.trimIndent()
+
+        val result = SubscriptionPayloadParser.parse(payload)
+
+        assertEquals(1, result.servers.size)
+        assertTrue(result.servers.single().isNativeXrayJson)
+        assertEquals("edge.example", result.servers.single().host)
+        assertEquals("vless", result.servers.single().protocol)
+        assertEquals(payload, result.servers.single().rawConfiguration)
+    }
+
+    @Test
+    fun serverDescriptionIsSplitFromName() {
+        // Так подписку отдаёт Remnawave: описание дописано в хвост фрагмента
+        // и закодировано base64 ("Финляндия, Хельсинки").
+        val payload = "vless://uuid@node.example:443?security=reality&type=tcp" +
+            "#%E2%9C%A8%20%D0%90%D0%B2%D1%82%D0%BE%D0%B1%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%B8%D1%80%D0%BE%D0%B2%D1%89%D0%B8%D0%BA" +
+            "?serverDescription=0KTQuNC90LvRj9C90LTQuNGPLCDQpdC10LvRjNGB0LjQvdC60Lg="
+
+        val server = SubscriptionPayloadParser.parse(payload).servers.single()
+
+        assertEquals("\u2728 Автобалансировщик", server.name)
+        assertEquals("Финляндия, Хельсинки", server.description)
+    }
+
+    @Test
+    fun nameWithoutTailKeepsEmptyDescription() {
+        val server = SubscriptionPayloadParser
+            .parse("vless://uuid@node.example:443?type=tcp#Amsterdam")
+            .servers
+            .single()
+
+        assertEquals("Amsterdam", server.name)
+        assertEquals("", server.description)
+    }
+
+    @Test
+    fun descriptionWithPlusInsideBase64IsDecoded() {
+        // «VkxFU1Mg8J+MjQ==» — это «VLESS 🌍». В строке запроса «+» обычно
+        // означает пробел, и такая замена ломала base64: в списке серверов
+        // вместо описания оказывался мусор вида «VkxFU1Mg8J Mjw==».
+        val link = "vless://uuid@node.example:443?type=tcp#Латвия?serverDescription=VkxFU1Mg8J+MjQ=="
+        val server = SubscriptionPayloadParser.parse(link).servers.single()
+
+        assertEquals("Латвия", server.name)
+        assertEquals("VLESS 🌍", server.description)
+    }
+
+    @Test
+    fun brokenBase64DescriptionIsNotShownAsIs() {
+        val link = "vless://uuid@node.example:443?type=tcp#Riga?serverDescription=QUJDREVGR0hJSktMTU5PUFFSU1RVVldY"
+        val server = SubscriptionPayloadParser.parse(link).servers.single()
+
+        // Разобралось — значит показываем текст, а не исходную строку base64.
+        assertEquals("ABCDEFGHIJKLMNOPQRSTUVWX", server.description)
+    }
+
+    @Test
+    fun malformedPayloadReturnsDiagnosticAndNoFakeServer() {
+        val result = SubscriptionPayloadParser.parse("not a subscription")
+
+        assertTrue(result.servers.isEmpty())
+        assertEquals("SUBSCRIPTION_NO_SUPPORTED_NODES", result.diagnosticCode)
+    }
+}

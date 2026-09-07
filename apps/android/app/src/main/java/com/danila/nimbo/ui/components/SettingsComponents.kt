@@ -1,0 +1,556 @@
+package com.danila.nimbo.ui.components
+
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.danila.nimbo.ui.theme.ElementStyleMode
+import com.danila.nimbo.ui.theme.LocalElementStyleMode
+import com.danila.nimbo.ui.theme.LocalNebulaColors
+
+@Composable
+fun SettingsSection(
+    title: String,
+    icon: ImageVector,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val elementStyle = LocalElementStyleMode.current
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                nebulaColors.accent.copy(alpha = 0.18f),
+                                nebulaColors.accent.copy(alpha = 0.05f)
+                            )
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = nebulaColors.accent,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            if (elementStyle == ElementStyleMode.SIGNAL) {
+                // Signal подписывает секции разрядкой в верхнем регистре —
+                // тем же приёмом, что и приборная панель на десктопе.
+                Text(
+                    text = title.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = nebulaColors.textTertiary,
+                    fontSize = 10.sp,
+                    letterSpacing = 1.6.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            } else {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = nebulaColors.textSecondary
+                )
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = when (elementStyle) {
+                ElementStyleMode.LIQUID_GLASS -> RoundedCornerShape(18.dp)
+                ElementStyleMode.MATERIAL_EXPRESSIVE -> RoundedCornerShape(14.dp)
+                ElementStyleMode.NOTHING_DOTS -> RoundedCornerShape(12.dp)
+                ElementStyleMode.OUTLINED -> RoundedCornerShape(10.dp)
+                ElementStyleMode.SOFT_NEO -> RoundedCornerShape(20.dp)
+                ElementStyleMode.SIGNAL -> RoundedCornerShape(18.dp)
+                ElementStyleMode.MANGA -> RoundedCornerShape(3.dp)
+            },
+            color = when (elementStyle) {
+                ElementStyleMode.SIGNAL -> nebulaColors.textPrimary.copy(alpha = 0.02f)
+                ElementStyleMode.MANGA -> nebulaColors.panelFill
+                else -> Color.Transparent
+            },
+            border = when (elementStyle) {
+                ElementStyleMode.SIGNAL -> BorderStroke(1.dp, nebulaColors.textPrimary.copy(alpha = 0.075f))
+                ElementStyleMode.MANGA -> BorderStroke(2.dp, nebulaColors.panelBorder)
+                else -> null
+            }
+        ) {
+            Column(
+                modifier = Modifier.padding(vertical = 6.dp)
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsSwitch(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val elementStyle = LocalElementStyleMode.current
+    val isLight = nebulaColors.background.luminance() > 0.5f
+    val iconShape = nimboControlShape(10.dp, 2.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                enabled = enabled,
+                onClick = { onCheckedChange(!checked) }
+            )
+            .padding(horizontal = 18.dp, vertical = 15.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(iconShape)
+                    .background(settingsIconBrush(nebulaColors, elementStyle))
+                    .border(
+                        nimboControlBorderWidth(),
+                        nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.24f)),
+                        iconShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = nebulaColors.accent,
+                    modifier = Modifier.size(21.dp)
+                )
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (enabled) nebulaColors.textPrimary else nebulaColors.textTertiary,
+                    maxLines = 2,  // Разрешаем 2 строки для длинных заголовков
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))  // Небольшой отступ между заголовком и подзаголовком
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (enabled) nebulaColors.textTertiary else nebulaColors.textTertiary.copy(alpha = 0.8f),
+                    maxLines = 2,  // Разрешаем 2 строки для длинных подзаголовков
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        NimboStyleSwitch(
+            checked = checked,
+            enabled = enabled,
+            onCheckedChange = onCheckedChange,
+            checkedThumbColor = if (isLight) Color.White else nebulaColors.accent,
+            checkedTrackColor = when (elementStyle) {
+                ElementStyleMode.MATERIAL_EXPRESSIVE -> nebulaColors.accent.copy(alpha = if (isLight) 0.92f else 0.45f)
+                ElementStyleMode.NOTHING_DOTS -> nebulaColors.accent.copy(alpha = if (isLight) 0.86f else 0.25f)
+                ElementStyleMode.OUTLINED -> Color.Transparent
+                ElementStyleMode.SOFT_NEO -> nebulaColors.accent.copy(alpha = if (isLight) 0.88f else 0.34f)
+                else -> nebulaColors.accent.copy(alpha = if (isLight) 0.9f else 0.3f)
+            },
+            uncheckedThumbColor = if (isLight) Color.White else if (elementStyle == ElementStyleMode.OUTLINED) nebulaColors.onSurface.copy(alpha = 0.55f) else nebulaColors.textTertiary,
+            uncheckedTrackColor = when (elementStyle) {
+                ElementStyleMode.OUTLINED -> Color.Transparent
+                ElementStyleMode.SOFT_NEO -> nebulaColors.onSurface.copy(alpha = if (isLight) 0.32f else 0.14f)
+                else -> nebulaColors.textTertiary.copy(alpha = if (isLight) 0.48f else 0.2f)
+            },
+            uncheckedBorderColor = if (elementStyle == ElementStyleMode.OUTLINED || isLight) nebulaColors.textSecondary.copy(alpha = 0.6f) else Color.Transparent
+        )
+    }
+}
+
+@Composable
+fun SettingsItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val elementStyle = LocalElementStyleMode.current
+    val iconShape = nimboControlShape(10.dp, 2.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 15.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(iconShape)
+                .background(settingsIconBrush(nebulaColors, elementStyle))
+                .border(nimboControlBorderWidth(), nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.24f)), iconShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = nebulaColors.accent,
+                modifier = Modifier.size(21.dp)
+            )
+        }
+
+        Spacer(Modifier.width(12.dp))
+
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = nebulaColors.textPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = nebulaColors.textTertiary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+fun SettingsNavigationItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val elementStyle = LocalElementStyleMode.current
+    val iconShape = nimboControlShape(10.dp, 2.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 15.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(iconShape)
+                    .background(settingsIconBrush(nebulaColors, elementStyle))
+                    .border(nimboControlBorderWidth(), nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.24f)), iconShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = nebulaColors.accent,
+                    modifier = Modifier.size(21.dp)
+                )
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = nebulaColors.textPrimary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = nebulaColors.textTertiary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = "Перейти",
+            tint = nebulaColors.textTertiary,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+@Composable
+fun SettingsLinkItem(
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val elementStyle = LocalElementStyleMode.current
+    val iconShape = nimboControlShape(10.dp, 2.dp)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 15.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(iconShape)
+                    .background(settingsIconBrush(nebulaColors, elementStyle))
+                    .border(nimboControlBorderWidth(), nimboControlBorderColor(nebulaColors.accent.copy(alpha = 0.24f)), iconShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = nebulaColors.accent,
+                    modifier = Modifier.size(21.dp)
+                )
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = nebulaColors.textPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+            contentDescription = "Открыть",
+            tint = nebulaColors.textTertiary,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+@Composable
+fun NebulaInputField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    readOnly: Boolean = false,
+    leadingIcon: (@Composable (() -> Unit))? = null,
+    trailingIcon: (@Composable (() -> Unit))? = null,
+    singleLine: Boolean = true
+) {
+    val nebulaColors = LocalNebulaColors.current
+    val elementStyle = LocalElementStyleMode.current
+    val shape: Shape = nimboControlShape(16.dp, 3.dp)
+
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(settingsRowBackground(nebulaColors, elementStyle))
+            .then(
+                if (elementStyle == ElementStyleMode.NOTHING_DOTS) {
+                    Modifier.dotPatternOverlay(nebulaColors.textPrimary, spacing = 10.dp, radius = 0.8.dp, alpha = 0.11f)
+                } else Modifier
+            )
+            .padding(2.dp)
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            readOnly = readOnly,
+            singleLine = singleLine,
+            label = { Text(label) },
+            leadingIcon = leadingIcon,
+            trailingIcon = trailingIcon,
+            shape = shape,
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                disabledContainerColor = Color.Transparent,
+                focusedBorderColor = nebulaColors.accent.copy(alpha = 0.55f),
+                unfocusedBorderColor = nimboControlBorderColor(nebulaColors.textTertiary.copy(alpha = 0.25f)),
+                disabledBorderColor = nebulaColors.textTertiary.copy(alpha = 0.2f),
+                focusedTextColor = nebulaColors.textPrimary,
+                unfocusedTextColor = nebulaColors.textPrimary,
+                disabledTextColor = nebulaColors.textSecondary,
+                focusedLabelColor = nebulaColors.accent,
+                unfocusedLabelColor = nebulaColors.textSecondary,
+                focusedLeadingIconColor = nebulaColors.accent,
+                unfocusedLeadingIconColor = nebulaColors.textSecondary,
+                focusedTrailingIconColor = nebulaColors.accent,
+                unfocusedTrailingIconColor = nebulaColors.textSecondary,
+                cursorColor = nebulaColors.accent
+            )
+        )
+    }
+}
+
+private fun settingsIconBrush(
+    nebulaColors: com.danila.nimbo.ui.theme.NebulaColors,
+    style: ElementStyleMode
+): Brush = when (style) {
+    ElementStyleMode.LIQUID_GLASS -> Brush.linearGradient(
+        colors = listOf(
+            nebulaColors.accent.copy(alpha = 0.13f),
+            nebulaColors.accent.copy(alpha = 0.035f)
+        )
+    )
+
+    ElementStyleMode.MATERIAL_EXPRESSIVE -> Brush.linearGradient(
+        colors = listOf(
+            nebulaColors.accent.copy(alpha = 0.22f),
+            nebulaColors.accent.copy(alpha = 0.08f)
+        )
+    )
+
+    ElementStyleMode.NOTHING_DOTS -> Brush.linearGradient(
+        colors = listOf(
+            nebulaColors.onSurface.copy(alpha = 0.18f),
+            nebulaColors.accent.copy(alpha = 0.12f)
+        )
+    )
+
+    ElementStyleMode.OUTLINED -> Brush.linearGradient(
+        colors = listOf(
+            nebulaColors.onSurface.copy(alpha = 0.12f),
+            Color.Transparent
+        )
+    )
+
+    ElementStyleMode.SOFT_NEO -> Brush.linearGradient(
+        colors = listOf(
+            nebulaColors.accent.copy(alpha = 0.18f),
+            Color.Transparent
+        )
+    )
+
+    // Signal: подложка иконки ровная и акцентная, без градиента.
+    // Manga: ровная бумага без градиента — цвет задаёт тема.
+    ElementStyleMode.MANGA -> Brush.linearGradient(
+        listOf(nebulaColors.panelFill, nebulaColors.panelFill)
+    )
+
+    ElementStyleMode.SIGNAL -> Brush.linearGradient(
+        colors = listOf(
+            nebulaColors.accent.copy(alpha = 0.1f),
+            nebulaColors.accent.copy(alpha = 0.1f)
+        )
+    )
+}
+
+private fun settingsRowBackground(
+    nebulaColors: com.danila.nimbo.ui.theme.NebulaColors,
+    style: ElementStyleMode
+): Brush = when (style) {
+    ElementStyleMode.LIQUID_GLASS -> Brush.linearGradient(
+        listOf(Color.Transparent, Color.Transparent)
+    )
+
+    ElementStyleMode.MATERIAL_EXPRESSIVE -> Brush.linearGradient(
+        listOf(
+            nebulaColors.surface.copy(alpha = 0.72f),
+            nebulaColors.surface.copy(alpha = 0.58f)
+        )
+    )
+
+    ElementStyleMode.NOTHING_DOTS -> Brush.linearGradient(
+        listOf(
+            nebulaColors.surface.copy(alpha = 0.66f),
+            nebulaColors.surface.copy(alpha = 0.52f)
+        )
+    )
+
+    ElementStyleMode.OUTLINED -> Brush.linearGradient(
+        listOf(
+            Color.Transparent,
+            Color.Transparent
+        )
+    )
+
+    ElementStyleMode.SOFT_NEO -> Brush.linearGradient(
+        listOf(
+            nebulaColors.onSurface.copy(alpha = 0.1f),
+            nebulaColors.surface.copy(alpha = 0.7f),
+            nebulaColors.onSurface.copy(alpha = 0.06f)
+        )
+    )
+
+    // Ряды настроек идут сплошным списком, поэтому фон у них прозрачный —
+    // разделяют не подложки, а границы карточки-секции.
+    // Manga: ровная бумага без градиента — цвет задаёт тема.
+    ElementStyleMode.MANGA -> Brush.linearGradient(
+        listOf(nebulaColors.controlFill, nebulaColors.controlFill)
+    )
+
+    ElementStyleMode.SIGNAL -> Brush.linearGradient(
+        listOf(Color.Transparent, Color.Transparent)
+    )
+}
+
+

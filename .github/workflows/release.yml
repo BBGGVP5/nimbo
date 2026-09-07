@@ -1,0 +1,179 @@
+name: Публикация релиза
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег GitHub Release, например v1.1.0-beta.1"
+        required: true
+        type: string
+      publish:
+        description: "Прикрепить собранные файлы к релизу (иначе только артефакты прогона)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v4
+
+      - name: Установить Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-pc-windows-msvc,aarch64-pc-windows-msvc
+
+      - name: Кэш Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Установить Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/ui/package-lock.json
+            apps/installer/package-lock.json
+
+      - name: Установить NSIS
+        shell: powershell
+        run: choco install nsis --no-progress -y
+
+      - name: Установить зависимости интерфейса
+        working-directory: apps/ui
+        run: npm ci
+
+      - name: Собрать фирменные установщики
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File apps/installer/build-custom-installer.ps1 -All
+
+      - name: Сохранить фирменные Windows-установщики
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbo-windows-custom
+          path: target/release/bundle/custom/windows/*
+          if-no-files-found: error
+
+  linux:
+    name: Linux ${{ matrix.asset_arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            asset_arch: x64
+          - runner: ubuntu-22.04-arm
+            asset_arch: arm64
+
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v4
+
+      - name: Установить системные зависимости
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential file patchelf pkg-config rpm xdg-utils \
+            libwebkit2gtk-4.1-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Установить Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Кэш Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Установить Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/ui/package-lock.json
+
+      - name: Собрать AppImage, DEB и RPM
+        working-directory: apps/ui
+        run: |
+          npm ci
+          npm run build:linux
+
+      - name: Собрать фирменный Linux-установщик
+        if: matrix.asset_arch == 'x64'
+        shell: bash
+        run: bash apps/installer/build-custom-linux-installer.sh --target x86_64-unknown-linux-gnu
+
+      - name: Подготовить понятные имена файлов
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          mkdir -p release-normalized
+          appimage="$(find target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          deb="$(find target/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          rpm="$(find target/release/bundle/rpm -maxdepth 1 -type f -name '*.rpm' -print -quit)"
+          test -n "$appimage" && test -n "$deb" && test -n "$rpm"
+          cp "$appimage" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.AppImage"
+          cp "$deb" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.deb"
+          cp "$rpm" "release-normalized/Nimbo_${version}_linux_${ASSET_ARCH}.rpm"
+          if [[ "$ASSET_ARCH" == "x64" ]]; then
+            cp "target/release/bundle/custom/linux/NimboSetup_${version}_x64" release-normalized/
+          fi
+
+      - name: Сохранить Linux-пакеты
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbo-linux-${{ matrix.asset_arch }}
+          path: release-normalized/*
+          if-no-files-found: error
+
+  publish:
+    name: Прикрепить файлы к GitHub Release
+    needs: [windows, linux]
+    # Пуш тега публикует как и раньше; ручной запуск — только по просьбе.
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Скачать собранные файлы
+        uses: actions/download-artifact@v4
+        with:
+          pattern: nimbo-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Добавить контрольные суммы и загрузить файлы
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [[ "$TAG" =~ -(alpha|beta|rc)(\.|-)?[0-9]*$ ]]; then
+              gh release create "$TAG" -R "$GITHUB_REPOSITORY" --prerelease --generate-notes
+            else
+              gh release create "$TAG" -R "$GITHUB_REPOSITORY" --generate-notes
+            fi
+          fi
+          while IFS= read -r -d '' file; do
+            hash="$(sha256sum "$file" | awk '{print $1}')"
+            printf '%s  %s\n' "$hash" "$(basename "$file")" > "${file}.sha256"
+          done < <(find release-assets -type f ! -name '*.sha256' -print0)
+          find release-assets -type f -print0 | xargs -0 gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber

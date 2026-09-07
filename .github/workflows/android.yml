@@ -1,0 +1,43 @@
+name: Проверка Android
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Unit-тесты, lint и release APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/android
+
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v4
+
+      - name: Установить JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Разрешить запуск Gradle wrapper
+        run: chmod +x gradlew
+
+      - name: Проверить Android-приложение
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleRelease --no-daemon
+
+      - name: Сохранить неподписанные APK для тестирования
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbo-android-release-unsigned
+          path: apps/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

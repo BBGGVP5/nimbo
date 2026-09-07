@@ -1,0 +1,45 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Node
+node_modules/
+dist/
+.vite/
+*.log
+.npm/
+
+# IDEs
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Tauri
+apps/**/src-tauri/gen/
+apps/ui/src-tauri/target/
+
+# UI design references (not for repo)
+ui-template/
+
+# Local agent workspaces
+.claude/
+.codex-logs/
+# Local agent workspaces (продолжение)
+.supergoal/
+
+# Артефакт сборки Linux-инсталлятора: cargo однажды развернул CARGO_TARGET_DIR
+# внутрь исходников. Это build output, а не код.
+apps/installer/src-tauri/C*Users*/

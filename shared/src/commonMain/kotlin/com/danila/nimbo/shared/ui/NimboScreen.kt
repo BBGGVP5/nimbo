@@ -1,0 +1,38 @@
+package com.danila.nimbo.shared.ui
+
+enum class NimboScreen(
+    val wireName: String,
+    val title: String,
+    val shortTitle: String,
+    val glyph: String
+) {
+    HOME("home", "Главная", "Главная", "ϟ"),
+    PROFILES("profiles", "Профили", "Профили", "◉"),
+    STATS("stats", "Статистика", "Статистика", "▤"),
+    SETTINGS("settings", "Настройки", "Настройки", "⚙"),
+
+    /**
+     * Маршрутизация живёт в настройках, а не в нижней панели: настройка редкая,
+     * а место в панели дорогое. [inTabBar] отделяет вкладки от таких экранов.
+     */
+    ROUTING("routing", "Маршрутизация", "Маршруты", "⇄"),
+
+    /** Модули открываются со страницы маршрутизации и тоже не нужны в панели. */
+    MODULES("modules", "Модули", "Модули", "❏"),
+
+    /** Профили маршрутизации — оттуда же, со страницы маршрутизации. */
+    ROUTING_PROFILES("routing-profiles", "Профили маршрутизации", "Профили", "⇉"),
+
+    /** История уведомлений: открывается из настроек. */
+    NOTIFICATIONS("notifications", "Уведомления", "Уведомления", "◔");
+
+    val inTabBar: Boolean
+        get() = this != ROUTING && this != MODULES && this != ROUTING_PROFILES &&
+            this != NOTIFICATIONS
+
+    companion object {
+        fun fromWireName(value: String): NimboScreen = entries
+            .firstOrNull { it.wireName == value.lowercase() }
+            ?: HOME
+    }
+}

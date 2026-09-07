@@ -1,0 +1,13 @@
+[package]
+name = "nimbo-ipc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "IPC protocol shared between Nimbo UI and Service"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
