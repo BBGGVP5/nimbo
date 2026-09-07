@@ -91,8 +91,6 @@ export default function App() {
   const updateStartupScheduled = useRef(false);
   const updateRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const checkUpdatesOnLaunch = useRef(preferences.check_updates_on_launch);
-  const lastAwakeTick = useRef(Date.now());
-  const resumeReconnectInFlight = useRef(false);
   const [startupUpdate, setStartupUpdate] = useState<AppUpdateInfo | null>(null);
   const [postUpdateInfo, setPostUpdateInfo] = useState<AppPostUpdateInfo | null>(null);
   const m = useMessages();
@@ -411,24 +409,6 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [hydrate, m.settings.subscriptionBackgroundUpdated, preferences.subscriptions_auto_update, preferences.subscriptions_notify_updates, preferences.subscriptions_ping_after_update, preferences.subscriptions_update_interval_hours, refreshSubscription]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const now = Date.now();
-      const gap = now - lastAwakeTick.current;
-      lastAwakeTick.current = now;
-      if (gap < 30000 || resumeReconnectInFlight.current) return;
-
-      const state = useAppStore.getState();
-      if (state.status?.state !== "connected" || !state.activeServerId) return;
-      resumeReconnectInFlight.current = true;
-      void state.connectServer(state.activeServerId)
-        .catch(() => state.hydrate())
-        .finally(() => {
-          resumeReconnectInFlight.current = false;
-        });
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     if (

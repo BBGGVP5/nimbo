@@ -379,7 +379,8 @@ pub fn get_post_update_info(app: AppHandle) -> Result<Option<AppPostUpdateInfo>,
     }
     Ok(Some(AppPostUpdateInfo {
         version: receipt.version,
-        release_notes: receipt.release_notes,
+        // Old receipts can contain the platform wrapper from before this fix.
+        release_notes: receipt.release_notes.as_deref().and_then(release_notes_for_desktop),
         release_url: receipt.release_url,
     }))
 }
@@ -496,8 +497,49 @@ fn release_notes_for_desktop(body: &str) -> Option<String> {
         }
         compact.push(line);
     }
-    let result = compact.join("\n").trim().to_string();
+    let result = without_platform_heading(&compact.join("\n"));
     (!result.is_empty()).then_some(result)
+}
+
+fn without_platform_heading(body: &str) -> String {
+    let mut fence: Option<(char, usize)> = None;
+    body.lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+                let kind = trimmed.chars().next().unwrap();
+                let count = trimmed.chars().take_while(|c| *c == kind).count();
+                match fence {
+                    None => fence = Some((kind, count)),
+                    Some((old_kind, old_count)) if kind == old_kind && count >= old_count => fence = None,
+                    _ => {}
+                }
+                return true;
+            }
+            fence.is_some() || !is_platform_heading(trimmed)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn is_platform_heading(line: &str) -> bool {
+    if ["- ", "* ", "+ "].iter().any(|prefix| line.starts_with(prefix)) {
+        return false;
+    }
+    let normalized: String = line.to_lowercase().chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' }).collect();
+    let normalized = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    let prefix = ["что нового", "что изменилось", "изменения", "what s new", "what is new", "what changed", "changes", "changelog"]
+        .into_iter().find(|prefix| normalized == *prefix || normalized.starts_with(&format!("{prefix} ")));
+    let tail = prefix.map_or(normalized.as_str(), |prefix| normalized[prefix.len()..].trim());
+    if tail.is_empty() { return prefix.is_some(); }
+    let platforms = ["android", "андроид", "ios", "windows", "виндовс", "linux", "линукс", "desktop", "десктоп"];
+    let connectors = ["на", "для", "в", "и", "and", "on", "for", "in", "app", "приложение", "приложении"];
+    let words: Vec<_> = tail.split_whitespace().collect();
+    words.iter().any(|word| platforms.contains(word))
+        && words.iter().all(|word| platforms.contains(word) || connectors.contains(word))
 }
 
 fn extract_platform_section<'a>(body: &'a str, platform: &str) -> Option<&'a str> {
@@ -1591,7 +1633,7 @@ mod tests {
 "#;
 
         let notes = release_notes_for_desktop(body).unwrap();
-        assert!(notes.contains("Windows и Linux"));
+        assert!(!notes.contains("Windows и Linux"));
         assert!(notes.contains("процент и размер"));
         assert!(!notes.contains("Android"));
         assert!(!notes.contains("APK"));
@@ -1614,6 +1656,19 @@ mod tests {
             release_notes_for_desktop(body).as_deref(),
             Some("## Улучшения\n- Исправлено фоновое обновление.")
         );
+    }
+
+    #[test]
+    fn desktop_release_notes_remove_wrappers_and_keep_feature_headings() {
+        for title in ["# 🖥️ Что нового на Windows и Linux", "## Что изменилось на Windows",
+            "**What's new on Desktop**", "## Windows и Linux", "## What changed on Linux"] {
+            assert_eq!(without_platform_heading(&format!("{title}\n\n## Протоколы\n- Исправлено")),
+                "## Протоколы\n- Исправлено");
+        }
+        let notes = "## Windows: восстановление сети\n- Windows\n```md\n# Что нового на Windows\n```\n~~~md\n# Linux\n~~~";
+        assert_eq!(without_platform_heading(notes), notes);
+        let clean = without_platform_heading("# Windows и Linux\n- Исправлено");
+        assert_eq!(without_platform_heading(&clean), clean);
     }
 
     #[test]
