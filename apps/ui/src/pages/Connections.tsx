@@ -13,6 +13,7 @@ import { CountryFlag } from "../components/CountryFlag";
 import { useMessages, type Messages } from "../lib/i18n";
 import { useAppStore } from "../store";
 import { BackButton } from "../components/BackButton";
+import { startVisiblePolling } from "../lib/visiblePolling";
 
 type FirewallAction = "block" | "direct" | "proxy";
 type RuleKind = "domain" | "ip";
@@ -63,7 +64,7 @@ export function Connections() {
     if (!silent) setConnectionsBusy(true);
     try {
       const list = await api.listActiveConnections();
-      if (!connectedRef.current || generation !== connectionsGenerationRef.current) return;
+      if (!connectedRef.current || generation !== connectionsGenerationRef.current || document.visibilityState !== "visible") return;
       const signature = activeConnectionsSignature(list);
       if (signature !== connectionsSignatureRef.current) {
         connectionsSignatureRef.current = signature;
@@ -71,10 +72,10 @@ export function Connections() {
       }
       setConnectionsUpdatedAt(new Date());
     } catch (error) {
-      if (!silent) notifyError(String(error));
+      if (!silent && generation === connectionsGenerationRef.current) notifyError(String(error));
     } finally {
       loadingConnectionsRef.current = false;
-      if (!silent) setConnectionsBusy(false);
+      if (!silent && generation === connectionsGenerationRef.current) setConnectionsBusy(false);
     }
   }, []);
 
@@ -88,20 +89,18 @@ export function Connections() {
     const connected = status?.state === "connected";
     connectionsGenerationRef.current += 1;
     connectedRef.current = connected;
-    if (connected && tab === "live") {
-      void loadConnections();
-    } else if (!connected) {
+    setConnectionsBusy(false);
+    if (!connected) {
       connectionsSignatureRef.current = "";
       setConnections([]);
       setConnectionsUpdatedAt(null);
-      setConnectionsBusy(false);
     }
+    return () => { connectionsGenerationRef.current += 1; };
   }, [loadConnections, status?.state, tab]);
 
   useEffect(() => {
     if (tab !== "live" || status?.state !== "connected") return;
-    const id = window.setInterval(() => void loadConnections(true), 1500);
-    return () => window.clearInterval(id);
+    return startVisiblePolling(() => loadConnections(true), 1500);
   }, [loadConnections, status?.state, tab]);
 
   const rules = useMemo(() => {

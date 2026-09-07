@@ -9,9 +9,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    CURRENT_PROJECT_VERSION: 15
+    CURRENT_PROJECT_VERSION: 16
     MARKETING_VERSION: 1.2.0
-    NIMBO_DISPLAY_VERSION: 1.2.0-beta.4
+    NIMBO_DISPLAY_VERSION: 1.2.0-beta.5
     NIMBO_APP_BUNDLE_ID: com.nimbo.resignable
     NIMBO_PACKET_TUNNEL_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).PacketTunnel"
     NIMBO_CONTROL_WIDGET_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).ControlWidget"
@@ -155,6 +155,8 @@ targets:
           - allow-vpn
     sources:
       - path: ControlWidget
+      - path: Shared/NimboConstants.swift
+      - path: Shared/NimboTunnelControl.swift
     dependencies:
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework

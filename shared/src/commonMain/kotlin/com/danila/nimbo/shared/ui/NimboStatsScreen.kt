@@ -206,6 +206,7 @@ private fun SessionRow(session: NimboSessionUi) {
 
 @Composable
 private fun SpeedHistoryChart(samples: List<NimboSpeedSample>) {
+    val colors = LocalNimboColors.current
     Canvas(modifier = Modifier.fillMaxWidth().height(56.dp)) {
         val peak = samples
             .flatMap { listOf(it.upload, it.download) }
@@ -218,13 +219,13 @@ private fun SpeedHistoryChart(samples: List<NimboSpeedSample>) {
             val down = (sample.download.toFloat() / peak).coerceIn(0f, 1f) * size.height
             val up = (sample.upload.toFloat() / peak).coerceIn(0f, 1f) * size.height
             drawLine(
-                color = NimboPalette.Accent.copy(alpha = 0.75f),
+                color = colors.accent.copy(alpha = 0.75f),
                 start = androidx.compose.ui.geometry.Offset(x, size.height),
                 end = androidx.compose.ui.geometry.Offset(x, size.height - down),
                 strokeWidth = 2f
             )
             drawLine(
-                color = NimboPalette.Green.copy(alpha = 0.55f),
+                color = colors.green.copy(alpha = 0.55f),
                 start = androidx.compose.ui.geometry.Offset(x, size.height),
                 end = androidx.compose.ui.geometry.Offset(x, size.height - up),
                 strokeWidth = 1.2f

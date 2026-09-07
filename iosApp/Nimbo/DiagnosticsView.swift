@@ -10,6 +10,11 @@ struct DiagnosticsView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    NavigationLink("Готовность установки и быстрое управление") {
+                        ReadinessView().environmentObject(vpn)
+                    }
+                }
                 Section("Что попадёт в файл") {
                     Label("Этапы запуска приложения и туннеля", systemImage: "list.bullet.rectangle")
                     Label("Версии приложения, iOS и устройства", systemImage: "iphone")

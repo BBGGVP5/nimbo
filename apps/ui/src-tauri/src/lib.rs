@@ -5,6 +5,7 @@ pub mod helper;
 #[cfg(target_os = "linux")]
 pub mod helper_linux;
 pub mod logging;
+mod recovery_policy;
 pub mod state;
 pub mod tray;
 pub mod updater;
@@ -496,6 +497,7 @@ pub fn run() {
         }
     };
 
+    crate::commands::start_resume_monitor(app.handle().clone());
     app.run(|app_handle, event| match event {
         RunEvent::ExitRequested { .. } | RunEvent::Exit => {
             cleanup_once(app_handle);

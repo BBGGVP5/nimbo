@@ -9,7 +9,7 @@ on:
       version:
         description: Version embedded in the IPA filename
         required: true
-        default: 1.2.0-beta.4
+        default: 1.2.0-beta.5
 
 permissions:
   contents: read
@@ -39,16 +39,18 @@ jobs:
 
       - name: Build re-signable IPA
         env:
-          NIMBO_VERSION: ${{ inputs.version || '1.2.0-beta.4' }}
+          NIMBO_WITH_CONTROL_WIDGET: '1'
+          NIMBO_BUILD_NUMBER: ${{ github.run_number }}
+          NIMBO_VERSION: ${{ inputs.version || '1.2.0-beta.5' }}
         run: bash scripts/ci/build-unsigned-ios.sh
 
       - name: Upload private temporary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Nimbo_v${{ inputs.version || '1.2.0-beta.4' }}_ios_resignable
+          name: Nimbo_v${{ inputs.version || '1.2.0-beta.5' }}_ios_resignable
           path: |
-            artifacts/ios/Nimbo_v${{ inputs.version || '1.2.0-beta.4' }}_ios_resignable.ipa
-            artifacts/ios/Nimbo_v${{ inputs.version || '1.2.0-beta.4' }}_ios_resignable.ipa.sha256
+            artifacts/ios/Nimbo_v${{ inputs.version || '1.2.0-beta.5' }}_ios_resignable.ipa
+            artifacts/ios/Nimbo_v${{ inputs.version || '1.2.0-beta.5' }}_ios_resignable.ipa.sha256
             artifacts/ios/build-manifest.txt
             artifacts/ios/codesign-entitlements/*.plist
           if-no-files-found: error

@@ -47,19 +47,20 @@ enum NimboSubscriptionImporter {
         return (data, nil)
     }
 
-    /// Импортирует подписку и сразу готовит конфигурацию туннеля: без этого
-    /// профиль появился бы, а подключиться было бы нечем.
+    /// Импорт не требует прав системного VPN. VpnController передаёт
+    /// сохранённую конфигурацию расширению непосредственно перед запуском.
     @discardableResult
-    static func importAndStage(_ source: String, vpn: VpnController) async throws -> NimboSubscriptionProfile {
-        let resolved = try await resolve(source)
-        let profile = try NimboSubscriptionRepository.shared.importPayload(
-            resolved.data,
-            source: resolved.source
-        )
-        if let selected = profile.selectedServer {
-            try await vpn.stageConfiguration(
-                data: NimboSubscriptionRepository.shared.stagingData(for: selected)
+    static func importProfile(_ source: String) async throws -> NimboSubscriptionProfile {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let profile: NimboSubscriptionProfile
+        if let url = URL(string: trimmed), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+            profile = try await NimboSubscriptionRepository.shared.importRemote(trimmed)
+        } else {
+            let resolved = try await resolve(trimmed)
+            profile = try NimboSubscriptionRepository.shared.importPayload(
+                resolved.data, source: resolved.source
             )
+            NimboSubscriptionMetaStore.save(.empty)
         }
         await NimboDiagnostics.shared.record(
             .info,

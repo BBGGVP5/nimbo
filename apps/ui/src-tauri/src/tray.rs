@@ -596,7 +596,7 @@ pub fn tray_menu_action(app: AppHandle, action: String, server_id: Option<String
     // instead of the window vanishing the instant it is clicked.
     let keep_open = matches!(
         action.as_str(),
-        "refresh_subscriptions" | "ping_servers" | "connect" | "disconnect"
+        "refresh_subscriptions" | "ping_servers" | "connect" | "disconnect" | "server"
     );
     if !keep_open {
         if let Some(window) = app.get_webview_window(MENU_WINDOW) {
@@ -643,6 +643,12 @@ fn show_main_window(app: &AppHandle) {
 fn refresh_all_subscriptions(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        if app.state::<AppState>().snapshot().connected {
+            let _ = app.emit_to(MENU_WINDOW, "tray-menu:action-done", serde_json::json!({
+                "action": "refresh_subscriptions", "ok": false
+            }));
+            return;
+        }
         let urls = app
             .state::<AppState>()
             .snapshot()
@@ -653,8 +659,10 @@ fn refresh_all_subscriptions(app: &AppHandle) {
             .collect::<Vec<_>>();
 
         let mut ok = 0usize;
+        let total = urls.len();
         for url in urls {
             let state = app.state::<AppState>();
+            if state.snapshot().connected { break; }
             if crate::commands::refresh_subscription(state, url)
                 .await
                 .is_ok()
@@ -677,7 +685,7 @@ fn refresh_all_subscriptions(app: &AppHandle) {
             "tray-menu:action-done",
             serde_json::json!({
                 "action": "refresh_subscriptions",
-                "ok": true,
+                "ok": ok == total,
                 "count": ok,
                 "servers": servers,
             }),

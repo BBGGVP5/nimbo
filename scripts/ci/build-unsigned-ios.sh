@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VERSION="${NIMBO_VERSION:-1.2.0-beta.4}"
+VERSION="${NIMBO_VERSION:-1.2.0-beta.5}"
 MARKETING_VERSION="${VERSION%%-*}"
-BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-12}"
+BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-16}"
 APP_BUNDLE_ID="${NIMBO_APP_BUNDLE_ID:-com.nimbo.resignable}"
 TUNNEL_BUNDLE_ID="${NIMBO_PACKET_TUNNEL_BUNDLE_ID:-${APP_BUNDLE_ID}.PacketTunnel}"
 ARTIFACT_DIR="${ROOT_DIR}/artifacts/ios"
