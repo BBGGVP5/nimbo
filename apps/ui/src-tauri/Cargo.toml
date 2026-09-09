@@ -56,7 +56,7 @@ fs2.workspace = true
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.55"
+winreg = "0.56"
 winapi = { version = "0.3", features = ["shellapi", "wingdi", "winuser", "libloaderapi", "winnls"] }
 windows-service = "0.7"
 windows-sys = { version = "0.59", features = [
