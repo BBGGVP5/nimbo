@@ -16,4 +16,4 @@ dirs.workspace = true
 uuid.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.55"
+winreg = "0.56"
