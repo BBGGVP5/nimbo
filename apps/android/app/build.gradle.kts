@@ -214,7 +214,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation("androidx.work:work-runtime-ktx:2.11.1")
     // Per-app language switching via AppCompatDelegate.setApplicationLocales
-    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.appcompat:appcompat:1.8.0")
     implementation(files("libs/libxray.aar"))
     implementation("sh.calvin.reorderable:reorderable:3.0.0")
     // CameraX
