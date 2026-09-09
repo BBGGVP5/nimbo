@@ -208,7 +208,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp-android:5.5.0")
     testImplementation("org.json:json:20240303")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation("androidx.navigation:navigation-compose:2.9.7")
+    implementation("androidx.navigation:navigation-compose:2.10.0")
     implementation("com.google.code.gson:gson:2.13.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
