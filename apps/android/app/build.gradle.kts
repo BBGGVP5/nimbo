@@ -206,7 +206,7 @@ dependencies {
     // Резолвер Android умеет спрашивать HTTPS-записи DNS: в них лежит ключ
     // ECH, без которого имя сайта уходит в открытую даже по HTTPS.
     implementation("com.squareup.okhttp3:okhttp-android:5.5.0")
-    testImplementation("org.json:json:20240303")
+    testImplementation("org.json:json:20260814")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.navigation:navigation-compose:2.9.7")
     implementation("com.google.code.gson:gson:2.13.2")
