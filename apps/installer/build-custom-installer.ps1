@@ -220,10 +220,10 @@ if (-not $ReuseCompiledPayloads) {
       # nimbo-ui in dev mode and the installed app tries to load
       # http://127.0.0.1:1420 (ERR_CONNECTION_REFUSED). `cargo tauri build`
       # passes this automatically; this raw `cargo build` does not.
-      & cargo build -p nimbo-ui --release --features custom-protocol --target $targetTriple
+      & cargo build --locked -p nimbo-ui --release --features custom-protocol --target $targetTriple
       if ($LASTEXITCODE -ne 0) { throw "cargo build -p nimbo-ui failed for $targetTriple." }
 
-      & cargo build -p nimbo-svc --release --target $targetTriple
+      & cargo build --locked -p nimbo-svc --release --target $targetTriple
       if ($LASTEXITCODE -ne 0) { throw "cargo build -p nimbo-svc failed for $targetTriple." }
     }
   } finally {
@@ -256,7 +256,7 @@ foreach ($targetTriple in $Target) {
     }
 
     Write-Host "Building custom installer for $targetTriple..."
-    & npx tauri build --no-bundle --target $targetTriple
+    & npx tauri build --no-bundle --target $targetTriple -- --locked
     if ($LASTEXITCODE -ne 0) { throw "tauri build failed for custom installer $targetTriple." }
   } finally {
     Pop-Location
