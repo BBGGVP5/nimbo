@@ -30,6 +30,11 @@ jobs:
       - name: Получить исходники
         uses: actions/checkout@v4
 
+      - name: Установить Python для проверки метаданных
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Проверить версии выпуска
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
@@ -107,6 +112,11 @@ jobs:
             build-essential file patchelf pkg-config rpm xdg-utils \
             libwebkit2gtk-4.1-dev libssl-dev \
             libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Установить Python для проверки метаданных
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
       - name: Проверить версии выпуска
         env:
