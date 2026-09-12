@@ -17,6 +17,22 @@ if pathlib.Path("C:/Program Files/Git/bin/bash.exe").exists():
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_native_link_heap_override_is_one_argument(self):
+        self.assertIsNotNone(BASH, "Bash is required for release-script tests")
+        command = "./gradlew --no-daemon" + BUILD.split("./gradlew --no-daemon", 1)[1].split("\n\n", 1)[0]
+        # Capture Bash's argument splitting using a function; never launch Gradle.
+        command = command.replace("./gradlew", "capture_gradle", 1)
+        result = subprocess.run(
+            [BASH, "-c", 'capture_gradle() { printf "%s\\0" "$@"; };\n' + command],
+            text=True, capture_output=True, cwd=ROOT,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.split("\0")[:-1], [
+            "--no-daemon", "--max-workers=1",
+            "-Dorg.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -XX:+HeapDumpOnOutOfMemoryError",
+            "-PnimboIosOnly=true", ":shared:linkReleaseFrameworkIosArm64",
+        ])
+
     def test_version_inputs_before_build_tools(self):
         self.assertIsNotNone(BASH, "Bash is required for release-script tests")
         # Execute the real input validation only. No build command is copied.

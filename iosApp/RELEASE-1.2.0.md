@@ -85,3 +85,42 @@ on this Windows host. Device acceptance still needs an entitled installation
 and real AWG peer: encrypted TCP, DNS/UDP, repeated starts, sleep/wake and
 Wi-Fi/cellular transitions. A local running status alone is not proof of a
 successful peer handshake.
+
+## CI run 34709844967: Kotlin/Native heap correction
+
+Main dispatched candidate `57618ddf0514d905d73a8b61edd50e8495352e13` in
+[run 34709844967](https://github.com/BBGGVP5/nimbo/actions/runs/34709844967).
+The run completed with failure after 4m47s. The source/release contract gate and
+native Swift INI tests passed, as did `:shared:compileKotlinIosArm64`.
+`:shared:linkReleaseFrameworkIosArm64` failed with `Java heap space` in
+`LongHashSet.grow` / `DevirtualizationAnalysis`. AWG C archives, Swift archive
+link checks and IPA packaging were not reached.
+
+The pinned Kotlin Gradle plugin 2.3.20 source (`KotlinNativeLink.kt`,
+`NativeProperties.kt`, `KotlinNativeToolRunner.kt`) confirms that the native
+compiler defaults to running inside Gradle's JVM. The repository's Android
+default limits that JVM to 2 GiB. The iOS build script now passes one quoted
+`-Dorg.gradle.jvmargs` argument with `-Xmx6g`, 1 GiB metaspace, UTF-8 and OOM
+heap dumps, plus `--max-workers=1`, to its release-framework invocation only.
+The 6 GiB limit is a JVM heap limit, not a cap on total runner RSS. Android
+defaults, shared/mobile source and compiler optimization settings are unchanged.
+This follows Kotlin's [native build memory guidance](https://kotlinlang.org/docs/native-improving-compilation-time.html#increase-gradle-heap-size).
+
+Only these files changed for this CI failure:
+
+- `scripts/ci/build-unsigned-ios.sh`
+- `scripts/ci/test-ios-release.py`
+- `iosApp/RELEASE-1.2.0.md`
+
+The new regression executes Bash argument splitting against a capture function
+and checks that the heap override remains one argument, with one worker and
+only the intended native framework task. It never invokes Gradle. Main was
+notified before edits. No local Gradle, shared-source edits, commit, push or
+rerun was performed here. Main must sync and commit this fix, then dispatch a
+**new run at the new SHA**; rerunning the old SHA cannot include the correction.
+These script-only changes do not require rebuilding the user's Android APK.
+
+Local verification passed after the fix: all five release regression tests,
+Go stats/source contracts, Bash syntax and the PowerShell iOS bundle contract.
+`gradle.properties` still specifies `-Xmx2048m`; the native macOS build must
+verify whether the larger heap is sufficient on the next run.

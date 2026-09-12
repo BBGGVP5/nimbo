@@ -36,7 +36,13 @@ cp "${ROOT_DIR}/iosApp/project.yml" "${PROJECT_SPEC}"
 rm -rf "${DERIVED_DATA}" "${ROOT_DIR}/iosApp/Nimbo.xcodeproj"
 
 chmod +x ./gradlew
-./gradlew --no-daemon -PnimboIosOnly=true :shared:linkReleaseFrameworkIosArm64
+# Kotlin/Native release LTO runs inside Gradle's JVM. The Android-oriented 2 GiB
+# project default exhausted its heap in DevirtualizationAnalysis on macOS CI.
+# Bound this invocation to one worker and 6 GiB without changing local defaults.
+echo 'iOS Kotlin/Native release link: Gradle heap=6 GiB, workers=1'
+./gradlew --no-daemon --max-workers=1 \
+  '-Dorg.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -XX:+HeapDumpOnOutOfMemoryError' \
+  -PnimboIosOnly=true :shared:linkReleaseFrameworkIosArm64
 
 chmod +x "${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
 "${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
