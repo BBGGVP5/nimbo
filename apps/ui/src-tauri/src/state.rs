@@ -571,6 +571,8 @@ pub struct RuntimeState {
     pub tun_session: Option<crate::helper_linux::TunSession>,
     pub xray: Option<Child>,
     pub naive: Option<Child>,
+    pub awg: Option<crate::awg_runtime::AwgRuntime>,
+    pub awg_route: Option<crate::awg_routes::AwgBypass>,
     pub tun2socks: Option<Child>,
     pub system_proxy_snapshot: Option<SystemProxySnapshot>,
     pub tun_snapshot: Option<TunRuntimeSnapshot>,
@@ -586,6 +588,8 @@ pub struct SystemProxySnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TunRuntimeSnapshot {
+    #[serde(default)]
+    pub awg_bypass_routes: Vec<crate::awg_routes::BypassRoute>,
     pub bypass_ips: Vec<String>,
     pub gateway: Option<String>,
     pub interface_index: Option<u32>,

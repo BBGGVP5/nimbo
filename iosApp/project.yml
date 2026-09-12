@@ -9,9 +9,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    CURRENT_PROJECT_VERSION: 15
+    CURRENT_PROJECT_VERSION: 170
     MARKETING_VERSION: 1.2.0
-    NIMBO_DISPLAY_VERSION: 1.2.0-beta.4
+    NIMBO_DISPLAY_VERSION: 1.2.0
     NIMBO_APP_BUNDLE_ID: com.nimbo.resignable
     NIMBO_PACKET_TUNNEL_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).PacketTunnel"
     NIMBO_CONTROL_WIDGET_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).ControlWidget"
@@ -120,6 +120,9 @@ targets:
       - framework: Vendor/LibXray.xcframework
         embed: false
       - sdk: libresolv.tbd
+      # The final Swift link must resolve Go's Darwin x509 framework symbols.
+      - sdk: Security.framework
+      - sdk: CoreFoundation.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: "$(NIMBO_PACKET_TUNNEL_BUNDLE_ID)"
@@ -155,6 +158,8 @@ targets:
           - allow-vpn
     sources:
       - path: ControlWidget
+      - path: Shared/NimboConstants.swift
+      - path: Shared/NimboTunnelControl.swift
     dependencies:
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework

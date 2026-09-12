@@ -39,15 +39,19 @@ function preferenceSortMode(value: string): SortMode {
 
 // ── Favorites persistence ────────────────────────────────────
 
+function readStoredIds(key: string): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+    return Array.isArray(value)
+      ? [...new Set(value.filter((id): id is string => typeof id === "string"))]
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function useFavorites() {
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem("nimbo.favorites");
-      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
-    } catch {
-      return new Set();
-    }
-  });
+  const [favorites, setFavorites] = useState<Set<string>>(() => new Set(readStoredIds("nimbo.favorites")));
 
   const toggle = useCallback((id: string) => {
     setFavorites((prev) => {
@@ -68,12 +72,7 @@ function makeOrderKey(subUrl: string): string {
 }
 
 function readServerOrder(subUrl: string): string[] {
-  try {
-    const raw = localStorage.getItem(makeOrderKey(subUrl));
-    return raw ? (JSON.parse(raw) as string[]) : [];
-  } catch {
-    return [];
-  }
+  return readStoredIds(makeOrderKey(subUrl));
 }
 
 function writeServerOrder(subUrl: string, order: string[]) {
@@ -389,6 +388,10 @@ export function Home() {
     return [...kinds].sort();
   }, [baseEntries]);
 
+  useEffect(() => {
+    if (protocolFilter && !availableProtocols.some((protocol) => protocol === protocolFilter)) setProtocolFilter(null);
+  }, [availableProtocols, protocolFilter]);
+
   const sortedEntries = useMemo(() => {
     let result = sortEntries(baseEntries, sortMode, serverPings, customOrder, pingOrder);
     if (showFavOnly) result = result.filter((e) => favorites.has(e.server.id));
@@ -419,18 +422,13 @@ export function Home() {
   }, [activeId, connectingServerId, switchingServerId, baseEntries, subs]);
   const fallbackEntry = activeEntry ?? baseEntries[0] ?? null;
   const connected = status?.state === "connected";
-  const connecting = Boolean(connectingServerId);
+  const connecting = Boolean(connectingServerId) || status?.state === "connecting";
   const switching = Boolean(switchingServerId);
+  const showMemory = connected && !connecting && !disconnecting && !switching
+    && preferences.show_memory_usage && preferences.ui_style !== "signal" && !widgetsCollapsed;
 
   useEffect(() => {
-    if (!connected) {
-      setElapsedSeconds(0);
-      setMemorySamples([]);
-      setCurrentMemoryBytes(0);
-    }
-  }, [connected]);
-
-  useEffect(() => {
+    setElapsedSeconds(0);
     if (!connected || sessionStartedAt == null) return;
     const tick = () =>
       setElapsedSeconds(Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000)));
@@ -438,7 +436,9 @@ export function Home() {
   }, [connected, sessionStartedAt]);
 
   useEffect(() => {
-    if (!connected || !preferences.show_memory_usage) return;
+    setMemorySamples([]);
+    setCurrentMemoryBytes(0);
+    if (!showMemory) return;
     let cancelled = false;
     const loadMemory = async () => {
       if (memoryRequestInFlight.current) return;
@@ -462,7 +462,7 @@ export function Home() {
       cancelled = true;
       stop();
     };
-  }, [connected, preferences.show_memory_usage]);
+  }, [showMemory, sessionStartedAt]);
 
   const onToggleServer = async (serverId: string) => {
     try {
@@ -627,8 +627,8 @@ export function Home() {
       : status?.connection_mode === "both"
         ? "TUN + PROXY"
         : "TUN";
-    const activeServer = activeEntry?.server ?? null;
-    const activePing = activeId ? serverPings[activeId] : undefined;
+    const activeServer = fallbackEntry?.server ?? null;
+    const activePing = activeServer ? serverPings[activeServer.id] : undefined;
     const rateUnits = (bytesPerSecond: number) => {
       const text = formatBytes(Math.max(0, bytesPerSecond));
       const parts = text.split(" ");
@@ -673,11 +673,13 @@ export function Home() {
           modeLabel={modeLabel}
           sessionLabel={connected ? formatDuration(elapsedSeconds) : m.signal.idleSession}
           sessionProgress={connected ? ((elapsedSeconds % 3600) / 3600) : 0}
-          metaLine={!connected
-            ? m.home.pressToConnect
-            : activeEntry
-              ? `${activeEntry.sub.name?.trim() || m.common.subscription} · ${protocolLabel(activeEntry.server.protocol)}`
-              : m.home.addProfileFirst}
+          metaLine={switching || disconnecting || connecting
+            ? stateWord
+            : !connected
+              ? (fallbackEntry ? m.home.pressToConnect : m.home.addProfileFirst)
+              : activeEntry
+                ? `${activeEntry.sub.name?.trim() || m.common.subscription} · ${protocolLabel(activeEntry.server.protocol)}`
+                : m.home.addProfileFirst}
           profileTitle={currentSub?.name?.trim() || m.common.subscription}
           profileSubtitle={`${sortedEntries.length} ${m.common.servers} · ${visibleSubs.length} ${m.common.subscriptions}`}
           serverFlag={activeServer
@@ -689,7 +691,7 @@ export function Home() {
             : ""}
           serverPing={activePing != null ? `${activePing} ms` : null}
           serverDescription={activeServer
-            ? (serverListDescription(activeServer, activeEntry?.sub.servers ?? []) || null)
+            ? (serverListDescription(activeServer, fallbackEntry?.sub.servers ?? []) || null)
             : null}
           downloadRate={download.value}
           downloadUnit={download.unit}
@@ -716,15 +718,17 @@ export function Home() {
                 type="button"
                 className="signal-btn signal-btn--primary"
                 onClick={() => void onToggleConnection()}
-                disabled={!activeEntry || connecting || disconnecting || switching}
+                disabled={(!connected && !fallbackEntry) || connecting || disconnecting || switching}
               >
-                {connecting
-                  ? m.home.connecting
-                  : disconnecting
-                    ? m.home.disconnecting
-                    : connected
-                      ? m.home.disconnect
-                      : m.home.connect}
+                {switching
+                  ? m.home.switching
+                  : connecting
+                    ? m.home.connecting
+                    : disconnecting
+                      ? m.home.disconnecting
+                      : connected
+                        ? m.home.disconnect
+                        : m.home.connect}
               </button>
             </>
           }
@@ -871,7 +875,7 @@ export function Home() {
                     upload={trafficStats?.session_upload ?? 0}
                     download={trafficStats?.session_download ?? 0}
                   />
-                  {preferences.show_memory_usage && (
+                  {showMemory && (
                     <MemoryUsageCard
                       bytes={currentMemoryBytes}
                       samples={memorySamples}
@@ -1226,7 +1230,7 @@ function ServerSidePanel({
     onReorder(next);
   };
 
-  if (!entries.length && !showFavOnly) {
+  if (!entries.length && !showFavOnly && !protocolFilter) {
     return (
       <div className="server-side-panel flex flex-col">
         <Link
@@ -1427,7 +1431,7 @@ function ServerSidePanel({
       <div className="server-side-list mt-1 flex-1 overflow-y-auto px-2 pb-3">
         {entries.length === 0 ? (
           <div className="px-3 py-8 text-center text-[12px] text-[var(--color-text-faint)]">
-            {labels.home.noFavorites}
+            {protocolFilter ? labels.home.noMatchingServers : labels.home.noFavorites}
           </div>
         ) : (
           entries.map(({ server }, idx) => {
@@ -2108,6 +2112,7 @@ function protoName(kind: string): string {
     case "shadowsocks": return "SS";
     case "hysteria2": return "HY2";
     case "naive": return "NAIVE";
+    case "awg": return "AWG";
     default: return kind.toUpperCase();
   }
 }

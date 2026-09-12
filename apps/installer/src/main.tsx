@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, PhysicalSize } from "@tauri-apps/api/dpi";
 import nimboLogo from "../../ui/src/assets/nimbo.png";
+import installerPackage from "../package.json";
 import "./styles.css";
 
 type StepState = "queued" | "running" | "done" | "failed";
@@ -185,7 +186,7 @@ const resizeHandles: Array<{ direction: ResizeDirection; className: string }> = 
 
 const previewProbe: InstallerProbe = {
   default_install_dir: "C:\\Users\\User\\AppData\\Local\\Programs\\Nimbo",
-  product_version: "1.0.1",
+  product_version: installerPackage.version,
   product_arch: "Windows x64",
   platform: "windows",
   existing_install: false,
@@ -195,7 +196,7 @@ const previewProbe: InstallerProbe = {
 
 const previewUninstallProbe: UninstallerProbe = {
   install_dir: "C:\\Users\\User\\AppData\\Local\\Programs\\Nimbo",
-  product_version: "1.0.1",
+  product_version: installerPackage.version,
   product_arch: "Windows x64",
   platform: "windows",
   helper_installed: true,

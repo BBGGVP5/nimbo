@@ -1432,6 +1432,7 @@ function SubscriptionSettingsDialog({
 function networkBadge(protocol: Server["protocol"]): string {
   if (protocol.kind === "shadowsocks") return "SHADOWSOCKS";
   if (protocol.kind === "naive") return "NAIVEPROXY";
+  if (protocol.kind === "awg") return "AWG";
   const value = transportLabel(protocol).replace(" · ", " • ").trim();
   return value ? value.toUpperCase() : "JSON";
 }
@@ -1626,7 +1627,10 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="grid grid-cols-[1fr_150px] gap-3 mobile-stack">
-          <input
+          <textarea
+            rows={3}
+            spellCheck={false}
+            autoComplete="off"
             value={source}
             onChange={(e) => setSource(e.target.value)}
             placeholder={m.profiles.sourcePlaceholder}

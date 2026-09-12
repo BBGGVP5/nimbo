@@ -2,9 +2,19 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VERSION="${NIMBO_VERSION:-1.2.0-beta.4}"
-MARKETING_VERSION="${VERSION%%-*}"
-BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-12}"
+VERSION="${NIMBO_VERSION:-1.2.0}"
+MARKETING_VERSION="${VERSION}"
+BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-170}"
+# Refuse a stale workflow's beta version or old run number before any build.
+if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo 'NIMBO_VERSION must be a stable numeric version (for this release: 1.2.0)' >&2
+  exit 2
+fi
+if [[ ! "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,3}$ ]] || (( BUILD_NUMBER <= 160 )); then
+  echo 'NIMBO_BUILD_NUMBER must be an integer from 161 to 9999 (default: 170)' >&2
+  exit 2
+fi
+[[ "$(uname -s)" == Darwin ]] || { echo 'IPA builds require macOS and Xcode' >&2; exit 2; }
 APP_BUNDLE_ID="${NIMBO_APP_BUNDLE_ID:-com.nimbo.resignable}"
 TUNNEL_BUNDLE_ID="${NIMBO_PACKET_TUNNEL_BUNDLE_ID:-${APP_BUNDLE_ID}.PacketTunnel}"
 ARTIFACT_DIR="${ROOT_DIR}/artifacts/ios"
@@ -16,6 +26,13 @@ OUTPUT_PATH="${ARTIFACT_DIR}/${OUTPUT_NAME}"
 
 cd "${ROOT_DIR}"
 mkdir -p "${ARTIFACT_DIR}"
+PROJECT_SPEC="$(mktemp "${ROOT_DIR}/iosApp/release-project.XXXXXX")"
+mv "${PROJECT_SPEC}" "${PROJECT_SPEC}.yml"
+PROJECT_SPEC="${PROJECT_SPEC}.yml"
+PACKAGE_DIR=""
+LDID_ENTITLEMENTS_DIR=""
+trap 'rm -f "${PROJECT_SPEC}"; [[ -z "${PACKAGE_DIR}" ]] || rm -rf "${PACKAGE_DIR}"; [[ -z "${LDID_ENTITLEMENTS_DIR}" ]] || rm -rf "${LDID_ENTITLEMENTS_DIR}"' EXIT
+cp "${ROOT_DIR}/iosApp/project.yml" "${PROJECT_SPEC}"
 rm -rf "${DERIVED_DATA}" "${ROOT_DIR}/iosApp/Nimbo.xcodeproj"
 
 chmod +x ./gradlew
@@ -72,7 +89,7 @@ fi
 # запись об удалённом файле.
 if [[ "${NIMBO_WITH_CONTROL_WIDGET:-0}" != "1" ]]; then
   echo "Собираю без виджета Пункта управления"
-  /usr/bin/python3 - "${ROOT_DIR}/iosApp/project.yml" <<'PY'
+  /usr/bin/python3 - "${PROJECT_SPEC}" <<'PY'
 import re
 import sys
 
@@ -91,7 +108,7 @@ fi
 
 (
   cd iosApp
-  xcodegen generate --spec project.yml
+  xcodegen generate --spec "${PROJECT_SPEC}"
 )
 
 xcodebuild \
@@ -156,6 +173,11 @@ assert_plist "${APP_PATH}/Info.plist" "NimboPacketTunnelBundleIdentifier" "${TUN
 assert_plist "${TUNNEL_PATH}/Info.plist" "CFBundleIdentifier" "${TUNNEL_BUNDLE_ID}"
 assert_plist "${TUNNEL_PATH}/Info.plist" "NSExtension:NSExtensionPointIdentifier" "com.apple.networkextension.packet-tunnel"
 assert_plist "${TUNNEL_PATH}/Info.plist" "NSExtension:NSExtensionPrincipalClass" "NimboPacketTunnel.PacketTunnelProvider"
+for bundle in "${TUNNEL_PATH}" "${WIDGET_PATH}"; do
+  [[ -d "${bundle}" ]] || continue
+  assert_plist "${bundle}/Info.plist" "CFBundleShortVersionString" "${MARKETING_VERSION}"
+  assert_plist "${bundle}/Info.plist" "CFBundleVersion" "${BUILD_NUMBER}"
+done
 
 # TrollStore and other private installers need the Packet Tunnel entitlement to
 # remain attached to both Mach-O executables. A byte-for-byte unsigned bundle
@@ -292,19 +314,21 @@ done
 rm -rf "${LDID_ENTITLEMENTS_DIR}"
 
 PACKAGE_DIR="$(mktemp -d)"
-trap 'rm -rf "${PACKAGE_DIR}"' EXIT
 mkdir -p "${PACKAGE_DIR}/Payload"
 ditto "${APP_PATH}" "${PACKAGE_DIR}/Payload/Nimbo.app"
 (
   cd "${PACKAGE_DIR}"
-  /usr/bin/zip -qry "${OUTPUT_PATH}" Payload
+  /usr/bin/zip -qry "${PACKAGE_DIR}/${OUTPUT_NAME}" Payload
 )
+mv -f "${PACKAGE_DIR}/${OUTPUT_NAME}" "${OUTPUT_PATH}"
 
 shasum -a 256 "${OUTPUT_PATH}" > "${OUTPUT_PATH}.sha256"
 
 cat > "${ARTIFACT_DIR}/build-manifest.txt" <<MANIFEST
 name=${OUTPUT_NAME}
 version=${VERSION}
+build_number=${BUILD_NUMBER}
+channel=stable
 main_bundle_id=${APP_BUNDLE_ID}
 packet_tunnel_bundle_id=${TUNNEL_BUNDLE_ID}
 signed=adhoc-ldid
@@ -315,7 +339,10 @@ requires_resigning=true
 requires_network_extension_entitlement=true
 resignable=true
 libxray_version=26.7.28
-libxray_sha256=07f7ed7697277930e1c517755855950f594f41435b0dfc5917a66eea6278aeb9
+libxray_source_sha256=1596603887679f7ac6cca99eb27ecb9153fb4ccc7828c1eacd4d07bcb6d94998
+awg_version=v3.1.20260828
+go_runtime_archives_per_slice=1
 MANIFEST
+cat "${ROOT_DIR}/iosApp/Vendor/libxray-build-info.txt" >> "${ARTIFACT_DIR}/build-manifest.txt"
 
 echo "Built ${OUTPUT_PATH}"

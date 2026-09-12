@@ -9,6 +9,8 @@ enum class SubscriptionPayloadFormat {
     @SerialName("base64_links") BASE64_LINKS,
     @SerialName("json_links") JSON_LINKS,
     @SerialName("xray_json") XRAY_JSON,
+    // Native iOS importer preserves raw INI; Compose must decode its profile.
+    @SerialName("amneziawg") AMNEZIAWG,
     @SerialName("unknown") UNKNOWN
 }
 

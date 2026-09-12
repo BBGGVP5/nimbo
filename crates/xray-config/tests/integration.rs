@@ -6,6 +6,48 @@ use nimbo_xray_config::{
 };
 
 #[test]
+fn awg_uses_only_authenticated_prepared_port_and_blocks_unprepared_profiles() {
+    let key = "01".repeat(32);
+    let mut server = parse_single(&format!("[Interface]\nPrivateKey={key}\nAddress=10.0.0.2/32\n[Peer]\nPublicKey={key}\nEndpoint=192.0.2.1:51820\nAllowedIPs=0.0.0.0/0\n")).unwrap();
+    let unprepared = serde_json::to_value(build_config(&server)).unwrap();
+    let proxy = unprepared["outbounds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["tag"] == "proxy")
+        .unwrap();
+    assert_eq!(proxy["protocol"], "blackhole");
+    let Protocol::Awg(awg) = &mut server.protocol else {
+        panic!()
+    };
+    awg.local_socks = Some(nimbo_subscription::AwgLocalSocks {
+        port: 43219,
+        username: "runtime-user".into(),
+        password: "runtime-password-12345".into(),
+    });
+    let prepared = serde_json::to_value(build_config(&server)).unwrap();
+    let proxy = prepared["outbounds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["tag"] == "proxy")
+        .unwrap();
+    assert_eq!(proxy["protocol"], "socks");
+    assert_eq!(proxy["settings"]["servers"][0]["address"], "127.0.0.1");
+    assert_eq!(proxy["settings"]["servers"][0]["port"], 43219);
+    assert_eq!(
+        proxy["settings"]["servers"][0]["users"][0]["user"],
+        "runtime-user"
+    );
+    assert_eq!(
+        proxy["settings"]["servers"][0]["users"][0]["pass"],
+        "runtime-password-12345"
+    );
+    assert!(!prepared.to_string().contains(&key));
+    assert!(!prepared.to_string().contains("privatekey"));
+}
+
+#[test]
 fn vless_reality_xhttp_full_config() {
     let url = "vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@1.2.3.4:443?type=xhttp&security=reality&pbk=KEY&fp=chrome&sni=microsoft.com&sid=01ab&flow=xtls-rprx-vision&mode=auto#srv";
     let server = parse_single(url).unwrap();

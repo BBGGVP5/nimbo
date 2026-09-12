@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import NimboShared
 
 struct NimboSubscriptionServer: Codable, Identifiable, Equatable {
@@ -51,12 +52,25 @@ final class NimboSubscriptionRepository {
             throw NimboSubscriptionRepositoryError.invalidEncoding
         }
 
-        let json = SubscriptionPayloadBridgeKt.NimboParseSubscriptionPayload(
-            payload: payload,
-            source: source
-        )
-        guard let normalizedData = json.data(using: .utf8) else {
-            throw NimboSubscriptionRepositoryError.bridgeEncoding
+        let normalizedData: Data
+        if let awg = try NimboAWGConfiguration.parseIfPresent(payload) {
+            let id = "awg-" + SHA256.hash(data: Data(awg.rawText.utf8)).map { String(format: "%02x", $0) }.joined()
+            let server = NimboSubscriptionServer(
+                id: id, name: "AmneziaWG", protocol: "amneziawg", host: awg.host,
+                port: awg.port, transport: "udp", security: "", rawConfiguration: awg.rawText,
+                isNativeXrayJson: false
+            )
+            normalizedData = try JSONEncoder().encode(NimboSubscriptionProfile(
+                parserRevision: Int(SubscriptionParserMigration.shared.currentRevision),
+                title: "AmneziaWG", source: source, format: "amneziawg",
+                servers: [server], diagnosticCode: nil
+            ))
+        } else {
+            let json = SubscriptionPayloadBridgeKt.NimboParseSubscriptionPayload(payload: payload, source: source)
+            guard let data = json.data(using: .utf8) else {
+                throw NimboSubscriptionRepositoryError.bridgeEncoding
+            }
+            normalizedData = data
         }
         let profile = try decoder.decode(NimboSubscriptionProfile.self, from: normalizedData)
         guard !profile.servers.isEmpty else {
@@ -109,7 +123,7 @@ final class NimboSubscriptionRepository {
         guard SubscriptionParserMigration.shared.needsMigration(parserRevision: Int32(profile.parserRevision)) else {
             return profile
         }
-        if (try NimboConfigurationStore.shared.loadSource()) != nil {
+        if try refreshSource() != nil {
             return try await refresh()
         }
         guard let selected = profile.selectedServer else { return profile }
@@ -135,14 +149,44 @@ final class NimboSubscriptionRepository {
         return server
     }
 
+    /// В старом/восстановленном профиле URL мог остаться только внутри JSON.
+    private func refreshSource() throws -> String? {
+        func valid(_ candidate: String?) -> String? {
+            guard let source = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  let url = URL(string: source), url.host != nil,
+                  ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+            return source
+        }
+        // Наличие корректного URL позволяет восстановить даже повреждённый
+        // JSON профиля: не декодируем его без необходимости.
+        if let source = valid(try NimboConfigurationStore.shared.loadSource()) { return source }
+        return valid(try loadProfile(migratingLegacy: false)?.source)
+    }
+
     func refresh() async throws -> NimboSubscriptionProfile {
-        guard let source = try NimboConfigurationStore.shared.loadSource(),
-              let url = URL(string: source),
+        guard let source = try refreshSource() else {
+            throw NimboSubscriptionRepositoryError.sourceUnavailable
+        }
+        return try await importRemote(source)
+    }
+
+    func importRemote(_ source: String) async throws -> NimboSubscriptionProfile {
+        guard let url = URL(string: source), url.host != nil,
               ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw NimboSubscriptionRepositoryError.sourceUnavailable
         }
+        await NimboDiagnostics.shared.record(
+            .info, stage: .config, code: "IOS_SUBSCRIPTION_REFRESH_STARTED",
+            message: "Запрошено обновление подписки"
+        )
         let request = NimboNetworkSession.subscriptionRequest(url: url)
         let (data, response) = try await NimboNetworkSession.shared.data(for: request)
+        await NimboDiagnostics.shared.record(
+            .info, stage: .config, code: "IOS_SUBSCRIPTION_RESPONSE",
+            message: "Получен ответ сервиса подписки",
+            metadata: ["bytes": "\(data.count)",
+                       "http_status": "\((response as? HTTPURLResponse)?.statusCode ?? -1)"]
+        )
         guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode) else {
             throw NimboSubscriptionRepositoryError.http((response as? HTTPURLResponse)?.statusCode ?? -1)
         }
@@ -151,8 +195,10 @@ final class NimboSubscriptionRepository {
         }
         // Имя владельца подписки, трафик и срок панель отдаёт заголовками —
         // в самих ссылках этого нет.
+        // Не меняем метаданные действующего профиля при ошибке разбора.
+        let profile = try importPayload(data, source: source)
         NimboSubscriptionMetaStore.save(NimboSubscriptionMeta(headers: http.allHeaderFields))
-        return try importPayload(data, source: source)
+        return profile
     }
 
     func rawProfileJSON() -> String? {

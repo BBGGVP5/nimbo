@@ -1,3 +1,4 @@
+import { isAwgInput, parseAwgInput } from "./awg";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import uiPackage from "../../package.json";
@@ -71,6 +72,7 @@ export type Protocol =
   | { kind: "trojan"; address: string; port: number; password: string; stream: StreamSettings }
   | { kind: "shadowsocks"; address: string; port: number; method: string; password: string }
   | { kind: "hysteria2"; address: string; port: number; password: string; sni?: string | null; alpn?: string[] | null; insecure: boolean; obfs?: string | null; obfs_password?: string | null }
+  | { kind: "awg"; address: string; port: number; config: string }
   | { kind: "naive"; address: string; port: number; username: string; password: string; transport: "https" | "quic"; local_port?: number | null };
 
 export interface Server {
@@ -548,7 +550,7 @@ const BROWSER_PERSISTED_STATE_KEY = "nimbo.persistedState";
 const BROWSER_POST_UPDATE_KEY = "nimbo.postUpdateInfo";
 const DEFAULT_SOCKS_USERNAME = "nimbo";
 const DEFAULT_SOCKS_PASSWORD = "nmb-preview-password";
-export const APP_VERSION = typeof uiPackage.version === "string" ? uiPackage.version : "1.0.1";
+export const APP_VERSION = uiPackage.version;
 
 function nonEmptyString(value: string | null | undefined, fallback: string): string {
   const trimmed = value?.trim();
@@ -837,10 +839,15 @@ function writeBrowserPersistedState(state: PersistedState): PersistedState {
 }
 
 function isSingleProxyLink(value: string): boolean {
+  if (isAwgInput(value)) return true;
   return /^(vless|vmess|trojan|ss|hysteria2|hy2|naive|naive\+https|naive\+quic):\/\//i.test(value.trim());
 }
 
 function fallbackServerFromProxyLink(value: string): Server {
+  if (isAwgInput(value)) {
+    const parsed = parseAwgInput(value);
+    return { id: randomUuid(), name: parsed.name, protocol: {kind: "awg", ...parsed.config} };
+  }
   const fallbackName = "Импортированный сервер";
   const fallbackAddress = "proxy.local";
   const fallbackPort = 443;
@@ -2207,6 +2214,8 @@ export function protocolLabel(p: Protocol): string {
       return "Hysteria2";
     case "naive":
       return "NaiveProxy";
+    case "awg":
+      return "AmneziaWG";
   }
 }
 
@@ -2218,7 +2227,8 @@ export function serverEndpoint(p: Protocol): string {
     case "shadowsocks":
     case "hysteria2":
     case "naive":
-      return `${p.address}:${p.port}`;
+    case "awg":
+      return `${p.address.includes(":") ? `[${p.address}]` : p.address}:${p.port}`;
   }
 }
 
@@ -2239,6 +2249,7 @@ export function transportLabel(p: Protocol): string {
   if (p.kind === "shadowsocks") return p.method;
   if (p.kind === "hysteria2") return [p.sni ? "TLS" : "QUIC", p.alpn?.join(", ")].filter(Boolean).join(" · ");
   if (p.kind === "naive") return p.transport === "quic" ? "QUIC" : "HTTPS";
+  if (p.kind === "awg") return "UDP";
   const stream = p.stream;
   const sec = stream.security === "none" ? "" : stream.security.toUpperCase();
   const net = stream.network.replace("_", "-").toUpperCase();

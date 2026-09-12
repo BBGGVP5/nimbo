@@ -2,7 +2,7 @@
   "bundle": {
     "resources": [
       "resources/tun/*",
-      "resources/naive/**/*"
+      "resources/naive/**/*", "resources/awg/**/*"
     ]
   }
 }

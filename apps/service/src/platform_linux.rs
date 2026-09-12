@@ -422,7 +422,8 @@ impl Tunnel {
         fs::set_permissions(config_path, fs::Permissions::from_mode(0o600))
             .context("не удалось выставить права на конфиг")?;
 
-        let routes = RouteBackup::capture(&request.bypass_ips)?;
+        let mut routes = RouteBackup::capture(&request.bypass_ips)?;
+        routes.apply_bypass()?;
         let mut dns = DnsBackup::capture();
         dns.interface = Some(request.interface.clone());
 
@@ -449,7 +450,6 @@ impl Tunnel {
             return Err(error);
         }
 
-        running.routes.apply_bypass();
         running.dns.apply(&request.dns);
         if request.kill_switch {
             running.kill_switch = apply_kill_switch(&request.interface, &request.bypass_ips);
@@ -501,69 +501,96 @@ fn wait_for_interface(name: &str) -> Result<()> {
 /// Маршруты в обход туннеля: трафик до самого VPN-сервера обязан идти через
 /// исходный шлюз, иначе получается петля. Храним, что добавили, и снимаем
 /// ровно это — чужие маршруты не трогаем.
-struct RouteBackup {
+#[derive(Debug, Clone)]
+struct ServerBypass {
+    prefix: String,
     gateway: Option<String>,
-    device: Option<String>,
-    bypass_ips: Vec<String>,
-    applied: Vec<String>,
+    device: String,
+}
+
+fn bypass_from_lookup(ip: &str, lookup: &serde_json::Value) -> Result<ServerBypass> {
+    ip.parse::<std::net::Ipv4Addr>().context("server bypass requires IPv4")?;
+    let route = lookup.as_array().and_then(|routes| routes.first()).ok_or_else(|| anyhow!("no route to VPN endpoint"))?;
+    let device = route.get("dev").and_then(|v| v.as_str()).filter(|v| !v.is_empty() && !v.starts_with("nimbo") && !v.starts_with("wintun"))
+        .ok_or_else(|| anyhow!("VPN endpoint has no physical route"))?;
+    let gateway = route.get("gateway").and_then(|v| v.as_str()).map(str::to_owned);
+    if let Some(gateway) = &gateway { gateway.parse::<std::net::Ipv4Addr>().context("invalid bypass gateway")?; }
+    Ok(ServerBypass { prefix: format!("{ip}/32"), gateway, device: device.into() })
+}
+
+struct RouteBackup {
+    routes: Vec<ServerBypass>,
+    applied: Vec<ServerBypass>,
 }
 
 impl RouteBackup {
     fn capture(bypass_ips: &[String]) -> Result<Self> {
-        let (gateway, device) = default_route();
-        Ok(Self {
-            gateway,
-            device,
-            bypass_ips: bypass_ips.to_vec(),
-            applied: Vec::new(),
-        })
+        let mut routes = Vec::new();
+        for ip in bypass_ips {
+            ip.parse::<std::net::Ipv4Addr>().context("server bypass requires IPv4")?;
+            let result = Command::new("ip").args(["-j", "route", "get", ip]).output().context("could not look up VPN endpoint route")?;
+            if !result.status.success() { return Err(anyhow!("VPN endpoint route unavailable")); }
+            let lookup = serde_json::from_slice(&result.stdout).context("invalid endpoint route response")?;
+            routes.push(bypass_from_lookup(ip,&lookup)?);
+        }
+        Ok(Self { routes, applied: Vec::new() })
     }
 
-    fn apply_bypass(&mut self) {
-        let (Some(gateway), Some(device)) = (self.gateway.clone(), self.device.clone()) else {
-            warn!("маршрут по умолчанию не найден, обход сервера не настроен");
-            return;
-        };
-        for ip in self.bypass_ips.clone() {
-            let ok = Command::new("ip")
-                .args(["route", "add", &ip, "via", &gateway, "dev", &device])
-                .status()
-                .map(|status| status.success())
-                .unwrap_or(false);
-            if ok {
-                self.applied.push(ip);
+    fn apply_bypass(&mut self) -> Result<()> {
+        for route in self.routes.clone() {
+            let existing = Command::new("ip").args(["-j", "route", "show", "exact", &route.prefix])
+                .output().context("could not inspect server bypass route")?;
+            if !existing.status.success() { return Err(anyhow!("could not inspect server bypass route")); }
+            let routes: serde_json::Value = serde_json::from_slice(&existing.stdout).context("invalid route response")?;
+            if let Some(entries) = routes.as_array().filter(|entries| !entries.is_empty()) {
+                if entries.iter().any(|entry| entry.get("dev").and_then(|v| v.as_str()) == Some(route.device.as_str())
+                    && entry.get("gateway").and_then(|v| v.as_str()) == route.gateway.as_deref()) { continue; }
+                return Err(anyhow!("conflicting server bypass route"));
             }
+            let mut command = Command::new("ip");
+            command.args(["route", "add", &route.prefix]);
+            if let Some(gateway) = &route.gateway { command.args(["via", gateway]); }
+            let status = command.args(["dev", &route.device]).stdout(Stdio::null()).stderr(Stdio::null())
+                .status().context("could not add server bypass route")?;
+            if !status.success() { return Err(anyhow!("could not add server bypass route")); }
+            self.applied.push(route);
         }
+        Ok(())
     }
 
     fn restore(&mut self) {
-        for ip in self.applied.drain(..) {
-            let _ = Command::new("ip").args(["route", "del", &ip]).status();
+        for route in self.applied.drain(..) {
+            let mut command = Command::new("ip");
+            command.args(["route", "del", &route.prefix]);
+            if let Some(gateway) = &route.gateway { command.args(["via", gateway]); }
+            let _ = command.args(["dev", &route.device]).stdout(Stdio::null()).stderr(Stdio::null()).status();
         }
     }
 }
 
-fn default_route() -> (Option<String>, Option<String>) {
-    let output = Command::new("ip")
-        .args(["route", "show", "default"])
-        .output()
-        .ok();
-    let Some(output) = output else {
-        return (None, None);
-    };
-    let text = String::from_utf8_lossy(&output.stdout);
-    let line = text.lines().next().unwrap_or_default();
-    let mut gateway = None;
-    let mut device = None;
-    let mut parts = line.split_whitespace();
-    while let Some(token) = parts.next() {
-        match token {
-            "via" => gateway = parts.next().map(str::to_string),
-            "dev" => device = parts.next().map(str::to_string),
-            _ => {}
-        }
+impl Drop for RouteBackup {
+    fn drop(&mut self) { self.restore(); }
+}
+
+#[cfg(test)]
+mod awg_route_tests {
+    use super::*;
+    #[test]
+    fn captures_actual_endpoint_interface_and_on_link_routes() {
+        let route = bypass_from_lookup("192.0.2.9",&serde_json::json!([{"dev":"eth1","gateway":"192.0.2.1"}])).unwrap();
+        assert_eq!(route.device,"eth1");
+        assert_eq!(route.gateway.as_deref(),Some("192.0.2.1"));
+        assert_eq!(route.prefix,"192.0.2.9/32");
+        let on_link = bypass_from_lookup("192.168.1.9",&serde_json::json!([{"dev":"wlan0"}])).unwrap();
+        assert!(on_link.gateway.is_none());
     }
-    (gateway, device)
+    #[test]
+    fn rejects_missing_tunnel_and_non_ipv4_endpoint_routes() {
+        for lookup in [serde_json::json!([]),serde_json::json!([{"dev":"nimbo0"}]),serde_json::json!([{}])] {
+            assert!(bypass_from_lookup("192.0.2.1",&lookup).is_err());
+        }
+        assert!(bypass_from_lookup("::1",&serde_json::json!([{"dev":"eth0"}])).is_err());
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────── DNS

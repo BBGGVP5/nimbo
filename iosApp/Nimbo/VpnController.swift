@@ -1,5 +1,6 @@
 import Foundation
 import NetworkExtension
+import WidgetKit
 // Правила модулей разбирает общий модуль: конфигурацию туннеля собирает он же.
 import NimboShared
 
@@ -96,6 +97,10 @@ final class VpnController: ObservableObject {
               let tunnelProtocol = manager.protocolConfiguration as? NETunnelProviderProtocol else {
             throw VpnControllerError.managerUnavailable
         }
+        // Preserve NetworkExtension's physical-network exemption for sockets
+        // created by the provider (including the encrypted AWG UDP endpoint).
+        // The default IPv4/IPv6 routes still capture the device's app traffic.
+        tunnelProtocol.includeAllNetworks = false
         tunnelProtocol.providerConfiguration = [
             "schema": 2,
             "configData": data,
@@ -197,7 +202,18 @@ final class VpnController: ObservableObject {
     }
 
     func connect() async {
+        guard state != .connected, state != .connecting, state != .preparing,
+              state != .disconnecting else { return }
+        state = .connecting
         do {
+            // Подписка сохраняется независимо от VPN permissions. Перед
+            // запуском используем актуальный, а не ранее переданный профиль.
+            if let profile = try NimboSubscriptionRepository.shared.loadProfile(),
+               let selected = profile.selectedServer {
+                try await stageConfiguration(
+                    data: NimboSubscriptionRepository.shared.stagingData(for: selected)
+                )
+            }
             if manager == nil { manager = try await loadOrCreateManager() }
             guard let manager else { throw VpnControllerError.managerUnavailable }
             guard let tunnelProtocol = manager.protocolConfiguration as? NETunnelProviderProtocol,
@@ -317,6 +333,9 @@ final class VpnController: ObservableObject {
         lastKnownStatus = status
 
         if previous != status {
+            if #available(iOS 18.0, *) {
+                ControlCenter.shared.reloadControls(ofKind: "com.nimbo.control.vpn")
+            }
             let statusName = Self.statusName(status)
             Task {
                 await NimboDiagnostics.shared.record(

@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/android
+        working-directory: .
 
     steps:
       - name: Получить исходники
@@ -39,5 +39,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nimbo-android-release-unsigned
-          path: apps/android/app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error

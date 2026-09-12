@@ -398,6 +398,7 @@ fn protocol_identity(protocol: &Protocol) -> String {
             config.alpn,
             config.insecure
         ),
+        Protocol::Awg(config) => format!("awg:{}", config.config),
         Protocol::Naive(config) => format!(
             "naive:{}:{}:{}:{}:{:?}",
             config.address, config.port, config.username, config.password, config.transport

@@ -16,10 +16,13 @@ enum NimboStagingPayload {
         in profile: NimboSubscriptionProfile?
     ) -> Data {
         let plain = Data(server.rawConfiguration.utf8)
+        // AWG is staged verbatim; its peer is never part of an Xray balancer.
+        if ["amneziawg", "awg", "wireguard"].contains(server.protocol.lowercased()) { return plain }
         guard isAutoBalancer(server), let profile else { return plain }
 
         let candidates = profile.servers.filter { candidate in
             !isAutoBalancer(candidate) &&
+                !["amneziawg", "awg", "wireguard"].contains(candidate.protocol.lowercased()) &&
                 !candidate.isNativeXrayJson &&
                 !candidate.host.isEmpty &&
                 candidate.rawConfiguration.contains("://")

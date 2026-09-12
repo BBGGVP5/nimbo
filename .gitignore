@@ -43,3 +43,27 @@ ui-template/
 # Артефакт сборки Linux-инсталлятора: cargo однажды развернул CARGO_TARGET_DIR
 # внутрь исходников. Это build output, а не код.
 apps/installer/src-tauri/C*Users*/
+
+# Android / Compose / Apple local outputs and signing material
+.gradle/
+.kotlin/
+**/build/
+**/.cxx/
+**/.externalNativeBuild/
+**/local.properties
+**/signing.properties
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+app/release/
+app/debug/
+artifacts/
+release-upload/
+.codex-tmp/
+iosApp/Nimbo.xcodeproj/
+iosApp/Vendor/
+__pycache__/
+*.pyc
+# AWG executables and manifests are produced from pinned Go sources at build time.
+apps/ui/src-tauri/resources/awg/*/nimbo-awg*

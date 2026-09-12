@@ -1620,6 +1620,30 @@ mod tests {
     }
 
     #[test]
+    fn beta_channel_promotes_beta5_to_stable_120_on_desktop_targets() {
+        for (os, arch, stable_asset, beta_asset) in [
+            ("windows", "x86_64", "NimboSetup_1.2.0_x64.exe", "NimboSetup_1.2.0-beta.5_x64.exe"),
+            ("linux", "x86_64", "Nimbo_1.2.0_amd64.AppImage", "Nimbo_1.2.0-beta.5_amd64.AppImage"),
+        ] {
+            // Deliberately leave beta first, as the GitHub list can be reordered.
+            let releases = vec![
+                release_with_assets("v1.2.0-beta.5", true, &[beta_asset]),
+                release_with_assets("v1.2.0", false, &[stable_asset]),
+            ];
+            for channel in [UpdateChannel::Beta, UpdateChannel::Stable] {
+                let selected = select_release_for_target(&releases, channel, os, arch).unwrap();
+                assert_eq!(selected.tag_name, "v1.2.0");
+                assert_eq!(
+                    update_reason(&selected.tag_name, "1.2.0-beta.5", None, "stable"),
+                    Some(UpdateReason::NewVersion)
+                );
+                assert_eq!(update_reason(&selected.tag_name, "1.2.0", None, "stable"), None);
+            }
+        }
+        assert_eq!(update_reason("1.2.0-beta.5", "1.2.0", None, "beta"), None);
+    }
+
+    #[test]
     fn desktop_release_notes_use_only_tagged_desktop_section() {
         let body = r#"
 <!-- nimbo:android:start -->

@@ -1,7 +1,9 @@
 import SwiftUI
+import AppIntents
 
 @main
 struct NimboApp: App {
+    init() { NimboShortcuts.updateAppShortcutParameters() }
     @StateObject private var vpnController = VpnController()
 
     var body: some Scene {

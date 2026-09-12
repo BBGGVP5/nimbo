@@ -9,7 +9,7 @@ on:
       version:
         description: Version embedded in the IPA filename
         required: true
-        default: 1.2.0-beta.4
+        default: 1.2.0
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ permissions:
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -31,6 +31,17 @@ jobs:
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Set up pinned Go for the combined Xray and AWG runtime
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+          cache-dependency-path: |
+            iosApp/GoBridge/go.sum
+            tools/native/awg-core/go.sum
+
+      - name: Verify iOS AWG contracts
+        run: python3 scripts/ci/check-ios-awg.py --swift
+
       - name: Install build tools
         run: brew install xcodegen ldid-procursus
 
@@ -39,16 +50,18 @@ jobs:
 
       - name: Build re-signable IPA
         env:
-          NIMBO_VERSION: ${{ inputs.version || '1.2.0-beta.4' }}
+          NIMBO_WITH_CONTROL_WIDGET: '1'
+          NIMBO_BUILD_NUMBER: '170'
+          NIMBO_VERSION: ${{ inputs.version || '1.2.0' }}
         run: bash scripts/ci/build-unsigned-ios.sh
 
       - name: Upload private temporary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Nimbo_v${{ inputs.version || '1.2.0-beta.4' }}_ios_resignable
+          name: Nimbo_v${{ inputs.version || '1.2.0' }}_ios_resignable
           path: |
-            artifacts/ios/Nimbo_v${{ inputs.version || '1.2.0-beta.4' }}_ios_resignable.ipa
-            artifacts/ios/Nimbo_v${{ inputs.version || '1.2.0-beta.4' }}_ios_resignable.ipa.sha256
+            artifacts/ios/Nimbo_v${{ inputs.version || '1.2.0' }}_ios_resignable.ipa
+            artifacts/ios/Nimbo_v${{ inputs.version || '1.2.0' }}_ios_resignable.ipa.sha256
             artifacts/ios/build-manifest.txt
             artifacts/ios/codesign-entitlements/*.plist
           if-no-files-found: error

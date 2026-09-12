@@ -3,6 +3,7 @@ import { protocolLabel, transportLabel, type Server, type Subscription } from ".
 import { fillTemplate, type Messages } from "../../lib/i18n";
 import { serverDisplayLabel } from "../../lib/serverUiOverrides";
 import { CountryFlag } from "../../components/CountryFlag";
+import { Link } from "react-router-dom";
 
 /**
  * Рельс серверов в стиле Signal: поиск, фильтры-чипы и плотный список,
@@ -144,6 +145,7 @@ export function SignalServerRail({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={m.profiles.searchServers}
+          aria-label={m.profiles.searchServers}
           spellCheck={false}
         />
       </label>
@@ -216,7 +218,14 @@ export function SignalServerRail({
       <div className="signal-srv-list">
         {visible.length === 0 && (
           <div className="signal-srv-empty">
-            {entries.length === 0 ? m.common.serverNotSelected : m.home.noFavorites}
+            {query.trim() || protocolFilter
+              ? m.home.noMatchingServers
+              : showFavOnly ? m.home.noFavorites : m.profiles.emptyTitle}
+            {subs.length === 0 && (
+              <Link to="/subscriptions" className="signal-btn signal-btn--ghost signal-btn--sm">
+                {m.home.addProfileFirst}
+              </Link>
+            )}
             {emptyAction}
           </div>
         )}

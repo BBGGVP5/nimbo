@@ -12,6 +12,14 @@
   <a href="./docs/build/linux.md">Сборка для Linux</a>
 </p>
 
+## Версия 1.2.0
+
+Общий стабильный выпуск для Android, iOS, Windows и Linux. [Изменения](./RELEASE_NOTES_1.2.0.md).
+Android и общий модуль собираются из корня (`./gradlew :app:assembleRelease`).
+Для подписанных APK используйте собственную локальную конфигурацию подписи; ключи в репозитории не хранятся.
+Apple-сборка: `scripts/ci/build-unsigned-ios.sh` на macOS с Xcode. Она требует переподписи перед установкой.
+Desktop AWG использует `tools/native/awg-core` и Go 1.27.0; сборка проверяет SHA-256 ядра.
+
 ## О проекте
 
 Nimbo импортирует подписки с `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `naive+https://` и `naive+quic://`, показывает серверы, измеряет задержку и создаёт конфигурацию подключения. Для NaiveProxy Nimbo запускает официальный нативный клиент как локальный SOCKS-компонент. Интерфейс написан на React, desktop-оболочка и системная логика — на Tauri/Rust.
@@ -31,7 +39,8 @@ Nimbo импортирует подписки с `vless://`, `vmess://`, `trojan
 | Windows 10/11 x64 | Основная | NSIS setup (`.exe`) |
 | Linux x64 | Экспериментальная | AppImage, DEB, RPM |
 | Linux arm64 | Поддержан Xray runtime; пакет нужно собирать на arm64 Linux | AppImage/DEB/RPM при нативной сборке |
-| Android | Планируется | Исходники будут в `apps/android/`; клиента пока нет |
+| Android ARM64 / ARMv7 | Клиент | APK (отдельные ABI и universal) |
+| iPhone / iPad | Клиент с Network Extension | IPA для переподписи |
 
 AppImage подходит большинству дистрибутивов. DEB предназначен для Ubuntu, Debian, Linux Mint и Pop!_OS; RPM — для Fedora, RHEL-подобных систем и openSUSE.
 
@@ -43,7 +52,10 @@ nimbo/
 │   ├── ui/             # Tauri 2 + React desktop-клиент
 │   ├── service/        # Windows-служба для привилегированных операций
 │   ├── installer/      # Кастомные установщики Windows/Linux
-│   └── android/        # Зарезервировано для будущего Android-клиента
+├── app/                # Android-приложение
+├── shared/             # Общие модели и Compose-интерфейс
+├── iosApp/             # iOS-приложение и VPN-расширение
+├── tools/native/       # Воспроизводимые сборки AmneziaWG
 ├── crates/
 │   ├── device/         # Идентификация устройства
 │   ├── ipc/            # Общие типы IPC
@@ -101,7 +113,7 @@ git push origin v1.0.1
 ```
 
 Версия тега должна совпадать с версией в `apps/ui/src-tauri/tauri.conf.json` и workspace `Cargo.toml`.
-Теги с суффиксом `-alpha`, `-beta` или `-rc` автоматически публикуются как prerelease и доступны пользователям канала «Бета»; обычные SemVer-теги попадают в «Стабильный» и «Бета».
+Теги запускают сборки без автоматической публикации. Проверенные файлы сначала прикрепляются к черновику релиза. Предварительные выпуски доступны в канале «Бета»; стабильные SemVer-выпуски — в обоих каналах.
 
 ## Безопасность и обновления
 

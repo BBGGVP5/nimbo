@@ -1,3 +1,5 @@
+mod awg_runtime;
+mod awg_routes;
 pub mod commands;
 pub mod cross_sync;
 #[cfg(windows)]

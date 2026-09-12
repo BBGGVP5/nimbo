@@ -548,6 +548,7 @@ fn server_config_key(server: &Server) -> String {
             lower_option_key(config.obfs.as_deref()),
             exact_option_key(config.obfs_password.as_deref()),
         ]),
+        Protocol::Awg(config) => json!(["awg", config.config]),
         Protocol::Naive(config) => json!([
             "naive",
             lower_key(&config.address),
@@ -625,6 +626,7 @@ fn server_logical_key(server: &Server) -> Option<String> {
                 exact_option_key(config.obfs_password.as_deref()),
             ])
         }
+        Protocol::Awg(config) => json!(["awg", config.config]),
         Protocol::Naive(config) => {
             if config.username.trim().is_empty() || config.password.trim().is_empty() {
                 return None;
@@ -1288,6 +1290,7 @@ fn server_identity(server: &Server) -> (&str, u16, Option<&str>) {
         Protocol::Shadowsocks(cfg) => (&cfg.address, cfg.port, None),
         Protocol::Hysteria2(cfg) => (&cfg.address, cfg.port, None),
         Protocol::Naive(cfg) => (&cfg.address, cfg.port, None),
+        Protocol::Awg(cfg) => (&cfg.address, cfg.port, None),
     }
 }
 

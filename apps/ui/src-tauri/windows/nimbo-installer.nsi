@@ -95,9 +95,34 @@ LangString DESC_SecApp ${LANG_RUSSIAN} "Основные файлы прилож
 LangString DESC_SecStartMenu ${LANG_RUSSIAN} "Добавить ярлык Nimbo в меню «Пуск»."
 LangString DESC_SecDesktop ${LANG_RUSSIAN} "Добавить ярлык Nimbo на рабочий стол."
 
+Var AwgBackupTaken
+Var AwgNewExtracted
+
+!macro RemoveAwgResources Directory
+  Delete "${Directory}\windows-x64\nimbo-awg.exe"
+  Delete "${Directory}\windows-x64\nimbo-awg.exe.manifest.json"
+  RMDir "${Directory}\windows-x64"
+  Delete "${Directory}\windows-x86\nimbo-awg.exe"
+  Delete "${Directory}\windows-x86\nimbo-awg.exe.manifest.json"
+  RMDir "${Directory}\windows-x86"
+  Delete "${Directory}\windows-arm64\nimbo-awg.exe"
+  Delete "${Directory}\windows-arm64\nimbo-awg.exe.manifest.json"
+  RMDir "${Directory}\windows-arm64"
+  Delete "${Directory}\linux-x64\nimbo-awg"
+  Delete "${Directory}\linux-x64\nimbo-awg.manifest.json"
+  RMDir "${Directory}\linux-x64"
+  Delete "${Directory}\linux-arm64\nimbo-awg"
+  Delete "${Directory}\linux-arm64\nimbo-awg.manifest.json"
+  RMDir "${Directory}\linux-arm64"
+  Delete "${Directory}\README.md"
+  RMDir "${Directory}"
+!macroend
+
 Section "!Nimbo" SEC_APP
   SectionIn RO
 
+  StrCpy $AwgBackupTaken "0"
+  StrCpy $AwgNewExtracted "0"
   StrCpy $R7 ""
   StrCpy $R8 "0"
   StrCpy $R9 "0"
@@ -147,6 +172,21 @@ Section "!Nimbo" SEC_APP
   SetOutPath "$APPDATA\Nimbo\bin"
   File "${TAURI_DIR}\resources\tun\tun2socks.exe"
   File "${TAURI_DIR}\resources\tun\wintun.dll"
+
+  ; Preserve the sidecar matching the previous app's embedded digest on rollback.
+  !insertmacro RemoveAwgResources "$INSTDIR\resources\awg.old"
+  ${If} ${FileExists} "$INSTDIR\resources\awg\*"
+    ClearErrors
+    Rename "$INSTDIR\resources\awg" "$INSTDIR\resources\awg.old"
+    ${If} ${Errors}
+      Goto rollback_update
+    ${EndIf}
+    StrCpy $AwgBackupTaken "1"
+  ${EndIf}
+  StrCpy $AwgNewExtracted "1"
+  SetOutPath "$INSTDIR\resources\awg"
+  File /r "${TAURI_DIR}\resources\awg\*"
+
 
   SetOutPath "$INSTDIR"
   WriteRegStr HKCU "Software\${APP_ID}" "InstallDir" "$INSTDIR"
@@ -204,6 +244,7 @@ Section "!Nimbo" SEC_APP
 
   Delete "$INSTDIR\${PRODUCT_EXE}.old"
   Delete "$INSTDIR\nimbo-svc.exe.old"
+  !insertmacro RemoveAwgResources "$INSTDIR\resources\awg.old"
   Goto update_complete
 
   rollback_update:
@@ -217,6 +258,12 @@ Section "!Nimbo" SEC_APP
     Sleep 300
     Delete "$INSTDIR\${PRODUCT_EXE}"
     Delete "$INSTDIR\nimbo-svc.exe"
+    ${If} $AwgNewExtracted == "1"
+      !insertmacro RemoveAwgResources "$INSTDIR\resources\awg"
+    ${EndIf}
+    ${If} $AwgBackupTaken == "1"
+      Rename "$INSTDIR\resources\awg.old" "$INSTDIR\resources\awg"
+    ${EndIf}
 
     ${If} $R8 == "1"
       Rename "$INSTDIR\${PRODUCT_EXE}.old" "$INSTDIR\${PRODUCT_EXE}"
@@ -272,6 +319,9 @@ Section "Uninstall"
   Delete "$APPDATA\Nimbo\bin\wintun.dll"
   RMDir "$APPDATA\Nimbo\bin"
 
+  !insertmacro RemoveAwgResources "$INSTDIR\resources\awg"
+  !insertmacro RemoveAwgResources "$INSTDIR\resources\awg.old"
+  RMDir "$INSTDIR\resources"
   Delete "$INSTDIR\nimbo-svc.exe"
   Delete "$INSTDIR\icon.ico"
   Delete "$INSTDIR\${PRODUCT_EXE}"

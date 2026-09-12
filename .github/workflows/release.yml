@@ -15,6 +15,9 @@ on:
         default: false
         type: boolean
 
+env:
+  NIMBO_AWG_CORE_DIR: ${{ github.workspace }}/tools/native/awg-core
+
 permissions:
   contents: write
 
@@ -26,6 +29,21 @@ jobs:
     steps:
       - name: Получить исходники
         uses: actions/checkout@v4
+
+      - name: Проверить версии выпуска
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: python tools/release/check-versions.py
+
+      - name: Установить Go для AmneziaWG
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+          cache-dependency-path: tools/native/awg-core/go.sum
+
+      - name: Проверить зашифрованный обмен AWG
+        working-directory: tools/native/awg-core
+        run: go test ./... -timeout 90s
 
       - name: Установить Rust
         uses: dtolnay/rust-toolchain@stable
@@ -90,6 +108,21 @@ jobs:
             libwebkit2gtk-4.1-dev libssl-dev \
             libayatana-appindicator3-dev librsvg2-dev
 
+      - name: Проверить версии выпуска
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: python tools/release/check-versions.py
+
+      - name: Установить Go для AmneziaWG
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+          cache-dependency-path: tools/native/awg-core/go.sum
+
+      - name: Проверить зашифрованный обмен AWG
+        working-directory: tools/native/awg-core
+        run: go test ./... -timeout 90s
+
       - name: Установить Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -146,8 +179,8 @@ jobs:
   publish:
     name: Прикрепить файлы к GitHub Release
     needs: [windows, linux]
-    # Пуш тега публикует как и раньше; ручной запуск — только по просьбе.
-    if: github.event_name == 'push' || inputs.publish
+    # Публикация только по явному запросу; сборка тега не публикует неполный релиз.
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
     runs-on: ubuntu-latest
 
     steps:
@@ -167,13 +200,13 @@ jobs:
           set -euo pipefail
           if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             if [[ "$TAG" =~ -(alpha|beta|rc)(\.|-)?[0-9]*$ ]]; then
-              gh release create "$TAG" -R "$GITHUB_REPOSITORY" --prerelease --generate-notes
+              gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --prerelease --generate-notes
             else
-              gh release create "$TAG" -R "$GITHUB_REPOSITORY" --generate-notes
+              gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --generate-notes
             fi
           fi
           while IFS= read -r -d '' file; do
             hash="$(sha256sum "$file" | awk '{print $1}')"
             printf '%s  %s\n' "$hash" "$(basename "$file")" > "${file}.sha256"
           done < <(find release-assets -type f ! -name '*.sha256' -print0)
-          find release-assets -type f -print0 | xargs -0 gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber
+          find release-assets -type f -print0 | xargs -0 gh release upload "$TAG" -R "$GITHUB_REPOSITORY"

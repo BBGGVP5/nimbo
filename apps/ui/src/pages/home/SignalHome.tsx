@@ -156,7 +156,7 @@ export function SignalHome({
             </div>
 
             <div className="signal-hero-state">
-              <div className="signal-state-line">
+              <div className="signal-state-line" role="status">
                 <span className="signal-state-word">{stateWord}</span>
                 <span className="signal-state-pill">{modeLabel}</span>
               </div>

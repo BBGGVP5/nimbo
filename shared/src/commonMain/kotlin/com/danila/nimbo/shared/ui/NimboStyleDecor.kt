@@ -61,7 +61,7 @@ fun Modifier.nimboDottedOutline(
     )
     val inset = thickness.toPx() / 2f
     drawRoundRect(
-        color = color.copy(alpha = alpha),
+        color = color.copy(alpha = color.alpha * alpha),
         topLeft = Offset(inset, inset),
         size = Size(size.width - inset * 2, size.height - inset * 2),
         cornerRadius = CornerRadius(cornerRadius.toPx()),
@@ -72,6 +72,7 @@ fun Modifier.nimboDottedOutline(
 /** Страница в клетку — подложка стиля Manga. */
 @androidx.compose.runtime.Composable
 fun NimboMangaBackdrop() {
+    val ink = NimboMangaPalette.Ink
     // Волокна считаются один раз: случайность с фиксированным зерном, иначе
     // крапины плясали бы на каждом кадре.
     val grain = androidx.compose.runtime.remember {
@@ -85,7 +86,7 @@ fun NimboMangaBackdrop() {
     ) {
         // Волокна вместо разлиновки: клетка читалась тетрадью, а не
         // страницей. Два направления под разными углами, как на компьютере.
-        val fiber = NimboMangaPalette.Ink.copy(alpha = 0.022f)
+        val fiber = ink.copy(alpha = 0.006f)
         val diagonal = size.width + size.height
         var offset = -size.height
         while (offset < diagonal) {
@@ -97,7 +98,7 @@ fun NimboMangaBackdrop() {
             )
             offset += 7.dp.toPx()
         }
-        val darkFiber = Color.Black.copy(alpha = 0.05f)
+        val darkFiber = Color.Black.copy(alpha = 0.014f)
         offset = -size.height
         while (offset < diagonal) {
             drawLine(
@@ -112,14 +113,14 @@ fun NimboMangaBackdrop() {
         // Свет по листу лежит неровно: два мягких пятна ближе к углам.
         drawRect(
             brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                colors = listOf(NimboMangaPalette.Ink.copy(alpha = 0.05f), Color.Transparent),
+                colors = listOf(ink.copy(alpha = 0.05f), Color.Transparent),
                 center = Offset(size.width * 0.18f, size.height * 0.12f),
                 radius = size.minDimension * 0.7f
             )
         )
 
         val speckSize = androidx.compose.ui.geometry.Size(1.2f.dp.toPx(), 1.2f.dp.toPx())
-        val speck = NimboMangaPalette.Ink.copy(alpha = 0.045f)
+        val speck = ink.copy(alpha = 0.045f)
         grain.forEach { point ->
             drawRect(
                 color = speck,

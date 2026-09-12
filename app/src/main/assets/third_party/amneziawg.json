@@ -1,0 +1,11 @@
+{
+  "name": "AmneziaWG",
+  "version": "v3.1.20260828",
+  "source": "https://github.com/amnezia-vpn/amneziawg-go",
+  "license": "MIT; Android JNI bridge Apache-2.0",
+  "bridgeSource": "https://github.com/amnezia-vpn/amneziawg-android/tree/5c16489e2cd9ed3a0a7a27c7445bba5238132f86/tunnel/tools/libwg-go",
+  "bundled": {
+    "arm64-v8a": { "file": "libwg-go.so", "sha256": "2c40cd7d22ae92278c5fe3ae45b8e847d9fc0f845b547d41f7fc5a4a11f79d84" },
+    "armeabi-v7a": { "file": "libwg-go.so", "sha256": "71b710333cc88fd3e75eb631490db1878190a6244736ac8b055a8b1643cd5f54" }
+  }
+}

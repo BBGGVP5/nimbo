@@ -17,6 +17,7 @@ enum XrayConfigurationBuilder {
         tunnelInterfaceName: String,
         assetDirectory: String,
         options: NimboRoutingOptions = .default,
+        tunnelMTU: Int = PacketTunnelNetwork.mtu,
         bridge: LibXrayBridge
     ) throws -> PreparedXrayConfiguration {
         guard !tunnelInterfaceName.isEmpty else { throw XrayConfigurationError.tunnelInterfaceUnknown }
@@ -44,7 +45,7 @@ enum XrayConfigurationBuilder {
             assetDirectory: assetDirectory
         )
         configuration["inbounds"] = [
-            tunnelInbound(interfaceName: tunnelInterfaceName, sniffing: options.sniffingEnabled)
+            tunnelInbound(interfaceName: tunnelInterfaceName, sniffing: options.sniffingEnabled, mtu: tunnelMTU)
         ]
         let sanitized = sanitizedOutbounds(outbounds, balanced: source.balanced)
         configuration["outbounds"] = appendUtilityOutbounds(to: sanitized)
@@ -118,13 +119,13 @@ enum XrayConfigurationBuilder {
     /// `infra/conf/tun.go` разбирает настройки как `name`/`mtu` строчными
     /// буквами, а имя обязано быть настоящим `utunN`: на Darwin ядро без
     /// дескриптора пытается открыть интерфейс по имени и отвергает «tun0».
-    private static func tunnelInbound(interfaceName: String, sniffing: Bool) -> [String: Any] {
+    private static func tunnelInbound(interfaceName: String, sniffing: Bool, mtu: Int) -> [String: Any] {
         var inbound: [String: Any] = [
             "tag": "tun-in",
             "protocol": "tun",
             "settings": [
                 "name": interfaceName,
-                "mtu": PacketTunnelNetwork.mtu
+                "mtu": mtu
             ]
         ]
         if sniffing {

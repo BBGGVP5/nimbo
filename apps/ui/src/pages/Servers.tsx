@@ -491,6 +491,7 @@ function pingTier(ping: number): { bg: string; fg: string } {
 function networkBadge(protocol: Server["protocol"]): string {
   if (protocol.kind === "shadowsocks") return "SHADOWSOCKS";
   if (protocol.kind === "naive") return "NAIVEPROXY";
+  if (protocol.kind === "awg") return "AWG";
   const value = transportLabel(protocol).replace(" · ", " • ").trim();
   return value ? value.toUpperCase() : "JSON";
 }

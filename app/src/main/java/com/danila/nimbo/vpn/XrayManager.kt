@@ -1,0 +1,1314 @@
+package com.danila.nimbo.vpn
+
+import android.content.Context
+import android.net.Network
+import android.net.VpnService
+import android.os.ParcelFileDescriptor
+import android.util.Log
+import com.danila.nimbo.BuildConfig
+import com.danila.nimbo.NebulaGuardApplication
+import com.danila.nimbo.model.RoutingProfile
+import com.danila.nimbo.model.Server
+import com.danila.nimbo.network.RemnawaveApiClient
+import com.danila.nimbo.utils.PreferencesManager
+import com.danila.nimbo.utils.Logger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import libXray.DialerController
+import libXray.LibXray
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.Base64
+import java.io.File
+
+object XrayManager {
+
+    private const val TAG = "XrayManager"
+
+    var isConnected = false
+        private set
+
+    var connectionError: String? = null
+        private set
+
+    private var tunInterface: ParcelFileDescriptor? = null
+
+    suspend fun connect(
+        context: Context,
+        server: Server,
+        vpnService: VpnService,
+        underlyingNetwork: Network? = null,
+        overrideConfig: String? = null,
+        proxyServers: List<Server> = emptyList()
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            disconnect()
+            NebulaGuardApplication.ensureXrayCoreLoaded()
+
+            val vpnFd = establishTun(vpnService, underlyingNetwork)
+
+            LibXray.registerDialerController(object : DialerController {
+                override fun protectFd(fd: Long): Boolean {
+                    return protectAndBindSocket(vpnService, underlyingNetwork, fd)
+                }
+            })
+            LibXray.registerListenerController(object : DialerController {
+                override fun protectFd(fd: Long): Boolean {
+                    return vpnService.protect(fd.toInt())
+                }
+            })
+
+            val rawConfig = if (!overrideConfig.isNullOrBlank()) {
+                normalizeOverrideConfig(overrideConfig, server, proxyServers)
+            } else {
+                generateXrayConfig(server)
+            }
+
+            val datDir = context.filesDir.resolve("xray-data").apply { mkdirs() }
+            ensureXrayDatAssets(context, datDir)
+            val config = XrayCoreProtocol.withAndroidRuntimeEnv(
+                configJson = rawConfig,
+                assetDirectory = datDir.absolutePath,
+                tunFd = vpnFd
+            )
+
+            val runResult = LibXray.invoke(XrayCoreProtocol.runXrayFromJson(config))
+            if (isOk(runResult)) {
+                isConnected = true
+                connectionError = null
+                Logger.i(TAG, "Xray core started successfully")
+                true
+            } else {
+                connectionError = extractError(runResult)
+                Logger.e(TAG, "Xray start failed: ${connectionError ?: runResult}")
+                disconnect()
+                false
+            }
+        } catch (e: CancellationException) {
+            disconnect()
+            throw e
+        } catch (e: Exception) {
+            connectionError = e.message ?: e.toString()
+            Logger.e(TAG, "Xray connection error", e)
+            disconnect()
+            false
+        }
+    }
+
+    fun disconnect() {
+        runCatching { LibXray.invoke(XrayCoreProtocol.stopXray()) }
+        runCatching { tunInterface?.close() }
+        tunInterface = null
+        isConnected = false
+    }
+
+    fun recordConnectionFailure(message: String) {
+        connectionError = message
+    }
+
+    private fun establishTun(vpnService: VpnService, underlyingNetwork: Network?): Int {
+        val tun = VpnInterfaceBuilder.establish(vpnService, underlyingNetwork)
+        tunInterface = tun
+        return tun.fd
+    }
+
+    private fun protectAndBindSocket(
+        vpnService: VpnService,
+        underlyingNetwork: Network?,
+        fd: Long
+    ): Boolean {
+        val rawFd = fd.toInt()
+        if (!vpnService.protect(rawFd)) {
+            Logger.w(TAG, "Could not protect Xray outbound socket from the VPN")
+            return false
+        }
+        if (underlyingNetwork == null) return true
+
+        return runCatching {
+            ParcelFileDescriptor.fromFd(rawFd).use { duplicate ->
+                underlyingNetwork.bindSocket(duplicate.fileDescriptor)
+            }
+            true
+        }.onFailure { error ->
+            Logger.w(
+                TAG,
+                "Could not bind Xray outbound socket to network ${underlyingNetwork.networkHandle}: ${error.message}"
+            )
+        }.getOrDefault(false)
+    }
+
+    private fun excludeSelfFromVpnWhenPossible(
+        builder: VpnService.Builder,
+        prefs: PreferencesManager
+    ) {
+        // In VPN-only mode Android uses an allow-list; mixing it with disallowed
+        // apps throws. In the default/bypass modes excluding ourselves avoids
+        // control-plane HTTP and native-core sockets falling back into the tunnel.
+        if (prefs.proxyByApp == 2) return
+        val packageName = NebulaGuardApplication.instance.packageName
+        runCatching { builder.addDisallowedApplication(packageName) }
+            .onSuccess { Log.d(TAG, "Excluded self package from VPN tunnel: $packageName") }
+            .onFailure { Log.w(TAG, "Could not exclude self package from VPN tunnel: ${it.message}") }
+    }
+
+    private fun ensureXrayDatAssets(context: Context, datDir: File) {
+        val marker = datDir.resolve("rules-assets.version")
+        val expectedMarker = "${BuildConfig.VERSION_CODE}:${BuildConfig.VERSION_NAME}"
+        val hasCurrentAssets = marker.exists() &&
+            marker.readText() == expectedMarker &&
+            datDir.resolve("geoip.dat").length() > 1024 &&
+            datDir.resolve("geosite.dat").length() > 1024
+
+        if (hasCurrentAssets) return
+
+        listOf("geoip.dat", "geosite.dat").forEach { assetName ->
+            runCatching {
+                context.assets.open(assetName).use { input ->
+                    datDir.resolve(assetName).outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Log.i(TAG, "Copied Xray rules asset: $assetName")
+            }.onFailure {
+                Log.w(TAG, "Xray rules asset is missing or unavailable: $assetName (${it.message})")
+            }
+        }
+
+        runCatching { marker.writeText(expectedMarker) }
+    }
+
+    private fun normalizeOverrideConfig(
+        config: String,
+        server: Server,
+        proxyServers: List<Server> = emptyList()
+    ): String {
+        return try {
+            val json = JSONObject(config)
+            val hasXrayOutbounds = json.has("outbounds") && json.optJSONArray("outbounds")?.let { arr ->
+                    (0 until arr.length()).any { idx -> arr.optJSONObject(idx)?.has("protocol") == true }
+                } == true
+            // Если это уже клиентский Xray-конфиг - возвращаем как есть.
+            // Серверные Remnawave/Xray templates с inbound-ами и только direct/block outbound-ами
+            // не годятся для Android-клиента: их нужно пропустить и собрать локальный outbound.
+            if (hasXrayOutbounds && RemnawaveApiClient.isUsableXrayClientConfig(json)) {
+                sanitizeOverrideXrayConfig(json, server, proxyServers).toString()
+            } else {
+                Log.w(TAG, "Override config is not a usable Xray client JSON, fallback to generated config")
+                generateXrayConfig(server)
+            }
+        } catch (_: Exception) {
+            // Иногда может прийти share-link вместо JSON
+            runCatching {
+                val converted = LibXray.invoke(XrayCoreProtocol.convertShareLinksToXrayJson(config))
+                if (isOk(converted)) {
+                    sanitizeXrayJsonString(extractData(converted) ?: generateXrayConfig(server), server)
+                } else {
+                    generateXrayConfig(server)
+                }
+            }.getOrElse { generateXrayConfig(server) }
+        }
+    }
+
+    /**
+     * libXray сериализует структуры Xray без omitempty, поэтому в готовом JSON
+     * оказываются "target": null и "dest": null. Xray-core проверяет наличие
+     * ключа, а не значение, и клиентский REALITY уходит в серверную ветку с
+     * требованием serverNames. Пустые значения убираем целиком.
+     */
+    private fun stripJsonNulls(json: JSONObject) {
+        val keys = json.keys().asSequence().toList()
+        for (key in keys) {
+            when (val value = json.opt(key)) {
+                null, JSONObject.NULL -> json.remove(key)
+                is JSONObject -> stripJsonNulls(value)
+                is JSONArray -> stripJsonNulls(value)
+            }
+        }
+    }
+
+    private fun stripJsonNulls(array: JSONArray) {
+        for (i in 0 until array.length()) {
+            when (val value = array.opt(i)) {
+                is JSONObject -> stripJsonNulls(value)
+                is JSONArray -> stripJsonNulls(value)
+            }
+        }
+    }
+
+    /** Разбор без DNS: InetAddress.getByName полез бы в сеть за доменным именем. */
+    private fun isIpLiteral(value: String): Boolean = when {
+        value.isEmpty() -> false
+        value.contains(':') -> value.all {
+            it == ':' || it == '.' || it.isDigit() || it in 'a'..'f' || it in 'A'..'F'
+        }
+        else -> value.split('.').let { parts ->
+            parts.size == 4 && parts.all { part ->
+                part.isNotEmpty() && part.length <= 3 &&
+                    part.all(Char::isDigit) && part.toInt() <= 255
+            }
+        }
+    }
+
+    private fun sanitizeXrayJsonString(config: String, server: Server? = null): String {
+        return runCatching {
+            val json = JSONObject(config)
+            if (json.has("outbounds") || json.has("routing") || json.has("inbounds")) {
+                sanitizeOverrideXrayConfig(json, server, emptyList()).toString()
+            } else {
+                config
+            }
+        }.getOrDefault(config)
+    }
+
+    private fun sanitizeOverrideXrayConfig(
+        json: JSONObject,
+        server: Server?,
+        proxyServers: List<Server> = emptyList()
+    ): JSONObject {
+        val prefs = PreferencesManager(NebulaGuardApplication.instance)
+        stripJsonNulls(json)
+        var inbounds = json.optJSONArray("inbounds") ?: JSONArray().also { json.put("inbounds", it) }
+        val clientInbounds = JSONArray()
+        for (i in 0 until inbounds.length()) {
+            val inbound = inbounds.optJSONObject(i) ?: continue
+            if (isClientSideInbound(inbound)) {
+                clientInbounds.put(inbound)
+            } else {
+                val inboundTag = inbound.optString("tag")
+                val inboundProtocol = inbound.optString("protocol")
+                Log.w(
+                    TAG,
+                    "Dropping server-side inbound from client config: tag=$inboundTag, protocol=$inboundProtocol"
+                )
+            }
+        }
+        if (clientInbounds.length() != inbounds.length()) {
+            json.put("inbounds", clientInbounds)
+            inbounds = clientInbounds
+        }
+
+        var hasTunInbound = false
+        for (i in 0 until inbounds.length()) {
+            val inbound = inbounds.optJSONObject(i) ?: continue
+            val tag = inbound.optString("tag")
+            val protocol = inbound.optString("protocol")
+            if (tag == "tun-in" || protocol == "tun") {
+                hasTunInbound = true
+                if (RoutingRuntimePolicy.shouldEnableSniffing(
+                        userEnabled = prefs.trafficSniffingEnabled,
+                        routingEnabled = prefs.isRoutingEnabled
+                    )
+                ) {
+                    inbound.put("sniffing", buildSniffingConfig())
+                } else {
+                    inbound.remove("sniffing")
+                }
+            }
+        }
+        if (!hasTunInbound) {
+            inbounds.put(buildTunInbound())
+        }
+        LocalProxyConfig.ensureInbound(inbounds)
+
+        val outbounds = json.optJSONArray("outbounds") ?: JSONArray().also { json.put("outbounds", it) }
+        val routing = json.optJSONObject("routing") ?: JSONObject().also { json.put("routing", it) }
+        val rules = routing.optJSONArray("rules") ?: JSONArray().also { routing.put("rules", it) }
+
+        // libXray прячет имя сервера из #fragment ссылки в sendThrough
+        // (share/xray_json.go, setOutboundName), а xray-core ждёт там локальный
+        // IP-адрес и отвергает всю конфигурацию. Путь сюда лежит через
+        // convertShareLinksToXrayJson, поэтому чистим до проверки тегов.
+        for (i in 0 until outbounds.length()) {
+            val ob = outbounds.optJSONObject(i) ?: continue
+            val sendThrough = ob.optString("sendThrough").trim()
+            if (sendThrough.isNotEmpty() && !isIpLiteral(sendThrough)) {
+                ob.remove("sendThrough")
+                if (ob.optString("tag").isBlank()) ob.put("tag", "proxy")
+            }
+        }
+
+        var hasDirect = false
+        var hasBlock = false
+        var hasProxy = false
+        for (i in 0 until outbounds.length()) {
+            val ob = outbounds.optJSONObject(i) ?: continue
+            val tag = ob.optString("tag")
+            if (tag.equals("direct", ignoreCase = true)) hasDirect = true
+            if (tag.equals("block", ignoreCase = true)) hasBlock = true
+            if (tag.equals("proxy", ignoreCase = true)) hasProxy = true
+        }
+
+        // Auto-balancer templates carry a routing.balancers entry + remnawave.injectHosts
+        // but no real proxy outbounds — the bundled standard libXray does not expand
+        // injectHosts, so the balancer would have nothing to balance and the connection
+        // dies. Inject the profile's concrete servers as proxy/<i> outbounds (matching the
+        // balancer selector prefix) and drop the remnawave key xray-core doesn't understand.
+        if (proxyServers.isNotEmpty() &&
+            (RemnawaveApiClient.hasBalancerOrInjectHosts(json) || (server != null && com.danila.nimbo.utils.isAutoBalancerServer(server)))
+        ) {
+            val injectHosts = json.optJSONObject("remnawave")?.optJSONArray("injectHosts")
+            var injected = 0
+
+            if (injectHosts != null && injectHosts.length() > 0) {
+                // If there are multiple inject rules (e.g. proxy and backup), partition servers
+                val hasMultiplePrefixes = injectHosts.length() > 1
+
+                for (i in 0 until injectHosts.length()) {
+                    val rule = injectHosts.optJSONObject(i) ?: continue
+                    val tagPrefix = rule.optString("tagPrefix").trim()
+                    val pattern = rule.optJSONObject("selector")?.optString("pattern").orEmpty().trim()
+
+                    if (tagPrefix.isBlank()) continue
+
+                    // Remove existing dummy/placeholder outbounds that match this tagPrefix to prevent xray from using them
+                    val toRemove = mutableListOf<Int>()
+                    for (k in 0 until outbounds.length()) {
+                        val ob = outbounds.optJSONObject(k) ?: continue
+                        val tag = ob.optString("tag").trim()
+                        if (tag == tagPrefix || tag.startsWith("$tagPrefix/")) {
+                            toRemove.add(k)
+                        }
+                    }
+                    for (k in toRemove.asReversed()) {
+                        outbounds.remove(k)
+                    }
+
+                    // Filter servers for this prefix:
+                    val filteredServers = if (hasMultiplePrefixes) {
+                        val isBackup = tagPrefix.contains("backup", ignoreCase = true) ||
+                                       pattern.contains("WL", ignoreCase = true) ||
+                                       pattern.contains("CDN", ignoreCase = true)
+                        if (isBackup) {
+                            // Аварийный пул (nimbo-fallback) тоже уходит в backup-группу,
+                            // чтобы трафик переключался на него при отказе основных.
+                            proxyServers.filter { com.danila.nimbo.utils.isBypassServer(it) || it.isFallback }
+                        } else {
+                            proxyServers.filter { !com.danila.nimbo.utils.isBypassServer(it) && !it.isFallback }
+                        }
+                    } else {
+                        // Single prefix: put all servers
+                        proxyServers
+                    }
+
+                    filteredServers.forEachIndexed { index, proxyServer ->
+                        runCatching { buildProxyOutbound(proxyServer, "$tagPrefix/$index") }
+                            .onSuccess { outbounds.put(it); injected++ }
+                            .onFailure { Log.w(TAG, "Skip balancer proxy ${proxyServer.name}: ${it.message}") }
+                    }
+                }
+            } else {
+                // Fallback to old single-prefix selector logic if injectHosts is missing
+                val tagPrefix = resolveBalancerProxyTagPrefix(routing, json)
+
+                // Remove existing dummy/placeholder outbounds that match this tagPrefix to prevent xray from using them
+                val toRemove = mutableListOf<Int>()
+                for (k in 0 until outbounds.length()) {
+                    val ob = outbounds.optJSONObject(k) ?: continue
+                    val tag = ob.optString("tag").trim()
+                    if (tag == tagPrefix || tag.startsWith("$tagPrefix/")) {
+                        toRemove.add(k)
+                    }
+                }
+                for (k in toRemove.asReversed()) {
+                    outbounds.remove(k)
+                }
+
+                proxyServers.forEachIndexed { index, proxyServer ->
+                    runCatching { buildProxyOutbound(proxyServer, "$tagPrefix/$index") }
+                        .onSuccess { outbounds.put(it); injected++ }
+                        .onFailure { Log.w(TAG, "Skip balancer proxy ${proxyServer.name}: ${it.message}") }
+                }
+            }
+
+            if (injected > 0) {
+                hasProxy = true
+                json.remove("remnawave")
+                Log.i(TAG, "Injected $injected balancer proxy outbounds successfully")
+            }
+        }
+
+        var injectedFallbackProxy = false
+        val fallbackServer = server
+        if (!hasProxy && fallbackServer != null && shouldInjectFallbackProxyForOverride(json, routing, rules, fallbackServer)) {
+            val protocol = canonicalXrayOutboundProtocol(fallbackServer.protocol)
+            outbounds.put(
+                JSONObject().apply {
+                    put("tag", "proxy")
+                    put("protocol", protocol)
+                    put("settings", buildOutboundSettings(fallbackServer, protocol))
+                    buildStreamSettings(fallbackServer)?.let { put("streamSettings", it) }
+                    applyMuxSettings(this, fallbackServer, protocol)
+                }
+            )
+            hasProxy = true
+            injectedFallbackProxy = true
+        }
+        if (!hasDirect) {
+            outbounds.put(
+                JSONObject()
+                    .put("tag", "direct")
+                    .put("protocol", "freedom")
+                    .put("settings", JSONObject().put("domainStrategy", "UseIP"))
+            )
+        }
+        if (!hasBlock) {
+            outbounds.put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
+        }
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (!rule.has("type")) {
+                rule.put("type", "field")
+            }
+            if (!rule.has("outboundTag") && rule.has("outTag")) {
+                rule.put("outboundTag", rule.optString("outTag"))
+            }
+            includeTunInboundForProxyStyleRule(rule)
+        }
+        val normalizedRules = reorderRoutingRules(rules)
+        val selectedOutboundTag = resolveSelectedRemoteOutboundTag(outbounds, server)
+        val balancerTag = resolvePreferredBalancerTag(routing, normalizedRules, server)
+        val finalRules = JSONArray()
+        if (!selectedOutboundTag.isNullOrBlank() && !hasTunInboundOutboundRule(normalizedRules, selectedOutboundTag)) {
+            finalRules.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("inboundTag", JSONArray().put("tun-in"))
+                    .put("outboundTag", selectedOutboundTag)
+            )
+        } else if (!balancerTag.isNullOrBlank() && !hasTunInboundBalancerRule(normalizedRules, balancerTag)) {
+            finalRules.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("inboundTag", JSONArray().put("tun-in"))
+                    .put("balancerTag", balancerTag)
+            )
+        }
+        for (i in 0 until normalizedRules.length()) {
+            finalRules.put(normalizedRules.optJSONObject(i))
+        }
+        // В шаблонных конфигурациях нельзя насильно добавлять catch-all в proxy:
+        // это перетирает DIRECT/BLOCK/балансировочные правила из панели.
+        if (injectedFallbackProxy && hasProxy && !hasProxyCatchAllRule(finalRules)) {
+            finalRules.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("inboundTag", JSONArray().put("tun-in"))
+                    .put("outboundTag", "proxy")
+            )
+        }
+        val probeOutboundTag = selectedOutboundTag
+            ?: if (balancerTag.isNullOrBlank()) LocalProxyConfig.firstProxyOutboundTag(outbounds) else null
+        val routedRules = LocalProxyConfig.prependRoute(
+            rules = finalRules,
+            outboundTag = probeOutboundTag,
+            balancerTag = if (probeOutboundTag.isNullOrBlank()) balancerTag else null
+        )
+        routing.put("rules", routedRules)
+
+        applyGeneratedNetworkPreferences(json)
+        // Routing profiles prepend their own rules. Re-assert the tagged health route
+        // afterwards so no catch-all/direct rule can make a probe bypass the candidate.
+        routing.put(
+            "rules",
+            LocalProxyConfig.prependRoute(
+                rules = routing.optJSONArray("rules") ?: JSONArray(),
+                outboundTag = probeOutboundTag,
+                balancerTag = if (probeOutboundTag.isNullOrBlank()) balancerTag else null
+            )
+        )
+        applyTlsFragment(json, server)
+        applyConnectionPolicy(json)
+
+        return json
+    }
+
+    // The subscription can centrally provide TLS ClientHello fragmentation parameters.
+    // The local toggle remains a fallback for subscriptions that do not publish them.
+    private fun applyTlsFragment(json: JSONObject, server: Server?) {
+        val prefs = PreferencesManager(NebulaGuardApplication.instance)
+        val profiles = runCatching { prefs.loadProfiles() }.getOrDefault(emptyList())
+        val owningProfile = server?.let { selected ->
+            selected.profileUrl?.let { profileUrl ->
+                profiles.firstOrNull { it.url.equals(profileUrl, ignoreCase = true) }
+            } ?: profiles.firstOrNull { profile ->
+                profile.servers.any { it.selectionKey() == selected.selectionKey() }
+            }
+        }
+        val providerConfig = owningProfile?.tlsFragment
+        val config = providerConfig ?: if (prefs.tlsFragment) {
+            com.danila.nimbo.network.TlsFragmentConfig(enabled = true)
+        } else {
+            null
+        }
+        if (config?.enabled != true) return
+        val outbounds = json.optJSONArray("outbounds") ?: return
+
+        var fragmentOutbound: JSONObject? = null
+        for (i in 0 until outbounds.length()) {
+            val outbound = outbounds.optJSONObject(i) ?: continue
+            if (outbound.optString("tag").equals("fragment", ignoreCase = true)) {
+                fragmentOutbound = outbound
+                break
+            }
+        }
+        if (fragmentOutbound == null) {
+            fragmentOutbound = JSONObject()
+                .put("tag", "fragment")
+                .put("protocol", "freedom")
+            outbounds.put(fragmentOutbound)
+        }
+        fragmentOutbound
+            .put(
+                "settings",
+                JSONObject().put(
+                    "fragment",
+                    JSONObject()
+                        .put("packets", config.packets)
+                        .put("length", config.length)
+                        .put("interval", config.interval)
+                )
+            )
+            .put(
+                "streamSettings",
+                JSONObject().put("sockopt", JSONObject().put("tcpNoDelay", true))
+            )
+
+        val skipTags = setOf("direct", "block", "fragment", "dns")
+        val skipProtocols = setOf("freedom", "blackhole", "dns", "loopback")
+        for (i in 0 until outbounds.length()) {
+            val ob = outbounds.optJSONObject(i) ?: continue
+            val tag = ob.optString("tag").trim().lowercase()
+            val protocol = ob.optString("protocol").trim().lowercase()
+            if (tag in skipTags || protocol in skipProtocols) continue
+            val stream = ob.optJSONObject("streamSettings")
+                ?: JSONObject().also { ob.put("streamSettings", it) }
+
+            // Фрагментация — это нарезка TLS ClientHello внутри TCP-соединения.
+            // Если TLS нет (security=none у xhttp-обходов) или транспорт не TCP
+            // (hysteria/QUIC/kcp), резать нечего: dialerProxy лишь покрошит
+            // сырой поток, узел поднимется и будет молчать. Happ такие конфиги
+            // запускает как есть — отсюда «в Happ работает, в Nimbo нет».
+            val security = stream.optString("security").trim().lowercase()
+            val network = stream.optString("network").trim().lowercase()
+            val carriesTls = security == "tls" || security == "reality"
+            val udpTransport = network in setOf("hysteria", "quic", "kcp", "mkcp")
+            if (!carriesTls || udpTransport) {
+                Log.d(TAG, "Skip TLS fragment for '$tag': security=$security network=$network")
+                continue
+            }
+
+            val sockopt = stream.optJSONObject("sockopt")
+                ?: JSONObject().also { stream.put("sockopt", it) }
+            if (!sockopt.has("dialerProxy")) {
+                sockopt.put("dialerProxy", "fragment")
+            }
+        }
+    }
+
+    private fun isClientSideInbound(inbound: JSONObject): Boolean {
+        return when (inbound.optString("protocol").trim().lowercase()) {
+            "tun", "socks", "http", "dokodemo-door" -> true
+            else -> false
+        }
+    }
+
+    private fun shouldInjectFallbackProxyForOverride(
+        json: JSONObject,
+        routing: JSONObject,
+        rules: JSONArray,
+        server: Server?
+    ): Boolean {
+        if (server == null) return false
+        if (server.uuid == "remote" || server.host.equals("API", ignoreCase = true)) return false
+
+        // Для панельных template/balancer-конфигов используем их outbounds/routing как есть.
+        if (json.has("observatory")) return false
+        if ((routing.optJSONArray("balancers")?.length() ?: 0) > 0) return false
+        if ((rules.length()) > 0) return false
+
+        return true
+    }
+
+    private fun resolveSelectedRemoteOutboundTag(outbounds: JSONArray, server: Server?): String? {
+        val selectedTag = server?.remoteOutboundTag?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        for (i in 0 until outbounds.length()) {
+            if (outbounds.optJSONObject(i)?.optString("tag")?.equals(selectedTag, ignoreCase = true) == true) {
+                return selectedTag
+            }
+        }
+        Log.w(TAG, "Selected remote outbound '$selectedTag' is absent from config; use template default")
+        return null
+    }
+
+    private fun resolvePreferredBalancerTag(routing: JSONObject, rules: JSONArray, server: Server?): String? {
+        val selectedTag = server?.remoteBalancerTag?.trim()?.takeIf { it.isNotBlank() }
+        if (selectedTag != null) {
+            val balancers = routing.optJSONArray("balancers")
+            for (i in 0 until (balancers?.length() ?: 0)) {
+                val tag = balancers?.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+                if (tag.equals(selectedTag, ignoreCase = true)) return tag
+            }
+            Log.w(TAG, "Selected Remnawave balancer '$selectedTag' is absent from config; use template default")
+        }
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            val balancerTag = rule.optString("balancerTag").trim()
+            if (balancerTag.isNotBlank()) return balancerTag
+        }
+
+        val balancers = routing.optJSONArray("balancers") ?: return null
+        for (i in 0 until balancers.length()) {
+            val balancer = balancers.optJSONObject(i) ?: continue
+            val tag = balancer.optString("tag").trim()
+            if (tag.isNotBlank()) return tag
+        }
+        return null
+    }
+
+    private fun hasTunInboundOutboundRule(rules: JSONArray, outboundTag: String): Boolean {
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            val tag = rule.optString("outboundTag", rule.optString("outTag"))
+            if (!tag.equals(outboundTag, ignoreCase = true)) continue
+            when (val inboundTag = rule.opt("inboundTag")) {
+                is JSONArray -> {
+                    for (j in 0 until inboundTag.length()) {
+                        if (inboundTag.optString(j).equals("tun-in", ignoreCase = true)) return true
+                    }
+                }
+                is String -> if (inboundTag.equals("tun-in", ignoreCase = true)) return true
+                else -> if (!rule.has("inboundTag")) return true
+            }
+        }
+        return false
+    }
+
+    private fun hasTunInboundBalancerRule(rules: JSONArray, balancerTag: String): Boolean {
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (!rule.optString("balancerTag").equals(balancerTag, ignoreCase = true)) continue
+            when (val inboundTag = rule.opt("inboundTag")) {
+                is JSONArray -> {
+                    for (j in 0 until inboundTag.length()) {
+                        if (inboundTag.optString(j).equals("tun-in", ignoreCase = true)) return true
+                    }
+                }
+                is String -> {
+                    if (inboundTag.equals("tun-in", ignoreCase = true)) return true
+                }
+                else -> {
+                    // Правило без inboundTag действует глобально, включая tun-in.
+                    if (!rule.has("inboundTag")) return true
+                }
+            }
+        }
+        return false
+    }
+
+    private fun hasProxyCatchAllRule(rules: JSONArray): Boolean {
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (isProxyCatchAllRule(rule)) return true
+        }
+        return false
+    }
+
+    private fun reorderRoutingRules(rules: JSONArray): JSONArray {
+        val specificRules = mutableListOf<JSONObject>()
+        val proxyCatchAllRules = mutableListOf<JSONObject>()
+
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (isProxyCatchAllRule(rule)) {
+                proxyCatchAllRules += rule
+            } else {
+                specificRules += rule
+            }
+        }
+
+        return JSONArray().apply {
+            specificRules.forEach { put(it) }
+            proxyCatchAllRules.forEach { put(it) }
+        }
+    }
+
+    private fun isProxyCatchAllRule(rule: JSONObject): Boolean {
+        val outboundTag = rule.optString("outboundTag", rule.optString("outTag"))
+        if (!outboundTag.equals("proxy", ignoreCase = true)) return false
+
+        val conditionalKeys = listOf("domain", "ip", "port", "protocol", "source", "sourcePort", "user")
+        val hasSpecificCondition = conditionalKeys.any { key ->
+            when (val value = rule.opt(key)) {
+                is JSONArray -> value.length() > 0
+                is String -> value.isNotBlank()
+                null -> false
+                else -> true
+            }
+        }
+        if (hasSpecificCondition) return false
+
+        val network = rule.optString("network").trim().lowercase()
+        val networkIsCatchAll = network.isBlank() ||
+            network == "tcp,udp" ||
+            network == "udp,tcp" ||
+            network == "tcp, udp" ||
+            network == "udp, tcp"
+
+        return networkIsCatchAll
+    }
+
+    private fun includeTunInboundForProxyStyleRule(rule: JSONObject) {
+        when (val inboundTag = rule.opt("inboundTag")) {
+            is JSONArray -> {
+                var hasTun = false
+                var targetsLocalProxyInbound = false
+                for (i in 0 until inboundTag.length()) {
+                    val tag = inboundTag.optString(i)
+                    if (tag == "tun-in") hasTun = true
+                    if (tag == "socks" || tag == "http") targetsLocalProxyInbound = true
+                }
+                if (targetsLocalProxyInbound && !hasTun) {
+                    inboundTag.put("tun-in")
+                }
+            }
+            is String -> {
+                if (inboundTag == "socks" || inboundTag == "http") {
+                    rule.put("inboundTag", JSONArray().put(inboundTag).put("tun-in"))
+                }
+            }
+        }
+    }
+
+    private fun buildSniffingConfig(): JSONObject {
+        return JSONObject()
+            .put("enabled", true)
+            .put("routeOnly", false)
+            .put("destOverride", JSONArray().put("http").put("tls").put("quic"))
+    }
+
+    private fun buildTunInbound(): JSONObject {
+        val prefs = PreferencesManager(NebulaGuardApplication.instance)
+        return JSONObject().apply {
+            put("tag", "tun-in")
+            put("protocol", "tun")
+            put("settings", JSONObject().apply {
+                put("name", "tun0")
+                // Ключ разбирается как "mtu" (infra/conf/tun.go); с заглавным
+                // MTU значение молча игнорировалось и ядро брало 1500, хотя
+                // сам VPN-интерфейс поднят с 1280/1400.
+                put("mtu", if (prefs.packetFragmentationEnabled) 1280 else 1400)
+            })
+            if (RoutingRuntimePolicy.shouldEnableSniffing(
+                    userEnabled = prefs.trafficSniffingEnabled,
+                    routingEnabled = prefs.isRoutingEnabled
+                )
+            ) {
+                put("sniffing", buildSniffingConfig())
+            }
+        }
+    }
+
+    private fun buildProxyOutbound(server: Server, tag: String): JSONObject {
+        val protocol = canonicalXrayOutboundProtocol(server.protocol)
+        return JSONObject().apply {
+            put("tag", tag)
+            put("protocol", protocol)
+            put("settings", buildOutboundSettings(server, protocol))
+            buildStreamSettings(server)?.let { put("streamSettings", it) }
+            applyMuxSettings(this, server, protocol)
+        }
+    }
+
+    private val nonProxyOutboundProtocols = setOf("freedom", "blackhole", "dns", "loopback")
+
+    private fun hasUsableProxyOutbound(outbounds: JSONArray): Boolean {
+        for (i in 0 until outbounds.length()) {
+            val ob = outbounds.optJSONObject(i) ?: continue
+            val protocol = ob.optString("protocol").trim().lowercase()
+            if (protocol.isNotBlank() && protocol !in nonProxyOutboundProtocols) return true
+        }
+        return false
+    }
+
+    /**
+     * The injected proxy tags must match the balancer's selector prefix so leastLoad /
+     * burstObservatory pick them up. Prefer the balancer selector, then the
+     * remnawave.injectHosts tagPrefix, and finally the conventional "proxy".
+     */
+    private fun resolveBalancerProxyTagPrefix(routing: JSONObject, json: JSONObject): String {
+        routing.optJSONArray("balancers")?.let { balancers ->
+            for (i in 0 until balancers.length()) {
+                val b = balancers.optJSONObject(i) ?: continue
+                val selectorOpt = b.opt("selector")
+                if (selectorOpt is JSONArray) {
+                    val first = selectorOpt.optString(0).trim()
+                    if (first.isNotBlank()) return first
+                } else if (selectorOpt is String) {
+                    val trimmed = selectorOpt.trim()
+                    if (trimmed.isNotBlank()) return trimmed
+                }
+            }
+        }
+        json.optJSONObject("remnawave")?.optJSONArray("injectHosts")?.let { inject ->
+            for (i in 0 until inject.length()) {
+                val prefix = inject.optJSONObject(i)?.optString("tagPrefix")?.trim().orEmpty()
+                if (prefix.isNotBlank()) return prefix
+            }
+        }
+        return "proxy"
+    }
+
+    private fun generateXrayConfig(server: Server): String {
+        val prefs = PreferencesManager(NebulaGuardApplication.instance)
+        val routingProfile = activeRoutingProfile(prefs)
+        val protocol = canonicalXrayOutboundProtocol(server.protocol)
+
+        val outbound = JSONObject().apply {
+            put("tag", "proxy")
+            put("protocol", protocol)
+            put("settings", buildOutboundSettings(server, protocol))
+            buildStreamSettings(server)?.let { put("streamSettings", it) }
+            applyMuxSettings(this, server, protocol)
+        }
+
+        val root = JSONObject().apply {
+            put("log", JSONObject().put("loglevel", "warning"))
+            put("dns", JSONObject().put("servers", buildGeneratedDnsServers(routingProfile)))
+            put(
+                "inbounds",
+                JSONArray().put(buildTunInbound()).also(LocalProxyConfig::ensureInbound)
+            )
+            put("outbounds", JSONArray().apply {
+                put(outbound)
+                put(
+                    JSONObject()
+                        .put("tag", "direct")
+                        .put("protocol", "freedom")
+                        .put("settings", JSONObject().put("domainStrategy", "UseIP"))
+                )
+                put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
+            })
+            put("routing", JSONObject().apply {
+                put("domainStrategy", routingProfile?.domainStrategy?.takeIf { it.isNotBlank() } ?: "IPIfNonMatch")
+                put(
+                    "rules",
+                    LocalProxyConfig.prependRoute(
+                        rules = buildGeneratedRoutingRules(routingProfile),
+                        outboundTag = "proxy",
+                        balancerTag = null
+                    )
+                )
+            })
+        }
+
+        applyTlsFragment(root, server)
+        applyConnectionPolicy(root)
+        return root.toString()
+    }
+
+    private fun applyMuxSettings(outbound: JSONObject, server: Server, protocol: String) {
+        val prefs = PreferencesManager(NebulaGuardApplication.instance)
+        if (server.flow?.isNotBlank() == true && protocol == "vless") {
+            outbound.put("mux", JSONObject().put("enabled", false))
+        } else if (prefs.muxEnabled) {
+            outbound.put(
+                "mux",
+                JSONObject()
+                    .put("enabled", true)
+                    .put("concurrency", 8)
+            )
+        }
+    }
+
+    private fun applyGeneratedNetworkPreferences(json: JSONObject) {
+        val prefs = PreferencesManager(NebulaGuardApplication.instance)
+        val routingProfile = activeRoutingProfile(prefs)
+        val routing = json.optJSONObject("routing") ?: JSONObject().also { json.put("routing", it) }
+        val rules = routing.optJSONArray("rules") ?: JSONArray()
+        val updated = JSONArray()
+
+        // Модули идут первыми: их пишет человек под свою задачу, и профиль не
+        // должен перебивать явно указанный им маршрут.
+        val moduleRules = RoutingModuleRules.build(prefs)
+        for (i in 0 until moduleRules.length()) {
+            updated.put(moduleRules.getJSONObject(i))
+        }
+
+        routingProfile?.let { profile ->
+            routing.put("domainStrategy", profile.domainStrategy?.takeIf { it.isNotBlank() } ?: "IPIfNonMatch")
+            val profileRules = RoutingProfileRules.build(profile, includeFallback = false)
+            for (i in 0 until profileRules.length()) {
+                updated.put(profileRules.getJSONObject(i))
+            }
+        }
+
+        if (prefs.blockUdp) {
+            updated.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("inboundTag", JSONArray().put("tun-in"))
+                    .put("network", "udp")
+                    .put("outboundTag", "block")
+            )
+        }
+
+        for (i in 0 until rules.length()) {
+            updated.put(rules.optJSONObject(i))
+        }
+        routing.put("rules", updated)
+    }
+
+    private fun applyConnectionPolicy(json: JSONObject) {
+        val prefs = PreferencesManager(NebulaGuardApplication.instance)
+        val policy = json.optJSONObject("policy") ?: JSONObject().also { json.put("policy", it) }
+        val levels = policy.optJSONObject("levels") ?: JSONObject().also { policy.put("levels", it) }
+        val defaultLevel = levels.optJSONObject("0") ?: JSONObject().also { levels.put("0", it) }
+        defaultLevel.put("connIdle", prefs.idleTimeoutSeconds)
+    }
+
+    private fun buildGeneratedRoutingRules(routingProfile: RoutingProfile?): JSONArray {
+        val prefs = PreferencesManager(NebulaGuardApplication.instance)
+        val dnsMode = prefs.vpnDnsMode.lowercase()
+        return JSONArray().apply {
+            if (dnsMode == "local" || dnsMode == "hybrid") {
+                put(
+                    JSONObject().apply {
+                        put("type", "field")
+                        put("inboundTag", JSONArray().put("tun-in"))
+                        put("network", "udp,tcp")
+                        put("port", "53,853")
+                        put("outboundTag", "direct")
+                    }
+                )
+            }
+            if (prefs.blockUdp) {
+                put(
+                    JSONObject().apply {
+                        put("type", "field")
+                        put("inboundTag", JSONArray().put("tun-in"))
+                        put("network", "udp")
+                        put("outboundTag", "block")
+                    }
+                )
+            }
+            put(
+                JSONObject().apply {
+                    put("type", "field")
+                    put("inboundTag", JSONArray().put("tun-in"))
+                    put("protocol", JSONArray().put("bittorrent"))
+                    put("outboundTag", "direct")
+                }
+            )
+            if (routingProfile == null && prefs.allowLanConnections && !prefs.lanThroughProxy) {
+                put(
+                    JSONObject().apply {
+                        put("type", "field")
+                        put("inboundTag", JSONArray().put("tun-in"))
+                        put("ip", JSONArray().put("geoip:private"))
+                        put("outboundTag", "direct")
+                    }
+                )
+            }
+            val moduleRules = RoutingModuleRules.build(prefs)
+            for (i in 0 until moduleRules.length()) put(moduleRules.getJSONObject(i))
+            if (routingProfile != null) {
+                val profileRules = RoutingProfileRules.build(routingProfile, includeFallback = true)
+                for (i in 0 until profileRules.length()) put(profileRules.getJSONObject(i))
+            } else {
+                put(
+                    JSONObject().apply {
+                        put("type", "field")
+                        put("inboundTag", JSONArray().put("tun-in"))
+                        put("ip", JSONArray().put("geoip:ru"))
+                        put("outboundTag", "direct")
+                    }
+                )
+                put(
+                    JSONObject().apply {
+                        put("type", "field")
+                        put("inboundTag", JSONArray().put("tun-in"))
+                        put(
+                            "domain",
+                            JSONArray()
+                                .put("2ip.io")
+                                .put("2ip.ru")
+                                .put("regexp:.*\\.ru$")
+                                .put("regexp:.*\\.xn--p1ai$")
+                                .put("regexp:.*\\.su$")
+                        )
+                        put("outboundTag", "direct")
+                    }
+                )
+                put(
+                    JSONObject().apply {
+                        put("type", "field")
+                        put("inboundTag", JSONArray().put("tun-in"))
+                        put("outboundTag", "proxy")
+                    }
+                )
+            }
+        }
+    }
+
+    private fun activeRoutingProfile(prefs: PreferencesManager): RoutingProfile? =
+        prefs.loadRoutingProfile().takeIf { prefs.isRoutingEnabled }
+
+    private fun buildGeneratedDnsServers(profile: RoutingProfile?): JSONArray {
+        val servers = linkedSetOf<String>()
+        listOf(
+            profile?.remoteDNSDomain,
+            profile?.remoteDNSIP,
+            profile?.domesticDNSDomain,
+            profile?.domesticDNSIP
+        ).mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
+            .forEach(servers::add)
+        if (servers.isEmpty()) servers += listOf("1.1.1.1", "8.8.8.8")
+        return JSONArray(servers.toList())
+    }
+
+    private fun canonicalXrayOutboundProtocol(protocolRaw: String): String {
+        val protocol = protocolRaw.trim().lowercase()
+        return when {
+            protocol.contains("vless") -> "vless"
+            protocol.contains("vmess") -> "vmess"
+            protocol.contains("trojan") -> "trojan"
+            protocol == "ss" || protocol.contains("shadowsocks") -> "shadowsocks"
+            protocol == "hy2" || protocol.contains("hysteria") -> "hysteria"
+            protocol == "naive" || protocol == "naiveproxy" || protocol.startsWith("naive+") -> "socks"
+            else -> protocol
+        }
+    }
+
+    // internal ради проверки в тестах: именно эти два куска описывают узел
+    // так, как его увидит сервер.
+    internal fun buildOutboundSettings(server: Server, protocol: String): JSONObject {
+        return when (protocol) {
+            "vless" -> JSONObject().put("vnext", JSONArray().put(
+                JSONObject().put("address", server.host).put("port", server.port).put("users", JSONArray().put(
+                    // Постквантовое шифрование VLESS приходит строкой в ссылке.
+                    // Подставленное вместо неё "none" выглядит для сервера
+                    // чужим клиентом: TLS проходит, а данные не идут.
+                    JSONObject().put("id", server.uuid)
+                        .put("encryption", server.encryption?.takeIf { it.isNotBlank() } ?: "none")
+                        .apply {
+                            server.flow?.takeIf { it.isNotBlank() }?.let { put("flow", it) }
+                        }
+                ))
+            ))
+            "vmess" -> JSONObject().put("vnext", JSONArray().put(
+                JSONObject().put("address", server.host).put("port", server.port).put("users", JSONArray().put(
+                    JSONObject().put("id", server.uuid).put("alterId", server.alterId ?: 0).put("security", server.security ?: "auto")
+                ))
+            ))
+            "trojan" -> JSONObject().put("servers", JSONArray().put(
+                JSONObject().put("address", server.host).put("port", server.port).put("password", server.uuid)
+            ))
+            "ss", "shadowsocks" -> JSONObject().put("servers", JSONArray().put(
+                JSONObject().put("address", server.host).put("port", server.port)
+                    .put("method", server.method ?: "chacha20-poly1305")
+                    .put("password", server.uuid)
+            ))
+            "hysteria" -> JSONObject()
+                .put("version", 2)
+                .put("address", server.host)
+                .put("port", server.port)
+            "socks" -> JSONObject().put("servers", JSONArray().put(
+                JSONObject()
+                    .put("address", "127.0.0.1")
+                    .put("port", server.naiveLocalPort
+                        ?: error("NaiveProxy sidecar has not supplied a local SOCKS port"))
+            ))
+            else -> error("Unsupported protocol for Xray: $protocol")
+        }
+    }
+
+    internal fun buildStreamSettings(server: Server): JSONObject? {
+        if (server.isNaiveProxy()) return null
+        val serverProtocol = server.protocol.trim().lowercase()
+        val rawNetwork = server.network
+            ?.lowercase()
+            ?.ifBlank { null }
+            ?: if (serverProtocol == "hy2" || serverProtocol.contains("hysteria")) "hysteria" else "tcp"
+        val network = when (rawNetwork) {
+            "xhttp", "splithttp" -> "xhttp"
+            "h2", "http2" -> "h2"
+            "httpupgrade", "http-upgrade" -> "httpupgrade"
+            "hy2", "hysteria2" -> "hysteria"
+            else -> rawNetwork
+        }
+        val security = when {
+            server.protocol.equals("hysteria", ignoreCase = true) ||
+                server.protocol.equals("hy2", ignoreCase = true) ||
+                server.protocol.equals("hysteria2", ignoreCase = true) -> "tls"
+            server.security.equals("reality", ignoreCase = true) -> "reality"
+            server.protocol.contains("trojan", ignoreCase = true) &&
+                !server.security.equals("none", ignoreCase = true) -> "tls"
+            server.tls == true || server.security.equals("tls", ignoreCase = true) -> "tls"
+            else -> "none"
+        }
+
+        val stream = JSONObject().put("network", network).put("security", security)
+
+        when (network) {
+            "ws" -> stream.put("wsSettings", JSONObject().apply {
+                put("path", server.path ?: "/")
+                server.hostHeader?.takeIf { it.isNotBlank() }?.let {
+                    put("headers", JSONObject().put("Host", it))
+                }
+            })
+            "grpc" -> stream.put("grpcSettings", JSONObject().put("serviceName", server.serviceName ?: "grpc"))
+            "xhttp" -> stream.put("xhttpSettings", JSONObject().apply {
+                put("path", server.path ?: "/")
+                // Режим и блок extra задаёт сервер: имена ключей сессии,
+                // набивку и мультиплексирование он ждёт ровно такими, какими
+                // записал в ссылку. Прежде здесь стояло "auto", а extra
+                // терялся — соединение устанавливалось и молчало.
+                put("mode", server.xhttpMode?.takeIf { it.isNotBlank() } ?: "auto")
+                server.hostHeader?.takeIf { it.isNotBlank() }?.let {
+                    put("host", it)
+                }
+                server.xhttpExtra?.takeIf { it.isNotBlank() }?.let { raw ->
+                    runCatching { JSONObject(raw) }
+                        .onSuccess { put("extra", it) }
+                        .onFailure {
+                            Log.w(TAG, "xhttp extra is not a JSON object, ignoring")
+                        }
+                }
+            })
+            "h2" -> stream.put("httpSettings", JSONObject().apply {
+                put("path", server.path ?: "/")
+                server.hostHeader?.takeIf { it.isNotBlank() }?.let {
+                    put("host", JSONArray().put(it))
+                }
+            })
+            "httpupgrade" -> stream.put("httpupgradeSettings", JSONObject().apply {
+                put("path", server.path ?: "/")
+                server.hostHeader?.takeIf { it.isNotBlank() }?.let {
+                    put("host", it)
+                }
+            })
+            "hysteria" -> {
+                stream.put("hysteriaSettings", JSONObject().apply {
+                    put("version", 2)
+                    server.uuid.takeIf { it.isNotBlank() }?.let { put("auth", it) }
+                    put("udpIdleTimeout", 60)
+                })
+                buildHysteriaFinalMask(server)?.let { stream.put("finalmask", it) }
+            }
+            "tcp" -> {
+                // no extra settings
+            }
+        }
+
+        if (security == "tls") {
+            stream.put("tlsSettings", JSONObject().apply {
+                put("serverName", server.sni ?: server.host)
+                put("allowInsecure", server.allowInsecure ?: false)
+                val alpnValue = server.alpn?.takeIf { it.isNotBlank() } ?: if (network == "hysteria") "h3" else null
+                alpnValue?.let { alpn ->
+                    put("alpn", JSONArray().apply { alpn.split(',').map { it.trim() }.filter { it.isNotBlank() }.forEach { put(it) } })
+                }
+                server.fingerprint?.takeIf { it.isNotBlank() }?.let { put("fingerprint", it) }
+            })
+        }
+
+        if (security == "reality") {
+            stream.put("realitySettings", JSONObject().apply {
+                put("serverName", server.sni ?: server.host)
+                server.publicKey?.takeIf { it.isNotBlank() }?.let { put("publicKey", it) }
+                server.shortId?.takeIf { it.isNotBlank() }?.let { put("shortId", it) }
+                server.spiderX?.takeIf { it.isNotBlank() }?.let { put("spiderX", it) }
+                put("fingerprint", server.fingerprint ?: "chrome")
+            })
+        }
+
+        return stream
+    }
+
+    private fun buildHysteriaFinalMask(server: Server): JSONObject? {
+        val finalMask = JSONObject()
+        val udpLayers = JSONArray()
+
+        val obfs = server.hysteriaObfs?.trim()?.lowercase().orEmpty()
+        val obfsPassword = server.hysteriaObfsPassword?.trim().orEmpty()
+        if (obfs == "salamander" && obfsPassword.isNotBlank()) {
+            udpLayers.put(
+                JSONObject()
+                    .put("type", "salamander")
+                    .put("settings", JSONObject().put("password", obfsPassword))
+            )
+        }
+        if (udpLayers.length() > 0) {
+            finalMask.put("udp", udpLayers)
+        }
+
+        val quicParams = JSONObject()
+        server.hysteriaCongestion?.trim()?.takeIf { it.isNotBlank() }?.let {
+            quicParams.put("congestion", it)
+        }
+        server.hysteriaUp?.trim()?.takeIf { it.isNotBlank() }?.let {
+            quicParams.put("brutalUp", normalizeHysteriaBandwidth(it))
+        }
+        server.hysteriaDown?.trim()?.takeIf { it.isNotBlank() }?.let {
+            quicParams.put("brutalDown", normalizeHysteriaBandwidth(it))
+        }
+        server.hysteriaPorts?.trim()?.takeIf { it.isNotBlank() }?.let { ports ->
+            quicParams.put(
+                "udpHop",
+                JSONObject()
+                    .put("ports", ports)
+                    .put("interval", server.hysteriaHopInterval?.trim()?.takeIf { it.isNotBlank() } ?: "30")
+            )
+        }
+        if (quicParams.length() > 0) {
+            finalMask.put("quicParams", quicParams)
+        }
+
+        return finalMask.takeIf { it.length() > 0 }
+    }
+
+    private fun normalizeHysteriaBandwidth(raw: String): String {
+        val value = raw.trim()
+        if (value.isBlank()) return value
+        return if (value.all { it.isDigit() }) "$value mbps" else value
+    }
+
+    private fun isOk(result: String?): Boolean {
+        if (result.isNullOrBlank()) return false
+        val decoded = decodeIfBase64(result)
+        return try {
+            val json = JSONObject(decoded)
+            json.optBoolean("ok", false) ||
+                json.optBoolean("success", false) ||
+                json.optInt("code", -1) == 0
+        } catch (_: Exception) {
+            decoded.equals("ok", ignoreCase = true)
+        }
+    }
+
+    private fun extractError(result: String?): String {
+        if (result.isNullOrBlank()) return "Unknown Xray error"
+        val decoded = decodeIfBase64(result)
+        return try {
+            val json = JSONObject(decoded)
+            json.optString("error").ifBlank { decoded }
+        } catch (_: Exception) {
+            decoded
+        }
+    }
+
+    private fun extractData(result: String?): String? {
+        if (result.isNullOrBlank()) return null
+        val decoded = decodeIfBase64(result)
+        return runCatching { JSONObject(decoded).optString("data").takeIf { it.isNotBlank() } }.getOrNull()
+    }
+
+    private fun decodeIfBase64(value: String): String {
+        val trimmed = value.trim()
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) return trimmed
+        return runCatching {
+            String(Base64.getDecoder().decode(trimmed), Charsets.UTF_8)
+        }.getOrDefault(trimmed)
+    }
+}

@@ -1,6 +1,6 @@
 {
   "bundle": {
     "targets": ["appimage", "deb", "rpm"],
-    "resources": ["resources/naive/**/*"]
+    "resources": ["resources/naive/**/*", "resources/awg/**/*"]
   }
 }

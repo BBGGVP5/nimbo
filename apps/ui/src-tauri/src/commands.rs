@@ -3625,6 +3625,7 @@ fn server_protocol_label(server: &Server) -> String {
         nimbo_subscription::Protocol::Shadowsocks(_) => "Shadowsocks",
         nimbo_subscription::Protocol::Hysteria2(_) => "Hysteria2",
         nimbo_subscription::Protocol::Naive(_) => "NaiveProxy",
+        nimbo_subscription::Protocol::Awg(_) => "AmneziaWG",
     }
     .into()
 }
@@ -4656,7 +4657,12 @@ pub async fn connect_server(
 ) -> Result<PersistedState, String> {
     CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst);
     let _operation = CONNECTION_OPERATION.lock().await;
-    connect_server_inner(app, state, server_id).await
+    let result = connect_server_inner(app, state.clone(), server_id).await;
+    if result.is_err() {
+        let _ = stop_runtime(&state);
+        let _ = state.mutate(|s| { s.connected = false; s.connected_at = None; });
+    }
+    result
 }
 
 async fn connect_server_inner(
@@ -4715,7 +4721,10 @@ async fn connect_server_inner(
             s.connected = true;
             s.connected_at = Some(connected_at);
         })
-        .map_err(|e| format!("Не удалось сохранить статус подключения: {e}"))?;
+        .map_err(|e| {
+            let _ = stop_runtime(&state);
+            format!("Не удалось сохранить статус подключения: {e}")
+        })?;
     Ok(state.snapshot())
 }
 
@@ -5422,6 +5431,7 @@ fn server_connection_identity(server: &Server) -> String {
             config.alpn,
             config.insecure
         ),
+        nimbo_subscription::Protocol::Awg(config) => format!("awg:{}", config.config),
         nimbo_subscription::Protocol::Naive(config) => format!(
             "naive:{}:{}:{}:{}:{:?}",
             config.address.trim().to_ascii_lowercase(),
@@ -5676,6 +5686,7 @@ fn server_endpoint(server: &Server) -> (String, u16) {
         nimbo_subscription::Protocol::Shadowsocks(config) => (config.address.clone(), config.port),
         nimbo_subscription::Protocol::Hysteria2(config) => (config.address.clone(), config.port),
         nimbo_subscription::Protocol::Naive(config) => (config.address.clone(), config.port),
+        nimbo_subscription::Protocol::Awg(config) => (config.address.clone(), config.port),
     }
 }
 
@@ -5935,6 +5946,7 @@ async fn connect_system_proxy(
     stop_runtime(state)?;
 
     let ports = ProxyPorts::default();
+    let (server, awg) = crate::awg_runtime::prepare(app, server)?;
     let (server, mut naive) = prepare_naive_runtime(app, server)?;
     let config = match build_runtime_xray_config(&server, snapshot, ports) {
         Ok(value) => value,
@@ -5995,6 +6007,7 @@ async fn connect_system_proxy(
     state.runtime(|runtime| {
         runtime.xray = Some(child);
         runtime.naive = naive;
+        runtime.awg = awg;
         runtime.system_proxy_snapshot = proxy_snapshot;
     });
 
@@ -6046,6 +6059,29 @@ async fn connect_tun(
     let ports = ProxyPorts::default();
     #[cfg_attr(target_os = "linux", allow(unused_variables))]
     let default_route = current_default_ipv4_route();
+    let mut server = server;
+    if let nimbo_subscription::Protocol::Awg(config) = &mut server.protocol {
+        *config = nimbo_subscription::parser::awg::parse_ini(&config.config)
+            .map_err(|_| "Некорректная конфигурация AWG")?;
+    }
+    let bypass_ips = resolve_server_ipv4s(&server).await;
+    let is_awg = matches!(&server.protocol, nimbo_subscription::Protocol::Awg(_));
+    if is_awg {
+        let ip = bypass_ips.first().and_then(|value| value.parse::<Ipv4Addr>().ok())
+            .ok_or("Для AWG в режиме TUN нужен доступный IPv4 Endpoint; IPv6 Endpoint поддерживается в режиме системного proxy")?;
+        crate::awg_runtime::pin(&mut server, IpAddr::V4(ip))?;
+    }
+    let awg_route = if is_awg { Some(crate::awg_routes::AwgBypass::install(&bypass_ips)?) } else { None };
+    #[cfg(windows)]
+    if let Some(route) = &awg_route {
+        let pending = TunRuntimeSnapshot {
+            awg_bypass_routes: route.snapshot(), bypass_ips: bypass_ips.clone(),
+            gateway: None, interface_index: None, firewall_policy: Vec::new(),
+        };
+        state.mutate(|s| s.pending_tun_snapshot = Some(pending))
+            .map_err(|_| "Не удалось сохранить снимок маршрута AWG")?;
+    }
+    let (server, awg) = crate::awg_runtime::prepare(app, server)?;
     let (server, mut naive) = prepare_naive_runtime(app, server)?;
     let mut config = match build_runtime_xray_config(&server, snapshot, ports) {
         Ok(value) => value,
@@ -6078,7 +6114,6 @@ async fn connect_tun(
         stop_child(&mut naive);
         return Err(error);
     }
-    let bypass_ips = resolve_server_ipv4s(&server).await;
 
     // На Linux TUN поднимает привилегированный хелпер: GUI работает под
     // обычным пользователем и не может создать интерфейс. Соединение с
@@ -6121,7 +6156,10 @@ async fn connect_tun(
         state.runtime(|runtime| {
             runtime.tun_session = Some(session);
             runtime.naive = naive.take();
+            runtime.awg = awg;
+            runtime.awg_route = awg_route;
             runtime.tun_snapshot = Some(TunRuntimeSnapshot {
+                awg_bypass_routes: Vec::new(),
                 bypass_ips: bypass_ips.clone(),
                 gateway: None,
                 interface_index: None,
@@ -6148,8 +6186,9 @@ async fn connect_tun(
     }
 
     let mut tun_snapshot = TunRuntimeSnapshot {
+        awg_bypass_routes: awg_route.as_ref().map(|route| route.snapshot()).unwrap_or_default(),
         bypass_ips,
-        gateway: default_route.as_ref().map(|route| route.gateway.clone()),
+        gateway: if is_awg { None } else { default_route.as_ref().map(|route| route.gateway.clone()) },
         interface_index: default_route.as_ref().map(|route| route.interface_index),
         firewall_policy: Vec::new(),
     };
@@ -6178,6 +6217,8 @@ async fn connect_tun(
     state.runtime(|runtime| {
         runtime.xray = Some(xray);
         runtime.naive = naive;
+        runtime.awg = awg;
+        runtime.awg_route = awg_route;
         runtime.tun_snapshot = Some(tun_snapshot);
     });
 
@@ -6449,6 +6490,11 @@ fn build_runtime_xray_config(
     snapshot: &PersistedState,
     ports: ProxyPorts,
 ) -> Result<serde_json::Value, String> {
+    if let nimbo_subscription::Protocol::Awg(config) = &server.protocol {
+        if config.local_socks.as_ref().filter(|s| s.port != 0 && !s.username.is_empty() && s.password.len() >= 16).is_none() {
+            return Err("AWG runtime ещё не готов".into());
+        }
+    }
     let app_rules = combined_app_proxy_rules(snapshot, server);
     let mut builder = ConfigBuilder::new(ports)
         .server(server)
@@ -6474,7 +6520,11 @@ fn build_runtime_xray_config(
         .as_deref()
         .filter(|uuid| !uuid.trim().is_empty())
         .unwrap_or(DEFAULT_XRAY_TEMPLATE_KEY);
-    let template = select_xray_template(snapshot, subscription_url, server, template_key);
+    let template = if matches!(&server.protocol, nimbo_subscription::Protocol::Awg(_)) {
+        // Full Xray templates may route via balancers/foreign outbounds. AWG uses
+        // the user's routing modules/profile with only the prepared AWG proxy.
+        None
+    } else { select_xray_template(snapshot, subscription_url, server, template_key) };
 
     let mut config = if let Some(template) = template {
         apply_xray_template(template.clone(), base_value, server)?
@@ -6487,6 +6537,14 @@ fn build_runtime_xray_config(
         &snapshot.preferences,
         owning_subscription.and_then(|subscription| subscription.meta.tls_fragment.as_ref()),
     );
+    if matches!(&server.protocol, nimbo_subscription::Protocol::Awg(_)) {
+        let outbound = nimbo_xray_config::outbound::server_to_outbound(server, XRAY_PROXY_TAG);
+        let outbounds = config.get_mut("outbounds").and_then(serde_json::Value::as_array_mut)
+            .ok_or("Нет outbounds в конфигурации AWG")?;
+        let proxy = outbounds.iter_mut().find(|out| out.get("tag").and_then(serde_json::Value::as_str) == Some(XRAY_PROXY_TAG))
+            .ok_or("Нет proxy outbound в конфигурации AWG")?;
+        *proxy = serde_json::to_value(outbound).map_err(|_| "Не удалось настроить AWG outbound")?;
+    }
     Ok(config)
 }
 
@@ -7394,8 +7452,21 @@ fn write_xray_config(config: &serde_json::Value) -> Result<PathBuf, String> {
     let config_path = runtime_dir.join("xray-config.json");
     let json = serde_json::to_vec_pretty(config)
         .map_err(|e| format!("Не удалось собрать Xray config: {e}"))?;
-    std::fs::write(&config_path, json)
-        .map_err(|e| format!("Не удалось записать Xray config: {e}"))?;
+    {
+        use std::io::Write;
+        let mut options = OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)] {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&config_path).map_err(|_| "Не удалось открыть Xray config")?;
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600)).map_err(|_| "Не удалось защитить Xray config")?;
+        }
+        file.write_all(&json).map_err(|_| "Не удалось записать Xray config")?;
+    }
     Ok(config_path)
 }
 
@@ -7743,6 +7814,8 @@ fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
             let _ = child.kill();
             let _ = child.wait();
         }
+        drop(runtime.awg.take());
+        drop(runtime.awg_route.take());
         if let Some(mut child) = runtime.naive.take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -7830,7 +7903,8 @@ pub fn start_resume_monitor(app: AppHandle) {
             let now = std::time::SystemTime::now();
             let slept = now.duration_since(previous).unwrap_or_default() >= Duration::from_secs(30);
             previous = now;
-            if slept { reconnect_runtime_after_resume(&app); }
+            let awg_failed = app.state::<AppState>().runtime(|runtime| runtime.awg.as_mut().is_some_and(|awg| awg.has_exited()));
+            if slept || awg_failed { reconnect_runtime_after_resume(&app); }
         }
     });
 }
@@ -7885,6 +7959,7 @@ pub fn reconnect_runtime_after_resume(app: &AppHandle) {
 }
 #[cfg(windows)]
 fn cleanup_tun(snapshot: Option<TunRuntimeSnapshot>) -> Result<(), String> {
+    if let Some(snapshot) = &snapshot { crate::awg_routes::cleanup(&snapshot.awg_bypass_routes); }
     // Блокировку снимаем в первую очередь: если дальше что-то пойдёт не так,
     // пользователь останется хотя бы с рабочей сетью.
     clear_windows_kill_switch(snapshot.as_ref().map(|s| s.firewall_policy.clone()));
@@ -8963,6 +9038,24 @@ fn run_hidden(program: &str, args: &[String]) -> Result<(), String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn awg_runtime_config_overrides_stale_templates_and_disables_mux() {
+        let key = "01".repeat(32);
+        let mut server = nimbo_subscription::parser::aggregate::parse_single(&format!("[Interface]\nPrivateKey={key}\nAddress=10.0.0.2/32\n[Peer]\nPublicKey={key}\nEndpoint=192.0.2.1:51820\nAllowedIPs=0.0.0.0/0\n")).unwrap();
+        let mut snapshot = PersistedState::default();
+        assert!(build_runtime_xray_config(&server,&snapshot,ProxyPorts::default()).is_err());
+        let nimbo_subscription::Protocol::Awg(awg) = &mut server.protocol else { panic!() };
+        awg.local_socks = Some(nimbo_subscription::AwgLocalSocks { port: 43219, username: "runtime-user".into(), password: "runtime-password-12345".into() });
+        snapshot.preferences.tunnel_mux_enabled = true;
+        snapshot.xray_templates.insert("default".into(),serde_json::json!({"outbounds":[{"tag":"proxy","protocol":"socks","settings":{"servers":[{"address":"stale.example","port":1234}]}}]}));
+        let config = build_runtime_xray_config(&server,&snapshot,ProxyPorts::default()).unwrap();
+        let proxy = config["outbounds"].as_array().unwrap().iter().find(|o| o["tag"] == "proxy").unwrap();
+        assert_eq!(proxy["settings"]["servers"][0]["port"],43219);
+        assert_eq!(proxy["settings"]["servers"][0]["users"][0]["pass"],"runtime-password-12345");
+        assert!(proxy.get("mux").is_none());
+        assert!(!config.to_string().contains("privatekey"));
+    }
 
     #[test]
     fn provider_tls_fragment_values_apply_to_all_proxy_outbounds() {
