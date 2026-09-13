@@ -24,13 +24,17 @@ final class NimboHTTPProbe: NSObject, StreamDelegate {
 
     private init?(url: URL, method: String, socks: NimboPingSOCKS?, completion: NimboPingCompletion<Int>) {
         guard let bytes = NimboPingPolicy.request(url: url, method: method), let host = url.host else { return nil }
-        var read: InputStream?
-        var write: OutputStream?
+        var readReference: Unmanaged<CFReadStream>?
+        var writeReference: Unmanaged<CFWriteStream>?
         let bare = host.hasPrefix("[") ? String(host.dropFirst().dropLast()) : host
-        Stream.getStreamsToHost(withName: bare, port: url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80), inputStream: &read, outputStream: &write)
+        let port = UInt32(url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80))
+        CFStreamCreatePairWithSocketToHost(kCFAllocatorDefault, bare as CFString, port, &readReference, &writeReference)
+        // Consume both retained references, even if creating one side failed.
+        let read = readReference?.takeRetainedValue()
+        let write = writeReference?.takeRetainedValue()
         guard let read, let write else { return nil }
-        self.input = read
-        self.output = write
+        self.input = read as InputStream
+        self.output = write as OutputStream
         self.request = Array(bytes)
         self.completion = completion
         super.init()
@@ -42,19 +46,23 @@ final class NimboHTTPProbe: NSObject, StreamDelegate {
                 kCFStreamPropertySOCKSUser as String: socks.username,
                 kCFStreamPropertySOCKSPassword as String: socks.password
             ]
-            // Explicit SOCKS socket streams do not discover/bypass system proxies.
-            // Do not require the CFHTTP ProxyLocalBypass property on these streams.
-            // A failed SOCKS property remains terminal: never open directly.
-            guard read.setProperty(proxy as NSDictionary, forKey: Stream.PropertyKey(rawValue: kCFStreamPropertySOCKSProxy as String)),
-                  write.setProperty(proxy as NSDictionary, forKey: Stream.PropertyKey(rawValue: kCFStreamPropertySOCKSProxy as String)) else {
-                Self.trace("SOCKS property rejected")
+            // Use the CF socket-stream API with CF keys, before toll-free bridged
+            // NSStream scheduling. Apple specifies setting SOCKS on the read OR
+            // write side of the shared socket pair; a second setter is not proof.
+            // A rejected configuration is terminal: never open the pair directly.
+            guard CFReadStreamSetProperty(read, kCFStreamPropertySOCKSProxy, proxy as CFDictionary) else {
+                Self.trace("CFReadStream SOCKS configuration rejected before open")
                 return nil
             }
+            Self.trace("CFReadStream SOCKS configuration accepted")
         }
         if url.scheme?.lowercased() == "https" {
             // Never install a trust override or disable certificate-chain validation.
-            guard read.setProperty(StreamSocketSecurityLevel.negotiatedSSL.rawValue as NSString, forKey: .socketSecurityLevelKey),
-                  write.setProperty(StreamSocketSecurityLevel.negotiatedSSL.rawValue as NSString, forKey: .socketSecurityLevelKey) else { return nil }
+            guard CFReadStreamSetProperty(read, kCFStreamPropertySocketSecurityLevel, kCFStreamSocketSecurityLevelNegotiatedSSL) else {
+                Self.trace("CFReadStream TLS configuration rejected before open")
+                return nil
+            }
+            Self.trace("CFReadStream TLS configuration accepted")
         }
     }
 
