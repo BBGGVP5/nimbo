@@ -42,17 +42,27 @@ final class NimboHTTPProbe: NSObject, StreamDelegate {
                 kCFStreamPropertySOCKSUser as String: socks.username,
                 kCFStreamPropertySOCKSPassword as String: socks.password
             ]
-            // A failed proxy property is terminal: streams are never opened directly.
+            // Explicit SOCKS socket streams do not discover/bypass system proxies.
+            // Do not require the CFHTTP ProxyLocalBypass property on these streams.
+            // A failed SOCKS property remains terminal: never open directly.
             guard read.setProperty(proxy as NSDictionary, forKey: Stream.PropertyKey(rawValue: kCFStreamPropertySOCKSProxy as String)),
-                  write.setProperty(proxy as NSDictionary, forKey: Stream.PropertyKey(rawValue: kCFStreamPropertySOCKSProxy as String)),
-                  read.setProperty(NSNumber(value: false), forKey: Stream.PropertyKey(rawValue: kCFStreamPropertyProxyLocalBypass as String)),
-                  write.setProperty(NSNumber(value: false), forKey: Stream.PropertyKey(rawValue: kCFStreamPropertyProxyLocalBypass as String)) else { return nil }
+                  write.setProperty(proxy as NSDictionary, forKey: Stream.PropertyKey(rawValue: kCFStreamPropertySOCKSProxy as String)) else {
+                Self.trace("SOCKS property rejected")
+                return nil
+            }
         }
         if url.scheme?.lowercased() == "https" {
             // Never install a trust override or disable certificate-chain validation.
             guard read.setProperty(StreamSocketSecurityLevel.negotiatedSSL.rawValue as NSString, forKey: .socketSecurityLevelKey),
                   write.setProperty(StreamSocketSecurityLevel.negotiatedSSL.rawValue as NSString, forKey: .socketSecurityLevelKey) else { return nil }
         }
+    }
+
+    private static func trace(_ message: String) {
+        #if NIMBO_PING_TESTS
+        // Stage only: never print URLs, credentials or stream error descriptions.
+        FileHandle.standardError.write(Data("NimboHTTPProbe: \(message)\n".utf8))
+        #endif
     }
 
     static func measure(url: URL, method: String, timeout: TimeInterval, socks: NimboPingSOCKS? = nil) async -> Int {
@@ -127,7 +137,10 @@ final class NimboHTTPProbe: NSObject, StreamDelegate {
                     return
                 }
             }
-        case .errorOccurred, .endEncountered: completion.finish(-1)
+        case .errorOccurred:
+            Self.trace("stream error \((aStream.streamError as NSError?)?.code ?? 0)")
+            completion.finish(-1)
+        case .endEncountered: completion.finish(-1)
         default: break
         }
     }

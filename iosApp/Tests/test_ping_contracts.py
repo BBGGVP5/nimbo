@@ -96,7 +96,9 @@ class PingContracts(unittest.TestCase):
     def test_http_security_and_bounds(self):
         s = read("iosApp/Shared/NimboHTTPProbe.swift")
         self.assertIn('kCFStreamPropertySOCKSProxy', s)
-        self.assertIn('kCFStreamPropertyProxyLocalBypass', s)
+        self.assertNotIn('rawValue: kCFStreamPropertyProxyLocalBypass', s)
+        self.assertIn('guard read.setProperty(proxy as NSDictionary', s)
+        self.assertIn('write.setProperty(proxy as NSDictionary', s)
         self.assertIn('negotiatedSSL.rawValue', s)
         self.assertIn('maximumHeaderBytes', s)
         self.assertIn('guard (200...299).contains(status)', s)
@@ -136,7 +138,9 @@ class FixtureServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
     def handle_error(self, request, client_address):
-        pass # Expected closed sockets during cancellation/TLS rejection.
+        # Exception type only; no TLS data or SOCKS credentials.
+        import sys
+        self.errors.append(type(sys.exception()).__name__)
 
 class HTTPFixture(socketserver.StreamRequestHandler):
     def handle(self):
@@ -184,6 +188,7 @@ def exact(sock, count):
 
 class SOCKSFixture(socketserver.BaseRequestHandler):
     def handle(self):
+        self.server.connections += 1
         sock = self.request
         sock.settimeout(3)
         version, count = exact(sock, 2)
@@ -217,6 +222,7 @@ class SOCKSFixture(socketserver.BaseRequestHandler):
 def serving(handler, tls=None):
     server = FixtureServer(('127.0.0.1', 0), handler)
     server.requests, server.proxied, server.rejected = [], [], 0
+    server.connections, server.errors = 0, []
     if tls:
         server.socket = tls.wrap_socket(server.socket, server_side=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -235,7 +241,7 @@ def native_tests():
         tmp = pathlib.Path(temporary)
         sdk = subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip()
         arch = 'arm64' if platform.machine() == 'arm64' else 'x86_64'
-        command = ['xcrun', '--sdk', 'macosx', 'swiftc', '-swift-version', '5', '-parse-as-library',
+        command = ['xcrun', '--sdk', 'macosx', 'swiftc', '-swift-version', '5', '-D', 'NIMBO_PING_TESTS', '-parse-as-library',
                    '-target', arch + '-apple-macosx13.0', '-sdk', sdk,
                    *SOURCES, '-o', str(tmp / 'PingPolicyTests')]
         print('NATIVE COMPILER:', shlex.join(command), flush=True)
@@ -259,7 +265,13 @@ def native_tests():
         with serving(HTTPFixture) as http, serving(SOCKSFixture) as socks, serving(HTTPFixture, tls) as secure:
             env = dict(os.environ, NIMBO_TEST_HTTP_PORT=str(http.server_address[1]),
                        NIMBO_TEST_SOCKS_PORT=str(socks.server_address[1]), NIMBO_TEST_TLS_PORT=str(secure.server_address[1]))
-            subprocess.run([str(tmp / 'PingPolicyTests')], env=env, check=True, timeout=45)
+            try:
+                subprocess.run([str(tmp / 'PingPolicyTests')], env=env, check=True, timeout=45)
+            finally:
+                # Preserve local fixture evidence even when a Swift precondition traps.
+                print('HTTP fixture requests:', http.requests, flush=True)
+                print('SOCKS fixture:', {'accepted': socks.proxied, 'rejected': socks.rejected,
+                                        'connections': socks.connections, 'errors': socks.errors}, flush=True)
             assert ('GET', '/method/GET') in http.requests
             assert ('HEAD', '/method/HEAD') in http.requests
             assert all(path not in ('/must-not-hit-origin', '/must-not-follow') for _, path in http.requests), http.requests
