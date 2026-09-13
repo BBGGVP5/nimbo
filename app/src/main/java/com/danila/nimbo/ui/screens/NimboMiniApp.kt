@@ -293,6 +293,8 @@ import com.danila.nimbo.network.PingProtocol
 import com.danila.nimbo.network.PingDisplay
 import com.danila.nimbo.network.ActiveProxyPing
 import com.danila.nimbo.ui.components.PingValueContent
+import com.danila.nimbo.ui.components.currentPingProtocol
+import com.danila.nimbo.network.displayPingMs
 import com.danila.nimbo.ui.components.NebulaInputField
 import com.danila.nimbo.MainViewModel
 import com.danila.nimbo.model.Server
@@ -4639,16 +4641,17 @@ private fun MiniPingBadge(
     modifier: Modifier = Modifier
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val shownPing = displayPingMs(ping, currentPingProtocol()) ?: -1
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     // Анимация крутится, пока сервер реально пингуется (а не только когда нет значения).
     val showLoading = isPinging
     val targetPingColor = when {
         showLoading -> nebulaColors.accent
-        ping == -1 -> nebulaColors.statusDisconnected
-        ping <= 70 -> nebulaColors.statusConnected
-        ping <= 120 -> Color(0xFFCDDC39)
-        ping <= 220 -> Color(0xFFFF9800)
+        shownPing < 0 -> nebulaColors.statusDisconnected
+        shownPing <= 70 -> nebulaColors.statusConnected
+        shownPing <= 120 -> Color(0xFFCDDC39)
+        shownPing <= 220 -> Color(0xFFFF9800)
         else -> nebulaColors.statusDisconnected
     }
     val pingColor by animateColorAsState(targetPingColor, animationSpec = tween(300), label = "mini_ping_color")
@@ -5531,23 +5534,24 @@ private fun WindowsPingPill(
     pingDisplayMode: Int = 0
 ) {
     val nebulaColors = LocalNebulaColors.current
+    val shownPing = displayPingMs(ping, currentPingProtocol()) ?: -1
     // Пока сервер пингуется (loading) — крутим анимацию прямо в месте значения,
     // даже если уже есть закешированный пинг.
     val showLoading = loading
     val targetPingColor = when {
         showLoading -> nebulaColors.accent
-        ping == -1 -> nebulaColors.statusDisconnected
-        ping <= 70 -> Color(0xFF6BE88E)
-        ping <= 120 -> Color(0xFFCDDC39)
-        ping <= 220 -> Color(0xFFFF9800)
+        shownPing < 0 -> nebulaColors.statusDisconnected
+        shownPing <= 70 -> Color(0xFF6BE88E)
+        shownPing <= 120 -> Color(0xFFCDDC39)
+        shownPing <= 220 -> Color(0xFFFF9800)
         else -> nebulaColors.statusDisconnected
     }
     val targetBackground = when {
         showLoading -> nebulaColors.accent.copy(alpha = 0.15f)
-        ping == -1 -> nebulaColors.statusDisconnected.copy(alpha = 0.15f)
-        ping <= 70 -> Color(0xFF173A25)
-        ping <= 120 -> Color(0xFFCDDC39).copy(alpha = 0.15f)
-        ping <= 220 -> Color(0xFFFF9800).copy(alpha = 0.15f)
+        shownPing < 0 -> nebulaColors.statusDisconnected.copy(alpha = 0.15f)
+        shownPing <= 70 -> Color(0xFF173A25)
+        shownPing <= 120 -> Color(0xFFCDDC39).copy(alpha = 0.15f)
+        shownPing <= 220 -> Color(0xFFFF9800).copy(alpha = 0.15f)
         else -> nebulaColors.statusDisconnected.copy(alpha = 0.15f)
     }
     // Плавно переходим между состояниями: цвет и значение не "дёргаются".
@@ -12893,8 +12897,8 @@ private fun ColumnScope.PingSettingsSection(
             PingSettingsWideRow(
                 title = t("Через VPN", "Through VPN"),
                 subtitle = if (pingProtocol == 5) t(
-                    "Nimbo Ping использует отдельный маршрут каждого сервера; активный VPN не требуется.",
-                    "Nimbo Ping uses a separate route for each server; no active VPN is required."
+                    "Nimbo Ping: ≈ GET / 3,3. Отдельный маршрут каждого сервера; активный VPN не требуется.",
+                    "Nimbo Ping: ≈ GET / 3.3. Separate route for each server; no active VPN required."
                 ) else if (pingThroughProxy) t(
                     "End-to-end HTTP до контрольного URL через выбранный outbound. Требуется активный VPN.",
                     "End-to-end HTTP to the health URL through the selected outbound. An active VPN is required."

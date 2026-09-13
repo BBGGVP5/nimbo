@@ -244,7 +244,7 @@ fun PingSettingsScreen(
                     SettingsSwitch(
                         icon = Icons.Default.VpnLock,
                         title = "Через VPN",
-                        subtitle = "Для Nimbo Ping: отдельный маршрут каждого сервера, без переключения VPN. Для остальных методов: активное подключение.",
+                        subtitle = "Nimbo Ping: ≈ GET / 3,3; отдельный маршрут каждого сервера, без переключения VPN. Для остальных методов: активное подключение.",
                         checked = pingThroughProxy || pingProtocol == 5,
                         enabled = pingProtocol != 5,
                         onCheckedChange = { preferencesManager.pingThroughProxy = it }

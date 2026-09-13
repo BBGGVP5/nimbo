@@ -18,6 +18,50 @@ import kotlin.coroutines.resume
 
 /** No system proxy selector, connection reuse, redirects, cache, or direct retry. */
 internal object ActiveProxyPing {
+    /** Authenticated local-only metrics channel, bounded independently of target response bodies. */
+    suspend fun readinessSnapshot(port: Int, session: HealthProxySession, timeoutMs: Int): String? {
+        val client = OkHttpClient.Builder()
+            .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(LocalProxyConfig.HOST, port)))
+            .callTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build()
+        try {
+            return suspendCancellableCoroutine { continuation ->
+                val request = Request.Builder().url("http://nimbo-readiness.invalid/debug/vars")
+                    .header("Proxy-Authorization", Credentials.basic(session.username, session.password)).build()
+                val call = client.newCall(request)
+                continuation.invokeOnCancellation { call.cancel() }
+                call.enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        if (continuation.isActive) continuation.resume(null)
+                    }
+                    override fun onResponse(call: Call, response: Response) {
+                        val snapshot = runCatching {
+                            response.use {
+                                if (it.code != 200) return@use null
+                                val body = it.body ?: return@use null
+                                if (body.contentLength() > NimboPingReadiness.MAX_BODY_BYTES) return@use null
+                                body.byteStream().use { input ->
+                                    val output = java.io.ByteArrayOutputStream()
+                                    val buffer = ByteArray(8192)
+                                    while (true) {
+                                        val count = input.read(buffer)
+                                        if (count < 0) break
+                                        if (output.size() + count > NimboPingReadiness.MAX_BODY_BYTES) return@use null
+                                        output.write(buffer, 0, count)
+                                    }
+                                    output.toString(Charsets.UTF_8.name())
+                                }
+                            }
+                        }.getOrNull()
+                        if (continuation.isActive) continuation.resume(snapshot)
+                    }
+                })
+            }
+        } finally {
+            client.dispatcher.cancelAll(); client.connectionPool.evictAll(); client.dispatcher.executorService.shutdown()
+        }
+    }
+
     fun validUrl(value: String): Boolean {
         val trimmed = value.trim()
         if (!(trimmed.startsWith("https://", true) || trimmed.startsWith("http://", true)) ||

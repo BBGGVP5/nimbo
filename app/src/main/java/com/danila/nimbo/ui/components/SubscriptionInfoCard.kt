@@ -447,7 +447,7 @@ private fun SelectedServerSummary(
     val nebulaColors = LocalNebulaColors.current
     val flag = extractFlagEmoji(server.name)
     val name = cleanServerName(server.name).ifBlank { "Сервер" }
-    val pingValue = ping ?: -1
+    val pingValue = com.danila.nimbo.network.displayPingMs(ping, currentPingProtocol()) ?: -1
     val pingColor = when {
         inProgress -> nebulaColors.accent
         pingValue == -1 -> nebulaColors.statusDisconnected
@@ -516,7 +516,7 @@ private fun SelectedServerSummary(
                             .background(pingColor)
                     )
                 } else {
-                    PingValueContent(pingValue, pingDisplayMode, pingColor)
+                    PingValueContent(ping, pingDisplayMode, pingColor)
                 }
             }
         }

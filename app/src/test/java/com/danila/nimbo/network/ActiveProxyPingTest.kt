@@ -119,4 +119,39 @@ class ActiveProxyPingTest {
             assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) < 1500)
         }
     }
+
+    @Test fun `readiness reads bounded authenticated local metrics only`() = runBlocking {
+        val session = HealthProxySession("fixture")
+        val body = """{"observatory":{"selected":{"alive":true,"delay":0}}}"""
+        ProxyFixture({ socket ->
+            socket.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: ${body.toByteArray().size}\r\n\r\n$body".toByteArray())
+        }).use { proxy ->
+            assertEquals(body, ActiveProxyPing.readinessSnapshot(proxy.server.localPort, session, 500))
+            val request = proxy.request.await()
+            assertTrue(request.startsWith("GET http://nimbo-readiness.invalid/debug/vars HTTP/1.1"))
+            assertTrue(request.contains("Proxy-Authorization: ${Credentials.basic(session.username, session.password)}"))
+        }
+    }
+
+    @Test fun `readiness oversized streamed body is rejected`() = runBlocking {
+        ProxyFixture({ socket ->
+            socket.getOutputStream().write("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".toByteArray())
+            socket.getOutputStream().write(ByteArray(NimboPingReadiness.MAX_BODY_BYTES + 1) { 32 })
+        }).use { proxy ->
+            assertNull(ActiveProxyPing.readinessSnapshot(proxy.server.localPort, HealthProxySession("fixture"), 1500))
+        }
+    }
+
+    @Test fun `readiness cancellation closes hanging response body`() = runBlocking {
+        ProxyFixture({ socket ->
+            socket.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n".toByteArray())
+            socket.getOutputStream().flush()
+            socket.getInputStream().read()
+        }).use { proxy ->
+            val call = async { ActiveProxyPing.readinessSnapshot(proxy.server.localPort, HealthProxySession("fixture"), 500) }
+            proxy.request.await()
+            call.cancelAndJoin()
+            assertTrue(call.isCancelled)
+        }
+    }
 }

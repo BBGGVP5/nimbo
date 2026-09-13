@@ -19,19 +19,26 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.danila.nimbo.network.PingDisplay
 import com.danila.nimbo.network.pingBars
+import com.danila.nimbo.network.displayPingMs
+import com.danila.nimbo.network.displayPingLabel
+
+@Composable
+internal fun currentPingProtocol(): Int =
+    com.danila.nimbo.NebulaGuardApplication.instance.preferencesManager.pingProtocolState.value
 
 /** Uses the enclosing badge's existing color, shape and loading animation. */
 @Composable
 internal fun PingValueContent(ping: Int?, displayMode: Int, color: Color) {
     val mode = PingDisplay.fromId(displayMode)
-    val label = if (ping == null || ping < 0) "—" else "$ping ms"
+    val protocol = currentPingProtocol()
+    val label = displayPingLabel(ping, protocol) + if (ping != null && ping >= 0) " ms" else ""
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = label }
     ) {
         if (mode == PingDisplay.BARS || mode == PingDisplay.BOTH) {
-            val bars = pingBars(ping)
+            val bars = pingBars(displayPingMs(ping, protocol))
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 repeat(4) { index ->
                     Box(Modifier.width(3.dp).height((5 + index * 3).dp)

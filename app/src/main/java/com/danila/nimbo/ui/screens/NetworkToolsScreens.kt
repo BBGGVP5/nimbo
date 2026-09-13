@@ -102,7 +102,8 @@ private data class ParsedPingTarget(val host: String, val port: Int)
 
 private data class PingToolResult(
     val host: String,
-    val attempts: List<Int>
+    val attempts: List<Int>,
+    val protocol: Int = 0
 ) {
     val success = attempts.filter { it >= 0 }
     val successCount = success.size
@@ -310,7 +311,7 @@ fun PingToolScreen(mainViewModel: com.danila.nimbo.MainViewModel, onNavigateBack
                 if (session == null || HealthProxySessions.isConnected(session)) {
                     result = PingToolResult(
                         if (nimbo) "${selectedNode?.name} · $pingUrl" else if (activeRouteOnly) "Активный маршрут · $pingUrl" else if (usesHealthUrl) pingUrl else parsed.host,
-                        attempts
+                        attempts, protocol = config.protocol.id
                     )
                 } else error = "Маршрут изменился; результат сброшен"
             } finally {
@@ -652,17 +653,18 @@ private fun PingResultCard(result: PingToolResult?) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(result.host, color = nebulaColors.textPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(10.dp))
+                    val shownAvg = com.danila.nimbo.network.displayPingMs(result.avgMs, result.protocol)
                     val avgColor = when {
                         result.avgMs == null || result.successCount == 0 -> Color(0xFFE75555)
-                        result.avgMs <= 70 -> nebulaColors.statusConnected
-                        result.avgMs <= 120 -> Color(0xFFCDDC39)
-                        result.avgMs <= 220 -> Color(0xFFFF9800)
+                        shownAvg!! <= 70 -> nebulaColors.statusConnected
+                        shownAvg!! <= 120 -> Color(0xFFCDDC39)
+                        shownAvg!! <= 220 -> Color(0xFFFF9800)
                         else -> Color(0xFFE75555)
                     }
-                    Text(result.avgMs?.let { "$it мс" } ?: "Недоступен", color = avgColor, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text(result.avgMs?.let { com.danila.nimbo.network.displayPingLabel(it, result.protocol) + " мс" } ?: "Недоступен", color = avgColor, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Успешно: ${result.successCount}/${result.attempts.size}  Потери: ${result.lossPercent}%\nМин: ${result.minMs ?: "-"} мс  Макс: ${result.maxMs ?: "-"} мс",
+                        "Успешно: ${result.successCount}/${result.attempts.size}  Потери: ${result.lossPercent}%\nМин: ${com.danila.nimbo.network.displayPingLabel(result.minMs, result.protocol)} мс  Макс: ${com.danila.nimbo.network.displayPingLabel(result.maxMs, result.protocol)} мс",
                         color = nebulaColors.textSecondary,
                         textAlign = TextAlign.Center
                     )

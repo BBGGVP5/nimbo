@@ -8,12 +8,12 @@ import android.net.NetworkCapabilities
 import android.os.*
 import com.danila.nimbo.network.ActiveProxyPing
 import com.danila.nimbo.network.NodePingConfig
+import com.danila.nimbo.network.NimboPingReadiness
+import com.danila.nimbo.network.NimboProbePorts
 import kotlinx.coroutines.*
 import libXray.DialerController
 import libXray.LibXray
 import org.json.JSONObject
-import java.net.InetAddress
-import java.net.ServerSocket
 
 /** The manifest MUST place this private bound service in :nimbo_ping, never the VPN process. */
 internal class NimboPingService : Service() {
@@ -78,8 +78,9 @@ internal class NimboPingService : Service() {
         } ?: return -1
         if (!cm.bindProcessToNetwork(network)) return -1
         val session = HealthProxySession("diagnostic")
-        val port = ServerSocket(0, 1, InetAddress.getByName(LocalProxyConfig.HOST)).use { it.localPort }
-        val config = NodePingConfig.prepare(source, port, session) ?: return -1
+        val candidates = NodePingConfig.leastPingCandidates(source)
+        val (port, readinessPort) = NimboProbePorts.allocate(candidates.isNotEmpty())
+        val config = NodePingConfig.prepare(source, port, session, readinessPort) ?: return -1
         // Separate assets directory avoids racing the VPN's runtime files during first start.
         val assets = filesDir.resolve("nimbo-ping-data").apply { mkdirs() }
         XrayManager.ensureXrayDatAssets(this, assets)
@@ -98,10 +99,15 @@ internal class NimboPingService : Service() {
         try {
             val started = JSONObject(LibXray.invoke(XrayCoreProtocol.runXrayFromJson(runtime)))
             if (!started.optBoolean("success")) return -1
-            val remaining = (request.getLong("deadline") - SystemClock.elapsedRealtime()).coerceAtMost(request.getInt("timeout").toLong())
-            if (remaining < 250) return -1
-            return ActiveProxyPing.measure(url, remaining.toInt(), session,
-                { scope.isActive && SystemClock.elapsedRealtime() < request.getLong("deadline") }, proxyPort = port)
+            val deadline = request.getLong("deadline")
+            return NimboPingReadiness.measureOnce(awaitReady = {
+                NimboPingReadiness.await(candidates, deadline, SystemClock::elapsedRealtime,
+                    read = { timeout -> ActiveProxyPing.readinessSnapshot(requireNotNull(readinessPort), session, timeout) })
+            }, measure = {
+                val remaining = (deadline - SystemClock.elapsedRealtime()).coerceAtMost(request.getInt("timeout").toLong())
+                if (remaining < 250) -1 else ActiveProxyPing.measure(url, remaining.toInt(), session,
+                    { scope.isActive && SystemClock.elapsedRealtime() < deadline }, proxyPort = port)
+            })
         } finally {
             // This singleton and process belong exclusively to diagnostics.
             runCatching { LibXray.invoke(XrayCoreProtocol.stopXray()) }
