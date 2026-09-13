@@ -23,6 +23,7 @@ import com.danila.nimbo.ui.components.AnimatedGradientBackground
 import com.danila.nimbo.ui.components.GlassHeader
 import com.danila.nimbo.ui.components.GlassSection
 import com.danila.nimbo.ui.components.NebulaInputField
+import com.danila.nimbo.ui.components.PingTimeoutControl
 import com.danila.nimbo.ui.components.SettingsSwitch
 import com.danila.nimbo.ui.theme.LocalNebulaColors
 import com.danila.nimbo.utils.PreferencesManager
@@ -194,45 +195,10 @@ fun PingSettingsScreen(
                         
                         Spacer(Modifier.height(20.dp))
                         
-                        // Timeout Control
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column {
-                                Text("Таймаут ожидания", color = nebulaColors.textPrimary, style = MaterialTheme.typography.bodyLarge)
-                                Text("Максимум 10 секунд", style = MaterialTheme.typography.bodySmall, color = nebulaColors.textTertiary)
-                            }
-                            
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .background(nebulaColors.textPrimary.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
-                                    .padding(4.dp)
-                            ) {
-                                IconButton(
-                                    onClick = { if (pingTimeout > 1) preferencesManager.pingTimeout -= 1 },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(Icons.Default.Remove, null, tint = nebulaColors.textPrimary, modifier = Modifier.size(16.dp))
-                                }
-                                
-                                Text(
-                                    "$pingTimeout с",
-                                    color = nebulaColors.textPrimary,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 12.dp),
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                
-                                IconButton(
-                                    onClick = { if (pingTimeout < 10) preferencesManager.pingTimeout += 1 },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(Icons.Default.Add, null, tint = nebulaColors.textPrimary, modifier = Modifier.size(16.dp))
-                                }
-                            }
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Таймаут ожидания", color = nebulaColors.textPrimary, style = MaterialTheme.typography.bodyLarge)
+                            Text("1–10 секунд. Пинг сервера отображается в мс.", style = MaterialTheme.typography.bodySmall, color = nebulaColors.textTertiary)
+                            PingTimeoutControl(pingTimeout, { preferencesManager.pingTimeout = it })
                         }
                     }
                     
@@ -249,6 +215,10 @@ fun PingSettingsScreen(
                         enabled = pingProtocol != 5,
                         onCheckedChange = { preferencesManager.pingThroughProxy = it }
                     )
+                }
+
+                if (pingProtocol == 5) {
+                    com.danila.nimbo.ui.components.PingDiagnosticSummary()
                 }
 
                 // Section: Display Mode

@@ -27,6 +27,7 @@ internal object BundledReleaseNotes {
         ## Пинг
         - Nimbo Ping: отдельный HTTP GET через каждый сервер подписки, без переключения текущего VPN. Первый метод в списке и способ по умолчанию для новых настроек.
         - Значение с ≈ — оценка пинга: время GET ÷ 3,3. Обычный HTTP GET показывает полное время запроса.
+        - Ручной ввод таймаута в секундах; пинг — в мс. Исправлена потеря результата при завершении проверки, добавлена безопасная диагностика.
         - Полный выбор методов, адрес проверки и таймаут; цифры, шкала, шкала с цифрами или точки.
 
         ## Быстрое управление
@@ -53,6 +54,7 @@ internal object BundledReleaseNotes {
         ## Ping
         - Nimbo Ping: a separate HTTP GET through each subscription server without switching the current VPN. First in the list and the default for new settings.
         - Values marked ≈ are estimates: GET time ÷ 3.3. Standard HTTP GET shows the full request time.
+        - Manual timeout entry in seconds; latency stays in ms. Fixed results lost during probe cleanup and added privacy-safe diagnostics.
         - Full method selection, test URL and timeout; numbers, bars, bars with numbers or dots.
 
         ## Quick controls

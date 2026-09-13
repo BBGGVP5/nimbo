@@ -12939,23 +12939,20 @@ private fun ColumnScope.PingSettingsSection(
                 }
             }
             PingSettingsDivider()
-            PingSettingsWideRow(
-                title = t("Таймаут (мс)", "Timeout (ms)"),
+            PingSettingsStackedRow(
+                title = t("Таймаут (секунды)", "Timeout (seconds)"),
                 subtitle = t(
-                    "Сколько ждать ответа, прежде чем считать сервер недоступным.",
-                    "How long to wait for a reply before treating the server as unreachable."
+                    "1–10 секунд ожидания. Пинг сервера отображается в мс.",
+                    "Wait 1–10 seconds. Server latency is shown in ms."
                 ),
-                icon = Icons.Default.Schedule
+                icon = Icons.Default.Schedule,
+                contentSpacing = 8.dp
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { preferencesManager.pingTimeout = (pingTimeout - 1).coerceIn(1, 10) }, enabled = pingTimeout > 1) {
-                        Icon(Icons.Default.Remove, t("Уменьшить", "Decrease"), tint = nebulaColors.textPrimary)
-                    }
-                    Text((pingTimeout * 1000).toString(), color = nebulaColors.textPrimary, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = { preferencesManager.pingTimeout = (pingTimeout + 1).coerceIn(1, 10) }, enabled = pingTimeout < 10) {
-                        Icon(Icons.Default.Add, t("Увеличить", "Increase"), tint = nebulaColors.textPrimary)
-                    }
-                }
+                com.danila.nimbo.ui.components.PingTimeoutControl(
+                    seconds = pingTimeout,
+                    onSecondsChange = { preferencesManager.pingTimeout = it },
+                    english = t("ru", "en") == "en"
+                )
             }
             PingSettingsDivider()
             PingSettingsStackedRow(
@@ -12980,6 +12977,9 @@ private fun ColumnScope.PingSettingsSection(
                 }
             }
         }
+    }
+    if (pingProtocol == 5) {
+        com.danila.nimbo.ui.components.PingDiagnosticSummary(english = t("ru", "en") == "en")
     }
     Spacer(Modifier.height(16.dp))
 }
