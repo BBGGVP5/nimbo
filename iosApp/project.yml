@@ -72,6 +72,13 @@ targets:
         embed: true
       - framework: ../shared/build/XCFrameworks/release/NimboShared.xcframework
         embed: false
+      # App-side diagnostics run independently of the packet tunnel process.
+      # This remains one combined Go runtime per executable, never two.
+      - framework: Vendor/LibXray.xcframework
+        embed: false
+      - sdk: libresolv.tbd
+      - sdk: Security.framework
+      - sdk: CoreFoundation.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: "$(NIMBO_APP_BUNDLE_ID)"

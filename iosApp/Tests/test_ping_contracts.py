@@ -26,9 +26,11 @@ SOURCES = [
     "iosApp/Nimbo/NimboICMPProbe.swift",
     "iosApp/Nimbo/NimboActiveRouteProbe.swift",
     "iosApp/Nimbo/NimboPingService.swift",
+    "iosApp/Nimbo/NimboDiagnosticProbe.swift",
     "iosApp/PacketTunnel/NimboPingRoute.swift",
     "iosApp/PacketTunnel/XrayConfiguration.swift",
     "iosApp/Tests/PingConfigurationStubs.swift",
+    "iosApp/Tests/PingDiagnosticTests.swift",
     "iosApp/Tests/PingPolicyTests.swift",
 ]
 
@@ -44,6 +46,7 @@ class PingContracts(unittest.TestCase):
         s = read(SOURCES[0])
         self.assertIn('case nimbo, tcp, httpGet = "http_get", httpHead = "http_head", icmp', s)
         self.assertIn('stored == "http" ? .httpHead', s)
+        self.assertIn('stored == nil ? .nimbo', s)
         self.assertIn('?? .tcp)', s)
         self.assertIn('method: String = "HEAD"', read("iosApp/Nimbo/NimboPingService.swift"))
 
@@ -63,6 +66,22 @@ class PingContracts(unittest.TestCase):
         self.assertGreaterEqual(s.count('!Task.isCancelled && lease.valid'), 2)
         self.assertNotIn('com.nimbo.ping.display', s)
 
+    def test_per_server_nimbo_has_no_active_vpn_dependency(self):
+        s = read("iosApp/Nimbo/NimboPingService.swift")
+        self.assertIn('diagnosticProbe(target.id, configuration, url, min(settings.timeout, remaining))', s)
+        self.assertIn('configurations[target.id]', s)
+        adapter = read("iosApp/Nimbo/NimboDiagnosticProbe.swift")
+        for required in ['NimboDiagnosticRun(', 'NimboDiagnosticCancel(', 'CGoFree(response)',
+                         'object["requestID"] as? String == requestID', 'object["serverID"] as? String == serverID',
+                         '"method": "GET"', 'withTaskCancellationHandler', 'strnlen(response, maximumResponseBytes + 1)']:
+            self.assertIn(required, adapter)
+        for forbidden in ['NETunnelProvider', 'CGoInvoke(', 'URLSession', '.startVPNTunnel(', '.stopVPNTunnel(']:
+            self.assertNotIn(forbidden, adapter)
+        self.assertNotIn('NimboDiagnosticRun', read('iosApp/PacketTunnel/PacketTunnelProvider.swift'))
+        root = read('iosApp/Nimbo/RootView.swift')
+        self.assertIn('configuration: server.rawConfiguration', root)
+        self.assertIn('configurations: Dictionary(profile.servers.map', root)
+
     def test_private_route_precedes_direct_rules(self):
         s = read("iosApp/PacketTunnel/XrayConfiguration.swift")
         self.assertIn('[NimboPingRoute.rule(proxyTag: pingTag)] +', s)
@@ -74,6 +93,40 @@ class PingContracts(unittest.TestCase):
         self.assertIn('"listen": "127.0.0.1"', r)
         self.assertIn('"auth": "password"', r)
         self.assertIn('"outboundTag": proxyTag', r)
+
+    def test_serial_diagnostic_budget_and_completed_only_progress(self):
+        s = read("iosApp/Nimbo/NimboPingService.swift")
+        self.assertIn('min(30 * 60, Double(max(0, count)) * (timeout + 1))', s)
+        self.assertIn('diagnosticBatchBudget(count: targets.count, timeout: settings.timeout)', s)
+        self.assertIn('results = [:] // Unattempted targets are not failed measurements.', s)
+        self.assertIn('return !Task.isCancelled && lease.valid ? results : nil', s)
+        self.assertIn('guard !Task.isCancelled, lease.valid else { return }', s)
+        tests = read('iosApp/Tests/PingDiagnosticTests.swift')
+        for assertion in ['clock.now == 276', 'results?.count == 92', 'capped?.count == 600',
+                          'cancelClock.progress.count == 20', 'cancelled == nil',
+                          'stale == nil && staleProgress.progress.isEmpty']:
+            self.assertIn(assertion, tests)
+
+    def test_diagnostic_legacy_labels_preserve_native_bind(self):
+        s = read('iosApp/Nimbo/NimboDiagnosticProbe.swift')
+        self.assertIn('format == "xray" ? migratingLegacyLabels(configuration) : configuration', s)
+        self.assertIn('"config": diagnosticConfiguration', s)
+        self.assertIn('inet_pton(AF_INET,', s)
+        self.assertIn('inet_pton(AF_INET6,', s)
+        self.assertIn('guard !isIP, !value.contains("%"), !value.contains("/")', s)
+        self.assertIn('outbounds[index].removeValue(forKey: "sendThrough")', s)
+        tests = read('iosApp/Tests/PingDiagnosticTests.swift')
+        self.assertIn('NimboDiagnosticProbe.migratingLegacyLabels(raw) == raw', tests)
+        self.assertIn('"fe80::1%en0"', tests)
+        self.assertIn('NSDictionary(dictionary: newOutbound).isEqual(to: expectedOutbound)', tests)
+
+    def test_root_begins_requested_rows_and_clears_pending_on_exit(self):
+        s = read('iosApp/Nimbo/RootView.swift')
+        for ids in ['targets.map(\\.id)', '[serverID]', 'candidates.map(\\.id)']:
+            self.assertIn('NimboBeginIosPings(serverIds: ' + ids + ')', s)
+        self.assertEqual(s.count('NimboBeginIosPings('), 3)
+        self.assertNotIn('serverIds: [], values: [], inProgress: true', s)
+        self.assertEqual(s.count('defer {\n            IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)'), 3)
 
     def test_provider_identity_generation_method_and_health(self):
         s = read("iosApp/PacketTunnel/PacketTunnelProvider.swift")
@@ -98,9 +151,9 @@ class PingContracts(unittest.TestCase):
         self.assertIn('kCFStreamPropertySOCKSProxy', s)
         self.assertNotIn('rawValue: kCFStreamPropertyProxyLocalBypass', s)
         self.assertIn('CFStreamCreatePairWithSocketToHost', s)
-        self.assertIn('guard CFReadStreamSetProperty(read, kCFStreamPropertySOCKSProxy, proxy as CFDictionary)', s)
+        self.assertIn('guard CFReadStreamSetProperty(read, CFStreamPropertyKey(rawValue: kCFStreamPropertySOCKSProxy), proxy as CFDictionary)', s)
         self.assertNotIn('setProperty(proxy as NSDictionary', s)
-        self.assertIn('guard CFReadStreamSetProperty(read, kCFStreamPropertySocketSecurityLevel, kCFStreamSocketSecurityLevelNegotiatedSSL)', s)
+        self.assertIn('guard CFReadStreamSetProperty(read, CFStreamPropertyKey(rawValue: kCFStreamPropertySocketSecurityLevel), kCFStreamSocketSecurityLevelNegotiatedSSL)', s)
         self.assertIn('maximumHeaderBytes', s)
         self.assertIn('guard (200...299).contains(status)', s)
         self.assertIn('withTaskCancellationHandler', s)
@@ -248,7 +301,7 @@ def native_tests():
         print('NATIVE COMPILER:', shlex.join(command), flush=True)
         subprocess.run(command, cwd=ROOT, check=True, timeout=180)
         ios_sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
-        ios_command = ['xcrun', '--sdk', 'iphoneos', 'swiftc', '-swift-version', '5', '-typecheck',
+        ios_command = ['xcrun', '--sdk', 'iphoneos', 'swiftc', '-swift-version', '5', '-D', 'NIMBO_PING_TESTS', '-typecheck',
                        '-target', 'arm64-apple-ios16.0', '-sdk', ios_sdk, *SOURCES[:-1]]
         print('IOS 16 TYPECHECK:', shlex.join(ios_command), flush=True)
         subprocess.run(ios_command, cwd=ROOT, check=True, timeout=180)

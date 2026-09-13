@@ -287,7 +287,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     val globalBlurState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_BLUR, 25.0f).coerceIn(0.0f, 80.0f))
     val globalCornersState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f))
 
-    val pingProtocolState = mutableStateOf(PingProtocol.fromId(sharedPreferences.getInt(KEY_PING_PROTOCOL, 0)).id)
+    val pingProtocolState = mutableStateOf(PingProtocol.fromSavedId(if (sharedPreferences.contains(KEY_PING_PROTOCOL)) sharedPreferences.getInt(KEY_PING_PROTOCOL, 0) else null).id)
     val pingUrlState = mutableStateOf(sharedPreferences.getString(KEY_PING_URL, "https://www.gstatic.com/generate_204") ?: "https://www.gstatic.com/generate_204")
     val pingTimeoutState = mutableStateOf(sharedPreferences.getInt(KEY_PING_TIMEOUT, 3).coerceIn(1, 10))
     val pingDisplayModeState = mutableStateOf(PingDisplay.fromId(sharedPreferences.getInt(KEY_PING_DISPLAY_MODE, 0)).id)
@@ -594,7 +594,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
             KEY_GLOBAL_TRANSPARENCY -> globalTransparencyState.value = prefs.getFloat(KEY_GLOBAL_TRANSPARENCY, 0.0f).coerceIn(0.0f, 1.0f)
             KEY_GLOBAL_BLUR -> globalBlurState.value = prefs.getFloat(KEY_GLOBAL_BLUR, 25.0f).coerceIn(0.0f, 80.0f)
             KEY_GLOBAL_CORNERS -> globalCornersState.value = prefs.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f)
-            KEY_PING_PROTOCOL -> pingProtocolState.value = PingProtocol.fromId(prefs.getInt(KEY_PING_PROTOCOL, 0)).id
+            KEY_PING_PROTOCOL -> pingProtocolState.value = PingProtocol.fromSavedId(if (prefs.contains(KEY_PING_PROTOCOL)) prefs.getInt(KEY_PING_PROTOCOL, 0) else null).id
             KEY_PING_URL -> pingUrlState.value = prefs.getString(KEY_PING_URL, "https://www.gstatic.com/generate_204") ?: "https://www.gstatic.com/generate_204"
             KEY_PING_TIMEOUT -> pingTimeoutState.value = prefs.getInt(KEY_PING_TIMEOUT, 3).coerceIn(1, 10)
             KEY_PING_DISPLAY_MODE -> pingDisplayModeState.value = PingDisplay.fromId(prefs.getInt(KEY_PING_DISPLAY_MODE, 0)).id
@@ -661,7 +661,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         globalBlurState.value = sharedPreferences.getFloat(KEY_GLOBAL_BLUR, 25.0f).coerceIn(0.0f, 80.0f)
         globalCornersState.value = sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f)
 
-        pingProtocolState.value = PingProtocol.fromId(sharedPreferences.getInt(KEY_PING_PROTOCOL, 0)).id
+        pingProtocolState.value = PingProtocol.fromSavedId(if (sharedPreferences.contains(KEY_PING_PROTOCOL)) sharedPreferences.getInt(KEY_PING_PROTOCOL, 0) else null).id
         pingUrlState.value = sharedPreferences.getString(KEY_PING_URL, "https://www.gstatic.com/generate_204") ?: "https://www.gstatic.com/generate_204"
         pingTimeoutState.value = sharedPreferences.getInt(KEY_PING_TIMEOUT, 3).coerceIn(1, 10)
         pingDisplayModeState.value = PingDisplay.fromId(sharedPreferences.getInt(KEY_PING_DISPLAY_MODE, 0)).id
@@ -1597,7 +1597,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
 
     // Тип пинга: 0 = TCP, 1 = HTTP/GET, 2 = HTTP/HEAD, 3 = HTTPS Strict, 4 = ICMP, 5 = Nimbo Ping
     var pingProtocol: Int
-        get() = PingProtocol.fromId(sharedPreferences.getInt(KEY_PING_PROTOCOL, 0)).id
+        get() = PingProtocol.fromSavedId(if (sharedPreferences.contains(KEY_PING_PROTOCOL)) sharedPreferences.getInt(KEY_PING_PROTOCOL, 0) else null).id
         set(value) {
             val normalized = PingProtocol.fromId(value).id
             sharedPreferences.edit().putInt(KEY_PING_PROTOCOL, normalized).apply()

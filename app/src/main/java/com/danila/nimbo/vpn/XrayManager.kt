@@ -161,7 +161,7 @@ object XrayManager {
             .onFailure { Log.w(TAG, "Could not exclude self package from VPN tunnel: ${it.message}") }
     }
 
-    private fun ensureXrayDatAssets(context: Context, datDir: File) {
+    internal fun ensureXrayDatAssets(context: Context, datDir: File) {
         val marker = datDir.resolve("rules-assets.version")
         val expectedMarker = "${BuildConfig.VERSION_CODE}:${BuildConfig.VERSION_NAME}"
         val hasCurrentAssets = marker.exists() &&
@@ -867,6 +867,29 @@ object XrayManager {
         }
         return "proxy"
     }
+
+    /** Build only; never touches the running core, TUN or selected server. */
+    internal fun diagnosticConfig(server: Server, template: String?, peers: List<Server>): String? = runCatching {
+        require(!server.isNaiveProxy()) // Its live sidecar would measure a different connection.
+        require(!server.protocol.lowercase().let { it.contains("awg") || it.contains("amnezia") || it == "wireguard" || it == "wg" })
+        if (server.isRemoteTemplateServer() || !server.remoteOutboundTag.isNullOrBlank() || !server.remoteBalancerTag.isNullOrBlank()) {
+            // Never substitute a generated/default node when a template is missing or invalid.
+            val json = JSONObject(requireNotNull(template))
+            require(json.optJSONArray("outbounds") != null)
+            val prepared = sanitizeOverrideXrayConfig(json, server, peers)
+            val route = prepared.getJSONObject("routing").getJSONArray("rules").getJSONObject(0)
+            server.remoteOutboundTag?.takeIf { it.isNotBlank() }?.let { require(route.optString("outboundTag") == it.trim()) }
+            server.remoteBalancerTag?.takeIf { it.isNotBlank() && server.remoteOutboundTag.isNullOrBlank() }
+                ?.let { require(route.optString("balancerTag") == it.trim()) }
+            if (server.remoteOutboundTag.isNullOrBlank() && route.optString("balancerTag").isBlank()) {
+                val candidates = prepared.getJSONArray("outbounds")
+                require((0 until candidates.length()).count {
+                    candidates.getJSONObject(it).optString("protocol") !in nonProxyOutboundProtocols
+                } == 1) // No guessed default for an ambiguous virtual node.
+            }
+            prepared.toString()
+        } else generateXrayConfig(server)
+    }.getOrNull()
 
     private fun generateXrayConfig(server: Server): String {
         val prefs = PreferencesManager(NebulaGuardApplication.instance)

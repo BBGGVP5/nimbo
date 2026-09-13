@@ -74,7 +74,8 @@ internal object LocalProxyConfig {
         config: JSONObject,
         session: HealthProxySession,
         selectedOutboundTag: String? = null,
-        selectedBalancerTag: String? = null
+        selectedBalancerTag: String? = null,
+        proxyPort: Int = PORT
     ): Boolean {
         val inbounds = config.optJSONArray("inbounds") ?: return false
         val inbound = (0 until inbounds.length()).mapNotNull(inbounds::optJSONObject)
@@ -83,7 +84,7 @@ internal object LocalProxyConfig {
         inbound.put("settings", JSONObject().put("allowTransparent", false)
             .put("accounts", JSONArray().put(JSONObject()
                 .put("user", session.username).put("pass", session.password))))
-        if (inbound.optString("listen") != HOST || inbound.optInt("port") != PORT ||
+        if (inbound.optString("listen") != HOST || inbound.optInt("port") != proxyPort ||
             inbound.optString("protocol") != "http") return false
         val routing = config.optJSONObject("routing") ?: return false
         val rule = routing.optJSONArray("rules")?.optJSONObject(0) ?: return false
@@ -118,10 +119,14 @@ internal object LocalProxyConfig {
         if (prefixes.isEmpty() || prefixes.any { it.isBlank() }) return false
         val selected = entries.filter { node -> prefixes.any { node.optString("tag").startsWith(it) } }
         val fallback = balancer.optString("fallbackTag")
+        fun safeFailure(tag: String): Boolean {
+            val entry = entries.singleOrNull { it.optString("tag") == tag } ?: return false
+            return safe(tag) || (entry.optString("protocol") == "blackhole" && !hasUnverifiedDialer(entry))
+        }
         return selected.isNotEmpty() && selected.all { safe(it.optString("tag")) } &&
             // Xray falls back to the default outbound when a balancer returns no tag.
             // A direct default with no explicit safe fallback is not a verified route.
-            (if (fallback.isBlank()) safe(entries.firstOrNull()?.optString("tag").orEmpty()) else safe(fallback))
+            (if (fallback.isBlank()) safeFailure(entries.firstOrNull()?.optString("tag").orEmpty()) else safeFailure(fallback))
     }
 
     /** Inspect structured fields, including XHTTP extra/downloadSettings and arrays.

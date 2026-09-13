@@ -269,23 +269,26 @@ struct RootView: View {
         await refreshSubscription(manual: false)
     }
 
-    /// Протокол задаётся в настройках. Nimbo проверяет только активный VPN-маршрут.
+    /// Nimbo проверяет каждый сервер отдельным маршрутом, не меняя подключённый VPN.
     private func measurePings() async {
         guard let profile = try? NimboSubscriptionRepository.shared.loadProfile() else { return }
         let targets = profile.servers
-            .filter { !$0.host.isEmpty && $0.port > 0 }
             .map { (id: $0.id, host: $0.host, port: $0.port) }
         guard !targets.isEmpty else { return }
 
         // Замер — тоже событие: на Android он подсвечивается теми же частицами.
         IosComposeControllerKt.NimboPushIosBurst(trigger: "activity")
-        IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: true)
+        IosComposeControllerKt.NimboBeginIosPings(serverIds: targets.map(\.id))
         // Признак «идёт замер» снимается в любом случае: если экран закрыли и
         // задачу отменили, надпись «Проверяю…» иначе оставалась навсегда.
         defer {
             IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)
         }
-        guard let results = await NimboPingService.shared.measureAll(targets, session: vpn.manager?.connection as? NETunnelProviderSession) else { return }
+        guard let results = await NimboPingService.shared.measureAll(targets, session: vpn.manager?.connection as? NETunnelProviderSession,
+            configurations: Dictionary(profile.servers.map { ($0.id, $0.rawConfiguration) }, uniquingKeysWith: { first, _ in first }),
+            progress: { id, value in
+                IosComposeControllerKt.NimboUpdateIosPings(serverIds: [id], values: [KotlinInt(int: Int32(value))], inProgress: true)
+            }) else { return }
         let ordered = results.map { ($0.key, $0.value) }
         IosComposeControllerKt.NimboUpdateIosPings(
             serverIds: ordered.map { $0.0 },
@@ -349,16 +352,16 @@ struct RootView: View {
     /// Гонять весь список ради одной строки долго и незачем.
     private func measurePing(_ serverID: String) async {
         guard let profile = try? NimboSubscriptionRepository.shared.loadProfile(),
-              let server = profile.servers.first(where: { $0.id == serverID }),
-              !server.host.isEmpty, server.port > 0 else { return }
+              let server = profile.servers.first(where: { $0.id == serverID }) else { return }
 
-        IosComposeControllerKt.NimboUpdateIosPings(
-            serverIds: [serverID],
-            values: [],
-            inProgress: true
-        )
+        IosComposeControllerKt.NimboBeginIosPings(serverIds: [serverID])
+        defer {
+            IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)
+        }
         let value = await NimboPingService.shared.measureOne(host: server.host, port: server.port, id: server.id,
-                                                           session: vpn.manager?.connection as? NETunnelProviderSession)
+                                                           session: vpn.manager?.connection as? NETunnelProviderSession,
+                                                           configuration: server.rawConfiguration)
+        guard !Task.isCancelled else { return }
         IosComposeControllerKt.NimboUpdateIosPings(
             serverIds: [serverID],
             values: [KotlinInt(int: Int32(value))],
@@ -472,7 +475,7 @@ struct RootView: View {
     private func connectFastest() async {
         guard let profile = try? NimboSubscriptionRepository.shared.loadProfile() else { return }
         let candidates = profile.servers.filter {
-            !$0.host.isEmpty && $0.port > 0 && !NimboStagingPayload.isAutoBalancer($0)
+            !NimboStagingPayload.isAutoBalancer($0)
         }
         guard !candidates.isEmpty else {
             notify("error", "Нет серверов для выбора")
@@ -480,7 +483,7 @@ struct RootView: View {
         }
 
         IosComposeControllerKt.NimboPushIosBurst(trigger: "activity")
-        IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: true)
+        IosComposeControllerKt.NimboBeginIosPings(serverIds: candidates.map(\.id))
         defer {
             IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)
         }
@@ -488,7 +491,11 @@ struct RootView: View {
         // служба возвращает ничего — и повторять его незачем.
         guard let results = await NimboPingService.shared.measureAll(
             candidates.map { (id: $0.id, host: $0.host, port: $0.port) },
-            session: vpn.manager?.connection as? NETunnelProviderSession
+            session: vpn.manager?.connection as? NETunnelProviderSession,
+            configurations: Dictionary(candidates.map { ($0.id, $0.rawConfiguration) }, uniquingKeysWith: { first, _ in first }),
+            progress: { id, value in
+                IosComposeControllerKt.NimboUpdateIosPings(serverIds: [id], values: [KotlinInt(int: Int32(value))], inProgress: true)
+            }
         ) else { return }
         let ordered = results.map { ($0.key, $0.value) }
         IosComposeControllerKt.NimboUpdateIosPings(

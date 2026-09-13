@@ -69,7 +69,7 @@ build_slice() {
   cp "${out}/libXray.h" "${out}/Headers/"
   cp build/template/module.modulemap "${out}/Headers/"
   nm -gU "${out}/libXray.a" > "${out}/symbols.txt"
-  for symbol in CGoInvoke CGoFree NimboAWGStart NimboAWGStop NimboAWGStats; do
+  for symbol in CGoInvoke CGoFree NimboAWGStart NimboAWGStop NimboAWGStats NimboDiagnosticRun NimboDiagnosticCancel; do
     grep -q " _${symbol}$" "${out}/symbols.txt" || { echo "Missing ${symbol} in ${sdk}/${apple_arch} archive" >&2; exit 21; }
     grep -q "${symbol}(" "${out}/Headers/libXray.h" || { echo "Missing ${symbol} in generated C header" >&2; exit 21; }
   done

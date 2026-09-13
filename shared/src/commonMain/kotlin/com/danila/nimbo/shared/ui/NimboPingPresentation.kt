@@ -24,13 +24,16 @@ internal val LocalNimboPingDisplay = staticCompositionLocalOf { "numeric" }
 internal fun normalizePingProtocol(value: String): String = when (value) {
     "http" -> "http_head"
     "nimbo", "tcp", "http_get", "http_head", "icmp" -> value
-    else -> "tcp"
+    else -> "nimbo"
 }
 
 internal fun normalizePingDisplay(value: String): String = when (value) {
     "numeric", "bars", "both", "dots" -> value
     else -> "numeric"
 }
+
+internal fun remainingPingIds(pending: Set<String>, completed: List<String>, running: Boolean): Set<String> =
+    if (running) pending - completed.toSet() else emptySet()
 
 internal fun pingSignalLevel(value: Int?, running: Boolean): Int = when {
     running || value == null || value < 0 -> 0

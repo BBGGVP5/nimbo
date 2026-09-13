@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Release-script regressions that do not invoke Gradle or Apple build tools."""
 import os
+import importlib.util
 import pathlib
 import shutil
 import subprocess
@@ -17,6 +18,20 @@ if pathlib.Path("C:/Program Files/Git/bin/bash.exe").exists():
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_each_process_links_one_combined_go_runtime(self):
+        spec = importlib.util.spec_from_file_location("ios_awg_contract", ROOT / "scripts/ci/check-ios-awg.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        project = (ROOT / "iosApp/project.yml").read_text(encoding="utf-8")
+        module.check_go_process_links(project)
+        with self.assertRaises(AssertionError):
+            module.check_go_process_links(project.replace(
+                "      - framework: Vendor/LibXray.xcframework",
+                "      - framework: Vendor/LibXray.xcframework\n        embed: false\n      - framework: Vendor/LibXray.xcframework", 1))
+        with self.assertRaises(AssertionError):
+            module.check_go_process_links(project.replace(
+                "      - framework: Vendor/LibXray.xcframework", "      - framework: Vendor/AWG.xcframework", 1))
+
     def test_native_link_heap_override_is_one_argument(self):
         self.assertIsNotNone(BASH, "Bash is required for release-script tests")
         command = "./gradlew --no-daemon" + BUILD.split("./gradlew --no-daemon", 1)[1].split("\n\n", 1)[0]

@@ -53,6 +53,13 @@
         android:name=".NebulaGuardApplication"
         android:networkSecurityConfig="@xml/network_security_config">
 
+        <!-- Bound-only diagnostics: a separate Go singleton, never the active VPN process. -->
+        <service
+            android:name=".vpn.NimboPingService"
+            android:process=":nimbo_ping"
+            android:exported="false"
+            android:stopWithTask="true" />
+
 
         <activity
             android:name=".MainActivity"

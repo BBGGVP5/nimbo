@@ -495,6 +495,7 @@ fun NavGraph(
 
             composable(route = "ping_tool") {
                                 PingToolScreen(
+                    mainViewModel = mainViewModel,
                     onNavigateBack = { navController.popBackStack() }
                 )
             }

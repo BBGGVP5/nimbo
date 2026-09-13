@@ -2,6 +2,7 @@
 """Cross-platform iOS integration contracts; --swift also runs native tests."""
 import argparse
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,23 @@ def check(condition, message):
         raise AssertionError(message)
 
 
+def check_go_process_links(project):
+    # App diagnostics and the VPN extension are distinct OS processes. Both link
+    # the same combined archive once; neither may load a second Go runtime.
+    targets = project.split("\ntargets:\n", 1)[1].split("\nschemes:", 1)[0]
+    for name in ("Nimbo", "NimboPacketTunnel"):
+        block = re.search(rf"(?ms)^  {name}:\n(.*?)(?=^  \w+:\n|\Z)", targets)
+        check(block is not None, f"Missing process target {name}")
+        text = block.group(1)
+        check(text.count("Vendor/LibXray.xcframework") == 1,
+              f"{name} must link exactly one combined Go runtime")
+        for sdk in ("libresolv.tbd", "Security.framework", "CoreFoundation.framework"):
+            check(f"- sdk: {sdk}" in text, f"{name} missing native linker dependency {sdk}")
+    check(project.count("Vendor/LibXray.xcframework") == 2,
+          "Only the app and tunnel processes may link the combined Go archive")
+    check("AWG.xcframework" not in project, "Never link a second independent Go runtime")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--swift", action="store_true")
@@ -29,8 +47,7 @@ def main():
     bridge = read("iosApp/GoBridge/nimbo_awg.go")
     swift_bridge = read("iosApp/PacketTunnel/AmneziaWGBridge.swift")
     lock = read("iosApp/GoBridge/go.mod")
-    check(project.count("Vendor/LibXray.xcframework") == 1, "Exactly one shared Go archive must be linked")
-    check("AWG.xcframework" not in project, "Never link a second independent Go runtime")
+    check_go_process_links(project)
     for symbol in ("NimboAWGStart", "NimboAWGStop", "NimboAWGStats"):
         check(f"//export {symbol}" in bridge and symbol in swift_bridge, f"Missing C ABI: {symbol}")
     check("defer { CGoFree(pointer) }" in swift_bridge, "C response ownership must be released")

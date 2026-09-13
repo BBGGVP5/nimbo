@@ -55,6 +55,9 @@ import com.danila.nimbo.network.ActiveProxyPing
 import com.danila.nimbo.network.ActiveRoutePingPolicy
 import com.danila.nimbo.network.PingMeasurementSettings
 import com.danila.nimbo.network.PingRunGuard
+import com.danila.nimbo.network.NimboNodePing
+import com.danila.nimbo.network.NimboPingSweep
+import com.danila.nimbo.network.NimboPingTarget
 import com.danila.nimbo.utils.isNoticePlaceholderServer
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -638,6 +641,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch {
+            val requestedAt = System.currentTimeMillis()
             pingServers(candidates, silent = true)
             pingJob?.join()
             val measured = _serversState.value.associateBy { it.pingMeasurementKey() }
@@ -645,7 +649,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .mapNotNull { candidate ->
                     val fresh = measured[candidate.pingMeasurementKey()] ?: candidate
                     // Молчащий узел — не «ноль миллисекунд»: такие в выбор не идут.
-                    fresh.ping?.takeIf { it >= 0 }?.let { fresh to it }
+                    fresh.ping?.takeIf { it >= 0 && (fresh.pingTimestamp ?: 0L) >= requestedAt }?.let { fresh to it }
                 }
                 .minByOrNull { it.second }
                 ?.first
@@ -665,6 +669,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         type: com.danila.nimbo.ui.components.NotificationType,
         silent: Boolean
     ) {
+        if (preferencesManager.pingProtocol == PingProtocol.NIMBO.id) {
+            launchPerNodePing(targetServers, silent)
+            return
+        }
         if (requiresActivePingRoute()) {
             launchActiveRoutePing(targetServers, silent)
             return
@@ -819,6 +827,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun pingSingleServer(server: Server, silent: Boolean = true) {
+        if (preferencesManager.pingProtocol == PingProtocol.NIMBO.id) {
+            launchPerNodePing(listOf(server), silent)
+            return
+        }
         if (requiresActivePingRoute()) {
             launchActiveRoutePing(listOf(server), silent)
             return
@@ -922,7 +934,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * измеренных значений у всех серверов разом. Такой запуск отклоняем.
      */
     private fun requiresActivePingRoute(): Boolean =
-        preferencesManager.pingProtocol == PingProtocol.NIMBO.id || preferencesManager.pingThroughProxy
+        preferencesManager.pingProtocol != PingProtocol.NIMBO.id && preferencesManager.pingThroughProxy
+
+    /** Also used by the standalone diagnostic screen; never calls the active proxy. */
+    fun nimboConfigForServer(server: Server): String? {
+        val profile = _profilesState.value.firstOrNull { profile ->
+            profile.servers.any { it.pingMeasurementKey() == server.pingMeasurementKey() }
+        }
+        return XrayManager.diagnosticConfig(server, profile?.let { remoteConfigForPing(it, server) }, profile?.servers.orEmpty())
+    }
+
+    private fun launchPerNodePing(requested: List<Server>?, silent: Boolean) {
+        cancelActivePing()
+        val settings = buildPingConfig() // Immutable URL/timeout for the whole requested sweep.
+        val servers = (requested ?: _profilesState.value.flatMap { it.servers }).toList()
+        val runId = nextPingRunId()
+        pingJob = viewModelScope.launch {
+            _isPinging.value = true
+            _activePingKeys.value = servers.map { it.pingMeasurementKey() }.toSet()
+            try {
+                if (!silent) showTopNotification(userText("Nimbo Ping: проверяем маршруты серверов…", "Nimbo Ping: checking each server route…"), com.danila.nimbo.ui.components.NotificationType.PING)
+                val targets = servers.map { server ->
+                    NimboPingTarget(server.pingMeasurementKey(), nimboConfigForServer(server))
+                }
+                NimboPingSweep.run(targets,
+                    measure = { config -> NimboNodePing.measure(getApplication(), config, settings.testUrl, settings.timeoutMs) },
+                    publish = { key, value ->
+                        if (isCurrentPingRun(runId)) {
+                            updateServersPings(mapOf(key to value))
+                            _activePingKeys.update { it - key }
+                        }
+                    }
+                )
+                if (isCurrentPingRun(runId) && !silent) showTopNotification(
+                    userText("Nimbo Ping завершён; неподдерживаемые маршруты — н/д", "Nimbo Ping complete; unsupported routes are unavailable"),
+                    com.danila.nimbo.ui.components.NotificationType.SUCCESS
+                )
+            } finally {
+                if (isCurrentPingRun(runId)) {
+                    _activePingKeys.value = emptySet()
+                    _isPinging.value = false
+                    maybePersistPingCache(force = true)
+                }
+            }
+        }
+    }
 
     private fun proxyPingUnavailable(): Boolean =
         requiresActivePingRoute() && HealthProxySessions.connected() == null

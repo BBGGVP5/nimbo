@@ -110,6 +110,12 @@ def main():
     require(f"libxray_version={VERSION}" in script, "Stale Apple kernel version")
     require(script.count("-buildmode=c-archive") == 1 and 'cp "${BRIDGE_DIR}/"*.go' in script,
             "Apple must compile libXray and AWG in one Go archive per slice")
+    diagnostic_exports = (ROOT / "iosApp/GoBridge/nimbo_diagnostic_cgo.go").read_text(encoding="utf-8")
+    symbol_gate = re.search(r"for symbol in (.+); do", script)
+    require(symbol_gate is not None, "Missing compiled Apple archive symbol gate")
+    for symbol in ("NimboDiagnosticRun", "NimboDiagnosticCancel"):
+        require(f"//export {symbol}" in diagnostic_exports, f"Missing diagnostic C ABI {symbol}")
+        require(symbol in symbol_gate.group(1).split(), f"Apple archive must verify {symbol}")
     lock = (ROOT / "iosApp/GoBridge/go.mod").read_text()
     for pattern in (r"^go 1\.27\.1$", rf"^\s*github.com/xtls/xray-core {re.escape(CORE)}$",
                     rf"^\s*github.com/amnezia-vpn/amneziawg-go/v3 {re.escape(AWG)}(?: // indirect)?$",

@@ -44,6 +44,11 @@ class NebulaGuardApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        if (Application.getProcessName() == packageName + com.danila.nimbo.vpn.NimboPingService.PROCESS_SUFFIX) {
+            // A probe must not start update/sync schedulers, servers, or VPN recovery.
+            ensureXrayCoreLoaded()
+            return
+        }
         registerActivityLifecycleCallbacks(AppVisibilityTracker)
         preferencesManager = com.danila.nimbo.utils.PreferencesManager(this)
         Logger.init(this)

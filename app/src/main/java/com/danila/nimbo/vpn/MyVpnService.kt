@@ -294,6 +294,7 @@ class MyVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
+        DiagnosticSocketProtection.service = this
         Log.d(TAG, "Service created")
 
         preferencesManager = PreferencesManager(this)
@@ -2737,6 +2738,7 @@ class MyVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        if (DiagnosticSocketProtection.service === this) DiagnosticSocketProtection.service = null
         Log.d(TAG, "Service destroyed")
         unregisterScreenReceiver()
         unregisterNetworkCallback()

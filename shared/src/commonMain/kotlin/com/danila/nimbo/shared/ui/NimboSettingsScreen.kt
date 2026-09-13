@@ -382,7 +382,7 @@ private fun LatencyPage(state: NimboUiState, actions: NimboUiActions) {
                 NimboDropdownOption(
                     "nimbo",
                     "Nimbo Ping",
-                    "HTTP GET через VPN · только активный сервер"
+                    "HTTP GET отдельно через каждый сервер"
                 ),
                 NimboDropdownOption(
                     "tcp",
@@ -409,7 +409,7 @@ private fun LatencyPage(state: NimboUiState, actions: NimboUiActions) {
             onSelect = { actions.onSetPing("protocol", it) }
         )
         BasicText(
-            "Nimbo Ping и HTTP проверяют подключённый VPN без перехода на прямое соединение. Неактивным серверам результат не присваивается. Если маршрут нельзя проверить, замер недоступен.",
+            "Nimbo Ping проверяет серверы отдельно, не переключая VPN. HTTP GET и HEAD ниже — проверка активного VPN. Если маршрут недоступен, прямое соединение не подставляется.",
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             style = NimboBodyStyle
         )

@@ -25,7 +25,7 @@ internal object BundledReleaseNotes {
         - Синхронизация сохраняет выбранный стиль и поддерживает iPhone и iPad.
 
         ## Пинг
-        - Nimbo Ping: HTTP GET через проверенный маршрут активного VPN, без копирования результата на другие серверы.
+        - Nimbo Ping: отдельный HTTP GET через каждый сервер подписки, без переключения текущего VPN. Первый метод в списке и способ по умолчанию для новых настроек.
         - Полный выбор методов, адрес проверки и таймаут; цифры, шкала, шкала с цифрами или точки.
 
         ## Быстрое управление
@@ -50,7 +50,7 @@ internal object BundledReleaseNotes {
         - Synchronization preserves your chosen style and supports iPhone and iPad.
 
         ## Ping
-        - Nimbo Ping: HTTP GET over the verified active VPN route, without copying its result to other servers.
+        - Nimbo Ping: a separate HTTP GET through each subscription server without switching the current VPN. First in the list and the default for new settings.
         - Full method selection, test URL and timeout; numbers, bars, bars with numbers or dots.
 
         ## Quick controls

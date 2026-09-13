@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import re
 import socket
+import subprocess
 import sys
 import threading
 
@@ -89,6 +90,7 @@ def main():
     library.NimboAWGStop()
     assert response(library.NimboAWGStats())["running"] is False
     check_authenticated_route(invoke, run)
+    subprocess.run([sys.executable, str(ROOT / "scripts/ci/test-libxray-diagnostic.py"), sys.argv[1]], check=True)
     print(f"PASS real combined C ABI: Xray {version}/API {api}; Android/Swift run/state/stop/conversion envelopes; legacy requests rejected; AWG 3.1 start/stats/duplicate/stop; CGoFree ownership")
 
 

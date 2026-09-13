@@ -133,7 +133,7 @@ data class NimboUiState(
     /** Профили маршрутизации и тот, что выбран сейчас. */
     val routingProfiles: List<com.danila.nimbo.shared.routing.NimboRoutingProfile> = emptyList(),
     val routingProfileId: String = "global",
-    val pingProtocol: String = "tcp",
+    val pingProtocol: String = "nimbo",
     val pingDisplay: String = "numeric",
     val pingTimeoutMs: Int = 3000,
     val pingUrl: String = "https://www.gstatic.com/generate_204",

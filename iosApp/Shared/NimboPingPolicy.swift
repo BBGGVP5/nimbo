@@ -1,11 +1,11 @@
 import Foundation
 
-/// Wire values shared with Kotlin. A missing/unknown value keeps the legacy TCP default.
+/// New installations use Nimbo. Explicit legacy selections retain their meanings.
 enum NimboPingProtocol: String, CaseIterable {
     case nimbo, tcp, httpGet = "http_get", httpHead = "http_head", icmp
 
     init(stored: String?) {
-        self = stored == "http" ? .httpHead : (Self(rawValue: stored ?? "") ?? .tcp)
+        self = stored == nil ? .nimbo : (stored == "http" ? .httpHead : (Self(rawValue: stored!) ?? .tcp))
     }
 
     var httpMethod: String? {

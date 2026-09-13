@@ -199,12 +199,15 @@ private fun applyPingChange(key: String, value: String) {
     }
     if (key in listOf("protocol", "url", "timeoutMs")) {
         iosPings.value = emptyMap()
+        iosPendingPingIds.value = emptySet()
+        iosPingInProgress.value = false
         defaults.removeObjectForKey(PingResultsKey)
     }
     iosUiState.value = iosUiState.value.copy(
         pings = iosPings.value,
-        servers = iosUiState.value.servers.map { it.copy(ping = iosPings.value[it.id]) },
-        pingProtocol = normalizePingProtocol(pingText("protocol", "tcp")),
+        servers = iosUiState.value.servers.map { it.copy(ping = iosPings.value[it.id], pingInProgress = it.id in iosPendingPingIds.value) },
+        pingInProgress = iosPingInProgress.value,
+        pingProtocol = normalizePingProtocol(pingText("protocol", "nimbo")),
         pingDisplay = normalizePingDisplay(pingText("display", "numeric")),
         pingTimeoutMs = pingInt("timeoutMs", 3000).coerceIn(1000, 10000),
         pingUrl = pingText("url", DefaultPingUrl)
@@ -708,7 +711,7 @@ fun NimboUpdateIosUiState(
             security = server.security,
             selected = server.id == activeServerId,
             ping = iosPings.value[server.id],
-            pingInProgress = iosPingInProgress.value,
+            pingInProgress = server.id in iosPendingPingIds.value,
             description = server.description
         )
     }
@@ -750,7 +753,7 @@ fun NimboUpdateIosUiState(
         favoritesFirst = appearanceFlag("favoritesFirst", true),
         connectStyle = appearanceText("connectStyle", "classic"),
         statusParticles = appearanceFlag("statusParticles", true),
-        pingProtocol = normalizePingProtocol(pingText("protocol", "tcp")),
+        pingProtocol = normalizePingProtocol(pingText("protocol", "nimbo")),
         pingDisplay = normalizePingDisplay(pingText("display", "numeric")),
         pingTimeoutMs = pingInt("timeoutMs", 3000).coerceIn(1000, 10000),
         pingUrl = pingText("url", DefaultPingUrl),
@@ -766,9 +769,19 @@ fun NimboUpdateIosUiState(
 /** Замеры задержки: приходят из Swift, там их считает NimboPingService. */
 private val iosPings = mutableStateOf<Map<String, Int>>(emptyMap())
 private val iosPingInProgress = mutableStateOf(false)
+private val iosPendingPingIds = mutableStateOf<Set<String>>(emptySet())
+
+/** Start only the requested rows; a completed row must not spin until the batch ends. */
+fun NimboBeginIosPings(serverIds: List<String>) {
+    iosPendingPingIds.value = serverIds.toSet()
+    iosPings.value = iosPings.value - iosPendingPingIds.value
+    NSUserDefaults.standardUserDefaults.setObject(iosJson.encodeToString(iosPings.value), PingResultsKey)
+    NimboUpdateIosPings(emptyList(), emptyList(), serverIds.isNotEmpty())
+}
 
 fun NimboUpdateIosPings(serverIds: List<String>, values: List<Int>, inProgress: Boolean) {
     val count = minOf(serverIds.size, values.size)
+    iosPendingPingIds.value = remainingPingIds(iosPendingPingIds.value, serverIds.take(count), inProgress)
     if (count > 0) {
         val merged = iosPings.value.toMutableMap()
         for (index in 0 until count) {
@@ -790,7 +803,7 @@ fun NimboUpdateIosPings(serverIds: List<String>, values: List<Int>, inProgress: 
         servers = current.servers.map { server ->
             server.copy(
                 ping = iosPings.value[server.id],
-                pingInProgress = inProgress
+                pingInProgress = server.id in iosPendingPingIds.value
             )
         }
     )

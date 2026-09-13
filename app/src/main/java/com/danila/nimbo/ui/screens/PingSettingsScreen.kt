@@ -90,6 +90,12 @@ fun PingSettingsScreen(
                 // Section: Protocol
                 GlassSection(title = "Протокол пинга", icon = Icons.AutoMirrored.Filled.CompareArrows) {
                     ProtocolItem(
+                        title = "Nimbo Ping",
+                        subtitle = "GET через отдельный маршрут каждого сервера подписки. Работает без VPN и не меняет текущее подключение. AWG и непроверяемые маршруты — н/д; прямого обхода нет.",
+                        selected = pingProtocol == 5,
+                        onClick = { preferencesManager.pingProtocol = 5 }
+                    )
+                    ProtocolItem(
                         title = "TCP до ноды",
                         subtitle = "Прямой Socket.connect к host:port; это не задержка интернета через VPN",
                         selected = pingProtocol == 0,
@@ -144,12 +150,7 @@ fun PingSettingsScreen(
                         onClick = { preferencesManager.pingProtocol = 4 }
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = nebulaColors.textTertiary.copy(alpha = 0.1f))
-                    ProtocolItem(
-                        title = "Nimbo Ping",
-                        subtitle = "GET только через проверенный активный прокси-маршрут. Без подключения недоступен. Проверяет подключённую ноду, а не весь список; прямого обхода нет.",
-                        selected = pingProtocol == 5,
-                        onClick = { preferencesManager.pingProtocol = 5 }
-                    )
+
                 }
 
                 // Section: Test URL
@@ -243,7 +244,7 @@ fun PingSettingsScreen(
                     SettingsSwitch(
                         icon = Icons.Default.VpnLock,
                         title = "Через VPN",
-                        subtitle = "Только подключённая нода через проверенный активный маршрут. Для Nimbo Ping всегда включено.",
+                        subtitle = "Для Nimbo Ping: отдельный маршрут каждого сервера, без переключения VPN. Для остальных методов: активное подключение.",
                         checked = pingThroughProxy || pingProtocol == 5,
                         enabled = pingProtocol != 5,
                         onCheckedChange = { preferencesManager.pingThroughProxy = it }

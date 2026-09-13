@@ -9,7 +9,13 @@ class NimboPingPresentationTest {
         for (key in listOf("nimbo", "tcp", "http_get", "http_head", "icmp")) {
             assertEquals(key, normalizePingProtocol(key))
         }
-        assertEquals("tcp", normalizePingProtocol("unknown"))
+        assertEquals("nimbo", normalizePingProtocol("unknown"))
+        assertEquals("nimbo", normalizePingProtocol(""))
+    }
+
+    @Test fun nimboIsTheDefaultWithoutOverwritingExplicitTcp() {
+        assertEquals("nimbo", NimboUiState().pingProtocol)
+        assertEquals("tcp", normalizePingProtocol("tcp"))
     }
 
     @Test fun displayDefaultsAreStable() {
@@ -17,6 +23,13 @@ class NimboPingPresentationTest {
             assertEquals(key, normalizePingDisplay(key))
         }
         assertEquals("numeric", normalizePingDisplay("unknown"))
+    }
+
+    @Test fun completedRowsStopSpinningWhileOtherServersAreStillPending() {
+        val pending = setOf("one", "two", "three")
+        assertEquals(setOf("two", "three"), remainingPingIds(pending, listOf("one"), true))
+        assertEquals(pending, remainingPingIds(pending, listOf("unrelated"), true))
+        assertEquals(emptySet(), remainingPingIds(pending, emptyList(), false))
     }
 
     @Test fun missingFailedAndRunningAreNotSuccessful() {

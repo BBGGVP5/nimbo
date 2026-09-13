@@ -38,6 +38,8 @@ enum class PingProtocol(val id: Int) {
 
     companion object {
         fun fromId(id: Int): PingProtocol = entries.firstOrNull { it.id == id } ?: TCP
+        fun fromSavedId(id: Int?): PingProtocol = if (id == null) NIMBO else fromId(id)
+        val settingsOrder: List<PingProtocol> get() = listOf(NIMBO, TCP, HTTP_GET, HTTP_HEAD, HTTPS_STRICT, ICMP)
     }
 }
 
@@ -62,6 +64,9 @@ object PingManager {
         network: String?,
         config: PingConfig
     ): Int {
+        // Nimbo needs the full individual node configuration, not a host or the active route.
+        // Production callers use NimboNodePing; this legacy scalar API must not reuse a VPN.
+        if (config.protocol == PingProtocol.NIMBO) return -1
         if (config.protocol == PingProtocol.NIMBO || config.useProxy) {
             val session = HealthProxySessions.connected() ?: return -1
             return ActiveProxyPing.measure(

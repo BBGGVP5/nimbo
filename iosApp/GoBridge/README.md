@@ -118,3 +118,97 @@ Device testing must cover encrypted TCP, DNS/UDP, repeated starts,
 sleep/wake and Wi-Fi/cellular transitions. A listening SOCKS port or `running`
 status only indicates a local runtime; use `last_handshake_time_sec` and traffic
 checks to establish peer connectivity.
+
+## App-process per-server diagnostics
+
+The same combined framework now exports two additional functions. They are
+for the **Nimbo app process only**, never PacketTunnel. The native Apple guard
+rejects a main bundle with the `.appex` extension; a second guard rejects a
+process with a running managed Xray core before creating a diagnostic instance.
+The caller must serialize all app-process core lifetimes and must never call
+managed `runXray` concurrently with diagnostics. The extension keeps its own
+framework/runtime in its separate process.
+
+```c
+char *NimboDiagnosticRun(char *requestJSON);
+char *NimboDiagnosticCancel(char *requestJSON);
+```
+
+Release **every non-null result from both functions** with `CGoFree`, once.
+Run blocks until the request and all connection/core cleanup finish. Run on a
+serial worker queue; Cancel must use a different queue so it can interrupt Run.
+There is exactly one native diagnostic lifetime including cleanup; another Run
+returns `DIAGNOSTIC_BUSY`, so bulk callers queue requests instead of starting
+parallel independent cores.
+
+Run request schema:
+
+```json
+{"apiVersion":1,"requestID":"6f8891ba-7731-441d-ac7a-1fd388304c98","serverID":"profile-id","config":"original single-server share link or Xray JSON","format":"share","url":"https://example.com/","method":"GET","timeoutMs":3000}
+```
+
+`requestID` is a fresh UUID per attempt. `format` is `share`, `xray`, or `awg`;
+AWG currently returns `DIAGNOSTIC_UNSUPPORTED` rather than using the global
+AWG tunnel. Native methods are GET or HEAD; the Nimbo diagnostic UI uses GET.
+Timeout is 1–60000 milliseconds; configuration is limited to 1 MiB, the C request
+to 2 MiB, and response headers to 32 KiB. URL must be absolute HTTP(S), without
+userinfo or fragments. Response:
+
+```json
+{"ok":true,"requestID":"6f8891ba-7731-441d-ac7a-1fd388304c98","serverID":"profile-id","latency":0}
+```
+
+`latency` is integer milliseconds around `http.Client.Do`, from request start
+to response headers. Zero is a valid success; setup and cleanup are excluded.
+The overall cancellation deadline still starts before parsing/setup. The result
+is returned only after cleanup, which can extend wall time beyond the deadline;
+the caller must await that completion before starting another core.
+
+Failures have `ok:false`, `latency:-1`, and a fixed `error` code. No raw core,
+HTTP, certificate or parser error, configuration, URL, or credentials is included.
+Codes are `DIAGNOSTIC_REQUEST`, `DIAGNOSTIC_APP_ONLY`,
+`DIAGNOSTIC_MANAGED_ACTIVE`, `DIAGNOSTIC_BUSY`, `DIAGNOSTIC_CANCELLED`,
+`DIAGNOSTIC_TIMEOUT`, `DIAGNOSTIC_CONFIG`, `DIAGNOSTIC_UNSUPPORTED`,
+`DIAGNOSTIC_UNSUPPORTED_BIND`, `DIAGNOSTIC_UNSAFE_ROUTE`,
+`DIAGNOSTIC_AMBIGUOUS_ROUTE`, `DIAGNOSTIC_SETUP`, `DIAGNOSTIC_NETWORK`,
+and `DIAGNOSTIC_HTTP_STATUS`.
+
+Cancel accepts `{"apiVersion":1,"requestID":"..."}` and returns
+`{"ok":true,"requestID":"...","cancelled":true}` when the matching request
+is active. An unknown/completed ID returns `cancelled:false` and cannot cancel
+another request. A bounded cache of 256 IDs covers cancel-before-Run races and
+immediate reuse; callers must always generate fresh UUIDs.
+
+Only outbounds are projected into a fresh `core.New` configuration. User root
+environment, DNS, routing, logging, metrics and listeners/TUN are never applied.
+Exactly one supported proxy outbound is required: HTTP, SOCKS, VMess, VLESS,
+Trojan or Shadowsocks. Direct/block/DNS helper outbounds are never selected;
+direct-only or ambiguous configurations are rejected. Forced outbound context
+always targets the selected proxy; there is no direct target fallback or URL
+proxy-from-environment behavior. Proxy chains, explicit socket interface
+selection, and external certificate/key files are rejected. Nonempty
+`sendThrough` is a real native bind address in this pinned release and returns
+`DIAGNOSTIC_UNSUPPORTED_BIND`; it is never silently cleared. The Swift adapter
+owns any narrow migration of older saved display labels before submission.
+
+HTTP redirects are not followed, only 2xx is successful, target TLS uses default
+certificate verification, and response bodies are closed without buffering.
+Cancellation closes tracked connections; Run waits for dial completion and
+closes its core before releasing the native slot. It never calls managed
+`runXray`/`stopXray` or the global AWG start/stop exports.
+
+**Measurement path:** the target request goes through the selected server, but
+the app's outer connection to that server follows iOS networking. With an active
+VPN it may itself travel through the active VPN, so latency can include a nested
+path. No physical-interface bypass or independence from the current VPN is
+claimed. When disconnected, the same app-process diagnostic works without any
+PacketTunnel IPC. Physical path and device lifecycle behavior require iOS testing.
+
+`scripts/ci/test-libxray-diagnostic.py` executes the new ABI against a real combined
+shared library, including separate proxy routes, GET/HEAD, raw-share SOCKS auth,
+no direct fallback, root isolation, wrong-ID/pre-start/in-flight cancellation,
+deadline cleanup, serialization, unsupported binds/AWG, redirects, status codes,
+oversized headers and rejection of an untrusted target TLS certificate. It uses
+only loopback fixtures and is invoked by `test-libxray-cabi.py` in the Apple host
+contract stage. `openssl` is needed for the ephemeral TLS fixture. Go unit tests
+also cover the app-extension guard and concurrent cancellation identity handling.

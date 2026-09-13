@@ -10,6 +10,7 @@ enum PingPolicyTests {
                 try policyTests()
                 try routingTests()
                 await networkTests()
+                await PingDiagnosticTests.run()
                 print("PASS: Swift ping policy, routing, HTTP/SOCKS/TLS, cancellation and attribution contracts")
                 exit(0)
             } catch { fatalError("Ping test failed: \(error)") }
@@ -18,7 +19,7 @@ enum PingPolicyTests {
     }
 
     static func policyTests() throws {
-        precondition(NimboPingProtocol(stored: nil) == .tcp)
+        precondition(NimboPingProtocol(stored: nil) == .nimbo)
         precondition(NimboPingProtocol(stored: "bad") == .tcp)
         precondition(NimboPingProtocol(stored: "http") == .httpHead)
         for mode in NimboPingProtocol.allCases { precondition(NimboPingProtocol(stored: mode.rawValue) == mode) }
@@ -145,20 +146,20 @@ enum PingPolicyTests {
             let values = await NimboPingService.shared.measureAll([(id: "a", host: "127.0.0.1", port: 1), (id: "b", host: "127.0.0.1", port: 2)])
             precondition(values == ["a": -1, "b": -1], "Disconnected route probes must clear every old value")
         }
-        defaults.set("nimbo", forKey: keys[0])
+        defaults.set("http_get", forKey: keys[0])
         let targets = [(id: "a", host: "host-a", port: 1), (id: "b", host: "host-b", port: 2)]
-        let attributed = NimboPingService { _, _, requestedURL, _, method, nimbo in
+        let attributed = NimboPingService(routeProbe: { _, _, requestedURL, _, method, nimbo in
             precondition(requestedURL.absoluteString == origin + "/must-not-hit-origin")
-            precondition(method == "GET" && nimbo)
+            precondition(method == "GET" && !nimbo)
             return ("a", 0)
-        }
+        })
         let sample = await attributed.measureAll(targets)
         precondition(sample == ["a": 0, "b": -1], "Only the confirmed active route gets zero-ms success")
         for (key, changed) in [(keys[0], "http_head"), (keys[1], origin + "/changed"), (keys[2], "10000")] {
             let gate = NimboPingCompletion<(id: String, latency: Int)>()
-            let service = NimboPingService { _, _, _, _, _, _ in
+            let service = NimboPingService(routeProbe: { _, _, _, _, _, _ in
                 await withCheckedContinuation { continuation in gate.install { continuation.resume(returning: $0) } }
-            }
+            })
             let task = Task { await service.measureAll(targets) }
             try? await Task.sleep(nanoseconds: 50_000_000)
             let old = defaults.object(forKey: key)
@@ -170,9 +171,9 @@ enum PingPolicyTests {
             precondition(stale == ["a": -1, "b": -1], "Settings changed away/back must reject in-flight success")
         }
         let displayGate = NimboPingCompletion<(id: String, latency: Int)>()
-        let displayService = NimboPingService { _, _, _, _, _, _ in
+        let displayService = NimboPingService(routeProbe: { _, _, _, _, _, _ in
             await withCheckedContinuation { continuation in displayGate.install { continuation.resume(returning: $0) } }
-        }
+        })
         let displayTask = Task { await displayService.measureAll(targets) }
         try? await Task.sleep(nanoseconds: 50_000_000)
         defaults.set("dots", forKey: keys[3])

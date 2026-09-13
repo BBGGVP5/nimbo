@@ -231,7 +231,7 @@ private val speedHttpClient = OkHttpClient.Builder()
     .build()
 
 @Composable
-fun PingToolScreen(onNavigateBack: () -> Unit) {
+fun PingToolScreen(mainViewModel: com.danila.nimbo.MainViewModel, onNavigateBack: () -> Unit) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val application = context.applicationContext as Application
@@ -249,8 +249,9 @@ fun PingToolScreen(onNavigateBack: () -> Unit) {
     val timeout by preferencesManager.pingTimeoutState
     val throughProxy by preferencesManager.pingThroughProxyState
     val protocol = PingProtocol.fromId(protocolId)
-    val activeRouteOnly = protocol == PingProtocol.NIMBO || throughProxy
-    val usesHealthUrl = activeRouteOnly || protocol == PingProtocol.HTTP_GET || protocol == PingProtocol.HTTP_HEAD
+    val nimbo = protocol == PingProtocol.NIMBO
+    val activeRouteOnly = !nimbo && throughProxy
+    val usesHealthUrl = nimbo || activeRouteOnly || protocol == PingProtocol.HTTP_GET || protocol == PingProtocol.HTTP_HEAD
     val vpnState = VpnManager.state.value
     val connectedKey = VpnManager.connectedServer.value?.pingMeasurementKey()
     var probeJob by remember { mutableStateOf<Job?>(null) }
@@ -263,6 +264,12 @@ fun PingToolScreen(onNavigateBack: () -> Unit) {
 
     fun startPing() {
         if (isRunning) return
+        val selectedNode = VpnManager.selectedServer
+        val nodeConfig = if (nimbo && selectedNode != null) mainViewModel.nimboConfigForServer(selectedNode) else null
+        if (nimbo && nodeConfig == null) {
+            error = "Выберите поддерживаемый сервер подписки; маршрут недоступен"
+            return
+        }
         val session = if (activeRouteOnly) HealthProxySessions.connected() else null
         if (activeRouteOnly && session == null) {
             result = null
@@ -289,7 +296,9 @@ fun PingToolScreen(onNavigateBack: () -> Unit) {
                 val config = PingConfig(protocol, pingUrl, timeout.coerceIn(1, 10) * 1000, throughProxy)
                 val attempts = mutableListOf<Int>()
                 repeat(4) { index ->
-                    attempts += if (session != null) {
+                    attempts += if (nimbo) {
+                        com.danila.nimbo.network.NimboNodePing.measure(context, nodeConfig, config.testUrl, config.timeoutMs)
+                    } else if (session != null) {
                         ActiveProxyPing.measure(
                             config.testUrl, config.timeoutMs, session,
                             { HealthProxySessions.isConnected(session) },
@@ -300,7 +309,7 @@ fun PingToolScreen(onNavigateBack: () -> Unit) {
                 }
                 if (session == null || HealthProxySessions.isConnected(session)) {
                     result = PingToolResult(
-                        if (activeRouteOnly) "Активный маршрут · $pingUrl" else if (usesHealthUrl) pingUrl else parsed.host,
+                        if (nimbo) "${selectedNode?.name} · $pingUrl" else if (activeRouteOnly) "Активный маршрут · $pingUrl" else if (usesHealthUrl) pingUrl else parsed.host,
                         attempts
                     )
                 } else error = "Маршрут изменился; результат сброшен"
@@ -312,7 +321,7 @@ fun PingToolScreen(onNavigateBack: () -> Unit) {
 
     NimboSubPageScaffold(
         title = "Проверка пинга",
-        subtitle = if (activeRouteOnly) "Только активный маршрут, не проверка всего списка серверов" else "Отдельный замер домена или IP-адреса",
+        subtitle = if (nimbo) "GET через маршрут выбранного сервера подписки; VPN не переключается" else if (activeRouteOnly) "Только активный маршрут, не проверка всего списка серверов" else "Отдельный замер домена или IP-адреса",
         onBack = onNavigateBack
     ) {
         WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {

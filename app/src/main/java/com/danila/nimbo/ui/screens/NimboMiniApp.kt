@@ -289,6 +289,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.danila.nimbo.BuildConfig
+import com.danila.nimbo.network.PingProtocol
 import com.danila.nimbo.network.PingDisplay
 import com.danila.nimbo.network.ActiveProxyPing
 import com.danila.nimbo.ui.components.PingValueContent
@@ -1107,6 +1108,7 @@ fun NimboMiniApp(
                 )
 
                 MiniDestination.WhitelistPing -> PingToolScreen(
+                    mainViewModel = mainViewModel,
                     onNavigateBack = { navigateBackInMiniApp() }
                 )
 
@@ -12850,11 +12852,18 @@ private fun ColumnScope.PingSettingsSection(
                 subtitle = t("Метод, которым Nimbo измеряет задержку серверов", "How Nimbo measures server latency"),
                 icon = Icons.Default.Language
             ) {
-                listOf("TCP", "HTTP GET", "HTTP HEAD", "HTTPS Strict", "ICMP", "Nimbo Ping")
-                    .forEachIndexed { id, label ->
+                PingProtocol.settingsOrder.forEach { method ->
+                        val id = method.id
+                        val label = when (method) {
+                            PingProtocol.NIMBO -> "Nimbo Ping"
+                            PingProtocol.HTTP_GET -> "HTTP GET"
+                            PingProtocol.HTTP_HEAD -> "HTTP HEAD"
+                            PingProtocol.HTTPS_STRICT -> "HTTPS Strict"
+                            else -> method.name
+                        }
                         PingChoiceRow(
                             title = label,
-                            subtitle = if (id == 5) t("GET через активный маршрут", "GET through the active route") else "",
+                            subtitle = if (id == 5) t("GET через маршрут каждого сервера", "GET through each server route") else "",
                             selected = pingProtocol == id,
                             onClick = { preferencesManager.pingProtocol = id }
                         )
@@ -12862,8 +12871,8 @@ private fun ColumnScope.PingSettingsSection(
                 PingSettingsHint(
                     when (pingProtocol) {
                         5 -> t(
-                            "Nimbo Ping — GET только через проверенный активный прокси-маршрут. Без подключения недоступен. Проверяет только подключённую ноду, не весь список серверов; прямого обхода нет.",
-                            "Nimbo Ping sends GET only through a verified active proxy route. Unavailable while disconnected. Checks only the connected node, not every server in the list; no direct fallback."
+                            "Nimbo Ping — GET через отдельный маршрут каждого сервера подписки. Работает без VPN и не меняет текущее подключение. AWG и непроверяемые маршруты — н/д; прямого обхода нет.",
+                            "Nimbo Ping sends GET through each subscription server’s own route. Works without VPN and leaves the current connection unchanged. AWG and unverifiable routes are unavailable; no direct fallback."
                         )
                         1, 2, 3 -> t(
                             "HTTP — измеряет запрос до контрольного URL. Маршрут зависит от переключателя «Через VPN» ниже.",
@@ -12884,8 +12893,8 @@ private fun ColumnScope.PingSettingsSection(
             PingSettingsWideRow(
                 title = t("Через VPN", "Through VPN"),
                 subtitle = if (pingProtocol == 5) t(
-                    "Для Nimbo Ping всегда включено; требуется поддерживаемое активное подключение.",
-                    "Always enabled for Nimbo Ping; a supported active connection is required."
+                    "Nimbo Ping использует отдельный маршрут каждого сервера; активный VPN не требуется.",
+                    "Nimbo Ping uses a separate route for each server; no active VPN is required."
                 ) else if (pingThroughProxy) t(
                     "End-to-end HTTP до контрольного URL через выбранный outbound. Требуется активный VPN.",
                     "End-to-end HTTP to the health URL through the selected outbound. An active VPN is required."

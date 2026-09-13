@@ -5,13 +5,26 @@ import NetworkExtension
 /// Transport-specific measurements. -1 is unavailable/failure; zero is success.
 actor NimboPingService {
     typealias RouteProbe = (NETunnelProviderSession?, [String], URL, TimeInterval, String, Bool) async -> (id: String, latency: Int)
+    typealias DiagnosticProbe = (String, String, URL, TimeInterval) async -> Int
     static let shared = NimboPingService()
     private let routeProbe: RouteProbe
+    private let diagnosticProbe: DiagnosticProbe
+    private let diagnosticClock: () -> TimeInterval
     private let parallelism = 16
     private var inFlight = false
 
-    init(routeProbe: @escaping RouteProbe = NimboActiveRouteProbe.measure) {
+    init(routeProbe: @escaping RouteProbe = NimboActiveRouteProbe.measure,
+         diagnosticProbe: @escaping DiagnosticProbe = NimboDiagnosticProbe.measure,
+         diagnosticClock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.routeProbe = routeProbe
+        self.diagnosticProbe = diagnosticProbe
+        self.diagnosticClock = diagnosticClock
+    }
+
+    /// Serial diagnostics need a per-node budget. Allow one second per node for
+    /// queue/cleanup overhead, with a 30-minute safety ceiling for huge profiles.
+    static func diagnosticBatchBudget(count: Int, timeout: TimeInterval) -> TimeInterval {
+        min(30 * 60, Double(max(0, count)) * (timeout + 1))
     }
 
     private struct Settings: Equatable {
@@ -52,11 +65,14 @@ actor NimboPingService {
         deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
     }
 
-    func measureOne(host: String, port: Int, id: String = "", session: NETunnelProviderSession? = nil) async -> Int {
+    func measureOne(host: String, port: Int, id: String = "", session: NETunnelProviderSession? = nil, configuration: String? = nil) async -> Int {
         let lease = SettingsLease()
         let settings = lease.settings
         let value: Int
-        if settings.mode.httpMethod != nil {
+        if settings.mode == .nimbo {
+            guard !id.isEmpty, let configuration, let url = NimboPingPolicy.checkedURL(settings.rawURL) else { return -1 }
+            value = await diagnosticProbe(id, configuration, url, settings.timeout)
+        } else if settings.mode.httpMethod != nil {
             guard !id.isEmpty, let url = NimboPingPolicy.checkedURL(settings.rawURL) else { return -1 }
             value = await routeProbe(session, [id], url, settings.timeout, settings.mode.httpMethod!, settings.mode == .nimbo).latency
         } else {
@@ -65,8 +81,11 @@ actor NimboPingService {
         return !Task.isCancelled && lease.valid ? value : -1
     }
 
-    /// Explicit failures clear old TCP values for every unrelated subscription entry.
-    func measureAll(_ targets: [(id: String, host: String, port: Int)], session: NETunnelProviderSession? = nil) async -> [String: Int]? {
+    /// Nimbo uses each target's immutable config in the app process, independent
+    /// of the currently selected/connected tunnel. Unattempted rows are omitted.
+    func measureAll(_ targets: [(id: String, host: String, port: Int)], session: NETunnelProviderSession? = nil,
+                    configurations: [String: String] = [:],
+                    progress: (@MainActor (String, Int) -> Void)? = nil) async -> [String: Int]? {
         guard !inFlight else { return nil }
         inFlight = true
         defer { inFlight = false }
@@ -74,7 +93,28 @@ actor NimboPingService {
         let settings = lease.settings
         let unavailable = Dictionary(targets.map { ($0.id, -1) }, uniquingKeysWith: { first, _ in first })
         var results = unavailable
-        if settings.mode.httpMethod != nil {
+        if settings.mode == .nimbo {
+            guard let url = NimboPingPolicy.checkedURL(settings.rawURL) else { return unavailable }
+            results = [:] // Unattempted targets are not failed measurements.
+            let deadline = diagnosticClock() + Self.diagnosticBatchBudget(count: targets.count, timeout: settings.timeout)
+            for target in targets {
+                let remaining = deadline - diagnosticClock()
+                guard !Task.isCancelled, lease.valid, remaining > 0 else { break }
+                let value: Int
+                if let configuration = configurations[target.id] {
+                    value = await diagnosticProbe(target.id, configuration, url, min(settings.timeout, remaining))
+                } else { value = -1 } // This target was checked and has no usable config.
+                guard !Task.isCancelled, lease.valid else { break }
+                results[target.id] = value
+                await MainActor.run {
+                    guard !Task.isCancelled, lease.valid else { return }
+                    progress?(target.id, value)
+                }
+            }
+            // No final writes from an interrupted or obsolete run. Already emitted
+            // progress contains only completed samples, never queued placeholders.
+            return !Task.isCancelled && lease.valid ? results : nil
+        } else if settings.mode.httpMethod != nil {
             guard let url = NimboPingPolicy.checkedURL(settings.rawURL) else { return unavailable }
             let sample = await routeProbe(session, targets.map(\.id), url, settings.timeout, settings.mode.httpMethod!, settings.mode == .nimbo)
             if sample.latency >= 0, results[sample.id] != nil { results[sample.id] = sample.latency }

@@ -50,7 +50,7 @@ final class NimboHTTPProbe: NSObject, StreamDelegate {
             // NSStream scheduling. Apple specifies setting SOCKS on the read OR
             // write side of the shared socket pair; a second setter is not proof.
             // A rejected configuration is terminal: never open the pair directly.
-            guard CFReadStreamSetProperty(read, kCFStreamPropertySOCKSProxy, proxy as CFDictionary) else {
+            guard CFReadStreamSetProperty(read, CFStreamPropertyKey(rawValue: kCFStreamPropertySOCKSProxy), proxy as CFDictionary) else {
                 Self.trace("CFReadStream SOCKS configuration rejected before open")
                 return nil
             }
@@ -58,7 +58,7 @@ final class NimboHTTPProbe: NSObject, StreamDelegate {
         }
         if url.scheme?.lowercased() == "https" {
             // Never install a trust override or disable certificate-chain validation.
-            guard CFReadStreamSetProperty(read, kCFStreamPropertySocketSecurityLevel, kCFStreamSocketSecurityLevelNegotiatedSSL) else {
+            guard CFReadStreamSetProperty(read, CFStreamPropertyKey(rawValue: kCFStreamPropertySocketSecurityLevel), kCFStreamSocketSecurityLevelNegotiatedSSL) else {
                 Self.trace("CFReadStream TLS configuration rejected before open")
                 return nil
             }
