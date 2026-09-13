@@ -1,7 +1,37 @@
+import { latencySettingsKey, normalizeLatencyProtocol, normalizeLatencyDisplay, normalizeLatencyUrl, normalizeLatencyTimeout, type LatencyProtocol, type LatencyDisplayFormat } from "./latency";
+export type { LatencyProtocol, LatencyDisplayFormat } from "./latency";
 import { isAwgInput, parseAwgInput } from "./awg";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import uiPackage from "../../package.json";
+
+// Drop a result completed by an older UI intent even if it was valid when
+// the backend replied. This also covers settings changes during IPC delivery.
+let pingRevision = 0;
+let pingPreferencesKey: string | undefined;
+let pingConnectionKey: string | undefined;
+async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (["connect_server", "disconnect_server", "set_active_server", "import_app_backup", "set_connection_mode"].includes(command)) pingRevision++;
+  if (command === "set_preferences") {
+    const key = latencySettingsKey(args?.preferences as AppPreferences);
+    if (key !== pingPreferencesKey) pingRevision++;
+    pingPreferencesKey = key;
+  }
+  const revision = pingRevision;
+  const result = await tauriInvoke<T>(command, args);
+  if (command === "get_preferences") pingPreferencesKey = latencySettingsKey(result as AppPreferences);
+  if (command === "get_status") {
+    const status = result as AppStatus;
+    const key = JSON.stringify([status.state, status.active_server_id, status.connected_at]);
+    if (pingConnectionKey !== undefined && key !== pingConnectionKey) pingRevision++;
+    pingConnectionKey = key;
+  }
+  if (["ping_server", "ping_servers"].includes(command) && revision !== pingRevision) {
+    const failed = (ping: ServerPing): ServerPing => ({ server_id: ping.server_id, latency_ms: null, error: "Ping context changed; check again" });
+    return (Array.isArray(result) ? result.map(failed) : failed(result as ServerPing)) as T;
+  }
+  return result;
+}
 
 export const CURRENT_SUBSCRIPTION_PARSER_REVISION = 1;
 
@@ -205,8 +235,6 @@ export const DEFAULT_ACCENT_PALETTE = [
 ] as const;
 export type UiStyle = "signal" | "nimbo" | "material_you" | "dotted" | "manga";
 export type AppLanguage = "ru" | "en" | "system";
-export type LatencyProtocol = "tcp_connect" | "icmp" | "http_head";
-export type LatencyDisplayFormat = "ms" | "badge";
 export type XudpUdp443Mode = "reject" | "allow" | "skip";
 export type PreferredIpFamily = "auto" | "ipv4" | "ipv6";
 export type ServerSorting = "provider" | "name" | "ping" | "protocol";
@@ -664,23 +692,10 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
   const accent = typeof value?.accent_color === "string" && /^#[0-9a-f]{6}$/i.test(value.accent_color)
     ? value.accent_color.toLowerCase()
     : defaultAppPreferences.accent_color;
-  const latencyProtocol =
-    value?.latency_protocol === "tcp_connect" ||
-    value?.latency_protocol === "icmp" ||
-    value?.latency_protocol === "http_head"
-      ? value.latency_protocol
-      : defaultAppPreferences.latency_protocol;
-  const latencyTestUrl =
-    typeof value?.latency_test_url === "string" && /^https?:\/\//i.test(value.latency_test_url.trim())
-      ? value.latency_test_url.trim()
-      : defaultAppPreferences.latency_test_url;
-  const latencyTimeoutMs =
-    typeof value?.latency_timeout_ms === "number" && Number.isFinite(value.latency_timeout_ms)
-      ? Math.min(60000, Math.max(500, Math.round(value.latency_timeout_ms)))
-      : defaultAppPreferences.latency_timeout_ms;
-  const latencyDisplayFormat = value?.latency_display_format === "badge" || value?.latency_display_format === "ms"
-    ? value.latency_display_format
-    : defaultAppPreferences.latency_display_format;
+  const latencyProtocol = normalizeLatencyProtocol(value?.latency_protocol);
+  const latencyTestUrl = normalizeLatencyUrl(value?.latency_test_url);
+  const latencyTimeoutMs = normalizeLatencyTimeout(value?.latency_timeout_ms);
+  const latencyDisplayFormat = normalizeLatencyDisplay(value?.latency_display_format);
   const appRoutingMode = value?.app_routing_mode === "proxy" ? "proxy" : defaultAppPreferences.app_routing_mode;
   const xudpUdp443 =
     value?.tunnel_xudp_udp443 === "allow" ||
@@ -828,7 +843,7 @@ function browserPersistedState(): PersistedState {
     socks_password: nonEmptyString(stored?.socks_password, DEFAULT_SOCKS_PASSWORD),
     require_socks_auth: Boolean(stored?.require_socks_auth),
     block_socks_udp: Boolean(stored?.block_socks_udp),
-    server_pings: stored?.server_pings && typeof stored.server_pings === "object" ? stored.server_pings : {},
+    server_pings: {},
     preferences: normalizePreferences(stored?.preferences),
   };
 }
@@ -2142,39 +2157,16 @@ export const api = {
           const current = browserPersistedState();
           return writeBrowserPersistedState({ ...current, active_subscription_url: url });
         })()),
-  pingServer: (serverId: string) =>
+  pingServer: (serverId: string): Promise<ServerPing> =>
     isTauriRuntime()
       ? invoke<ServerPing>("ping_server", { serverId })
-      : Promise.resolve((() => {
-          const current = browserPersistedState();
-          const protocol = current.preferences?.latency_protocol ?? defaultAppPreferences.latency_protocol;
-          const ping = protocol === "icmp" ? 28 : protocol === "http_head" ? 54 : 42;
-          writeBrowserPersistedState({
-            ...current,
-            server_pings: { ...current.server_pings, [serverId]: ping },
-          });
-          return { server_id: serverId, latency_ms: ping, error: null } satisfies ServerPing;
-        })()),
-  pingServers: (serverIds: string[]) =>
+      : Promise.resolve({ server_id: serverId, latency_ms: null, error: "Latency measurement requires the desktop app" }),
+  pingServers: (serverIds: string[]): Promise<ServerPing[]> =>
     isTauriRuntime()
       ? invoke<ServerPing[]>("ping_servers", { serverIds })
-      : Promise.resolve((() => {
-          const current = browserPersistedState();
-          const protocol = current.preferences?.latency_protocol ?? defaultAppPreferences.latency_protocol;
-          const base = protocol === "icmp" ? 28 : protocol === "http_head" ? 54 : 38;
-          const nextPings = { ...current.server_pings };
-          const result = serverIds.map((serverId, index) => {
-            const latency = base + index * 7;
-            nextPings[serverId] = latency;
-            return {
-              server_id: serverId,
-              latency_ms: latency,
-              error: null,
-            } satisfies ServerPing;
-          });
-          writeBrowserPersistedState({ ...current, server_pings: nextPings });
-          return result;
-        })()),
+      : Promise.resolve([...new Set(serverIds)].map(serverId => ({
+          server_id: serverId, latency_ms: null, error: "Latency measurement requires the desktop app",
+        }))),
   connectServer: (serverId: string) =>
     isTauriRuntime()
       ? invoke<PersistedState>("connect_server", { serverId })

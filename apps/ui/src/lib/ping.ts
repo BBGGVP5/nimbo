@@ -8,12 +8,14 @@ export async function pingServersProgressively(
   const queue = Array.from(new Set(serverIds));
   let index = 0;
 
-  const workerCount = Math.min(Math.max(1, concurrency), queue.length);
+  const workerCount = Math.min(Number.isFinite(concurrency) ? Math.max(1, Math.floor(concurrency)) : 4, queue.length);
   const workers = Array.from({ length: workerCount }, async () => {
     while (index < queue.length) {
       const serverId = queue[index++];
       try {
-        onResult(await api.pingServer(serverId));
+        const result = await api.pingServer(serverId);
+        if (result.server_id !== serverId) throw new Error("Ping response server mismatch");
+        onResult(result.error ? { ...result, latency_ms: null } : result);
       } catch (error) {
         onResult({
           server_id: serverId,

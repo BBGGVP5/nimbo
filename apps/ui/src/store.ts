@@ -1,3 +1,4 @@
+import { latencySettingsKey } from "./lib/latency";
 import { create } from "zustand";
 import {
   api,
@@ -92,7 +93,7 @@ interface AppStoreState {
   refreshHelperStatus: () => Promise<HelperStatus>;
   installHelper: () => Promise<void>;
   uninstallHelper: () => Promise<void>;
-  setServerPing: (serverId: string, latency: number) => void;
+  setServerPing: (serverId: string, latency: number | null) => void;
   openImportDialog: (source?: string) => void;
   closeImportDialog: () => void;
   setImportDialogSource: (source: string) => void;
@@ -297,7 +298,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   setPreferences: async (preferences) => {
     const saved = await api.setPreferences(preferences);
-    set({ preferences: saved });
+    set(s => ({ preferences: saved, ...(latencySettingsKey(s.preferences) !== latencySettingsKey(saved) ? { serverPings: {} } : {}) }));
     return saved;
   },
 
@@ -407,7 +408,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({ searchingFastest: true, error: null });
     try {
       const best = await measureFastestServer(pool, (result) => {
-        if (result.latency_ms != null) get().setServerPing(result.server_id, result.latency_ms);
+        get().setServerPing(result.server_id, result.latency_ms ?? null);
       });
       if (!best) {
         // Ни один узел не ответил: подключаться наугад хуже, чем сказать об этом.
@@ -594,12 +595,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   setServerPing: (serverId, latency) => {
-    set((s) => ({
-      serverPings: {
-        ...s.serverPings,
-        [serverId]: latency,
-      },
-    }));
+    set(s => {
+      const serverPings = { ...s.serverPings };
+      if (latency != null && Number.isFinite(latency) && latency >= 0) serverPings[serverId] = latency;
+      else delete serverPings[serverId];
+      return { serverPings };
+    });
   },
 
   openImportDialog: (source = "") => {

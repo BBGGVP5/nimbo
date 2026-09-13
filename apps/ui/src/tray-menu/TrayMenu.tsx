@@ -1,3 +1,4 @@
+import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -560,7 +561,7 @@ export function TrayMenu({ previewState }: { previewState?: TrayState } = {}) {
                 <span className="tray-flag" aria-hidden="true">☆</span>
                 <span className="tray-server-copy">
                   <span className="tray-server-name" title={displayServerName(server)}>{displayServerName(server)}</span>
-                  <span className="tray-server-meta"><span>{server.subscriptionName}</span><span>{server.latencyMs != null ? formatMs(server.latencyMs) : t.noPing}</span></span>
+                  <span className="tray-server-meta"><span>{server.subscriptionName}</span><span>{server.latencyMs != null ? <LatencyDisplay value={server.latencyMs} format={state?.visualPreferences?.latency_display_format} /> : t.noPing}</span></span>
                 </span>
                 <span className="tray-check" aria-hidden="true">{server.id === activeId ? "✓" : "→"}</span>
               </button>

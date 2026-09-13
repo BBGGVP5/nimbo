@@ -1,3 +1,4 @@
+import { LATENCY_URL_PRESETS, normalizeLatencyUrl, normalizeLatencyTimeout } from "../lib/latency";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -1559,6 +1560,7 @@ function LatencySection({
 }) {
   const m = useMessages();
   const [testUrlDraft, setTestUrlDraft] = useState(preferences.latency_test_url);
+  const [customUrl, setCustomUrl] = useState(!LATENCY_URL_PRESETS.some(p => p.value === preferences.latency_test_url));
   const [timeoutDraft, setTimeoutDraft] = useState(String(preferences.latency_timeout_ms));
 
   useEffect(() => {
@@ -1570,9 +1572,7 @@ function LatencySection({
   }, [preferences.latency_timeout_ms]);
 
   const saveTestUrl = () => {
-    const next = /^https?:\/\//i.test(testUrlDraft.trim())
-      ? testUrlDraft.trim()
-      : defaultAppPreferences.latency_test_url;
+    const next = normalizeLatencyUrl(testUrlDraft);
     setTestUrlDraft(next);
     if (next !== preferences.latency_test_url) {
       void onChange({ latency_test_url: next });
@@ -1580,10 +1580,7 @@ function LatencySection({
   };
 
   const saveTimeout = () => {
-    const parsed = Number.parseInt(timeoutDraft, 10);
-    const next = Number.isFinite(parsed)
-      ? Math.min(60000, Math.max(500, parsed))
-      : defaultAppPreferences.latency_timeout_ms;
+    const next = normalizeLatencyTimeout(timeoutDraft.trim() ? Number(timeoutDraft) : undefined);
     setTimeoutDraft(String(next));
     if (next !== preferences.latency_timeout_ms) {
       void onChange({ latency_timeout_ms: next });
@@ -1598,23 +1595,36 @@ function LatencySection({
           description={m.settings.latencyProtocolDescription}
           value={preferences.latency_protocol}
           options={[
+            { value: "nimbo", label: "Nimbo Ping (HTTP GET)" },
             { value: "tcp_connect", label: m.settings.latencyTcpConnect },
             { value: "icmp", label: m.settings.latencyIcmp },
+            { value: "http_get", label: "HTTP GET" },
             { value: "http_head", label: m.settings.latencyHttpHead },
           ]}
           onChange={(latency_protocol) => onChange({ latency_protocol })}
           icon={<SignalIcon />}
         />
-        {preferences.latency_protocol === "http_head" && (
-          <SettingsInputRow
+        {["nimbo", "http_get", "http_head"].includes(preferences.latency_protocol) && (<>
+          <SettingsChoiceRow
+            label={m.settings.testUrl}
+            description={m.settings.latencyActiveRouteOnly}
+            value={customUrl ? "custom" : preferences.latency_test_url}
+            options={[...LATENCY_URL_PRESETS, { value: "custom", label: m.settings.latencyCustomUrl }]}
+            onChange={async value => {
+              setCustomUrl(value === "custom");
+              if (value !== "custom") { setTestUrlDraft(value); await onChange({ latency_test_url: value }); }
+            }}
+            icon={<GlobeIcon />}
+          />
+          {customUrl && <SettingsInputRow
             label={m.settings.testUrl}
             value={testUrlDraft}
             inputMode="url"
             onChange={setTestUrlDraft}
             onCommit={saveTestUrl}
             icon={<GlobeIcon />}
-          />
-        )}
+          />}
+        </>)}
         <SettingsInputRow
           label={m.settings.timeoutMs}
           value={timeoutDraft}
@@ -1625,10 +1635,12 @@ function LatencySection({
         />
         <SettingsChoiceRow
           label={m.settings.displayFormat}
-          value={preferences.latency_display_format}
+          value={preferences.latency_display_format === "ms" ? "numeric" : preferences.latency_display_format === "badge" ? "dots" : preferences.latency_display_format}
           options={[
-            { value: "ms", label: m.settings.latencyMs },
-            { value: "badge", label: m.settings.latencyBadge },
+            { value: "numeric", label: m.settings.latencyMs },
+            { value: "bars", label: m.settings.latencyBars },
+            { value: "both", label: m.settings.latencyBoth },
+            { value: "dots", label: m.settings.latencyDots },
           ]}
           onChange={(latency_display_format) => onChange({ latency_display_format })}
           icon={<InfoIcon />}

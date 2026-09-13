@@ -564,6 +564,7 @@ pub struct TrafficRuntimeSample {
 
 #[derive(Default)]
 pub struct RuntimeState {
+    pub(crate) ping_route: Option<crate::latency::PingRoute>,
     /// Живое соединение с привилегированным хелпером, пока поднят TUN.
     /// Обрыв соединения — сигнал хелперу погасить туннель, поэтому сессия
     /// живёт ровно столько же, сколько подключение.

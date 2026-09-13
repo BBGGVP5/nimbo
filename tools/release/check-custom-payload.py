@@ -29,6 +29,8 @@ def machine(data, windows):
 def main():
     selected = sys.argv[1:] or list(TARGETS)
     version = json.loads((ROOT / "apps/ui/package.json").read_text())["version"]
+    xray_release = json.loads((ROOT / "apps/ui/src-tauri/xray-release.json").read_text())
+    assert xray_release["version"] == "26.9.9", "Unexpected desktop core pin"
     for platform in selected:
         target, arch, expected_machine = TARGETS[platform]
         windows = platform.startswith("windows")
@@ -41,6 +43,13 @@ def main():
         awg_bytes = awg.read_bytes()
         assert hashlib.sha256(awg_bytes).hexdigest() == manifest["sha256"], "AWG digest mismatch"
         parts = [("AWG", awg_bytes)]
+        if windows:
+            xray_asset = next(asset for asset in xray_release["assets"] if asset["target"] == target)
+            for filename, expected_hash in xray_asset["files"].items():
+                data = (ROOT / "target/xray" / target / filename).read_bytes()
+                assert hashlib.sha256(data).hexdigest() == expected_hash, f"Stale Xray payload: {filename}"
+                if filename == "xray.exe":
+                    parts.append(("Xray", data))
         for name in ("nimbo-ui", "nimbo-svc"):
             parts.append((name, (ROOT / f"target/{target}/release/{name}{suffix}").read_bytes()))
         with installer.open("rb") as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as compiled:
@@ -48,6 +57,9 @@ def main():
             for name, data in parts:
                 assert machine(data, windows) == expected_machine, f"Wrong {name} architecture"
                 assert compiled.find(data) >= 0, f"Installer is missing the exact {name} payload"
+            if windows:
+                for filename in ("geoip.dat", "geosite.dat"):
+                    assert compiled.find((ROOT / "target/xray" / target / filename).read_bytes()) >= 0, f"Missing Xray data: {filename}"
         print(f"{platform}: installer contains matching application, helper and AWG 3.1 payloads")
 
 

@@ -752,7 +752,10 @@ pub fn set_preferences(
     preferences.servers_ui_scale = preferences.servers_ui_scale.clamp(80, 125);
     set_launch_at_login(&app, preferences.launch_at_login)?;
     state
-        .mutate(|s| s.preferences = preferences.clone())
+        .mutate(|s| {
+            if !same_latency_settings(&s.preferences, &preferences) { s.server_pings.clear(); }
+            s.preferences = preferences.clone();
+        })
         .map_err(|e| format!("Не удалось сохранить настройки приложения: {e}"))?;
     crate::tray::refresh_tray_menu(&app)
         .map_err(|e| format!("Не удалось обновить меню трея: {e}"))?;
@@ -2739,12 +2742,7 @@ pub async fn ping_server(
     let Some(server) = find_server(&snap, &server_id) else {
         return Err("Сервер не найден в подписках".into());
     };
-    let protocol = normalize_latency_protocol(&snap.preferences.latency_protocol);
-    let test_url = normalize_latency_test_url(&snap.preferences.latency_test_url);
-    let timeout_ms = normalize_latency_timeout_ms(snap.preferences.latency_timeout_ms);
-    let result = latency_ping_server(&server, timeout_ms, &protocol, &test_url).await;
-    persist_ping_results(&state, std::slice::from_ref(&result))?;
-    Ok(result)
+    Ok(measure_server_latency(&state, &snap, &server).await)
 }
 
 #[tauri::command]
@@ -2752,50 +2750,89 @@ pub async fn ping_servers(
     state: State<'_, AppState>,
     server_ids: Vec<String>,
 ) -> Result<Vec<ServerPing>, String> {
-    const PING_CONCURRENCY: usize = 6;
-
     let snap = state.snapshot();
-    let protocol = normalize_latency_protocol(&snap.preferences.latency_protocol);
-    let test_url = normalize_latency_test_url(&snap.preferences.latency_test_url);
-    let timeout_ms = normalize_latency_timeout_ms(snap.preferences.latency_timeout_ms);
-    let servers = server_ids
-        .into_iter()
-        .filter_map(|server_id| find_server(&snap, &server_id))
-        .collect::<Vec<_>>();
-
-    let mut out = Vec::with_capacity(servers.len());
-    for chunk in servers.chunks(PING_CONCURRENCY) {
-        let mut handles = Vec::with_capacity(chunk.len());
-        for server in chunk {
-            let server = server.clone();
-            let protocol = protocol.clone();
-            let test_url = test_url.clone();
-            handles.push(tokio::spawn(async move {
-                latency_ping_server(&server, timeout_ms, &protocol, &test_url).await
-            }));
-        }
-
-        for handle in handles {
-            if let Ok(result) = handle.await {
-                out.push(result);
+    let mut seen = HashSet::new();
+    let ids: Vec<_> = server_ids.into_iter().filter(|id| seen.insert(id.clone())).collect();
+    let mut out = Vec::with_capacity(ids.len());
+    // Bounded concurrency without sharing a result between different server IDs.
+    for chunk in ids.chunks(6) {
+        let measure = |index: usize| {
+            let state = &*state;
+            let snap = &snap;
+            async move {
+                let id = chunk.get(index)?;
+                Some(match find_server(snap, id) {
+                    Some(server) => measure_server_latency(state, snap, &server).await,
+                    None => ping_failure(id, "Server not found"),
+                })
             }
-        }
+        };
+        let (a,b,c,d,e,f) = tokio::join!(measure(0),measure(1),measure(2),measure(3),measure(4),measure(5));
+        out.extend([a,b,c,d,e,f].into_iter().flatten());
     }
-    persist_ping_results(&state, &out)?;
     Ok(out)
 }
 
-fn persist_ping_results(state: &State<'_, AppState>, results: &[ServerPing]) -> Result<(), String> {
-    state
-        .mutate(|s| {
-            for result in results {
-                if let Some(latency) = result.latency_ms {
-                    s.server_pings.insert(result.server_id.clone(), latency);
+fn same_latency_settings(a: &AppPreferences, b: &AppPreferences) -> bool {
+    a.latency_protocol == b.latency_protocol && a.latency_test_url == b.latency_test_url
+        && a.latency_timeout_ms == b.latency_timeout_ms
+}
+
+fn ping_failure(server_id: &str, error: &str) -> ServerPing {
+    ServerPing { server_id: server_id.into(), latency_ms: None, error: Some(error.into()) }
+}
+
+fn verified_ping_route(state: &AppState, snap: &PersistedState, server_id: &str) -> Option<crate::latency::PingRoute> {
+    if CONNECTION_OPERATION.try_lock().is_err() { return None; }
+    state.runtime(|runtime| {
+        let route = runtime.ping_route.as_ref()?;
+        if !route.accepts(snap.connected, snap.active_server_id.as_deref(), server_id) { return None; }
+        #[allow(unused_mut)]
+        let mut live = runtime.xray.as_mut().is_some_and(|child| matches!(child.try_wait(), Ok(None)));
+        #[cfg(target_os = "linux")]
+        { live |= runtime.tun_session.is_some(); }
+        if live { Some(route.clone()) } else { None }
+    })
+}
+
+async fn measure_server_latency(state: &AppState, snap: &PersistedState, server: &Server) -> ServerPing {
+    let _ = state.mutate(|saved| { saved.server_pings.remove(&server.id); });
+    let intent = CONNECTION_INTENT.load(Ordering::SeqCst);
+    let protocol = normalize_latency_protocol(&snap.preferences.latency_protocol);
+    let timeout_ms = normalize_latency_timeout_ms(snap.preferences.latency_timeout_ms);
+    let is_http = crate::latency::http_method(&protocol).is_some();
+    let route = if is_http { verified_ping_route(state, snap, &server.id) } else { None };
+    let mut result = if is_http {
+        match route.as_ref() {
+            Some(route) => {
+                let url = normalize_latency_test_url(&snap.preferences.latency_test_url);
+                let measurement = crate::latency::measure_http_guarded(route, &protocol, &url, timeout_ms, || {
+                    let current = state.snapshot();
+                    CONNECTION_INTENT.load(Ordering::SeqCst) == intent
+                        && same_latency_settings(&current.preferences, &snap.preferences)
+                        && verified_ping_route(state, &current, &server.id).as_ref() == Some(route)
+                }).await;
+                match measurement {
+                    Ok(ms) => ServerPing { server_id: server.id.clone(), latency_ms: Some(ms), error: None },
+                    Err(error) => ping_failure(&server.id, &error),
                 }
             }
-        })
-        .map(|_| ())
-        .map_err(|e| format!("Не удалось сохранить пинг серверов: {e}"))
+            None => ping_failure(&server.id, "HTTP ping requires this server's active VPN route; connect first"),
+        }
+    } else { latency_ping_server(server, timeout_ms, &protocol).await };
+    let current = state.snapshot();
+    let stale = CONNECTION_INTENT.load(Ordering::SeqCst) != intent
+        || !same_latency_settings(&current.preferences, &snap.preferences)
+        || (is_http && route.is_some() && verified_ping_route(state, &current, &server.id) != route);
+    if stale { result = ping_failure(&server.id, "VPN route or ping settings changed; run the check again"); }
+    let _ = state.mutate(|saved| {
+        if same_latency_settings(&saved.preferences, &snap.preferences)
+            && CONNECTION_INTENT.load(Ordering::SeqCst) == intent {
+            if let Some(ms) = result.latency_ms { saved.server_pings.insert(server.id.clone(), ms); }
+            else { saved.server_pings.remove(&server.id); }
+        }
+    });
+    result
 }
 
 #[tauri::command]
@@ -5593,18 +5630,16 @@ async fn latency_ping_server(
     server: &Server,
     timeout_ms: u32,
     protocol: &str,
-    test_url: &str,
 ) -> ServerPing {
     match protocol {
         "icmp" => icmp_ping_server(server, timeout_ms).await,
-        "http_head" => http_ping_url(server, timeout_ms, test_url).await,
-        _ => tcp_ping_server(server, timeout_ms).await,
+        "tcp_connect" => tcp_ping_server(server, timeout_ms).await,
+        _ => ping_failure(&server.id, "Unsupported ping method"),
     }
 }
 
 async fn icmp_ping_server(server: &Server, timeout_ms: u32) -> ServerPing {
     let (host, _) = server_endpoint(server);
-    let start = std::time::Instant::now();
     let mut command = TokioCommand::new("ping");
     if cfg!(windows) {
         command.args(["-n", "1", "-w", &timeout_ms.to_string(), &host]);
@@ -5612,19 +5647,22 @@ async fn icmp_ping_server(server: &Server, timeout_ms: u32) -> ServerPing {
         let timeout_seconds = ((timeout_ms as f64) / 1000.0).ceil().max(1.0) as u64;
         command.args(["-c", "1", "-W", &timeout_seconds.to_string(), &host]);
     }
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command.kill_on_drop(true).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
 
     let result = tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms as u64 + 1000),
+        std::time::Duration::from_millis(timeout_ms as u64),
         command.output(),
     )
     .await;
 
     match result {
-        Ok(Ok(output)) if output.status.success() => ServerPing {
-            server_id: server.id.clone(),
-            latency_ms: Some(start.elapsed().as_millis().min(u64::MAX as u128) as u64),
-            error: None,
+        Ok(Ok(output)) if output.status.success() => {
+            match crate::latency::icmp_rtt(&String::from_utf8_lossy(&output.stdout)) {
+                Some(ms) => ServerPing { server_id: server.id.clone(), latency_ms: Some(ms), error: None },
+                None => ping_failure(&server.id, "No ICMP echo reply with measurable RTT"),
+            }
         },
         Ok(Ok(output)) => {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -5644,36 +5682,6 @@ async fn icmp_ping_server(server: &Server, timeout_ms: u32) -> ServerPing {
             server_id: server.id.clone(),
             latency_ms: None,
             error: Some("timeout".into()),
-        },
-    }
-}
-
-async fn http_ping_url(server: &Server, timeout_ms: u32, test_url: &str) -> ServerPing {
-    let start = std::time::Instant::now();
-    let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(timeout_ms as u64))
-        .build()
-    {
-        Ok(client) => client,
-        Err(error) => {
-            return ServerPing {
-                server_id: server.id.clone(),
-                latency_ms: None,
-                error: Some(error.to_string()),
-            };
-        }
-    };
-
-    match client.head(test_url).send().await {
-        Ok(_) => ServerPing {
-            server_id: server.id.clone(),
-            latency_ms: Some(start.elapsed().as_millis().min(u64::MAX as u128) as u64),
-            error: None,
-        },
-        Err(error) => ServerPing {
-            server_id: server.id.clone(),
-            latency_ms: None,
-            error: Some(error.to_string()),
         },
     }
 }
@@ -5948,13 +5956,16 @@ async fn connect_system_proxy(
     let ports = ProxyPorts::default();
     let (server, awg) = crate::awg_runtime::prepare(app, server)?;
     let (server, mut naive) = prepare_naive_runtime(app, server)?;
-    let config = match build_runtime_xray_config(&server, snapshot, ports) {
+    let mut config = match build_runtime_xray_config(&server, snapshot, ports) {
         Ok(value) => value,
         Err(error) => {
             stop_child(&mut naive);
             return Err(error);
         }
     };
+    // Diagnostics are optional: prepare commits its cloned config only on
+    // success. A busy port/missing capability must not prevent VPN startup.
+    let ping_route = crate::latency::PingRoute::prepare(&server, &mut config).ok();
     let config_path = match write_xray_config(&config) {
         Ok(path) => path,
         Err(error) => {
@@ -6005,6 +6016,7 @@ async fn connect_system_proxy(
     }
 
     state.runtime(|runtime| {
+        runtime.ping_route = ping_route;
         runtime.xray = Some(child);
         runtime.naive = naive;
         runtime.awg = awg;
@@ -6045,6 +6057,15 @@ async fn connect_both(
         }
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_helper_core_matches_pin() -> bool {
+    // Service-owned location from apps/service/src/platform_linux.rs; read-only
+    // verification. Replacement still uses the existing pkexec install flow.
+    std::fs::read("/usr/local/lib/nimbo/xray").ok().is_some_and(|bytes| {
+        crate::xray_release::current().is_ok_and(|asset| asset.verify_file("xray", &bytes).is_ok())
+    })
 }
 
 async fn connect_tun(
@@ -6095,6 +6116,9 @@ async fn connect_tun(
         snapshot.preferences.tunnel_mtu,
         &snapshot.preferences.tunnel_dns,
     );
+    // Diagnostics are optional: prepare commits its cloned config only on
+    // success. A busy port/missing capability must not prevent VPN startup.
+    let ping_route = crate::latency::PingRoute::prepare(&server, &mut config).ok();
     let config_path = match write_xray_config(&config) {
         Ok(path) => path,
         Err(error) => {
@@ -6124,7 +6148,7 @@ async fn connect_tun(
         // каталога. Если ядра там ещё нет, один раз просим права и кладём.
         if !crate::helper_linux::status()
             .map(|state| state.core_ready)
-            .unwrap_or(false)
+            .unwrap_or(false) || !linux_helper_core_matches_pin()
         {
             if let Err(error) = crate::helper_linux::install_core(&xray_path) {
                 stop_child(&mut naive);
@@ -6132,6 +6156,10 @@ async fn connect_tun(
             }
         }
 
+        if !linux_helper_core_matches_pin() {
+            stop_child(&mut naive);
+            return Err("The Linux helper kernel does not match verified Xray 26.9.9".into());
+        }
         let config = match std::fs::read_to_string(&config_path) {
             Ok(config) => config,
             Err(error) => {
@@ -6154,6 +6182,7 @@ async fn connect_tun(
             }
         };
         state.runtime(|runtime| {
+            runtime.ping_route = ping_route;
             runtime.tun_session = Some(session);
             runtime.naive = naive.take();
             runtime.awg = awg;
@@ -6203,7 +6232,7 @@ async fn connect_tun(
     // Kill switch включается только когда интерфейс уже поднят: раньше него
     // блокировать нечего, а лишний блок оставил бы пользователя без сети.
     if snapshot.preferences.connection_kill_switch {
-        tun_snapshot.firewall_policy = apply_windows_kill_switch(&tun_snapshot.bypass_ips);
+        tun_snapshot.firewall_policy = apply_windows_kill_switch(&tun_snapshot.bypass_ips, &xray_path);
     }
 
     if let Err(error) = state.mutate(|s| s.pending_tun_snapshot = Some(tun_snapshot.clone())) {
@@ -6215,6 +6244,7 @@ async fn connect_tun(
     }
 
     state.runtime(|runtime| {
+        runtime.ping_route = ping_route;
         runtime.xray = Some(xray);
         runtime.naive = naive;
         runtime.awg = awg;
@@ -7471,23 +7501,20 @@ fn write_xray_config(config: &serde_json::Value) -> Result<PathBuf, String> {
 }
 
 async fn ensure_xray_binary(app: &AppHandle) -> Result<PathBuf, String> {
-    if let Some(path) = std::env::var_os("NIMBO_XRAY_PATH").map(PathBuf::from) {
-        if path.exists() {
-            return Ok(path);
-        }
+    let custom = std::env::var_os("NIMBO_XRAY_PATH").map(PathBuf::from);
+    if let Some(path) = crate::xray_release::current()?.select_runtime(custom.as_deref(), &xray_candidate_paths(app)?)? {
+        return Ok(path);
     }
-
-    for path in xray_candidate_paths(app)? {
-        if path.exists() {
-            return Ok(path);
-        }
-    }
-
     download_xray_runtime().await
 }
 
+fn xray_versioned_bin_dir() -> Result<PathBuf, String> {
+    Ok(nimbo_data_dir()?.join("bin").join("xray").join(&crate::xray_release::release().version)
+        .join(format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)))
+}
+
 fn xray_candidate_paths(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
-    let mut paths = Vec::new();
+    let mut paths = vec![xray_versioned_bin_dir()?.join(xray_exe_name())];
     let data_bin = nimbo_data_dir()?.join("bin").join(xray_exe_name());
     paths.push(data_bin);
 
@@ -7524,22 +7551,13 @@ fn xray_exe_name() -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn xray_release_archive_name(os: &str, arch: &str) -> Option<&'static str> {
-    match (os, arch) {
-        ("windows", "x86_64") => Some("Xray-windows-64.zip"),
-        ("windows", "x86") => Some("Xray-windows-32.zip"),
-        ("windows", "aarch64") => Some("Xray-windows-arm64-v8a.zip"),
-        ("linux", "x86_64") => Some("Xray-linux-64.zip"),
-        ("linux", "x86") => Some("Xray-linux-32.zip"),
-        ("linux", "aarch64") => Some("Xray-linux-arm64-v8a.zip"),
-        _ => None,
-    }
+    crate::xray_release::asset(os, arch).map(|asset| asset.archive.as_str())
 }
 
 fn xray_release_archive_url() -> Option<String> {
-    xray_release_archive_name(std::env::consts::OS, std::env::consts::ARCH).map(|archive| {
-        format!("https://github.com/XTLS/Xray-core/releases/latest/download/{archive}")
-    })
+    crate::xray_release::current().ok().map(|asset| asset.url())
 }
 
 async fn download_xray_runtime() -> Result<PathBuf, String> {
@@ -7550,7 +7568,7 @@ async fn download_xray_runtime() -> Result<PathBuf, String> {
             std::env::consts::ARCH
         )
     })?;
-    let bin_dir = nimbo_data_dir()?.join("bin");
+    let bin_dir = xray_versioned_bin_dir()?;
     std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Не удалось создать папку Xray: {e}"))?;
 
     tracing::info!(%archive_url, "downloading xray");
@@ -7559,12 +7577,8 @@ async fn download_xray_runtime() -> Result<PathBuf, String> {
         .user_agent("Nimbo-Xray-Updater")
         .build()
         .map_err(|e| format!("Не удалось создать HTTP-клиент для Xray: {e}"))?;
-    let digest_url = format!("{archive_url}.dgst");
-    let (archive_bytes, digest_file) = tokio::try_join!(
-        download_xray_asset(&client, &archive_url),
-        download_xray_digest(&client, &digest_url),
-    )?;
-    verify_xray_archive_digest(&archive_bytes, &digest_file)?;
+    let archive_bytes = download_xray_asset(&client, &archive_url).await?;
+    crate::xray_release::current()?.verify_archive(&archive_bytes)?;
     install_xray_runtime_archive(&archive_bytes, &bin_dir)
 }
 
@@ -7582,19 +7596,7 @@ async fn download_xray_asset(client: &reqwest::Client, url: &str) -> Result<Vec<
     Ok(bytes.to_vec())
 }
 
-async fn download_xray_digest(client: &reqwest::Client, url: &str) -> Result<String, String> {
-    client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("Не удалось скачать контрольную сумму Xray: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("Не удалось скачать контрольную сумму Xray: {e}"))?
-        .text()
-        .await
-        .map_err(|e| format!("Не удалось прочитать контрольную сумму Xray: {e}"))
-}
-
+#[cfg(test)]
 fn verify_xray_archive_digest(bytes: &[u8], digest_file: &str) -> Result<(), String> {
     let expected = digest_file
         .lines()
@@ -7616,7 +7618,7 @@ fn verify_xray_archive_digest(bytes: &[u8], digest_file: &str) -> Result<(), Str
 
 fn install_xray_runtime_archive(archive_bytes: &[u8], bin_dir: &Path) -> Result<PathBuf, String> {
     const XRAY_RUNTIME_DATA_FILES: &[&str] = &["geoip.dat", "geosite.dat"];
-    let staging_dir = bin_dir.join(format!(".nimbo-xray-{}.partial", std::process::id()));
+    let staging_dir = bin_dir.join(format!(".nimbo-xray-{}.partial", uuid::Uuid::new_v4()));
     if staging_dir.exists() {
         std::fs::remove_dir_all(&staging_dir)
             .map_err(|e| format!("Не удалось очистить временную папку Xray: {e}"))?;
@@ -7663,6 +7665,7 @@ fn install_xray_runtime_archive(archive_bytes: &[u8], bin_dir: &Path) -> Result<
         }
 
         let staged_binary = staging_dir.join(xray_exe_name());
+        crate::xray_release::current()?.verify_runtime(&staged_binary)?;
         mark_xray_executable(&staged_binary)?;
         for name in XRAY_RUNTIME_DATA_FILES
             .iter()
@@ -7799,6 +7802,7 @@ fn recent_xray_log_suffix() -> String {
 fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
     let pending = state.snapshot();
     let (tun_snapshot, proxy_snapshot) = state.runtime(|runtime| {
+        runtime.ping_route = None;
         runtime.traffic_samples.clear();
         // Сессия хелпера закрывается первой: он сам погасит ядро и вернёт
         // маршруты, а Drop отправит TunDown даже если что-то пойдёт не так.
@@ -7838,6 +7842,7 @@ fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
         .mutate(|s| {
             s.pending_tun_snapshot = None;
             s.pending_system_proxy_snapshot = None;
+            if crate::latency::http_method(&s.preferences.latency_protocol).is_some() { s.server_pings.clear(); }
         })
         .map_err(|e| format!("Не удалось сбросить runtime-снимок: {e}"))?;
     Ok(())
@@ -8732,14 +8737,15 @@ fn normalize_ui_style(value: &str) -> String {
 
 fn normalize_latency_protocol(value: &str) -> String {
     match value.trim() {
-        "tcp_connect" | "icmp" | "http_head" => value.trim().into(),
+        "tcp_connect" | "icmp" | "http_head" | "http_get" | "nimbo" => value.trim().into(),
         _ => "tcp_connect".into(),
     }
 }
 
 fn normalize_latency_test_url(value: &str) -> String {
     let value = value.trim();
-    if value.starts_with("http://") || value.starts_with("https://") {
+    if url::Url::parse(value).is_ok_and(|url| matches!(url.scheme(), "http" | "https")
+        && url.host_str().is_some() && url.username().is_empty() && url.password().is_none()) {
         value.into()
     } else {
         "https://www.gstatic.com/generate_204".into()
@@ -8752,7 +8758,7 @@ fn normalize_latency_timeout_ms(value: u32) -> u32 {
 
 fn normalize_latency_display_format(value: &str) -> String {
     match value.trim() {
-        "ms" | "badge" => value.trim().into(),
+        "ms" | "badge" | "numeric" | "bars" | "both" | "dots" => value.trim().into(),
         _ => "ms".into(),
     }
 }
@@ -9222,6 +9228,75 @@ mod tests {
             connection.local_port > 0
                 && (connection.protocol == "udp" || connection.remote_port > 0)
         }));
+    }
+
+    #[test]
+    fn latency_dedicated_route_overrides_direct_rules_and_ignores_foreign_outbounds() {
+        let mut server = test_server();
+        // Xray 26.9.9 rejects unencrypted public VLESS; this offline fixture uses
+        // a private endpoint and is only parsed via `run -test` (never started).
+        if let nimbo_subscription::Protocol::Vless(config) = &mut server.protocol { config.address = "127.0.0.1".into(); }
+        let snapshot = PersistedState::default();
+        let mut config = build_runtime_xray_config(&server, &snapshot, ProxyPorts::default()).unwrap();
+        config["routing"]["rules"] = serde_json::json!([
+            {"type":"field", "domain":["domain:gstatic.com"], "outboundTag":"direct"},
+            {"type":"field", "network":"tcp,udp", "outboundTag":"direct"}
+        ]);
+        config["outbounds"][0] = serde_json::json!({"tag":"proxy", "protocol":"freedom"});
+        let route = crate::latency::PingRoute::prepare(&server, &mut config).unwrap();
+        add_native_tun_inbound(&mut config, 0, "");
+        let rule = &config["routing"]["rules"][0];
+        let inbound_tag = rule["inboundTag"][0].as_str().unwrap();
+        let inbound = config["inbounds"].as_array().unwrap().iter().find(|v| v["tag"] == inbound_tag).unwrap();
+        assert_eq!(inbound["listen"], "127.0.0.1");
+        assert_eq!(inbound["port"], route.port);
+        assert_eq!(inbound["protocol"], "http");
+        assert_eq!(inbound["sniffing"]["enabled"], false);
+        assert!(inbound["settings"]["accounts"][0]["pass"].as_str().unwrap().len() >= 32);
+        let outbound = config["outbounds"].as_array().unwrap().iter().find(|v| v["tag"] == rule["outboundTag"]).unwrap();
+        assert_eq!(outbound["protocol"], "vless");
+        assert_eq!(outbound["settings"]["vnext"][0]["address"], "127.0.0.1");
+        assert!(rule.get("balancerTag").is_none());
+        assert_eq!(config["routing"]["rules"][1]["outboundTag"], "direct");
+        if let Some(path) = std::env::var_os("NIMBO_PING_CONFIG_TEST_OUTPUT") {
+            // Config-only test: remove the TUN inbound so validation needs no
+            // device/privilege. No connection or listener is started by -test.
+            let mut check = config.clone();
+            check["inbounds"].as_array_mut().unwrap().retain(|v| v["protocol"] != "tun");
+            std::fs::write(path, serde_json::to_vec_pretty(&check).unwrap()).unwrap();
+        }
+        let another = crate::latency::PingRoute::prepare(&server, &mut config).unwrap();
+        assert!(route != another); // same-server reconnect still has new credentials
+    }
+
+    #[test]
+    fn latency_unavailable_preparation_keeps_original_vpn_config() {
+        let server = test_server();
+        // Failure after an outbound and inbound would already have been added.
+        for routing in [serde_json::json!({"rules":"unsupported"}), serde_json::json!("unsupported"), serde_json::Value::Null] {
+            let mut config = serde_json::json!({"outbounds":[], "inbounds":[], "routing":routing});
+            let original = config.clone();
+            let route = crate::latency::PingRoute::prepare(&server, &mut config).ok();
+            assert!(route.is_none());
+            assert_eq!(config, original);
+        }
+    }
+
+    #[test]
+    fn latency_saved_ids_defaults_and_url_validation() {
+        for id in ["tcp_connect", "icmp", "http_head", "http_get", "nimbo"] {
+            assert_eq!(normalize_latency_protocol(id), id);
+        }
+        for id in ["ms", "badge", "numeric", "bars", "both", "dots"] {
+            assert_eq!(normalize_latency_display_format(id), id);
+        }
+        assert_eq!(normalize_latency_protocol("bad"), "tcp_connect");
+        assert_eq!(AppPreferences::default().latency_protocol, "tcp_connect");
+        for url in ["http://", "ftp://example.com", "https://u:p@example.com"] {
+            assert_eq!(normalize_latency_test_url(url), AppPreferences::default().latency_test_url);
+        }
+        assert_eq!(normalize_latency_timeout_ms(0), 500);
+        assert_eq!(normalize_latency_timeout_ms(u32::MAX), 60_000);
     }
 
     fn test_server() -> Server {
@@ -10081,7 +10156,7 @@ const KILL_SWITCH_GROUP: &str = "Nimbo Kill Switch";
 /// Работает через PowerShell-командлеты брандмауэра. Возвращает прежнюю
 /// политику по профилям — её нужно вернуть при выключении.
 #[cfg(windows)]
-fn apply_windows_kill_switch(bypass_ips: &[String]) -> Vec<(String, String)> {
+fn apply_windows_kill_switch(bypass_ips: &[String], xray_path: &Path) -> Vec<(String, String)> {
     let previous = read_firewall_policy();
 
     // Снимаем возможные остатки прошлого сеанса: если приложение упало,
@@ -10102,10 +10177,10 @@ fn apply_windows_kill_switch(bypass_ips: &[String]) -> Vec<(String, String)> {
             exe.display()
         ));
     }
-    if let Ok(bin) = nimbo_data_dir().map(|dir| dir.join("bin").join(xray_exe_name())) {
+    {
         script.push_str(&format!(
             "New-NetFirewallRule -DisplayName 'Nimbo core' -Group '{KILL_SWITCH_GROUP}'              -Direction Outbound -Action Allow -Program '{}' -ErrorAction SilentlyContinue | Out-Null; ",
-            bin.display()
+            xray_path.display().to_string().replace('\'', "''")
         ));
     }
     if !bypass_ips.is_empty() {

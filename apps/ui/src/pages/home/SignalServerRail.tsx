@@ -1,3 +1,4 @@
+import { LatencyDisplay } from "../../components/LatencyDisplay";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { protocolLabel, transportLabel, type Server, type Subscription } from "../../lib/api";
 import { fillTemplate, type Messages } from "../../lib/i18n";
@@ -46,13 +47,7 @@ export interface SignalServerRailProps {
 }
 
 /** Полоски качества: 4 — отличный пинг, 1 — плохой, 0 — не измерен. */
-function pingBars(ping: number | undefined): number {
-  if (ping == null) return 0;
-  if (ping < 60) return 4;
-  if (ping < 120) return 3;
-  if (ping < 220) return 2;
-  return 1;
-}
+
 
 export function SignalServerRail({
   labels: m,
@@ -232,7 +227,6 @@ export function SignalServerRail({
         {visible.map(({ server, sub }) => {
           const isActive = server.id === activeId;
           const ping = pingByServer[server.id];
-          const bars = pingBars(ping);
           const loading = pingingServerIds.has(server.id);
           const favorite = favorites.has(server.id);
           return (
@@ -258,13 +252,7 @@ export function SignalServerRail({
                   </span>
                 </span>
                 <span className="signal-srv-ping">
-                  <span className={`signal-bars signal-bars--${bars}`} aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                  <span className="signal-srv-ms">{loading ? "…" : ping != null ? ping : "—"}</span>
+                  <LatencyDisplay value={ping} loading={loading} />
                 </span>
               </button>
               <button

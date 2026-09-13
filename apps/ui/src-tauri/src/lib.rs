@@ -1,3 +1,5 @@
+mod xray_release;
+mod latency;
 mod awg_runtime;
 mod awg_routes;
 pub mod commands;

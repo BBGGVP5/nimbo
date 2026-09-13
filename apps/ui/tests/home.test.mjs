@@ -90,6 +90,8 @@ function fixture({ style = 'classic', state = 'connected', stored = {}, memory }
     '../lib/serverUiOverrides': { useServerUiOverrides: () => overrides, serverDisplayLabel: s => s.name },
     '../lib/ping': {}, '../lib/subscriptionLogo': {},
     '../components/CountryFlag': stub('CountryFlag'),
+    '../components/LatencyDisplay': stub('LatencyDisplay'),
+    '../../components/LatencyDisplay': stub('LatencyDisplay'),
     './home/SignalHome': stub('SignalHome'), './home/SignalServerRail': stub('SignalServerRail'),
     './home/SignalSpeedChart': stub('SignalSpeedChart'),
   };
@@ -235,6 +237,7 @@ test('Signal empty states distinguish search, favorites, and an empty profile li
       '../../lib/i18n': { fillTemplate: value => value },
       '../../lib/serverUiOverrides': { serverDisplayLabel: s => s.name },
       '../../components/CountryFlag': { CountryFlag: () => null },
+      '../../components/LatencyDisplay': { LatencyDisplay: () => null },
     };
     vm.runInNewContext(code, { exports, require: name => deps[name] });
     const html = renderToStaticMarkup(React.createElement(exports.SignalServerRail, props));

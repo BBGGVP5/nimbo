@@ -1,3 +1,4 @@
+import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -220,12 +221,13 @@ export function Subscriptions() {
   const pingSubscriptionServers = async (url: string) => {
     const sub = subs.find((item) => item.url === url);
     if (!sub) return;
+    sub.servers.forEach(server => setPageServerPing(server.id, null));
     setPingingUrl(url);
     try {
       await pingServersProgressively(
         sub.servers.map((server) => server.id),
         (result) => {
-          if (result.latency_ms != null) setPageServerPing(result.server_id, result.latency_ms);
+          setPageServerPing(result.server_id, result.latency_ms ?? null);
         },
       );
     } catch (e) {
@@ -237,9 +239,10 @@ export function Subscriptions() {
 
   /** Пинг одного сервера из таблицы. */
   const pingSingleServer = async (serverId: string) => {
+    setPageServerPing(serverId, null);
     try {
       await pingServersProgressively([serverId], (result) => {
-        if (result.latency_ms != null) setPageServerPing(result.server_id, result.latency_ms);
+        setPageServerPing(result.server_id, result.latency_ms ?? null);
       });
     } catch (e) {
       notifyError(String(e));
@@ -618,6 +621,7 @@ function ProfileCard({
   const onPingClick = async () => {
     const serverIds = sub.servers.map((server) => server.id);
     setPinging(true);
+    serverIds.forEach(id => setServerPing(id, null));
     setPingingServerIds(new Set(serverIds));
     try {
       await pingServersProgressively(serverIds, (result) => {
@@ -626,9 +630,7 @@ function ProfileCard({
           next.delete(result.server_id);
           return next;
         });
-        if (result.latency_ms != null) {
-          setServerPing(result.server_id, result.latency_ms);
-        }
+        setServerPing(result.server_id, result.latency_ms ?? null);
       });
     } finally {
       setPinging(false);
@@ -643,10 +645,10 @@ function ProfileCard({
       return next;
     });
     try {
+      setServerPing(serverId, null);
       const result = await api.pingServer(serverId);
-      if (result.latency_ms != null) {
-        setServerPing(result.server_id, result.latency_ms);
-      }
+      if (result.error) notifyError(result.error);
+      setServerPing(result.server_id, result.latency_ms ?? null);
     } catch (e) {
       notifyError(String(e));
     } finally {
@@ -883,7 +885,7 @@ function AutoFastestLine({
 
   const subtitle = searching
     ? m.profiles.fastestSearching
-    : active && typeof activePing === "number" && activePing > 0
+    : active && typeof activePing === "number" && Number.isFinite(activePing) && activePing >= 0
       ? fillTemplate(m.profiles.fastestCurrent, {
           name: displayName(active),
           ping: String(activePing),
@@ -1136,10 +1138,10 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
       </span>
     );
   }
-  if (ping == null) return null;
+  if (ping == null) return <LatencyDisplay value={ping} />;
   return (
     <span className="server-ping-badge">
-      {ping} ms
+      <LatencyDisplay value={ping} />
     </span>
   );
 }

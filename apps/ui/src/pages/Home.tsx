@@ -1,3 +1,4 @@
+import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -490,6 +491,7 @@ export function Home() {
     if (!baseEntries.length) return;
     const serverIds = baseEntries.map(({ server }) => server.id);
     setPinging(true);
+    serverIds.forEach(id => setServerPing(id, null));
     setPingingServerIds(new Set(serverIds));
     try {
       await pingServersProgressively(serverIds, (result) => {
@@ -498,7 +500,7 @@ export function Home() {
           next.delete(result.server_id);
           return next;
         });
-        if (result.latency_ms != null) setServerPing(result.server_id, result.latency_ms);
+        setServerPing(result.server_id, result.latency_ms ?? null);
       });
     } finally {
       setPinging(false);
@@ -513,8 +515,10 @@ export function Home() {
       return next;
     });
     try {
+      setServerPing(serverId, null);
       const result = await api.pingServer(serverId);
-      if (result.latency_ms != null) setServerPing(result.server_id, result.latency_ms);
+      if (result.error) notifyError(result.error);
+      setServerPing(result.server_id, result.latency_ms ?? null);
     } catch (e) {
       notifyError(String(e));
     } finally {
@@ -689,7 +693,7 @@ export function Home() {
           serverProtocol={activeServer
             ? `${protocolLabel(activeServer.protocol)} · ${transportLabel(activeServer.protocol) || "JSON"}`
             : ""}
-          serverPing={activePing != null ? `${activePing} ms` : null}
+          serverPing={<LatencyDisplay value={activePing} loading={!!activeServer && pingingServerIds.has(activeServer.id)} />}
           serverDescription={activeServer
             ? (serverListDescription(activeServer, fallbackEntry?.sub.servers ?? []) || null)
             : null}
@@ -987,7 +991,7 @@ function ActiveServerInfo({
             return { background: tier.bg, color: tier.fg };
           })()}
         >
-          {ping} ms
+          <LatencyDisplay value={ping} />
         </span>
       )}
     </button>
@@ -1034,7 +1038,7 @@ function CompactServerBar({
               return { background: tier.bg, color: tier.fg };
             })()}
           >
-            {ping} ms
+            <LatencyDisplay value={ping} />
           </span>
         )}
       </button>
@@ -1782,7 +1786,7 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
       </span>
     );
   }
-  if (ping == null) return null;
+  if (ping == null) return <LatencyDisplay value={ping} />;
   const tier = pingTier(ping);
   return (
     <span
@@ -1790,7 +1794,7 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
       style={{ background: tier.bg, color: tier.fg }}
       title={pingLevelLabel(tier.level, m)}
     >
-      {ping} ms
+      <LatencyDisplay value={ping} />
     </span>
   );
 }

@@ -37,7 +37,7 @@ export interface SignalHomeProps {
   serverFlag: ReactNode;
   serverName: string;
   serverProtocol: string;
-  serverPing: string | null;
+  serverPing: ReactNode;
   serverDescription: string | null;
   downloadRate: string;
   downloadUnit: string;

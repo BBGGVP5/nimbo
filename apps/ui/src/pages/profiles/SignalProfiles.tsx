@@ -1,3 +1,4 @@
+import { LatencyDisplay } from "../../components/LatencyDisplay";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   protocolLabel,
@@ -182,7 +183,7 @@ export function SignalProfiles({
                     <span className="signal-tag">{protocolLabel(server.protocol)}</span>
                   </td>
                   <td className="signal-num">{transportLabel(server.protocol) || "JSON"}</td>
-                  <td className="signal-num">{ping != null ? `${ping} ms` : "—"}</td>
+                  <td className="signal-num"><LatencyDisplay value={ping} /></td>
                   <td className="signal-table-action">
                     <span className="signal-row-actions">
                       <button

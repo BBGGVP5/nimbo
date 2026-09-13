@@ -1,5 +1,6 @@
+import { LatencyDisplay } from "../../components/LatencyDisplay";
 import { formatBytes } from "../../lib/api";
-import { fillTemplate, type Messages } from "../../lib/i18n";
+import { type Messages } from "../../lib/i18n";
 
 /**
  * Статистика в стиле Signal, как на превью: слева карточка суммарного
@@ -220,7 +221,7 @@ export function SignalStatistics({
                 <td className="signal-num signal-table-action">
                   {session.ping != null ? (
                     <span className={session.ping < 60 ? "is-good" : session.ping < 150 ? "is-fair" : "is-bad"}>
-                      {fillTemplate(m.signal.msValue, { value: session.ping })}
+                      <LatencyDisplay value={session.ping} />
                     </span>
                   ) : (
                     "—"

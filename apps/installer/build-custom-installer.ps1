@@ -13,7 +13,6 @@ $installerDir = Join-Path $repoRoot "apps\installer"
 $outDir = Join-Path $repoRoot "target\release\bundle\custom\windows"
 $installerConfig = Get-Content -Raw -LiteralPath (Join-Path $installerDir "src-tauri\tauri.conf.json") | ConvertFrom-Json
 $version = $installerConfig.version
-$xrayVersion = "v26.7.28"
 
 if ($All) {
   $Target = @(
@@ -39,74 +38,14 @@ function Get-ArchSuffix([string]$TargetTriple) {
   }
 }
 
-function Get-XrayArchiveName([string]$TargetTriple) {
-  switch ($TargetTriple) {
-    "x86_64-pc-windows-msvc" { return "Xray-windows-64.zip" }
-    "i686-pc-windows-msvc" { return "Xray-windows-32.zip" }
-    "aarch64-pc-windows-msvc" { return "Xray-windows-arm64-v8a.zip" }
-    default { throw "Unsupported Xray target: $TargetTriple" }
-  }
-}
-
-function Invoke-DownloadWithRetry(
-  [string]$Uri,
-  [string]$Destination,
-  [hashtable]$Headers,
-  [int]$MaxAttempts = 3
-) {
-  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-    try {
-      Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
-      Invoke-WebRequest -Uri $Uri -OutFile $Destination -Headers $Headers
-      return
-    } catch {
-      if ($attempt -ge $MaxAttempts) { throw }
-      Write-Warning "Download attempt $attempt/$MaxAttempts failed for $Uri. Retrying..."
-      Start-Sleep -Seconds (2 * $attempt)
-    }
-  }
-}
-
 function Install-XrayPayload([string]$TargetTriple) {
-  $archiveName = Get-XrayArchiveName $TargetTriple
-  # Pin release payloads so rebuilding the same Nimbo version remains
-  # reproducible. Every archive is still verified against the upstream .dgst.
-  $downloadBase = "https://github.com/XTLS/Xray-core/releases/download/$xrayVersion"
-  $workDir = Join-Path $repoRoot "target\xray\.downloads\$TargetTriple"
-  $archivePath = Join-Path $workDir $archiveName
-  $digestPath = "$archivePath.dgst"
-  $extractDir = Join-Path $workDir "extract"
-  $payloadDir = Join-Path $repoRoot "target\xray\$TargetTriple"
-  $payloadPath = Join-Path $payloadDir "xray.exe"
-
-  New-Item -ItemType Directory -Force -Path $workDir, $extractDir, $payloadDir | Out-Null
-  Write-Host "Downloading verified Xray payload for $TargetTriple..."
-  $headers = @{ "User-Agent" = "Nimbo installer build" }
-  Invoke-DownloadWithRetry -Uri "$downloadBase/$archiveName" -Destination $archivePath -Headers $headers
-  Invoke-DownloadWithRetry -Uri "$downloadBase/$archiveName.dgst" -Destination $digestPath -Headers $headers
-
-  $digestText = Get-Content -Raw -LiteralPath $digestPath
-  $digestMatch = [regex]::Match($digestText, '(?im)^\s*(?:SHA256|SHA2-256)\s*=\s*([0-9a-f]{64})\s*$')
-  if (-not $digestMatch.Success) {
-    throw "The official Xray checksum file does not contain a SHA-256 digest: $digestPath"
-  }
-
-  $expectedHash = $digestMatch.Groups[1].Value.ToLowerInvariant()
-  $actualHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($actualHash -ne $expectedHash) {
-    throw "Xray archive SHA-256 mismatch for $TargetTriple. Expected $expectedHash, got $actualHash."
-  }
-
-  Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDir -Force
-  foreach ($runtimeFile in @("xray.exe", "geoip.dat", "geosite.dat")) {
-    $runtimeAsset = Get-ChildItem -LiteralPath $extractDir -Recurse -File -Filter $runtimeFile |
-      Select-Object -First 1
-    if (-not $runtimeAsset) {
-      throw "The verified Xray archive does not contain ${runtimeFile}: $archiveName"
-    }
-    Copy-Item -LiteralPath $runtimeAsset.FullName -Destination (Join-Path $payloadDir $runtimeFile) -Force
-  }
-  Write-Host "Embedded Xray runtime: $payloadPath"
+  # Share exact release/archive/file pins with the application's runtime loader.
+  # A cached old payload must be replaced, never accepted because xray.exe exists.
+  $stageScript = Join-Path $uiDir "scripts\stage-xray.py"
+  & python $stageScript --target $TargetTriple
+  if ($LASTEXITCODE -ne 0) { throw "Verified Xray payload staging failed for $TargetTriple" }
+  & python $stageScript --target $TargetTriple --verify-only
+  if ($LASTEXITCODE -ne 0) { throw "Staged Xray payload failed verification for $TargetTriple" }
 }
 
 function Get-MsvcArchFolder([string]$TargetTriple) {

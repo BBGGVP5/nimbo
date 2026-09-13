@@ -1,3 +1,4 @@
+import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
@@ -106,10 +107,10 @@ export function Servers() {
       return next;
     });
     try {
+      setServerPing(serverId, null);
       const result = await api.pingServer(serverId);
-      if (result.latency_ms != null) {
-        setServerPing(result.server_id, result.latency_ms);
-      }
+      if (result.error) notifyError(result.error);
+      setServerPing(result.server_id, result.latency_ms ?? null);
     } catch (e) {
       notifyError(String(e));
     } finally {
@@ -470,14 +471,14 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
       </span>
     );
   }
-  if (ping == null) return null;
+  if (ping == null) return <LatencyDisplay value={ping} />;
   const tier = pingTier(ping);
   return (
     <span
       className="server-ping-badge server-detail-ping-badge"
       style={{ background: tier.bg, color: tier.fg }}
     >
-      {ping} ms
+      <LatencyDisplay value={ping} />
     </span>
   );
 }
