@@ -4,6 +4,30 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class NimboPingPresentationTest {
+    @Test fun nimboEstimateIsOnlyAPresentationTransform() {
+        assertEquals(300, pingDisplayValue(990, "nimbo"))
+        assertEquals(420, pingDisplayValue(1387, "nimbo"))
+        assertEquals(0, pingDisplayValue(0, "nimbo"))
+        assertEquals(-1, pingDisplayValue(-1, "nimbo"))
+        assertEquals(null, pingDisplayValue(null, "nimbo"))
+        for (method in listOf("tcp", "http", "http_get", "http_head", "icmp")) {
+            assertEquals(990, pingDisplayValue(990, method))
+            assertEquals("990 ms", pingDisplayLabel(990, false, method))
+        }
+        assertEquals("≈300 ms", pingDisplayLabel(990, false, "nimbo"))
+        assertEquals("≈0 ms", pingDisplayLabel(0, false, "nimbo"))
+        assertEquals("×", pingDisplayLabel(-1, false, "nimbo"))
+        assertEquals("— ms", pingDisplayLabel(null, false, "nimbo"))
+        assertEquals("…", pingDisplayLabel(990, true, "nimbo"))
+        assertEquals(2, pingSignalLevel(pingDisplayValue(990, "nimbo"), false))
+    }
+
+    @Test fun estimatedSpokenStatusIsExplicitAndMissingResultsStayMissing() {
+        assertEquals("Оценка пинга: примерно 300 мс", pingStatusDescription(990, false, "nimbo"))
+        assertEquals("Пинг: 990 мс", pingStatusDescription(990, false, "http_get"))
+        assertEquals("Ответ не получен или замер недоступен", pingStatusDescription(-1, false, "nimbo"))
+    }
+
     @Test fun legacyProtocolKeepsItsHttpMethod() {
         assertEquals("http_head", normalizePingProtocol("http"))
         for (key in listOf("nimbo", "tcp", "http_get", "http_head", "icmp")) {

@@ -18,8 +18,23 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 
 internal val LocalNimboPingDisplay = staticCompositionLocalOf { "numeric" }
+internal val LocalNimboPingProtocol = staticCompositionLocalOf { "nimbo" }
+
+/** Display-only estimate. Stored measurements and timeout budgets remain raw HTTP time. */
+internal fun pingDisplayValue(raw: Int?, protocol: String): Int? =
+    if (raw != null && raw >= 0 && normalizePingProtocol(protocol) == "nimbo")
+        (raw / 3.3).roundToInt() else raw
+
+internal fun pingDisplayLabel(raw: Int?, running: Boolean, protocol: String): String = when {
+    running -> "…"
+    raw == null -> "— ms"
+    raw < 0 -> "×"
+    else -> (if (normalizePingProtocol(protocol) == "nimbo") "≈" else "") +
+        "${pingDisplayValue(raw, protocol)} ms"
+}
 
 internal fun normalizePingProtocol(value: String): String = when (value) {
     "http" -> "http_head"
@@ -43,23 +58,26 @@ internal fun pingSignalLevel(value: Int?, running: Boolean): Int = when {
     else -> 1
 }
 
-internal fun pingStatusDescription(value: Int?, running: Boolean): String = when {
+internal fun pingStatusDescription(value: Int?, running: Boolean, protocol: String = "tcp"): String = when {
     running -> "Проверка пинга"
     value == null -> "Пинг ещё не измерен"
     value < 0 -> "Ответ не получен или замер недоступен"
+    normalizePingProtocol(protocol) == "nimbo" -> "Оценка пинга: примерно ${pingDisplayValue(value, protocol)} мс"
     else -> "Пинг: $value мс"
 }
 
 @Composable
 internal fun NimboPingBadge(server: NimboServerUi, selected: Boolean = false) {
     val display = normalizePingDisplay(LocalNimboPingDisplay.current)
+    val protocol = LocalNimboPingProtocol.current
+    val label = pingDisplayLabel(server.ping, server.pingInProgress, protocol)
     val accessible = Modifier.clearAndSetSemantics {
-        contentDescription = pingStatusDescription(server.ping, server.pingInProgress)
+        contentDescription = pingStatusDescription(server.ping, server.pingInProgress, protocol)
     }
-    val level = pingSignalLevel(server.ping, server.pingInProgress)
+    val level = pingSignalLevel(pingDisplayValue(server.ping, protocol), server.pingInProgress)
     // Missing, failed and pending results remain distinguishable in every display mode.
     if (display == "numeric" || level == 0) {
-        NimboPill(server.pingLabel, modifier = accessible, selected = selected)
+        NimboPill(label, modifier = accessible, selected = selected)
         return
     }
     val foreground = if (selected) NimboPalette.Accent else NimboPalette.Text
@@ -87,7 +105,7 @@ internal fun NimboPingBadge(server: NimboServerUi, selected: Boolean = false) {
                 }
             }
             if (display == "both") {
-                BasicText(server.pingLabel, style = TextStyle(color = foreground, fontSize = 13.sp))
+                BasicText(label, style = TextStyle(color = foreground, fontSize = 13.sp))
             }
         }
     }

@@ -281,6 +281,7 @@ fun NimboAppShell(
 
     CompositionLocalProvider(
         LocalNimboPingDisplay provides normalizePingDisplay(state.pingDisplay),
+        LocalNimboPingProtocol provides normalizePingProtocol(state.pingProtocol),
         LocalNimboElementStyle provides NimboElementStyle.fromKey(state.elementStyle),
         LocalNimboAppearance provides appearance,
         LocalNimboDark provides dark,

@@ -203,11 +203,11 @@ private fun AutoFastestCard(
     onConnect: () -> Unit
 ) {
     val selected = servers.firstOrNull { it.selected }
-    val selectedPing = selected?.ping?.takeIf { it > 0 }
+    val selectedPing = selected?.ping?.takeIf { it >= 0 && !selected.pingInProgress }
     val subtitle = when {
         searching -> "Замеряю узлы…"
         selected != null && selectedPing != null ->
-            "Сейчас: ${withoutFlagEmoji(selected.name)} · $selectedPing мс"
+            "Сейчас: ${withoutFlagEmoji(selected.name)} · ${pingDisplayLabel(selectedPing, false, LocalNimboPingProtocol.current)}"
         else -> "Замерит все серверы и подключится к лучшему"
     }
     NimboSurface(

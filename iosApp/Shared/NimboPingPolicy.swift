@@ -5,7 +5,7 @@ enum NimboPingProtocol: String, CaseIterable {
     case nimbo, tcp, httpGet = "http_get", httpHead = "http_head", icmp
 
     init(stored: String?) {
-        self = stored == nil ? .nimbo : (stored == "http" ? .httpHead : (Self(rawValue: stored!) ?? .tcp))
+        self = stored == "http" ? .httpHead : (stored.flatMap(Self.init(rawValue:)) ?? .nimbo)
     }
 
     var httpMethod: String? {
@@ -20,6 +20,20 @@ enum NimboPingProtocol: String, CaseIterable {
 enum NimboPingPolicy {
     static let defaultURL = "https://www.gstatic.com/generate_204"
     static let maximumHeaderBytes = 16 * 1024
+
+    /// Presentation only, matching shared NimboPingPresentation. Measurements,
+    /// cache values, route selection and bridge payloads must remain raw.
+    static func displayMilliseconds(raw: Int, mode: NimboPingProtocol) -> String {
+        guard raw >= 0 else { return "—" }
+        if mode == .nimbo { return "≈\(Int((Double(raw) / 3.3).rounded()))" }
+        return String(raw)
+    }
+
+    /// Raw balancer ordering: zero is a measured success, not an unavailable row.
+    static func selectionRank(_ raw: Int?) -> Int {
+        guard let raw else { return 100_000 }
+        return raw >= 0 ? raw : 200_000
+    }
 
     static func timeout(milliseconds: Int) -> TimeInterval {
         milliseconds > 0 ? min(10, max(1, Double(milliseconds) / 1000)) : 3

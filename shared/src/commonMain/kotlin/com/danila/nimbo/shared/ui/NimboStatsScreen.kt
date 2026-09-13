@@ -119,7 +119,8 @@ internal fun NimboStatsScreen(state: NimboUiState, actions: NimboUiActions) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BasicText("Сервер", style = NimboSectionTitleStyle)
                 StatLine("Выбран", withoutFlagEmoji(state.activeServerName))
-                StatLine("Задержка", state.servers.firstOrNull { it.selected }?.pingLabel ?: "— ms")
+                val selectedServer = state.servers.firstOrNull { it.selected }
+                StatLine("Задержка", pingDisplayLabel(selectedServer?.ping, selectedServer?.pingInProgress == true, state.pingProtocol))
                 StatLine("Всего серверов", state.serverCount.toString())
                 if (state.profileTrafficLabel.isNotBlank()) {
                     StatLine("Трафик подписки", state.profileTrafficLabel)

@@ -20,13 +20,30 @@ enum PingPolicyTests {
 
     static func policyTests() throws {
         precondition(NimboPingProtocol(stored: nil) == .nimbo)
-        precondition(NimboPingProtocol(stored: "bad") == .tcp)
+        precondition(NimboPingProtocol(stored: "bad") == .nimbo)
+        precondition(NimboPingProtocol(stored: "") == .nimbo)
+        precondition(NimboPingProtocol(stored: "tcp") == .tcp)
         precondition(NimboPingProtocol(stored: "http") == .httpHead)
         for mode in NimboPingProtocol.allCases { precondition(NimboPingProtocol(stored: mode.rawValue) == mode) }
         precondition(NimboPingProtocol.nimbo.httpMethod == "GET")
         precondition(NimboPingProtocol.httpGet.httpMethod == "GET")
         precondition(NimboPingProtocol.httpHead.httpMethod == "HEAD")
         precondition(NimboPingProtocol.icmp.httpMethod == nil)
+        precondition(NimboPingPolicy.displayMilliseconds(raw: 330, mode: .nimbo) == "≈100")
+        precondition(NimboPingPolicy.displayMilliseconds(raw: 990, mode: .nimbo) == "≈300")
+        precondition(NimboPingPolicy.displayMilliseconds(raw: 1387, mode: .nimbo) == "≈420")
+        precondition(NimboPingPolicy.displayMilliseconds(raw: 332, mode: .nimbo) == "≈101")
+        precondition(NimboPingPolicy.displayMilliseconds(raw: 0, mode: .nimbo) == "≈0")
+        precondition(NimboPingPolicy.displayMilliseconds(raw: -1, mode: .nimbo) == "—")
+        for mode in [NimboPingProtocol.tcp, .httpGet, .httpHead, .icmp] {
+            precondition(NimboPingPolicy.displayMilliseconds(raw: 330, mode: mode) == "330")
+            precondition(NimboPingPolicy.displayMilliseconds(raw: 0, mode: mode) == "0")
+        }
+        precondition(NimboPingPolicy.selectionRank(0) == 0)
+        precondition(NimboPingPolicy.selectionRank(1387) == 1387, "Balancer ranks RAW latency, never display-scaled values")
+        precondition(NimboPingPolicy.selectionRank(0) < NimboPingPolicy.selectionRank(1))
+        precondition(NimboPingPolicy.selectionRank(1) < NimboPingPolicy.selectionRank(nil))
+        precondition(NimboPingPolicy.selectionRank(nil) < NimboPingPolicy.selectionRank(-1))
         precondition(NimboPingPolicy.timeout(milliseconds: -1) == 3)
         precondition(NimboPingPolicy.timeout(milliseconds: 1) == 1)
         precondition(NimboPingPolicy.timeout(milliseconds: Int.max) == 10)

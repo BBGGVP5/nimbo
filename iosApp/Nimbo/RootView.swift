@@ -482,6 +482,7 @@ struct RootView: View {
             return
         }
 
+        let pingMode = NimboPingProtocol(stored: UserDefaults.standard.string(forKey: "com.nimbo.ping.protocol"))
         IosComposeControllerKt.NimboPushIosBurst(trigger: "activity")
         IosComposeControllerKt.NimboBeginIosPings(serverIds: candidates.map(\.id))
         defer {
@@ -497,6 +498,10 @@ struct RootView: View {
                 IosComposeControllerKt.NimboUpdateIosPings(serverIds: [id], values: [KotlinInt(int: Int32(value))], inProgress: true)
             }
         ) else { return }
+        // The service's sticky settings lease rejects changed in-flight samples.
+        // Also reject a protocol change while awaiting its actor or the UI handoff.
+        guard !Task.isCancelled,
+              pingMode == NimboPingProtocol(stored: UserDefaults.standard.string(forKey: "com.nimbo.ping.protocol")) else { return }
         let ordered = results.map { ($0.key, $0.value) }
         IosComposeControllerKt.NimboUpdateIosPings(
             serverIds: ordered.map { $0.0 },
@@ -517,7 +522,8 @@ struct RootView: View {
         }
         let name = candidates.first { $0.id == best.key }?.name ?? ""
         await selectServer(best.key)
-        notify("info", "Выбран \(name.isEmpty ? "самый быстрый узел" : name) · \(best.value) мс")
+        let displayPing = NimboPingPolicy.displayMilliseconds(raw: best.value, mode: pingMode)
+        notify("info", "Выбран \(name.isEmpty ? "самый быстрый узел" : name) · \(displayPing) мс")
         if vpn.state != .connected, vpn.state != .connecting {
             await vpn.connect()
         }

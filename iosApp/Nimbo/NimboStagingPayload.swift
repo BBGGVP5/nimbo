@@ -71,8 +71,7 @@ enum NimboStagingPayload {
 
     /// Чем меньше число, тем раньше узел попадёт в балансировщик.
     private static func rank(_ latency: Int?) -> Int {
-        guard let latency else { return 100_000 }
-        return latency > 0 ? latency : 200_000
+        NimboPingPolicy.selectionRank(latency)
     }
 
     /// Те же признаки, что и в `ServerPolicyManager.isAutoBalancerServer`

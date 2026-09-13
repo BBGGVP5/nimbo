@@ -47,8 +47,7 @@ class PingContracts(unittest.TestCase):
         s = read(SOURCES[0])
         self.assertIn('case nimbo, tcp, httpGet = "http_get", httpHead = "http_head", icmp', s)
         self.assertIn('stored == "http" ? .httpHead', s)
-        self.assertIn('stored == nil ? .nimbo', s)
-        self.assertIn('?? .tcp)', s)
+        self.assertIn('stored.flatMap(Self.init(rawValue:)) ?? .nimbo', s)
         self.assertIn('method: String = "HEAD"', read("iosApp/Nimbo/NimboPingService.swift"))
 
     def test_route_only_no_fanout_or_authority_rewrite(self):
@@ -190,6 +189,28 @@ class PingContracts(unittest.TestCase):
         root = read("iosApp/Nimbo/RootView.swift")
         self.assertIn('results.filter({ $0.value >= 0 })', root)
         self.assertEqual(root.count('session: vpn.manager?.connection as? NETunnelProviderSession'), 3)
+
+    def test_approximate_display_is_not_applied_to_measurements(self):
+        policy = read('iosApp/Shared/NimboPingPolicy.swift')
+        self.assertIn('Double(raw) / 3.3).rounded()', policy)
+        self.assertIn('if mode == .nimbo', policy)
+        root = read('iosApp/Nimbo/RootView.swift')
+        self.assertEqual(root.count('NimboPingPolicy.displayMilliseconds('), 1)
+        start = root.index('private func connectFastest()')
+        mode_capture = root.index('let pingMode = NimboPingProtocol(', start)
+        self.assertLess(mode_capture, root.index('await NimboPingService.shared.measureAll(', start))
+        self.assertIn('displayMilliseconds(raw: best.value, mode: pingMode)', root)
+        self.assertIn('pingMode == NimboPingProtocol(stored:', root)
+        self.assertIn('KotlinInt(int: Int32(value))', root)
+        self.assertIn('KotlinInt(int: Int32($0.1))', root)
+        self.assertIn('results.filter({ $0.value >= 0 }).min(by: { $0.value < $1.value })', root)
+        for path in ['iosApp/Nimbo/NimboPingService.swift', 'iosApp/Nimbo/NimboDiagnosticProbe.swift']:
+            self.assertNotIn('3.3', read(path))
+            self.assertNotIn('displayMilliseconds', read(path))
+        staging = read('iosApp/Nimbo/NimboStagingPayload.swift')
+        self.assertIn('NimboPingPolicy.selectionRank(latency)', staging)
+        self.assertNotIn('displayMilliseconds', staging)
+        self.assertIn('return raw >= 0 ? raw : 200_000', policy)
 
     def test_deadlines_and_cleanup(self):
         s = read("iosApp/Nimbo/NimboPingService.swift")
@@ -362,7 +383,7 @@ def native_tests():
         # Parse modified integration files as well. Their real LibXray/Kotlin module
         # dependencies are typechecked by the full app build, not test stubs.
         for path in ['iosApp/PacketTunnel/PacketTunnelProvider.swift', 'iosApp/Nimbo/VpnController.swift',
-                     'iosApp/Nimbo/RootView.swift', 'iosApp/Nimbo/NimboBackup.swift']:
+                     'iosApp/Nimbo/RootView.swift', 'iosApp/Nimbo/NimboBackup.swift', 'iosApp/Nimbo/NimboStagingPayload.swift']:
             subprocess.run(['xcrun', 'swiftc', '-frontend', '-parse', path], cwd=ROOT, check=True, timeout=30)
         cert, key = tmp / 'cert.pem', tmp / 'key.pem'
         subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
