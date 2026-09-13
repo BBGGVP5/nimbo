@@ -15,6 +15,7 @@ final class NimboHTTPProbe: NSObject, StreamDelegate {
     private let output: OutputStream
     private let request: [UInt8]
     private let completion: NimboPingCompletion<Int>
+    private var tunnel: NimboSOCKSTunnel?
     private let started = DispatchTime.now().uptimeNanoseconds
     private var written = 0
     private var header = Data()
@@ -22,13 +23,17 @@ final class NimboHTTPProbe: NSObject, StreamDelegate {
     private var done = false
     private var deadline: DispatchWorkItem?
 
-    private init?(url: URL, method: String, socks: NimboPingSOCKS?, completion: NimboPingCompletion<Int>) {
+    private init?(url: URL, method: String, tunnel: NimboSOCKSTunnel?, completion: NimboPingCompletion<Int>) {
         guard let bytes = NimboPingPolicy.request(url: url, method: method), let host = url.host else { return nil }
         var readReference: Unmanaged<CFReadStream>?
         var writeReference: Unmanaged<CFWriteStream>?
         let bare = host.hasPrefix("[") ? String(host.dropFirst().dropLast()) : host
         let port = UInt32(url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80))
-        CFStreamCreatePairWithSocketToHost(kCFAllocatorDefault, bare as CFString, port, &readReference, &writeReference)
+        if let tunnel {
+            CFStreamCreatePairWithSocket(kCFAllocatorDefault, tunnel.descriptor, &readReference, &writeReference)
+        } else {
+            CFStreamCreatePairWithSocketToHost(kCFAllocatorDefault, bare as CFString, port, &readReference, &writeReference)
+        }
         // Consume both retained references, even if creating one side failed.
         let read = readReference?.takeRetainedValue()
         let write = writeReference?.takeRetainedValue()
@@ -37,28 +42,15 @@ final class NimboHTTPProbe: NSObject, StreamDelegate {
         self.output = write as OutputStream
         self.request = Array(bytes)
         self.completion = completion
+        self.tunnel = tunnel
         super.init()
-        if let socks {
-            let proxy: [String: Any] = [
-                kCFStreamPropertySOCKSProxyHost as String: "127.0.0.1",
-                kCFStreamPropertySOCKSProxyPort as String: socks.port,
-                kCFStreamPropertySOCKSVersion as String: kCFStreamSocketSOCKSVersion5,
-                kCFStreamPropertySOCKSUser as String: socks.username,
-                kCFStreamPropertySOCKSPassword as String: socks.password
-            ]
-            // Use the CF socket-stream API with CF keys, before toll-free bridged
-            // NSStream scheduling. Apple specifies setting SOCKS on the read OR
-            // write side of the shared socket pair; a second setter is not proof.
-            // A rejected configuration is terminal: never open the pair directly.
-            guard CFReadStreamSetProperty(read, CFStreamPropertyKey(rawValue: kCFStreamPropertySOCKSProxy), proxy as CFDictionary) else {
-                Self.trace("CFReadStream SOCKS configuration rejected before open")
-                return nil
-            }
-            Self.trace("CFReadStream SOCKS configuration accepted")
-        }
         if url.scheme?.lowercased() == "https" {
             // Never install a trust override or disable certificate-chain validation.
-            guard CFReadStreamSetProperty(read, CFStreamPropertyKey(rawValue: kCFStreamPropertySocketSecurityLevel), kCFStreamSocketSecurityLevelNegotiatedSSL) else {
+            // Native-socket streams have no target hostname: explicitly supply the
+            // original URL peer name, not the loopback proxy's name, for TLS/SNI.
+            let tls: [String: Any] = [kCFStreamSSLPeerName as String: bare,
+                                     kCFStreamSSLLevel as String: kCFStreamSocketSecurityLevelNegotiatedSSL as String]
+            guard CFReadStreamSetProperty(read, CFStreamPropertyKey(rawValue: kCFStreamPropertySSLSettings), tls as CFDictionary) else {
                 Self.trace("CFReadStream TLS configuration rejected before open")
                 return nil
             }
@@ -74,12 +66,21 @@ final class NimboHTTPProbe: NSObject, StreamDelegate {
     }
 
     static func measure(url: URL, method: String, timeout: TimeInterval, socks: NimboPingSOCKS? = nil) async -> Int {
-        guard timeout > 0, !Task.isCancelled else { return -1 }
+        guard timeout.isFinite, timeout > 0, !Task.isCancelled,
+              NimboPingPolicy.request(url: url, method: method) != nil else { return -1 }
         let result = NimboPingCompletion<Int>()
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
         return await withTaskCancellationHandler(operation: {
-            await withCheckedContinuation { continuation in
+            let tunnel: NimboSOCKSTunnel?
+            if let socks {
+                guard let connected = await NimboSOCKSTunnel.connect(url: url, socks: socks, deadline: deadline, cancellation: result) else { return -1 }
+                tunnel = connected
+            } else { tunnel = nil }
+            return await withCheckedContinuation { continuation in
                 DispatchQueue.main.async {
-                    guard let probe = NimboHTTPProbe(url: url, method: method, socks: socks, completion: result) else {
+                    let remaining = deadline - ProcessInfo.processInfo.systemUptime
+                    guard !result.isFinished, remaining > 0,
+                          let probe = NimboHTTPProbe(url: url, method: method, tunnel: tunnel, completion: result) else {
                         result.install { continuation.resume(returning: $0) }
                         result.finish(-1)
                         return
@@ -90,7 +91,7 @@ final class NimboHTTPProbe: NSObject, StreamDelegate {
                             continuation.resume(returning: value)
                         }
                     }
-                    if !result.isFinished { probe.start(timeout: timeout) }
+                    if !result.isFinished { probe.start(timeout: remaining) }
                 }
             }
         }, onCancel: { result.finish(-1) })
@@ -117,6 +118,7 @@ final class NimboHTTPProbe: NSObject, StreamDelegate {
             stream.remove(from: .main, forMode: .common)
             stream.delegate = nil
         }
+        tunnel = nil // Close descriptor only after both non-owning CF streams close.
     }
 
     func stream(_ aStream: Stream, handle eventCode: Stream.Event) {

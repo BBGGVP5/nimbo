@@ -134,6 +134,25 @@ enum PingPolicyTests {
         let badProxy = NimboPingSOCKS(port: socks.port, username: "wrong", password: "wrong")
         let failedProxy = await NimboHTTPProbe.measure(url: url("/must-not-hit-origin"), method: "GET", timeout: 1, socks: badProxy)
         precondition(failedProxy == -1, "Rejected proxy must never fall back directly")
+        let remote = await NimboHTTPProbe.measure(url: URL(string: "http://only-via-proxy.invalid:8443/remote-dns?exact=1")!, method: "HEAD", timeout: 2, socks: socks)
+        precondition(remote >= 0, "Original unresolved target authority must be sent in SOCKS CONNECT, not resolved locally")
+        for host in ["reject.invalid", "bad-reply.invalid"] {
+            let rejected = await NimboHTTPProbe.measure(url: URL(string: "http://\(host)/must-not-hit-origin")!, method: "GET", timeout: 1, socks: socks)
+            precondition(rejected == -1, "CONNECT status/version/reserved framing must be validated without fallback")
+        }
+        let stalledSOCKS = NimboPingSOCKS(port: socks.port, username: "stall", password: "fixture-only")
+        let handshakeStarted = ProcessInfo.processInfo.systemUptime
+        let handshakeTimed = await NimboHTTPProbe.measure(url: url("/must-not-hit-origin"), method: "GET", timeout: 0.15, socks: stalledSOCKS)
+        precondition(handshakeTimed == -1 && ProcessInfo.processInfo.systemUptime - handshakeStarted < 1)
+        let handshakeTask = Task { await NimboHTTPProbe.measure(url: url("/must-not-hit-origin"), method: "GET", timeout: 10, socks: stalledSOCKS) }
+        let stalled = await NimboHTTPProbe.measure(url: url("/wait-second-socks-stall"), method: "GET", timeout: 3)
+        precondition(stalled >= 0, "Wait for native SOCKS auth to stall before cancelling, not a scheduling guess")
+        let handshakeCancelledAt = ProcessInfo.processInfo.systemUptime
+        handshakeTask.cancel()
+        let handshakeCancelled = await handshakeTask.value
+        precondition(handshakeCancelled == -1 && ProcessInfo.processInfo.systemUptime - handshakeCancelledAt < 1)
+        let tunnelTLS = await NimboHTTPProbe.measure(url: URL(string: "https://tls-through.invalid/must-not-hit-origin")!, method: "GET", timeout: 2, socks: socks)
+        precondition(tunnelTLS == -1, "TLS after CONNECT must reject an untrusted certificate with original peer-name checking")
         let tls = await NimboHTTPProbe.measure(url: URL(string: "https://localhost:\(env["NIMBO_TEST_TLS_PORT"]!)/")!, method: "GET", timeout: 2)
         precondition(tls == -1, "An untrusted local TLS certificate must fail")
         let defaults = UserDefaults.standard

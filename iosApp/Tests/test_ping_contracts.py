@@ -22,6 +22,7 @@ SOURCES = [
     "iosApp/Shared/NimboPingPolicy.swift",
     "iosApp/Shared/NimboPingCompletion.swift",
     "iosApp/Shared/NimboHTTPProbe.swift",
+    "iosApp/Shared/NimboSOCKSTunnel.swift",
     "iosApp/Shared/NimboRoutingOptions.swift",
     "iosApp/Nimbo/NimboICMPProbe.swift",
     "iosApp/Nimbo/NimboActiveRouteProbe.swift",
@@ -148,17 +149,29 @@ class PingContracts(unittest.TestCase):
 
     def test_http_security_and_bounds(self):
         s = read("iosApp/Shared/NimboHTTPProbe.swift")
-        self.assertIn('kCFStreamPropertySOCKSProxy', s)
+        self.assertNotIn('kCFStreamPropertySOCKSProxy', s)
         self.assertNotIn('rawValue: kCFStreamPropertyProxyLocalBypass', s)
         self.assertIn('CFStreamCreatePairWithSocketToHost', s)
-        self.assertIn('guard CFReadStreamSetProperty(read, CFStreamPropertyKey(rawValue: kCFStreamPropertySOCKSProxy), proxy as CFDictionary)', s)
-        self.assertNotIn('setProperty(proxy as NSDictionary', s)
-        self.assertIn('guard CFReadStreamSetProperty(read, CFStreamPropertyKey(rawValue: kCFStreamPropertySocketSecurityLevel), kCFStreamSocketSecurityLevelNegotiatedSSL)', s)
+        self.assertIn('CFStreamCreatePairWithSocket(kCFAllocatorDefault, tunnel.descriptor', s)
+        self.assertIn('guard let connected = await NimboSOCKSTunnel.connect', s)
+        self.assertIn('kCFStreamSSLPeerName as String: bare', s)
+        self.assertIn('guard CFReadStreamSetProperty(read, CFStreamPropertyKey(rawValue: kCFStreamPropertySSLSettings), tls as CFDictionary)', s)
         self.assertIn('maximumHeaderBytes', s)
         self.assertIn('guard (200...299).contains(status)', s)
         self.assertIn('withTaskCancellationHandler', s)
         for forbidden in ['allowsAnyHTTPSCertificate', 'kCFStreamSSLValidatesCertificateChain',
                           'kCFStreamSSLAllowsAnyRoot', 'URLCredential(trust:', 'sec_protocol_options_set_verify_block']:
+            self.assertNotIn(forbidden, s)
+
+    def test_socks_wire_auth_deadline_remote_dns_and_cleanup(self):
+        s = read('iosApp/Shared/NimboSOCKSTunnel.swift')
+        for required in ['SO_NOSIGPIPE', 'O_NONBLOCK', 'Darwin.poll(', 'io.read(2) == [5, 2]',
+                         'io.read(2) == [1, 0]', 'reply[0] == 5, reply[1] == 0, reply[2] == 0',
+                         'return [3, UInt8(name.count)] + name', 'UInt32(0x7f000001).bigEndian',
+                         'deinit { Darwin.close(descriptor) }', '!cancellation.isFinished',
+                         'ProcessInfo.processInfo.systemUptime < deadline']:
+            self.assertIn(required, s)
+        for forbidden in ['getaddrinfo', 'URLSession', 'kCFStreamPropertySOCKSProxy']:
             self.assertNotIn(forbidden, s)
 
     def test_icmp_is_datagram_and_correlated(self):
@@ -205,6 +218,11 @@ class HTTPFixture(socketserver.StreamRequestHandler):
             pass
         method, path, _ = line.split(' ', 2)
         self.server.requests.append((method, path))
+        if path == '/wait-second-socks-stall':
+            ready = self.server.second_stall.wait(timeout=2)
+            self.wfile.write(b'HTTP/1.1 204 No Content\r\n\r\n' if ready else b'HTTP/1.1 503 Unavailable\r\n\r\n')
+            self.wfile.flush()
+            return
         if path in ('/stall', '/cancel'):
             time.sleep(3)
             return
@@ -253,22 +271,55 @@ class SOCKSFixture(socketserver.BaseRequestHandler):
         version, size = exact(sock, 2)
         user = exact(sock, size)
         password = exact(sock, exact(sock, 1)[0])
-        accepted = version == 1 and user == b'fixture' and password == b'fixture-only'
+        accepted = version == 1 and user in (b'fixture', b'stall') and password == b'fixture-only'
+        if accepted and user == b'stall':
+            # No auth response: deadline/cancellation must close the owned socket.
+            self.server.stall_started += 1
+            if self.server.stall_started == 2:
+                self.server.second_stall.set()
+            if sock.recv(1) == b'':
+                self.server.stall_closed += 1
+            return
         sock.sendall(b'\x01\x00' if accepted else b'\x01\x01')
         if not accepted:
             self.server.rejected += 1
             return
         version, command, reserved, kind = exact(sock, 4)
-        if kind == 1: exact(sock, 4)
-        elif kind == 4: exact(sock, 16)
-        elif kind == 3: exact(sock, exact(sock, 1)[0])
+        if kind == 1: host = socket.inet_ntop(socket.AF_INET, exact(sock, 4))
+        elif kind == 4: host = socket.inet_ntop(socket.AF_INET6, exact(sock, 16))
+        elif kind == 3: host = exact(sock, exact(sock, 1)[0]).decode('ascii')
         else: return
-        exact(sock, 2)
+        port = int.from_bytes(exact(sock, 2), 'big')
+        self.server.targets.append((kind, host, port))
         if version != 5 or command != 1: return
-        sock.sendall(b'\x05\x00\x00\x01\x7f\x00\x00\x01\x00\x50')
+        if host == 'reject.invalid':
+            sock.sendall(b'\x05\x05\x00\x01\x00\x00\x00\x00\x00\x00')
+            return
+        if host == 'bad-reply.invalid':
+            sock.sendall(b'\x05\x00\x01\x01\x00\x00\x00\x00\x00\x00')
+            return
+        if host == 'only-via-proxy.invalid':
+            reply = b'\x05\x00\x00\x03\x05bound\x00\x50'
+        elif host == 'tls-through.invalid':
+            reply = b'\x05\x00\x00\x04' + bytes(16) + b'\x00\x50'
+        else:
+            reply = b'\x05\x00\x00\x01\x7f\x00\x00\x01\x00\x50'
+        for byte in reply: # Fragmented CONNECT replies must be consumed exactly.
+            sock.sendall(bytes([byte]))
+        if host == 'tls-through.invalid':
+            # Emulate the TLS origin reached AFTER CONNECT, not TLS to the proxy.
+            try:
+                with self.server.target_tls.wrap_socket(sock, server_side=True) as secure:
+                    if secure.recv(2048):
+                        self.server.tls_http += 1
+            except OSError:
+                self.server.tls_rejected += 1
+            return
         data = b''
         while b'\r\n\r\n' not in data and len(data) < 16384:
-            data += sock.recv(2048)
+            chunk = sock.recv(2048)
+            if not chunk: return
+            data += chunk
         self.server.proxied.append(data.split(b'\r\n')[0])
         sock.sendall(b'HTTP/1.1 204 No Content\r\n\r\n')
 
@@ -277,6 +328,9 @@ def serving(handler, tls=None):
     server = FixtureServer(('127.0.0.1', 0), handler)
     server.requests, server.proxied, server.rejected = [], [], 0
     server.connections, server.errors = 0, []
+    server.targets, server.stall_closed = [], 0
+    server.stall_started, server.second_stall = 0, threading.Event()
+    server.tls_http, server.tls_rejected = 0, 0
     if tls:
         server.socket = tls.wrap_socket(server.socket, server_side=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -316,7 +370,11 @@ def native_tests():
                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         tls.load_cert_chain(cert, key)
+        peer_names = []
+        tls.set_servername_callback(lambda connection, name, context: peer_names.append(name))
         with serving(HTTPFixture) as http, serving(SOCKSFixture) as socks, serving(HTTPFixture, tls) as secure:
+            socks.target_tls = tls
+            http.second_stall = socks.second_stall
             env = dict(os.environ, NIMBO_TEST_HTTP_PORT=str(http.server_address[1]),
                        NIMBO_TEST_SOCKS_PORT=str(socks.server_address[1]), NIMBO_TEST_TLS_PORT=str(secure.server_address[1]))
             try:
@@ -325,12 +383,18 @@ def native_tests():
                 # Preserve local fixture evidence even when a Swift precondition traps.
                 print('HTTP fixture requests:', http.requests, flush=True)
                 print('SOCKS fixture:', {'accepted': socks.proxied, 'rejected': socks.rejected,
-                                        'connections': socks.connections, 'errors': socks.errors}, flush=True)
+                                        'connections': socks.connections, 'errors': socks.errors,
+                                        'targets': socks.targets, 'stall_closed': socks.stall_closed,
+                                        'tls_rejected': socks.tls_rejected, 'tls_peer_names': peer_names}, flush=True)
             assert ('GET', '/method/GET') in http.requests
             assert ('HEAD', '/method/HEAD') in http.requests
             assert all(path not in ('/must-not-hit-origin', '/must-not-follow') for _, path in http.requests), http.requests
-            assert socks.proxied == [b'GET /must-not-hit-origin HTTP/1.1'], socks.proxied
+            assert socks.proxied == [b'GET /must-not-hit-origin HTTP/1.1', b'HEAD /remote-dns?exact=1 HTTP/1.1'], socks.proxied
             assert socks.rejected == 1
+            assert (3, 'only-via-proxy.invalid', 8443) in socks.targets, socks.targets
+            assert socks.stall_closed == 2, socks.stall_closed
+            assert 'tls-through.invalid' in peer_names and 'localhost' in peer_names, peer_names
+            assert socks.tls_rejected == 1 and socks.tls_http == 0
             assert not secure.requests, 'Untrusted certificate must fail before an HTTP request'
         print('PASS: local HTTP methods, no redirect, no SOCKS bypass/fallback, untrusted TLS rejection', flush=True)
 
