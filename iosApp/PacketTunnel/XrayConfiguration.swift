@@ -4,6 +4,7 @@ import Foundation
 struct PreparedXrayConfiguration {
     let json: String
     let outboundCount: Int
+    let pingRouteVerified: Bool
 }
 
 enum XrayConfigurationBuilder {
@@ -18,6 +19,7 @@ enum XrayConfigurationBuilder {
         assetDirectory: String,
         options: NimboRoutingOptions = .default,
         tunnelMTU: Int = PacketTunnelNetwork.mtu,
+        pingRoute: NimboPingRoute? = nil,
         bridge: LibXrayBridge
     ) throws -> PreparedXrayConfiguration {
         guard !tunnelInterfaceName.isEmpty else { throw XrayConfigurationError.tunnelInterfaceUnknown }
@@ -61,12 +63,24 @@ enum XrayConfigurationBuilder {
             configuration["observatory"] = observatorySettings
         }
 
+        let pingTag = NimboPingRoute.verifiedTag(outbounds: sanitized, balanced: source.balanced)
+        if let pingRoute, let pingTag {
+            var inbounds = configuration["inbounds"] as? [[String: Any]] ?? []
+            inbounds.append(pingRoute.inbound)
+            configuration["inbounds"] = inbounds
+            var routing = configuration["routing"] as? [String: Any] ?? [:]
+            // The private entry cannot match module/profile/direct rules or fall back.
+            routing["rules"] = [NimboPingRoute.rule(proxyTag: pingTag)] + (routing["rules"] as? [[String: Any]] ?? [])
+            configuration["routing"] = routing
+        }
+
         let data = try JSONSerialization.data(withJSONObject: configuration, options: [.sortedKeys])
         guard data.count <= maximumInputBytes,
               let json = String(data: data, encoding: .utf8) else {
             throw XrayConfigurationError.tooLarge
         }
-        return PreparedXrayConfiguration(json: json, outboundCount: outbounds.count)
+        return PreparedXrayConfiguration(json: json, outboundCount: outbounds.count,
+                                         pingRouteVerified: pingRoute != nil && pingTag != nil)
     }
 
     private static func configurationObject(

@@ -3,6 +3,8 @@ package com.danila.nimbo.network
 import android.util.Log
 import com.danila.nimbo.BuildConfig
 import com.danila.nimbo.vpn.LocalProxyConfig
+import com.danila.nimbo.vpn.HealthProxySessions
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -31,8 +33,12 @@ data class PingConfig(
     val proxyPort: Int = LocalProxyConfig.PORT
 )
 
-enum class PingProtocol {
-    TCP, HTTP_GET, HTTP_HEAD, HTTPS_STRICT, ICMP
+enum class PingProtocol(val id: Int) {
+    TCP(0), HTTP_GET(1), HTTP_HEAD(2), HTTPS_STRICT(3), ICMP(4), NIMBO(5);
+
+    companion object {
+        fun fromId(id: Int): PingProtocol = entries.firstOrNull { it.id == id } ?: TCP
+    }
 }
 
 /**
@@ -56,6 +62,14 @@ object PingManager {
         network: String?,
         config: PingConfig
     ): Int {
+        if (config.protocol == PingProtocol.NIMBO || config.useProxy) {
+            val session = HealthProxySessions.connected() ?: return -1
+            return ActiveProxyPing.measure(
+                url = config.testUrl, timeoutMs = config.timeoutMs, session = session,
+                isCurrent = { HealthProxySessions.isConnected(session) },
+                method = if (effectiveProtocol(config) in listOf(PingProtocol.NIMBO, PingProtocol.HTTP_GET)) "GET" else "HEAD"
+            )
+        }
         for (protocol in protocolAttempts(config, serverProtocol, network)) {
             val result = when (protocol) {
                 PingProtocol.TCP -> pingTcp(host, port, config.timeoutMs)
@@ -63,6 +77,7 @@ object PingManager {
                 PingProtocol.HTTP_HEAD -> pingHttp(resolveHttpUrl(host, port, config.testUrl), "HEAD", config.timeoutMs, config.useProxy, config.proxyPort)
                 PingProtocol.HTTPS_STRICT -> pingHttpsStrict(host, port, config.timeoutMs, config.useProxy, config.proxyPort)
                 PingProtocol.ICMP -> pingIcmp(host, config.timeoutMs)
+                PingProtocol.NIMBO -> return -1 // Handled above; never falls back to a direct probe.
             }
             if (result >= 0) return result
         }
@@ -75,6 +90,7 @@ object PingManager {
      * through the active Xray outbound.
      */
     internal fun effectiveProtocol(config: PingConfig): PingProtocol {
+        if (config.protocol == PingProtocol.NIMBO) return PingProtocol.NIMBO
         if (!config.useProxy) return config.protocol
         return if (config.protocol == PingProtocol.HTTP_GET) {
             PingProtocol.HTTP_GET
@@ -88,24 +104,8 @@ object PingManager {
         serverProtocol: String?,
         network: String?
     ): List<PingProtocol> {
-        val primary = effectiveProtocol(config)
-        if (config.useProxy) return listOf(primary)
-
-        val protocolName = serverProtocol?.trim()?.lowercase().orEmpty()
-        val networkName = network?.trim()?.lowercase().orEmpty()
-        val udpOnlyTransport = listOf(protocolName, networkName).any { value ->
-            value.contains("hysteria") ||
-                value == "hy2" ||
-                value.contains("tuic") ||
-                value.contains("quic")
-        }
-
-        return when {
-            primary == PingProtocol.TCP && udpOnlyTransport -> listOf(PingProtocol.ICMP, PingProtocol.TCP)
-            primary == PingProtocol.TCP -> listOf(PingProtocol.TCP, PingProtocol.ICMP)
-            primary == PingProtocol.ICMP -> listOf(PingProtocol.ICMP, PingProtocol.TCP)
-            else -> listOf(primary)
-        }
+        // Never present an ICMP reply as TCP latency, or a TCP connection as ICMP.
+        return listOf(effectiveProtocol(config))
     }
 
     internal fun timeoutBudgetMs(
@@ -222,6 +222,13 @@ object PingManager {
         useProxy: Boolean = false,
         proxyPort: Int = LocalProxyConfig.PORT
     ): Int {
+        if (useProxy) {
+            val session = HealthProxySessions.active ?: return -1
+            return ActiveProxyPing.measure(
+                urlString, timeoutMs, session, { HealthProxySessions.active === session }, method,
+                acceptsStatus = { it in 200..399 }
+            )
+        }
         return withContext(Dispatchers.IO) {
             var connection: HttpURLConnection? = null
             try {
@@ -271,6 +278,14 @@ object PingManager {
         useProxy: Boolean = false,
         proxyPort: Int = LocalProxyConfig.PORT
     ): Int {
+        if (useProxy) {
+            val session = HealthProxySessions.active ?: return -1
+            val safeHost = if (host.contains(":") && !host.startsWith("[")) "[$host]" else host
+            return ActiveProxyPing.measure(
+                "https://$safeHost:$port/", timeoutMs, session, { HealthProxySessions.active === session },
+                acceptsStatus = { it in 100..599 && it != 407 }
+            )
+        }
         return withContext(Dispatchers.IO) {
             try {
                 val start = System.currentTimeMillis()
@@ -303,26 +318,29 @@ object PingManager {
     /**
      * ICMP Пинг: системный ping или isReachable
      */
-    suspend fun pingIcmp(host: String, timeoutMs: Int): Int {
-        return withContext(Dispatchers.IO) {
-            try {
-                val start = System.currentTimeMillis()
-                // На Android Process(ping) обычно стабильнее чем isReachable
-                val timeoutSeconds = (timeoutMs / 1000).coerceAtLeast(1)
-                val process = Runtime.getRuntime().exec("ping -c 1 -W $timeoutSeconds $host")
-                val result = process.waitFor()
-                val duration = (System.currentTimeMillis() - start).toInt()
-                
-                if (result == 0) duration else {
-                    // Fallback to isReachable
-                    if (InetAddress.getByName(host).isReachable(timeoutMs)) {
-                        (System.currentTimeMillis() - start).toInt()
-                    } else -1
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "ICMP Ping failed: ${e.message}")
-                -1
+    suspend fun pingIcmp(host: String, timeoutMs: Int): Int = withContext(Dispatchers.IO) {
+        val target = host.trim()
+        if (target.isBlank() || target.startsWith("-") || target.any { it.isWhitespace() }) return@withContext -1
+        var process: Process? = null
+        try {
+            val budgetMs = timeoutMs.coerceIn(250, 10_000)
+            val started = System.nanoTime()
+            process = ProcessBuilder("ping", "-c", "1", "-W", ((budgetMs + 999) / 1000).toString(), target)
+                .redirectErrorStream(true).start()
+            while (process.isAlive) {
+                if (TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) >= budgetMs) return@withContext -1
+                delay(20)
             }
+            if (process.exitValue() != 0) return@withContext -1
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            Regex("time[=<]([0-9.]+)\\s*ms").find(output)?.groupValues?.get(1)
+                ?.toDoubleOrNull()?.toInt()?.coerceAtLeast(0) ?: -1
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            -1
+        } finally {
+            process?.destroy()
         }
     }
 }

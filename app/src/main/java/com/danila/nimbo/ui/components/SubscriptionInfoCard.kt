@@ -320,7 +320,8 @@ fun SubscriptionInfoCard(
                 SelectedServerSummary(
                     server = selectedServer,
                     ping = selectedServerPing,
-                    pingDisplayMode = pingDisplayMode
+                    pingDisplayMode = pingDisplayMode,
+                    inProgress = isPinging
                 )
             }
 
@@ -440,13 +441,15 @@ fun SubscriptionInfoCard(
 private fun SelectedServerSummary(
     server: Server,
     ping: Int?,
-    pingDisplayMode: Int
+    pingDisplayMode: Int,
+    inProgress: Boolean
 ) {
     val nebulaColors = LocalNebulaColors.current
     val flag = extractFlagEmoji(server.name)
     val name = cleanServerName(server.name).ifBlank { "Сервер" }
     val pingValue = ping ?: -1
     val pingColor = when {
+        inProgress -> nebulaColors.accent
         pingValue == -1 -> nebulaColors.statusDisconnected
         pingValue <= 70 -> nebulaColors.statusConnected
         pingValue <= 120 -> Color(0xFFCDDC39)
@@ -503,7 +506,9 @@ private fun SelectedServerSummary(
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 Icon(Icons.Default.Speed, null, tint = pingColor, modifier = Modifier.size(13.dp))
-                if (pingDisplayMode == 2) {
+                if (inProgress) {
+                    ExpressiveCircularLoader(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = pingColor)
+                } else if (pingDisplayMode == 2) {
                     Box(
                         modifier = Modifier
                             .size(8.dp)
@@ -511,17 +516,7 @@ private fun SelectedServerSummary(
                             .background(pingColor)
                     )
                 } else {
-                    Text(
-                        text = if (pingDisplayMode == 1) {
-                            if (pingValue == -1) "нет" else "ok"
-                        } else {
-                            if (pingValue == -1) "н/д" else "${pingValue}мс"
-                        },
-                        color = pingColor,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
+                    PingValueContent(pingValue, pingDisplayMode, pingColor)
                 }
             }
         }

@@ -8,6 +8,36 @@ import kotlin.test.assertTrue
 
 /** Real shared UI rendering, not a separately drawn marketing mockup. */
 class NimboRenderSmokeTest {
+    @Test fun renderPingDisplaysAtSmallWidth() {
+        val output = File("build/reports/ui-ping-1.2.0").apply { mkdirs() }
+        for (display in listOf("numeric", "bars", "both", "dots")) {
+            ImageComposeScene(320, 720) {
+                NimboAppShell(
+                    NimboScreen.PROFILES,
+                    NimboUiState(
+                        appearance = NimboAppearance(themeMode = "dark"),
+                        backgroundMotion = false,
+                        profileCount = 1, serverCount = 5, pingDisplay = display,
+                        servers = listOf(
+                            NimboServerUi("a", "Амстердам", "vless", selected = true, ping = 38),
+                            NimboServerUi("b", "Франкфурт", "vless", ping = 254),
+                            NimboServerUi("c", "Нью-Йорк", "vless", ping = -1),
+                            NimboServerUi("d", "Хельсинки", "vless", pingInProgress = true),
+                            NimboServerUi("e", "Токио", "vless")
+                        )
+                    ), NimboUiActions()
+                )
+            }.use { scene ->
+                scene.render(0).close()
+                scene.render(1_000_000_000L).use { image ->
+                    val bytes = image.encodeToData()!!.use { it.bytes }
+                    assertTrue(bytes.size > 5000)
+                    File(output, "$display-small.png").writeBytes(bytes)
+                }
+            }
+        }
+    }
+
     @Test fun renderSmallLightSettings() {
         val output = File("build/reports/ui-beta5").apply { mkdirs() }
         for (style in listOf("glass", "material", "dotted", "manga")) {

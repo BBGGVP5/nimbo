@@ -43,7 +43,7 @@ jobs:
       - name: Установить Go для AmneziaWG
         uses: actions/setup-go@v5
         with:
-          go-version: '1.27.0'
+          go-version: '1.27.1'
           cache-dependency-path: tools/native/awg-core/go.sum
 
       - name: Проверить зашифрованный обмен AWG
@@ -129,7 +129,7 @@ jobs:
       - name: Установить Go для AmneziaWG
         uses: actions/setup-go@v5
         with:
-          go-version: '1.27.0'
+          go-version: '1.27.1'
           cache-dependency-path: tools/native/awg-core/go.sum
 
       - name: Проверить зашифрованный обмен AWG

@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Compile upstream CGoInvoke/CGoFree and NimboAWG* in ONE package main.
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LIBXRAY_COMMIT=80263da83e96b2972455b0a94b13ee1a10e51391
-LIBXRAY_SOURCE_SHA256=1596603887679f7ac6cca99eb27ecb9153fb4ccc7828c1eacd4d07bcb6d94998
-GO_VERSION=go1.27.0
+LIBXRAY_COMMIT=50b95979f5db551bd273165cf469e5daaf791341
+LIBXRAY_SOURCE_SHA256=070a5b573f5a907d31dc23064c89a8cac2cbf9a8baf7df64c42b9cac78b50d4b
+GO_VERSION=go1.27.1
 AWG_VERSION=v3.1.20260828
 BRIDGE_DIR="${ROOT_DIR}/iosApp/GoBridge"
 AWG_DIR="${ROOT_DIR}/tools/native/awg-core"
@@ -45,6 +45,13 @@ cp go.mod go.sum "${WORK_DIR}/verify/"
 )
 [[ "$(go list -m -f '{{.Version}}' github.com/amnezia-vpn/amneziawg-go/v3)" == "${AWG_VERSION}" ]]
 go test -mod=readonly -count=1 nimbo/awgcore ./cgo_bridge
+
+# Execute the production request contract against the same merged C bridge on
+# the macOS host. This temporary library contains both engines in one Go build;
+# it is never shipped. The Apple archives below each still contain one runtime.
+go build -mod=readonly -trimpath -buildvcs=false -buildmode=c-shared \
+  -o "${WORK_DIR}/libXray-contract.dylib" ./cgo_bridge
+python3 "${ROOT_DIR}/scripts/ci/test-libxray-cabi.py" "${WORK_DIR}/libXray-contract.dylib"
 
 build_slice() {
   local sdk="$1" go_arch="$2" apple_arch="$3" target="$4"
@@ -90,16 +97,17 @@ xcodebuild -create-xcframework \
 rm -rf "${DESTINATION}"
 ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
 {
-  echo 'libxray_version=26.7.28'
+  echo 'libxray_version=26.9.9'
   echo "libxray_commit=${LIBXRAY_COMMIT}"
   echo "libxray_source_sha256=${LIBXRAY_SOURCE_SHA256}"
   echo "awg_version=${AWG_VERSION}"
   echo "go_version=${GO_VERSION}"
   echo 'go_runtime_archives_per_slice=1'
+  echo 'native_api3_awg_contract_test=passed'
   echo 'swift_awg_link_check=iphoneos-arm64,iphonesimulator-arm64,iphonesimulator-x86_64'
   shasum -a 256 "${BRIDGE_DIR}/"*.go "${BRIDGE_DIR}/go.mod" "${BRIDGE_DIR}/go.sum"
   find "${AWG_DIR}" -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) -print | LC_ALL=C sort | while IFS= read -r file; do
     shasum -a 256 "${file}"
   done
 } > "${ROOT_DIR}/iosApp/Vendor/libxray-build-info.txt"
-echo "Prepared combined LibXray 26.7.28 / AmneziaWG ${AWG_VERSION} XCFramework"
+echo "Prepared combined LibXray 26.9.9 / AmneziaWG ${AWG_VERSION} XCFramework"

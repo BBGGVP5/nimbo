@@ -344,8 +344,8 @@ contains_packet_tunnel=true
 requires_resigning=true
 requires_network_extension_entitlement=true
 resignable=true
-libxray_version=26.7.28
-libxray_source_sha256=1596603887679f7ac6cca99eb27ecb9153fb4ccc7828c1eacd4d07bcb6d94998
+libxray_version=26.9.9
+libxray_source_sha256=070a5b573f5a907d31dc23064c89a8cac2cbf9a8baf7df64c42b9cac78b50d4b
 awg_version=v3.1.20260828
 go_runtime_archives_per_slice=1
 MANIFEST

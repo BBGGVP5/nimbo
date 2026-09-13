@@ -176,6 +176,7 @@ fun NetworkSettingsScreen(
                             2 -> "HTTP HEAD"
                             3 -> "HTTPS Strict"
                             4 -> "ICMP"
+                            5 -> "Nimbo Ping"
                             else -> "TCP Connect"
                         },
                         onClick = onNavigateToPingSettings

@@ -376,24 +376,56 @@ private fun LatencyPage(state: NimboUiState, actions: NimboUiActions) {
         AppearanceToggle("Пинг после обновления подписки", state.pingAfterRefresh) { actions.onSetAppearance("pingAfterRefresh", it.toString()) }
     }
     SettingsSection("Способ замера") {
-        // ICMP на iOS недоступен обычному приложению — нужны raw-сокеты,
-        // которых система не даёт. Поэтому выбор из двух, а не из трёх.
         NimboDropdownRow(
-            title = "Чем мерить",
+            title = "Протокол пинга",
             options = listOf(
+                NimboDropdownOption(
+                    "nimbo",
+                    "Nimbo Ping",
+                    "HTTP GET через VPN · только активный сервер"
+                ),
                 NimboDropdownOption(
                     "tcp",
                     "TCP до узла",
                     "Время установления соединения с портом сервера"
                 ),
                 NimboDropdownOption(
-                    "http",
-                    "HTTP через туннель",
-                    "Запрос к адресу проверки: задержка рабочего маршрута"
+                    "http_get",
+                    "HTTP GET",
+                    "GET к контрольному URL через активный VPN"
+                ),
+                NimboDropdownOption(
+                    "http_head",
+                    "HTTP HEAD",
+                    "Заголовки контрольного URL через активный VPN"
+                ),
+                NimboDropdownOption(
+                    "icmp",
+                    "ICMP Ping",
+                    "Echo-запрос к узлу · сервер может не отвечать"
                 )
             ),
-            selectedKey = if (state.pingProtocol == "http") "http" else "tcp",
+            selectedKey = normalizePingProtocol(state.pingProtocol),
             onSelect = { actions.onSetPing("protocol", it) }
+        )
+        BasicText(
+            "Nimbo Ping и HTTP проверяют подключённый VPN без перехода на прямое соединение. Неактивным серверам результат не присваивается. Если маршрут нельзя проверить, замер недоступен.",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            style = NimboBodyStyle
+        )
+    }
+
+    SettingsSection("Отображение пинга") {
+        NimboDropdownRow(
+            title = "В списке серверов",
+            options = listOf(
+                NimboDropdownOption("numeric", "Цифры (мс)", "Точное время ответа"),
+                NimboDropdownOption("bars", "Шкала", "Уровень задержки"),
+                NimboDropdownOption("both", "Шкала и цифры", "Индикатор и время ответа"),
+                NimboDropdownOption("dots", "Точки", "Индикатор успешного ответа")
+            ),
+            selectedKey = normalizePingDisplay(state.pingDisplay),
+            onSelect = { actions.onSetPing("display", it) }
         )
     }
 
@@ -407,7 +439,7 @@ private fun LatencyPage(state: NimboUiState, actions: NimboUiActions) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            listOf(1000, 2000, 3000, 5000).forEach { value ->
+            listOf(1000, 2000, 3000, 5000, 10000).forEach { value ->
                 NimboPill(
                     "${value / 1000} с",
                     modifier = Modifier.weight(1f),
@@ -529,10 +561,10 @@ private fun CustomPingUrlRow(state: NimboUiState, actions: NimboUiActions) {
     }
 }
 
-/** Проверенные адреса: отвечают пустым 204 и не тянут содержимое. */
+/** Контрольные адреса; Apple возвращает небольшую HTML-страницу. */
 private enum class PingUrlChoice(val title: String, val url: String) {
     GSTATIC("Google", "https://www.gstatic.com/generate_204"),
-    CLOUDFLARE("Cloudflare", "https://cloudflare.com/cdn-cgi/trace"),
+    CLOUDFLARE("Cloudflare", "https://cp.cloudflare.com/generate_204"),
     APPLE("Apple", "https://captive.apple.com/hotspot-detect.html")
 }
 

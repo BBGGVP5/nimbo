@@ -26,6 +26,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var pathMonitor: NWPathMonitor?
     /// Была ли сеть доступна при прошлой проверке.
     private var networkWasSatisfied = true
+    private var pingRoute: NimboPingRoute?
+    private var pingServerID = ""
+    private var pingTasks: [String: Task<Void, Never>] = [:]
+    private var pingGeneration: UInt64 = 0
 
     override func startTunnel(
         options: [String: NSObject]?,
@@ -41,6 +45,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 return
             }
             self.lifecycleGeneration &+= 1
+            self.cancelPings()
             let generation = self.lifecycleGeneration
             self.starting = true
 
@@ -87,6 +92,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 return
             }
             self.lifecycleGeneration &+= 1
+            self.cancelPings()
             self.stopWatchdog()
             self.stopPathMonitor()
             let stopError: Error?
@@ -127,6 +133,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             let request = (try? JSONSerialization.jsonObject(with: messageData)) as? [String: Any]
             let command = request?["command"] as? String ?? "status"
             switch command {
+            case "nimboPing", "httpPing":
+                self.handlePing(request ?? [:], completion: completionHandler)
+            case "cancelNimboPing":
+                if let id = request?["requestID"] as? String { self.pingTasks.removeValue(forKey: id)?.cancel() }
+                completionHandler?(Self.responseData(["ok": true]))
             case "status":
                 let running = (try? self.core.isRunning()) ?? false
                 let version = self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : ((try? self.core.version()) ?? "unknown")
@@ -254,6 +265,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let interfaces = Set(path.availableInterfaces.filter { path.usesInterfaceType($0.type) }.map(\.name))
         let changed = previousPathInterfaces.map { $0 != interfaces } ?? false
         previousPathInterfaces = interfaces
+        if !satisfied || returned || changed { invalidatePingSamples() }
 
         if awg.isConfigured {
             // Never reinstall network settings or replace Xray's TUN FD.
@@ -283,6 +295,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func sleep(completionHandler: @escaping () -> Void) {
         lifecycleQueue.async {
+            self.invalidatePingSamples()
             if self.awg.isConfigured { self.awg.suspend() }
             completionHandler()
         }
@@ -306,8 +319,53 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
+    /// Called only on lifecycleQueue. The server identity is frozen at core startup,
+    /// so changing selection/preferences while connected cannot relabel a route sample.
+    private func handlePing(_ request: [String: Any], completion: ((Data?) -> Void)?) {
+        let method = request["command"] as? String == "nimboPing" ? "GET" : (request["method"] as? String ?? "")
+        guard started, !starting, !reasserting, networkWasSatisfied,
+              ["GET", "HEAD"].contains(method),
+              (try? core.isRunning()) == true, !awg.suspended,
+              let route = pingRoute, !pingServerID.isEmpty,
+              let id = request["requestID"] as? String, UUID(uuidString: id) != nil,
+              pingTasks.isEmpty,
+              let rawURL = request["url"] as? String, let url = NimboPingPolicy.checkedURL(rawURL),
+              let targets = request["serverIDs"] as? [String], targets.contains(pingServerID),
+              let milliseconds = request["timeoutMs"] as? Int else {
+            completion?(Self.responseData(["ok": false, "latency": -1]))
+            return
+        }
+        let generation = pingGeneration
+        let serverID = pingServerID
+        pingTasks[id] = Task {
+            let value = await NimboHTTPProbe.measure(url: url, method: method,
+                                                     timeout: NimboPingPolicy.timeout(milliseconds: milliseconds), socks: route.socks)
+            self.lifecycleQueue.async {
+                let pending = self.pingTasks.removeValue(forKey: id) != nil
+                let valid = pending && generation == self.pingGeneration && self.started && !self.starting &&
+                    !self.reasserting && self.networkWasSatisfied && !self.awg.suspended &&
+                    (try? self.core.isRunning()) == true && self.pingServerID == serverID
+                completion?(Self.responseData(["ok": valid && value >= 0, "serverID": serverID,
+                                               "latency": valid ? value : -1]))
+            }
+        }
+    }
+
+    private func cancelPings() {
+        invalidatePingSamples()
+        pingRoute = nil
+        pingServerID = ""
+    }
+
+    private func invalidatePingSamples() {
+        pingGeneration &+= 1
+        for task in pingTasks.values { task.cancel() }
+        pingTasks.removeAll()
+    }
+
     private func restartAWG() {
         guard started, !starting else { return }
+        invalidatePingSamples()
         do {
             guard try core.isRunning() else { throw PacketTunnelError.coreStoppedUnexpectedly }
             try awg.restart()
@@ -389,6 +447,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             let startup = try await runCore(
                 generation: generation,
                 sourceData: data,
+                pingServerID: tunnelProtocol.providerConfiguration?["pingServerID"] as? String ?? "",
                 descriptor: descriptorInfo.descriptor,
                 interfaceName: descriptorInfo.interfaceName,
                 assetDirectory: assets,
@@ -427,6 +486,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private func runCore(
         generation: UInt64,
         sourceData: Data,
+        pingServerID: String,
         descriptor: Int32,
         interfaceName: String,
         assetDirectory: String,
@@ -439,6 +499,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     return
                 }
                 do {
+                    self.cancelPings()
                     if (try? self.core.isRunning()) == true { try self.core.stop() }
                     self.awg.close()
                     try self.core.configureRuntimeEnvironment(
@@ -452,6 +513,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     } else {
                         xraySource = sourceData
                     }
+                    let candidatePingRoute = NimboPingRoute.make()
                     let configuration = try XrayConfigurationBuilder.prepare(
                         sourceData: xraySource,
                         tunnelFileDescriptor: descriptor,
@@ -459,10 +521,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         assetDirectory: assetDirectory,
                         options: options,
                         tunnelMTU: awgConfiguration?.mtu ?? PacketTunnelNetwork.mtu,
+                        pingRoute: candidatePingRoute,
                         bridge: self.core
                     )
                     try self.core.run(configurationJSON: configuration.json)
                     guard try self.core.isRunning() else { throw PacketTunnelError.coreDidNotStart }
+                    self.pingRoute = configuration.pingRouteVerified ? candidatePingRoute : nil
+                    self.pingServerID = pingServerID
                     let coreVersion = try self.core.version()
                     self.outboundCount = configuration.outboundCount
                     continuation.resume(returning: CoreStartupResult(

@@ -67,8 +67,13 @@ object XrayManager {
 
             val datDir = context.filesDir.resolve("xray-data").apply { mkdirs() }
             ensureXrayDatAssets(context, datDir)
+            val healthSession = HealthProxySession(server.pingMeasurementKey())
+            val authenticatedConfig = JSONObject(rawConfig)
+            val healthRouteVerified = LocalProxyConfig.authenticateVerifiedRoute(
+                authenticatedConfig, healthSession, server.remoteOutboundTag, server.remoteBalancerTag
+            )
             val config = XrayCoreProtocol.withAndroidRuntimeEnv(
-                configJson = rawConfig,
+                configJson = authenticatedConfig.toString(),
                 assetDirectory = datDir.absolutePath,
                 tunFd = vpnFd
             )
@@ -76,6 +81,9 @@ object XrayManager {
             val runResult = LibXray.invoke(XrayCoreProtocol.runXrayFromJson(config))
             if (isOk(runResult)) {
                 isConnected = true
+                // Keep existing authenticated startup health checks available even when
+                // this route is too complex to certify for user-facing Nimbo Ping.
+                HealthProxySessions.activate(healthSession, verifiedRoute = healthRouteVerified)
                 connectionError = null
                 Logger.i(TAG, "Xray core started successfully")
                 true
@@ -97,6 +105,7 @@ object XrayManager {
     }
 
     fun disconnect() {
+        HealthProxySessions.invalidate()
         runCatching { LibXray.invoke(XrayCoreProtocol.stopXray()) }
         runCatching { tunInterface?.close() }
         tunInterface = null

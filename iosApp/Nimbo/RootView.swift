@@ -1,4 +1,5 @@
 import Foundation
+import NetworkExtension
 import SwiftUI
 import UniformTypeIdentifiers
 import NimboShared
@@ -268,9 +269,7 @@ struct RootView: View {
         await refreshSubscription(manual: false)
     }
 
-    /// ICMP обычному приложению на iOS недоступен, поэтому меряем время
-    /// установления TCP-соединения с портом сервера — то же значение, что
-    /// показывает Android для TCP-протоколов.
+    /// Протокол задаётся в настройках. Nimbo проверяет только активный VPN-маршрут.
     private func measurePings() async {
         guard let profile = try? NimboSubscriptionRepository.shared.loadProfile() else { return }
         let targets = profile.servers
@@ -286,7 +285,7 @@ struct RootView: View {
         defer {
             IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)
         }
-        guard let results = await NimboPingService.shared.measureAll(targets) else { return }
+        guard let results = await NimboPingService.shared.measureAll(targets, session: vpn.manager?.connection as? NETunnelProviderSession) else { return }
         let ordered = results.map { ($0.key, $0.value) }
         IosComposeControllerKt.NimboUpdateIosPings(
             serverIds: ordered.map { $0.0 },
@@ -358,7 +357,8 @@ struct RootView: View {
             values: [],
             inProgress: true
         )
-        let value = await NimboPingService.shared.measureOne(host: server.host, port: server.port)
+        let value = await NimboPingService.shared.measureOne(host: server.host, port: server.port, id: server.id,
+                                                           session: vpn.manager?.connection as? NETunnelProviderSession)
         IosComposeControllerKt.NimboUpdateIosPings(
             serverIds: [serverID],
             values: [KotlinInt(int: Int32(value))],
@@ -487,7 +487,8 @@ struct RootView: View {
         // Пустой ответ означал бы «все узлы молчат»; когда замер уже идёт,
         // служба возвращает ничего — и повторять его незачем.
         guard let results = await NimboPingService.shared.measureAll(
-            candidates.map { (id: $0.id, host: $0.host, port: $0.port) }
+            candidates.map { (id: $0.id, host: $0.host, port: $0.port) },
+            session: vpn.manager?.connection as? NETunnelProviderSession
         ) else { return }
         let ordered = results.map { ($0.key, $0.value) }
         IosComposeControllerKt.NimboUpdateIosPings(
@@ -497,7 +498,7 @@ struct RootView: View {
         )
 
         // Молчащий узел — не «ноль миллисекунд»: такие в выбор не идут.
-        guard let best = results.filter({ $0.value > 0 }).min(by: { $0.value < $1.value }) else {
+        guard let best = results.filter({ $0.value >= 0 }).min(by: { $0.value < $1.value }) else {
             // В сети, где проверка не проходит, узлы молчат все разом — а сам
             // туннель при этом поднимается. Оставлять человека без соединения
             // из-за неудавшегося замера незачем: подключаемся к выбранному.

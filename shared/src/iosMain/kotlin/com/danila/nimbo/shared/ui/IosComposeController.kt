@@ -192,12 +192,21 @@ private fun pingInt(key: String, default: Int): Int {
 private fun applyPingChange(key: String, value: String) {
     val defaults = NSUserDefaults.standardUserDefaults
     when (key) {
-        "timeoutMs" -> defaults.setInteger(value.toLongOrNull() ?: 3000L, PingDefaultsPrefix + key)
+        "timeoutMs" -> defaults.setInteger((value.toLongOrNull() ?: 3000L).coerceIn(1000L, 10000L), PingDefaultsPrefix + key)
+        "protocol" -> defaults.setObject(normalizePingProtocol(value), PingDefaultsPrefix + key)
+        "display" -> defaults.setObject(normalizePingDisplay(value), PingDefaultsPrefix + key)
         else -> defaults.setObject(value, PingDefaultsPrefix + key)
     }
+    if (key in listOf("protocol", "url", "timeoutMs")) {
+        iosPings.value = emptyMap()
+        defaults.removeObjectForKey(PingResultsKey)
+    }
     iosUiState.value = iosUiState.value.copy(
-        pingProtocol = pingText("protocol", "tcp"),
-        pingTimeoutMs = pingInt("timeoutMs", 3000),
+        pings = iosPings.value,
+        servers = iosUiState.value.servers.map { it.copy(ping = iosPings.value[it.id]) },
+        pingProtocol = normalizePingProtocol(pingText("protocol", "tcp")),
+        pingDisplay = normalizePingDisplay(pingText("display", "numeric")),
+        pingTimeoutMs = pingInt("timeoutMs", 3000).coerceIn(1000, 10000),
         pingUrl = pingText("url", DefaultPingUrl)
     )
 }
@@ -741,8 +750,9 @@ fun NimboUpdateIosUiState(
         favoritesFirst = appearanceFlag("favoritesFirst", true),
         connectStyle = appearanceText("connectStyle", "classic"),
         statusParticles = appearanceFlag("statusParticles", true),
-        pingProtocol = pingText("protocol", "tcp"),
-        pingTimeoutMs = pingInt("timeoutMs", 3000),
+        pingProtocol = normalizePingProtocol(pingText("protocol", "tcp")),
+        pingDisplay = normalizePingDisplay(pingText("display", "numeric")),
+        pingTimeoutMs = pingInt("timeoutMs", 3000).coerceIn(1000, 10000),
         pingUrl = pingText("url", DefaultPingUrl),
         modules = loadModules(),
         routingProfiles = loadRoutingProfiles(),

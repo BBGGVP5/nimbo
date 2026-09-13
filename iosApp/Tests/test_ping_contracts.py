@@ -1,0 +1,282 @@
+#!/usr/bin/env python3
+"""Windows source contracts; --swift compiles and runs local-only Apple native tests.
+No Gradle, Go, IPA build, workflows, signing or remote endpoints are invoked.
+"""
+import argparse
+import contextlib
+import os
+import pathlib
+import platform
+import shlex
+import socket
+import socketserver
+import ssl
+import subprocess
+import tempfile
+import threading
+import time
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+SOURCES = [
+    "iosApp/Shared/NimboPingPolicy.swift",
+    "iosApp/Shared/NimboPingCompletion.swift",
+    "iosApp/Shared/NimboHTTPProbe.swift",
+    "iosApp/Shared/NimboRoutingOptions.swift",
+    "iosApp/Nimbo/NimboICMPProbe.swift",
+    "iosApp/Nimbo/NimboActiveRouteProbe.swift",
+    "iosApp/Nimbo/NimboPingService.swift",
+    "iosApp/PacketTunnel/NimboPingRoute.swift",
+    "iosApp/PacketTunnel/XrayConfiguration.swift",
+    "iosApp/Tests/PingConfigurationStubs.swift",
+    "iosApp/Tests/PingPolicyTests.swift",
+]
+
+def read(path):
+    return (ROOT / path).read_text(encoding="utf-8-sig")
+
+class PingContracts(unittest.TestCase):
+    def test_all_native_gate_sources_exist(self):
+        for path in SOURCES:
+            self.assertTrue((ROOT / path).is_file(), path)
+
+    def test_legacy_protocol_and_default(self):
+        s = read(SOURCES[0])
+        self.assertIn('case nimbo, tcp, httpGet = "http_get", httpHead = "http_head", icmp', s)
+        self.assertIn('stored == "http" ? .httpHead', s)
+        self.assertIn('?? .tcp)', s)
+        self.assertIn('method: String = "HEAD"', read("iosApp/Nimbo/NimboPingService.swift"))
+
+    def test_route_only_no_fanout_or_authority_rewrite(self):
+        s = read("iosApp/Nimbo/NimboPingService.swift")
+        self.assertIn('targets.map { ($0.id, -1) }', s)
+        self.assertIn('results[sample.id] = sample.latency', s)
+        self.assertIn('NimboPingPolicy.checkedURL(settings.rawURL)', s)
+        self.assertNotIn('targetURL', s)
+        self.assertNotIn('URLSession', s)
+        self.assertIn('case .nimbo, .httpGet, .httpHead: return -1', s)
+
+    def test_settings_snapshot_is_sticky(self):
+        s = read("iosApp/Nimbo/NimboPingService.swift")
+        self.assertIn('UserDefaults.didChangeNotification', s)
+        self.assertIn('self.invalidated = true', s)
+        self.assertGreaterEqual(s.count('!Task.isCancelled && lease.valid'), 2)
+        self.assertNotIn('com.nimbo.ping.display', s)
+
+    def test_private_route_precedes_direct_rules(self):
+        s = read("iosApp/PacketTunnel/XrayConfiguration.swift")
+        self.assertIn('[NimboPingRoute.rule(proxyTag: pingTag)] +', s)
+        self.assertIn('pingRouteVerified: pingRoute != nil && pingTag != nil', s)
+        r = read("iosApp/PacketTunnel/NimboPingRoute.swift")
+        self.assertIn('guard !balanced', r)
+        self.assertIn('first["proxySettings"] == nil', r)
+        self.assertIn('sockopt["dialerProxy"] == nil', r)
+        self.assertIn('"listen": "127.0.0.1"', r)
+        self.assertIn('"auth": "password"', r)
+        self.assertIn('"outboundTag": proxyTag', r)
+
+    def test_provider_identity_generation_method_and_health(self):
+        s = read("iosApp/PacketTunnel/PacketTunnelProvider.swift")
+        for text in ['targets.contains(pingServerID)', 'generation == self.pingGeneration',
+                     'pending &&', 'self.pingServerID = pingServerID', '!self.awg.suspended',
+                     'socks: route.socks', '"nimboPing" ? "GET"', 'invalidatePingSamples()']:
+            self.assertIn(text, s)
+        app = read("iosApp/Nimbo/VpnController.swift")
+        self.assertIn('stagingData(for: server) == data', app)
+        self.assertIn('"pingServerID": verifiedPingServerID(for: data)', app)
+
+    def test_disconnected_ipc_never_probes_direct(self):
+        s = read("iosApp/Nimbo/NimboActiveRouteProbe.swift")
+        self.assertIn('session.status == .connected', s)
+        self.assertIn('NEVPNStatusDidChange', s)
+        self.assertIn('cancelNimboPing', s)
+        self.assertNotIn('URLSession', s)
+        self.assertNotIn('NimboHTTPProbe', s)
+
+    def test_http_security_and_bounds(self):
+        s = read("iosApp/Shared/NimboHTTPProbe.swift")
+        self.assertIn('kCFStreamPropertySOCKSProxy', s)
+        self.assertIn('kCFStreamPropertyProxyLocalBypass', s)
+        self.assertIn('negotiatedSSL.rawValue', s)
+        self.assertIn('maximumHeaderBytes', s)
+        self.assertIn('guard (200...299).contains(status)', s)
+        self.assertIn('withTaskCancellationHandler', s)
+        for forbidden in ['allowsAnyHTTPSCertificate', 'kCFStreamSSLValidatesCertificateChain',
+                          'kCFStreamSSLAllowsAnyRoot', 'URLCredential(trust:', 'sec_protocol_options_set_verify_block']:
+            self.assertNotIn(forbidden, s)
+
+    def test_icmp_is_datagram_and_correlated(self):
+        s = read("iosApp/Nimbo/NimboICMPProbe.swift")
+        self.assertIn('SOCK_DGRAM, ipv6 ? IPPROTO_ICMPV6 : IPPROTO_ICMP', s)
+        self.assertNotIn('SOCK_RAW', s)
+        self.assertIn('DispatchSource.makeReadSource', s)
+        self.assertIn('NimboICMPPacket.matches', s)
+        self.assertIn('source.setCancelHandler { Darwin.close(fd) }', s)
+        self.assertIn('withTaskCancellationHandler', s)
+
+    def test_display_backup_and_zero(self):
+        s = read("iosApp/Nimbo/NimboBackup.swift")
+        self.assertIn('"com.nimbo.ping.display"', s)
+        self.assertIn('"protocol", "display", "url"', s)
+        root = read("iosApp/Nimbo/RootView.swift")
+        self.assertIn('results.filter({ $0.value >= 0 })', root)
+        self.assertEqual(root.count('session: vpn.manager?.connection as? NETunnelProviderSession'), 3)
+
+    def test_deadlines_and_cleanup(self):
+        s = read("iosApp/Nimbo/NimboPingService.swift")
+        for text in ['min(60,', 'min(settings.timeout, remaining)', 'connection.cancel()', 'timer.cancel()']:
+            self.assertIn(text, s)
+        c = read("iosApp/Shared/NimboPingCompletion.swift")
+        self.assertLess(c.index('lock.unlock()\n        callback?'), c.index('callback?(value)'))
+
+    def test_heap_remains_six_gib(self):
+        self.assertIn('-Dorg.gradle.jvmargs=-Xmx6g', read("scripts/ci/build-unsigned-ios.sh"))
+
+class FixtureServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+    def handle_error(self, request, client_address):
+        pass # Expected closed sockets during cancellation/TLS rejection.
+
+class HTTPFixture(socketserver.StreamRequestHandler):
+    def handle(self):
+        line = self.rfile.readline(8192).decode('ascii', 'replace').strip()
+        if not line:
+            return
+        while self.rfile.readline(8192) not in (b'\r\n', b'\n', b''):
+            pass
+        method, path, _ = line.split(' ', 2)
+        self.server.requests.append((method, path))
+        if path in ('/stall', '/cancel'):
+            time.sleep(3)
+            return
+        if path == '/malformed':
+            response = b'NOT HTTP\r\n\r\n'
+        elif path == '/large-header':
+            response = b'HTTP/1.1 200 OK\r\nX-Big: ' + b'a' * 17000 + b'\r\n\r\n'
+        elif path == '/redirect':
+            response = b'HTTP/1.1 302 Found\r\nLocation: /must-not-follow\r\nContent-Length: 0\r\n\r\n'
+        elif path == '/error':
+            response = b'HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\n\r\n'
+        elif path == '/forbidden':
+            response = b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n'
+        elif path == '/upgrade':
+            response = b'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n'
+        elif path == '/interim':
+            response = b'HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 204 No Content\r\n\r\n'
+        elif path == '/large-body':
+            response = b'HTTP/1.1 200 OK\r\nContent-Length: 1000000000\r\n\r\nsmall prefix'
+        else:
+            response = b'HTTP/1.1 204 No Content\r\n\r\n'
+        self.wfile.write(response)
+        self.wfile.flush()
+        if path == '/large-body':
+            time.sleep(3) # Headers must complete without downloading the body.
+
+def exact(sock, count):
+    data = b''
+    while len(data) < count:
+        part = sock.recv(count - len(data))
+        if not part:
+            raise EOFError()
+        data += part
+    return data
+
+class SOCKSFixture(socketserver.BaseRequestHandler):
+    def handle(self):
+        sock = self.request
+        sock.settimeout(3)
+        version, count = exact(sock, 2)
+        methods = exact(sock, count)
+        if version != 5 or 2 not in methods:
+            sock.sendall(b'\x05\xff'); return
+        sock.sendall(b'\x05\x02')
+        version, size = exact(sock, 2)
+        user = exact(sock, size)
+        password = exact(sock, exact(sock, 1)[0])
+        accepted = version == 1 and user == b'fixture' and password == b'fixture-only'
+        sock.sendall(b'\x01\x00' if accepted else b'\x01\x01')
+        if not accepted:
+            self.server.rejected += 1
+            return
+        version, command, reserved, kind = exact(sock, 4)
+        if kind == 1: exact(sock, 4)
+        elif kind == 4: exact(sock, 16)
+        elif kind == 3: exact(sock, exact(sock, 1)[0])
+        else: return
+        exact(sock, 2)
+        if version != 5 or command != 1: return
+        sock.sendall(b'\x05\x00\x00\x01\x7f\x00\x00\x01\x00\x50')
+        data = b''
+        while b'\r\n\r\n' not in data and len(data) < 16384:
+            data += sock.recv(2048)
+        self.server.proxied.append(data.split(b'\r\n')[0])
+        sock.sendall(b'HTTP/1.1 204 No Content\r\n\r\n')
+
+@contextlib.contextmanager
+def serving(handler, tls=None):
+    server = FixtureServer(('127.0.0.1', 0), handler)
+    server.requests, server.proxied, server.rejected = [], [], 0
+    if tls:
+        server.socket = tls.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+def native_tests():
+    if platform.system() != 'Darwin':
+        raise SystemExit('--swift requires macOS + Xcode (Foundation/Network/NetworkExtension/Darwin). It never silently skips.')
+    with tempfile.TemporaryDirectory(prefix='nimbo-ping-') as temporary:
+        tmp = pathlib.Path(temporary)
+        sdk = subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip()
+        arch = 'arm64' if platform.machine() == 'arm64' else 'x86_64'
+        command = ['xcrun', '--sdk', 'macosx', 'swiftc', '-swift-version', '5', '-parse-as-library',
+                   '-target', arch + '-apple-macosx13.0', '-sdk', sdk,
+                   *SOURCES, '-o', str(tmp / 'PingPolicyTests')]
+        print('NATIVE COMPILER:', shlex.join(command), flush=True)
+        subprocess.run(command, cwd=ROOT, check=True, timeout=180)
+        ios_sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
+        ios_command = ['xcrun', '--sdk', 'iphoneos', 'swiftc', '-swift-version', '5', '-typecheck',
+                       '-target', 'arm64-apple-ios16.0', '-sdk', ios_sdk, *SOURCES[:-1]]
+        print('IOS 16 TYPECHECK:', shlex.join(ios_command), flush=True)
+        subprocess.run(ios_command, cwd=ROOT, check=True, timeout=180)
+        # Parse modified integration files as well. Their real LibXray/Kotlin module
+        # dependencies are typechecked by the full app build, not test stubs.
+        for path in ['iosApp/PacketTunnel/PacketTunnelProvider.swift', 'iosApp/Nimbo/VpnController.swift',
+                     'iosApp/Nimbo/RootView.swift', 'iosApp/Nimbo/NimboBackup.swift']:
+            subprocess.run(['xcrun', 'swiftc', '-frontend', '-parse', path], cwd=ROOT, check=True, timeout=30)
+        cert, key = tmp / 'cert.pem', tmp / 'key.pem'
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+                        '-subj', '/CN=localhost', '-keyout', str(key), '-out', str(cert)],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls.load_cert_chain(cert, key)
+        with serving(HTTPFixture) as http, serving(SOCKSFixture) as socks, serving(HTTPFixture, tls) as secure:
+            env = dict(os.environ, NIMBO_TEST_HTTP_PORT=str(http.server_address[1]),
+                       NIMBO_TEST_SOCKS_PORT=str(socks.server_address[1]), NIMBO_TEST_TLS_PORT=str(secure.server_address[1]))
+            subprocess.run([str(tmp / 'PingPolicyTests')], env=env, check=True, timeout=45)
+            assert ('GET', '/method/GET') in http.requests
+            assert ('HEAD', '/method/HEAD') in http.requests
+            assert all(path not in ('/must-not-hit-origin', '/must-not-follow') for _, path in http.requests), http.requests
+            assert socks.proxied == [b'GET /must-not-hit-origin HTTP/1.1'], socks.proxied
+            assert socks.rejected == 1
+            assert not secure.requests, 'Untrusted certificate must fail before an HTTP request'
+        print('PASS: local HTTP methods, no redirect, no SOCKS bypass/fallback, untrusted TLS rejection', flush=True)
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--swift', action='store_true', help='Compile + execute native tests on macOS; fail elsewhere')
+    args = parser.parse_args()
+    result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(PingContracts))
+    if not result.wasSuccessful():
+        raise SystemExit(1)
+    if args.swift:
+        native_tests()
+
+if __name__ == '__main__':
+    main()

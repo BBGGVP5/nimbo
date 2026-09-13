@@ -452,7 +452,7 @@ private fun ProfileServerCard(
                     )
                 )
             }
-            NimboPill(server.pingLabel, selected = server.selected)
+            NimboPingBadge(server, selected = server.selected)
             Spacer(Modifier.width(6.dp))
             // Отдельная кнопка со спидометром: нажатие на само число оставили,
             // но полагаться на него нельзя — его никто не находит.

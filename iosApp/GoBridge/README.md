@@ -1,14 +1,14 @@
 # Combined LibXray and AmneziaWG for iOS
 
 `bash scripts/ci/prepare-libxray-apple.sh` builds `iosApp/Vendor/LibXray.xcframework`
-on macOS with Xcode and Go **1.27.0**. It produces iOS arm64 and a universal
+on macOS with Xcode and Go **1.27.1**. It produces iOS arm64 and a universal
 arm64/x86_64 simulator slice, deployment target iOS 16. There is exactly one
 `go build -buildmode=c-archive ./cgo_bridge` per architecture. Do not add a
 separate AWG archive to the extension.
 
-The script extracts LibXray **v26.7.28**, commit
-`80263da83e96b2972455b0a94b13ee1a10e51391`, from its SHA-256-checked source archive
-(`1596603887679f7ac6cca99eb27ecb9153fb4ccc7828c1eacd4d07bcb6d94998`). The upstream
+The script extracts LibXray **v26.9.9**, commit
+`50b95979f5db551bd273165cf469e5daaf791341`, from its SHA-256-checked source archive
+(`070a5b573f5a907d31dc23064c89a8cac2cbf9a8baf7df64c42b9cac78b50d4b`). The upstream
 `cgo_bridge/main.go`, including `CGoInvoke` and `CGoFree`, is unchanged. These
 Go files are copied alongside it. `go.mod`/`go.sum` here lock the combined
 dependency graph, with AmneziaWG **v3.1.20260828** and Xray's newer gVisor
@@ -18,6 +18,17 @@ script that updates dependencies is used. The manifest records hashes of both
 bridge and shared runtime sources. External cached modules are verified in a
 copy of the module graph without the local `nimbo/awgcore` requirement; this
 avoids Go trying to verify a nonexistent public zip for that local module.
+
+The pinned Xray-core module is
+`v1.260327.1-0.20260908222543-52a412d9e2f5` (runtime version **26.9.9**).
+The build requires Go **1.27.1** exactly and sets `GOTOOLCHAIN=local`;
+install that toolchain before running the Apple script. Go 1.27.0 can download
+1.27.1 automatically for local module checks with `GOTOOLCHAIN=auto`.
+
+This update requires invoke **API 3**. `LibXrayBridge.swift` sends `runXray`
+with `payload.xrayJson`; API 1 and `runXrayFromJson`/`configJSON` are rejected.
+`CGoInvoke` and `CGoFree` keep their signatures and response ownership rules.
+Ping request migration is handled separately by the native ping implementation.
 
 The added C ABI is:
 
@@ -55,12 +66,28 @@ Validation commands:
 
 ```sh
 python3 scripts/ci/check-ios-awg.py          # Windows/macOS source + Go stats tests
+python3 tools/release/check-libxray.py       # actual AAR/hash/ELF and Android/Apple source pins/API 3
 python3 scripts/ci/check-ios-awg.py --swift  # macOS: execute Swift INI tests too
 bash scripts/ci/prepare-libxray-apple.sh     # native bridge tests + all Apple slices
 bash scripts/ci/build-unsigned-ios.sh       # full re-signable IPA build
 ```
 
-Windows validation covered source/build contracts, secret filtering, shell
+The Apple build also compiles a temporary host C shared library from the same
+merged source and runs `scripts/ci/test-libxray-cabi.py` against it before
+building the Apple slices. The test derives the run method/key/API version
+from the production Swift source and executes real version, conversion,
+start/state/stop requests, rejection of obsolete envelopes, and AWG C ABI
+start/stats/duplicate-start/stop checks. All C responses are freed through
+`CGoFree`. It uses only local listeners; it does not establish an iOS tunnel.
+
+For the 26.9.9 update, Windows passed all upstream libXray packages and the
+shared AWG tests with the merged lock, module-cache verification, AWG vet and
+CGO-disabled `ios/arm64` compilation of AWG and Xray. Linux additionally built
+and executed the real combined C library and API 3/AWG contract test. Artifacts
+and the exact commands are under `artifacts/libxray-26.9.9/`. The Apple C/Swift
+link and NetworkExtension/device checks remain pending on macOS/iOS.
+
+Before this update, Windows validation covered source/build contracts, secret filtering, shell
 syntax, external module checksum verification, and Go `ios/arm64` package
 compilation with CGO disabled for both awgcore and Xray. Xray's Go package tests
 also passed using the merged graph. After the shared runtime's IPv4-mapped

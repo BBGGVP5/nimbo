@@ -134,6 +134,7 @@ data class NimboUiState(
     val routingProfiles: List<com.danila.nimbo.shared.routing.NimboRoutingProfile> = emptyList(),
     val routingProfileId: String = "global",
     val pingProtocol: String = "tcp",
+    val pingDisplay: String = "numeric",
     val pingTimeoutMs: Int = 3000,
     val pingUrl: String = "https://www.gstatic.com/generate_204",
     val updateVersion: String = "",
@@ -279,6 +280,7 @@ fun NimboAppShell(
     val density = LocalDensity.current
 
     CompositionLocalProvider(
+        LocalNimboPingDisplay provides normalizePingDisplay(state.pingDisplay),
         LocalNimboElementStyle provides NimboElementStyle.fromKey(state.elementStyle),
         LocalNimboAppearance provides appearance,
         LocalNimboDark provides dark,

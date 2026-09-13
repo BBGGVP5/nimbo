@@ -16,6 +16,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.danila.nimbo.network.PingDisplay
+import com.danila.nimbo.network.ActiveProxyPing
 import com.danila.nimbo.MainViewModel
 import com.danila.nimbo.ui.components.AnimatedGradientBackground
 import com.danila.nimbo.ui.components.GlassHeader
@@ -141,6 +143,13 @@ fun PingSettingsScreen(
                         selected = pingProtocol == 4,
                         onClick = { preferencesManager.pingProtocol = 4 }
                     )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = nebulaColors.textTertiary.copy(alpha = 0.1f))
+                    ProtocolItem(
+                        title = "Nimbo Ping",
+                        subtitle = "GET только через проверенный активный прокси-маршрут. Без подключения недоступен. Проверяет подключённую ноду, а не весь список; прямого обхода нет.",
+                        selected = pingProtocol == 5,
+                        onClick = { preferencesManager.pingProtocol = 5 }
+                    )
                 }
 
                 // Section: Test URL
@@ -162,6 +171,9 @@ fun PingSettingsScreen(
                             leadingIcon = { Icon(Icons.Default.Language, null, tint = nebulaColors.accent) }
                         )
                         
+                        if (!ActiveProxyPing.validUrl(pingUrl)) {
+                            Text("Введите HTTP/HTTPS URL без логина, пароля и фрагмента.", color = nebulaColors.textTertiary, style = MaterialTheme.typography.bodySmall)
+                        }
                         Spacer(Modifier.height(12.dp))
                         
                         Row(
@@ -231,65 +243,26 @@ fun PingSettingsScreen(
                     SettingsSwitch(
                         icon = Icons.Default.VpnLock,
                         title = "Через VPN",
-                        subtitle = "End-to-end HTTP до контрольного URL через выбранный outbound; требуется активный VPN",
-                        checked = pingThroughProxy,
+                        subtitle = "Только подключённая нода через проверенный активный маршрут. Для Nimbo Ping всегда включено.",
+                        checked = pingThroughProxy || pingProtocol == 5,
+                        enabled = pingProtocol != 5,
                         onCheckedChange = { preferencesManager.pingThroughProxy = it }
                     )
                 }
 
                 // Section: Display Mode
                 GlassSection(title = "Визуализация", icon = Icons.Default.Visibility) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { 
-                                preferencesManager.pingDisplayMode = (pingDisplayMode + 1) % 3
-                            }
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Способ отображения", color = nebulaColors.textPrimary, style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                when (pingDisplayMode) {
-                                    0 -> "Показывать время отклика в мс"
-                                    1 -> "Показывать статус доступности"
-                                    else -> "Показывать индикатор уровня"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = nebulaColors.textTertiary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        
-                        Spacer(Modifier.width(16.dp))
-                        
-                        Surface(
-                            color = nebulaColors.accent.copy(alpha = 0.1f),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, nebulaColors.accent.copy(alpha = 0.2f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    when (pingDisplayMode) {
-                                        0 -> "Время"
-                                        1 -> "Статус"
-                                        else -> "Индикатор"
-                                    },
-                                    color = nebulaColors.accent,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                                Icon(Icons.Default.SyncAlt, null, tint = nebulaColors.accent, modifier = Modifier.size(14.dp).padding(start = 4.dp))
-                            }
-                        }
+                    PingDisplay.entries.forEach { display ->
+                        ProtocolItem(
+                            title = when (display) {
+                                PingDisplay.NUMERIC -> "Числа"
+                                PingDisplay.BARS -> "Полоски"
+                                PingDisplay.BOTH -> "Числа и полоски"
+                                PingDisplay.DOTS -> "Точки"
+                            },
+                            subtitle = "", selected = pingDisplayMode == display.id,
+                            onClick = { preferencesManager.pingDisplayMode = display.id }
+                        )
                     }
                 }
 

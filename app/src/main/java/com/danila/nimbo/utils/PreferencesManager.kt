@@ -1,5 +1,8 @@
 package com.danila.nimbo.utils
 
+import com.danila.nimbo.network.PingProtocol
+import com.danila.nimbo.network.PingDisplay
+
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
@@ -284,10 +287,10 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     val globalBlurState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_BLUR, 25.0f).coerceIn(0.0f, 80.0f))
     val globalCornersState = mutableStateOf(sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f))
 
-    val pingProtocolState = mutableStateOf(sharedPreferences.getInt(KEY_PING_PROTOCOL, 0))
+    val pingProtocolState = mutableStateOf(PingProtocol.fromId(sharedPreferences.getInt(KEY_PING_PROTOCOL, 0)).id)
     val pingUrlState = mutableStateOf(sharedPreferences.getString(KEY_PING_URL, "https://www.gstatic.com/generate_204") ?: "https://www.gstatic.com/generate_204")
-    val pingTimeoutState = mutableStateOf(sharedPreferences.getInt(KEY_PING_TIMEOUT, 3))
-    val pingDisplayModeState = mutableStateOf(sharedPreferences.getInt(KEY_PING_DISPLAY_MODE, 0))
+    val pingTimeoutState = mutableStateOf(sharedPreferences.getInt(KEY_PING_TIMEOUT, 3).coerceIn(1, 10))
+    val pingDisplayModeState = mutableStateOf(PingDisplay.fromId(sharedPreferences.getInt(KEY_PING_DISPLAY_MODE, 0)).id)
     val pingThroughProxyState = mutableStateOf(sharedPreferences.getBoolean(KEY_PING_THROUGH_PROXY, false))
     val autoBypassByNetworkState = mutableStateOf(sharedPreferences.getBoolean(KEY_AUTO_BYPASS_BY_NETWORK, true))
     val allowServerSwitchWhileConnectedState = mutableStateOf(sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false))
@@ -591,10 +594,10 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
             KEY_GLOBAL_TRANSPARENCY -> globalTransparencyState.value = prefs.getFloat(KEY_GLOBAL_TRANSPARENCY, 0.0f).coerceIn(0.0f, 1.0f)
             KEY_GLOBAL_BLUR -> globalBlurState.value = prefs.getFloat(KEY_GLOBAL_BLUR, 25.0f).coerceIn(0.0f, 80.0f)
             KEY_GLOBAL_CORNERS -> globalCornersState.value = prefs.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f)
-            KEY_PING_PROTOCOL -> pingProtocolState.value = prefs.getInt(KEY_PING_PROTOCOL, 0)
+            KEY_PING_PROTOCOL -> pingProtocolState.value = PingProtocol.fromId(prefs.getInt(KEY_PING_PROTOCOL, 0)).id
             KEY_PING_URL -> pingUrlState.value = prefs.getString(KEY_PING_URL, "https://www.gstatic.com/generate_204") ?: "https://www.gstatic.com/generate_204"
-            KEY_PING_TIMEOUT -> pingTimeoutState.value = prefs.getInt(KEY_PING_TIMEOUT, 3)
-            KEY_PING_DISPLAY_MODE -> pingDisplayModeState.value = prefs.getInt(KEY_PING_DISPLAY_MODE, 0)
+            KEY_PING_TIMEOUT -> pingTimeoutState.value = prefs.getInt(KEY_PING_TIMEOUT, 3).coerceIn(1, 10)
+            KEY_PING_DISPLAY_MODE -> pingDisplayModeState.value = PingDisplay.fromId(prefs.getInt(KEY_PING_DISPLAY_MODE, 0)).id
             KEY_PING_THROUGH_PROXY -> pingThroughProxyState.value = prefs.getBoolean(KEY_PING_THROUGH_PROXY, false)
             KEY_AUTO_BYPASS_BY_NETWORK -> autoBypassByNetworkState.value = true
             KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED -> allowServerSwitchWhileConnectedState.value = prefs.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false)
@@ -658,10 +661,10 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         globalBlurState.value = sharedPreferences.getFloat(KEY_GLOBAL_BLUR, 25.0f).coerceIn(0.0f, 80.0f)
         globalCornersState.value = sharedPreferences.getFloat(KEY_GLOBAL_CORNERS, 1.0f).coerceIn(0.25f, 2.0f)
 
-        pingProtocolState.value = sharedPreferences.getInt(KEY_PING_PROTOCOL, 0)
+        pingProtocolState.value = PingProtocol.fromId(sharedPreferences.getInt(KEY_PING_PROTOCOL, 0)).id
         pingUrlState.value = sharedPreferences.getString(KEY_PING_URL, "https://www.gstatic.com/generate_204") ?: "https://www.gstatic.com/generate_204"
-        pingTimeoutState.value = sharedPreferences.getInt(KEY_PING_TIMEOUT, 3)
-        pingDisplayModeState.value = sharedPreferences.getInt(KEY_PING_DISPLAY_MODE, 0)
+        pingTimeoutState.value = sharedPreferences.getInt(KEY_PING_TIMEOUT, 3).coerceIn(1, 10)
+        pingDisplayModeState.value = PingDisplay.fromId(sharedPreferences.getInt(KEY_PING_DISPLAY_MODE, 0)).id
         pingThroughProxyState.value = sharedPreferences.getBoolean(KEY_PING_THROUGH_PROXY, false)
         subscriptionUserAgent // migrate older Happ, Incy, and custom settings to Nimbo
         autoBypassByNetworkState.value = sharedPreferences.getBoolean(KEY_AUTO_BYPASS_BY_NETWORK, true)
@@ -1592,12 +1595,13 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         get() = sharedPreferences.getBoolean(KEY_SEND_HWID, true)
         set(value) = sharedPreferences.edit().putBoolean(KEY_SEND_HWID, value).apply()
 
-    // Тип пинга: 0 = TCP, 1 = HTTP/GET, 2 = HTTP/HEAD, 3 = HTTPS Strict, 4 = ICMP
+    // Тип пинга: 0 = TCP, 1 = HTTP/GET, 2 = HTTP/HEAD, 3 = HTTPS Strict, 4 = ICMP, 5 = Nimbo Ping
     var pingProtocol: Int
-        get() = sharedPreferences.getInt(KEY_PING_PROTOCOL, 0)
+        get() = PingProtocol.fromId(sharedPreferences.getInt(KEY_PING_PROTOCOL, 0)).id
         set(value) {
-            sharedPreferences.edit().putInt(KEY_PING_PROTOCOL, value).apply()
-            pingProtocolState.value = value
+            val normalized = PingProtocol.fromId(value).id
+            sharedPreferences.edit().putInt(KEY_PING_PROTOCOL, normalized).apply()
+            pingProtocolState.value = normalized
         }
 
     var pingUrl: String
@@ -1608,17 +1612,19 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         }
 
     var pingTimeout: Int
-        get() = sharedPreferences.getInt(KEY_PING_TIMEOUT, 3)
+        get() = sharedPreferences.getInt(KEY_PING_TIMEOUT, 3).coerceIn(1, 10)
         set(value) {
-            sharedPreferences.edit().putInt(KEY_PING_TIMEOUT, value).apply()
-            pingTimeoutState.value = value
+            val normalized = value.coerceIn(1, 10)
+            sharedPreferences.edit().putInt(KEY_PING_TIMEOUT, normalized).apply()
+            pingTimeoutState.value = normalized
         }
 
     var pingDisplayMode: Int
-        get() = sharedPreferences.getInt(KEY_PING_DISPLAY_MODE, 0)
+        get() = PingDisplay.fromId(sharedPreferences.getInt(KEY_PING_DISPLAY_MODE, 0)).id
         set(value) {
-            sharedPreferences.edit().putInt(KEY_PING_DISPLAY_MODE, value).apply()
-            pingDisplayModeState.value = value
+            val normalized = PingDisplay.fromId(value).id
+            sharedPreferences.edit().putInt(KEY_PING_DISPLAY_MODE, normalized).apply()
+            pingDisplayModeState.value = normalized
         }
 
     var pingThroughProxy: Boolean

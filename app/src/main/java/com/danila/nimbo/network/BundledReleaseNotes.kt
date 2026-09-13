@@ -24,10 +24,15 @@ internal object BundledReleaseNotes {
         - Модули маршрутизации позволяют переносить свои наборы правил между устройствами.
         - Синхронизация сохраняет выбранный стиль и поддерживает iPhone и iPad.
 
+        ## Пинг
+        - Nimbo Ping: HTTP GET через проверенный маршрут активного VPN, без копирования результата на другие серверы.
+        - Полный выбор методов, адрес проверки и таймаут; цифры, шкала, шкала с цифрами или точки.
+
         ## Быстрое управление
         - VPN-плитка и экран быстрого выбора сервера.
         - Состояние уведомлений, батареи и фоновых задач собрано на отдельном экране.
         - Ядро AmneziaWG 3.1.20260828 для ARM64 и ARMv7.
+        - LibXray 26.9.9 с адаптацией к API v3.
     """.trimIndent()
 
     private val EN_1_2_0 = """
@@ -44,10 +49,15 @@ internal object BundledReleaseNotes {
         - Routing modules let you transfer custom rule sets between devices.
         - Synchronization preserves your chosen style and supports iPhone and iPad.
 
+        ## Ping
+        - Nimbo Ping: HTTP GET over the verified active VPN route, without copying its result to other servers.
+        - Full method selection, test URL and timeout; numbers, bars, bars with numbers or dots.
+
         ## Quick controls
         - VPN quick-settings tile and quick server selection.
         - Notification, battery and background task status on a dedicated screen.
         - AmneziaWG 3.1.20260828 for ARM64 and ARMv7.
+        - LibXray 26.9.9 with API v3 integration.
     """.trimIndent()
 
     private val RU_BETA_5 = """

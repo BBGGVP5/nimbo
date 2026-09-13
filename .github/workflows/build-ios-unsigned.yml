@@ -34,13 +34,19 @@ jobs:
       - name: Set up pinned Go for the combined Xray and AWG runtime
         uses: actions/setup-go@v5
         with:
-          go-version: '1.27.0'
+          go-version: '1.27.1'
           cache-dependency-path: |
             iosApp/GoBridge/go.sum
             tools/native/awg-core/go.sum
 
+      - name: Verify pinned LibXray source and binary contracts
+        run: python3 tools/release/check-libxray.py
+
       - name: Verify iOS AWG contracts
         run: python3 scripts/ci/check-ios-awg.py --swift
+
+      - name: Verify native ping methods and fail-closed route
+        run: python3 iosApp/Tests/test_ping_contracts.py --swift
 
       - name: Install build tools
         run: brew install xcodegen ldid-procursus

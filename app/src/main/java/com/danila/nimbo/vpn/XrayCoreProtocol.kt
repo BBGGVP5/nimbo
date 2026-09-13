@@ -3,18 +3,18 @@ package com.danila.nimbo.vpn
 import org.json.JSONObject
 
 /**
- * JSON envelope for the libXray invoke API v1.
+ * JSON envelope for libXray 26.9.9 invoke API v3.
  *
  * The library exposes one native [LibXray.invoke] entry point. Keeping the
  * protocol in one small, testable object avoids coupling application code to
  * generated Go bindings that may change between core releases.
  */
 object XrayCoreProtocol {
-    private const val API_VERSION = 1
+    private const val API_VERSION = 3
 
     fun runXrayFromJson(configJson: String): String = request(
-        method = "runXrayFromJson",
-        payload = JSONObject().put("configJSON", configJson)
+        method = "runXray",
+        payload = JSONObject().put("xrayJson", configJson)
     )
 
     fun stopXray(): String = request(method = "stopXray", payload = JSONObject())

@@ -50,6 +50,11 @@ import com.danila.nimbo.vpn.VpnManager
 import com.danila.nimbo.vpn.VpnState
 import com.danila.nimbo.vpn.XrayManager
 import com.danila.nimbo.vpn.LocalProxyConfig
+import com.danila.nimbo.vpn.HealthProxySessions
+import com.danila.nimbo.network.ActiveProxyPing
+import com.danila.nimbo.network.ActiveRoutePingPolicy
+import com.danila.nimbo.network.PingMeasurementSettings
+import com.danila.nimbo.network.PingRunGuard
 import com.danila.nimbo.utils.isNoticePlaceholderServer
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -116,8 +121,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var pingJob: Job? = null
     private var notificationDismissJob: Job? = null
-    @Volatile
-    private var pingRunSerial: Long = 0L
+    private val pingRunGuard = PingRunGuard()
     // Результаты пинга копятся здесь и применяются к UI пачками (~5 раз/сек),
     // иначе каждый отдельный результат пересобирает весь список → лаги при скролле.
     private val pendingPings = HashMap<String, Int>()
@@ -525,9 +529,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun cancelAllSystemJobs() {
         Log.d("MainViewModel", "=== cancelAllSystemJobs called ===")
         // Отменяем пинг
-        pingJob?.cancel()
-        pingJob = null
-        _isPinging.value = false
+        cancelActivePing()
         
         // Отменяем все активные загрузки подписок
         subscriptionJobs.values.forEach { it.cancel() }
@@ -625,6 +627,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * исключён: это не узел, а запись подписки.
      */
     fun findFastestServer(servers: List<Server>, onResult: (Server?) -> Unit) {
+        if (requiresActivePingRoute()) {
+            // An active-route sample cannot rank other nodes or their cached values.
+            onResult(null)
+            return
+        }
         val candidates = servers.filterNot { com.danila.nimbo.utils.isAutoBalancerServer(it) }
         if (candidates.isEmpty()) {
             onResult(null)
@@ -638,7 +645,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .mapNotNull { candidate ->
                     val fresh = measured[candidate.pingMeasurementKey()] ?: candidate
                     // Молчащий узел — не «ноль миллисекунд»: такие в выбор не идут.
-                    fresh.ping?.takeIf { it > 0 }?.let { fresh to it }
+                    fresh.ping?.takeIf { it >= 0 }?.let { fresh to it }
                 }
                 .minByOrNull { it.second }
                 ?.first
@@ -658,6 +665,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         type: com.danila.nimbo.ui.components.NotificationType,
         silent: Boolean
     ) {
+        if (requiresActivePingRoute()) {
+            launchActiveRoutePing(targetServers, silent)
+            return
+        }
         if (proxyPingUnavailable()) {
             if (!silent) notifyProxyPingUnavailable()
             return
@@ -788,6 +799,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Заодно снимает анимацию с этих серверов и сбрасывает кеш.
      */
     private fun flushPendingPings(runId: Long, force: Boolean = false) {
+        if (!isCurrentPingRun(runId)) return
         val snapshot: Map<String, Int>? = synchronized(pendingPingsLock) {
             if (pendingPings.isEmpty()) null
             else HashMap(pendingPings).also { pendingPings.clear() }
@@ -807,6 +819,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun pingSingleServer(server: Server, silent: Boolean = true) {
+        if (requiresActivePingRoute()) {
+            launchActiveRoutePing(listOf(server), silent)
+            return
+        }
         if (proxyPingUnavailable()) {
             if (!silent) notifyProxyPingUnavailable()
             return
@@ -905,14 +921,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * некому: каждый замер вернул бы -1, а это не «нет данных», а затирание уже
      * измеренных значений у всех серверов разом. Такой запуск отклоняем.
      */
+    private fun requiresActivePingRoute(): Boolean =
+        preferencesManager.pingProtocol == PingProtocol.NIMBO.id || preferencesManager.pingThroughProxy
+
     private fun proxyPingUnavailable(): Boolean =
-        preferencesManager.pingThroughProxy && VpnManager.state.value != VpnState.CONNECTED
+        requiresActivePingRoute() && HealthProxySessions.connected() == null
+
+    private fun launchActiveRoutePing(requested: List<Server>?, silent: Boolean) {
+        val session = HealthProxySessions.connected()
+        val key = ActiveRoutePingPolicy.resultKey(session?.ownerKey, requested?.map { it.pingMeasurementKey() })
+        if (session == null || key == null) {
+            if (!silent) notifyProxyPingUnavailable()
+            return
+        }
+        cancelActivePing()
+        synchronized(pendingPingsLock) { pendingPings.clear() }
+        val config = buildPingConfig()
+        val runId = nextPingRunId()
+        pingJob = viewModelScope.launch {
+            _isPinging.value = true
+            _activePingKeys.value = setOf(key)
+            try {
+                if (!silent) showTopNotification(
+                    userText("Проверяем только активный маршрут…", "Checking the active route only…"),
+                    com.danila.nimbo.ui.components.NotificationType.PING
+                )
+                val value = ActiveProxyPing.measure(
+                    config.testUrl, config.timeoutMs, session,
+                    { isCurrentPingRun(runId) && HealthProxySessions.isConnected(session) },
+                    method = if (PingManager.effectiveProtocol(config) in listOf(PingProtocol.NIMBO, PingProtocol.HTTP_GET)) "GET" else "HEAD"
+                )
+                if (isCurrentPingRun(runId) && HealthProxySessions.isConnected(session)) {
+                    updateServersPings(mapOf(key to value))
+                    maybePersistPingCache(force = true)
+                    if (!silent) showTopNotification(
+                        if (value >= 0) userText("Активный маршрут: $value мс", "Active route: $value ms")
+                        else userText("Активный маршрут: нет ответа", "Active route: no response"),
+                        if (value >= 0) com.danila.nimbo.ui.components.NotificationType.SUCCESS
+                        else com.danila.nimbo.ui.components.NotificationType.ERROR
+                    )
+                }
+            } finally {
+                if (isCurrentPingRun(runId)) {
+                    _activePingKeys.value = emptySet()
+                    _isPinging.value = false
+                }
+            }
+        }
+    }
 
     private fun notifyProxyPingUnavailable() {
         showTopNotification(
             userText(
-                "Пинг «через VPN» меряет активное подключение — сначала подключитесь",
-                "Ping through VPN measures the active connection — connect first"
+                "Недоступно: нужен проверенный активный прокси-маршрут; измеряется только подключённая нода",
+                "Unavailable: requires a verified active proxy route; only its connected node can be measured"
             ),
             com.danila.nimbo.ui.components.NotificationType.ERROR
         )
@@ -921,15 +983,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun buildPingConfig(): PingConfig {
         val pingThroughProxy = preferencesManager.pingThroughProxy
         return PingConfig(
-            protocol = when (preferencesManager.pingProtocol) {
-                1 -> PingProtocol.HTTP_GET
-                2 -> PingProtocol.HTTP_HEAD
-                3 -> PingProtocol.HTTPS_STRICT
-                4 -> PingProtocol.ICMP
-                else -> PingProtocol.TCP
-            },
+            protocol = PingProtocol.fromId(preferencesManager.pingProtocol),
             testUrl = preferencesManager.pingUrl,
-            timeoutMs = preferencesManager.pingTimeout * 1000,
+            timeoutMs = preferencesManager.pingTimeout.coerceIn(1, 10) * 1000,
             useProxy = pingThroughProxy,
             proxyPort = LocalProxyConfig.PORT
         )
@@ -975,6 +1031,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * собой подхватывают и бейдж, и сортировка, и порядок автоподбора.
      */
     private fun applyVerifiedLatencies(verified: Map<String, com.danila.nimbo.vpn.VerifiedLatency>) {
+        // Startup health checks have independent URLs/timeouts, not the user's ping settings.
+        if (preferencesManager.pingProtocol != 0 || preferencesManager.pingThroughProxy || pingSettingsChanged) return
         val now = System.currentTimeMillis()
         val fresh = verified.filterValues {
             now - it.checkedAtMs <= com.danila.nimbo.vpn.VerifiedLatencyStore.FRESH_WINDOW_MS
@@ -1019,7 +1077,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (selected.pingMeasurementKey() !in changedKeys) return
         val refreshed = _profilesState.value.asSequence()
             .flatMap { it.servers.asSequence() }
-            .firstOrNull { it.matchesSelection(selected) }
+            .firstOrNull { it.pingMeasurementKey() == selected.pingMeasurementKey() }
             ?: return
         VpnManager.selectedServer = refreshed
     }
@@ -1035,20 +1093,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun cancelActivePing() {
-        pingRunSerial += 1
+        pingRunGuard.cancel()
         pingJob?.cancel()
         pingJob = null
+        synchronized(pendingPingsLock) { pendingPings.clear() }
         _activePingKeys.value = emptySet()
         _isPinging.value = false
         Log.d("MainViewModel", "Active ping cancelled")
     }
 
     private fun nextPingRunId(): Long {
-        pingRunSerial += 1
-        return pingRunSerial
+        return pingRunGuard.begin(currentMeasurementSettings())
     }
 
-    private fun isCurrentPingRun(runId: Long): Boolean = pingRunSerial == runId
+    private fun isCurrentPingRun(runId: Long): Boolean =
+        pingRunGuard.accepts(runId, currentMeasurementSettings())
 
     /**
      * Обновляет информацию о текущем IP адресе и стране
@@ -1118,10 +1177,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var pingSettingsChanged = false
+
+    private fun currentMeasurementSettings() = PingMeasurementSettings(
+        preferencesManager.pingProtocolState.value, preferencesManager.pingUrlState.value,
+        preferencesManager.pingTimeoutState.value, preferencesManager.pingThroughProxyState.value
+    )
+
+    private fun clearPingSamples() {
+        cancelActivePing()
+        _profilesState.update { profiles ->
+            profiles.map { profile -> profile.copy(servers = profile.servers.map { it.copy(ping = null, pingTimestamp = null) }) }
+        }
+        _serversState.value = _profilesState.value.flatMap { it.servers }
+        VpnManager.selectedServer = VpnManager.selectedServer?.copy(ping = null, pingTimestamp = null)
+        VpnManager.connectedServer.value = VpnManager.connectedServer.value?.copy(ping = null, pingTimestamp = null)
+        preferencesManager.saveProfiles(_profilesState.value)
+    }
+
     init {
         Log.d("MainViewModel", "=== ViewModel created ===")
         Log.d("MainViewModel", "Application: ${application.packageName}")
         loadProfiles()
+        val initialPingSettings = currentMeasurementSettings()
+        viewModelScope.launch {
+            var previous = initialPingSettings
+            snapshotFlow { currentMeasurementSettings() }.collect { settings ->
+                if (settings != previous) {
+                    previous = settings
+                    pingSettingsChanged = true
+                    clearPingSamples()
+                }
+            }
+        }
         val migrationPending = scheduleSubscriptionParserMigration(force = true)
         refreshIPInfo()
 
@@ -1147,6 +1235,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Отложенная во время работы VPN миграция стартует после отключения.
         viewModelScope.launch {
             snapshotFlow { VpnManager.state.value }.collectLatest { state ->
+                if (requiresActivePingRoute()) clearPingSamples()
                 if (state == VpnState.DISCONNECTED) {
                     scheduleSubscriptionParserMigration(force = true)
                 }

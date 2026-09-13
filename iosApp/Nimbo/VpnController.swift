@@ -104,6 +104,8 @@ final class VpnController: ObservableObject {
         tunnelProtocol.providerConfiguration = [
             "schema": 2,
             "configData": data,
+            // Attribute only bytes that actually belong to the selected profile entry.
+            "pingServerID": verifiedPingServerID(for: data) ?? "",
             // Маршрутизация едет отдельным ключом: конфигурацию ядра она не
             // трогает, зато нужна расширению для системных настроек туннеля.
             "routing": NimboRoutingSettings.current.providerValue,
@@ -143,6 +145,13 @@ final class VpnController: ObservableObject {
         try? await setOnDemand(false, on: manager)
         try await manager.saveToPreferences()
         try await manager.loadFromPreferences()
+    }
+
+    private func verifiedPingServerID(for data: Data) -> String? {
+        guard let profile = try? NimboSubscriptionRepository.shared.loadProfile(),
+              let server = profile.selectedServer,
+              NimboSubscriptionRepository.shared.stagingData(for: server) == data else { return nil }
+        return server.id
     }
 
     func providerStatus() async throws -> [String: Any] {

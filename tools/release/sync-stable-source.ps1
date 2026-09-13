@@ -1,4 +1,4 @@
-param([switch]$Apply)
+param([switch]$Apply, [ValidateSet('all','mobile','desktop')][string]$Scope = 'all')
 $ErrorActionPreference = 'Stop'
 $mobile = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $desktop = 'C:/Users/Danila/Desktop/nimbo-app-main'
@@ -10,6 +10,8 @@ $sources = @(
 )
 $count = 0
 foreach ($source in $sources) {
+    if ($Scope -eq 'mobile' -and $source.root -ne $mobile) { continue }
+    if ($Scope -eq 'desktop' -and $source.root -ne $desktop) { continue }
     $paths = @($source.files)
     foreach ($dir in $source.dirs) {
         $paths += Get-ChildItem -LiteralPath (Join-Path $source.root $dir) -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($source.root,$_.FullName).Replace('\','/') }

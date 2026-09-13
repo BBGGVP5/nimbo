@@ -31,6 +31,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
+import com.danila.nimbo.network.ActiveProxyPing
+import com.danila.nimbo.vpn.HealthProxySessions
+import com.danila.nimbo.vpn.VpnManager
+import kotlinx.coroutines.Job
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -239,9 +244,38 @@ fun PingToolScreen(onNavigateBack: () -> Unit) {
     var result by remember { mutableStateOf<PingToolResult?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    val protocolId by preferencesManager.pingProtocolState
+    val pingUrl by preferencesManager.pingUrlState
+    val timeout by preferencesManager.pingTimeoutState
+    val throughProxy by preferencesManager.pingThroughProxyState
+    val protocol = PingProtocol.fromId(protocolId)
+    val activeRouteOnly = protocol == PingProtocol.NIMBO || throughProxy
+    val usesHealthUrl = activeRouteOnly || protocol == PingProtocol.HTTP_GET || protocol == PingProtocol.HTTP_HEAD
+    val vpnState = VpnManager.state.value
+    val connectedKey = VpnManager.connectedServer.value?.pingMeasurementKey()
+    var probeJob by remember { mutableStateOf<Job?>(null) }
+    LaunchedEffect(protocolId, pingUrl, timeout, throughProxy, targetText, vpnState, connectedKey) {
+        probeJob?.cancel()
+        result = null
+        error = null
+        isRunning = false
+    }
+
     fun startPing() {
         if (isRunning) return
-        val parsed = parsePingTarget(targetText)
+        val session = if (activeRouteOnly) HealthProxySessions.connected() else null
+        if (activeRouteOnly && session == null) {
+            result = null
+            error = "Недоступно: требуется проверенный активный прокси-маршрут"
+            return
+        }
+        val parsed = if (usesHealthUrl) {
+            if (!ActiveProxyPing.validUrl(pingUrl)) {
+                error = "Введите корректный HTTP/HTTPS URL в настройках пинга"
+                return
+            }
+            parsePingTarget(pingUrl)
+        } else parsePingTarget(targetText)
         if (parsed == null) {
             error = "Введите домен или IP-адрес"
             return
@@ -249,38 +283,50 @@ fun PingToolScreen(onNavigateBack: () -> Unit) {
         haptic.tick()
         isRunning = true
         error = null
-        scope.launch {
-            val config = PingConfig(
-                protocol = preferencesManager.pingProtocol.toPingProtocol(),
-                testUrl = "https://${parsed.host}/",
-                timeoutMs = preferencesManager.pingTimeout.coerceIn(1, 10) * 1000,
-                useProxy = preferencesManager.pingThroughProxy,
-                proxyPort = LocalProxyConfig.PORT
-            )
-            val attempts = mutableListOf<Int>()
-            repeat(4) { index ->
-                attempts += PingManager.ping(parsed.host, parsed.port, config)
-                if (index < 3) delay(250)
+        result = null
+        probeJob = scope.launch {
+            try {
+                val config = PingConfig(protocol, pingUrl, timeout.coerceIn(1, 10) * 1000, throughProxy)
+                val attempts = mutableListOf<Int>()
+                repeat(4) { index ->
+                    attempts += if (session != null) {
+                        ActiveProxyPing.measure(
+                            config.testUrl, config.timeoutMs, session,
+                            { HealthProxySessions.isConnected(session) },
+                            method = if (PingManager.effectiveProtocol(config) in listOf(PingProtocol.NIMBO, PingProtocol.HTTP_GET)) "GET" else "HEAD"
+                        )
+                    } else PingManager.ping(parsed.host, parsed.port, config)
+                    if (index < 3) delay(250)
+                }
+                if (session == null || HealthProxySessions.isConnected(session)) {
+                    result = PingToolResult(
+                        if (activeRouteOnly) "Активный маршрут · $pingUrl" else if (usesHealthUrl) pingUrl else parsed.host,
+                        attempts
+                    )
+                } else error = "Маршрут изменился; результат сброшен"
+            } finally {
+                isRunning = false
             }
-            result = PingToolResult(parsed.host, attempts)
-            isRunning = false
         }
     }
 
     NimboSubPageScaffold(
         title = "Проверка пинга",
-        subtitle = "Отдельный замер домена или IP-адреса",
+        subtitle = if (activeRouteOnly) "Только активный маршрут, не проверка всего списка серверов" else "Отдельный замер домена или IP-адреса",
         onBack = onNavigateBack
     ) {
         WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
             Column(modifier = Modifier.padding(16.dp)) {
                 NebulaInputField(
-                    value = targetText,
-                    onValueChange = { targetText = it },
-                    label = "Домен или IP-адрес",
+                    value = if (usesHealthUrl) pingUrl else targetText,
+                    onValueChange = { if (usesHealthUrl) preferencesManager.pingUrl = it else targetText = it },
+                    label = if (usesHealthUrl) "URL проверки" else "Домен или IP-адрес",
                     leadingIcon = { Icon(Icons.Default.Dns, null) },
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (activeRouteOnly && HealthProxySessions.connected() == null) {
+                    Text("Недоступно: подключите поддерживаемый VPN-маршрут", color = nebulaColors.textTertiary, style = MaterialTheme.typography.bodySmall)
+                }
                 error?.let {
                     Spacer(Modifier.height(8.dp))
                     Text(it, color = Color(0xFFE75555), style = MaterialTheme.typography.bodySmall)
@@ -290,7 +336,7 @@ fun PingToolScreen(onNavigateBack: () -> Unit) {
         Spacer(Modifier.height(14.dp))
         Button(
             onClick = ::startPing,
-            enabled = !isRunning,
+            enabled = !isRunning && (!activeRouteOnly || HealthProxySessions.connected() != null),
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = nebulaColors.accent.copy(alpha = 0.82f))
@@ -712,13 +758,7 @@ private fun parsePingTarget(raw: String): ParsedPingTarget? {
     return host.takeIf { it.isNotBlank() }?.let { ParsedPingTarget(it, port) }
 }
 
-private fun Int.toPingProtocol(): PingProtocol = when (this) {
-    1 -> PingProtocol.HTTP_GET
-    2 -> PingProtocol.HTTP_HEAD
-    3 -> PingProtocol.HTTPS_STRICT
-    4 -> PingProtocol.ICMP
-    else -> PingProtocol.TCP
-}
+
 
 private suspend fun locateNdt7Endpoint(): SpeedEndpoint? = withContext(Dispatchers.IO) {
     runCatching {

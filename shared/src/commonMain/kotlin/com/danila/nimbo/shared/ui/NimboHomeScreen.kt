@@ -535,7 +535,7 @@ private fun HomeSelectedServer(state: NimboUiState, onOpenProfiles: () -> Unit) 
             )
             if (selected != null) {
                 Spacer(Modifier.width(8.dp))
-                NimboPill(selected.pingLabel)
+                NimboPingBadge(selected)
             }
         }
         Box(

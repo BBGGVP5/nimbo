@@ -289,6 +289,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.danila.nimbo.BuildConfig
+import com.danila.nimbo.network.PingDisplay
+import com.danila.nimbo.network.ActiveProxyPing
+import com.danila.nimbo.ui.components.PingValueContent
+import com.danila.nimbo.ui.components.NebulaInputField
 import com.danila.nimbo.MainViewModel
 import com.danila.nimbo.model.Server
 import com.danila.nimbo.model.UpdateInfo
@@ -3658,7 +3662,7 @@ private fun SelectedServerOverviewLine(
         val currentPing = server.ping ?: -1
         MiniPingBadge(
             ping = currentPing,
-            isPinging = isPinging && currentPing == -1,
+            isPinging = isPinging,
             pingDisplayMode = pingDisplayMode,
             onClick = onPingClick,
             modifier = Modifier.padding(start = 8.dp)
@@ -4647,11 +4651,6 @@ private fun MiniPingBadge(
     }
     val pingColor by animateColorAsState(targetPingColor, animationSpec = tween(300), label = "mini_ping_color")
     val badgeAlpha = if (isPinging) 0.92f else 1f
-    val valueLabel = when (pingDisplayMode) {
-        1 -> if (ping == -1) "нет" else "ok"
-        2 -> ""
-        else -> if (ping == -1) "н/д" else "${ping} ms"
-    }
     val pingPulse = rememberInfiniteTransition(label = "mini_ping_badge_pulse")
     val wave by pingPulse.animateFloat(
         initialValue = 0f,
@@ -4750,14 +4749,7 @@ private fun MiniPingBadge(
                     if (isLoading) {
                         PingPulsingDots(color = pingColor)
                     } else {
-                        Text(
-                            text = valueLabel,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = pingColor,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                        PingValueContent(ping, pingDisplayMode, pingColor)
                     }
                 }
             }
@@ -5588,13 +5580,7 @@ private fun WindowsPingPill(
                 if (isLoading) {
                     PingPulsingDots(color = pingColor)
                 } else {
-                    Text(
-                        text = if (ping == -1) "н/д" else if (pingDisplayMode == 1) "ok" else "${ping} ms",
-                        color = pingColor,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1
-                    )
+                    PingValueContent(ping, pingDisplayMode, pingColor)
                 }
             }
         }
@@ -12811,17 +12797,16 @@ private fun currentPingSettingsLabel(preferencesManager: PreferencesManager): St
     val protocol by preferencesManager.pingProtocolState
     val displayMode by preferencesManager.pingDisplayModeState
     val throughProxy by preferencesManager.pingThroughProxyState
-    val protocolText = if (throughProxy) {
+    val protocolText = if (protocol == 5) "Nimbo Ping" else if (throughProxy) {
         t("Через VPN", "Through VPN")
     } else when (protocol) {
+        1 -> "HTTP GET"
+        2 -> "HTTP HEAD"
+        3 -> "HTTPS Strict"
         4 -> "ICMP"
-        1, 2, 3 -> t("HTTP напрямую", "Direct HTTP")
-        else -> t("TCP до ноды", "TCP to node")
+        else -> "TCP"
     }
-    val displayText = when (displayMode) {
-        2 -> t("индикатор", "indicator")
-        else -> "ms"
-    }
+    val displayText = PingDisplay.fromId(displayMode).key
     return "$protocolText · $displayText"
 }
 
@@ -12845,6 +12830,7 @@ private fun ColumnScope.PingSettingsSection(
     val nebulaColors = LocalNebulaColors.current
     val pingProtocol by preferencesManager.pingProtocolState
     val pingTimeout by preferencesManager.pingTimeoutState
+    val pingUrl by preferencesManager.pingUrlState
     val pingDisplayMode by preferencesManager.pingDisplayModeState
     val pingThroughProxy by preferencesManager.pingThroughProxyState
 
@@ -12864,26 +12850,21 @@ private fun ColumnScope.PingSettingsSection(
                 subtitle = t("Метод, которым Nimbo измеряет задержку серверов", "How Nimbo measures server latency"),
                 icon = Icons.Default.Language
             ) {
-                PingSegmentedControl(
-                    items = listOf("TCP", "HTTP", "ICMP"),
-                    selectedIndex = when (pingProtocol) {
-                        1, 2, 3 -> 1
-                        4 -> 2
-                        else -> 0
-                    },
-                    onSelect = { index ->
-                        preferencesManager.pingProtocol = when (index) {
-                            1 -> 1
-                            2 -> 4
-                            else -> 0
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp)
-                )
+                listOf("TCP", "HTTP GET", "HTTP HEAD", "HTTPS Strict", "ICMP", "Nimbo Ping")
+                    .forEachIndexed { id, label ->
+                        PingChoiceRow(
+                            title = label,
+                            subtitle = if (id == 5) t("GET через активный маршрут", "GET through the active route") else "",
+                            selected = pingProtocol == id,
+                            onClick = { preferencesManager.pingProtocol = id }
+                        )
+                    }
                 PingSettingsHint(
                     when (pingProtocol) {
+                        5 -> t(
+                            "Nimbo Ping — GET только через проверенный активный прокси-маршрут. Без подключения недоступен. Проверяет только подключённую ноду, не весь список серверов; прямого обхода нет.",
+                            "Nimbo Ping sends GET only through a verified active proxy route. Unavailable while disconnected. Checks only the connected node, not every server in the list; no direct fallback."
+                        )
                         1, 2, 3 -> t(
                             "HTTP — измеряет запрос до контрольного URL. Маршрут зависит от переключателя «Через VPN» ниже.",
                             "HTTP measures a request to the health URL. Its route is controlled by the Through VPN switch below."
@@ -12902,7 +12883,10 @@ private fun ColumnScope.PingSettingsSection(
             PingSettingsDivider()
             PingSettingsWideRow(
                 title = t("Через VPN", "Through VPN"),
-                subtitle = if (pingThroughProxy) t(
+                subtitle = if (pingProtocol == 5) t(
+                    "Для Nimbo Ping всегда включено; требуется поддерживаемое активное подключение.",
+                    "Always enabled for Nimbo Ping; a supported active connection is required."
+                ) else if (pingThroughProxy) t(
                     "End-to-end HTTP до контрольного URL через выбранный outbound. Требуется активный VPN.",
                     "End-to-end HTTP to the health URL through the selected outbound. An active VPN is required."
                 ) else t(
@@ -12912,9 +12896,34 @@ private fun ColumnScope.PingSettingsSection(
                 icon = Icons.Default.VpnLock
             ) {
                 Switch(
-                    checked = pingThroughProxy,
+                    checked = pingThroughProxy || pingProtocol == 5,
+                    enabled = pingProtocol != 5,
                     onCheckedChange = { preferencesManager.pingThroughProxy = it }
                 )
+            }
+            PingSettingsDivider()
+            PingSettingsStackedRow(
+                title = t("URL проверки", "Test URL"),
+                subtitle = t("Готовый адрес или свой HTTP/HTTPS URL", "Preset or custom HTTP/HTTPS URL"),
+                icon = Icons.Default.Link
+            ) {
+                NebulaInputField(
+                    value = pingUrl,
+                    onValueChange = { preferencesManager.pingUrl = it },
+                    label = "URL", singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        "Google" to "https://www.gstatic.com/generate_204",
+                        "Cloudflare" to "https://cp.cloudflare.com/generate_204",
+                        "Apple" to "https://captive.apple.com/hotspot-detect.html"
+                    ).forEach { (label, url) ->
+                        PresetButton(label, pingUrl == url, Modifier.weight(1f)) { preferencesManager.pingUrl = url }
+                    }
+                }
+                if (!ActiveProxyPing.validUrl(pingUrl)) {
+                    PingSettingsHint(t("Введите HTTP/HTTPS URL без логина, пароля и фрагмента.", "Enter an HTTP/HTTPS URL without credentials or a fragment."))
+                }
             }
             PingSettingsDivider()
             PingSettingsWideRow(
@@ -12925,35 +12934,15 @@ private fun ColumnScope.PingSettingsSection(
                 ),
                 icon = Icons.Default.Schedule
             ) {
-                OutlinedTextField(
-                    value = (pingTimeout * 1000).toString(),
-                    onValueChange = { raw ->
-                        val ms = raw.filter(Char::isDigit).take(5).toIntOrNull()
-                        if (ms != null) {
-                            preferencesManager.pingTimeout = ((ms + 999) / 1000).coerceIn(1, 10)
-                        }
-                    },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.titleMedium.copy(
-                        color = nebulaColors.textPrimary,
-                        fontWeight = FontWeight.ExtraBold,
-                        textAlign = TextAlign.End
-                    ),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier
-                        .width(110.dp)
-                        .height(54.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = nebulaColors.textPrimary,
-                        unfocusedTextColor = nebulaColors.textPrimary,
-                        focusedBorderColor = if (nebulaColors.isLight) Color(0xFFD8D5E2) else Color.White.copy(alpha = 0.18f),
-                        unfocusedBorderColor = windowsBorder(nebulaColors, 0.12f),
-                        focusedContainerColor = windowsControlFill(nebulaColors),
-                        unfocusedContainerColor = windowsControlFill(nebulaColors),
-                        cursorColor = nebulaColors.accent
-                    )
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { preferencesManager.pingTimeout = (pingTimeout - 1).coerceIn(1, 10) }, enabled = pingTimeout > 1) {
+                        Icon(Icons.Default.Remove, t("Уменьшить", "Decrease"), tint = nebulaColors.textPrimary)
+                    }
+                    Text((pingTimeout * 1000).toString(), color = nebulaColors.textPrimary, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = { preferencesManager.pingTimeout = (pingTimeout + 1).coerceIn(1, 10) }, enabled = pingTimeout < 10) {
+                        Icon(Icons.Default.Add, t("Увеличить", "Increase"), tint = nebulaColors.textPrimary)
+                    }
+                }
             }
             PingSettingsDivider()
             PingSettingsStackedRow(
@@ -12964,25 +12953,18 @@ private fun ColumnScope.PingSettingsSection(
                 ),
                 icon = Icons.Default.Visibility
             ) {
-                PingSegmentedControl(
-                    items = listOf("ms", t("Индикатор", "Indicator")),
-                    selectedIndex = if (pingDisplayMode == 2) 1 else 0,
-                    onSelect = { index ->
-                        preferencesManager.pingDisplayMode = if (index == 1) 2 else 0
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp)
-                )
-                PingSettingsHint(
-                    if (pingDisplayMode == 2) t(
-                        "Индикатор — только цветная точка без числа: зелёная (быстро) → красная (медленно).",
-                        "Indicator — just a colored dot, no number: green (fast) → red (slow)."
-                    ) else t(
-                        "ms — точная задержка в миллисекундах, например «45 ms».",
-                        "ms — the exact latency in milliseconds, e.g. \"45 ms\"."
+                PingDisplay.entries.forEach { display ->
+                    PingChoiceRow(
+                        title = when (display) {
+                            PingDisplay.NUMERIC -> t("Числа", "Numbers")
+                            PingDisplay.BARS -> t("Полоски", "Bars")
+                            PingDisplay.BOTH -> t("Числа и полоски", "Numbers and bars")
+                            PingDisplay.DOTS -> t("Точки", "Dots")
+                        },
+                        subtitle = "", selected = pingDisplayMode == display.id,
+                        onClick = { preferencesManager.pingDisplayMode = display.id }
                     )
-                )
+                }
             }
         }
     }

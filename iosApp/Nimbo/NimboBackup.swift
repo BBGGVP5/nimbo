@@ -46,6 +46,7 @@ enum NimboBackup {
         "com.nimbo.appearance.pingAfterRefresh",
         "com.nimbo.appearance.refreshOnLaunch",
         "com.nimbo.ping.protocol",
+        "com.nimbo.ping.display",
         "com.nimbo.ping.timeoutMs",
         "com.nimbo.ping.url",
         "com.nimbo.update.channel",
@@ -102,7 +103,7 @@ enum NimboBackup {
             // Текстовый HEX может состоять только из цифр: не превращаем
             // акцент, DNS и прочие строковые ключи в NSNumber.
             let suffix = key.components(separatedBy: ".").last ?? ""
-            if ["accentHex", "themeMode", "elementStyle", "connectStyle", "serverSort", "dns", "protocol", "url", "channel"].contains(suffix) {
+            if ["accentHex", "themeMode", "elementStyle", "connectStyle", "serverSort", "dns", "protocol", "display", "url", "channel"].contains(suffix) {
                 defaults.set(raw, forKey: key)
                 continue
             }

@@ -69,9 +69,9 @@ class PingManagerTest {
     }
 
     @Test
-    fun hysteriaDefaultPing_triesIcmpBeforeTcp() {
+    fun hysteriaTcpPing_doesNotDisguiseIcmpAsTcp() {
         assertEquals(
-            listOf(PingProtocol.ICMP, PingProtocol.TCP),
+            listOf(PingProtocol.TCP),
             PingManager.protocolAttempts(
                 config = PingConfig(protocol = PingProtocol.TCP, useProxy = false),
                 serverProtocol = "hysteria",
@@ -81,9 +81,9 @@ class PingManagerTest {
     }
 
     @Test
-    fun ordinaryTcpPing_fallsBackToIcmp() {
+    fun ordinaryTcpPing_doesNotSwitchProtocols() {
         assertEquals(
-            listOf(PingProtocol.TCP, PingProtocol.ICMP),
+            listOf(PingProtocol.TCP),
             PingManager.protocolAttempts(
                 config = PingConfig(protocol = PingProtocol.TCP, useProxy = false),
                 serverProtocol = "vless",

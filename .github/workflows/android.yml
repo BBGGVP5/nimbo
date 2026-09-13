@@ -32,6 +32,9 @@ jobs:
       - name: Разрешить запуск Gradle wrapper
         run: chmod +x gradlew
 
+      - name: Проверить закреплённый LibXray и архитектуры
+        run: python3 tools/release/check-libxray.py
+
       - name: Проверить Android-приложение
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleRelease --no-daemon
 
