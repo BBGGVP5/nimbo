@@ -708,7 +708,7 @@ fn ping_all_servers(app: &AppHandle) {
         let mut best: Option<u64> = None;
         if !server_ids.is_empty() {
             let state = app.state::<AppState>();
-            if let Ok(results) = crate::commands::ping_servers(state, server_ids).await {
+            if let Ok(results) = crate::commands::ping_servers(app.clone(), state, server_ids).await {
                 for result in &results {
                     if let Some(latency) = result.latency_ms {
                         count += 1;

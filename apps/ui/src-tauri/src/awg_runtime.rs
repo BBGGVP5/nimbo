@@ -46,7 +46,7 @@ struct Ready {
     version: String,
 }
 
-fn parse_ready(bytes: &[u8]) -> Result<u16, String> {
+pub(crate) fn parse_ready(bytes: &[u8]) -> Result<u16, String> {
     if bytes.len() > 1024 || !bytes.ends_with(b"\n") {
         return Err("Некорректный ответ AWG runtime".into());
     }
@@ -184,7 +184,7 @@ pub fn platform() -> Option<&'static str> {
     }
 }
 
-fn binary(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn binary(app: &AppHandle) -> Result<PathBuf, String> {
     let platform = platform().ok_or("AWG runtime не поддерживает эту платформу")?;
     let name = if cfg!(windows) {
         "nimbo-awg.exe"

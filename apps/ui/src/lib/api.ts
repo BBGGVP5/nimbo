@@ -10,23 +10,32 @@ import uiPackage from "../../package.json";
 let pingRevision = 0;
 let pingPreferencesKey: string | undefined;
 let pingConnectionKey: string | undefined;
+let pingConnectionRevision = 0;
+let pingMethod: LatencyProtocol = "nimbo";
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  if (["connect_server", "disconnect_server", "set_active_server", "import_app_backup", "set_connection_mode"].includes(command)) pingRevision++;
+  if (["connect_server", "disconnect_server", "set_active_server", "set_connection_mode"].includes(command)) pingConnectionRevision++;
+  if (["import_app_backup", "cancel_pings"].includes(command)) pingRevision++;
   if (command === "set_preferences") {
     const key = latencySettingsKey(args?.preferences as AppPreferences);
     if (key !== pingPreferencesKey) pingRevision++;
     pingPreferencesKey = key;
+    pingMethod = normalizeLatencyProtocol((args?.preferences as AppPreferences)?.latency_protocol);
   }
   const revision = pingRevision;
+  const connectionRevision = pingConnectionRevision;
+  const independent = pingMethod === "nimbo";
   const result = await tauriInvoke<T>(command, args);
-  if (command === "get_preferences") pingPreferencesKey = latencySettingsKey(result as AppPreferences);
+  if (command === "get_preferences") {
+    pingPreferencesKey = latencySettingsKey(result as AppPreferences);
+    pingMethod = normalizeLatencyProtocol((result as AppPreferences).latency_protocol);
+  }
   if (command === "get_status") {
     const status = result as AppStatus;
     const key = JSON.stringify([status.state, status.active_server_id, status.connected_at]);
-    if (pingConnectionKey !== undefined && key !== pingConnectionKey) pingRevision++;
+    if (pingConnectionKey !== undefined && key !== pingConnectionKey) pingConnectionRevision++;
     pingConnectionKey = key;
   }
-  if (["ping_server", "ping_servers"].includes(command) && revision !== pingRevision) {
+  if (["ping_server", "ping_servers"].includes(command) && (revision !== pingRevision || (!independent && connectionRevision !== pingConnectionRevision))) {
     const failed = (ping: ServerPing): ServerPing => ({ server_id: ping.server_id, latency_ms: null, error: "Ping context changed; check again" });
     return (Array.isArray(result) ? result.map(failed) : failed(result as ServerPing)) as T;
   }
@@ -634,7 +643,7 @@ export const defaultAppPreferences: AppPreferences = {
   accent_mode: "preset",
   accent_color: DEFAULT_ACCENT_COLOR,
   language: "ru",
-  latency_protocol: "tcp_connect",
+  latency_protocol: "nimbo",
   latency_test_url: "https://www.gstatic.com/generate_204",
   latency_timeout_ms: 5000,
   latency_display_format: "ms",
@@ -2157,6 +2166,7 @@ export const api = {
           const current = browserPersistedState();
           return writeBrowserPersistedState({ ...current, active_subscription_url: url });
         })()),
+  cancelPings: (): Promise<void> => isTauriRuntime() ? invoke<void>("cancel_pings") : Promise.resolve(),
   pingServer: (serverId: string): Promise<ServerPing> =>
     isTauriRuntime()
       ? invoke<ServerPing>("ping_server", { serverId })

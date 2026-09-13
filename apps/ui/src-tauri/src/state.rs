@@ -238,6 +238,7 @@ pub struct AppPreferences {
     pub accent_mode: AccentMode,
     pub accent_color: String,
     pub language: Language,
+    #[serde(default = "default_latency_protocol", deserialize_with = "deserialize_latency_protocol")]
     pub latency_protocol: String,
     pub latency_test_url: String,
     pub latency_timeout_ms: u32,
@@ -384,6 +385,12 @@ fn default_servers_ui_scale() -> u32 {
     100
 }
 
+fn default_latency_protocol() -> String { "nimbo".into() }
+
+fn deserialize_latency_protocol<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.filter(|value| !value.trim().is_empty()).unwrap_or_else(default_latency_protocol))
+}
+
 impl Default for AppPreferences {
     fn default() -> Self {
         Self {
@@ -408,7 +415,7 @@ impl Default for AppPreferences {
             accent_mode: AccentMode::Preset,
             accent_color: "#75a7ff".into(),
             language: Language::Ru,
-            latency_protocol: "tcp_connect".into(),
+            latency_protocol: default_latency_protocol(),
             latency_test_url: "https://www.gstatic.com/generate_204".into(),
             latency_timeout_ms: 5000,
             latency_display_format: "ms".into(),
@@ -770,6 +777,21 @@ fn storage_path() -> anyhow::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nimbo_is_default_only_for_unset_latency_preferences() {
+        for input in [serde_json::json!({}), serde_json::json!({"latency_protocol":null}), serde_json::json!({"latency_protocol":""})] {
+            let preferences: AppPreferences = serde_json::from_value(input).unwrap();
+            assert_eq!(preferences.latency_protocol,"nimbo");
+        }
+        for mode in ["tcp_connect","icmp","http_head","http_get","nimbo"] {
+            let preferences: AppPreferences = serde_json::from_value(serde_json::json!({"latency_protocol":mode})).unwrap();
+            assert_eq!(preferences.latency_protocol,mode);
+            let roundtrip: AppPreferences = serde_json::from_value(serde_json::to_value(preferences).unwrap()).unwrap();
+            assert_eq!(roundtrip.latency_protocol,mode);
+        }
+        assert_eq!(PersistedState::default().preferences.latency_protocol,"nimbo");
+    }
 
     #[test]
     fn missing_update_channel_defaults_to_stable() {

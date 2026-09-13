@@ -8,6 +8,7 @@ export const LATENCY_URL_PRESETS = [
 ] as const;
 
 export function normalizeLatencyProtocol(value: unknown): LatencyProtocol {
+  if (value == null || (typeof value === "string" && value.trim() === "")) return "nimbo";
   return value === "nimbo" || value === "http_get" || value === "http_head" || value === "icmp"
     ? value : "tcp_connect";
 }

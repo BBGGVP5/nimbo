@@ -1,3 +1,5 @@
+mod diagnostic_template;
+mod diagnostics;
 mod xray_release;
 mod latency;
 mod awg_runtime;
@@ -446,6 +448,7 @@ pub fn run() {
             reorder_subscriptions,
             set_active_server,
             set_active_subscription,
+            commands::cancel_pings,
             ping_server,
             ping_servers,
             refresh_tray_menu,

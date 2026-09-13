@@ -251,6 +251,8 @@ export function Home() {
 
   const [refreshingUrl, setRefreshingUrl] = useState<string | null>(null);
   const [pinging, setPinging] = useState(false);
+  const pingAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => { pingAbort.current?.abort(); }, []);
   const [pingingServerIds, setPingingServerIds] = useState<Set<string>>(() => new Set());
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -488,7 +490,10 @@ export function Home() {
   };
 
   const onPingServers = async () => {
+    if (pingAbort.current) { pingAbort.current.abort(); return; }
     if (!baseEntries.length) return;
+    const controller = new AbortController();
+    pingAbort.current = controller;
     const serverIds = baseEntries.map(({ server }) => server.id);
     setPinging(true);
     serverIds.forEach(id => setServerPing(id, null));
@@ -501,8 +506,9 @@ export function Home() {
           return next;
         });
         setServerPing(result.server_id, result.latency_ms ?? null);
-      });
+      }, 3, controller.signal);
     } finally {
+      pingAbort.current = null;
       setPinging(false);
       setPingingServerIds(new Set());
     }
@@ -1394,7 +1400,7 @@ function ServerSidePanel({
           </div>
           <button
             onClick={onPing}
-            title={labels.home.pingServers}
+            title={pinging ? labels.common.cancel : labels.home.pingServers}
             className={[
               "shrink-0 flex h-8 w-8 items-center justify-center rounded-xl transition-all",
               pinging
@@ -1516,7 +1522,7 @@ function ServerSidePanel({
                   </button>
                   <button
                     onClick={() => void onPingServer(server.id)}
-                    title={labels.home.pingServers}
+                    title={pinging ? labels.common.cancel : labels.home.pingServers}
                     aria-label={labels.home.pingServers}
                     disabled={pingingServerIds.has(server.id)}
                     className={[

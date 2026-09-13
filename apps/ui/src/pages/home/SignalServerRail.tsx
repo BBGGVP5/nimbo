@@ -184,9 +184,8 @@ export function SignalServerRail({
           type="button"
           className={`signal-icon-btn${pinging ? " is-pinging" : ""}`}
           onClick={onPing}
-          disabled={pinging}
-          title={m.home.pingServers}
-          aria-label={m.home.pingServers}
+          title={pinging ? m.common.cancel : m.home.pingServers}
+          aria-label={pinging ? m.common.cancel : m.home.pingServers}
         >
           <PingIcon />
         </button>

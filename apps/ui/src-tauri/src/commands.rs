@@ -60,6 +60,9 @@ const MAX_RUNTIME_LOG_BYTES: u64 = 5 * 1024 * 1024;
 static RESUME_RECONNECT_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 static CONNECTION_INTENT: AtomicU64 = AtomicU64::new(0);
 static LAST_WAKE_RECOVERY: AtomicU64 = AtomicU64::new(0);
+static PING_INTENT: AtomicU64 = AtomicU64::new(0);
+static XRAY_RESOLUTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static SIDECAR_RESOLUTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static CONNECTION_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static XRAY_STATS_QUERY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -753,7 +756,10 @@ pub fn set_preferences(
     set_launch_at_login(&app, preferences.launch_at_login)?;
     state
         .mutate(|s| {
-            if !same_latency_settings(&s.preferences, &preferences) { s.server_pings.clear(); }
+            if !same_latency_settings(&s.preferences, &preferences) {
+                PING_INTENT.fetch_add(1, Ordering::SeqCst);
+                s.server_pings.clear();
+            }
             s.preferences = preferences.clone();
         })
         .map_err(|e| format!("Не удалось сохранить настройки приложения: {e}"))?;
@@ -2735,6 +2741,7 @@ pub fn set_proxy_settings(
 
 #[tauri::command]
 pub async fn ping_server(
+    app: AppHandle,
     state: State<'_, AppState>,
     server_id: String,
 ) -> Result<ServerPing, String> {
@@ -2742,27 +2749,34 @@ pub async fn ping_server(
     let Some(server) = find_server(&snap, &server_id) else {
         return Err("Сервер не найден в подписках".into());
     };
-    Ok(measure_server_latency(&state, &snap, &server).await)
+    Ok(measure_server_latency(&app, &state, &snap, &server).await)
 }
 
 #[tauri::command]
 pub async fn ping_servers(
+    app: AppHandle,
     state: State<'_, AppState>,
     server_ids: Vec<String>,
 ) -> Result<Vec<ServerPing>, String> {
     let snap = state.snapshot();
     let mut seen = HashSet::new();
     let ids: Vec<_> = server_ids.into_iter().filter(|id| seen.insert(id.clone())).collect();
+    let batch_intent = PING_INTENT.load(Ordering::SeqCst);
     let mut out = Vec::with_capacity(ids.len());
     // Bounded concurrency without sharing a result between different server IDs.
     for chunk in ids.chunks(6) {
+        if PING_INTENT.load(Ordering::SeqCst) != batch_intent {
+            out.extend(chunk.iter().map(|id| ping_failure(id, "Ping cancelled")));
+            continue;
+        }
         let measure = |index: usize| {
             let state = &*state;
             let snap = &snap;
+            let app = &app;
             async move {
                 let id = chunk.get(index)?;
                 Some(match find_server(snap, id) {
-                    Some(server) => measure_server_latency(state, snap, &server).await,
+                    Some(server) => measure_server_latency(app, state, snap, &server).await,
                     None => ping_failure(id, "Server not found"),
                 })
             }
@@ -2771,6 +2785,11 @@ pub async fn ping_servers(
         out.extend([a,b,c,d,e,f].into_iter().flatten());
     }
     Ok(out)
+}
+
+#[tauri::command]
+pub fn cancel_pings() {
+    PING_INTENT.fetch_add(1, Ordering::SeqCst);
 }
 
 fn same_latency_settings(a: &AppPreferences, b: &AppPreferences) -> bool {
@@ -2795,20 +2814,53 @@ fn verified_ping_route(state: &AppState, snap: &PersistedState, server_id: &str)
     })
 }
 
-async fn measure_server_latency(state: &AppState, snap: &PersistedState, server: &Server) -> ServerPing {
+async fn measure_server_latency(app: &AppHandle, state: &AppState, snap: &PersistedState, server: &Server) -> ServerPing {
     let _ = state.mutate(|saved| { saved.server_pings.remove(&server.id); });
     let intent = CONNECTION_INTENT.load(Ordering::SeqCst);
+    let ping_intent = PING_INTENT.load(Ordering::SeqCst);
     let protocol = normalize_latency_protocol(&snap.preferences.latency_protocol);
     let timeout_ms = normalize_latency_timeout_ms(snap.preferences.latency_timeout_ms);
-    let is_http = crate::latency::http_method(&protocol).is_some();
+    let is_nimbo = protocol == "nimbo";
+    let is_http = !is_nimbo && crate::latency::http_method(&protocol).is_some();
     let route = if is_http { verified_ping_route(state, snap, &server.id) } else { None };
-    let mut result = if is_http {
+    let mut result = if is_nimbo {
+        let parent = match nimbo_data_dir() {
+            Ok(path) => path.join("diagnostics"),
+            Err(_) => return ping_failure(&server.id, "Diagnostic directory unavailable"),
+        };
+        let template = diagnostic_template_for(snap, server).cloned();
+        if !matches!(server.protocol, nimbo_subscription::Protocol::Awg(_) | nimbo_subscription::Protocol::Naive(_))
+            && server.xray_json_template_uuid.as_deref().is_some_and(|key| !key.trim().is_empty()) && template.is_none() {
+            return ping_failure(&server.id, "Selected node template unavailable; refresh subscription");
+        }
+        let identity = serde_json::to_value(server).ok();
+        let valid = || {
+            if PING_INTENT.load(Ordering::SeqCst) != ping_intent { return false; }
+            let current = state.snapshot();
+            same_latency_settings(&current.preferences, &snap.preferences)
+                && find_server(&current, &server.id).is_some_and(|value| serde_json::to_value(&value).ok() == identity)
+                && diagnostic_template_for(&current, server) == template.as_ref()
+        };
+        let resolve = async {
+            let xray = ensure_xray_binary(app).await?;
+            let _sidecars = SIDECAR_RESOLUTION.lock().await;
+            let awg = if matches!(server.protocol, nimbo_subscription::Protocol::Awg(_)) { Some(crate::awg_runtime::binary(app)?) } else { None };
+            let naive = if matches!(server.protocol, nimbo_subscription::Protocol::Naive(_)) { Some(ensure_naive_binary(app)?) } else { None };
+            Ok(crate::diagnostics::Binaries { xray, awg, naive })
+        };
+        match crate::diagnostics::measure(server.clone(), resolve, &parent,
+            &normalize_latency_test_url(&snap.preferences.latency_test_url), timeout_ms, valid, template.clone()).await {
+            Ok(ms) => ServerPing { server_id: server.id.clone(), latency_ms: Some(ms), error: None },
+            Err(error) => ping_failure(&server.id, &error),
+        }
+    } else if is_http {
         match route.as_ref() {
             Some(route) => {
                 let url = normalize_latency_test_url(&snap.preferences.latency_test_url);
                 let measurement = crate::latency::measure_http_guarded(route, &protocol, &url, timeout_ms, || {
                     let current = state.snapshot();
                     CONNECTION_INTENT.load(Ordering::SeqCst) == intent
+                        && PING_INTENT.load(Ordering::SeqCst) == ping_intent
                         && same_latency_settings(&current.preferences, &snap.preferences)
                         && verified_ping_route(state, &current, &server.id).as_ref() == Some(route)
                 }).await;
@@ -2821,13 +2873,19 @@ async fn measure_server_latency(state: &AppState, snap: &PersistedState, server:
         }
     } else { latency_ping_server(server, timeout_ms, &protocol).await };
     let current = state.snapshot();
-    let stale = CONNECTION_INTENT.load(Ordering::SeqCst) != intent
+    let stale = (!is_nimbo && CONNECTION_INTENT.load(Ordering::SeqCst) != intent)
+        || PING_INTENT.load(Ordering::SeqCst) != ping_intent
         || !same_latency_settings(&current.preferences, &snap.preferences)
+        || (is_nimbo && (!find_server(&current, &server.id).is_some_and(|value| serde_json::to_value(&value).ok() == serde_json::to_value(server).ok())
+            || diagnostic_template_for(&current, server) != diagnostic_template_for(snap, server)))
         || (is_http && route.is_some() && verified_ping_route(state, &current, &server.id) != route);
     if stale { result = ping_failure(&server.id, "VPN route or ping settings changed; run the check again"); }
     let _ = state.mutate(|saved| {
         if same_latency_settings(&saved.preferences, &snap.preferences)
-            && CONNECTION_INTENT.load(Ordering::SeqCst) == intent {
+            && (is_nimbo || CONNECTION_INTENT.load(Ordering::SeqCst) == intent)
+            && PING_INTENT.load(Ordering::SeqCst) == ping_intent
+            && (!is_nimbo || (find_server(saved, &server.id).is_some_and(|value| serde_json::to_value(&value).ok() == serde_json::to_value(server).ok())
+                && diagnostic_template_for(saved, server) == diagnostic_template_for(snap, server))) {
             if let Some(ms) = result.latency_ms { saved.server_pings.insert(server.id.clone(), ms); }
             else { saved.server_pings.remove(&server.id); }
         }
@@ -6756,6 +6814,24 @@ fn apply_mux_preferences(config: &mut serde_json::Value, preferences: &AppPrefer
     });
 }
 
+// Diagnostic template lookup deliberately excludes the arbitrary single-cache
+// fallback: a template from another subscription is never proof for this node.
+fn diagnostic_template_for<'a>(snapshot: &'a PersistedState, server: &Server) -> Option<&'a serde_json::Value> {
+    if matches!(server.protocol, nimbo_subscription::Protocol::Awg(_) | nimbo_subscription::Protocol::Naive(_)) { return None; }
+    let owner = snapshot.subscriptions.iter().find(|sub| sub.servers.iter().any(|s| s.id == server.id));
+    let mut keys = server_xray_template_lookup_keys(server);
+    keys.push(DEFAULT_XRAY_TEMPLATE_KEY.into());
+    if let Some(owner) = owner {
+        for key in &keys {
+            if let Some(value) = snapshot.xray_templates.get(&namespaced_xray_template_key(&owner.url, key)) { return Some(value); }
+        }
+    }
+    for key in &keys {
+        if let Some(value) = snapshot.xray_templates.get(key) { return Some(value); }
+    }
+    None
+}
+
 fn select_xray_template<'a>(
     snapshot: &'a PersistedState,
     subscription_url: Option<&str>,
@@ -7501,6 +7577,7 @@ fn write_xray_config(config: &serde_json::Value) -> Result<PathBuf, String> {
 }
 
 async fn ensure_xray_binary(app: &AppHandle) -> Result<PathBuf, String> {
+    let _resolution = XRAY_RESOLUTION.lock().await;
     let custom = std::env::var_os("NIMBO_XRAY_PATH").map(PathBuf::from);
     if let Some(path) = crate::xray_release::current()?.select_runtime(custom.as_deref(), &xray_candidate_paths(app)?)? {
         return Ok(path);
@@ -7842,7 +7919,7 @@ fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
         .mutate(|s| {
             s.pending_tun_snapshot = None;
             s.pending_system_proxy_snapshot = None;
-            if crate::latency::http_method(&s.preferences.latency_protocol).is_some() { s.server_pings.clear(); }
+            if matches!(s.preferences.latency_protocol.as_str(), "http_get" | "http_head") { s.server_pings.clear(); }
         })
         .map_err(|e| format!("Не удалось сбросить runtime-снимок: {e}"))?;
     Ok(())
@@ -7883,6 +7960,7 @@ pub fn cleanup_disconnected_runtime_on_startup(app: &AppHandle) {
 }
 
 pub fn cleanup_runtime_for_exit(app: &AppHandle) {
+    cancel_pings();
     CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst);
     let state = app.state::<AppState>();
     if let Err(error) = stop_runtime(&state) {
@@ -8737,6 +8815,7 @@ fn normalize_ui_style(value: &str) -> String {
 
 fn normalize_latency_protocol(value: &str) -> String {
     match value.trim() {
+        "" => "nimbo".into(),
         "tcp_connect" | "icmp" | "http_head" | "http_get" | "nimbo" => value.trim().into(),
         _ => "tcp_connect".into(),
     }
@@ -9046,6 +9125,17 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn diagnostic_template_lookup_never_uses_arbitrary_foreign_cache_entry() {
+        let mut snapshot=PersistedState::default();
+        let server=Server { id:"selected-node".into(),name:"node".into(),server_description:None,host_uuid:None,xray_json_template_uuid:Some("selected-template".into()),
+            protocol:nimbo_subscription::Protocol::Vless(nimbo_subscription::VlessConfig {address:"vpn.example".into(),port:443,uuid:"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".into(),flow:None,encryption:"none".into(),stream:Default::default()}) };
+        snapshot.xray_templates.insert("foreign-template".into(),serde_json::json!({"outbounds":[]}));
+        assert!(diagnostic_template_for(&snapshot,&server).is_none());
+        snapshot.xray_templates.insert("selected-template".into(),serde_json::json!({"outbounds":[{"tag":"proof"}]}));
+        assert_eq!(diagnostic_template_for(&snapshot,&server).unwrap()["outbounds"][0]["tag"],"proof");
+    }
+
+    #[test]
     fn awg_runtime_config_overrides_stale_templates_and_disables_mux() {
         let key = "01".repeat(32);
         let mut server = nimbo_subscription::parser::aggregate::parse_single(&format!("[Interface]\nPrivateKey={key}\nAddress=10.0.0.2/32\n[Peer]\nPublicKey={key}\nEndpoint=192.0.2.1:51820\nAllowedIPs=0.0.0.0/0\n")).unwrap();
@@ -9291,7 +9381,7 @@ mod tests {
             assert_eq!(normalize_latency_display_format(id), id);
         }
         assert_eq!(normalize_latency_protocol("bad"), "tcp_connect");
-        assert_eq!(AppPreferences::default().latency_protocol, "tcp_connect");
+        assert_eq!(AppPreferences::default().latency_protocol, "nimbo");
         for url in ["http://", "ftp://example.com", "https://u:p@example.com"] {
             assert_eq!(normalize_latency_test_url(url), AppPreferences::default().latency_test_url);
         }

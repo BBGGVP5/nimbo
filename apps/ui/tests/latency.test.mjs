@@ -28,9 +28,11 @@ test('display contract boundaries and zero; missing/failure/running never succee
   }
 });
 
-test('all saved IDs survive normalization, defaults unchanged, malformed URL/timeout rejected', () => {
+test('all saved IDs survive normalization, unset defaults to Nimbo, malformed URL/timeout rejected', () => {
   for (const id of ['tcp_connect','icmp','http_head','http_get','nimbo']) assert.equal(latency.normalizeLatencyProtocol(id), id);
   for (const id of ['numeric','bars','both','dots','ms','badge']) assert.equal(latency.normalizeLatencyDisplay(id), id);
+  for (const value of [undefined,null,'']) assert.equal(latency.normalizeLatencyProtocol(value), 'nimbo');
+  assert.equal(apiFixture(false).defaultAppPreferences.latency_protocol, 'nimbo');
   assert.equal(latency.normalizeLatencyProtocol('unknown'), 'tcp_connect');
   assert.equal(latency.normalizeLatencyDisplay('unknown'), 'ms');
   for (const url of ['http://','ftp://example.com','https://user:pass@example.com','javascript:alert(1)',null]) {
@@ -73,6 +75,31 @@ test('progressive requests retain IDs, deduplicate and reject mismatched/failing
   for (const id of ['wrong','error','throws']) assert.equal(results.find(r=>r.server_id===id).latency_ms,null);
 });
 
+test('92 subscription nodes each get their own request with at most three in flight', async () => {
+  let active=0,peak=0; const calls=[],results=[];
+  const {pingServersProgressively}=evaluate(source('../src/lib/ping.ts'), {'./api':{api:{
+    pingServer:async id=>{
+      active++;peak=Math.max(peak,active);calls.push(id);
+      await new Promise(resolve=>setTimeout(resolve,1));active--;
+      return {server_id:id,latency_ms:Number(id)};
+    },
+  }}});
+  await pingServersProgressively(Array.from({length:92},(_,i)=>String(i)),result=>results.push(result));
+  assert.equal(new Set(calls).size,92);assert.equal(results.length,92);assert.equal(peak,3);
+  for (const result of results) assert.equal(result.latency_ms,Number(result.server_id));
+});
+
+test('cancel stops progressive queue, cancels owned backend probes and suppresses late samples', async () => {
+  let finish,cancelled=0; const calls=[],results=[];const controller=new AbortController();
+  const {pingServersProgressively}=evaluate(source('../src/lib/ping.ts'), {'./api':{api:{
+    pingServer:id=>{calls.push(id);return new Promise(resolve=>finish=resolve);},
+    cancelPings:async()=>{cancelled++;},
+  }}});
+  const pending=pingServersProgressively(['a','b','c'],result=>results.push(result),1,controller.signal);
+  controller.abort();finish({server_id:'a',latency_ms:0});await pending;
+  assert.equal(cancelled,1);assert.deepEqual(calls,['a']);assert.deepEqual(results,[]);
+});
+
 function apiFixture(tauri, invoke = async () => {}) {
   const storage = new Map();
   const result = evaluate(source('../src/lib/api.ts'), {
@@ -92,19 +119,21 @@ test('browser preview never fabricates ping measurements', async () => {
   assert.ok(batch.every(r=>r.latency_ms===null && r.error));
 });
 
-test('late IPC result after disconnect/settings change is rejected, including zero', async () => {
-  for (const action of ['disconnect','settings']) {
+test('independent Nimbo survives disconnect; legacy HTTP, settings and cancel reject stale zero', async () => {
+  for (const action of ['disconnect','legacy','settings','cancel']) {
     let finish;
     const {api,defaultAppPreferences} = apiFixture(true, async (command,args) => {
       if (command === 'ping_server') return new Promise(resolve => finish = resolve);
       if (command === 'set_preferences') return args.preferences;
       return {};
     });
+    if (action === 'legacy') await api.setPreferences({...defaultAppPreferences,latency_protocol:'http_head'});
     const pending = api.pingServer('active');
-    if (action === 'disconnect') await api.disconnectServer();
-    else await api.setPreferences({...defaultAppPreferences,latency_protocol:'nimbo'});
+    if (action === 'disconnect' || action === 'legacy') await api.disconnectServer();
+    else if (action === 'cancel') await api.cancelPings();
+    else await api.setPreferences({...defaultAppPreferences,latency_protocol:'tcp_connect'});
     finish({server_id:'active',latency_ms:0});
-    assert.equal((await pending).latency_ms,null);
+    assert.equal((await pending).latency_ms,action === 'disconnect' ? 0 : null);
   }
 });
 

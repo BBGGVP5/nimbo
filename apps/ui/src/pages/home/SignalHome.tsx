@@ -131,9 +131,8 @@ export function SignalHome({
               type="button"
               className="signal-btn signal-btn--ghost signal-btn--sm"
               onClick={onCheckPings}
-              disabled={pinging}
             >
-              {m.home.pingServers}
+              {pinging ? m.common.cancel : m.home.pingServers}
             </button>
           </div>
         </header>
