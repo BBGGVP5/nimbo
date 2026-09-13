@@ -16,10 +16,46 @@ function evaluate(code, deps = {}, globals = {}) {
   return exports;
 }
 const latency = evaluate(source('../src/lib/latency.ts'));
-const store = { preferences: { latency_display_format: 'numeric' } };
+const store = { preferences: { latency_display_format: 'numeric', latency_protocol: 'tcp_connect', language: 'en' } };
+const translations = evaluate(source('../src/lib/i18n.ts'), { '../store': {useAppStore: fn=>fn(store)} });
 const display = evaluate(source('../src/components/LatencyDisplay.tsx'), {
-  '../lib/latency': latency, '../store': { useAppStore: fn => fn(store) }, 'react/jsx-runtime': jsx,
+  '../lib/latency': latency, '../lib/i18n': translations, '../store': { useAppStore: fn => fn(store) }, 'react/jsx-runtime': jsx,
 }).LatencyDisplay;
+
+test('Nimbo estimate is presentation-only; scale once, round once, then evaluate quality', () => {
+  for (const [raw,value,bars] of [[0,0,4],[1,0,4],[326,99,4],[330,100,3],[660,200,2],[1320,400,1],[1387,420,1],[955,289,2],[1089,330,2],[1151,349,2],[1624,492,1],[1476,447,1]]) {
+    const sample=Object.freeze({latency_ms:raw});
+    const result=latency.latencyPresentation(sample.latency_ms,'nimbo');
+    assert.equal(result.value,value);assert.equal(result.bars,bars);assert.equal(result.label,`≈${value} ms`);
+    assert.equal(sample.latency_ms,raw);
+    for (const method of ['http_get','http_head','tcp_connect','icmp']) {
+      assert.equal(latency.latencyPresentation(raw,method).value,raw);
+      assert.equal(latency.latencyPresentation(raw,method).label,`${raw} ms`);
+    }
+  }
+  for (const raw of [-1,null,undefined,NaN,Infinity]) {
+    assert.equal(latency.latencyPresentation(raw,'nimbo').bars,0);
+    assert.equal(latency.latencyPresentation(raw,'nimbo').value,null);
+  }
+  assert.equal(latency.latencyPresentation(0,'nimbo',true).bars,0);
+});
+
+test('all estimated formats visibly mark approximation and explain raw GET in accessible text', () => {
+  for (const format of ['numeric','bars','both','dots','ms','badge']) {
+    const html=renderToStaticMarkup(React.createElement(display,{value:955,protocol:'nimbo',format}));
+    assert.ok(html.includes('≈'));assert.ok(html.includes('HTTP GET 955 ms ÷ 3.3'));
+    assert.ok(html.includes('estimate'));assert.ok(html.includes('aria-label='));
+    if (['bars','both','dots','badge'].includes(format)) assert.ok(html.includes('data-latency-bars="2"'));
+    const ordinary=renderToStaticMarkup(React.createElement(display,{value:955,protocol:'http_get',format}));
+    assert.ok(!ordinary.includes('≈'));assert.ok(ordinary.includes('aria-label="955 ms"'));
+  }
+  const zero=renderToStaticMarkup(React.createElement(display,{value:0,protocol:'nimbo'}));
+  assert.ok(zero.includes('≈0 ms'));
+  for (const props of [{value:-1},{value:null},{value:0,loading:true},{value:0,error:'unavailable'}]) {
+    const html=renderToStaticMarkup(React.createElement(display,{...props,protocol:'nimbo'}));
+    assert.ok(!html.includes('≈'));assert.ok(!html.includes('<svg'));
+  }
+});
 
 test('display contract boundaries and zero; missing/failure/running never succeed', () => {
   for (const [value, bars] of [[0,4],[99,4],[100,3],[199,3],[200,2],[399,2],[400,1],[9000,1],[-1,0],[null,0],[undefined,0],[NaN,0],[Infinity,0]]) {
@@ -159,6 +195,10 @@ test('real settings section exposes methods, active-route limitation, presets, c
   const nodes=tree=>[tree,...(Array.isArray(tree?.props?.children)?tree.props.children:[tree?.props?.children]).filter(Boolean).flatMap(nodes)];
   let rows=nodes(render());
   assert.deepEqual(Array.from(rows.find(r=>r.props?.label==='protocol').props.options,o=>o.value), ['nimbo','tcp_connect','icmp','http_get','http_head']);
+  assert.equal(rows.find(r=>r.props?.label==='protocol').props.description,'latencyEstimateDescription');
+  preferences.latency_protocol='http_get';
+  assert.equal(nodes(render()).find(r=>r.props?.label==='protocol').props.description,'latencyProtocolDescription');
+  preferences.latency_protocol='nimbo';
   const preset=rows.find(r=>r.props?.description==='latencyActiveRouteOnly');
   assert.ok(preset);
   await preset.props.onChange(latency.LATENCY_URL_PRESETS[1].value);
@@ -171,4 +211,38 @@ test('real settings section exposes methods, active-route limitation, presets, c
   const displayRow=rows.find(r=>r.props?.label==='displayFormat');
   assert.deepEqual(Array.from(displayRow.props.options,o=>o.value), ['numeric','bars','both','dots']);
   await displayRow.props.onChange('dots'); assert.equal(changes.at(-1).latency_display_format,'dots');
+});
+
+
+test('classic quality colors and tray prose consume estimate without changing ordinary methods', () => {
+  const home=source('../src/pages/Home.tsx');
+  const colorCode=home.slice(home.indexOf('function pingTier('),home.indexOf('function pingLevelLabel('))+'\nexports.pingTier=pingTier;';
+  const {pingTier}=evaluate(colorCode,{},latency);
+  assert.equal(pingTier(660,'nimbo').level,'average');
+  assert.equal(pingTier(660,'http_get').level,'high');
+  assert.equal(pingTier(-1,'nimbo').bg,'transparent');
+  const tray=source('../src/tray-menu/TrayMenu.tsx');
+  const taskCode=tray.slice(tray.indexOf('function describeTask('),tray.indexOf('function ConnectionsIcon('))+'\nexports.describeTask=describeTask;';
+  const {describeTask}=evaluate(taskCode,{},latency);
+  const labels={pingDone:'Done',pingBest:'Best',serversShort:'servers'};
+  assert.ok(describeTask({status:'done',kind:'ping_servers',best:955},labels,'nimbo').includes('≈289 ms'));
+  assert.ok(describeTask({status:'done',kind:'ping_servers',best:955},labels,'http_get').includes('955 ms'));
+  assert.ok(describeTask({status:'done',kind:'ping_servers',best:0},labels,'nimbo').includes('≈0 ms'));
+  assert.ok(!describeTask({status:'done',kind:'ping_servers',best:-1},labels,'nimbo').includes('≈'));
+});
+
+test('explicit tray method overrides store default and localized descriptions remain honest', () => {
+  store.preferences.latency_protocol='nimbo';
+  try {
+    const ordinary=renderToStaticMarkup(React.createElement(display,{value:955,protocol:'http_get'}));
+    assert.ok(ordinary.includes('955 ms'));assert.ok(!ordinary.includes('≈'));
+    const estimated=renderToStaticMarkup(React.createElement(display,{value:955,language:'ru'}));
+    assert.ok(estimated.includes('оценка:'));assert.ok(estimated.includes('955 мс ÷ 3,3'));
+    for (const language of ['ru','en']) {
+      const m=translations.getMessages(language);
+      assert.ok(m.settings.latencyEstimateDescription.includes(language === 'ru' ? '3,3' : '3.3'));
+      assert.ok(!m.settings.latencyEstimateDescription.includes('INCY'));
+      assert.ok(m.settings.latencyEstimateLabel.includes('RTT'));
+    }
+  } finally {store.preferences.latency_protocol='tcp_connect';}
 });

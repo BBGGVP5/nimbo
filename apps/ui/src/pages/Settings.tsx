@@ -1592,10 +1592,10 @@ function LatencySection({
       <SettingsCard>
         <SettingsChoiceRow
           label={m.settings.protocol}
-          description={m.settings.latencyProtocolDescription}
+          description={preferences.latency_protocol === "nimbo" ? m.settings.latencyEstimateDescription : m.settings.latencyProtocolDescription}
           value={preferences.latency_protocol}
           options={[
-            { value: "nimbo", label: "Nimbo Ping (HTTP GET)" },
+            { value: "nimbo", label: "Nimbo Ping (≈ HTTP GET / 3.3)" },
             { value: "tcp_connect", label: m.settings.latencyTcpConnect },
             { value: "icmp", label: m.settings.latencyIcmp },
             { value: "http_get", label: "HTTP GET" },

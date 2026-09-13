@@ -1,3 +1,4 @@
+import { latencyPresentation } from "./lib/latency";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
@@ -103,9 +104,9 @@ export default function App() {
       transitioning: Boolean(connectingServerId || switchingServerId || disconnecting),
       uploadBytesPerSecond: trafficSpeed.upload,
       downloadBytesPerSecond: trafficSpeed.download,
-      pingMs: measuredServerId ? serverPings[measuredServerId] : null,
+      pingMs: latencyPresentation(measuredServerId ? serverPings[measuredServerId] : null, preferences.latency_protocol).value,
     });
-  }, [activeServerId, connectingServerId, disconnecting, serverPings, status?.state, switchingServerId, trafficSpeed.download, trafficSpeed.upload]);
+  }, [activeServerId, connectingServerId, disconnecting, serverPings, status?.state, switchingServerId, trafficSpeed.download, trafficSpeed.upload, preferences.latency_protocol]);
   const networkGlassStyle = useMemo(() => ({
     "--network-upload-alpha": `${0.014 + networkGlassSignal.uploadLevel * 0.09}`,
     "--network-download-alpha": `${0.017 + networkGlassSignal.downloadLevel * 0.10}`,

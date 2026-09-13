@@ -1,3 +1,5 @@
+import { fillTemplate, getMessages } from "../lib/i18n";
+import { latencyPresentation, type LatencyProtocol } from "../lib/latency";
 import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -462,7 +464,11 @@ export function TrayMenu({ previewState }: { previewState?: TrayState } = {}) {
   };
 
   const taskBusy = task?.status === "running";
-  const taskLabel = task ? describeTask(task, t) : null;
+  const taskLabel = task ? describeTask(task, t, state?.visualPreferences?.latency_protocol) : null;
+  const taskEstimate = latencyPresentation(task?.best, state?.visualPreferences?.latency_protocol);
+  const taskExplanation = task?.kind === "ping_servers" && taskEstimate.approximate
+    ? fillTemplate(getMessages(lang).settings.latencyEstimateLabel, { estimate: taskEstimate.label, raw: task!.best! })
+    : undefined;
 
   return (
     <div className="tray-shell">
@@ -561,7 +567,7 @@ export function TrayMenu({ previewState }: { previewState?: TrayState } = {}) {
                 <span className="tray-flag" aria-hidden="true">☆</span>
                 <span className="tray-server-copy">
                   <span className="tray-server-name" title={displayServerName(server)}>{displayServerName(server)}</span>
-                  <span className="tray-server-meta"><span>{server.subscriptionName}</span><span>{server.latencyMs != null ? <LatencyDisplay value={server.latencyMs} format={state?.visualPreferences?.latency_display_format} /> : t.noPing}</span></span>
+                  <span className="tray-server-meta"><span>{server.subscriptionName}</span><span>{server.latencyMs != null ? <LatencyDisplay value={server.latencyMs} format={state?.visualPreferences?.latency_display_format} protocol={state?.visualPreferences?.latency_protocol} language={lang} /> : t.noPing}</span></span>
                 </span>
                 <span className="tray-check" aria-hidden="true">{server.id === activeId ? "✓" : "→"}</span>
               </button>
@@ -612,7 +618,7 @@ export function TrayMenu({ previewState }: { previewState?: TrayState } = {}) {
                 {task.status === "done" ? <TaskDoneIcon /> : <TaskErrorIcon />}
               </span>
             )}
-            <span className="tray-task-text">{taskLabel}</span>
+            <span className="tray-task-text" title={taskExplanation} aria-label={taskExplanation ? `${taskLabel}. ${taskExplanation}` : undefined}>{taskLabel}</span>
           </div>
         ) : null}
 
@@ -661,16 +667,9 @@ function displayServerName(server: TrayServer): string {
   return serverDisplayName(server.name) || server.name || "Server";
 }
 
-// A successful probe always took *some* time; CDN-fronted servers just connect
-// to a nearby edge in well under a millisecond, which `as_millis()` truncates to
-// 0. Show "<1 ms" rather than a "0 ms" that reads as broken.
-function formatMs(value: number): string {
-  return value < 1 ? "<1 ms" : `${Math.round(value)} ms`;
-}
-
 type Labels = (typeof LABELS)[keyof typeof LABELS];
 
-function describeTask(task: TrayTask, t: Labels): string {
+function describeTask(task: TrayTask, t: Labels, protocol?: LatencyProtocol): string {
   if (task.status === "running") {
     if (task.kind === "ping_servers") {
       return typeof task.done === "number" && typeof task.total === "number"
@@ -686,7 +685,7 @@ function describeTask(task: TrayTask, t: Labels): string {
     const parts: string[] = [t.pingDone];
     if (typeof task.count === "number") parts.push(`${task.count} ${t.serversShort}`);
     if (typeof task.best === "number" && Number.isFinite(task.best)) {
-      parts.push(`${t.pingBest} ${formatMs(task.best)}`);
+      parts.push(`${t.pingBest} ${latencyPresentation(task.best, protocol).label}`);
     }
     return parts.join(" · ");
   }

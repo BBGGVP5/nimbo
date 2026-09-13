@@ -31,6 +31,18 @@ export function latencyBars(value: unknown, inProgress = false): number {
   if (inProgress || typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
   return value < 100 ? 4 : value < 200 ? 3 : value < 400 ? 2 : 1;
 }
+
+/** Display-only estimate. Never write this value back into raw ping caches. */
+export function latencyPresentation(raw: unknown, protocol: unknown, inProgress = false) {
+  if (!latencyBars(raw, inProgress)) {
+    return { value: null, bars: 0, approximate: false, number: "—", label: "—" };
+  }
+  const approximate = normalizeLatencyProtocol(protocol) === "nimbo";
+  // Numeric and quality displays use the same rounded value at boundaries.
+  const value = approximate ? Math.round((raw as number) / 3.3) : raw as number;
+  const number = `${approximate ? "≈" : ""}${value}`;
+  return { value, bars: latencyBars(value), approximate, number, label: `${number} ms` };
+}
 export function latencySettingsKey(preferences: { latency_protocol?: string; latency_test_url?: string; latency_timeout_ms?: number }): string {
   return JSON.stringify([preferences.latency_protocol, preferences.latency_test_url, preferences.latency_timeout_ms]);
 }

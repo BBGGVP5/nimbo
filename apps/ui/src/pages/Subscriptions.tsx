@@ -1,3 +1,4 @@
+import { latencyPresentation } from "../lib/latency";
 import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -878,6 +879,7 @@ function AutoFastestLine({
   displayName: (server: Server) => string;
 }) {
   const m = useMessages();
+  const pingProtocol = useAppStore((s) => s.preferences.latency_protocol);
   const searching = useAppStore((s) => s.searchingFastest);
   const connectFastest = useAppStore((s) => s.connectFastestServer);
   const active = servers.find((server) => server.id === activeId) ?? null;
@@ -888,7 +890,7 @@ function AutoFastestLine({
     : active && typeof activePing === "number" && Number.isFinite(activePing) && activePing >= 0
       ? fillTemplate(m.profiles.fastestCurrent, {
           name: displayName(active),
-          ping: String(activePing),
+          ping: latencyPresentation(activePing, pingProtocol).number,
         })
       : m.profiles.fastestHint;
 
@@ -900,6 +902,7 @@ function AutoFastestLine({
   return (
     <div
       role="button"
+      title={latencyPresentation(activePing, pingProtocol).approximate ? m.settings.latencyEstimateDescription : undefined}
       tabIndex={0}
       onClick={run}
       onKeyDown={(event) => {

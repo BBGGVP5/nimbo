@@ -1,3 +1,4 @@
+import { latencyPresentation } from "../lib/latency";
 import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -957,6 +958,7 @@ function ActiveServerInfo({
   onNavigate: () => void;
   labels: Messages;
 }) {
+  const pingProtocol = useAppStore(s => s.preferences.latency_protocol);
   if (!entry) return null;
   const name = serverDisplayLabel(entry.server);
   const subscriptionName = entry.sub.name?.trim() || labels.common.subscription;
@@ -993,7 +995,7 @@ function ActiveServerInfo({
         <span
           className="active-server-ping"
           style={(() => {
-            const tier = pingTier(ping);
+            const tier = pingTier(ping, pingProtocol);
             return { background: tier.bg, color: tier.fg };
           })()}
         >
@@ -1019,6 +1021,7 @@ function CompactServerBar({
   onOpenList: () => void;
   labels: Messages;
 }) {
+  const pingProtocol = useAppStore(s => s.preferences.latency_protocol);
   if (!entry) return null;
   const label = serverDisplayLabel(entry.server);
 
@@ -1040,7 +1043,7 @@ function CompactServerBar({
           <span
             className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums"
             style={(() => {
-              const tier = pingTier(ping);
+              const tier = pingTier(ping, pingProtocol);
               return { background: tier.bg, color: tier.fg };
             })()}
           >
@@ -1784,6 +1787,7 @@ function ProfileSummary({
 // ── PingBadge ─────────────────────────────────────────────────
 
 function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean }) {
+  const pingProtocol = useAppStore(s => s.preferences.latency_protocol);
   const m = useMessages();
   if (loading) {
     return (
@@ -1792,8 +1796,8 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
       </span>
     );
   }
-  if (ping == null) return <LatencyDisplay value={ping} />;
-  const tier = pingTier(ping);
+  if (latencyPresentation(ping, pingProtocol).value == null) return <LatencyDisplay value={ping} />;
+  const tier = pingTier(ping, pingProtocol);
   return (
     <span
       className="server-side-ping-badge shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold tabular-nums"
@@ -1807,7 +1811,9 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
 
 type PingLevel = "good" | "average" | "high";
 
-function pingTier(ping: number): { bg: string; fg: string; level: PingLevel } {
+function pingTier(raw: unknown, protocol: unknown): { bg: string; fg: string; level: PingLevel } {
+  const ping = latencyPresentation(raw, protocol).value;
+  if (ping == null) return { bg: "transparent", fg: "var(--color-text-faint)", level: "high" };
   if (ping < 100) {
     return { bg: "rgba(76, 217, 100, 0.16)", fg: "#7be084", level: "good" };
   }

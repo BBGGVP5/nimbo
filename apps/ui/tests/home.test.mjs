@@ -77,7 +77,10 @@ function fixture({ style = 'classic', state = 'connected', stored = {}, memory }
     getMemoryUsage: () => { calls++; return memory ? memory() : Promise.resolve({ bytes: calls * 1024 }); },
   };
   const stub = name => ({ [name]: name });
+  const latency = {};
+  vm.runInNewContext(compile("../src/lib/latency.ts"), { exports: latency, URL });
   const modules = {
+    "../lib/latency": latency,
     react,
     'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }), Fragment: 'Fragment' },
     'react-router-dom': { Link: 'Link', useNavigate: () => () => {} },
