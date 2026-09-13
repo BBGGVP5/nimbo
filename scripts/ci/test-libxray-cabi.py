@@ -16,11 +16,13 @@ import socket
 import subprocess
 import sys
 import threading
+from libxray_apple_test_host import run_in_app_host_if_needed
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def main():
+    run_in_app_host_if_needed()
     swift = (ROOT / "iosApp/PacketTunnel/LibXrayBridge.swift").read_text(encoding="utf-8")
     api = int(re.search(r"private static let apiVersion = (\d+)", swift)[1])
     run = re.search(r'func run\(configurationJSON: String\).*?method: "([^"]+)".*?payload: \["([^"]+)": configurationJSON\]', swift, re.S)

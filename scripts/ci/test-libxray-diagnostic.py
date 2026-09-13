@@ -17,6 +17,7 @@ import tempfile
 import threading
 import time
 import uuid
+from libxray_apple_test_host import run_in_app_host_if_needed
 
 
 class Proxy(http.server.BaseHTTPRequestHandler):
@@ -112,6 +113,7 @@ def listener(status=204, relay=False):
 
 
 def main():
+    run_in_app_host_if_needed()
     library = ctypes.CDLL(str(Path(sys.argv[1]).resolve()))
     library.CGoFree.argtypes = [ctypes.c_void_p]
     library.CGoFree.restype = None
@@ -119,6 +121,21 @@ def main():
         method = getattr(library, name)
         method.argtypes = [ctypes.c_char_p]
         method.restype = ctypes.c_void_p
+
+    if "--guard-only" in sys.argv:
+        request = {"apiVersion": 1, "requestID": str(uuid.uuid4()), "serverID": "guard",
+                   "config": "unsupported-local-fixture", "format": "awg",
+                   "url": "https://example.invalid/", "method": "GET", "timeoutMs": 1000}
+        pointer = library.NimboDiagnosticRun(json.dumps(request).encode())
+        assert pointer
+        try:
+            response = json.loads(ctypes.string_at(pointer))
+        finally:
+            library.CGoFree(pointer)
+        expected = sys.argv[sys.argv.index("--guard-only") + 1]
+        assert response.get("error") == expected, (expected, response)
+        print(f"PASS real Apple bundle guard: {expected}")
+        return
 
     def call(name, request):
         pointer = getattr(library, name)(json.dumps(request).encode())
