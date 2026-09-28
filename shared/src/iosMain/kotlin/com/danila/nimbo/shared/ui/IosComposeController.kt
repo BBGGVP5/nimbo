@@ -5,6 +5,7 @@ package com.danila.nimbo.shared.ui
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.window.ComposeUIViewController
 import com.danila.nimbo.shared.subscription.NormalizedSubscription
+import com.danila.nimbo.shared.updates.ReleaseDefaults
 import com.danila.nimbo.shared.routing.NimboModule
 import com.danila.nimbo.shared.routing.NimboModuleParser
 import com.danila.nimbo.shared.routing.NimboBuiltinRoutingProfiles
@@ -27,6 +28,7 @@ private const val SaveAppRuleAction = "com.nimbo.action.save-app-rule"
 private const val DiagnosticsAction = "com.nimbo.action.diagnostics"
 private const val AboutAction = "com.nimbo.action.about"
 private const val SystemSettingsAction = "com.nimbo.action.system-settings"
+private const val OpenCoreSettingsAction = "com.nimbo.action.open-core-settings"
 private const val SelectServerAction = "com.nimbo.action.select-server"
 private const val OpenUrlAction = "com.nimbo.action.open-url"
 private const val RoutingAction = "com.nimbo.action.routing"
@@ -46,16 +48,9 @@ private const val ImportSubscriptionAction = "com.nimbo.action.import-subscripti
 private const val ImportClipboardAction = "com.nimbo.action.import-clipboard"
 private const val ImportFileAction = "com.nimbo.action.import-file"
 private const val ScanQrAction = "com.nimbo.action.scan-qr"
-private const val AppearanceChangedAction = "com.nimbo.action.appearance-changed"
 
 /** Оформление хранится там же, где настройки маршрутизации. */
 private const val AppearanceDefaultsPrefix = "com.nimbo.appearance."
-
-private fun appearanceInt(key: String, default: Int): Int {
-    val defaults = NSUserDefaults.standardUserDefaults
-    if (defaults.objectForKey(AppearanceDefaultsPrefix + key) == null) return default
-    return defaults.integerForKey(AppearanceDefaultsPrefix + key).toInt()
-}
 
 private fun appearanceFlag(key: String, default: Boolean): Boolean {
     val defaults = NSUserDefaults.standardUserDefaults
@@ -65,6 +60,20 @@ private fun appearanceFlag(key: String, default: Boolean): Boolean {
 
 private fun appearanceText(key: String, default: String): String =
     NSUserDefaults.standardUserDefaults.stringForKey(AppearanceDefaultsPrefix + key) ?: default
+
+private fun appearanceFloat(key: String, default: Float): Float {
+    val defaults = NSUserDefaults.standardUserDefaults
+    if (defaults.objectForKey(AppearanceDefaultsPrefix + key) == null) return default
+    return defaults.doubleForKey(AppearanceDefaultsPrefix + key).toFloat()
+}
+
+private fun loadAppearance(): NimboAppearance = NimboAppearance(
+    themeMode = appearanceText("themeMode", "system"),
+    accentHex = appearanceText("accentHex", "E8E8E8"),
+    textScale = appearanceFloat("textScale", 1f),
+    refraction = appearanceFlag("refraction", true),
+    haptics = appearanceFlag("haptics", true)
+).normalized()
 
 /** Сведения о доступном обновлении приносит Swift: в сеть ходит он. */
 fun NimboUpdateIosRelease(version: String, notes: String) {
@@ -87,7 +96,9 @@ private const val UpdateDefaultsPrefix = "com.nimbo.update."
 
 /** Канал обновлений и уведомления о них. */
 fun NimboIosUpdateChannel(): String =
-    NSUserDefaults.standardUserDefaults.stringForKey(UpdateDefaultsPrefix + "channel") ?: "beta"
+    ReleaseDefaults.updateChannel(
+        NSUserDefaults.standardUserDefaults.stringForKey(UpdateDefaultsPrefix + "channel")
+    )
 
 fun NimboIosUpdateNotify(): Boolean {
     val defaults = NSUserDefaults.standardUserDefaults
@@ -111,30 +122,42 @@ private fun applyUpdateChange(key: String, value: String) {
 }
 
 private fun applyAppearanceChange(key: String, value: String) {
+    if (key !in setOf("themeMode", "accentHex", "textScale", "haptics", "navIconMotion",
+            "showSpeedWidget", "showMemoryWidget", "serverSort", "favoritesFirst",
+            "pingOnLaunch", "pingAfterRefresh", "refreshOnLaunch", "connectStyle")) return
     val defaults = NSUserDefaults.standardUserDefaults
     when (key) {
-        "backgroundStyle", "backgroundPalette" ->
-            defaults.setInteger(value.toLongOrNull() ?: 0L, AppearanceDefaultsPrefix + key)
-        "elementStyle", "serverSort", "connectStyle" ->
+        "textScale" -> {
+            val number = value.toDoubleOrNull()?.takeIf { it.isFinite() } ?: return
+            val range = 0.85..1.25
+            defaults.setDouble(number.coerceIn(range), AppearanceDefaultsPrefix + key)
+        }
+        "serverSort", "themeMode", "accentHex" ->
             defaults.setObject(value, AppearanceDefaultsPrefix + key)
+        "connectStyle" -> {
+            if (value !in setOf("classic", "compact")) return
+            defaults.setObject(value, AppearanceDefaultsPrefix + key)
+        }
         else -> defaults.setBool(value == "true", AppearanceDefaultsPrefix + key)
     }
     iosUiState.value = iosUiState.value.copy(
-        backgroundStyle = appearanceInt("backgroundStyle", 0),
-        backgroundPalette = appearanceInt("backgroundPalette", 0),
-        backgroundMotion = appearanceFlag("backgroundMotion", true),
+        appearance = loadAppearance(),
+        pingOnLaunch = appearanceFlag("pingOnLaunch", true),
+        pingAfterRefresh = appearanceFlag("pingAfterRefresh", true),
+        refreshOnLaunch = appearanceFlag("refreshOnLaunch", false),
+        backgroundStyle = 0,
+        backgroundPalette = 0,
+        backgroundMotion = false,
         navIconMotion = appearanceFlag("navIconMotion", true),
         showSpeedWidget = appearanceFlag("showSpeedWidget", true),
         showMemoryWidget = appearanceFlag("showMemoryWidget", true),
-        elementStyle = appearanceText("elementStyle", "glass"),
+        elementStyle = "glass",
         serverSort = appearanceText("serverSort", "subscription"),
         favoritesFirst = appearanceFlag("favoritesFirst", true),
-        connectStyle = appearanceText("connectStyle", "classic"),
-        statusParticles = appearanceFlag("statusParticles", true)
+        connectStyle = appearanceText("connectStyle", "classic").takeIf { it in setOf("classic", "compact") } ?: "classic",
+        statusParticles = false
     )
-    // Нативная нижняя панель живёт вне Compose. Сообщаем Swift о смене
-    // оформления, чтобы Manga/Glass применялись сразу, без перезапуска экрана.
-    postIosAction(AppearanceChangedAction, appearanceText("elementStyle", "glass"))
+
 }
 
 /**
@@ -158,12 +181,24 @@ private fun pingInt(key: String, default: Int): Int {
 private fun applyPingChange(key: String, value: String) {
     val defaults = NSUserDefaults.standardUserDefaults
     when (key) {
-        "timeoutMs" -> defaults.setInteger(value.toLongOrNull() ?: 3000L, PingDefaultsPrefix + key)
+        "timeoutMs" -> defaults.setInteger((value.toLongOrNull() ?: 3000L).coerceIn(1000L, 10000L), PingDefaultsPrefix + key)
+        "protocol" -> defaults.setObject(normalizePingProtocol(value), PingDefaultsPrefix + key)
+        "display" -> defaults.setObject(normalizePingDisplay(value), PingDefaultsPrefix + key)
         else -> defaults.setObject(value, PingDefaultsPrefix + key)
     }
+    if (key in listOf("protocol", "url", "timeoutMs")) {
+        iosPings.value = emptyMap()
+        iosPendingPingIds.value = emptySet()
+        iosPingInProgress.value = false
+        defaults.removeObjectForKey(PingResultsKey)
+    }
     iosUiState.value = iosUiState.value.copy(
-        pingProtocol = pingText("protocol", "tcp"),
-        pingTimeoutMs = pingInt("timeoutMs", 3000),
+        pings = iosPings.value,
+        servers = iosUiState.value.servers.map { it.copy(ping = iosPings.value[it.id], pingInProgress = it.id in iosPendingPingIds.value) },
+        pingInProgress = iosPingInProgress.value,
+        pingProtocol = normalizePingProtocol(pingText("protocol", "nimbo")),
+        pingDisplay = normalizePingDisplay(pingText("display", "numeric")),
+        pingTimeoutMs = pingInt("timeoutMs", 3000).coerceIn(1000, 10000),
         pingUrl = pingText("url", DefaultPingUrl)
     )
 }
@@ -577,15 +612,6 @@ private fun toggleFavoriteServer(serverId: String) {
  * адреса самой подписки — ровно так же ведёт себя десктоп, когда провайдер не
  * прислал profile-web-page-url.
  */
-private fun websiteFromSource(source: String?): String? {
-    val value = source?.trim().orEmpty()
-    if (!value.startsWith("http://") && !value.startsWith("https://")) return null
-    val schemeEnd = value.indexOf("://") + 3
-    val hostEnd = value.indexOf('/', schemeEnd)
-    val origin = if (hostEnd > 0) value.substring(0, hostEnd) else value
-    return origin.takeIf { it.length > schemeEnd }
-}
-
 /**
  * Сведения о подписке (имя владельца, трафик, срок) приходят из заголовков
  * ответа панели — разбор ссылок их не содержит.
@@ -606,6 +632,20 @@ fun NimboUpdateIosProfileMeta(
     )
 }
 
+/** Real provider data, kept separate from the original Swift bridge signature. */
+fun NimboUpdateIosSubscriptionDetails(usedTraffic: Long, totalTraffic: Long, supportUrl: String?, websiteUrl: String?) {
+    iosUiState.value = iosUiState.value.copy(
+        profileTrafficUsed = usedTraffic.coerceAtLeast(0),
+        profileTrafficTotal = totalTraffic.coerceAtLeast(0),
+        supportUrl = supportUrl?.takeIf { it.isNotBlank() },
+        websiteUrl = websiteUrl?.takeIf { it.isNotBlank() }
+    )
+}
+
+fun NimboUpdateIosConnectionDuration(label: String) {
+    iosUiState.value = iosUiState.value.copy(connectionDuration = label)
+}
+
 /**
  * Показания туннеля приходят отдельной функцией: подпись
  * [NimboUpdateIosUiState] трогать нельзя, иначе ломается вызов из Swift.
@@ -618,24 +658,26 @@ fun NimboUpdateIosMetrics(
     uploadSamples: List<Long>,
     downloadSamples: List<Long>,
     memoryMb: Int,
-    memorySamples: List<Int>
+    memorySamples: List<Int>,
+    durationLabel: String?
 ) {
     val count = minOf(uploadSamples.size, downloadSamples.size)
     val samples = (0 until count).map { index ->
         NimboSpeedSample(upload = uploadSamples[index], download = downloadSamples[index])
     }
-    iosUiState.value = iosUiState.value.copy(
+    val current = iosUiState.value
+    iosUiState.value = current.copy(
         uploadSpeed = uploadSpeed,
         downloadSpeed = downloadSpeed,
         uploadTotal = uploadTotal,
         downloadTotal = downloadTotal,
         speedSamples = samples,
         memoryMb = memoryMb,
-        memorySamples = memorySamples
+        memorySamples = memorySamples,
+        connectionDuration = durationLabel ?: current.connectionDuration
     )
 }
 
-private const val NimboSupportUrl = "https://t.me/nebulaguard_channel"
 
 private val iosUiState = mutableStateOf(NimboUiState())
 private val iosJson = Json { ignoreUnknownKeys = true }
@@ -665,12 +707,13 @@ fun NimboUpdateIosUiState(
             security = server.security,
             selected = server.id == activeServerId,
             ping = iosPings.value[server.id],
-            pingInProgress = iosPingInProgress.value,
+            pingInProgress = server.id in iosPendingPingIds.value,
             description = server.description
         )
     }
     val selectedServer = servers.firstOrNull { it.selected } ?: servers.firstOrNull()
-    iosUiState.value = NimboUiState(
+    // Refresh profile/presentation without discarding live metrics or an available update.
+    iosUiState.value = iosUiState.value.copy(
         vpnState = vpnState,
         errorCode = errorCode,
         errorMessage = errorMessage,
@@ -683,8 +726,8 @@ fun NimboUpdateIosUiState(
         appVersion = appVersion,
         activeServerId = selectedServer?.id ?: activeServerId,
         servers = servers,
-        supportUrl = NimboSupportUrl,
-        websiteUrl = websiteFromSource(normalizedProfile?.source),
+        supportUrl = null,
+        websiteUrl = null,
         favoriteServerIds = iosFavorites.value,
         pings = iosPings.value,
         pingInProgress = iosPingInProgress.value,
@@ -692,19 +735,24 @@ fun NimboUpdateIosUiState(
         routingBypassLocal = loadRoutingFlag("bypassLocal", true),
         routingSniffing = loadRoutingFlag("sniffing", true),
         routingDns = loadRoutingValue("dns", "cloudflare"),
-        backgroundStyle = appearanceInt("backgroundStyle", 0),
-        backgroundPalette = appearanceInt("backgroundPalette", 0),
-        backgroundMotion = appearanceFlag("backgroundMotion", true),
+        pingOnLaunch = appearanceFlag("pingOnLaunch", true),
+        pingAfterRefresh = appearanceFlag("pingAfterRefresh", true),
+        refreshOnLaunch = appearanceFlag("refreshOnLaunch", false),
+        appearance = loadAppearance(),
+        backgroundStyle = 0,
+        backgroundPalette = 0,
+        backgroundMotion = false,
         navIconMotion = appearanceFlag("navIconMotion", true),
         showSpeedWidget = appearanceFlag("showSpeedWidget", true),
         showMemoryWidget = appearanceFlag("showMemoryWidget", true),
-        elementStyle = appearanceText("elementStyle", "glass"),
+        elementStyle = "glass",
         serverSort = appearanceText("serverSort", "subscription"),
         favoritesFirst = appearanceFlag("favoritesFirst", true),
-        connectStyle = appearanceText("connectStyle", "classic"),
-        statusParticles = appearanceFlag("statusParticles", true),
-        pingProtocol = pingText("protocol", "tcp"),
-        pingTimeoutMs = pingInt("timeoutMs", 3000),
+        connectStyle = appearanceText("connectStyle", "classic").takeIf { it in setOf("classic", "compact") } ?: "classic",
+        statusParticles = false,
+        pingProtocol = normalizePingProtocol(pingText("protocol", "nimbo")),
+        pingDisplay = normalizePingDisplay(pingText("display", "numeric")),
+        pingTimeoutMs = pingInt("timeoutMs", 3000).coerceIn(1000, 10000),
         pingUrl = pingText("url", DefaultPingUrl),
         modules = loadModules(),
         routingProfiles = loadRoutingProfiles(),
@@ -718,9 +766,19 @@ fun NimboUpdateIosUiState(
 /** Замеры задержки: приходят из Swift, там их считает NimboPingService. */
 private val iosPings = mutableStateOf<Map<String, Int>>(emptyMap())
 private val iosPingInProgress = mutableStateOf(false)
+private val iosPendingPingIds = mutableStateOf<Set<String>>(emptySet())
+
+/** Start only the requested rows; a completed row must not spin until the batch ends. */
+fun NimboBeginIosPings(serverIds: List<String>) {
+    iosPendingPingIds.value = serverIds.toSet()
+    iosPings.value = iosPings.value - iosPendingPingIds.value
+    NSUserDefaults.standardUserDefaults.setObject(iosJson.encodeToString(iosPings.value), PingResultsKey)
+    NimboUpdateIosPings(emptyList(), emptyList(), serverIds.isNotEmpty())
+}
 
 fun NimboUpdateIosPings(serverIds: List<String>, values: List<Int>, inProgress: Boolean) {
     val count = minOf(serverIds.size, values.size)
+    iosPendingPingIds.value = remainingPingIds(iosPendingPingIds.value, serverIds.take(count), inProgress)
     if (count > 0) {
         val merged = iosPings.value.toMutableMap()
         for (index in 0 until count) {
@@ -742,7 +800,7 @@ fun NimboUpdateIosPings(serverIds: List<String>, values: List<Int>, inProgress: 
         servers = current.servers.map { server ->
             server.copy(
                 ping = iosPings.value[server.id],
-                pingInProgress = inProgress
+                pingInProgress = server.id in iosPendingPingIds.value
             )
         }
     )
@@ -795,6 +853,7 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onOpenDiagnostics = { postIosAction(DiagnosticsAction) },
                 onOpenAbout = { postIosAction(AboutAction) },
                 onOpenSystemSettings = { postIosAction(SystemSettingsAction) },
+                onOpenCoreSettings = { postIosAction(OpenCoreSettingsAction) },
                 onOpenUrl = { postIosAction(OpenUrlAction, it) },
                 onToggleFavorite = { toggleFavoriteServer(it) },
                 onPingServer = { postIosAction(PingServerAction, it) },

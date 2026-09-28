@@ -11,12 +11,32 @@ final class NimboConfigurationStore {
     private let configurationAccount = "active-configuration"
     private let sourceAccount = "active-source"
     private let profileAccount = "normalized-profile-v2"
+    private let fullConfigurationAccount = "full-configuration-v1"
     private let descriptionKey = "nimbo.active.configuration.description"
     private let activeServerIDKey = "nimbo.active.server.id"
 
     private init() {}
 
+    /// One SecItem write commits source, identity and desired choices together.
+    /// Legacy accounts are retained but cannot override an active full record.
+    func saveFullConfiguration(_ configuration: NimboFullConfiguration) throws {
+        try configuration.validate()
+        try write(JSONEncoder().encode(configuration), account: fullConfigurationAccount)
+    }
+
+    func loadFullConfiguration() throws -> NimboFullConfiguration? {
+        guard let data = try read(account: fullConfigurationAccount) else { return nil }
+        let configuration = try JSONDecoder().decode(NimboFullConfiguration.self, from: data)
+        try configuration.validate()
+        return configuration
+    }
+
     func save(configuration: Data, source: String?, description: String) throws {
+        try saveLegacyConfiguration(configuration, source: source, description: description)
+        try delete(account: fullConfigurationAccount)
+    }
+
+    private func saveLegacyConfiguration(_ configuration: Data, source: String?, description: String) throws {
         guard !configuration.isEmpty else { throw NimboConfigurationStoreError.empty }
         try write(configuration, account: configurationAccount)
         if let source, let sourceData = source.data(using: .utf8) {
@@ -36,18 +56,24 @@ final class NimboConfigurationStore {
     ) throws {
         guard !profile.isEmpty, !selectedServer.isEmpty else { throw NimboConfigurationStoreError.empty }
         try write(profile, account: profileAccount)
-        try save(configuration: selectedServer, source: source, description: description)
+        try saveLegacyConfiguration(selectedServer, source: source, description: description)
         UserDefaults.standard.set(selectedServerID, forKey: activeServerIDKey)
+        // Commit active-engine replacement only after all legacy writes succeed.
+        try delete(account: fullConfigurationAccount)
     }
 
     func saveSelection(configuration: Data, serverID: String) throws {
+        guard try loadFullConfiguration() == nil else {
+            throw NimboFullConfigurationError.fullConfigurationActive
+        }
         guard !configuration.isEmpty, !serverID.isEmpty else { throw NimboConfigurationStoreError.empty }
         try write(configuration, account: configurationAccount)
         UserDefaults.standard.set(serverID, forKey: activeServerIDKey)
     }
 
     func loadConfiguration() throws -> Data? {
-        try read(account: configurationAccount)
+        if let full = try loadFullConfiguration() { return full.sourceData }
+        return try read(account: configurationAccount)
     }
 
     func loadProfile() throws -> Data? {
@@ -55,22 +81,27 @@ final class NimboConfigurationStore {
     }
 
     func loadSource() throws -> String? {
+        if let full = try loadFullConfiguration() { return full.source }
         guard let data = try read(account: sourceAccount) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
     var displayDescription: String? {
-        UserDefaults.standard.string(forKey: descriptionKey)
+        if let full = try? loadFullConfiguration() { return full.title }
+        return UserDefaults.standard.string(forKey: descriptionKey)
     }
 
     var activeServerID: String? {
-        UserDefaults.standard.string(forKey: activeServerIDKey)
+        // Presence, not successful decoding, prevents falling back to an old node.
+        if (try? read(account: fullConfigurationAccount)) != nil { return nil }
+        return UserDefaults.standard.string(forKey: activeServerIDKey)
     }
 
     func removeAll() throws {
-        try? delete(account: configurationAccount)
-        try? delete(account: sourceAccount)
-        try? delete(account: profileAccount)
+        try delete(account: configurationAccount)
+        try delete(account: sourceAccount)
+        try delete(account: profileAccount)
+        try delete(account: fullConfigurationAccount)
         UserDefaults.standard.removeObject(forKey: descriptionKey)
         UserDefaults.standard.removeObject(forKey: activeServerIDKey)
     }

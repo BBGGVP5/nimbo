@@ -1,4 +1,5 @@
 import Foundation
+import NimboShared
 
 /// Проверка обновлений.
 ///
@@ -23,6 +24,7 @@ enum NimboUpdateChannel: String {
     case stable
 
     init(stored: String?) {
+        // Unset new installs follow beta; a saved stable/beta choice always wins.
         self = NimboUpdateChannel(rawValue: stored ?? "") ?? .beta
     }
 
@@ -57,7 +59,7 @@ enum NimboUpdateChecker {
     /// нет либо сеть недоступна: молчание здесь лучше ложной тревоги.
     static func latest(
         currentVersion: String,
-        channel: NimboUpdateChannel = .beta
+        channel: NimboUpdateChannel = NimboUpdateCenter.channel
     ) async -> NimboRelease? {
         if case let .available(release) = await check(currentVersion: currentVersion, channel: channel) {
             return release
@@ -89,7 +91,7 @@ enum NimboUpdateChecker {
             return NimboRelease(
                 version: tag.hasPrefix("v") ? String(tag.dropFirst()) : tag,
                 title: (item["name"] as? String)?.trimmingCharacters(in: .whitespaces) ?? tag,
-                notes: (item["body"] as? String) ?? "",
+                notes: ReleaseNotesText.shared.forPlatform(body: (item["body"] as? String) ?? "", platform: "ios"),
                 pageUrl: page,
                 assetUrl: ipa?["browser_download_url"] as? String,
                 isPrerelease: (item["prerelease"] as? Bool) ?? false,

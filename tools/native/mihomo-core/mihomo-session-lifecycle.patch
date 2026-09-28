@@ -1,0 +1,342 @@
+diff --git a/adapter/provider/healthcheck.go b/adapter/provider/healthcheck.go
+--- a/adapter/provider/healthcheck.go
++++ b/adapter/provider/healthcheck.go
+@@ -39,11 +39,17 @@
+ 	lastTouch      atomic.TypedValue[time.Time]
+ 	singleDo       *singledo.Single[struct{}]
+ 	timeout        time.Duration
++	lifecycleMu    sync.Mutex
++	closed         bool
++	processDone    chan struct{}
++	closeDone      chan struct{}
++	tasks          sync.WaitGroup
+ }
+ 
+ func (hc *HealthCheck) process() {
+ 	ticker := time.NewTicker(hc.interval)
+-	go hc.check()
++	defer ticker.Stop()
++	hc.check()
+ 	for {
+ 		select {
+ 		case <-ticker.C:
+@@ -55,14 +61,15 @@
+ 				log.Debugln("Skip once health check because we are lazy")
+ 			}
+ 		case <-hc.ctx.Done():
+-			ticker.Stop()
+ 			return
+ 		}
+ 	}
+ }
+ 
+ func (hc *HealthCheck) setProxies(proxies []C.Proxy) {
+-	hc.proxies = proxies
++	hc.mu.Lock()
++	hc.proxies = append([]C.Proxy(nil), proxies...)
++	hc.mu.Unlock()
+ }
+ 
+ func (hc *HealthCheck) registerHealthCheckTask(url string, expectedStatus utils.IntRanges[uint16], filter string, interval uint) {
+@@ -113,7 +120,9 @@
+ }
+ 
+ func (hc *HealthCheck) auto() bool {
+-	return hc.interval != 0
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	return hc.interval > 0
+ }
+ 
+ func (hc *HealthCheck) touch() {
+@@ -121,7 +130,68 @@
+ }
+ 
+ func (hc *HealthCheck) check() {
+-	if len(hc.proxies) == 0 {
++	if !hc.beginTask() {
++		return
++	}
++	defer hc.tasks.Done()
++	hc.checkBody()
++}
++
++// checkAsync keeps provider-update-triggered checks owned by the health-check
++// lifecycle; Close cancels them and waits until all URL tests have joined.
++func (hc *HealthCheck) checkAsync() {
++	if !hc.beginTask() {
++		return
++	}
++	go func() {
++		defer hc.tasks.Done()
++		hc.checkBody()
++	}()
++}
++
++func (hc *HealthCheck) beginTask() bool {
++	hc.lifecycleMu.Lock()
++	defer hc.lifecycleMu.Unlock()
++	if hc.closed {
++		return false
++	}
++	hc.tasks.Add(1)
++	return true
++}
++
++func (hc *HealthCheck) start() {
++	hc.lifecycleMu.Lock()
++	if hc.closed || hc.processDone != nil || hc.interval <= 0 {
++		hc.lifecycleMu.Unlock()
++		return
++	}
++	done := make(chan struct{})
++	hc.processDone = done
++	hc.lifecycleMu.Unlock()
++	go func() {
++		defer close(done)
++		hc.process()
++	}()
++}
++
++func (hc *HealthCheck) checkBody() {
++	hc.mu.Lock()
++	proxies := append([]C.Proxy(nil), hc.proxies...)
++	url := hc.url
++	expected := hc.expectedStatus
++	extra := make(map[string]*extraOption, len(hc.extra))
++	for key, option := range hc.extra {
++		copyOption := &extraOption{expectedStatus: option.expectedStatus}
++		if len(option.filters) != 0 {
++			copyOption.filters = make(map[string]struct{}, len(option.filters))
++			for filter := range option.filters {
++				copyOption.filters[filter] = struct{}{}
++			}
++		}
++		extra[key] = copyOption
++	}
++	hc.mu.Unlock()
++	if len(proxies) == 0 {
+ 		return
+ 	}
+ 
+@@ -132,13 +202,13 @@
+ 		b.SetLimit(10)
+ 
+ 		// execute default health check
+-		option := &extraOption{filters: nil, expectedStatus: hc.expectedStatus}
+-		hc.execute(b, hc.url, id, option)
++		option := &extraOption{filters: nil, expectedStatus: expected}
++		hc.execute(b, proxies, url, id, option)
+ 
+ 		// execute extra health check
+-		if len(hc.extra) != 0 {
+-			for url, option := range hc.extra {
+-				hc.execute(b, url, id, option)
++		if len(extra) != 0 {
++			for extraURL, option := range extra {
++				hc.execute(b, proxies, extraURL, id, option)
+ 			}
+ 		}
+ 		_ = b.Wait()
+@@ -147,7 +217,7 @@
+ 	})
+ }
+ 
+-func (hc *HealthCheck) execute(b *errgroup.Group, url, uid string, option *extraOption) {
++func (hc *HealthCheck) execute(b *errgroup.Group, proxies []C.Proxy, url, uid string, option *extraOption) {
+ 	url = strings.TrimSpace(url)
+ 	if len(url) == 0 {
+ 		log.Debugln("Health Check has been skipped due to testUrl is empty, {%s}", uid)
+@@ -168,7 +238,7 @@
+ 		}
+ 	}
+ 
+-	for _, proxy := range hc.proxies {
++	for _, proxy := range proxies {
+ 		// skip proxies that do not require health check
+ 		if filterReg != nil {
+ 			if match, _ := filterReg.MatchString(proxy.Name()); !match {
+@@ -189,7 +259,22 @@
+ }
+ 
+ func (hc *HealthCheck) close() {
++	hc.lifecycleMu.Lock()
++	if hc.closed {
++		done := hc.closeDone
++		hc.lifecycleMu.Unlock()
++		<-done
++		return
++	}
++	hc.closed = true
+ 	hc.ctxCancel()
++	processDone := hc.processDone
++	hc.lifecycleMu.Unlock()
++	if processDone != nil {
++		<-processDone
++	}
++	hc.tasks.Wait()
++	close(hc.closeDone)
+ }
+ 
+ func NewHealthCheck(proxies []C.Proxy, url string, timeout uint, interval uint, lazy bool, expectedStatus utils.IntRanges[uint16]) *HealthCheck {
+@@ -213,5 +298,6 @@
+ 		lazy:           lazy,
+ 		expectedStatus: expectedStatus,
+ 		singleDo:       singledo.NewSingle[struct{}](time.Second),
+-	}
+-}
++		closeDone:      make(chan struct{}),
++	}
++}
+diff --git a/adapter/provider/provider.go b/adapter/provider/provider.go
+--- a/adapter/provider/provider.go
++++ b/adapter/provider/provider.go
+@@ -63,7 +63,7 @@
+ 
+ func (bp *baseProvider) Initial() error {
+ 	if bp.healthCheck.auto() {
+-		go bp.healthCheck.process()
++		bp.healthCheck.start()
+ 	}
+ 	return nil
+ }
+@@ -102,12 +102,13 @@
+ 
+ func (bp *baseProvider) setProxies(proxies []C.Proxy) {
+ 	bp.mutex.Lock()
+-	defer bp.mutex.Unlock()
+ 	bp.proxies = proxies
+ 	bp.version += 1
+ 	bp.healthCheck.setProxies(proxies)
+-	if bp.healthCheck.auto() {
+-		go bp.healthCheck.check()
++	shouldCheck := bp.healthCheck.auto()
++	bp.mutex.Unlock()
++	if shouldCheck {
++		bp.healthCheck.checkAsync()
+ 	}
+ }
+ 
+diff --git a/adapter/outboundgroup/groupbase.go b/adapter/outboundgroup/groupbase.go
+--- a/adapter/outboundgroup/groupbase.go
++++ b/adapter/outboundgroup/groupbase.go
+@@ -31,6 +31,10 @@
+ 	failedTimes       int
+ 	failedTime        time.Time
+ 	failedTesting     atomic.Bool
++	taskMu            sync.Mutex
++	taskWG            sync.WaitGroup
++	taskClosed        bool
++	taskCloseDone     chan struct{}
+ 	testTimeout       int
+ 	maxFailedTimes    int
+ 	emptyFallback     C.Proxy
+@@ -89,6 +93,7 @@
+ 		testTimeout:       opt.TestTimeout,
+ 		maxFailedTimes:    opt.MaxFailedTimes,
+ 		emptyFallback:     opt.EmptyFallback,
++		taskCloseDone:     make(chan struct{}),
+ 	}
+ 
+ 	if gb.testTimeout == 0 {
+@@ -271,7 +276,7 @@
+ 		return
+ 	}
+ 
+-	go func() {
++	gb.startTask(func() {
+ 		if strings.Contains(err.Error(), "connection refused") {
+ 			fn()
+ 			return
+@@ -296,7 +301,38 @@
+ 				fn()
+ 			}
+ 		}
++	})
++}
++
++func (gb *GroupBase) startTask(run func()) {
++	gb.taskMu.Lock()
++	if gb.taskClosed {
++		gb.taskMu.Unlock()
++		return
++	}
++	gb.taskWG.Add(1)
++	gb.taskMu.Unlock()
++	go func() {
++		defer gb.taskWG.Done()
++		run()
+ 	}()
++}
++
++// Close joins bounded dial-failure workers before the session releases their
++// providers and the platform-owned TUN.
++func (gb *GroupBase) Close() error {
++	gb.taskMu.Lock()
++	if gb.taskClosed {
++		done := gb.taskCloseDone
++		gb.taskMu.Unlock()
++		<-done
++		return nil
++	}
++	gb.taskClosed = true
++	gb.taskMu.Unlock()
++	gb.taskWG.Wait()
++	close(gb.taskCloseDone)
++	return gb.Base.Close()
+ }
+ 
+ func (gb *GroupBase) healthCheck() {
+diff --git a/listener/sing_tun/server.go b/listener/sing_tun/server.go
+--- a/listener/sing_tun/server.go
++++ b/listener/sing_tun/server.go
+@@ -134,6 +134,14 @@
+ }
+ 
+ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Listener, err error) {
++	fdTransferred := options.FileDescriptor == 0
++	defer func() {
++		if err != nil && !fdTransferred {
++			if file := os.NewFile(uintptr(options.FileDescriptor), "tun"); file != nil {
++				_ = file.Close()
++			}
++		}
++	}()
+ 	if len(additions) == 0 {
+ 		additions = []inbound.Addition{
+ 			inbound.WithInName("DEFAULT-TUN"),
+@@ -481,6 +489,7 @@
+ 		err = E.Cause(err, "configure tun interface")
+ 		return
+ 	}
++	fdTransferred = true
+ 
+ 	l.dnsServerIp = dnsServerIp
+ 	// after tun.New sing-tun has set DNS to TUN interface
+--- a/tunnel/tunnel.go
++++ b/tunnel/tunnel.go
+@@ -351,7 +351,9 @@
+ 		FindProcess: func() {
+ 			if attemptProcessLookup {
+ 				attemptProcessLookup = false
+-				if !features.CMFA {
++				if process.DefaultPackageNameResolver != nil {
++					if pkg, err := process.FindPackageName(metadata); err == nil { metadata.Process = pkg }
++				} else if !features.CMFA {
+ 					// normal check for process
+ 					uid, path, err := process.FindProcessName(metadata.NetWork.String(), metadata.SrcIP, int(metadata.SrcPort))
+ 					if err != nil {
+--- a/listener/sing_tun/server_android.go
++++ b/listener/sing_tun/server_android.go
+@@ -47,7 +47,10 @@
+ }
+ 
+ func (l *Listener) buildAndroidRules(tunOptions *tun.Options) error {
+-	packageManager, err := getPackageManager()
++	// Nimbo supplies an already-routed VpnService descriptor. App exclusions
++    // are established by Android, not by reading root-only packages.xml.
++    if tunOptions.FileDescriptor != 0 && !tunOptions.AutoRoute && len(tunOptions.IncludePackage) == 0 && len(tunOptions.ExcludePackage) == 0 { return nil }
++    packageManager, err := getPackageManager()
+ 	if err != nil {
+ 		return err
+ 	}

@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""Stage verified protobuf sources and ROOT replacements for one merged Go build.
+
+No binary downloads, cache patching, conflict-policy overrides or dependency
+resolution. The existing native pins are authoritative. Run in a scratch root.
+"""
+import argparse
+import base64
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import zipfile
+import stat
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def source_files(directory):
+    return {p.relative_to(directory).as_posix(): p for p in directory.rglob('*') if p.is_file()}
+
+
+def verify_download(metadata, pin):
+    """Rehash immutable ZIP (Go dirhash.Hash1) and every extracted cache file."""
+    prefix = pin['module'] + '@' + pin['version'] + '/'
+    summary = hashlib.sha256()
+    hashes = {}
+    with zipfile.ZipFile(metadata['Zip']) as archive:
+        names = archive.namelist()
+        if len(names) != len(set(names)):
+            raise RuntimeError('Duplicate module ZIP entries')
+        for name in sorted(names):
+            if '\n' in name or not name.startswith(prefix) or name.endswith('/'):
+                raise RuntimeError('Unexpected module ZIP entry')
+            file_hash = hashlib.sha256(archive.read(name)).hexdigest()
+            summary.update((file_hash + '  ' + name + '\n').encode())
+            hashes[name[len(prefix):]] = file_hash
+    if 'h1:' + base64.b64encode(summary.digest()).decode() != pin['sum']:
+        raise RuntimeError('Module ZIP content hash mismatch')
+    extracted = source_files(Path(metadata['Dir']))
+    if extracted.keys() != hashes.keys() or any(digest(extracted[name]) != expected for name, expected in hashes.items()):
+        raise RuntimeError('Module cache differs from pinned immutable ZIP')
+
+
+def stage_protobuf(original, destination, pin):
+    original_files = source_files(original)
+    if digest(original / 'go.mod') != pin['originalGoModSHA256']:
+        raise RuntimeError('Unexpected original protobuf directive')
+    if not destination.exists():
+        shutil.copytree(original, destination)
+        module = destination / 'go.mod'
+        module.chmod(0o644)
+        module.write_bytes(module.read_bytes().replace(b'go 1.20', b'go 1.22'))
+    staged = source_files(destination)
+    if staged.keys() != original_files.keys():
+        raise RuntimeError('Protobuf source file set changed')
+    for name, path in original_files.items():
+        expected = pin['patchedGoModSHA256'] if name == 'go.mod' else digest(path)
+        if digest(staged[name]) != expected:
+            raise RuntimeError('Unexpected protobuf source modification: ' + name)
+
+
+def apply_pinned_patch(destination, patch_file):
+    git = shutil.which('git')
+    if not git:
+        raise RuntimeError('Git is required to apply pinned Mihomo source patches')
+    for arguments in (['apply', '--check', str(patch_file.resolve())], ['apply', str(patch_file.resolve())]):
+        result = subprocess.run([git, *arguments], cwd=destination, capture_output=True, text=True)
+        if result.returncode:
+            detail = (result.stderr or result.stdout).strip()
+            action = 'validate' if '--check' in arguments else 'apply'
+            raise RuntimeError('Could not ' + action + ' pinned Mihomo patch ' + patch_file.name + ': ' + detail)
+
+
+def stage_mihomo(original, destination, patch_files):
+    """Copy the verified pin and apply only the reviewed source patches."""
+    if destination.exists():
+        raise RuntimeError('Mihomo staging directory must be fresh')
+    original_files = source_files(original)
+    shutil.copytree(original, destination)
+    staged = source_files(destination)
+    if staged.keys() != original_files.keys():
+        raise RuntimeError('Staged Mihomo source file set differs from verified pin')
+    for name, source in original_files.items():
+        target = staged[name]
+        if digest(source) != digest(target):
+            raise RuntimeError('Staged Mihomo source differs from verified pin: ' + name)
+        target.chmod(target.stat().st_mode | stat.S_IWUSR)
+    for patch_file in patch_files:
+        apply_pinned_patch(destination, patch_file)
+    patched = source_files(destination)
+    if patched.keys() != original_files.keys():
+        raise RuntimeError('Pinned patches changed the Mihomo source file set')
+    changed = {name for name in original_files if digest(original_files[name]) != digest(patched[name])}
+    allowed = {'adapter/provider/healthcheck.go', 'adapter/provider/provider.go',
+               'adapter/outboundgroup/groupbase.go', 'listener/sing_tun/server.go', 'tunnel/tunnel.go',
+               'listener/sing_tun/server_android.go', 'component/tls/reality.go'}
+    if changed != allowed:
+        raise RuntimeError('Unexpected pinned Mihomo patch scope: ' + ', '.join(sorted(changed)))
+    reality = (destination / 'component/tls/reality.go').read_text(encoding='utf-8')
+    if 'binary.BigEndian.PutUint32(hello.SessionId[4:], uint32(ntp.Now().Unix()))' not in reality or 'hello.SessionId[0] = 26' not in reality:
+        raise RuntimeError('Pinned Mihomo REALITY client-version patch is missing')
+    return {name: digest(patched[name]) for name in sorted(changed)}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source-dir', type=Path)
+    parser.add_argument('--dependency-dir', type=Path)
+    parser.add_argument('--native-dir', type=Path, default=ROOT / 'tools/native/mihomo-core')
+    parser.add_argument('--go', default='go')
+    parser.add_argument('--stage-only', action='store_true',
+                        help='stage and patch an already checksum-verified Mihomo source directory')
+    args = parser.parse_args()
+    if args.stage_only:
+        if args.source_dir is None or args.dependency_dir is None:
+            parser.error('--stage-only needs --source-dir and --dependency-dir')
+        original, dependencies, native = (p.resolve() for p in (args.source_dir, args.dependency_dir, args.native_dir))
+        patches = [native / name for name in ('mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch')]
+        if any(not patch.is_file() for patch in patches):
+            raise RuntimeError('Pinned Mihomo source patch missing')
+        dependencies.mkdir(parents=True, exist_ok=True)
+        staged = dependencies / 'mihomo'
+        changed = stage_mihomo(original, staged, patches)
+        print(json.dumps({'staged': str(staged), 'patchSHA256': {patch.name: digest(patch) for patch in patches}, 'changedSources': changed}, indent=2))
+        return
+    if args.source_dir is None or args.dependency_dir is None:
+        parser.error('--source-dir and --dependency-dir are required')
+    source, dependencies, native = (p.resolve() for p in (args.source_dir, args.dependency_dir, args.native_dir))
+    if source == ROOT / 'iosApp/GoBridge' or not (source / 'cgo_bridge/main.go').is_file():
+        raise RuntimeError('Use an extracted real LibXray source root, never the production bridge directory')
+    pins = json.loads((native / 'pins.json').read_text(encoding='utf-8-sig'))
+    environment = os.environ.copy()
+    environment.update(GOTOOLCHAIN='local', GOWORK='off', GOENV='off',
+                       GOPROXY='https://proxy.golang.org', GOSUMDB='sum.golang.org',
+                       GOPRIVATE='', GONOPROXY='', GONOSUMDB='', GOINSECURE='')
+    def go(*arguments, cwd=source):
+        return subprocess.check_output([args.go, *arguments], cwd=cwd, env=environment, text=True)
+    if go('env', 'GOVERSION').strip() != pins['toolchain']:
+        raise RuntimeError('Existing pinned Go toolchain required')
+    dependencies.mkdir(parents=True, exist_ok=True)
+    pin_root = dependencies / 'pin-download'
+    pin_root.mkdir(exist_ok=True)
+    (pin_root / 'go.mod').write_text('module nimbo/sourcepins\n\ngo 1.27.1\n', encoding='utf-8')
+    verified = []
+    for pin in (pins, pins['protobuf']):
+        metadata = json.loads(go('mod', 'download', '-json', pin['module'] + '@' + pin['version'], cwd=pin_root))
+        if metadata.get('Sum') != pin['sum'] or metadata.get('GoModSum') != pin['goModSum']:
+            raise RuntimeError('Module checksum pin mismatch: ' + pin['module'])
+        origin = metadata.get('Origin', {})
+        if origin.get('Hash') and origin['Hash'] != pin['commit']:
+            raise RuntimeError('Module origin mismatch')
+        if pin.get('sourceZipSHA256') and digest(metadata['Zip']) != pin['sourceZipSHA256']:
+            raise RuntimeError('Source archive checksum mismatch')
+        verify_download(metadata, pin)
+        verified.append(metadata)
+    protobuf = dependencies / 'protobuf'
+    stage_protobuf(Path(verified[1]['Dir']), protobuf, pins['protobuf'])
+    mihomo_patches = [native / name for name in ('mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch')]
+    if any(not patch.is_file() for patch in mihomo_patches):
+        raise RuntimeError('Pinned Mihomo source patch missing')
+    mihomo_source = dependencies / 'mihomo'
+    patched_sources = stage_mihomo(Path(verified[0]['Dir']), mihomo_source, mihomo_patches)
+    go('mod', 'edit', '-replace=nimbo/mihomocore=' + native.as_posix(),
+       '-replace=google.golang.org/protobuf=' + protobuf.as_posix(),
+       '-replace=github.com/metacubex/mihomo=' + mihomo_source.as_posix())
+    # The child module's replace is ignored by Go. Prove the effective root graph.
+    graph = json.loads(go('mod', 'edit', '-json'))
+    replacements = {r['Old']['Path']: r['New']['Path'] for r in graph.get('Replace', [])}
+    if replacements.get('nimbo/mihomocore') != native.as_posix() or replacements.get('google.golang.org/protobuf') != protobuf.as_posix():
+        raise RuntimeError('Root module replacement missing')
+    if replacements.get('github.com/metacubex/mihomo') != mihomo_source.as_posix():
+        raise RuntimeError('Patched Mihomo source replacement missing from effective root graph')
+    requirements = {r['Path']: r['Version'] for r in graph['Require']}
+    for module, version in {
+        'github.com/xtls/xray-core': 'v1.260327.1-0.20260908222543-52a412d9e2f5',
+        'github.com/amnezia-vpn/amneziawg-go/v3': 'v3.1.20260828',
+        'gvisor.dev/gvisor': 'v0.0.0-20260122175437-89a5d21be8f0',
+    }.items():
+        if requirements.get(module) != version:
+            raise RuntimeError('Existing engine pin changed: ' + module)
+    manifest = {'pins': pins, 'rootReplacements': replacements,
+                'protobufGoModSHA256': digest(protobuf / 'go.mod'),
+                'protobufFilesVerified': len(source_files(protobuf)),
+                'mihomoLifecyclePatchSHA256': digest(mihomo_patches[0]),
+                'mihomoPatchSHA256': {patch.name: digest(patch) for patch in mihomo_patches},
+                'mihomoPatchedSources': patched_sources,
+                'nativeSources': {p.name: digest(p) for p in sorted(list(native.glob('*.go')) +
+                                  [native / name for name in ['go.mod', 'go.sum', 'pins.json', 'protobuf-directive.patch', 'mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch']])}}
+    (dependencies / 'mihomo-source-verification.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+    print('Verified Mihomo source, protobuf directive-only patch and merged ROOT replacements')
+
+
+if __name__ == '__main__':
+    main()

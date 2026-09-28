@@ -13,16 +13,23 @@ struct NimboControlWidget: ControlWidget {
         // Состояние приходит от поставщика, а не вычисляется при построении:
         // система рисует элемент в свой момент, и синхронное чтение настроек
         // VPN там не успевает — элемент оставался пустым кружком.
-        StaticControlConfiguration(kind: NimboControlWidget.kind, provider: TunnelStateProvider()) { isRunning in
+        StaticControlConfiguration(kind: NimboControlWidget.kind, provider: TunnelStateProvider()) { status in
             ControlWidgetToggle(
                 "Nimbo",
-                isOn: isRunning,
+                isOn: status == .connected || status == .connecting || status == .reasserting,
                 action: NimboToggleTunnelIntent()
             ) { isOn in
-                // Значок один и тот же в обоих положениях: пока элемент
-                // оставался пустым кружком, зависимость картинки от состояния
-                // мешала понять, рисуется ли он вообще.
-                Label(isOn ? "Подключено" : "Отключено", systemImage: "bolt.horizontal.circle.fill")
+                // Only a confirmed connection earns the cloud; transitional states
+                // remain switchable off. Control Center requires the symbol asset.
+                Label {
+                    Text(isOn ? "Подключено" : "Отключено")
+                } icon: {
+                    if status == .connected {
+                        Image("NimboCloudSymbol")
+                    } else {
+                        Image(systemName: "power")
+                    }
+                }
             }
         }
         .displayName("Nimbo VPN")
@@ -35,13 +42,11 @@ struct NimboControlWidget: ControlWidget {
 /// Состояние туннеля для элемента управления.
 struct TunnelStateProvider: ControlValueProvider {
     /// Каким элемент показывается в галерее, где настоящего состояния нет.
-    var previewValue: Bool { false }
+    var previewValue: NEVPNStatus { .disconnected }
 
-    func currentValue() async throws -> Bool {
-        let managers = try? await NETunnelProviderManager.loadAllFromPreferences()
-        guard let manager = managers?.first else { return false }
-        let status = manager.connection.status
-        return status == .connected || status == .connecting
+    func currentValue() async throws -> NEVPNStatus {
+        guard let manager = try await NimboTunnelControl.manager() else { return .disconnected }
+        return manager.connection.status
     }
 }
 
@@ -65,20 +70,7 @@ struct NimboToggleTunnelIntent: SetValueIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        let managers = try await NETunnelProviderManager.loadAllFromPreferences()
-        // Профиль создаёт приложение при первом подключении: без него включать
-        // нечего, и создавать пустую настройку из шторки нельзя — система
-        // спросит разрешение, а спрашивать её некому.
-        guard let manager = managers.first else { return .result() }
-
-        if value {
-            manager.isEnabled = true
-            try await manager.saveToPreferences()
-            try await manager.loadFromPreferences()
-            try manager.connection.startVPNTunnel()
-        } else {
-            manager.connection.stopVPNTunnel()
-        }
+        try await NimboTunnelControl.setEnabled(value)
 
         // Состояние в Пункте управления обновляется по просьбе: без неё
         // переключатель остаётся в прежнем положении до следующего открытия.

@@ -17,6 +17,8 @@ kotlin {
         compileSdk = 37
         minSdk = 29
 
+        withHostTest { }
+
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
         }
@@ -43,6 +45,7 @@ kotlin {
         commonMain.dependencies {
             implementation(libs.kotlinx.serialization.json)
             implementation(compose.runtime)
+            implementation(compose.components.resources)
             implementation(compose.foundation)
             implementation(compose.ui)
             implementation(compose.material3)
@@ -51,5 +54,14 @@ kotlin {
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
+        if (!iosOnlyBuild) {
+            getByName("desktopTest").dependencies {
+                implementation(compose.desktop.currentOs)
+            }
+        }
     }
+}
+
+compose.resources {
+    packageOfResClass = "com.danila.nimbo.shared.resources"
 }

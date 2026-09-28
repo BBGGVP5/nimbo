@@ -1,7 +1,17 @@
 import SwiftUI
+import AppIntents
 
 @main
 struct NimboApp: App {
+    init() {
+        NimboNativeFonts.register()
+        // Retire obsolete visual effects, but keep the active connection-button preference.
+        for key in ["elementStyle", "backgroundStyle", "backgroundPalette",
+                    "backgroundMotion", "statusParticles", "brightness", "transparency", "corners", "refraction"] {
+            UserDefaults.standard.removeObject(forKey: "com.nimbo.appearance." + key)
+        }
+        NimboShortcuts.updateAppShortcutParameters()
+    }
     @StateObject private var vpnController = VpnController()
 
     var body: some Scene {

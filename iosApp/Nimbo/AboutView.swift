@@ -5,33 +5,32 @@ struct AboutView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Nimbo") {
+            NimboPage {
+                NimboBrand().padding(.vertical, 8)
+                NimboSection(title: "ПРИЛОЖЕНИЕ") {
                     AboutRow(title: "Версия", value: NimboPlatformInfo.displayVersion)
+                    Divider()
                     AboutRow(title: "Сборка", value: NimboPlatformInfo.buildNumber)
                 }
-
-                Section("Устройство") {
+                NimboSection(title: "УСТРОЙСТВО") {
                     AboutRow(title: "Система", value: NimboPlatformInfo.system)
+                    Divider()
                     AboutRow(title: "Модель", value: NimboPlatformInfo.device)
                 }
-
-                Section("Сеть") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("User-Agent")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(NimboPlatformInfo.userAgent)
-                            .font(.footnote.monospaced())
-                            .textSelection(.enabled)
+                NimboSection(title: "СЕТЬ") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("User-Agent").nimboFont(13, relativeTo: .caption)
+                            .foregroundStyle(NimboNative.secondary)
+                        Text(NimboPlatformInfo.userAgent).nimboFont(14, relativeTo: .subheadline)
+                            .monospaced().textSelection(.enabled)
                     }
-                    .padding(.vertical, 4)
                 }
             }
+            .nimboSheetStyle()
             .navigationTitle("О приложении")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Готово") { dismiss() }
+                    Button("Готово") { dismiss() }.frame(minWidth: 44, minHeight: 44)
                 }
             }
         }
@@ -43,13 +42,19 @@ private struct AboutRow: View {
     let value: String
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            Text(title)
-            Spacer(minLength: 12)
-            Text(value)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.trailing)
-                .textSelection(.enabled)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                Text(title).fixedSize()
+                Spacer(minLength: 12)
+                Text(value).fixedSize().foregroundStyle(NimboNative.secondary)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                Text(value).foregroundStyle(NimboNative.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .textSelection(.enabled)
+        .accessibilityElement(children: .combine)
     }
 }
