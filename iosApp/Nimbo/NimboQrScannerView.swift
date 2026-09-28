@@ -26,8 +26,8 @@ struct NimboQrScannerView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(NimboNative.border, lineWidth: 1))
                     .accessibilityLabel("Камера для сканирования QR")
-                if let cameraError {
-                    NimboNotice(title: "Проверьте камеру или код", detail: cameraError,
+                if let error = cameraError {
+                    NimboNotice(title: "Проверьте камеру или код", detail: error,
                                 symbol: "exclamationmark.circle", tint: NimboNative.error).nimboCard()
                     Button("Повторить") { cameraError = nil; cameraGeneration += 1 }
                         .buttonStyle(NimboActionStyle())
