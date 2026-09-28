@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -13,6 +14,26 @@ spec.loader.exec_module(prepare)
 
 
 class MergedMihomoSourceTests(unittest.TestCase):
+    def test_patch_is_not_skipped_inside_parent_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            subprocess.run(['git', 'init', '-q', str(parent)], check=True)
+            staged = parent / 'scratch' / 'mihomo'
+            staged.mkdir(parents=True)
+            source = staged / 'source.go'
+            source.write_text('package source\nfunc before() {}\n')
+            patch = parent / 'pinned.patch'
+            patch.write_text('''diff --git a/source.go b/source.go
+--- a/source.go
++++ b/source.go
+@@ -1,2 +1,2 @@
+ package source
+-func before() {}
++func after() {}
+''')
+            prepare.apply_pinned_patch(staged, patch)
+            self.assertIn('func after() {}', source.read_text())
+
     def test_single_runtime_and_additive_exports(self):
         build = (ROOT / 'scripts/ci/build-libxray-awg-apple.sh').read_text()
         bridge = (ROOT / 'iosApp/GoBridge/nimbo_mihomo_cgo.go').read_text()

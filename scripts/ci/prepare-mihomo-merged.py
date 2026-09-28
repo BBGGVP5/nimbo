@@ -79,8 +79,15 @@ def apply_pinned_patch(destination, patch_file):
     git = shutil.which('git')
     if not git:
         raise RuntimeError('Git is required to apply pinned Mihomo source patches')
+    # The scratch tree lives below the checkout. Without a ceiling, git apply
+    # silently skips paths that are untracked by the parent repository.
+    environment = os.environ.copy()
+    environment.pop('GIT_DIR', None)
+    environment.pop('GIT_WORK_TREE', None)
+    environment['GIT_CEILING_DIRECTORIES'] = str(destination.resolve().parent)
     for arguments in (['apply', '--check', str(patch_file.resolve())], ['apply', str(patch_file.resolve())]):
-        result = subprocess.run([git, *arguments], cwd=destination, capture_output=True, text=True)
+        result = subprocess.run([git, *arguments], cwd=destination, env=environment,
+                                capture_output=True, text=True)
         if result.returncode:
             detail = (result.stderr or result.stdout).strip()
             action = 'validate' if '--check' in arguments else 'apply'
