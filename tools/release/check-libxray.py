@@ -82,22 +82,25 @@ def inspect_aar(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--aar", type=Path, default=ROOT / "app/libs/libxray.aar")
+    parser.add_argument("--apple-only", action="store_true",
+                        help="Check pinned Apple source/bridge contracts without the Android AAR")
     args = parser.parse_args()
-    bundled = inspect_aar(args.aar)
-    metadata = json.loads((ROOT / "app/src/main/assets/third_party/libxray.json").read_text())
-    for key, expected in {"version": VERSION, "commit": COMMIT, "aarSha256": AAR_SHA,
-                          "archiveSha256": ARCHIVE_SHA, "sourceSha256": SOURCE_SHA,
-                          "goVersion": "1.27.1", "xrayCore": CORE, "apiVersion": 3}.items():
-        require(metadata.get(key) == expected, f"libxray.json: stale {key}")
-    require(metadata["bundled"] == bundled, "Native library hashes/segments differ from metadata")
-    require((ROOT / "app/src/main/assets/third_party/libxray.LICENSE").is_file(), "Missing libXray license")
-    gradle = (ROOT / "app/build.gradle.kts").read_text(encoding="utf-8")
-    declaration = next((line for line in gradle.splitlines() if '"LIBXRAY_VERSION"' in line), "")
-    require(re.findall(r"\d+\.\d+\.\d+", declaration) == [VERSION], "Stale Android LIBXRAY_VERSION")
-    android = (ROOT / "app/src/main/java/com/danila/nimbo/vpn/XrayCoreProtocol.kt").read_text(encoding="utf-8")
-    require(re.search(r"const val API_VERSION = 3\b", android), "Android invoke requires API 3")
-    require(re.search(r'fun runXrayFromJson\(configJson: String\).*?method = "runXray".*?payload = JSONObject\(\)\.put\("xrayJson", configJson\)', android, re.S),
-            "Android run envelope must use runXray/payload.xrayJson")
+    if not args.apple_only:
+        bundled = inspect_aar(args.aar)
+        metadata = json.loads((ROOT / "app/src/main/assets/third_party/libxray.json").read_text())
+        for key, expected in {"version": VERSION, "commit": COMMIT, "aarSha256": AAR_SHA,
+                              "archiveSha256": ARCHIVE_SHA, "sourceSha256": SOURCE_SHA,
+                              "goVersion": "1.27.1", "xrayCore": CORE, "apiVersion": 3}.items():
+            require(metadata.get(key) == expected, f"libxray.json: stale {key}")
+        require(metadata["bundled"] == bundled, "Native library hashes/segments differ from metadata")
+        require((ROOT / "app/src/main/assets/third_party/libxray.LICENSE").is_file(), "Missing libXray license")
+        gradle = (ROOT / "app/build.gradle.kts").read_text(encoding="utf-8")
+        declaration = next((line for line in gradle.splitlines() if '"LIBXRAY_VERSION"' in line), "")
+        require(re.findall(r"\d+\.\d+\.\d+", declaration) == [VERSION], "Stale Android LIBXRAY_VERSION")
+        android = (ROOT / "app/src/main/java/com/danila/nimbo/vpn/XrayCoreProtocol.kt").read_text(encoding="utf-8")
+        require(re.search(r"const val API_VERSION = 3\b", android), "Android invoke requires API 3")
+        require(re.search(r'fun runXrayFromJson\(configJson: String\).*?method = "runXray".*?payload = JSONObject\(\)\.put\("xrayJson", configJson\)', android, re.S),
+                "Android run envelope must use runXray/payload.xrayJson")
     swift = (ROOT / "iosApp/PacketTunnel/LibXrayBridge.swift").read_text(encoding="utf-8")
     require(re.search(r"private static let apiVersion = 3\b", swift), "Swift invoke requires API 3")
     require(re.search(r'func run\(configurationJSON: String\).*?method: "runXray".*?payload: \["xrayJson": configurationJSON\]', swift, re.S),
@@ -124,7 +127,10 @@ def main():
     ipa = (ROOT / "scripts/ci/build-unsigned-ios.sh").read_text()
     require(f"libxray_version={VERSION}" in ipa and f"libxray_source_sha256={SOURCE_SHA}" in ipa,
             "Stale IPA kernel metadata")
-    print(f"libXray {VERSION}: verified AAR {AAR_SHA}; four ABIs/16 KiB; API 3; Apple source and combined AWG pins")
+    if args.apple_only:
+        print(f"libXray {VERSION}: verified Apple source and combined AWG pins")
+    else:
+        print(f"libXray {VERSION}: verified AAR {AAR_SHA}; four ABIs/16 KiB; API 3; Apple source and combined AWG pins")
 
 
 if __name__ == "__main__":

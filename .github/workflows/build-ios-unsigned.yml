@@ -40,7 +40,7 @@ jobs:
             tools/native/awg-core/go.sum
 
       - name: Verify pinned LibXray source and binary contracts
-        run: python3 tools/release/check-libxray.py
+        run: python3 tools/release/check-libxray.py --apple-only
 
       - name: Verify iOS AWG contracts
         run: python3 scripts/ci/check-ios-awg.py --swift
