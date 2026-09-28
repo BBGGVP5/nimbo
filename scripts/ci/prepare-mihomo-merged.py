@@ -26,6 +26,15 @@ def source_files(directory):
     return {p.relative_to(directory).as_posix(): p for p in directory.rglob('*') if p.is_file()}
 
 
+def make_staged_tree_writable(directory):
+    """Go module cache is read-only; copied staging trees must be patchable."""
+    for path in (directory, *directory.rglob('*')):
+        if path.is_dir():
+            path.chmod(path.stat().st_mode | stat.S_IWUSR | stat.S_IXUSR)
+        elif path.is_file():
+            path.chmod(path.stat().st_mode | stat.S_IWUSR)
+
+
 def verify_download(metadata, pin):
     """Rehash immutable ZIP (Go dirhash.Hash1) and every extracted cache file."""
     prefix = pin['module'] + '@' + pin['version'] + '/'
@@ -54,8 +63,8 @@ def stage_protobuf(original, destination, pin):
         raise RuntimeError('Unexpected original protobuf directive')
     if not destination.exists():
         shutil.copytree(original, destination)
+        make_staged_tree_writable(destination)
         module = destination / 'go.mod'
-        module.chmod(0o644)
         module.write_bytes(module.read_bytes().replace(b'go 1.20', b'go 1.22'))
     staged = source_files(destination)
     if staged.keys() != original_files.keys():
@@ -84,6 +93,7 @@ def stage_mihomo(original, destination, patch_files):
         raise RuntimeError('Mihomo staging directory must be fresh')
     original_files = source_files(original)
     shutil.copytree(original, destination)
+    make_staged_tree_writable(destination)
     staged = source_files(destination)
     if staged.keys() != original_files.keys():
         raise RuntimeError('Staged Mihomo source file set differs from verified pin')
@@ -91,7 +101,6 @@ def stage_mihomo(original, destination, patch_files):
         target = staged[name]
         if digest(source) != digest(target):
             raise RuntimeError('Staged Mihomo source differs from verified pin: ' + name)
-        target.chmod(target.stat().st_mode | stat.S_IWUSR)
     for patch_file in patch_files:
         apply_pinned_patch(destination, patch_file)
     patched = source_files(destination)
