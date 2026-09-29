@@ -11,10 +11,10 @@ test('Beta1 versions agree across desktop app and installer metadata',()=>{
  }
  assert.match(text('Cargo.toml'),/\[workspace.package\]\s+version = "1.3.0-beta.1"/);
 });
-test('Packaged icon dimensions and alpha tray are valid PNG headers',()=>{
+test('Packaged app and tray icons are RGBA PNGs with valid dimensions',()=>{
  for(const [name,size] of [['32x32.png',32],['128x128.png',128],['128x128@2x.png',256],['tray.png',128]]){
   const b=read(`apps/ui/src-tauri/icons/${name}`);assert.equal(b.readUInt32BE(16),size);assert.equal(b.readUInt32BE(20),size);
-  if(name==='tray.png')assert.equal(b[25],6,'tray retains RGBA');
+  assert.equal(b[25],6,`${name} is RGBA for Tauri packaging`);
  }
  const ico=read('apps/ui/src-tauri/icons/icon.ico');assert.equal(ico.readUInt16LE(2),1);assert.equal(ico.readUInt16LE(4),7);
  const icns=read('apps/ui/src-tauri/icons/icon.icns');assert.equal(icns.toString('ascii',0,4),'icns');assert.equal(icns.readUInt32BE(4),icns.length);
