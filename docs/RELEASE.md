@@ -5,12 +5,10 @@
 Перед публикацией должны пройти проверки обеих поддерживаемых реализаций:
 
 ```powershell
-# Android
-cd apps/android
+# Android (с подготовленным app/libs/libxray.aar)
 .\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
 
 # Desktop: Rust-часть
-cd ..\..
 cargo test --workspace
 
 # Desktop: React/TypeScript
@@ -21,12 +19,16 @@ npm run build
 
 ## Android
 
-1. Обновите libXray через `tools/update-libxray.ps1`, если вышел стабильный релиз.
-2. Проверьте номер версии в `apps/android/app/build.gradle.kts`.
-3. Создайте локальный `apps/android/app/signing.properties` по примеру и соберите release APK.
+1. Подготовьте `app/libs/libxray.aar` из проверенного официального выпуска. Этот большой бинарный файл не хранится в Git; `tools/update-libxray.ps1` проверяет SHA-256 при загрузке.
+2. Проверьте номер версии в `app/build.gradle.kts`.
+3. Создайте локальный `app/signing.properties` по примеру и соберите release APK.
 4. Проверьте APK на реальном ARM64-устройстве: импорт подписки, VPN-подключение, переподключение и отключение.
 
-Никогда не публикуйте APK, подписанный debug-ключом. Неподписанные APK из GitHub Actions — только артефакты проверки.
+Никогда не публикуйте APK, подписанный debug-ключом. Текущая GitHub-проверка Android не собирает APK без локального native AAR.
+
+## iOS
+
+Workflow `build-ios-unsigned.yml` собирает IPA на macOS runner. Артефакт переподписываемый, но не готов к установке без сертификата, provisioning profile и Network Extension entitlement. Mihomo TUN на iOS пока недоступен; успешная сборка не подтверждает работу этого ядра в туннеле.
 
 ## Desktop
 
