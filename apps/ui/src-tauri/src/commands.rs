@@ -6561,7 +6561,7 @@ async fn connect_tun(
                 firewall_policy: Vec::new(),
             });
         });
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(target_os = "linux"))]
