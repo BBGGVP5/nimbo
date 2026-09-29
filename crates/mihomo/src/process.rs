@@ -47,11 +47,12 @@ impl OwnedChild {
                 Ok(())
             });
         }
-        let mut child = command.spawn().map_err(|_| "CORE_SPAWN_FAILED")?;
+        let child = command.spawn().map_err(|_| "CORE_SPAWN_FAILED")?;
         #[cfg(windows)]
         let job = match Job::attach(&child) {
             Ok(job) => job,
             Err(error) => {
+                let mut child = child;
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(error);
