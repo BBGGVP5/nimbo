@@ -1,0 +1,105 @@
+{
+  "sourceRoot": "C:\\Users\\Danila\\AndroidStudioProjects\\Nimbo\\tools\\native\\mihomo-core",
+  "target": "windows/amd64",
+  "binarySHA256": "624384c47c7d5b0d2d068e00d66724ad81cdd9676df5b4ffe4404ce6cc5eb688",
+  "buildSourceFiles": [
+    {
+      "path": "API.md",
+      "sha256": "8f073f3c4374d3baecf28fa8663e710040ff3cd348dd8007c05321d45334daf9"
+    },
+    {
+      "path": "cache_test.go",
+      "sha256": "ef527a9437a2cd2c2754ed901691ac564cfbddd5df4519ad4c7ec17b51c985ba"
+    },
+    {
+      "path": "cache.go",
+      "sha256": "5d894dcd5e792e4eb4d8e9dcd3cb06ea39121dc5aa91beed1abfff6e0dc7b166"
+    },
+    {
+      "path": "cmd/cbridge/main.go",
+      "sha256": "4efe18b697d21d847d9569846b88156ec7ac27b55bf1bcbe827e4150b7ce4b66"
+    },
+    {
+      "path": "cmd/nimbo-mihomo/main.go",
+      "sha256": "5a2cfebc49acfe276c201b0cc8937363cd4a956af35862b49bb796a86a9d6ba9"
+    },
+    {
+      "path": "dns.go",
+      "sha256": "a99c878bfdc724964a4e458900b6f3b9f90f1fda039acd9f50955416c3cf8ff8"
+    },
+    {
+      "path": "go.mod",
+      "sha256": "162e45c25acfced804116dadd24eff907bbd5c40252f9aa667b6a79ea073a3dd"
+    },
+    {
+      "path": "go.sum",
+      "sha256": "f57878079bd857d4a96d56fc07bbe7223db63049dbf48c29bb03f8a26f6daf99"
+    },
+    {
+      "path": "hardening_test.go",
+      "sha256": "05919882e38b2b4237122b1ea023820dbc75e953b3bbd56086853afe601af785"
+    },
+    {
+      "path": "inspect.go",
+      "sha256": "e6fde5e7ee88a01841a43853052148ba6592020afa27fd61c731a1ac740b0767"
+    },
+    {
+      "path": "json.go",
+      "sha256": "56292813844e3bd33907b15cfe4c28ada5e7c1b8abdcf4b636bfa87dfeee6899"
+    },
+    {
+      "path": "listeners.go",
+      "sha256": "909c006fb7f6479289bb789f43b812026b2808a1a7fc85335b87fca162977716"
+    },
+    {
+      "path": "pins.json",
+      "sha256": "0b781ac7f5e2882087b8ccf74499205732f952d2d7bbf9ca3da697cfdfa8326c"
+    },
+    {
+      "path": "platform.go",
+      "sha256": "69016cd296adb45af43d3b5bc0ff25d47c642acd7182fb88cd5ec495227d52a3"
+    },
+    {
+      "path": "policy.go",
+      "sha256": "5605ef327dcb723c480fe5f693034a97d228dd9091f20a64356688c9a18f2e67"
+    },
+    {
+      "path": "protobuf-directive.patch",
+      "sha256": "42fffbb27d139e3decd7815e06bf6f1a539cb6c4dd4a005d65514c0e6964d60f"
+    },
+    {
+      "path": "providers.go",
+      "sha256": "1e66e2303f64b0a3b3f422e3ce36e501c1daf7fca7e73c82184860912398f75f"
+    },
+    {
+      "path": "README.md",
+      "sha256": "0f3cd8de817ca0afa3a5f283569bd96132b4c030ec17a3136d757afc665a65c7"
+    },
+    {
+      "path": "ruleproviders.go",
+      "sha256": "7610739fd31f2f718015c2880b10f617cabe9ed20f991a426017e3f350d9e86c"
+    },
+    {
+      "path": "runtime_test.go",
+      "sha256": "69dca3037271002af1e1ee1388c9ee57aedb907029b2d5f8e89d3b2cf2d6bb80"
+    },
+    {
+      "path": "runtime.go",
+      "sha256": "923c0121d17219d24298e7f6abb72e08b9fd6df27dc0872ce805a5b3ab89347e"
+    },
+    {
+      "path": "testdata/inspect-source.yaml",
+      "sha256": "dad64b17d4e83a4edaad211d721aec46f5e1c289bac22b2561247a16b2c8b507"
+    },
+    {
+      "path": "testdata/inspect-wire-v1.json",
+      "sha256": "85ed3f1853a5302f2cf7456108a154e15efdd1dbc720adbb9ae1d6b828efe368"
+    },
+    {
+      "path": "VERIFICATION.md",
+      "sha256": "47855203e05fa2ef6821d9f0e6d182a85e494aa361b7b82b7b585e026f788248"
+    }
+  ],
+  "sourceLicenseManifestSHA256": "f3e426ea3b2a73d021912e798f377ca0978b47b56488afe2771ec12f5b2bfe91",
+  "releaseGate": "Corresponding-source/license review remains mandatory; no deployment performed"
+}

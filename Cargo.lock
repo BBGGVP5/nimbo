@@ -2072,7 +2072,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nimbo-device"
-version = "1.2.0-beta.4"
+version = "1.3.0-beta.1"
 dependencies = [
  "dirs 5.0.1",
  "serde",
@@ -2085,13 +2085,14 @@ dependencies = [
 
 [[package]]
 name = "nimbo-installer"
-version = "1.2.0-beta.4"
+version = "1.3.0-beta.1"
 dependencies = [
  "dirs 5.0.1",
  "libc",
  "rfd",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "windows-sys 0.59.0",
@@ -2100,7 +2101,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-ipc"
-version = "1.2.0-beta.4"
+version = "1.3.0-beta.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2108,8 +2109,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "nimbo-mihomo"
+version = "1.3.0-beta.1"
+dependencies = [
+ "libc",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "url",
+ "uuid",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "nimbo-subscription"
-version = "1.2.0-beta.4"
+version = "1.3.0-beta.1"
 dependencies = [
  "base64 0.22.1",
  "nimbo-device",
@@ -2125,7 +2141,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-svc"
-version = "1.2.0-beta.4"
+version = "1.3.0-beta.1"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -2141,7 +2157,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-ui"
-version = "1.2.0-beta.4"
+version = "1.3.0-beta.1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2151,6 +2167,7 @@ dependencies = [
  "libc",
  "nimbo-device",
  "nimbo-ipc",
+ "nimbo-mihomo",
  "nimbo-subscription",
  "nimbo-xray-config",
  "png 0.17.16",
@@ -2178,7 +2195,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-xray-config"
-version = "1.2.0-beta.4"
+version = "1.3.0-beta.1"
 dependencies = [
  "base64 0.22.1",
  "nimbo-subscription",

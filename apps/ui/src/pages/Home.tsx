@@ -1,8 +1,16 @@
+import { memoryPaths, measuredTimeLabels, type MemorySample } from "../lib/homeMonitor";
+import { OperationPhrase } from "../components/OperationPhrase";
+import { ConnectionStateIcon } from "../components/ConnectionStateIcon";
+import { Dialog } from "../components/Universal";
+import { HomeSubscriptions } from "./home/HomeSubscriptions";
+import { latencyPresentation } from "../lib/latency";
+import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { CountryFlag } from "../components/CountryFlag";
 import { notifyError } from "../lib/notify";
+import { startVisiblePolling } from "../lib/visiblePolling";
 import { expireLabels, useMessages } from "../lib/i18n";
 import { serverDisplayLabel, useServerUiOverrides } from "../lib/serverUiOverrides";
 import type { Messages } from "../lib/i18n";
@@ -31,6 +39,14 @@ type SpeedSample = { upload: number; download: number; at: number };
 
 const MEMORY_HISTORY_LIMIT = 60;
 
+function countWord(count: number, forms: [string, string, string], englishSingular: string, locale: string): string {
+  if (!locale.startsWith("ru")) return count === 1 ? englishSingular : forms[2];
+  const mod100 = count % 100;
+  if (mod100 >= 11 && mod100 <= 14) return forms[2];
+  const mod10 = count % 10;
+  return mod10 === 1 ? forms[0] : mod10 >= 2 && mod10 <= 4 ? forms[1] : forms[2];
+}
+
 function preferenceSortMode(value: string): SortMode {
   if (value === "name" || value === "ping" || value === "protocol") return value;
   return "default";
@@ -38,15 +54,19 @@ function preferenceSortMode(value: string): SortMode {
 
 // ── Favorites persistence ────────────────────────────────────
 
+function readStoredIds(key: string): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+    return Array.isArray(value)
+      ? [...new Set(value.filter((id): id is string => typeof id === "string"))]
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function useFavorites() {
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem("nimbo.favorites");
-      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
-    } catch {
-      return new Set();
-    }
-  });
+  const [favorites, setFavorites] = useState<Set<string>>(() => new Set(readStoredIds("nimbo.favorites")));
 
   const toggle = useCallback((id: string) => {
     setFavorites((prev) => {
@@ -67,12 +87,7 @@ function makeOrderKey(subUrl: string): string {
 }
 
 function readServerOrder(subUrl: string): string[] {
-  try {
-    const raw = localStorage.getItem(makeOrderKey(subUrl));
-    return raw ? (JSON.parse(raw) as string[]) : [];
-  } catch {
-    return [];
-  }
+  return readStoredIds(makeOrderKey(subUrl));
 }
 
 function writeServerOrder(subUrl: string, order: string[]) {
@@ -250,10 +265,13 @@ export function Home() {
 
   const [refreshingUrl, setRefreshingUrl] = useState<string | null>(null);
   const [pinging, setPinging] = useState(false);
+  const pingAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => { pingAbort.current?.abort(); }, []);
   const [pingingServerIds, setPingingServerIds] = useState<Set<string>>(() => new Set());
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [memorySamples, setMemorySamples] = useState<number[]>([]);
+  const [memorySamples, setMemorySamples] = useState<MemorySample[]>([]);
+  const memoryRequestInFlight = useRef(false);
   // Плитка «Исключения» показывает, сколько приложений выведено из туннеля.
   const [appRuleCount, setAppRuleCount] = useState(0);
   const [currentMemoryBytes, setCurrentMemoryBytes] = useState(0);
@@ -383,9 +401,14 @@ export function Home() {
   }, [currentSubUrl, currentSub]);
 
   const availableProtocols = useMemo(() => {
-    const kinds = new Set(baseEntries.map((e) => e.server.protocol.kind));
+    const entries = preferences.ui_style === "signal" ? visibleSubs.flatMap(sub => sub.servers.map(server => ({ server, sub }))) : baseEntries;
+    const kinds = new Set(entries.map((e) => e.server.protocol.kind));
     return [...kinds].sort();
-  }, [baseEntries]);
+  }, [baseEntries, visibleSubs, preferences.ui_style]);
+
+  useEffect(() => {
+    if (protocolFilter && !availableProtocols.some((protocol) => protocol === protocolFilter)) setProtocolFilter(null);
+  }, [availableProtocols, protocolFilter]);
 
   const sortedEntries = useMemo(() => {
     let result = sortEntries(baseEntries, sortMode, serverPings, customOrder, pingOrder);
@@ -417,49 +440,48 @@ export function Home() {
   }, [activeId, connectingServerId, switchingServerId, baseEntries, subs]);
   const fallbackEntry = activeEntry ?? baseEntries[0] ?? null;
   const connected = status?.state === "connected";
-  const connecting = Boolean(connectingServerId);
+  const connecting = Boolean(connectingServerId) || status?.state === "connecting";
   const switching = Boolean(switchingServerId);
+  const showMemory = connected && !connecting && !disconnecting && !switching
+    && preferences.show_memory_usage && !widgetsCollapsed;
 
   useEffect(() => {
-    if (!connected) {
-      setElapsedSeconds(0);
-      setMemorySamples([]);
-      setCurrentMemoryBytes(0);
-    }
-  }, [connected]);
-
-  useEffect(() => {
+    setElapsedSeconds(0);
     if (!connected || sessionStartedAt == null) return;
     const tick = () =>
       setElapsedSeconds(Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000)));
-    tick();
-    const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
+    return startVisiblePolling(tick, 1000);
   }, [connected, sessionStartedAt]);
 
   useEffect(() => {
-    if (!connected || !preferences.show_memory_usage) return;
+    setMemorySamples([]);
+    setCurrentMemoryBytes(0);
+    if (!showMemory) return;
     let cancelled = false;
     const loadMemory = async () => {
+      if (memoryRequestInFlight.current) return;
+      memoryRequestInFlight.current = true;
       try {
         const usage = await api.getMemoryUsage();
-        if (cancelled) return;
+        if (cancelled || document.visibilityState !== "visible") return;
+        if (!Number.isFinite(usage.bytes) || usage.bytes < 0) return;
         setCurrentMemoryBytes(usage.bytes);
         setMemorySamples((current) => {
-          const next = [...current, usage.bytes];
+          const next = [...current, { bytes: usage.bytes, at: Date.now() }];
           return next.length > MEMORY_HISTORY_LIMIT ? next.slice(-MEMORY_HISTORY_LIMIT) : next;
         });
       } catch {
         /* ignore */
+      } finally {
+        memoryRequestInFlight.current = false;
       }
     };
-    void loadMemory();
-    const timer = window.setInterval(() => void loadMemory(), 2000);
+    const stop = startVisiblePolling(loadMemory, 2000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stop();
     };
-  }, [connected, preferences.show_memory_usage]);
+  }, [showMemory, sessionStartedAt]);
 
   const onToggleServer = async (serverId: string) => {
     try {
@@ -471,11 +493,11 @@ export function Home() {
     }
   };
 
-  const onRefreshSelected = async () => {
-    if (!currentSub) return;
-    setRefreshingUrl(currentSub.url);
+  const onRefreshSelected = async (sub: Subscription | null = currentSub) => {
+    if (!sub) return;
+    setRefreshingUrl(sub.url);
     try {
-      await refreshSubscription(currentSub.url);
+      await refreshSubscription(sub.url);
     } catch (e) {
       notifyError(String(e));
     } finally {
@@ -483,10 +505,14 @@ export function Home() {
     }
   };
 
-  const onPingServers = async () => {
-    if (!baseEntries.length) return;
-    const serverIds = baseEntries.map(({ server }) => server.id);
+  const onPingServers = async (entries: ServerEntry[] = baseEntries) => {
+    if (pingAbort.current) { pingAbort.current.abort(); return; }
+    if (!entries.length) return;
+    const controller = new AbortController();
+    pingAbort.current = controller;
+    const serverIds = entries.map(({ server }) => server.id);
     setPinging(true);
+    serverIds.forEach(id => setServerPing(id, null));
     setPingingServerIds(new Set(serverIds));
     try {
       await pingServersProgressively(serverIds, (result) => {
@@ -495,9 +521,10 @@ export function Home() {
           next.delete(result.server_id);
           return next;
         });
-        if (result.latency_ms != null) setServerPing(result.server_id, result.latency_ms);
-      });
+        setServerPing(result.server_id, result.latency_ms ?? null);
+      }, 3, controller.signal);
     } finally {
+      pingAbort.current = null;
       setPinging(false);
       setPingingServerIds(new Set());
     }
@@ -510,8 +537,10 @@ export function Home() {
       return next;
     });
     try {
+      setServerPing(serverId, null);
       const result = await api.pingServer(serverId);
-      if (result.latency_ms != null) setServerPing(result.server_id, result.latency_ms);
+      if (result.error) notifyError(result.error);
+      setServerPing(result.server_id, result.latency_ms ?? null);
     } catch (e) {
       notifyError(String(e));
     } finally {
@@ -624,8 +653,8 @@ export function Home() {
       : status?.connection_mode === "both"
         ? "TUN + PROXY"
         : "TUN";
-    const activeServer = activeEntry?.server ?? null;
-    const activePing = activeId ? serverPings[activeId] : undefined;
+    const activeServer = fallbackEntry?.server ?? null;
+    const activePing = activeServer ? serverPings[activeServer.id] : undefined;
     const rateUnits = (bytesPerSecond: number) => {
       const text = formatBytes(Math.max(0, bytesPerSecond));
       const parts = text.split(" ");
@@ -670,32 +699,41 @@ export function Home() {
           modeLabel={modeLabel}
           sessionLabel={connected ? formatDuration(elapsedSeconds) : m.signal.idleSession}
           sessionProgress={connected ? ((elapsedSeconds % 3600) / 3600) : 0}
-          metaLine={!connected
-            ? m.home.pressToConnect
-            : activeEntry
-              ? `${activeEntry.sub.name?.trim() || m.common.subscription} · ${protocolLabel(activeEntry.server.protocol)}`
-              : m.home.addProfileFirst}
+          metaLine={switching || disconnecting || connecting
+            ? stateWord
+            : !connected
+              ? (fallbackEntry ? m.home.pressToConnect : m.home.addProfileFirst)
+              : activeEntry
+                ? `${activeEntry.sub.name?.trim() || m.common.subscription} · ${protocolLabel(activeEntry.server.protocol)}`
+                : m.home.addProfileFirst}
           profileTitle={currentSub?.name?.trim() || m.common.subscription}
-          profileSubtitle={`${sortedEntries.length} ${m.common.servers} · ${visibleSubs.length} ${m.common.subscriptions}`}
+          profileSubtitle={(() => {
+            const serverCount = visibleSubs.reduce((count, sub) => count + sub.servers.length, 0);
+            const subscriptionCount = visibleSubs.length;
+            return `${serverCount} ${countWord(serverCount, ["сервер", "сервера", m.common.servers], "server", m.common.locale)} · ${subscriptionCount} ${countWord(subscriptionCount, ["подписка", "подписки", m.common.subscriptions], "subscription", m.common.locale)}`;
+          })()}
           serverFlag={activeServer
             ? <CountryFlag serverName={activeServer.name} fallback={<GlobeIcon />} className="country-flag-sm" />
             : <GlobeIcon />}
           serverName={activeServer ? serverDisplayLabel(activeServer) : m.signal.noServer}
+          autoSelected={connected && !!status?.auto_subscription_url &&
+            status.auto_subscription_url === fallbackEntry?.sub.url}
           serverProtocol={activeServer
             ? `${protocolLabel(activeServer.protocol)} · ${transportLabel(activeServer.protocol) || "JSON"}`
             : ""}
-          serverPing={activePing != null ? `${activePing} ms` : null}
+          serverPing={<LatencyDisplay value={activePing} loading={!!activeServer && pingingServerIds.has(activeServer.id)} />}
           serverDescription={activeServer
-            ? (serverListDescription(activeServer, activeEntry?.sub.servers ?? []) || null)
+            ? (serverListDescription(activeServer, fallbackEntry?.sub.servers ?? []) || null)
             : null}
-          downloadRate={download.value}
-          downloadUnit={download.unit}
+          telemetryAvailable={trafficMonitoringAvailable}
+          downloadRate={trafficMonitoringAvailable ? download.value : "—"}
+          downloadUnit={trafficMonitoringAvailable ? download.unit : ""}
           downloadTotal={formatBytes(trafficStats?.session_download ?? 0)}
-          uploadRate={upload.value}
-          uploadUnit={upload.unit}
+          uploadRate={trafficMonitoringAvailable ? upload.value : "—"}
+          uploadUnit={trafficMonitoringAvailable ? upload.unit : ""}
           uploadTotal={formatBytes(trafficStats?.session_upload ?? 0)}
           tiles={signalTiles}
-          chart={preferences.show_speed_chart
+          chart={connected && preferences.show_speed_chart
             ? (
               <SignalSpeedChart
                 labels={m}
@@ -706,31 +744,41 @@ export function Home() {
               />
             )
             : null}
-          extras={null}
+          extras={showMemory && memorySamples.length > 0 ? <MemoryUsageCard bytes={currentMemoryBytes} samples={memorySamples} labels={m} /> : null}
           actions={
             <>
               <button
                 type="button"
                 className="signal-btn signal-btn--primary"
+                data-variant="round"
+                aria-label={switching ? m.home.switching : connecting ? m.home.connecting : disconnecting ? m.home.disconnecting : connected ? m.home.disconnect : m.home.connect}
+                aria-pressed={connected}
+                aria-busy={connecting || disconnecting || switching}
                 onClick={() => void onToggleConnection()}
-                disabled={!activeEntry || connecting || disconnecting || switching}
+                disabled={(!connected && !fallbackEntry) || connecting || disconnecting || switching}
               >
-                {connecting
-                  ? m.home.connecting
-                  : disconnecting
-                    ? m.home.disconnecting
-                    : connected
-                      ? m.home.disconnect
-                      : m.home.connect}
+                <ConnectionStateIcon connected={connected} busy={connecting || disconnecting || switching} />
+                {switching
+                  ? m.home.switching
+                  : connecting
+                    ? m.home.connecting
+                    : disconnecting
+                      ? m.home.disconnecting
+                      : connected
+                        ? m.home.disconnect
+                        : m.home.connect}
               </button>
+              <OperationPhrase active={connecting || switching} locale={m.common.locale} />
             </>
           }
-          serverRail={
+          serverRail={visibleSubs.length ? <HomeSubscriptions subs={visibleSubs} labels={m}
+            onRefresh={sub => void onRefreshSelected(sub)} onPing={sub => void onPingServers(sub.servers.map(server => ({ server, sub })))}
+            refreshingUrl={refreshingUrl} pinging={pinging} renderServers={sub => (
             <SignalServerRail
               labels={m}
-              subs={visibleSubs}
-              currentSub={currentSub}
-              entries={sortedEntries}
+              subs={[sub]}
+              currentSub={sub}
+              entries={sortEntries(sub.servers.map(server => ({ server, sub })).filter(({ server }) => (!showFavOnly || favorites.has(server.id)) && (!protocolFilter || server.protocol.kind === protocolFilter)), sortMode, serverPings, readServerOrder(sub.url), pingOrder)}
               activeId={activeId}
               pingByServer={serverPings}
               pingingServerIds={pingingServerIds}
@@ -747,13 +795,12 @@ export function Home() {
               onShowFavOnly={setShowFavOnly}
               onPickServer={(server) => void onToggleServer(server.id)}
               pinging={pinging}
-              onPing={() => void onPingServers()}
+              onPing={() => void onPingServers(sub.servers.map(server => ({ server, sub })))}
               onSwitchSubscription={(url) => void onSwitchSubscription(url)}
-              onCollapse={toggleSidePanelCollapsed}
               hiddenCount={hiddenServerCount}
               onShowHidden={showAllHiddenServers}
             />
-          }
+            )} /> : <div className="universal-empty"><p>{m.profiles.emptyTitle}</p><button type="button" className="signal-btn" onClick={() => navigate("/subscriptions")}>{m.home.addProfileFirst}</button></div>}
           onOpenServers={() => {
             // Рельс скрыт разметкой ниже 900px; если он свёрнут — разворачиваем,
             // в остальных случаях показываем полный список отдельным экраном.
@@ -868,7 +915,7 @@ export function Home() {
                     upload={trafficStats?.session_upload ?? 0}
                     download={trafficStats?.session_download ?? 0}
                   />
-                  {preferences.show_memory_usage && (
+                  {showMemory && (
                     <MemoryUsageCard
                       bytes={currentMemoryBytes}
                       samples={memorySamples}
@@ -940,6 +987,7 @@ function ActiveServerInfo({
   onNavigate: () => void;
   labels: Messages;
 }) {
+  const pingProtocol = useAppStore(s => s.preferences.latency_protocol);
   if (!entry) return null;
   const name = serverDisplayLabel(entry.server);
   const subscriptionName = entry.sub.name?.trim() || labels.common.subscription;
@@ -976,11 +1024,11 @@ function ActiveServerInfo({
         <span
           className="active-server-ping"
           style={(() => {
-            const tier = pingTier(ping);
+            const tier = pingTier(ping, pingProtocol);
             return { background: tier.bg, color: tier.fg };
           })()}
         >
-          {ping} ms
+          <LatencyDisplay value={ping} />
         </span>
       )}
     </button>
@@ -1002,6 +1050,7 @@ function CompactServerBar({
   onOpenList: () => void;
   labels: Messages;
 }) {
+  const pingProtocol = useAppStore(s => s.preferences.latency_protocol);
   if (!entry) return null;
   const label = serverDisplayLabel(entry.server);
 
@@ -1023,11 +1072,11 @@ function CompactServerBar({
           <span
             className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums"
             style={(() => {
-              const tier = pingTier(ping);
+              const tier = pingTier(ping, pingProtocol);
               return { background: tier.bg, color: tier.fg };
             })()}
           >
-            {ping} ms
+            <LatencyDisplay value={ping} />
           </span>
         )}
       </button>
@@ -1094,26 +1143,7 @@ function CompactServerSheet({
   // панель прежнего стиля — со свёрнутой группой и пустым экраном.
   if (uiStyle === "signal") {
     return (
-      <div className="signal-sheet">
-        <div className="signal-sheet-head">
-          <span className="signal-sheet-title">{panelProps.labels.signal.serversTitle}</span>
-          <span className="signal-sheet-count">
-            {fillTemplate(panelProps.labels.signal.railCount, {
-              servers: panelProps.entries.length,
-              profiles: panelProps.subs.length,
-            })}
-          </span>
-          <button
-            type="button"
-            className="signal-icon-btn"
-            onClick={onClose}
-            title={panelProps.labels.common.close}
-            aria-label={panelProps.labels.common.close}
-          >
-            <CloseIcon />
-          </button>
-        </div>
-        <div className="signal-sheet-body">
+      <Dialog title={panelProps.labels.signal.serversTitle} closeLabel={panelProps.labels.common.close} onClose={onClose}>
           <SignalServerRail
             labels={panelProps.labels}
             subs={panelProps.subs}
@@ -1143,8 +1173,7 @@ function CompactServerSheet({
             hiddenCount={panelProps.hiddenCount ?? 0}
             onShowHidden={panelProps.onShowHidden}
           />
-        </div>
-      </div>
+      </Dialog>
     );
   }
 
@@ -1223,7 +1252,7 @@ function ServerSidePanel({
     onReorder(next);
   };
 
-  if (!entries.length && !showFavOnly) {
+  if (!entries.length && !showFavOnly && !protocolFilter) {
     return (
       <div className="server-side-panel flex flex-col">
         <Link
@@ -1383,7 +1412,7 @@ function ServerSidePanel({
           </div>
           <button
             onClick={onPing}
-            title={labels.home.pingServers}
+            title={pinging ? labels.common.cancel : labels.home.pingServers}
             className={[
               "shrink-0 flex h-8 w-8 items-center justify-center rounded-xl transition-all",
               pinging
@@ -1424,7 +1453,7 @@ function ServerSidePanel({
       <div className="server-side-list mt-1 flex-1 overflow-y-auto px-2 pb-3">
         {entries.length === 0 ? (
           <div className="px-3 py-8 text-center text-[12px] text-[var(--color-text-faint)]">
-            {labels.home.noFavorites}
+            {protocolFilter ? labels.home.noMatchingServers : labels.home.noFavorites}
           </div>
         ) : (
           entries.map(({ server }, idx) => {
@@ -1505,7 +1534,7 @@ function ServerSidePanel({
                   </button>
                   <button
                     onClick={() => void onPingServer(server.id)}
-                    title={labels.home.pingServers}
+                    title={pinging ? labels.common.cancel : labels.home.pingServers}
                     aria-label={labels.home.pingServers}
                     disabled={pingingServerIds.has(server.id)}
                     className={[
@@ -1550,17 +1579,11 @@ function ConnectionButton({
   const busy = connecting || disconnecting;
   const title = disconnecting
     ? labels.home.disconnecting
-    : connected
+    : connecting ? labels.home.connecting : connected
       ? labels.home.disconnect
       : labels.home.connect;
 
-  const stateIcon = busy ? (
-    <span className="connection-button-loader" />
-  ) : connected ? (
-    <ShieldButtonIcon />
-  ) : (
-    <PowerButtonIcon />
-  );
+  const stateIcon = <ConnectionStateIcon connected={connected} busy={busy} />;
 
   if (compact) {
     return (
@@ -1591,6 +1614,8 @@ function ConnectionButton({
       disabled={busy}
       title={title}
       aria-label={title}
+      aria-pressed={connected}
+      aria-busy={busy}
       className={[
         "connection-button",
         connected ? "connection-button-connected" : "",
@@ -1611,53 +1636,23 @@ function ConnectionButton({
 function AdminRestartDialog({ onClose }: { onClose: () => void }) {
   const m = useMessages();
   const [restarting, setRestarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const restart = async () => {
     if (restarting) return;
-    setRestarting(true);
+    setRestarting(true); setError(null);
     try {
       await api.restartAsAdmin();
     } catch (e) {
-      setRestarting(false);
+      setRestarting(false); setError(String(e));
       notifyError(String(e));
     }
   };
 
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center p-5"
-      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(12px)" }}
-      role="presentation"
-      onClick={onClose}
-    >
-      <div
-        className="panel w-full max-w-sm bg-[rgb(26,26,46)] p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.9)]"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="admin-dialog-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-full bg-[var(--color-accent-active-bg)] text-[var(--color-accent-bright)]">
-          <ShieldAlertIcon />
-        </div>
-        <h2 id="admin-dialog-title" className="mb-3 text-xl font-black text-white">
-          {m.home.adminTitle}
-        </h2>
-        <p className="mb-6 text-sm font-medium leading-relaxed text-[var(--color-text-dim)]">
-          {m.home.adminText}
-        </p>
-        <div className="grid grid-cols-1 gap-2">
-          <button
-            onClick={() => void restart()}
-            disabled={restarting}
-            className="primary-button interactive rounded-xl py-3 text-base font-bold"
-          >
-            {m.common.ok}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  return <Dialog title={m.home.adminTitle} closeLabel={m.common.close} onClose={onClose} closeDisabled={restarting}
+    footer={<><button className="btn" disabled={restarting} onClick={onClose}>{m.common.cancel}</button><button className="primary-button btn" onClick={() => void restart()} disabled={restarting}>{restarting ? m.common.savingProgress : m.common.ok}</button></>}>
+    <p className="universal-confirm-description">{m.home.adminText}</p>{error && <p role="alert" className="secondary-note">{error}</p>}
+  </Dialog>;
 }
 
 // ── ProfileSummary ────────────────────────────────────────────
@@ -1767,6 +1762,7 @@ function ProfileSummary({
 // ── PingBadge ─────────────────────────────────────────────────
 
 function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean }) {
+  const pingProtocol = useAppStore(s => s.preferences.latency_protocol);
   const m = useMessages();
   if (loading) {
     return (
@@ -1775,22 +1771,24 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
       </span>
     );
   }
-  if (ping == null) return null;
-  const tier = pingTier(ping);
+  if (latencyPresentation(ping, pingProtocol).value == null) return <LatencyDisplay value={ping} />;
+  const tier = pingTier(ping, pingProtocol);
   return (
     <span
       className="server-side-ping-badge shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold tabular-nums"
       style={{ background: tier.bg, color: tier.fg }}
       title={pingLevelLabel(tier.level, m)}
     >
-      {ping} ms
+      <LatencyDisplay value={ping} />
     </span>
   );
 }
 
 type PingLevel = "good" | "average" | "high";
 
-function pingTier(ping: number): { bg: string; fg: string; level: PingLevel } {
+function pingTier(raw: unknown, protocol: unknown): { bg: string; fg: string; level: PingLevel } {
+  const ping = latencyPresentation(raw, protocol).value;
+  if (ping == null) return { bg: "transparent", fg: "var(--color-text-faint)", level: "high" };
   if (ping < 100) {
     return { bg: "rgba(76, 217, 100, 0.16)", fg: "#7be084", level: "good" };
   }
@@ -1845,8 +1843,7 @@ function NetworkSpeedChart({
 
   const buildPath = (key: "upload" | "download") => {
     if (samples.length < 2) {
-      const y = height - padding;
-      return `M ${padding} ${y} L ${width - padding} ${y}`;
+      return "";
     }
     const stepX = (width - padding * 2) / (points - 1);
     return samples
@@ -1928,48 +1925,31 @@ function MemoryUsageCard({
   labels,
 }: {
   bytes: number;
-  samples: number[];
+  samples: MemorySample[];
   labels: Messages;
 }) {
   const width = 320;
   const height = 72;
-  const padding = 5;
-  const values = samples.length ? samples : [bytes];
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const range = Math.max(1, maxValue - minValue, maxValue * 0.08);
-
-  const buildPath = () => {
-    if (values.length < 2) {
-      const y = height - padding;
-      return `M ${padding} ${y} L ${width - padding} ${y}`;
-    }
-    const stepX = (width - padding * 2) / (values.length - 1);
-    return values
-      .map((value, idx) => {
-        const x = padding + idx * stepX;
-        const normalized = (value - minValue) / range;
-        const y = height - padding - normalized * (height - padding * 2);
-        return `${idx === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-      })
-      .join(" ");
-  };
-
-  const buildArea = () =>
-    `${buildPath()} L ${width - padding} ${height - padding} L ${padding} ${height - padding} Z`;
+  const measured = memoryPaths(samples, width, height);
+  const ru = labels.common.locale.startsWith("ru");
+  const times = measuredTimeLabels(samples, labels.common.locale);
 
   return (
     <div className="memory-card">
       <div className="memory-card-header">
         <div className="memory-card-title">
           <ChipIcon />
-          <span>{labels.home.memoryUsage}</span>
+          <span>{ru ? "Память приложения" : "Application memory"}</span>
         </div>
-        <span className="memory-card-value">{formatBytes(bytes)}</span>
+      </div>
+      <div className="universal-memory-reading">
+        <div><span className="signal-flow-label">{ru ? "Используется сейчас" : "Current usage"}</span><span className="memory-card-value">{samples.length ? formatBytes(bytes) : "—"}</span></div>
+        {measured.peak != null && <div><span className="signal-flow-label">{ru ? "Пик на графике" : "Peak in chart"}</span><span className="memory-card-value memory-card-peak">{formatBytes(measured.peak)}</span></div>}
       </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio="none"
+        style={{ visibility: samples.length ? "visible" : "hidden" }}
         className="memory-card-svg"
         aria-hidden="true"
       >
@@ -1979,9 +1959,9 @@ function MemoryUsageCard({
             <stop offset="100%" stopColor="var(--color-accent-bright)" stopOpacity="0" />
           </linearGradient>
         </defs>
-        <path d={buildArea()} fill="url(#memory-card-fill)" />
+        <path d={measured.area} fill="url(#memory-card-fill)" />
         <path
-          d={buildPath()}
+          d={measured.line}
           fill="none"
           stroke="var(--color-accent-bright)"
           strokeWidth="1.6"
@@ -1989,6 +1969,7 @@ function MemoryUsageCard({
           strokeLinecap="round"
         />
       </svg>
+      <div className="universal-chart-axis">{times.map(time => <time key={time.at} style={{ left: `${time.position}%`, transform: `translateX(-${time.position}%)` }} dateTime={new Date(time.at).toISOString()}>{time.label}</time>)}</div>
     </div>
   );
 }
@@ -2105,6 +2086,7 @@ function protoName(kind: string): string {
     case "shadowsocks": return "SS";
     case "hysteria2": return "HY2";
     case "naive": return "NAIVE";
+    case "awg": return "AWG";
     default: return kind.toUpperCase();
   }
 }
@@ -2135,62 +2117,6 @@ function PingSortArrow({ active, order }: { active: boolean; order: "asc" | "des
 
 // ── Icons ─────────────────────────────────────────────────────
 
-function ShieldButtonIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="connection-button-icon"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path
-        fill="currentColor"
-        stroke="none"
-        d="M12 2.7 19 5.55v5.6c0 4.36-2.78 8.28-7 10.02-4.22-1.74-7-5.66-7-10.02v-5.6L12 2.7Z"
-      />
-    </svg>
-  );
-}
-
-function PowerButtonIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="connection-button-icon"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
-      <line x1="12" y1="2" x2="12" y2="12" />
-    </svg>
-  );
-}
-
-function ShieldAlertIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-10 w-10"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  );
-}
 
 function GlobeIcon() {
   return (

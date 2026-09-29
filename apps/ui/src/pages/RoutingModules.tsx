@@ -1,168 +1,59 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-
 import { api, type RoutingModule } from "../lib/api";
+import { useMessages } from "../lib/i18n";
+import { Dialog, Surface } from "../components/Universal";
+import { PageHeader, StatePanel, Metric, useSecondaryCopy } from "../components/Secondary";
 
-/**
- * Модули маршрутизации: наборы правил, написанные пользователем.
- *
- * Экран намеренно про текст, а не про конструктор: наборы приносят готовыми
- * из других приложений и правят целиком, а построчный редактор заставлял бы
- * вбивать сотню правил по одному.
- */
 export default function RoutingModules() {
+  const m = useMessages(); const copy = useSecondaryCopy(); const ru = m.common.locale.startsWith("ru");
   const [modules, setModules] = useState<RoutingModule[]>([]);
   const [editing, setEditing] = useState<RoutingModule | null>(null);
+  const [deleting, setDeleting] = useState<RoutingModule | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const reload = useCallback(async () => {
-    try {
-      setModules(await api.listRoutingModules());
-    } catch {
-      setModules([]);
-    }
+    setLoading(true); setError(null);
+    try { setModules(await api.listRoutingModules()); }
+    catch (e) { setError(String(e)); }
+    finally { setLoading(false); }
   }, []);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  const openEditor = (module: RoutingModule) => {
-    setEditing(module);
-    setDraft(module.text);
-  };
-
+  useEffect(() => { void reload(); }, [reload]);
+  const openEditor = (module: RoutingModule) => { setError(null); setEditing(module); setDraft(module.text); };
   const save = async () => {
     if (!editing) return;
-    setBusy(true);
-    try {
-      const parsed = parseModule(draft);
-      setModules(await api.saveRoutingModule(editing.id, parsed.name ?? editing.name, draft));
-      setEditing(null);
-    } finally {
-      setBusy(false);
-    }
+    setBusy(true); setError(null);
+    try { const parsed = parseModule(draft); setModules(await api.saveRoutingModule(editing.id, parsed.name ?? editing.name, draft)); setEditing(null); }
+    catch (e) { setError(String(e)); }
+    finally { setBusy(false); }
   };
-
+  const mutate = async (action: () => Promise<RoutingModule[]>) => {
+    setBusy(true); setError(null);
+    try { setModules(await action()); setDeleting(null); }
+    catch (e) { setError(String(e)); }
+    finally { setBusy(false); }
+  };
   const parsedDraft = useMemo(() => parseModule(draft), [draft]);
-
-  if (editing) {
-    return (
-      <div className="page-surface glass rounded-2xl h-full overflow-auto p-8">
-        <div className="mb-5 flex items-center gap-3">
-          <button type="button" className="btn" onClick={() => setEditing(null)}>
-            ← Модули
-          </button>
-          <div className="min-w-0 flex-1">
-            <h1 className="page-title truncate">{parsedDraft.name ?? editing.name}</h1>
-            <p className="text-sm text-[var(--color-text-dim)]">
-              {parsedDraft.rules} правил разобрано
-              {parsedDraft.skipped > 0 ? ` · ${parsedDraft.skipped} строк не понято` : ""}
-            </p>
-          </div>
-          <button type="button" className="primary-button btn" disabled={busy} onClick={() => void save()}>
-            Сохранить
-          </button>
-        </div>
-
-        {/* Моноширинный шрифт: правила читаются столбцами, пропорциональный
-            превращает их в кашу. */}
-        <textarea
-          className="dark-input h-[420px] w-full font-mono text-sm leading-6"
-          value={draft}
-          spellCheck={false}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <p className="mt-3 text-xs text-[var(--color-text-faint)]">
-          Поддерживаются DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, GEOIP и GEOSITE с политиками
-          DIRECT, PROXY и REJECT. Секция [General] пропускается: её настройки относятся к другому движку.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="page-surface glass rounded-2xl h-full overflow-auto p-8">
-      <div className="mb-5 flex items-center gap-3">
-        <Link className="btn" to="/routing">
-          ← Маршрутизация
-        </Link>
-        <div className="min-w-0 flex-1">
-          <h1 className="page-title">Модули</h1>
-          <p className="text-sm text-[var(--color-text-dim)]">
-            Свои правила поверх профиля: домены и адреса, которые всегда идут напрямую, через VPN или в блок.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="primary-button btn"
-          onClick={() =>
-            openEditor({
-              id: `module-${Date.now().toString(36)}`,
-              name: "Мой модуль",
-              enabled: true,
-              text: NEW_MODULE_TEMPLATE,
-            })
-          }
-        >
-          + Новый модуль
-        </button>
-      </div>
-
-      {modules.length === 0 ? (
-        <div className="panel p-6">
-          <h2 className="mb-2 text-lg font-bold">Модулей пока нет</h2>
-          <p className="text-sm text-[var(--color-text-dim)]">
-            Вставьте набор правил вида <code>DOMAIN-SUFFIX,ozon.ru,DIRECT</code> — подойдёт готовый список
-            из другого приложения. Правила модуля применяются раньше правил профиля.
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {modules.map((module) => {
-            const parsed = parseModule(module.text);
-            return (
-              <div key={module.id} className="panel flex items-center gap-4 p-4">
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => openEditor(module)}
-                >
-                  <div className="truncate text-base font-bold">{parsed.name ?? module.name}</div>
-                  <div
-                    className={`text-xs ${
-                      parsed.skipped > 0
-                        ? "text-[var(--color-accent-bright)]"
-                        : "text-[var(--color-text-faint)]"
-                    }`}
-                  >
-                    {parsed.rules} правил
-                    {parsed.skipped > 0 ? ` · ${parsed.skipped} строк не понято` : ""}
-                    {module.enabled ? "" : " · выключен"}
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={async () => setModules(await api.toggleRoutingModule(module.id))}
-                >
-                  {module.enabled ? "Выключить" : "Включить"}
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={async () => setModules(await api.deleteRoutingModule(module.id))}
-                >
-                  Удалить
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+  const title = ru ? "Модули маршрутизации" : "Routing modules";
+  const newLabel = ru ? "Новый модуль" : "New module";
+  return <div className="page-view secondary-page modules-page">
+    <PageHeader title={title} description={ru ? "Свои правила поверх активного профиля — без изменения его настроек." : "Your rules on top of the active profile, without changing its settings."} actions={<><Link className="btn" to="/routing">{m.routing.title}</Link><button className="primary-button btn" onClick={() => openEditor({id: `module-${Date.now().toString(36)}`, name: newLabel, enabled: true, text: NEW_MODULE_TEMPLATE})}>{newLabel}</button></>} />
+    <div className="secondary-metrics"><Metric label={title} value={loading ? "—" : modules.length} /><Metric label={ru ? "Включены" : "Enabled"} value={loading ? "—" : modules.filter(x => x.enabled).length} /><Metric label={m.routing.rulesLabel} value={loading ? "—" : modules.reduce((n,x) => n + parseModule(x.text).rules, 0)} /></div>
+    {error && !editing && !deleting && <StatePanel title={copy.error} detail={error} error action={<button className="btn" onClick={() => void reload()}>{copy.retry}</button>} />}
+    {loading ? <StatePanel title={copy.loading} busy /> : modules.length === 0 ? <Surface><StatePanel title={ru ? "Модулей пока нет" : "No modules yet"} detail={ru ? "Добавьте готовый список правил или создайте свой." : "Add an existing rule list or create your own."} action={<button className="btn" onClick={() => openEditor({id: `module-${Date.now().toString(36)}`, name:newLabel, enabled:true, text:NEW_MODULE_TEMPLATE})}>{newLabel}</button>} /></Surface> : <div className="module-list">{modules.map(module => <Surface className="module-card" key={module.id}>
+      <div><h2>{parseModule(module.text).name ?? module.name}</h2><p className="secondary-note">{parseModule(module.text).rules} {m.routing.rulesLabel} · {module.enabled ? (ru ? "Включён" : "Enabled") : (ru ? "Выключен" : "Disabled")}</p></div>
+      <div className="module-card-actions"><button className="btn" onClick={() => openEditor(module)}>{ru ? "Редактировать" : "Edit"}</button><button className="btn" aria-pressed={module.enabled} disabled={busy} onClick={() => void mutate(() => api.toggleRoutingModule(module.id))}>{module.enabled ? (ru ? "Выключить" : "Disable") : (ru ? "Включить" : "Enable")}</button><button className="btn" disabled={busy} onClick={() => {setError(null); setDeleting(module);}}>{m.routing.delete}</button></div>
+    </Surface>)}</div>}
+    {editing && <Dialog className="module-editor" title={parsedDraft.name ?? editing.name} closeLabel={m.common.close} onClose={() => setEditing(null)} closeDisabled={busy} footer={<><button className="btn" disabled={busy} onClick={() => setEditing(null)}>{m.common.cancel}</button><button className="primary-button btn" disabled={busy} onClick={() => void save()}>{busy ? m.common.saving : m.common.save}</button></>}>
+      <p className="secondary-note">{parsedDraft.rules} {m.routing.rulesLabel} · {parsedDraft.skipped} {ru ? "нераспознанных строк" : "unrecognized lines"}</p>
+      <textarea className="dark-input" aria-label={title} value={draft} spellCheck={false} onChange={e => setDraft(e.target.value)} />
+      <p className="secondary-note">DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, GEOIP, GEOSITE · DIRECT / PROXY / REJECT</p>
+      {error && <StatePanel title={copy.error} detail={error} error />}
+    </Dialog>}
+    {deleting && <Dialog title={m.routing.deleteTitle} closeLabel={m.common.close} onClose={() => setDeleting(null)} closeDisabled={busy} footer={<><button className="btn" disabled={busy} onClick={() => setDeleting(null)}>{m.common.cancel}</button><button className="routing-editor-danger" disabled={busy} onClick={() => void mutate(() => api.deleteRoutingModule(deleting.id))}>{m.routing.delete}</button></>}><p>{deleting.name}</p>{error && <StatePanel title={copy.error} detail={error} error />}</Dialog>}
+  </div>;
 }
 
 /**

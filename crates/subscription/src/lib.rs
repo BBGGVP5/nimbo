@@ -11,7 +11,7 @@ pub use fetcher::{
     HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS, HAPP_COMPAT_OS_VERSION,
 };
 pub use model::{
-    Hysteria2Config, NaiveConfig, NaiveTransport, Network, Protocol, Security, Server,
+    AwgConfig, AwgLocalSocks, Hysteria2Config, NaiveConfig, NaiveTransport, Network, Protocol, Security, Server,
     ShadowsocksConfig, StreamSettings, Subscription, SubscriptionAppProxyMode,
     SubscriptionAppProxyRule, SubscriptionMeta, SubscriptionTheme, TlsFragmentConfig, TrojanConfig,
     VlessConfig, VmessConfig,

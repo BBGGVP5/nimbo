@@ -1459,15 +1459,7 @@ fn apply_bundle(
                 "black" => ThemeMode::Black,
                 _ => ThemeMode::System,
             };
-            state.preferences.ui_style = match value.ui_style.as_str() {
-                "material_you" => "material_you".into(),
-                "dotted" => "dotted".into(),
-                // Signal и Manga переносятся как есть: раньше они молча
-                // превращались в «nimbo» при синхронизации.
-                "signal" => "signal".into(),
-                "manga" => "manga".into(),
-                _ => "nimbo".into(),
-            };
+            state.preferences.ui_style = "signal".into();
             if !value.accent_color.is_empty() && is_hex_color(&value.accent_color) {
                 state.preferences.accent_mode = AccentMode::Custom;
                 state.preferences.accent_color = value.accent_color.to_ascii_lowercase();

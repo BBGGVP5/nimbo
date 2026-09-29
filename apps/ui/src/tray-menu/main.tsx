@@ -6,6 +6,7 @@ import { applyBootAppearance } from "../lib/bootAppearance";
 import "../styles.css";
 import "flag-icons/css/flag-icons.min.css";
 import "./tray-menu.css";
+import { trayPreview } from "./preview";
 
 // The flyout is a menu, not a page: suppress its own context menu and any
 // text selection / drag affordances.
@@ -13,7 +14,7 @@ document.addEventListener("contextmenu", (event) => event.preventDefault());
 document.addEventListener("dragstart", (event) => event.preventDefault());
 
 try {
-  void getCurrentWebview().setBackgroundColor([32, 34, 49, 255]).catch(() => undefined);
+  void getCurrentWebview().setBackgroundColor([28, 28, 28, 255]).catch(() => undefined);
 } catch {
   // Browser preview does not have a Tauri webview.
 }
@@ -22,6 +23,8 @@ try {
 applyBootAppearance();
 ReactDOM.createRoot(document.getElementById("tray-root") as HTMLElement).render(
   <React.StrictMode>
-    <TrayMenu />
+    <TrayMenu previewState={import.meta.env.DEV && new URLSearchParams(location.search).has("preview") ? trayPreview : undefined} />
   </React.StrictMode>,
 );
+
+import "../universal.css";

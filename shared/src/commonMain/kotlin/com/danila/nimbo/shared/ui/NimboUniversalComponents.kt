@@ -136,9 +136,22 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
     val connected = state.vpnState == "connected"
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val motion = rememberNimboConnectionMotion(connected, state.connectionBusy, pressed, enabled = state.navIconMotion)
+    var clickFeedback by remember { mutableStateOf(false) }
+    var clickFeedbackKey by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(clickFeedbackKey) {
+        if (clickFeedbackKey > 0) {
+            kotlinx.coroutines.delay(130)
+            clickFeedback = false
+        }
+    }
+    val motion = rememberNimboConnectionMotion(connected, state.connectionBusy,
+        pressed || clickFeedback, enabled = state.navIconMotion)
     val actionLabel = if (connected) "Отключить" else if (state.connectionBusy) "Подождите…" else "Подключить"
-    val toggle = { if (state.servers.isEmpty() && !connected) actions.onAddProfile() else actions.onToggleVpn() }
+    val toggle = {
+        clickFeedback = true
+        clickFeedbackKey++
+        if (state.servers.isEmpty() && !connected) actions.onAddProfile() else actions.onToggleVpn()
+    }
     Column(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             Box(Modifier.size(5.dp).clip(CircleShape).background(if (connected) NimboPalette.Accent else NimboPalette.TextTertiary))
@@ -169,7 +182,11 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
         if (state.connectStyle == "compact") {
             val fill = NimboPalette.Accent
             Row(Modifier.fillMaxWidth().heightIn(min = 60.dp)
-                .graphicsLayer { scaleX = motion.scale.value; scaleY = motion.scale.value }
+                .graphicsLayer {
+                    scaleX = motion.scale.value
+                    scaleY = motion.scale.value
+                    translationY = (1f - motion.scale.value) * 20.dp.toPx()
+                }
                 .clip(RoundedCornerShape(20.dp)).background(fill)
                 .semantics { contentDescription = actionLabel }
                 .clickable(enabled = !state.connectionBusy, role = Role.Button,
@@ -183,7 +200,11 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
             }
         } else {
             val fill = NimboPalette.Accent
-            Box(Modifier.size(132.dp).graphicsLayer { scaleX = motion.scale.value; scaleY = motion.scale.value }
+            Box(Modifier.size(132.dp).graphicsLayer {
+                scaleX = motion.scale.value
+                scaleY = motion.scale.value
+                translationY = (1f - motion.scale.value) * 20.dp.toPx()
+            }
                 .border(1.dp, NimboPalette.Border, CircleShape), contentAlignment = Alignment.Center) {
                 NimboConnectionHalo(motion, fill, Modifier.fillMaxSize())
                 Box(Modifier.fillMaxSize().padding(7.dp).clip(CircleShape).background(fill)

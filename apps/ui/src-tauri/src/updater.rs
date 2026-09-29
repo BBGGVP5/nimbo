@@ -234,14 +234,34 @@ pub async fn install_app_update(
     let release = select_release(&releases, channel)
         .ok_or_else(|| "Релиз больше недоступен. Проверьте обновления ещё раз.".to_string())?;
     if normalize_version_label(&release.tag_name) != normalize_version_label(&latest_version) {
+        tracing::warn!(
+            channel = ?channel,
+            expected = %latest_version,
+            found = %release.tag_name,
+            "update aborted: release changed between check and install"
+        );
         return Err("Релиз изменился после проверки. Проверьте обновления ещё раз.".into());
     }
     let asset = select_asset(&release.assets)
         .map(app_asset_from_github)
         .ok_or_else(|| "Файл для этой системы больше недоступен.".to_string())?;
     if asset.fingerprint != fingerprint {
+        tracing::warn!(
+            asset = %asset.name,
+            "update aborted: asset was replaced between check and install"
+        );
         return Err("Файл релиза был заменён после проверки. Проверьте обновления ещё раз.".into());
     }
+
+    // Без этой записи неудачное обновление не оставляет следов вообще: в логе
+    // видно только, что приложение стартовало уже с другой версией.
+    tracing::info!(
+        channel = ?channel,
+        release = %release.tag_name,
+        asset = %asset.name,
+        size = asset.size,
+        "update selected"
+    );
     validate_update_download_url(&asset.download_url)?;
     let expected_digest = normalize_sha256_digest(asset.digest.as_deref().ok_or_else(|| {
         "GitHub не предоставил SHA-256 для этого файла. Установка отменена.".to_string()
@@ -277,6 +297,7 @@ pub async fn install_app_update(
         && (asset.size == 0 || target.metadata().map(|meta| meta.len()).unwrap_or(0) == asset.size)
         && verify_sha256_file(&target, &expected_digest).is_ok();
     if cached_is_valid {
+        tracing::info!(file = %target.display(), "update package reused from cache");
         emit_update_progress(
             &app,
             target
@@ -336,6 +357,11 @@ pub async fn install_app_update(
     )?;
     write_receipt(&app, "pending.json", &receipt)?;
     emit_update_progress(&app, asset.size, asset.size, "ready");
+    tracing::info!(
+        installer = %target.display(),
+        release = %release.tag_name,
+        "launching verified installer"
+    );
     open_verified_package(&target)?;
 
     Ok(AppUpdateInstallResult {
@@ -379,7 +405,8 @@ pub fn get_post_update_info(app: AppHandle) -> Result<Option<AppPostUpdateInfo>,
     }
     Ok(Some(AppPostUpdateInfo {
         version: receipt.version,
-        release_notes: receipt.release_notes,
+        // Old receipts can contain the platform wrapper from before this fix.
+        release_notes: receipt.release_notes.as_deref().and_then(release_notes_for_desktop),
         release_url: receipt.release_url,
     }))
 }
@@ -496,8 +523,49 @@ fn release_notes_for_desktop(body: &str) -> Option<String> {
         }
         compact.push(line);
     }
-    let result = compact.join("\n").trim().to_string();
+    let result = without_platform_heading(&compact.join("\n"));
     (!result.is_empty()).then_some(result)
+}
+
+fn without_platform_heading(body: &str) -> String {
+    let mut fence: Option<(char, usize)> = None;
+    body.lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+                let kind = trimmed.chars().next().unwrap();
+                let count = trimmed.chars().take_while(|c| *c == kind).count();
+                match fence {
+                    None => fence = Some((kind, count)),
+                    Some((old_kind, old_count)) if kind == old_kind && count >= old_count => fence = None,
+                    _ => {}
+                }
+                return true;
+            }
+            fence.is_some() || !is_platform_heading(trimmed)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn is_platform_heading(line: &str) -> bool {
+    if ["- ", "* ", "+ "].iter().any(|prefix| line.starts_with(prefix)) {
+        return false;
+    }
+    let normalized: String = line.to_lowercase().chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' }).collect();
+    let normalized = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    let prefix = ["что нового", "что изменилось", "изменения", "what s new", "what is new", "what changed", "changes", "changelog"]
+        .into_iter().find(|prefix| normalized == *prefix || normalized.starts_with(&format!("{prefix} ")));
+    let tail = prefix.map_or(normalized.as_str(), |prefix| normalized[prefix.len()..].trim());
+    if tail.is_empty() { return prefix.is_some(); }
+    let platforms = ["android", "андроид", "ios", "windows", "виндовс", "linux", "линукс", "desktop", "десктоп"];
+    let connectors = ["на", "для", "в", "и", "and", "on", "for", "in", "app", "приложение", "приложении"];
+    let words: Vec<_> = tail.split_whitespace().collect();
+    words.iter().any(|word| platforms.contains(word))
+        && words.iter().all(|word| platforms.contains(word) || connectors.contains(word))
 }
 
 fn extract_platform_section<'a>(body: &'a str, platform: &str) -> Option<&'a str> {
@@ -1578,6 +1646,30 @@ mod tests {
     }
 
     #[test]
+    fn beta_channel_promotes_beta5_to_stable_120_on_desktop_targets() {
+        for (os, arch, stable_asset, beta_asset) in [
+            ("windows", "x86_64", "NimboSetup_1.2.0_x64.exe", "NimboSetup_1.2.0-beta.5_x64.exe"),
+            ("linux", "x86_64", "Nimbo_1.2.0_amd64.AppImage", "Nimbo_1.2.0-beta.5_amd64.AppImage"),
+        ] {
+            // Deliberately leave beta first, as the GitHub list can be reordered.
+            let releases = vec![
+                release_with_assets("v1.2.0-beta.5", true, &[beta_asset]),
+                release_with_assets("v1.2.0", false, &[stable_asset]),
+            ];
+            for channel in [UpdateChannel::Beta, UpdateChannel::Stable] {
+                let selected = select_release_for_target(&releases, channel, os, arch).unwrap();
+                assert_eq!(selected.tag_name, "v1.2.0");
+                assert_eq!(
+                    update_reason(&selected.tag_name, "1.2.0-beta.5", None, "stable"),
+                    Some(UpdateReason::NewVersion)
+                );
+                assert_eq!(update_reason(&selected.tag_name, "1.2.0", None, "stable"), None);
+            }
+        }
+        assert_eq!(update_reason("1.2.0-beta.5", "1.2.0", None, "beta"), None);
+    }
+
+    #[test]
     fn desktop_release_notes_use_only_tagged_desktop_section() {
         let body = r#"
 <!-- nimbo:android:start -->
@@ -1591,7 +1683,7 @@ mod tests {
 "#;
 
         let notes = release_notes_for_desktop(body).unwrap();
-        assert!(notes.contains("Windows и Linux"));
+        assert!(!notes.contains("Windows и Linux"));
         assert!(notes.contains("процент и размер"));
         assert!(!notes.contains("Android"));
         assert!(!notes.contains("APK"));
@@ -1614,6 +1706,19 @@ mod tests {
             release_notes_for_desktop(body).as_deref(),
             Some("## Улучшения\n- Исправлено фоновое обновление.")
         );
+    }
+
+    #[test]
+    fn desktop_release_notes_remove_wrappers_and_keep_feature_headings() {
+        for title in ["# 🖥️ Что нового на Windows и Linux", "## Что изменилось на Windows",
+            "**What's new on Desktop**", "## Windows и Linux", "## What changed on Linux"] {
+            assert_eq!(without_platform_heading(&format!("{title}\n\n## Протоколы\n- Исправлено")),
+                "## Протоколы\n- Исправлено");
+        }
+        let notes = "## Windows: восстановление сети\n- Windows\n```md\n# Что нового на Windows\n```\n~~~md\n# Linux\n~~~";
+        assert_eq!(without_platform_heading(notes), notes);
+        let clean = without_platform_heading("# Windows и Linux\n- Исправлено");
+        assert_eq!(without_platform_heading(&clean), clean);
     }
 
     #[test]

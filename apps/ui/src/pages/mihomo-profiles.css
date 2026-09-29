@@ -1,0 +1,29 @@
+.mihomo-page { display: grid; gap: 20px; max-width: 1040px; margin-inline: auto; min-width: 0; color: var(--color-text); }
+.mihomo-page__header h1 { font-size: clamp(28px, 4vw, 38px); letter-spacing: -.04em; margin: 24px 0 6px; }
+.mihomo-page p { font-size: 13px; line-height: 1.6; color: var(--color-text-dim); margin: 8px 0; overflow-wrap: anywhere; }
+.mihomo-panel { padding: clamp(16px, 3vw, 24px); background: var(--color-card); border: 1px solid var(--color-border); border-radius: 16px; min-width: 0; }
+.mihomo-panel h2 { margin: 0; font-size: 20px; letter-spacing: -.02em; }
+.mihomo-panel h3 { font-size: 15px; margin: 18px 0 10px; overflow-wrap: anywhere; }
+.mihomo-panel small { color: var(--color-text-dim); font-size: 12px; font-weight: 400; }
+.mihomo-notice { border-left: 3px solid var(--color-accent); padding: 8px 16px; font-size: 13px; line-height: 1.6; }
+.mihomo-page .mihomo-error { color: var(--color-status-error, #e77); }
+.mihomo-import { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.mihomo-import__source { grid-column: 1 / -1; }
+.mihomo-page label { display: grid; gap: 8px; min-width: 0; font-size: 12px; color: var(--color-text-dim); }
+.mihomo-page input, .mihomo-page textarea, .mihomo-page select { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text); border-radius: 9px; padding: 10px 12px; font: inherit; }
+.mihomo-page textarea { font-family: var(--font-mono, monospace); font-size: 12px; line-height: 1.6; resize: vertical; }
+.mihomo-page button { min-height: 38px; padding: 8px 14px; border: 1px solid var(--color-border-strong); border-radius: 9px; background: var(--color-surface); color: var(--color-text); font-size: 12px; cursor: pointer; }
+.mihomo-page button:disabled, .mihomo-page input:disabled, .mihomo-page textarea:disabled, .mihomo-page select:disabled { opacity: .5; cursor: not-allowed; }
+.mihomo-page :is(button, input, select, textarea, a):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+.mihomo-section-head, .mihomo-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.mihomo-section-head { justify-content: space-between; }
+.mihomo-profile { display: grid; gap: 12px; border-top: 1px solid var(--color-border); padding-block: 16px; }
+.mihomo-profile:first-of-type { margin-top: 16px; }
+.mihomo-profile h3 { margin: 0; }
+.mihomo-live-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--color-border); padding-block: 14px; min-width: 0; }
+.mihomo-live-row > div { min-width: 0; overflow-wrap: anywhere; }
+.mihomo-live-row small { display: block; margin-top: 5px; }
+.mihomo-live-row select { width: min(100%, 280px); }
+.mihomo-delay { margin-top: 24px; font-size: 13px; }
+.mihomo-delay .mihomo-actions { align-items: end; margin-top: 16px; }
+@media (max-width: 600px) { .mihomo-import { grid-template-columns: minmax(0, 1fr); } .mihomo-page { gap: 16px; } }

@@ -1,4 +1,5 @@
 pub mod aggregate;
+pub mod awg;
 pub mod hysteria2;
 pub mod naive;
 pub mod shadowsocks;

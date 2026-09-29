@@ -1,3 +1,4 @@
+import { ConnectionStateIcon } from "./ConnectionStateIcon";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import type { Messages } from "../lib/i18n";
@@ -19,6 +20,7 @@ export interface SignalNavItem {
   icon?: ReactNode;
   /** Разделитель рисуется перед пунктом — так в макете разбиты группы. */
   group?: boolean;
+  compactHide?: boolean;
 }
 
 export interface SignalSidebarProps {
@@ -65,9 +67,9 @@ export function SignalSidebar({
     >
       <div className="signal-rail-brand">
         <span className="signal-rail-mark" aria-hidden="true">
-          N
+          <ConnectionStateIcon connected busy={false} />
         </span>
-        <span className="signal-rail-name">Nimbo</span>
+        <span className="parity-brand-copy"><span className="signal-rail-name">nimbo</span><small>{version.replace(/^V/, "v").replace("-beta.", " β")}</small></span>
         {onToggleCollapsed && (
           <button
             type="button"
@@ -93,9 +95,11 @@ export function SignalSidebar({
 
       <nav className="signal-rail-nav">
         {items.map((item) => (
-          <div key={item.to} className="signal-rail-slot">
+          <div key={item.to} className="signal-rail-slot" data-nav-key={item.key} data-compact-hide={item.compactHide ? "true" : undefined}>
             {item.group && <span className="signal-rail-sep" aria-hidden="true" />}
             <NavLink
+              title={label(item.key)}
+              aria-label={label(item.key)}
               to={item.to}
               end={item.end}
               className={({ isActive }) =>

@@ -28,7 +28,7 @@ export function readBootAppearance(): BootAppearance | null {
     const value = JSON.parse(raw) as Partial<BootAppearance>;
     if (typeof value.uiStyle !== "string" || typeof value.theme !== "string") return null;
     return {
-      uiStyle: value.uiStyle,
+      uiStyle: "signal",
       themeMode: typeof value.themeMode === "string" ? value.themeMode : value.theme,
       theme: value.theme,
       navMotion: value.navMotion === "off" ? "off" : "on",
@@ -53,7 +53,7 @@ export function applyBootAppearance() {
   if (typeof window === "undefined") return;
   const value = readBootAppearance();
   if (!value) return;
-  document.body.dataset.uiStyle = value.uiStyle;
+  document.body.dataset.uiStyle = "signal";
   document.body.dataset.theme = value.theme;
   document.body.dataset.navMotion = value.navMotion;
 }

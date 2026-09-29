@@ -43,3 +43,21 @@ ui-template/
 # Артефакт сборки Linux-инсталлятора: cargo однажды развернул CARGO_TARGET_DIR
 # внутрь исходников. Это build output, а не код.
 apps/installer/src-tauri/C*Users*/
+
+# Android / Kotlin Multiplatform / iOS build outputs (current root project)
+/.gradle/
+/.kotlin/
+/build/
+/app/build/
+/app/libs/*.aar
+/shared/build/
+/iosApp/build/
+/iosApp/Nimbo.xcodeproj/
+/artifacts/
+/.build-dependencies/
+/.codex-tmp/
+/tools/native/*/.build/
+local.properties
+*.hprof
+__pycache__/
+*.pyc

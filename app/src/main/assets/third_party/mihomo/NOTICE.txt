@@ -1,0 +1,9 @@
+Mihomo v1.19.31, commit ab405bad5beeeac8b003bb01f60f134f6df54471.
+Native source adapter and build instructions: tools/native/mihomo-core and
+scripts/ci/build-libxray-mihomo-android.ps1 in the Nimbo source workspace.
+This Android beta embeds Mihomo in the existing LibXray Go runtime.
+Exact original source module pins are in pins.json. The source license manifest
+is the adapter module inventory, not a merged APK dependency inventory.
+The only protobuf source alteration is the documented go.mod directive patch.
+Mihomo license and dependency notices are in licenses/. Full Android integration
+limitations are documented in the app and accompanying build report.

@@ -1,6 +1,46 @@
-import { invoke } from "@tauri-apps/api/core";
+import { latencySettingsKey, normalizeLatencyProtocol, normalizeLatencyDisplay, normalizeLatencyUrl, normalizeLatencyTimeout, type LatencyProtocol, type LatencyDisplayFormat } from "./latency";
+export type { LatencyProtocol, LatencyDisplayFormat } from "./latency";
+import { isAwgInput, parseAwgInput } from "./awg";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import uiPackage from "../../package.json";
+
+// Drop a result completed by an older UI intent even if it was valid when
+// the backend replied. This also covers settings changes during IPC delivery.
+let pingRevision = 0;
+let pingPreferencesKey: string | undefined;
+let pingConnectionKey: string | undefined;
+let pingConnectionRevision = 0;
+let pingMethod: LatencyProtocol = "nimbo";
+async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (["connect_server", "disconnect_server", "set_active_server", "set_connection_mode"].includes(command)) pingConnectionRevision++;
+  if (["import_app_backup", "cancel_pings"].includes(command)) pingRevision++;
+  if (command === "set_preferences") {
+    const key = latencySettingsKey(args?.preferences as AppPreferences);
+    if (key !== pingPreferencesKey) pingRevision++;
+    pingPreferencesKey = key;
+    pingMethod = normalizeLatencyProtocol((args?.preferences as AppPreferences)?.latency_protocol);
+  }
+  const revision = pingRevision;
+  const connectionRevision = pingConnectionRevision;
+  const independent = pingMethod === "nimbo";
+  const result = await tauriInvoke<T>(command, args);
+  if (command === "get_preferences") {
+    pingPreferencesKey = latencySettingsKey(result as AppPreferences);
+    pingMethod = normalizeLatencyProtocol((result as AppPreferences).latency_protocol);
+  }
+  if (command === "get_status") {
+    const status = result as AppStatus;
+    const key = JSON.stringify([status.state, status.active_server_id, status.connected_at]);
+    if (pingConnectionKey !== undefined && key !== pingConnectionKey) pingConnectionRevision++;
+    pingConnectionKey = key;
+  }
+  if (["ping_server", "ping_servers"].includes(command) && (revision !== pingRevision || (!independent && connectionRevision !== pingConnectionRevision))) {
+    const failed = (ping: ServerPing): ServerPing => ({ server_id: ping.server_id, latency_ms: null, error: "Ping context changed; check again" });
+    return (Array.isArray(result) ? result.map(failed) : failed(result as ServerPing)) as T;
+  }
+  return result;
+}
 
 export const CURRENT_SUBSCRIPTION_PARSER_REVISION = 1;
 
@@ -15,6 +55,7 @@ export interface AppStatus {
   connected_at: number | null;
   active_server_id: string | null;
   active_subscription_url: string | null;
+  auto_subscription_url: string | null;
   subscription_count: number;
   server_count: number;
   service_protocol: number;
@@ -71,6 +112,7 @@ export type Protocol =
   | { kind: "trojan"; address: string; port: number; password: string; stream: StreamSettings }
   | { kind: "shadowsocks"; address: string; port: number; method: string; password: string }
   | { kind: "hysteria2"; address: string; port: number; password: string; sni?: string | null; alpn?: string[] | null; insecure: boolean; obfs?: string | null; obfs_password?: string | null }
+  | { kind: "awg"; address: string; port: number; config: string }
   | { kind: "naive"; address: string; port: number; username: string; password: string; transport: "https" | "quic"; local_port?: number | null };
 
 export interface Server {
@@ -173,6 +215,7 @@ export interface PersistedState {
   subscriptions: Subscription[];
   active_server_id: string | null;
   active_subscription_url?: string | null;
+  auto_subscription_url?: string | null;
   user_agent_override?: string | null;
   app_proxy_rules?: AppProxyRule[];
   connected?: boolean;
@@ -191,9 +234,9 @@ export type AccentMode = "system" | "preset" | "custom";
 
 export const DEFAULT_ACCENT_COLOR = "#75a7ff";
 /** Тёплый акцент стиля Signal: им нарисован весь макет приборной панели. */
-export const SIGNAL_ACCENT_COLOR = "#ff9345";
+export const SIGNAL_ACCENT_COLOR = "#e8e8e8";
 /** Тот же акцент для светлой темы: темнее, чтобы держать контраст на белом. */
-export const SIGNAL_ACCENT_LIGHT = "#e2701f";
+export const SIGNAL_ACCENT_LIGHT = "#202020";
 export const DEFAULT_ACCENT_STRONG = "#4e8cff";
 export const DEFAULT_ACCENT_SOFT = "#dce9ff";
 export const DEFAULT_ACCENT_PALETTE = [
@@ -203,8 +246,6 @@ export const DEFAULT_ACCENT_PALETTE = [
 ] as const;
 export type UiStyle = "signal" | "nimbo" | "material_you" | "dotted" | "manga";
 export type AppLanguage = "ru" | "en" | "system";
-export type LatencyProtocol = "tcp_connect" | "icmp" | "http_head";
-export type LatencyDisplayFormat = "ms" | "badge";
 export type XudpUdp443Mode = "reject" | "allow" | "skip";
 export type PreferredIpFamily = "auto" | "ipv4" | "ipv6";
 export type ServerSorting = "provider" | "name" | "ping" | "protocol";
@@ -548,7 +589,7 @@ const BROWSER_PERSISTED_STATE_KEY = "nimbo.persistedState";
 const BROWSER_POST_UPDATE_KEY = "nimbo.postUpdateInfo";
 const DEFAULT_SOCKS_USERNAME = "nimbo";
 const DEFAULT_SOCKS_PASSWORD = "nmb-preview-password";
-export const APP_VERSION = typeof uiPackage.version === "string" ? uiPackage.version : "1.0.1";
+export const APP_VERSION = uiPackage.version;
 
 function nonEmptyString(value: string | null | undefined, fallback: string): string {
   const trimmed = value?.trim();
@@ -590,7 +631,7 @@ export const defaultAppPreferences: AppPreferences = {
   minimize_to_tray: true,
   ping_on_launch: true,
   check_updates_on_launch: true,
-  update_channel: "stable",
+  update_channel: "beta",
   update_wifi_only: false,
   provider_theme: true,
   show_subscription_logo: true,
@@ -604,7 +645,7 @@ export const defaultAppPreferences: AppPreferences = {
   accent_mode: "preset",
   accent_color: DEFAULT_ACCENT_COLOR,
   language: "ru",
-  latency_protocol: "tcp_connect",
+  latency_protocol: "nimbo",
   latency_test_url: "https://www.gstatic.com/generate_204",
   latency_timeout_ms: 5000,
   latency_display_format: "ms",
@@ -651,34 +692,19 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
   const accentMode = value?.accent_mode === "system" || value?.accent_mode === "preset" || value?.accent_mode === "custom"
     ? value.accent_mode
     : defaultAppPreferences.accent_mode;
-  const uiStyle = value?.ui_style === "material_you" || value?.ui_style === "nimbo"
-    || value?.ui_style === "dotted" || value?.ui_style === "signal"
-    || value?.ui_style === "manga"
-    ? value.ui_style
-    : defaultAppPreferences.ui_style;
+  // The redesigned shell is the product UI, not an optional appearance preset.
+  // Keep the persisted field for backup compatibility, but migrate old values.
+  const uiStyle = "signal";
   const language = value?.language === "en" || value?.language === "ru" || value?.language === "system"
     ? value.language
     : defaultAppPreferences.language;
   const accent = typeof value?.accent_color === "string" && /^#[0-9a-f]{6}$/i.test(value.accent_color)
     ? value.accent_color.toLowerCase()
     : defaultAppPreferences.accent_color;
-  const latencyProtocol =
-    value?.latency_protocol === "tcp_connect" ||
-    value?.latency_protocol === "icmp" ||
-    value?.latency_protocol === "http_head"
-      ? value.latency_protocol
-      : defaultAppPreferences.latency_protocol;
-  const latencyTestUrl =
-    typeof value?.latency_test_url === "string" && /^https?:\/\//i.test(value.latency_test_url.trim())
-      ? value.latency_test_url.trim()
-      : defaultAppPreferences.latency_test_url;
-  const latencyTimeoutMs =
-    typeof value?.latency_timeout_ms === "number" && Number.isFinite(value.latency_timeout_ms)
-      ? Math.min(60000, Math.max(500, Math.round(value.latency_timeout_ms)))
-      : defaultAppPreferences.latency_timeout_ms;
-  const latencyDisplayFormat = value?.latency_display_format === "badge" || value?.latency_display_format === "ms"
-    ? value.latency_display_format
-    : defaultAppPreferences.latency_display_format;
+  const latencyProtocol = normalizeLatencyProtocol(value?.latency_protocol);
+  const latencyTestUrl = normalizeLatencyUrl(value?.latency_test_url);
+  const latencyTimeoutMs = normalizeLatencyTimeout(value?.latency_timeout_ms);
+  const latencyDisplayFormat = normalizeLatencyDisplay(value?.latency_display_format);
   const appRoutingMode = value?.app_routing_mode === "proxy" ? "proxy" : defaultAppPreferences.app_routing_mode;
   const xudpUdp443 =
     value?.tunnel_xudp_udp443 === "allow" ||
@@ -731,7 +757,7 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     minimize_to_tray: value?.minimize_to_tray !== false,
     ping_on_launch: value?.ping_on_launch !== false,
     check_updates_on_launch: value?.check_updates_on_launch !== false,
-    update_channel: value?.update_channel === "beta" ? "beta" : "stable",
+    update_channel: value?.update_channel === "stable" ? "stable" : "beta",
     update_wifi_only: Boolean(value?.update_wifi_only),
     provider_theme: value?.provider_theme !== false,
     show_subscription_logo: value?.show_subscription_logo !== false,
@@ -817,6 +843,7 @@ function browserPersistedState(): PersistedState {
     subscriptions: Array.isArray(stored?.subscriptions) ? stored.subscriptions : [],
     active_server_id: stored?.active_server_id ?? null,
     active_subscription_url: stored?.active_subscription_url ?? null,
+    auto_subscription_url: stored?.auto_subscription_url ?? null,
     user_agent_override: stored?.user_agent_override ?? null,
     app_proxy_rules: Array.isArray(stored?.app_proxy_rules) ? stored.app_proxy_rules : [],
     connected: Boolean(stored?.connected),
@@ -826,7 +853,7 @@ function browserPersistedState(): PersistedState {
     socks_password: nonEmptyString(stored?.socks_password, DEFAULT_SOCKS_PASSWORD),
     require_socks_auth: Boolean(stored?.require_socks_auth),
     block_socks_udp: Boolean(stored?.block_socks_udp),
-    server_pings: stored?.server_pings && typeof stored.server_pings === "object" ? stored.server_pings : {},
+    server_pings: {},
     preferences: normalizePreferences(stored?.preferences),
   };
 }
@@ -837,10 +864,15 @@ function writeBrowserPersistedState(state: PersistedState): PersistedState {
 }
 
 function isSingleProxyLink(value: string): boolean {
+  if (isAwgInput(value)) return true;
   return /^(vless|vmess|trojan|ss|hysteria2|hy2|naive|naive\+https|naive\+quic):\/\//i.test(value.trim());
 }
 
 function fallbackServerFromProxyLink(value: string): Server {
+  if (isAwgInput(value)) {
+    const parsed = parseAwgInput(value);
+    return { id: randomUuid(), name: parsed.name, protocol: {kind: "awg", ...parsed.config} };
+  }
   const fallbackName = "Импортированный сервер";
   const fallbackAddress = "proxy.local";
   const fallbackPort = 443;
@@ -1019,7 +1051,7 @@ function browserDeviceInfo(): DeviceInfo {
   return device;
 }
 
-function browserUpdateInfo(channel: UpdateChannel = "stable"): AppUpdateInfo {
+function browserUpdateInfo(channel: UpdateChannel = "beta"): AppUpdateInfo {
   const params = new URLSearchParams(window.location.search);
   const mockUpdate = params.has("mockUpdate") || readBrowserJson<boolean>("nimbo.mockUpdate", false);
   if (mockUpdate) {
@@ -1192,7 +1224,7 @@ function browserTrafficStats(): TrafficStats {
     session_download: session.download,
     upload_speed: 0,
     download_speed: 0,
-    speed_available: true,
+    speed_available: false,
     all_time_upload: totals.all_time_upload + session.upload,
     all_time_download: totals.all_time_download + session.download,
     monthly_upload: (valid ? totals.monthly_upload : 0) + session.upload,
@@ -1201,106 +1233,14 @@ function browserTrafficStats(): TrafficStats {
   };
 }
 
+// Browser rendering has no native process/log/connection source. Only explicit stored
+// fixture data is shown; generated demo measurements never enter production UI.
 function browserTunnelLogs(limit: number): TunnelLogEntry[] {
-  const stored = readBrowserJson<TunnelLogEntry[]>("nimbo.tunnelLogs", []);
-  try {
-    if (window.localStorage.getItem("nimbo.tunnelLogs") !== null) {
-      return stored.slice(-limit);
-    }
-  } catch {
-    // Fall back to preview samples when storage is unavailable.
-  }
-  const sample: TunnelLogEntry[] = [];
-  const now = new Date();
-  for (let i = 0; i < Math.min(limit, 12); i++) {
-    const ts = new Date(now.getTime() - (12 - i) * 4000);
-    sample.push({
-      source: i % 4 === 0 ? "nimbo" : i % 4 === 1 ? "xray" : i % 4 === 2 ? "helper" : "tun2socks",
-      level: i === 4 || i === 9 ? "warn" : i === 7 ? "debug" : "info",
-      timestamp: ts.toISOString().replace("T", " ").slice(0, 19).replace(/-/g, "/"),
-      message:
-        i === 4
-          ? "[Warning] app/proxyman/inbound: connection ends > ..."
-          : i === 9
-            ? "[Warning] app/observatory/burst: error ping https://www.gstatic.com/generate_204"
-            : i === 7
-              ? "[Debug] transport/internet: dialing outbound connection"
-            : "[Info] core: tunnel established",
-    });
-  }
-  return sample;
+  return readBrowserJson<TunnelLogEntry[]>("nimbo.tunnelLogs", []).slice(-limit);
 }
-
 function browserActiveConnections(): ActiveConnection[] {
-  const current = browserPersistedState();
-  const activeServer = current.subscriptions
-    .flatMap((sub) => sub.servers)
-    .find((server) => server.id === current.active_server_id);
-  const serverName = activeServer?.name ?? "Demo Server";
-  const serverId = activeServer?.id ?? "demo-server";
-  const protocol = activeServer ? protocolLabel(activeServer.protocol) : "VLESS";
-  return [
-    {
-      id: "demo-telegram",
-      protocol: "TCP",
-      state: "Established",
-      source: "127.0.0.1:12709",
-      destination: "149.154.167.41:443",
-      remote_address: "149.154.167.41",
-      remote_port: 443,
-      process: "Telegram.exe",
-      process_path: "C:\\Users\\User\\AppData\\Roaming\\Telegram Desktop\\Telegram.exe",
-      pid: 4920,
-      route: "proxy",
-      rule: "fallback",
-      server_id: serverId,
-      server_name: serverName,
-      server_protocol: protocol,
-    },
-    {
-      id: "demo-browser",
-      protocol: "TCP",
-      state: "Established",
-      source: "127.0.0.1:15343",
-      destination: "142.251.36.67:443",
-      remote_address: "142.251.36.67",
-      remote_port: 443,
-      process: "firefox.exe",
-      process_path: "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
-      pid: 7612,
-      route: "direct",
-      rule: "process rule",
-      server_id: null,
-      server_name: null,
-      server_protocol: null,
-    },
-    {
-      id: "demo-xray",
-      protocol: "TCP",
-      state: "Established",
-      source: "192.168.1.40:55210",
-      destination: "203.0.113.10:443",
-      remote_address: "203.0.113.10",
-      remote_port: 443,
-      process: "xray.exe",
-      process_path: "C:\\Users\\User\\AppData\\Roaming\\Nimbo\\bin\\xray.exe",
-      pid: 8844,
-      route: "proxy",
-      rule: "xray outbound",
-      server_id: serverId,
-      server_name: serverName,
-      server_protocol: protocol,
-    },
-  ];
+  return readBrowserJson<ActiveConnection[]>("nimbo.activeConnections", []);
 }
-
-const browserInstalledApps: InstalledApp[] = [
-  { name: "Google Chrome", executable_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" },
-  { name: "Telegram", executable_path: "C:\\Users\\User\\AppData\\Roaming\\Telegram Desktop\\Telegram.exe" },
-  { name: "Steam", executable_path: "C:\\Program Files (x86)\\Steam\\steam.exe" },
-  { name: "Discord", executable_path: "C:\\Users\\User\\AppData\\Local\\Discord\\app.exe" },
-  { name: "Android Studio", executable_path: "C:\\Program Files\\Android\\Android Studio\\bin\\studio64.exe" },
-];
 
 function downloadBrowserTextFile(fileName: string, contents: string): string | null {
   if (typeof document === "undefined") return null;
@@ -1408,11 +1348,11 @@ export const api = {
       : Promise.resolve(APP_VERSION),
   getPreferences: () =>
     isTauriRuntime()
-      ? invoke<AppPreferences>("get_preferences")
+      ? invoke<AppPreferences>("get_preferences").then(normalizePreferences)
       : Promise.resolve(browserPersistedState().preferences ?? defaultAppPreferences),
   setPreferences: (preferences: AppPreferences) =>
     isTauriRuntime()
-      ? invoke<AppPreferences>("set_preferences", { preferences })
+      ? invoke<AppPreferences>("set_preferences", { preferences: normalizePreferences(preferences) }).then(normalizePreferences)
       : Promise.resolve((() => {
           const current = browserPersistedState();
           const normalized = normalizePreferences(preferences);
@@ -1462,6 +1402,7 @@ export const api = {
             connected_at: state.connected ? state.connected_at ?? Date.now() : null,
             active_server_id: state.active_server_id,
             active_subscription_url: state.active_subscription_url ?? null,
+            auto_subscription_url: state.auto_subscription_url ?? null,
             subscription_count: state.subscriptions.length,
             server_count: serverCount,
             service_protocol: 1,
@@ -1623,11 +1564,7 @@ export const api = {
   getMemoryUsage: () =>
     isTauriRuntime()
       ? invoke<MemoryUsage>("get_memory_usage")
-      : Promise.resolve((() => {
-          const base = 220 * 1024 * 1024;
-          const jitter = Math.floor(Math.random() * 30 * 1024 * 1024);
-          return { bytes: base + jitter } satisfies MemoryUsage;
-        })()),
+      : Promise.reject(new Error("Memory measurement requires the native Nimbo runtime")),
   listRoutingModules: () =>
     isTauriRuntime()
       ? invoke<RoutingModule[]>("list_routing_modules")
@@ -1796,6 +1733,8 @@ export const api = {
     isTauriRuntime()
       ? invoke<AppProxyRule[]>("list_subscription_app_proxy_rules")
       : Promise.resolve([] as AppProxyRule[]),
+  resumeSavedConnection: (): Promise<boolean> => isTauriRuntime()
+    ? invoke<boolean>("resume_saved_connection") : Promise.resolve(false),
   reapplyRuntimeConfig: () =>
     isTauriRuntime()
       ? invoke<boolean>("reapply_runtime_config")
@@ -1803,7 +1742,7 @@ export const api = {
   listInstalledApps: () =>
     isTauriRuntime()
       ? invoke<InstalledApp[]>("list_installed_apps")
-      : Promise.resolve(browserInstalledApps),
+      : Promise.resolve(readBrowserJson<InstalledApp[]>("nimbo.installedApps", [])),
   listConflictingProcesses: () =>
     isTauriRuntime()
       ? invoke<ConflictingProcess[]>("list_conflicting_processes")
@@ -2135,39 +2074,17 @@ export const api = {
           const current = browserPersistedState();
           return writeBrowserPersistedState({ ...current, active_subscription_url: url });
         })()),
-  pingServer: (serverId: string) =>
+  cancelPings: (): Promise<void> => isTauriRuntime() ? invoke<void>("cancel_pings") : Promise.resolve(),
+  pingServer: (serverId: string): Promise<ServerPing> =>
     isTauriRuntime()
       ? invoke<ServerPing>("ping_server", { serverId })
-      : Promise.resolve((() => {
-          const current = browserPersistedState();
-          const protocol = current.preferences?.latency_protocol ?? defaultAppPreferences.latency_protocol;
-          const ping = protocol === "icmp" ? 28 : protocol === "http_head" ? 54 : 42;
-          writeBrowserPersistedState({
-            ...current,
-            server_pings: { ...current.server_pings, [serverId]: ping },
-          });
-          return { server_id: serverId, latency_ms: ping, error: null } satisfies ServerPing;
-        })()),
-  pingServers: (serverIds: string[]) =>
+      : Promise.resolve({ server_id: serverId, latency_ms: null, error: "Latency measurement requires the desktop app" }),
+  pingServers: (serverIds: string[]): Promise<ServerPing[]> =>
     isTauriRuntime()
       ? invoke<ServerPing[]>("ping_servers", { serverIds })
-      : Promise.resolve((() => {
-          const current = browserPersistedState();
-          const protocol = current.preferences?.latency_protocol ?? defaultAppPreferences.latency_protocol;
-          const base = protocol === "icmp" ? 28 : protocol === "http_head" ? 54 : 38;
-          const nextPings = { ...current.server_pings };
-          const result = serverIds.map((serverId, index) => {
-            const latency = base + index * 7;
-            nextPings[serverId] = latency;
-            return {
-              server_id: serverId,
-              latency_ms: latency,
-              error: null,
-            } satisfies ServerPing;
-          });
-          writeBrowserPersistedState({ ...current, server_pings: nextPings });
-          return result;
-        })()),
+      : Promise.resolve([...new Set(serverIds)].map(serverId => ({
+          server_id: serverId, latency_ms: null, error: "Latency measurement requires the desktop app",
+        }))),
   connectServer: (serverId: string) =>
     isTauriRuntime()
       ? invoke<PersistedState>("connect_server", { serverId })
@@ -2180,6 +2097,10 @@ export const api = {
             connected_at: Date.now(),
           });
         })()),
+  connectAutoServer: (serverId: string): Promise<PersistedState> =>
+    isTauriRuntime()
+      ? invoke<PersistedState>("connect_auto_server", { serverId })
+      : Promise.reject(new Error("Фоновый Авто доступен только в десктопном приложении")),
   disconnectServer: () =>
     isTauriRuntime()
       ? invoke<PersistedState>("disconnect_server")
@@ -2207,6 +2128,8 @@ export function protocolLabel(p: Protocol): string {
       return "Hysteria2";
     case "naive":
       return "NaiveProxy";
+    case "awg":
+      return "AmneziaWG";
   }
 }
 
@@ -2218,7 +2141,8 @@ export function serverEndpoint(p: Protocol): string {
     case "shadowsocks":
     case "hysteria2":
     case "naive":
-      return `${p.address}:${p.port}`;
+    case "awg":
+      return `${p.address.includes(":") ? `[${p.address}]` : p.address}:${p.port}`;
   }
 }
 
@@ -2239,6 +2163,7 @@ export function transportLabel(p: Protocol): string {
   if (p.kind === "shadowsocks") return p.method;
   if (p.kind === "hysteria2") return [p.sni ? "TLS" : "QUIC", p.alpn?.join(", ")].filter(Boolean).join(" · ");
   if (p.kind === "naive") return p.transport === "quic" ? "QUIC" : "HTTPS";
+  if (p.kind === "awg") return "UDP";
   const stream = p.stream;
   const sec = stream.security === "none" ? "" : stream.security.toUpperCase();
   const net = stream.network.replace("_", "-").toUpperCase();

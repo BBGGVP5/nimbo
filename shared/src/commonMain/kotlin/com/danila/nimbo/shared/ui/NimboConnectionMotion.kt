@@ -43,8 +43,9 @@ fun rememberNimboConnectionMotion(
     enabled: Boolean = true
 ): NimboConnectionMotion {
     val scale = animateFloatAsState(
-        targetValue = if (!enabled) 1f else if (pressed) .94f else if (busy) .975f else 1f,
-        animationSpec = if (enabled) spring(dampingRatio = .68f, stiffness = Spring.StiffnessMedium) else snap(),
+        targetValue = if (!enabled) 1f else if (pressed) .91f else if (busy) .975f else 1f,
+        animationSpec = if (!enabled) snap() else if (pressed) tween(85, easing = FastOutSlowInEasing)
+            else spring(dampingRatio = .62f, stiffness = Spring.StiffnessMedium),
         label = "connection-press"
     )
     val icon = remember { Animatable(1f) }

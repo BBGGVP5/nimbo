@@ -1,3 +1,4 @@
+import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { notifyError } from "../lib/notify";
@@ -39,8 +40,10 @@ export function ServersOverview() {
       return next;
     });
     try {
+      setServerPing(serverId, null);
       const result = await api.pingServer(serverId);
-      if (result.latency_ms != null) setServerPing(result.server_id, result.latency_ms);
+      if (result.error) notifyError(result.error);
+      setServerPing(result.server_id, result.latency_ms ?? null);
     } catch (e) {
       notifyError(String(e));
     } finally {
@@ -264,10 +267,10 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
       </span>
     );
   }
-  if (ping == null) return null;
+  if (ping == null) return <LatencyDisplay value={ping} />;
   return (
     <span className="shrink-0 rounded-full bg-[var(--color-accent-active-bg)] px-2.5 py-1 text-xs font-black text-[var(--color-accent-bright)]">
-      {ping} ms
+      <LatencyDisplay value={ping} />
     </span>
   );
 }

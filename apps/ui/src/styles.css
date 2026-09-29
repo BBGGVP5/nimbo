@@ -1106,6 +1106,14 @@ body[data-theme="light"] .app-sidebar > .glass {
   gap: 10px;
 }
 
+.app-brand-version {
+  flex: 0 0 auto;
+  color: var(--color-text-faint);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 /* Стрелка сворачивания: тихая, пока к ней не потянулись. */
 .app-sidebar-collapse {
   display: inline-flex;
@@ -1154,6 +1162,7 @@ body[data-theme="light"] .app-sidebar > .glass {
 }
 
 .app-sidebar[data-collapsed="true"] .app-brand-name,
+.app-sidebar[data-collapsed="true"] .app-brand-version,
 .app-sidebar[data-collapsed="true"] .app-nav-text,
 .app-sidebar[data-collapsed="true"] .app-build {
   display: none;
@@ -4628,8 +4637,7 @@ body[data-theme="light"] .dark-input {
   background: color-mix(in srgb, var(--color-accent) 8%, transparent);
 }
 
-/* Автоподбор — не сервер, а действие: строка держит акцент, чтобы её не
-   искали глазами среди одинаковых названий стран. */
+/* Auto is a persistent route choice, not a one-shot ping button. */
 .server-profile-row-auto .server-profile-logo {
   color: var(--color-accent-bright);
   border-color: color-mix(in srgb, var(--color-accent) 42%, transparent);
@@ -4638,6 +4646,17 @@ body[data-theme="light"] .dark-input {
 
 .server-profile-row-auto .server-profile-title {
   color: var(--color-accent-bright);
+}
+
+.server-profile-row-auto-selected {
+  border-color: color-mix(in srgb, var(--color-accent) 54%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 9%, var(--color-surface));
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.server-profile-row-auto-unavailable {
+  cursor: default;
+  opacity: 0.62;
 }
 
 .server-profile-logo {
@@ -14391,6 +14410,10 @@ body[data-theme="light"] .signal-rail {
   .signal-rail-slot {
     display: block;
     flex: 1 0 74px;
+  }
+
+  .signal-rail-slot[data-compact-hide="true"] {
+    display: none;
   }
 
   .signal-nav-item {

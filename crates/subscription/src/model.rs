@@ -114,6 +114,7 @@ pub enum Protocol {
     Shadowsocks(ShadowsocksConfig),
     Hysteria2(Hysteria2Config),
     Naive(NaiveConfig),
+    Awg(AwgConfig),
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -262,4 +263,28 @@ fn default_encryption() -> String {
 
 fn default_vmess_security() -> String {
     "auto".into()
+}
+
+/// AWG 3.1 and standard WireGuard use the same userspace runtime.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct AwgConfig {
+    pub address: String,
+    pub port: u16,
+    pub config: String,
+    /// Never accept or persist local credentials from an imported profile.
+    #[serde(skip)]
+    pub local_socks: Option<AwgLocalSocks>,
+}
+
+#[derive(Clone)]
+pub struct AwgLocalSocks {
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+}
+
+impl std::fmt::Debug for AwgConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AwgConfig { [redacted] }")
+    }
 }

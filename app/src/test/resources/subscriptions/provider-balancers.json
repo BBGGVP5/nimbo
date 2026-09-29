@@ -1,0 +1,49 @@
+[
+  {
+    "remarks": "🇫🇮 Provider Europe",
+    "serverDescription": "Provider choice · WiFi + LTE",
+    "outbounds": [
+      {
+        "tag": "edge-a",
+        "protocol": "vless",
+        "settings": {"vnext": [{"address": "edge-a.example", "port": 443, "users": [{"id": "11111111-2222-4333-8444-555555555555", "encryption": "none"}]}]},
+        "streamSettings": {
+          "network": "xhttp",
+          "security": "reality",
+          "realitySettings": {"serverName": "front.example", "publicKey": "synthetic-public-key", "shortId": "1234", "fingerprint": "chrome"},
+          "xhttpSettings": {"path": "/provider", "mode": "packet-up", "extra": {"xmux": {"maxConcurrency": "4-8"}}}
+        }
+      },
+      {
+        "tag": "edge-b", "protocol": "trojan",
+        "settings": {"servers": [{"address": "edge-b.example", "port": 443, "password": "fixture-password"}]},
+        "streamSettings": {"network": "grpc", "security": "tls", "grpcSettings": {"serviceName": "fixture"}, "tlsSettings": {"serverName": "front.example"}}
+      },
+      {"tag": "direct", "protocol": "freedom"}
+    ],
+    "routing": {
+      "rules": [{"type": "field", "network": "tcp,udp", "balancerTag": "provider-fast"}],
+      "balancers": [
+        {"tag": "provider-fast", "selector": ["edge-"], "strategy": {"type": "leastPing"}},
+        {"tag": "provider-load", "selector": ["edge-"], "strategy": {"type": "leastLoad"}}
+      ]
+    },
+    "observatory": {"subjectSelector": ["edge-"], "probeURL": "https://probe.example/check", "probeInterval": "30s"}
+  },
+  {
+    "remarks": "🇸🇪 Ordinary node",
+    "serverDescription": "Provider notes: fallback to gRPC if necessary",
+    "outbounds": [{
+      "tag": "proxy", "protocol": "vless",
+      "settings": {"vnext": [{"address": "node.example", "port": 8443, "users": [{"id": "11111111-2222-4333-8444-555555555555"}]}]},
+      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "node.example"}}
+    }]
+  },
+  {
+    "remarks": "Please enable device access · Auto balancer",
+    "outbounds": [{
+      "tag": "notice", "protocol": "vless",
+      "settings": {"vnext": [{"address": "127.0.0.1", "port": 1, "users": [{"id": "00000000-0000-0000-0000-000000000000"}]}]}
+    }]
+  }
+]

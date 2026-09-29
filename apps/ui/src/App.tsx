@@ -1,6 +1,10 @@
+import { OperationPhrase } from "./components/OperationPhrase";
+import { Dialog } from "./components/Universal";
+import { DialogFocusManager } from "./components/DialogFocusManager";
+import { latencyPresentation } from "./lib/latency";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { NavLink, Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Home } from "./pages/Home";
 import { Subscriptions } from "./pages/Subscriptions";
 import { Servers } from "./pages/Servers";
@@ -11,6 +15,7 @@ import RoutingModules from "./pages/RoutingModules";
 import { Statistics } from "./pages/Statistics";
 import { TunnelLogs } from "./pages/TunnelLogs";
 import { Settings } from "./pages/Settings";
+import { MihomoProfiles } from "./pages/MihomoProfiles";
 import { Notifications } from "./pages/Notifications";
 import { CrossPlatformSync } from "./pages/CrossPlatformSync";
 import { NotificationCenter } from "./components/NotificationCenter";
@@ -23,6 +28,7 @@ import {
 } from "./lib/appearance";
 import { useAppStore } from "./store";
 import { SignalSidebar } from "./components/SignalSidebar";
+import { desktopNavItems } from "./lib/desktopNavigation";
 import { APP_VERSION, CURRENT_SUBSCRIPTION_PARSER_REVISION, api, formatBytes, isTauriRuntime, type AppPostUpdateInfo, type AppUpdateInfo, type AppUpdateProgress, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
 import { cachedSubscriptionTheme } from "./lib/subscriptionTheme";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -30,25 +36,12 @@ import { initNimboDeepLinks } from "./lib/deepLinks";
 import { fillTemplate, useMessages, type Messages } from "./lib/i18n";
 import { applyVisualPreferences } from "./lib/visualTheme";
 import { liveNetworkGlassSignal } from "./lib/liveNetworkGlass";
-import nimboLogo from "./assets/nimbo.png";
+import { WorkspaceBar } from "./components/WorkspaceBar";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 const APP_UPDATE_DIALOG_EVENT = "nimbo:show-update-dialog";
 
 type AppUpdateDialogEvent = CustomEvent<AppUpdateInfo>;
-
-const navItems = [
-  { to: "/", key: "home", icon: "home", end: true, compactHide: false },
-  { to: "/subscriptions", key: "profiles", icon: "globe", end: false, compactHide: false },
-  { to: "/routing", key: "routing", icon: "route", end: false, compactHide: true },
-  { to: "/apps", key: "apps", icon: "phone", end: false, compactHide: false },
-  { to: "/connections", key: "connections", icon: "connections", end: false, compactHide: true },
-  { to: "/statistics", key: "statistics", icon: "stats", end: false, compactHide: true },
-  { to: "/tunnel-logs", key: "tunnelLogs", icon: "logs", end: false, compactHide: true },
-  { to: "/notifications", key: "notifications", icon: "bell", end: false, compactHide: true },
-  { to: "/sync", key: "sync", icon: "sync", end: false, compactHide: false },
-  { to: "/settings", key: "settings", icon: "settings", end: false, compactHide: false },
-];
 
 export default function App() {
   const navigate = useNavigate();
@@ -91,8 +84,6 @@ export default function App() {
   const updateStartupScheduled = useRef(false);
   const updateRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const checkUpdatesOnLaunch = useRef(preferences.check_updates_on_launch);
-  const lastAwakeTick = useRef(Date.now());
-  const resumeReconnectInFlight = useRef(false);
   const [startupUpdate, setStartupUpdate] = useState<AppUpdateInfo | null>(null);
   const [postUpdateInfo, setPostUpdateInfo] = useState<AppPostUpdateInfo | null>(null);
   const m = useMessages();
@@ -105,9 +96,9 @@ export default function App() {
       transitioning: Boolean(connectingServerId || switchingServerId || disconnecting),
       uploadBytesPerSecond: trafficSpeed.upload,
       downloadBytesPerSecond: trafficSpeed.download,
-      pingMs: measuredServerId ? serverPings[measuredServerId] : null,
+      pingMs: latencyPresentation(measuredServerId ? serverPings[measuredServerId] : null, preferences.latency_protocol).value,
     });
-  }, [activeServerId, connectingServerId, disconnecting, serverPings, status?.state, switchingServerId, trafficSpeed.download, trafficSpeed.upload]);
+  }, [activeServerId, connectingServerId, disconnecting, serverPings, status?.state, switchingServerId, trafficSpeed.download, trafficSpeed.upload, preferences.latency_protocol]);
   const networkGlassStyle = useMemo(() => ({
     "--network-upload-alpha": `${0.014 + networkGlassSignal.uploadLevel * 0.09}`,
     "--network-download-alpha": `${0.017 + networkGlassSignal.downloadLevel * 0.10}`,
@@ -370,7 +361,14 @@ export default function App() {
         preferences.auto_connect_on_launch &&
         status.state === "disconnected"
       ) {
-        if (preferences.auto_connect_fastest) {
+        // A saved session keeps its original core across app lifecycle recovery.
+        // An error is terminal here: never fall back to the pending preference.
+        const restored = await api.resumeSavedConnection().catch(() => true);
+        if (restored) {
+          await hydrate();
+        } else if (status.auto_subscription_url) {
+          await connectFastestServer(status.auto_subscription_url).catch(() => undefined);
+        } else if (preferences.auto_connect_fastest) {
           // Замер перед подключением: за ночь лучший узел мог смениться, и
           // именно от подключения к вчерашнему человек и включает этот пункт.
           await connectFastestServer().catch(() => undefined);
@@ -411,24 +409,6 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [hydrate, m.settings.subscriptionBackgroundUpdated, preferences.subscriptions_auto_update, preferences.subscriptions_notify_updates, preferences.subscriptions_ping_after_update, preferences.subscriptions_update_interval_hours, refreshSubscription]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const now = Date.now();
-      const gap = now - lastAwakeTick.current;
-      lastAwakeTick.current = now;
-      if (gap < 30000 || resumeReconnectInFlight.current) return;
-
-      const state = useAppStore.getState();
-      if (state.status?.state !== "connected" || !state.activeServerId) return;
-      resumeReconnectInFlight.current = true;
-      void state.connectServer(state.activeServerId)
-        .catch(() => state.hydrate())
-        .finally(() => {
-          resumeReconnectInFlight.current = false;
-        });
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     if (
@@ -553,6 +533,7 @@ export default function App() {
         checkedRef={onboardingChecked}
       />
       <NotificationCenter />
+      <DialogFocusManager />
       {startupUpdate && (
         <UpdateDialog
           update={startupUpdate}
@@ -591,21 +572,20 @@ export default function App() {
           onStop={() => void stopConflictingProcesses().catch(() => undefined)}
         />
       )}
-      {preferences.ui_style === "signal" ? (
         <SignalSidebar
           labels={m}
-          items={navItems.map((item, index) => ({
+          items={desktopNavItems.map((item) => ({
             to: item.to,
             key: item.key,
             end: item.end,
             icon: <NavIcon name={item.icon} />,
-            // Разделители там же, где в макете: после «Приложений» и после «Уведомлений».
-            group: index === 4 || index === 8,
+            group: item.group,
+            compactHide: item.compactHide,
           }))}
           label={(key) => navLabel(m.app, key, false)}
           unread={unreadNotifications}
           version={`V${APP_VERSION}`}
-          coreLabel="XRAY"
+          coreLabel="VPN"
           coreState={status?.state === "connected" ? m.signal.coreOk : m.signal.coreIdle}
           updateLabel={startupUpdate ? m.signal.coreUpdate : null}
           onUpdate={startupUpdate ? () => navigate("/settings") : undefined}
@@ -615,62 +595,6 @@ export default function App() {
           collapseLabel={m.app.sidebarCollapse}
           expandLabel={m.app.sidebarExpand}
         />
-      ) : (
-      <aside
-        className="app-sidebar shrink-0 flex flex-col p-3"
-        data-collapsed={sidebarWidth.collapsed ? "true" : undefined}
-        style={{ "--sidebar-width": `${sidebarWidth.width}px` } as React.CSSProperties}
-      >
-        <div className="glass network-glass-reactive rounded-2xl flex-1 flex flex-col overflow-hidden">
-          <div className="app-brand px-5 pt-5 pb-4">
-            <div className="app-brand-lockup">
-              <img src={nimboLogo} alt="" className="app-brand-logo" aria-hidden="true" />
-              <div className="app-brand-name text-[15px] font-semibold tracking-tight text-[var(--color-text)]">
-                Nimbo
-              </div>
-            </div>
-            <SidebarCollapseButton
-              collapsed={sidebarWidth.collapsed}
-              onToggle={sidebarWidth.toggleCollapsed}
-              collapseLabel={m.app.sidebarCollapse}
-              expandLabel={m.app.sidebarExpand}
-            />
-          </div>
-          <nav className="flex-1 px-2 space-y-1">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                data-compact-hide={item.compactHide ? "true" : undefined}
-                data-nav-key={item.key}
-                className={({ isActive }) =>
-                  [
-                    "app-nav-link block px-3 py-2.5 my-0.5 rounded-lg text-[13px] transition-colors",
-                    item.compactHide ? "app-nav-link-secondary" : "",
-                    isActive
-                      ? "app-nav-link-active text-[var(--color-text)]"
-                      : "text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:bg-[color-mix(in_srgb,var(--color-text)_4%,transparent)]",
-                  ].join(" ")
-                }
-              >
-                <NavIcon name={item.icon} />
-                <span className="app-nav-text">{navLabel(m.app, item.key, false)}</span>
-                <span className="app-nav-short">{navLabel(m.app, item.key, true)}</span>
-                {item.key === "notifications" && unreadNotifications > 0 && (
-                  <span className="app-nav-badge" aria-label={`${unreadNotifications} ${m.notifications.unread}`}>
-                    {unreadNotifications > 99 ? "99+" : unreadNotifications}
-                  </span>
-                )}
-              </NavLink>
-            ))}
-          </nav>
-          <div className="app-build px-5 py-4 text-[10px] text-[var(--color-text-faint)] font-mono uppercase tracking-wider">
-            v{APP_VERSION}
-          </div>
-        </div>
-      </aside>
-      )}
 
       <div
         role="separator"
@@ -682,6 +606,7 @@ export default function App() {
       />
 
       <main className="app-main flex-1 overflow-auto p-3 pl-0">
+        <WorkspaceBar />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/subscriptions" element={<Subscriptions />} />
@@ -695,6 +620,7 @@ export default function App() {
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/sync" element={<CrossPlatformSync />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/mihomo" element={<MihomoProfiles />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -745,13 +671,6 @@ function UpdateDialog({
     }
   };
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -769,28 +688,43 @@ function UpdateDialog({
     };
   }, []);
 
-  return (
-    <div className="update-dialog-backdrop" role="presentation" onClick={onClose}>
-      <div
-        className="update-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="update-dialog-title"
-        aria-describedby="update-dialog-text"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="update-dialog-header">
-          <div className="update-dialog-art">
-            <div className="update-dialog-orbit">
-              <img src={nimboLogo} alt="" className="update-dialog-logo" aria-hidden="true" />
+
+  return <Dialog className="update-dialog" title={m.settings.updateAvailable}
+    subtitle={`${update.target.toLowerCase().includes("linux") ? "Linux" : "Windows"} · v${update.latest_version}`}
+    status={(installing || installError) ? <>
+        {installing && (
+          <div className="update-progress-card update-dialog-progress" aria-live="polite">
+            <div className="update-progress-heading">
+              <div>
+                <strong>{progress?.stage === "ready" ? m.settings.readyUpdate : progress?.stage === "verifying" ? m.settings.verifyingUpdate : m.settings.downloadingUpdate}</strong>
+                <span>{m.settings.updateDownloadProtection}</span>
+              </div>
+              <b>{Math.max(0, Math.min(100, progress?.percent ?? 0))}%</b>
+            </div>
+            <div className="update-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress?.percent ?? 0}>
+              <span style={{ width: `${Math.max(0, Math.min(100, progress?.percent ?? 0))}%` }} />
+            </div>
+            <div className="update-progress-meta">
+              <span>{formatBytes(progress?.downloaded_bytes ?? 0)}</span>
+              <span>{formatBytes(progress?.total_bytes || update.asset?.size || 0)}</span>
             </div>
           </div>
-          <div className="update-dialog-heading-copy">
-            <span className="update-dialog-platform">{update.target.toLowerCase().includes("linux") ? "Linux" : "Windows"}</span>
-            <h2 id="update-dialog-title" className="update-dialog-title">{m.settings.updateAvailable}</h2>
-            <div className="update-dialog-version">v{update.latest_version}</div>
-          </div>
-        </div>
+        )}
+        <OperationPhrase active={installing && !installError && progress?.stage !== "ready"} kind="download" locale={m.common.locale} />
+        {installError && <div className="update-dialog-error" role="alert">{installError}</div>}
+    </> : undefined}
+    closeLabel={m.common.close} onClose={onClose} footer={<>
+        <button
+          type="button"
+          className="update-dialog-download"
+          disabled={!canDownload || installing}
+          onClick={() => void install()}
+        >
+          {installing ? (progress?.stage === "ready" ? m.settings.readyUpdate : progress?.stage === "verifying" ? m.settings.verifyingUpdate : m.settings.downloadingUpdate) : m.settings.downloadUpdate}
+        </button>
+        <button type="button" className="update-dialog-later" onClick={onClose}>
+          {m.common.later}
+        </button>    </>}>
         <p id="update-dialog-text" className="update-dialog-text">
           {fillTemplate(
             update.reason === "reissued" ? m.settings.updateReissued : m.settings.updateReady,
@@ -821,39 +755,7 @@ function UpdateDialog({
             <span>{update.asset.digest ? m.settings.updateVerificationSha256 : m.settings.updateDigestMissing}</span>
           </div>
         )}
-        {installing && (
-          <div className="update-progress-card update-dialog-progress" aria-live="polite">
-            <div className="update-progress-heading">
-              <div>
-                <strong>{progress?.stage === "verifying" ? m.settings.verifyingUpdate : m.settings.downloadUpdate}</strong>
-                <span>{m.settings.updateDownloadProtection}</span>
-              </div>
-              <b>{Math.max(0, Math.min(100, progress?.percent ?? 0))}%</b>
-            </div>
-            <div className="update-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress?.percent ?? 0}>
-              <span style={{ width: `${Math.max(1, progress?.percent ?? 0)}%` }} />
-            </div>
-            <div className="update-progress-meta">
-              <span>{formatBytes(progress?.downloaded_bytes ?? 0)}</span>
-              <span>{formatBytes(progress?.total_bytes || update.asset?.size || 0)}</span>
-            </div>
-          </div>
-        )}
-        {installError && <div className="update-dialog-error">{installError}</div>}
-        <button
-          type="button"
-          className="update-dialog-download"
-          disabled={!canDownload || installing}
-          onClick={() => void install()}
-        >
-          {installing ? m.settings.verifyingUpdate : m.settings.downloadUpdate}
-        </button>
-        <button type="button" className="update-dialog-later" onClick={onClose}>
-          {m.common.later}
-        </button>
-      </div>
-    </div>
-  );
+  </Dialog>;
 }
 
 function DialogReleaseNotes({ content }: { content: string }) {
@@ -882,33 +784,25 @@ function PostUpdateDialog({
   const [showChanges, setShowChanges] = useState(false);
   const notes = update.release_notes?.trim() || m.settings.updateFallbackNotes;
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
-  return (
-    <div className="update-dialog-backdrop" role="presentation" onClick={onClose}>
-      <div
-        className="update-dialog update-dialog-installed"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="post-update-dialog-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="update-dialog-art">
-          <div className="update-dialog-orbit update-dialog-success">
-            <img src={nimboLogo} alt="" className="update-dialog-logo" aria-hidden="true" />
-            <span aria-hidden="true">✓</span>
-          </div>
-        </div>
-        <h2 id="post-update-dialog-title" className="update-dialog-title">
-          {m.settings.updateInstalledTitle}
-        </h2>
-        <div className="update-dialog-version">v{update.version}</div>
+
+  return <Dialog className="update-dialog update-dialog-installed" title={m.settings.updateInstalledTitle}
+    subtitle={`v${update.version}`} closeLabel={m.common.close} onClose={onClose} footer={<>
+        <button
+          type="button"
+          className="update-dialog-download"
+          onClick={() => {
+            if (showChanges) onClose();
+            else setShowChanges(true);
+          }}
+        >
+          {showChanges ? m.settings.updateCloseChanges : m.settings.updateShowChanges}
+        </button>
+        {!showChanges && (
+          <button type="button" className="update-dialog-later" onClick={onClose}>
+            {m.common.later}
+          </button>
+        )}    </>}>
         <p className="update-dialog-text">
           {fillTemplate(m.settings.updateInstalledText, { version: update.version })}
         </p>
@@ -928,24 +822,7 @@ function PostUpdateDialog({
             )}
           </div>
         )}
-        <button
-          type="button"
-          className="update-dialog-download"
-          onClick={() => {
-            if (showChanges) onClose();
-            else setShowChanges(true);
-          }}
-        >
-          {showChanges ? m.settings.updateCloseChanges : m.settings.updateShowChanges}
-        </button>
-        {!showChanges && (
-          <button type="button" className="update-dialog-later" onClick={onClose}>
-            {m.common.later}
-          </button>
-        )}
-      </div>
-    </div>
-  );
+  </Dialog>;
 }
 
 function ConflictingSoftwareDialog({
@@ -974,40 +851,23 @@ function ConflictingSoftwareDialog({
     if (!busy) onClose();
   }, [busy, onClose]);
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [close]);
 
-  return (
-    <div className="app-dialog-backdrop conflict-dialog-backdrop" role="presentation" onClick={close}>
-      <div
-        className="conflict-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="conflict-dialog-title"
-        aria-describedby="conflict-dialog-text"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <button
-          type="button"
-          className="conflict-dialog-close"
-          aria-label={m.common.close}
-          disabled={busy}
-          onClick={close}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M6 6l12 12M18 6 6 18" />
-          </svg>
-        </button>
 
-        <div className="conflict-dialog-badge">TUN</div>
-        <h2 id="conflict-dialog-title" className="conflict-dialog-title">
-          {m.home.conflictTitle}
-        </h2>
+  return <Dialog className="conflict-dialog" title={m.home.conflictTitle} subtitle="TUN"
+    closeLabel={m.common.close} closeDisabled={busy} onClose={close} footer={
+        <div className="conflict-dialog-actions">
+          <button type="button" className="settings-action" disabled={busy} onClick={close}>
+            {m.common.close}
+          </button>
+          <button
+            type="button"
+            className="settings-action settings-action-primary conflict-dialog-stop"
+            disabled={busy}
+            onClick={onStop}
+          >
+            {busy ? m.home.conflictStopping : m.home.conflictStop}
+          </button>
+        </div>    }>
         <p id="conflict-dialog-text" className="conflict-dialog-text">
           {m.home.conflictText}
         </p>
@@ -1054,28 +914,15 @@ function ConflictingSoftwareDialog({
           </div>
         )}
 
-        <div className="conflict-dialog-actions">
-          <button type="button" className="settings-action" disabled={busy} onClick={close}>
-            {m.common.close}
-          </button>
-          <button
-            type="button"
-            className="settings-action settings-action-primary conflict-dialog-stop"
-            disabled={busy}
-            onClick={onStop}
-          >
-            {busy ? m.home.conflictStopping : m.home.conflictStop}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  </Dialog>;
 }
 
 function navLabel(labels: Messages["app"], key: string, short: boolean): string {
   if (key === "home") return labels.home;
   if (key === "profiles") return labels.profiles;
   if (key === "routing") return short ? labels.routingShort : labels.routing;
+  if (key === "modules") return labels.modules;
+  if (key === "mihomo") return labels.mihomo;
   if (key === "apps") return short ? labels.appsShort : labels.apps;
   if (key === "connections") return short ? labels.connectionsShort : labels.connections;
   if (key === "statistics") return short ? labels.statisticsShort : labels.statistics;
@@ -1090,6 +937,9 @@ function normalizeTrayRoute(route: unknown): string | null {
   if (route === "/subscriptions") return "/subscriptions";
   if (route === "/statistics") return "/statistics";
   if (route === "/tunnel-logs") return "/tunnel-logs";
+  if (route === "/routing") return "/routing";
+  if (route === "/apps") return "/apps";
+  if (route === "/connections") return "/connections";
   if (route === "/sync") return "/sync";
   if (route === "/settings") return "/settings";
   return null;
@@ -1111,41 +961,6 @@ const SIDEBAR_WIDTH_MAX = 340;
  * дней. Стрелка разворачивается на пол-оборота, поэтому по ней самой видно,
  * в какую сторону сработает нажатие.
  */
-function SidebarCollapseButton({
-  collapsed,
-  onToggle,
-  collapseLabel,
-  expandLabel,
-}: {
-  collapsed: boolean;
-  onToggle: () => void;
-  collapseLabel: string;
-  expandLabel: string;
-}) {
-  const label = collapsed ? expandLabel : collapseLabel;
-  return (
-    <button
-      type="button"
-      className="app-sidebar-collapse"
-      onClick={onToggle}
-      aria-label={label}
-      aria-expanded={!collapsed}
-      title={label}
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path
-          d="M14.5 6.5 9 12l5.5 5.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.9"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </button>
-  );
-}
-
 function useResizableSidebar() {
   const [width, setWidth] = useState<number>(() => {
     if (typeof window === "undefined") return SIDEBAR_WIDTH_DEFAULT;
@@ -1439,6 +1254,24 @@ function NavIcon({ name }: { name: string }) {
         <circle cx="18" cy="5" r="2.4" />
         <path d="M16.6 6.4 7.4 17.6" />
         <path d="M8 7h5a3 3 0 0 1 0 6h-2a3 3 0 0 0 0 6h5" />
+      </svg>
+    );
+  }
+  if (name === "modules") {
+    return (
+      <svg {...common}>
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <path d="M17.5 14v7M14 17.5h7" />
+      </svg>
+    );
+  }
+  if (name === "core") {
+    return (
+      <svg {...common}>
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+        <path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" />
       </svg>
     );
   }

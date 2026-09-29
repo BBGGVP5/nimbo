@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { LatencyDisplay } from "../../components/LatencyDisplay";
+import { useMemo, useState, type ReactNode } from "react";
 import { protocolLabel, transportLabel, type Server, type Subscription } from "../../lib/api";
 import { fillTemplate, type Messages } from "../../lib/i18n";
 import { serverDisplayLabel } from "../../lib/serverUiOverrides";
 import { CountryFlag } from "../../components/CountryFlag";
+import { Link } from "react-router-dom";
 
 /**
  * Рельс серверов в стиле Signal: поиск, фильтры-чипы и плотный список,
@@ -45,13 +47,7 @@ export interface SignalServerRailProps {
 }
 
 /** Полоски качества: 4 — отличный пинг, 1 — плохой, 0 — не измерен. */
-function pingBars(ping: number | undefined): number {
-  if (ping == null) return 0;
-  if (ping < 60) return 4;
-  if (ping < 120) return 3;
-  if (ping < 220) return 2;
-  return 1;
-}
+
 
 export function SignalServerRail({
   labels: m,
@@ -144,6 +140,7 @@ export function SignalServerRail({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={m.profiles.searchServers}
+          aria-label={m.profiles.searchServers}
           spellCheck={false}
         />
       </label>
@@ -187,9 +184,8 @@ export function SignalServerRail({
           type="button"
           className={`signal-icon-btn${pinging ? " is-pinging" : ""}`}
           onClick={onPing}
-          disabled={pinging}
-          title={m.home.pingServers}
-          aria-label={m.home.pingServers}
+          title={pinging ? m.common.cancel : m.home.pingServers}
+          aria-label={pinging ? m.common.cancel : m.home.pingServers}
         >
           <PingIcon />
         </button>
@@ -216,14 +212,20 @@ export function SignalServerRail({
       <div className="signal-srv-list">
         {visible.length === 0 && (
           <div className="signal-srv-empty">
-            {entries.length === 0 ? m.common.serverNotSelected : m.home.noFavorites}
+            {query.trim() || protocolFilter
+              ? m.home.noMatchingServers
+              : showFavOnly ? m.home.noFavorites : m.profiles.emptyTitle}
+            {subs.length === 0 && (
+              <Link to="/subscriptions" className="signal-btn signal-btn--ghost signal-btn--sm">
+                {m.home.addProfileFirst}
+              </Link>
+            )}
             {emptyAction}
           </div>
         )}
         {visible.map(({ server, sub }) => {
           const isActive = server.id === activeId;
           const ping = pingByServer[server.id];
-          const bars = pingBars(ping);
           const loading = pingingServerIds.has(server.id);
           const favorite = favorites.has(server.id);
           return (
@@ -249,13 +251,7 @@ export function SignalServerRail({
                   </span>
                 </span>
                 <span className="signal-srv-ping">
-                  <span className={`signal-bars signal-bars--${bars}`} aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                  <span className="signal-srv-ms">{loading ? "…" : ping != null ? ping : "—"}</span>
+                  <LatencyDisplay value={ping} loading={loading} />
                 </span>
               </button>
               <button
@@ -397,69 +393,9 @@ export function SignalSelect({
   onChange: (value: string) => void;
   className?: string;
 }) {
-  const [anchor, setAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
-  const current = options.find((option) => option.value === value) ?? options[0];
-
-  useEffect(() => {
-    if (!anchor) return;
-    const close = () => setAnchor(null);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => {
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [anchor]);
-
-  return (
-    <>
-      <button
-        type="button"
-        className={`signal-select ${className}`.trim()}
-        title={title}
-        aria-label={title}
-        aria-haspopup="listbox"
-        aria-expanded={anchor != null}
-        onClick={(event) => {
-          if (anchor) {
-            setAnchor(null);
-            return;
-          }
-          const rect = event.currentTarget.getBoundingClientRect();
-          setAnchor({ top: rect.bottom + 6, left: rect.left, width: rect.width });
-        }}
-      >
-        <span className="signal-select-icon" aria-hidden="true">
-          {icon}
-        </span>
-        <span className="signal-select-value">{current?.label ?? ""}</span>
-      </button>
-      {anchor && (
-        <>
-          <span className="signal-menu-scrim" onClick={() => setAnchor(null)} />
-          <span
-            className="signal-menu signal-menu--floating signal-select-list"
-            role="listbox"
-            style={{ top: anchor.top, left: anchor.left, minWidth: Math.max(anchor.width, 168) }}
-          >
-            {options.map((option) => (
-              <button
-                type="button"
-                key={option.value}
-                role="option"
-                aria-selected={option.value === value}
-                className={option.value === value ? "is-selected" : ""}
-                onClick={() => {
-                  setAnchor(null);
-                  onChange(option.value);
-                }}
-              >
-                {option.label}
-              </button>
-            ))}
-          </span>
-        </>
-      )}
-    </>
-  );
+  return <label className={`signal-select universal-select ${className}`.trim()}>
+    {icon}<select aria-label={title} title={title} value={value} onChange={event => onChange(event.target.value)}>
+      {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+    </select>
+  </label>;
 }

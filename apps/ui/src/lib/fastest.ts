@@ -18,7 +18,7 @@ export function fastestServerId(
   let bestLatency = Number.POSITIVE_INFINITY;
   for (const server of servers) {
     const latency = pings[server.id];
-    if (typeof latency !== "number" || !Number.isFinite(latency) || latency <= 0) continue;
+    if (typeof latency !== "number" || !Number.isFinite(latency) || latency < 0) continue;
     if (latency < bestLatency) {
       bestLatency = latency;
       best = server.id;
@@ -42,7 +42,7 @@ export async function measureFastestServer(
   await pingServersProgressively(
     servers.map((server) => server.id),
     (result) => {
-      if (result.latency_ms != null && result.latency_ms > 0) {
+      if (result.latency_ms != null && Number.isFinite(result.latency_ms) && result.latency_ms >= 0 && !result.error) {
         measured[result.server_id] = result.latency_ms;
       }
       onResult?.(result);

@@ -1,3 +1,12 @@
+mod mihomo_runtime;
+mod mihomo_proxy;
+mod diagnostic_template;
+mod diagnostics;
+mod xray_release;
+mod latency;
+mod auto_route;
+mod awg_runtime;
+mod awg_routes;
 pub mod commands;
 pub mod cross_sync;
 #[cfg(windows)]
@@ -5,6 +14,7 @@ pub mod helper;
 #[cfg(target_os = "linux")]
 pub mod helper_linux;
 pub mod logging;
+mod recovery_policy;
 pub mod state;
 pub mod tray;
 pub mod updater;
@@ -313,12 +323,12 @@ pub fn run() {
                 return;
             }
             if let WindowEvent::CloseRequested { api, .. } = event {
-                let preferences = window
-                    .app_handle()
-                    .state::<AppState>()
-                    .snapshot()
-                    .preferences;
-                if preferences.minimize_to_tray {
+                let snapshot = window.app_handle().state::<AppState>().snapshot();
+                // Auto is explicitly a background mode. Closing the main window
+                // must leave its native health owner alive in the tray; the tray's
+                // Quit action remains the explicit way to stop the process.
+                if snapshot.preferences.minimize_to_tray ||
+                    (snapshot.connected && snapshot.auto_subscription_url.is_some()) {
                     api.prevent_close();
                     let _ = window.hide();
                 } else {
@@ -339,6 +349,7 @@ pub fn run() {
             tray::setup_tray(app.handle())?;
             apply_main_window_background(app.handle());
             crate::commands::cleanup_disconnected_runtime_on_startup(app.handle());
+            auto_route::start_monitor(app.handle().clone());
 
             // Long-lived sync server: runs for the whole app lifetime so paired
             // phones can keep syncing after the sync tab is closed.
@@ -397,8 +408,26 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::resume_saved_connection,
+            mihomo_runtime::get_core_availability,
+            mihomo_runtime::get_core_profiles,
+            mihomo_runtime::import_mihomo_profile,
+            mihomo_runtime::export_core_profile,
+            mihomo_runtime::replace_core_profile,
+            mihomo_runtime::inspect_core_profile,
+            mihomo_runtime::remove_core_profile,
+            mihomo_runtime::set_core_preference,
+            mihomo_runtime::get_mihomo_status,
+            mihomo_runtime::connect_mihomo_profile,
+            mihomo_runtime::mihomo_snapshot,
+            mihomo_runtime::mihomo_select,
+            mihomo_runtime::mihomo_refresh_provider,
+            mihomo_runtime::mihomo_refresh_rule_provider,
+            mihomo_runtime::mihomo_delay,
+
             app_ready,
             get_status,
+            auto_route::connect_auto_server,
             get_preferences,
             export_app_backup,
             import_app_backup,
@@ -441,6 +470,7 @@ pub fn run() {
             reorder_subscriptions,
             set_active_server,
             set_active_subscription,
+            commands::cancel_pings,
             ping_server,
             ping_servers,
             refresh_tray_menu,
@@ -496,6 +526,7 @@ pub fn run() {
         }
     };
 
+    crate::commands::start_resume_monitor(app.handle().clone());
     app.run(|app_handle, event| match event {
         RunEvent::ExitRequested { .. } | RunEvent::Exit => {
             cleanup_once(app_handle);

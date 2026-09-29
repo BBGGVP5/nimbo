@@ -1,0 +1,74 @@
+/* Installer/uninstaller use the same restrained surfaces as the application. */
+body,body[data-ui-style],body[data-ui-style][data-theme="dark"],body[data-ui-style][data-theme="black"] {
+  --bg:#121212; --bg-deep:#121212; --bg-tilt:#1c1c1c; --surface:#1c1c1c; --surface-elev:#262626; --tile:#262626;
+  --line:#303030; --line-strong:#454545; --text:#f1f1f1; --muted:#a0a0a0; --faint:#a0a0a0;
+  --primary:#e8e8e8; --on-primary:#202020; font-family:"Segoe UI Variable Text","Segoe UI",sans-serif;
+}
+body[data-ui-style][data-theme="light"] { --bg:#f5f4f1; --bg-deep:#f5f4f1; --bg-tilt:#fff; --surface:#fff; --surface-elev:#efefec; --tile:#efefec; --line:#dededb; --line-strong:#b9b9b5; --text:#202020; --muted:#676767; --faint:#676767; --primary:#202020; --on-primary:#fff; }
+body .installer-shell { display:grid; grid-template-columns:260px minmax(0,1fr); background:var(--bg) !important; box-shadow:none; overflow:auto; }
+.installer-caption { display:none; }
+body .side-rail { padding:32px 24px; background:var(--surface) !important; border-right:1px solid var(--line); align-items:stretch; gap:24px; overflow:auto; }
+body .brand { gap:12px; justify-content:flex-start; }
+body .brand-logo { width:44px; height:44px; filter:none; }
+body[data-theme="light"] .brand-logo { filter:invert(1); }
+body .brand-title { font-size:26px; letter-spacing:-.04em; }
+body .rail-center { display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; flex:1; margin-top:28px; gap:0; }
+.installer-progress-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:12px; color:var(--muted); }
+.installer-progress-heading strong { color:var(--text); }
+.installer-progress-track { margin-top:12px; height:4px; overflow:hidden; border-radius:4px; background:var(--line); }
+.installer-progress-track span { display:block; height:100%; background:var(--primary); transition:width .2s; }
+.installer-step-count { color:var(--muted); font-size:11px; margin:10px 0 24px; }
+.installer-step-list { display:grid; gap:16px; list-style:none; padding:0; margin:0; }
+.installer-step-list li { display:flex; align-items:center; gap:12px; }
+.installer-step-index { display:grid; place-items:center; width:30px; height:30px; flex-shrink:0; border:1px solid var(--line); border-radius:10px; color:var(--muted); font-size:11px; }
+.installer-step-list strong { font-size:12px; font-weight:600; }
+.installer-step-list small { display:block; color:var(--muted); font-size:10px; margin-top:4px; }
+.installer-step-list .is-done .installer-step-index { background:var(--primary); color:var(--on-primary); }
+.installer-step-list .is-running .installer-step-index { border-color:var(--primary); color:var(--text); }
+.installer-step-list .is-failed .installer-step-index { border-color:var(--red); color:var(--red); }
+.installer-current-detail { font-size:11px; color:var(--muted); margin:24px 0 0; line-height:1.6; overflow-wrap:anywhere; }
+body .install-panel { min-width:0; min-height:0; overflow:auto; display:flex; flex-direction:column; align-items:stretch; padding:48px clamp(20px,4vw,64px) 28px; gap:24px; background:var(--bg) !important; }
+body .hero { margin:0; }
+body .hero-title { color:var(--text); font-size:clamp(24px,3vw,34px); letter-spacing:-.04em; line-height:1.2; background:none; -webkit-text-fill-color:currentColor; }
+body .hero p { max-width:580px; font-size:13px; line-height:1.7; color:var(--muted); }
+body :is(.path-row,.setup-card,.details-card,.details-panel,.option-card,.option-tile,.status-card,.done-path) { border:1px solid var(--line) !important; background:var(--surface) !important; box-shadow:none !important; border-radius:16px; }
+body :is(.path-row,.option-card,.details-panel)::before { display:none; }
+body .path-row { padding:18px; margin:0; }
+body .path-row-input { min-width:0; width:100%; font-size:12px; }
+body :is(input,button) { font-family:inherit; }
+body :is(button,input):focus-visible { outline:2px solid var(--text); outline-offset:3px; }
+body :is(.ghost-button,.primary-button) { min-height:44px; border-radius:12px; box-shadow:none !important; }
+body .primary-button { background:var(--primary) !important; color:var(--on-primary) !important; }
+body .primary-button.danger { background:var(--red) !important; color:#202020 !important; }
+body .ghost-button { background:var(--surface) !important; color:var(--text); border-color:var(--line); }
+body .error-box { border-radius:14px; box-shadow:none; overflow-wrap:anywhere; font-size:12px; }
+body .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:auto; padding-top:16px; }
+body .actions > * { min-width:0; flex:1 1 160px; }
+body .done-screen { padding:16px 0; min-height:0; flex:1; justify-content:center; }
+body .done-art { background:var(--surface); color:var(--text); box-shadow:none; }
+body .done-actions { flex-wrap:wrap; }
+body .window-close { position:fixed; top:8px; right:8px; width:44px; height:44px; z-index:10; }
+@media(max-width:767px) {
+  body .installer-shell { grid-template-columns:minmax(0,1fr); display:block; }
+  body .side-rail { display:flex; flex-direction:column; padding:20px 16px 16px; border:0; border-bottom:1px solid var(--line); gap:12px; overflow:visible; }
+  body .rail-center { display:block; margin:0; }
+  .installer-step-list { display:flex; flex-wrap:wrap; gap:8px; }
+  .installer-step-list li { gap:6px; }
+  .installer-step-list li > div { display:none; }
+  .installer-step-count { margin:8px 0 12px; }
+  .installer-current-detail { margin:12px 0 0; }
+  body .install-panel { overflow:visible; padding:24px 16px; gap:20px; }
+  body .hero-meta { flex-wrap:wrap; }
+  body .options-grid { grid-template-columns:1fr; }
+  body .actions { position:static; }
+}
+@media(max-height:560px) and (min-width:768px) {
+  body .side-rail { padding:20px; }
+  body .rail-center { margin-top:8px; }
+  .installer-step-list { gap:10px; }
+  .installer-current-detail { margin-top:12px; }
+  body .install-panel { padding:28px 24px 20px; }
+}
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none !important; transition:none !important; } }
+
+body[data-ui-style] :is(.ghost-button,.primary-button) { border-radius:12px !important; }

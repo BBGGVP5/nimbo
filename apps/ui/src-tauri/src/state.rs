@@ -16,11 +16,22 @@ const STORAGE_FILE: &str = "subscriptions.json";
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PersistedState {
     #[serde(default)]
+    pub core_profiles: nimbo_mihomo::CoreProfiles,
+    /// Captured by a manual connection; recovery/Auto keep this preference even
+    /// when settings change. None is a legacy state without a session snapshot.
+    #[serde(default)]
+    pub session_core_preference: Option<nimbo_mihomo::selection::CorePreference>,
+    #[serde(default)]
+    pub pending_mihomo_proxy_port: Option<u16>,
+    #[serde(default)]
     pub subscriptions: Vec<Subscription>,
     #[serde(default)]
     pub active_server_id: Option<String>,
     #[serde(default)]
     pub active_subscription_url: Option<String>,
+    /// Persistent user intent; unlike active_server_id this is not one node.
+    #[serde(default)]
+    pub auto_subscription_url: Option<String>,
     #[serde(default)]
     pub user_agent_override: Option<String>,
     #[serde(default)]
@@ -238,6 +249,7 @@ pub struct AppPreferences {
     pub accent_mode: AccentMode,
     pub accent_color: String,
     pub language: Language,
+    #[serde(default = "default_latency_protocol", deserialize_with = "deserialize_latency_protocol")]
     pub latency_protocol: String,
     pub latency_test_url: String,
     pub latency_timeout_ms: u32,
@@ -384,6 +396,12 @@ fn default_servers_ui_scale() -> u32 {
     100
 }
 
+fn default_latency_protocol() -> String { "nimbo".into() }
+
+fn deserialize_latency_protocol<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.filter(|value| !value.trim().is_empty()).unwrap_or_else(default_latency_protocol))
+}
+
 impl Default for AppPreferences {
     fn default() -> Self {
         Self {
@@ -394,7 +412,7 @@ impl Default for AppPreferences {
             minimize_to_tray: true,
             ping_on_launch: true,
             check_updates_on_launch: true,
-            update_channel: UpdateChannel::Stable,
+            update_channel: UpdateChannel::Beta,
             update_wifi_only: false,
             provider_theme: true,
             show_subscription_logo: true,
@@ -408,7 +426,7 @@ impl Default for AppPreferences {
             accent_mode: AccentMode::Preset,
             accent_color: "#75a7ff".into(),
             language: Language::Ru,
-            latency_protocol: "tcp_connect".into(),
+            latency_protocol: default_latency_protocol(),
             latency_test_url: "https://www.gstatic.com/generate_204".into(),
             latency_timeout_ms: 5000,
             latency_display_format: "ms".into(),
@@ -450,8 +468,8 @@ impl Default for AppPreferences {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum UpdateChannel {
-    #[default]
     Stable,
+    #[default]
     Beta,
 }
 
@@ -564,6 +582,8 @@ pub struct TrafficRuntimeSample {
 
 #[derive(Default)]
 pub struct RuntimeState {
+    pub mihomo: Option<nimbo_mihomo::process::Session>,
+    pub(crate) ping_route: Option<crate::latency::PingRoute>,
     /// Живое соединение с привилегированным хелпером, пока поднят TUN.
     /// Обрыв соединения — сигнал хелперу погасить туннель, поэтому сессия
     /// живёт ровно столько же, сколько подключение.
@@ -571,6 +591,8 @@ pub struct RuntimeState {
     pub tun_session: Option<crate::helper_linux::TunSession>,
     pub xray: Option<Child>,
     pub naive: Option<Child>,
+    pub awg: Option<crate::awg_runtime::AwgRuntime>,
+    pub awg_route: Option<crate::awg_routes::AwgBypass>,
     pub tun2socks: Option<Child>,
     pub system_proxy_snapshot: Option<SystemProxySnapshot>,
     pub tun_snapshot: Option<TunRuntimeSnapshot>,
@@ -586,6 +608,8 @@ pub struct SystemProxySnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TunRuntimeSnapshot {
+    #[serde(default)]
+    pub awg_bypass_routes: Vec<crate::awg_routes::BypassRoute>,
     pub bypass_ips: Vec<String>,
     pub gateway: Option<String>,
     pub interface_index: Option<u32>,
@@ -666,6 +690,14 @@ impl AppState {
             .clone()
     }
 
+    pub fn session_snapshot(&self) -> PersistedState {
+        let mut snapshot = self.snapshot();
+        snapshot.core_profiles.preferred_core = nimbo_mihomo::selection::recovery_preference(
+            snapshot.core_profiles.preferred_core, snapshot.session_core_preference
+        );
+        snapshot
+    }
+
     pub fn mutate<F, R>(&self, f: F) -> anyhow::Result<R>
     where
         F: FnOnce(&mut PersistedState) -> R,
@@ -675,6 +707,18 @@ impl AppState {
             f(&mut guard)
         };
         self.persist()?;
+        Ok(result)
+    }
+
+    /// Full-profile writes only become visible after durable storage succeeds.
+    pub fn transaction<F, R>(&self, f: F) -> Result<R, String>
+    where F: FnOnce(&mut PersistedState) -> Result<R, String> {
+        let _persist_guard = self.persist_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut candidate = guard.clone();
+        let result = f(&mut candidate)?;
+        write_state(&self.storage_path, &candidate).map_err(|_| "STATE_WRITE_FAILED".to_string())?;
+        *guard = candidate;
         Ok(result)
     }
 
@@ -691,32 +735,32 @@ impl AppState {
 
     fn persist(&self) -> anyhow::Result<()> {
         let _persist_guard = self.persist_lock.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(parent) = self.storage_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        // Компактно и без копии: отступы почти удваивали файл (на нём же потом
-        // тратится время при запуске), а `clone` копировал мегабайты шаблонов
-        // ради одной записи.
+        // Preserve the legacy short read-lock lifetime while the separate persist
+        // lock serializes durable writes. Transactions deliberately hold both.
         let json = {
             let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             serde_json::to_vec(&*guard)?
         };
-        let temp_path = self.storage_path.with_extension("json.tmp");
-        let mut temp = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(&temp_path)?;
-        temp.write_all(&json)?;
-        temp.sync_all()?;
-        drop(temp);
-
-        if let Err(error) = replace_file(&temp_path, &self.storage_path) {
-            let _ = std::fs::remove_file(&temp_path);
-            return Err(error.into());
-        }
-        Ok(())
+        write_state_bytes(&self.storage_path, &json)
     }
+}
+
+fn write_state(storage_path: &Path, state: &PersistedState) -> anyhow::Result<()> {
+    write_state_bytes(storage_path, &serde_json::to_vec(state)?)
+}
+
+fn write_state_bytes(storage_path: &Path, json: &[u8]) -> anyhow::Result<()> {
+    if let Some(parent) = storage_path.parent() { std::fs::create_dir_all(parent)?; }
+    let temp_path = storage_path.with_extension("json.tmp");
+    let mut temp = std::fs::OpenOptions::new().create(true).truncate(true).write(true).open(&temp_path)?;
+    temp.write_all(json)?;
+    temp.sync_all()?;
+    drop(temp);
+    if let Err(error) = replace_file(&temp_path, storage_path) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 fn backup_corrupted_state(path: &Path) -> anyhow::Result<PathBuf> {
@@ -767,9 +811,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_update_channel_defaults_to_stable() {
+    fn core_profiles_migrate_and_roundtrip_without_flattening() {
+        let path = std::env::temp_dir().join(format!("nimbo-mihomo-state-{}.json",uuid::Uuid::new_v4()));
+        std::fs::write(&path, br#"{"subscriptions":[],"preferences":{"theme_mode":"dark"}}"#).unwrap();
+        let state=AppState::load_from_path(path.clone()).unwrap();
+        assert!(state.snapshot().core_profiles.preferred_core.is_none());
+        let source="\u{feff}# exact\r\nproxy-providers: {}\r\nproxy-groups: []\r\n";
+        let profile=nimbo_mihomo::FullProfile::new("Profile".into(),nimbo_mihomo::ProfileKind::MihomoYaml,source.into()).unwrap();
+        let id=profile.id.clone();
+        state.transaction(|s|{s.core_profiles.profiles.push(profile);s.core_profiles.preferred_core=Some(nimbo_mihomo::CoreKind::Mihomo);Ok(())}).unwrap();
+        state.transaction(|s|{s.core_profiles.profile_mut(&id).unwrap().selections.insert("Main / 日本".into(),"DIRECT".into());Ok(())}).unwrap();
+        let reloaded=AppState::load_from_path(path.clone()).unwrap().snapshot();
+        let saved=reloaded.core_profiles.profile(&id).unwrap();
+        assert_eq!(saved.original_text,source);saved.verify().unwrap();
+        assert_eq!(saved.selections["Main / 日本"],"DIRECT");assert!(reloaded.subscriptions.is_empty());
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn core_transaction_io_failure_does_not_acknowledge_memory_change() {
+        let path=std::env::temp_dir().join(format!("nimbo-mihomo-transaction-{}.json",uuid::Uuid::new_v4()));
+        let state=AppState::load_from_path(path.clone()).unwrap();
+        let temporary=path.with_extension("json.tmp");
+        std::fs::create_dir(&temporary).unwrap();
+        let result=state.transaction(|s|{s.core_profiles.preferred_core=Some(nimbo_mihomo::CoreKind::Mihomo);Ok(())});
+        assert!(result.is_err());assert!(state.snapshot().core_profiles.preferred_core.is_none());
+        std::fs::remove_dir(temporary).unwrap();std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn nimbo_is_default_only_for_unset_latency_preferences() {
+        for input in [serde_json::json!({}), serde_json::json!({"latency_protocol":null}), serde_json::json!({"latency_protocol":""})] {
+            let preferences: AppPreferences = serde_json::from_value(input).unwrap();
+            assert_eq!(preferences.latency_protocol,"nimbo");
+        }
+        for mode in ["tcp_connect","icmp","http_head","http_get","nimbo"] {
+            let preferences: AppPreferences = serde_json::from_value(serde_json::json!({"latency_protocol":mode})).unwrap();
+            assert_eq!(preferences.latency_protocol,mode);
+            let roundtrip: AppPreferences = serde_json::from_value(serde_json::to_value(preferences).unwrap()).unwrap();
+            assert_eq!(roundtrip.latency_protocol,mode);
+        }
+        assert_eq!(PersistedState::default().preferences.latency_protocol,"nimbo");
+    }
+
+    #[test]
+    fn missing_update_channel_defaults_to_beta() {
         let preferences: AppPreferences = serde_json::from_value(serde_json::json!({})).unwrap();
-        assert_eq!(preferences.update_channel, UpdateChannel::Stable);
+        assert_eq!(preferences.update_channel, UpdateChannel::Beta);
     }
 
     #[test]
@@ -782,6 +869,15 @@ mod tests {
         assert_eq!(json["update_channel"], "beta");
         let restored: AppPreferences = serde_json::from_value(json).unwrap();
         assert_eq!(restored.update_channel, UpdateChannel::Beta);
+    }
+
+    #[test]
+    fn beta_upgrade_preserves_explicit_stable_channel() {
+        let preferences: AppPreferences = serde_json::from_value(
+            serde_json::json!({"update_channel": "stable"})
+        ).unwrap();
+        assert_eq!(preferences.update_channel, UpdateChannel::Stable);
+        assert_eq!(UpdateChannel::default(), UpdateChannel::Beta);
     }
 
     #[test]

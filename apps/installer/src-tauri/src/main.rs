@@ -1,6 +1,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod payload;
+mod awg_payload;
 
 #[cfg(windows)]
 struct SingleInstanceGuard(windows_sys::Win32::Foundation::HANDLE);

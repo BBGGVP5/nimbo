@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { Dialog } from "../components/Universal";
+import { LatencyDisplay } from "../components/LatencyDisplay";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { CountryFlag } from "../components/CountryFlag";
 import { notifyError, notifyInfo } from "../lib/notify";
@@ -106,10 +107,10 @@ export function Servers() {
       return next;
     });
     try {
+      setServerPing(serverId, null);
       const result = await api.pingServer(serverId);
-      if (result.latency_ms != null) {
-        setServerPing(result.server_id, result.latency_ms);
-      }
+      if (result.error) notifyError(result.error);
+      setServerPing(result.server_id, result.latency_ms ?? null);
     } catch (e) {
       notifyError(String(e));
     } finally {
@@ -470,14 +471,14 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
       </span>
     );
   }
-  if (ping == null) return null;
+  if (ping == null) return <LatencyDisplay value={ping} />;
   const tier = pingTier(ping);
   return (
     <span
       className="server-ping-badge server-detail-ping-badge"
       style={{ background: tier.bg, color: tier.fg }}
     >
-      {ping} ms
+      <LatencyDisplay value={ping} />
     </span>
   );
 }
@@ -491,6 +492,7 @@ function pingTier(ping: number): { bg: string; fg: string } {
 function networkBadge(protocol: Server["protocol"]): string {
   if (protocol.kind === "shadowsocks") return "SHADOWSOCKS";
   if (protocol.kind === "naive") return "NAIVEPROXY";
+  if (protocol.kind === "awg") return "AWG";
   const value = transportLabel(protocol).replace(" · ", " • ").trim();
   return value ? value.toUpperCase() : "JSON";
 }
@@ -508,49 +510,11 @@ function RenameServerDialog({
   const [name, setName] = useState(initialName);
   const canSave = name.trim().length > 0;
 
-  return (
-    <ModalPortal>
-      <div className="app-dialog-backdrop" role="presentation" onClick={onClose}>
-        <div
-          className="panel server-rename-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="rename-server-title"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div id="rename-server-title" className="mb-2 text-xl font-bold text-white">
-            {m.profiles.renameServer}
-          </div>
-          <div className="mb-4 text-sm text-[var(--color-text-faint)]">
-            {m.profiles.renameServerDescription}
-          </div>
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="dark-input px-4 py-3 text-base"
-            autoFocus
-          />
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="interactive rounded-xl border border-[var(--color-border)] px-4 py-3 text-sm font-semibold text-[var(--color-text-dim)]"
-            >
-              {m.common.cancel}
-            </button>
-            <button
-              type="button"
-              disabled={!canSave}
-              onClick={() => canSave && onSave(name)}
-              className="primary-button interactive rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-50"
-            >
-              {m.common.save}
-            </button>
-          </div>
-        </div>
-      </div>
-    </ModalPortal>
-  );
+  return <Dialog title={m.profiles.renameServer} closeLabel={m.common.close} onClose={onClose}
+    footer={<><button className="btn" onClick={onClose}>{m.common.cancel}</button><button className="primary-button btn" disabled={!canSave} onClick={() => canSave && onSave(name)}>{m.common.save}</button></>}>
+    <p className="universal-confirm-description">{m.profiles.renameServerDescription}</p>
+    <input aria-label={m.profiles.renameServer} value={name} onChange={event => setName(event.target.value)} className="dark-input w-full px-4 py-3" autoFocus />
+  </Dialog>;
 }
 
 function ConfirmDialog({
@@ -571,47 +535,15 @@ function ConfirmDialog({
   onClose: () => void;
 }) {
   const m = useMessages();
-  return (
-    <ModalPortal>
-      <div
-        className="fixed inset-0 z-50 grid place-items-center p-5"
-        style={{ background: "rgba(0,0,0,0.58)", backdropFilter: "blur(9px)" }}
-        onClick={onClose}
-      >
-        <div
-          className="panel w-full max-w-md bg-[rgba(26,26,46,0.96)] p-5 shadow-[0_28px_90px_rgba(0,0,0,0.46)]"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="mb-2 text-xl font-bold text-white">{title}</div>
-          <div className="mb-5 text-sm leading-relaxed text-[var(--color-text-dim)]">{description}</div>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={onClose}
-              disabled={busy}
-              className="interactive rounded-xl border border-[var(--color-border)] px-4 py-3 text-sm font-semibold text-[var(--color-text-dim)] disabled:opacity-50"
-            >
-              {m.common.cancel}
-            </button>
-            <button
-              onClick={onConfirm}
-              disabled={busy}
-              className={[
-                "interactive rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-50",
-                danger ? "bg-[var(--color-status-error)] text-white hover:bg-[var(--color-status-error-hover)]" : "primary-button",
-              ].join(" ")}
-            >
-              {confirmLabel}
-            </button>
-          </div>
-        </div>
-      </div>
-    </ModalPortal>
-  );
+  return <Dialog title={title} closeLabel={m.common.close} onClose={onClose} closeDisabled={busy} footer={<>
+      <button type="button" onClick={onClose} disabled={busy} className="signal-btn signal-btn--ghost">{m.common.cancel}</button>
+      <button type="button" onClick={onConfirm} disabled={busy} className={`signal-btn ${danger ? "universal-danger" : "signal-btn--primary"}`}>{busy ? m.profiles.wait : confirmLabel}</button>
+    </>}>
+    <p className="universal-confirm-description">{description}</p>
+
+  </Dialog>;
 }
 
-function ModalPortal({ children }: { children: ReactNode }) {
-  return createPortal(children, document.body);
-}
 
 // ── Icons ─────────────────────────────────────────────────────
 
