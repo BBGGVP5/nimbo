@@ -627,36 +627,6 @@ impl Drop for RouteBackup {
     }
 }
 
-#[cfg(test)]
-mod awg_route_tests {
-    use super::*;
-    #[test]
-    fn captures_actual_endpoint_interface_and_on_link_routes() {
-        let route = bypass_from_lookup(
-            "192.0.2.9",
-            &serde_json::json!([{"dev":"eth1","gateway":"192.0.2.1"}]),
-        )
-        .unwrap();
-        assert_eq!(route.device, "eth1");
-        assert_eq!(route.gateway.as_deref(), Some("192.0.2.1"));
-        assert_eq!(route.prefix, "192.0.2.9/32");
-        let on_link =
-            bypass_from_lookup("192.168.1.9", &serde_json::json!([{"dev":"wlan0"}])).unwrap();
-        assert!(on_link.gateway.is_none());
-    }
-    #[test]
-    fn rejects_missing_tunnel_and_non_ipv4_endpoint_routes() {
-        for lookup in [
-            serde_json::json!([]),
-            serde_json::json!([{"dev":"nimbo0"}]),
-            serde_json::json!([{}]),
-        ] {
-            assert!(bypass_from_lookup("192.0.2.1", &lookup).is_err());
-        }
-        assert!(bypass_from_lookup("::1", &serde_json::json!([{"dev":"eth0"}])).is_err());
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────── DNS
 
 /// Подмена DNS на время туннеля. Без неё запросы уходят мимо VPN: маршруты
@@ -830,4 +800,34 @@ fn run_nft(rules: &str) -> bool {
         }
     }
     child.wait().map(|status| status.success()).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod awg_route_tests {
+    use super::*;
+    #[test]
+    fn captures_actual_endpoint_interface_and_on_link_routes() {
+        let route = bypass_from_lookup(
+            "192.0.2.9",
+            &serde_json::json!([{"dev":"eth1","gateway":"192.0.2.1"}]),
+        )
+        .unwrap();
+        assert_eq!(route.device, "eth1");
+        assert_eq!(route.gateway.as_deref(), Some("192.0.2.1"));
+        assert_eq!(route.prefix, "192.0.2.9/32");
+        let on_link =
+            bypass_from_lookup("192.168.1.9", &serde_json::json!([{"dev":"wlan0"}])).unwrap();
+        assert!(on_link.gateway.is_none());
+    }
+    #[test]
+    fn rejects_missing_tunnel_and_non_ipv4_endpoint_routes() {
+        for lookup in [
+            serde_json::json!([]),
+            serde_json::json!([{"dev":"nimbo0"}]),
+            serde_json::json!([{}]),
+        ] {
+            assert!(bypass_from_lookup("192.0.2.1", &lookup).is_err());
+        }
+        assert!(bypass_from_lookup("::1", &serde_json::json!([{"dev":"eth0"}])).is_err());
+    }
 }
