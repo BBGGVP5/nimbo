@@ -125,8 +125,8 @@ pub fn install_core(source: &std::path::Path) -> Result<(), String> {
 
 /// Хелпер лежит рядом с приложением — установщик кладёт их вместе.
 fn helper_binary() -> Result<std::path::PathBuf, String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("Не удалось определить путь Nimbo: {e}"))?;
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Не удалось определить путь Nimbo: {e}"))?;
     let dir = exe
         .parent()
         .ok_or_else(|| "Не удалось определить папку Nimbo.".to_string())?;

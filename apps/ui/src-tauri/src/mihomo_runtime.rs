@@ -65,7 +65,10 @@ pub fn get_core_availability(app: AppHandle) -> Vec<CoreAvailability> {
                 .ok()
                 .and_then(|paths| {
                     let custom = std::env::var_os("NIMBO_XRAY_PATH").map(std::path::PathBuf::from);
-                    asset.select_runtime(custom.as_deref(), &paths).ok().flatten()
+                    asset
+                        .select_runtime(custom.as_deref(), &paths)
+                        .ok()
+                        .flatten()
                 })
         })
         .is_some();
@@ -239,9 +242,10 @@ pub async fn set_core_preference(
         // Preference applies to the next connection. Do not touch the active
         // profile, processes, network ownership or connection intent here.
         if s.connected || s.auto_subscription_url.is_some() {
-            s.session_core_preference.get_or_insert(
-                nimbo_mihomo::selection::CorePreference::from(s.core_profiles.preferred_core)
-            );
+            s.session_core_preference
+                .get_or_insert(nimbo_mihomo::selection::CorePreference::from(
+                    s.core_profiles.preferred_core,
+                ));
         }
         s.core_profiles.preferred_core = core.unwrap_or_default().core();
         Ok(())
@@ -294,14 +298,29 @@ fn session_controller(
     })
 }
 pub fn check_network_mode(mode: ConnectionMode, kill_switch: bool) -> Result<(), String> {
-    nimbo_mihomo::selection::ensure_mihomo_network(mode == ConnectionMode::SystemProxy, kill_switch, cfg!(windows))
+    nimbo_mihomo::selection::ensure_mihomo_network(
+        mode == ConnectionMode::SystemProxy,
+        kill_switch,
+        cfg!(windows),
+    )
 }
 
 fn preflight_profile(snapshot: &PersistedState, profile_id: &str) -> Result<FullProfile, String> {
-    let profile = snapshot.core_profiles.profile(profile_id).map_err(String::from)?;
-    nimbo_mihomo::selection::ensure_compatible(snapshot.core_profiles.preferred_core, profile.kind.required_core())?;
-    check_network_mode(snapshot.connection_mode, snapshot.preferences.connection_kill_switch)?;
-    if profile.kind != ProfileKind::MihomoYaml { return Err("UNSUPPORTED_CORE".into()); }
+    let profile = snapshot
+        .core_profiles
+        .profile(profile_id)
+        .map_err(String::from)?;
+    nimbo_mihomo::selection::ensure_compatible(
+        snapshot.core_profiles.preferred_core,
+        profile.kind.required_core(),
+    )?;
+    check_network_mode(
+        snapshot.connection_mode,
+        snapshot.preferences.connection_kill_switch,
+    )?;
+    if profile.kind != ProfileKind::MihomoYaml {
+        return Err("UNSUPPORTED_CORE".into());
+    }
     profile.verify().map_err(String::from)?;
     Ok(profile.clone())
 }
@@ -350,8 +369,15 @@ pub(crate) async fn connect_profile_inner(
     let profile = preflight_profile(&snapshot, &profile_id)?;
     let bin = binary(&app)?;
     // Reject unsupported YAML features before disrupting the current runtime.
-    let inspection = await_current(ticket, &CONNECTION_INTENT, nimbo_mihomo::process::inspect(&bin, &profile)).await?;
-    if !inspection.issues.is_empty() { return Err("UNSUPPORTED_FIELD".into()); }
+    let inspection = await_current(
+        ticket,
+        &CONNECTION_INTENT,
+        nimbo_mihomo::process::inspect(&bin, &profile),
+    )
+    .await?;
+    if !inspection.issues.is_empty() {
+        return Err("UNSUPPORTED_FIELD".into());
+    }
     if CONNECTION_INTENT.load(Ordering::SeqCst) != ticket {
         return Err("CONNECTION_CANCELLED".into());
     }
@@ -421,7 +447,9 @@ pub(crate) async fn connect_profile_inner(
         s.active_server_id = None;
         s.auto_subscription_url = None;
         s.core_profiles.active_profile_id = Some(profile_id);
-        s.session_core_preference = Some(nimbo_mihomo::selection::CorePreference::from(snapshot.core_profiles.preferred_core));
+        s.session_core_preference = Some(nimbo_mihomo::selection::CorePreference::from(
+            snapshot.core_profiles.preferred_core,
+        ));
         Ok(())
     }) {
         if crate::mihomo_proxy::restore(proxy).is_ok() {
@@ -548,25 +576,38 @@ mod tests {
     fn mihomo_preflight_preserves_connected_state_and_source_on_incompatible_mode() {
         let mut snapshot = PersistedState::default();
         let source = "# exact\r\nproxy-groups: [{name: Pick, type: select, proxies: [DIRECT]}]\r\nrules: [MATCH,Pick]\r\n";
-        let profile = FullProfile::new("Fixture".into(), ProfileKind::MihomoYaml, source.into()).unwrap();
+        let profile =
+            FullProfile::new("Fixture".into(), ProfileKind::MihomoYaml, source.into()).unwrap();
         let id = profile.id.clone();
         snapshot.core_profiles.profiles.push(profile);
         snapshot.connected = true;
         snapshot.active_server_id = Some("existing-xray".into());
         for mode in [ConnectionMode::Tun, ConnectionMode::Both] {
             snapshot.connection_mode = mode;
-            assert!(preflight_profile(&snapshot, &id).err().unwrap().contains("MIHOMO_TUN_UNAVAILABLE"));
+            assert!(preflight_profile(&snapshot, &id)
+                .err()
+                .unwrap()
+                .contains("MIHOMO_TUN_UNAVAILABLE"));
         }
         snapshot.connection_mode = ConnectionMode::SystemProxy;
         snapshot.preferences.connection_kill_switch = true;
-        assert!(preflight_profile(&snapshot, &id).err().unwrap().contains("MIHOMO_KILL_SWITCH_UNAVAILABLE"));
+        assert!(preflight_profile(&snapshot, &id)
+            .err()
+            .unwrap()
+            .contains("MIHOMO_KILL_SWITCH_UNAVAILABLE"));
         snapshot.preferences.connection_kill_switch = false;
         assert_eq!(preflight_profile(&snapshot, &id).is_ok(), cfg!(windows));
         snapshot.core_profiles.preferred_core = Some(CoreKind::Xray);
-        assert!(preflight_profile(&snapshot, &id).err().unwrap().starts_with("CORE_MISMATCH:"));
+        assert!(preflight_profile(&snapshot, &id)
+            .err()
+            .unwrap()
+            .starts_with("CORE_MISMATCH:"));
         assert!(snapshot.connected);
         assert_eq!(snapshot.active_server_id.as_deref(), Some("existing-xray"));
-        assert_eq!(snapshot.core_profiles.profiles[0].original_text.as_bytes(), source.as_bytes());
+        assert_eq!(
+            snapshot.core_profiles.profiles[0].original_text.as_bytes(),
+            source.as_bytes()
+        );
     }
     #[tokio::test]
     async fn cancelled_slow_operation_releases_owner_and_drops_future() {

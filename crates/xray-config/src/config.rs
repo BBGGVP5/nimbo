@@ -164,7 +164,10 @@ impl ConfigBuilder {
     }
 
     /// Пользовательские модули: их правила идут раньше правил профиля.
-    pub fn routing_modules(mut self, modules: impl Into<Vec<crate::modules::RoutingModule>>) -> Self {
+    pub fn routing_modules(
+        mut self,
+        modules: impl Into<Vec<crate::modules::RoutingModule>>,
+    ) -> Self {
         self.routing_modules = modules.into();
         self
     }

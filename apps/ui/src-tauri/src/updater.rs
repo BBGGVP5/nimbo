@@ -406,7 +406,10 @@ pub fn get_post_update_info(app: AppHandle) -> Result<Option<AppPostUpdateInfo>,
     Ok(Some(AppPostUpdateInfo {
         version: receipt.version,
         // Old receipts can contain the platform wrapper from before this fix.
-        release_notes: receipt.release_notes.as_deref().and_then(release_notes_for_desktop),
+        release_notes: receipt
+            .release_notes
+            .as_deref()
+            .and_then(release_notes_for_desktop),
         release_url: receipt.release_url,
     }))
 }
@@ -537,7 +540,9 @@ fn without_platform_heading(body: &str) -> String {
                 let count = trimmed.chars().take_while(|c| *c == kind).count();
                 match fence {
                     None => fence = Some((kind, count)),
-                    Some((old_kind, old_count)) if kind == old_kind && count >= old_count => fence = None,
+                    Some((old_kind, old_count)) if kind == old_kind && count >= old_count => {
+                        fence = None
+                    }
                     _ => {}
                 }
                 return true;
@@ -551,21 +556,65 @@ fn without_platform_heading(body: &str) -> String {
 }
 
 fn is_platform_heading(line: &str) -> bool {
-    if ["- ", "* ", "+ "].iter().any(|prefix| line.starts_with(prefix)) {
+    if ["- ", "* ", "+ "]
+        .iter()
+        .any(|prefix| line.starts_with(prefix))
+    {
         return false;
     }
-    let normalized: String = line.to_lowercase().chars()
-        .map(|c| if c.is_alphanumeric() { c } else { ' ' }).collect();
+    let normalized: String = line
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect();
     let normalized = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
-    let prefix = ["что нового", "что изменилось", "изменения", "what s new", "what is new", "what changed", "changes", "changelog"]
-        .into_iter().find(|prefix| normalized == *prefix || normalized.starts_with(&format!("{prefix} ")));
-    let tail = prefix.map_or(normalized.as_str(), |prefix| normalized[prefix.len()..].trim());
-    if tail.is_empty() { return prefix.is_some(); }
-    let platforms = ["android", "андроид", "ios", "windows", "виндовс", "linux", "линукс", "desktop", "десктоп"];
-    let connectors = ["на", "для", "в", "и", "and", "on", "for", "in", "app", "приложение", "приложении"];
+    let prefix = [
+        "что нового",
+        "что изменилось",
+        "изменения",
+        "what s new",
+        "what is new",
+        "what changed",
+        "changes",
+        "changelog",
+    ]
+    .into_iter()
+    .find(|prefix| normalized == *prefix || normalized.starts_with(&format!("{prefix} ")));
+    let tail = prefix.map_or(normalized.as_str(), |prefix| {
+        normalized[prefix.len()..].trim()
+    });
+    if tail.is_empty() {
+        return prefix.is_some();
+    }
+    let platforms = [
+        "android",
+        "андроид",
+        "ios",
+        "windows",
+        "виндовс",
+        "linux",
+        "линукс",
+        "desktop",
+        "десктоп",
+    ];
+    let connectors = [
+        "на",
+        "для",
+        "в",
+        "и",
+        "and",
+        "on",
+        "for",
+        "in",
+        "app",
+        "приложение",
+        "приложении",
+    ];
     let words: Vec<_> = tail.split_whitespace().collect();
     words.iter().any(|word| platforms.contains(word))
-        && words.iter().all(|word| platforms.contains(word) || connectors.contains(word))
+        && words
+            .iter()
+            .all(|word| platforms.contains(word) || connectors.contains(word))
 }
 
 fn extract_platform_section<'a>(body: &'a str, platform: &str) -> Option<&'a str> {
@@ -1648,8 +1697,18 @@ mod tests {
     #[test]
     fn beta_channel_promotes_beta5_to_stable_120_on_desktop_targets() {
         for (os, arch, stable_asset, beta_asset) in [
-            ("windows", "x86_64", "NimboSetup_1.2.0_x64.exe", "NimboSetup_1.2.0-beta.5_x64.exe"),
-            ("linux", "x86_64", "Nimbo_1.2.0_amd64.AppImage", "Nimbo_1.2.0-beta.5_amd64.AppImage"),
+            (
+                "windows",
+                "x86_64",
+                "NimboSetup_1.2.0_x64.exe",
+                "NimboSetup_1.2.0-beta.5_x64.exe",
+            ),
+            (
+                "linux",
+                "x86_64",
+                "Nimbo_1.2.0_amd64.AppImage",
+                "Nimbo_1.2.0-beta.5_amd64.AppImage",
+            ),
         ] {
             // Deliberately leave beta first, as the GitHub list can be reordered.
             let releases = vec![
@@ -1663,7 +1722,10 @@ mod tests {
                     update_reason(&selected.tag_name, "1.2.0-beta.5", None, "stable"),
                     Some(UpdateReason::NewVersion)
                 );
-                assert_eq!(update_reason(&selected.tag_name, "1.2.0", None, "stable"), None);
+                assert_eq!(
+                    update_reason(&selected.tag_name, "1.2.0", None, "stable"),
+                    None
+                );
             }
         }
         assert_eq!(update_reason("1.2.0-beta.5", "1.2.0", None, "beta"), None);
@@ -1710,10 +1772,17 @@ mod tests {
 
     #[test]
     fn desktop_release_notes_remove_wrappers_and_keep_feature_headings() {
-        for title in ["# 🖥️ Что нового на Windows и Linux", "## Что изменилось на Windows",
-            "**What's new on Desktop**", "## Windows и Linux", "## What changed on Linux"] {
-            assert_eq!(without_platform_heading(&format!("{title}\n\n## Протоколы\n- Исправлено")),
-                "## Протоколы\n- Исправлено");
+        for title in [
+            "# 🖥️ Что нового на Windows и Linux",
+            "## Что изменилось на Windows",
+            "**What's new on Desktop**",
+            "## Windows и Linux",
+            "## What changed on Linux",
+        ] {
+            assert_eq!(
+                without_platform_heading(&format!("{title}\n\n## Протоколы\n- Исправлено")),
+                "## Протоколы\n- Исправлено"
+            );
         }
         let notes = "## Windows: восстановление сети\n- Windows\n```md\n# Что нового на Windows\n```\n~~~md\n# Linux\n~~~";
         assert_eq!(without_platform_heading(notes), notes);

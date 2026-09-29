@@ -36,15 +36,28 @@ impl From<Option<CoreKind>> for CorePreference {
 
 /// Recovery and rotation inherit the session choice, including an explicit Auto
 /// snapshot. Only a new manual connection reads the pending preference directly.
-pub fn recovery_preference(pending: Option<CoreKind>, session: Option<CorePreference>) -> Option<CoreKind> {
+pub fn recovery_preference(
+    pending: Option<CoreKind>,
+    session: Option<CorePreference>,
+) -> Option<CoreKind> {
     session.map(CorePreference::core).unwrap_or(pending)
 }
 
 /// Managed desktop proxy support never implies ownership of TUN, DNS or a kill switch.
-pub fn ensure_mihomo_network(system_proxy_only: bool, kill_switch: bool, platform_supported: bool) -> Result<(), String> {
-    if !system_proxy_only { return Err("MIHOMO_TUN_UNAVAILABLE".into()); }
-    if kill_switch { return Err("MIHOMO_KILL_SWITCH_UNAVAILABLE".into()); }
-    if !platform_supported { return Err("SYSTEM_PROXY_PLATFORM_UNAVAILABLE".into()); }
+pub fn ensure_mihomo_network(
+    system_proxy_only: bool,
+    kill_switch: bool,
+    platform_supported: bool,
+) -> Result<(), String> {
+    if !system_proxy_only {
+        return Err("MIHOMO_TUN_UNAVAILABLE".into());
+    }
+    if kill_switch {
+        return Err("MIHOMO_KILL_SWITCH_UNAVAILABLE".into());
+    }
+    if !platform_supported {
+        return Err("SYSTEM_PROXY_PLATFORM_UNAVAILABLE".into());
+    }
     Ok(())
 }
 
@@ -56,7 +69,9 @@ pub mod persisted {
         CorePreference::from(*core).serialize(s)
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<CoreKind>, D::Error> {
-        Ok(Option::<CorePreference>::deserialize(d)?.unwrap_or_default().core())
+        Ok(Option::<CorePreference>::deserialize(d)?
+            .unwrap_or_default()
+            .core())
     }
 }
 
@@ -71,7 +86,11 @@ pub fn ensure_compatible(preferred: Option<CoreKind>, required: CoreKind) -> Res
 }
 
 fn name(core: CoreKind) -> &'static str {
-    match core { CoreKind::Xray => "Xray", CoreKind::Awg => "AWG", CoreKind::Mihomo => "Mihomo" }
+    match core {
+        CoreKind::Xray => "Xray",
+        CoreKind::Awg => "AWG",
+        CoreKind::Mihomo => "Mihomo",
+    }
 }
 
 pub fn ensure_server_runtime(required: CoreKind, awg_available: bool) -> Result<(), String> {
@@ -94,8 +113,11 @@ mod tests {
                 for platform in [false, true] {
                     let result = ensure_mihomo_network(proxy_only, ks, platform);
                     assert_eq!(result.is_ok(), proxy_only && !ks && platform);
-                    if !proxy_only { assert_eq!(result.unwrap_err(), "MIHOMO_TUN_UNAVAILABLE"); }
-                    else if ks { assert_eq!(result.unwrap_err(), "MIHOMO_KILL_SWITCH_UNAVAILABLE"); }
+                    if !proxy_only {
+                        assert_eq!(result.unwrap_err(), "MIHOMO_TUN_UNAVAILABLE");
+                    } else if ks {
+                        assert_eq!(result.unwrap_err(), "MIHOMO_KILL_SWITCH_UNAVAILABLE");
+                    }
                 }
             }
         }
@@ -119,15 +141,26 @@ mod tests {
 
     #[test]
     fn legacy_and_new_preferences_roundtrip_with_explicit_auto_default() {
-        for input in ["{}", r#"{"preferred_core":null}"#, r#"{"preferred_core":"auto"}"#] {
+        for input in [
+            "{}",
+            r#"{"preferred_core":null}"#,
+            r#"{"preferred_core":"auto"}"#,
+        ] {
             let state: CoreProfiles = serde_json::from_str(input).unwrap();
             assert_eq!(state.preferred_core, None);
-            assert_eq!(serde_json::to_value(state).unwrap()["preferred_core"], "auto");
+            assert_eq!(
+                serde_json::to_value(state).unwrap()["preferred_core"],
+                "auto"
+            );
         }
         for value in ["xray", "awg", "mihomo"] {
-            let state: CoreProfiles = serde_json::from_value(serde_json::json!({"preferred_core":value})).unwrap();
+            let state: CoreProfiles =
+                serde_json::from_value(serde_json::json!({"preferred_core":value})).unwrap();
             assert!(state.preferred_core.is_some());
-            assert_eq!(serde_json::to_value(state).unwrap()["preferred_core"], value);
+            assert_eq!(
+                serde_json::to_value(state).unwrap()["preferred_core"],
+                value
+            );
         }
         assert!(serde_json::from_str::<CoreProfiles>(r#"{"preferred_core":"unknown"}"#).is_err());
     }
@@ -136,7 +169,9 @@ mod tests {
     fn missing_awg_and_mihomo_server_runtime_fail_closed() {
         assert!(ensure_server_runtime(CoreKind::Xray, false).is_ok());
         assert!(ensure_server_runtime(CoreKind::Awg, true).is_ok());
-        assert!(ensure_server_runtime(CoreKind::Awg, false).unwrap_err().starts_with("AWG_UNAVAILABLE:"));
+        assert!(ensure_server_runtime(CoreKind::Awg, false)
+            .unwrap_err()
+            .starts_with("AWG_UNAVAILABLE:"));
         for available in [false, true] {
             assert!(ensure_server_runtime(CoreKind::Mihomo, available).is_err());
         }
@@ -144,14 +179,27 @@ mod tests {
 
     #[test]
     fn preference_edits_do_not_change_current_session_or_auto_rotation() {
-        for session in [CorePreference::Auto, CorePreference::Xray, CorePreference::Awg, CorePreference::Mihomo] {
-            for pending in [None, Some(CoreKind::Xray), Some(CoreKind::Awg), Some(CoreKind::Mihomo)] {
+        for session in [
+            CorePreference::Auto,
+            CorePreference::Xray,
+            CorePreference::Awg,
+            CorePreference::Mihomo,
+        ] {
+            for pending in [
+                None,
+                Some(CoreKind::Xray),
+                Some(CoreKind::Awg),
+                Some(CoreKind::Mihomo),
+            ] {
                 let persisted = serde_json::to_string(&session).unwrap();
                 let restored = serde_json::from_str(&persisted).unwrap();
                 assert_eq!(recovery_preference(pending, Some(restored)), session.core());
                 for required in [CoreKind::Xray, CoreKind::Awg, CoreKind::Mihomo] {
-                    assert_eq!(ensure_compatible(recovery_preference(pending, Some(restored)), required).is_ok(),
-                        session == CorePreference::Auto || session.core() == Some(required));
+                    assert_eq!(
+                        ensure_compatible(recovery_preference(pending, Some(restored)), required)
+                            .is_ok(),
+                        session == CorePreference::Auto || session.core() == Some(required)
+                    );
                 }
                 assert_eq!(recovery_preference(pending, None), pending);
             }
@@ -161,19 +209,40 @@ mod tests {
     #[test]
     fn selecting_any_core_preserves_full_native_source_and_active_profile() {
         for (kind, source) in [
-            (ProfileKind::MihomoYaml, "\u{feff}# comment\r\nproxy-providers: {}\r\nrules: [MATCH,DIRECT]\r\n"),
-            (ProfileKind::XrayJson, "{\r\n  \"outbounds\": [], \"routing\": {\"rules\": []}\r\n}"),
-            (ProfileKind::AwgIni, "[Interface]\r\nS4=20\r\nI5=<b 0x1234>\r\n[Peer]\r\n"),
+            (
+                ProfileKind::MihomoYaml,
+                "\u{feff}# comment\r\nproxy-providers: {}\r\nrules: [MATCH,DIRECT]\r\n",
+            ),
+            (
+                ProfileKind::XrayJson,
+                "{\r\n  \"outbounds\": [], \"routing\": {\"rules\": []}\r\n}",
+            ),
+            (
+                ProfileKind::AwgIni,
+                "[Interface]\r\nS4=20\r\nI5=<b 0x1234>\r\n[Peer]\r\n",
+            ),
         ] {
             let profile = FullProfile::new("Fixture".into(), kind, source.into()).unwrap();
             let id = profile.id.clone();
-            let mut state = CoreProfiles { profiles: vec![profile], active_profile_id: Some(id.clone()), ..Default::default() };
-            for core in [None, Some(CoreKind::Xray), Some(CoreKind::Awg), Some(CoreKind::Mihomo)] {
+            let mut state = CoreProfiles {
+                profiles: vec![profile],
+                active_profile_id: Some(id.clone()),
+                ..Default::default()
+            };
+            for core in [
+                None,
+                Some(CoreKind::Xray),
+                Some(CoreKind::Awg),
+                Some(CoreKind::Mihomo),
+            ] {
                 state.preferred_core = core;
                 let saved = serde_json::to_string(&state).unwrap();
                 let restored: CoreProfiles = serde_json::from_str(&saved).unwrap();
                 assert_eq!(restored.active_profile_id.as_deref(), Some(id.as_str()));
-                assert_eq!(restored.profiles[0].original_text.as_bytes(), source.as_bytes());
+                assert_eq!(
+                    restored.profiles[0].original_text.as_bytes(),
+                    source.as_bytes()
+                );
                 restored.profiles[0].verify().unwrap();
             }
         }

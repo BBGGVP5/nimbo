@@ -22,7 +22,12 @@ fn prepare_awg() {
     let source = std::env::var_os("NIMBO_AWG_CORE_DIR")
         .filter(|value| !value.is_empty())
         .map(std::path::PathBuf::from)
-        .or_else(|| repository_source.join("go.mod").is_file().then_some(repository_source))
+        .or_else(|| {
+            repository_source
+                .join("go.mod")
+                .is_file()
+                .then_some(repository_source)
+        })
         .or_else(|| {
             std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(|home| {
                 std::path::PathBuf::from(home)

@@ -1829,7 +1829,7 @@ mod tests {
                 appearance: false,
                 connection: false,
                 automation: false,
-            routing: false,
+                routing: false,
             },
         );
         assert_eq!(state.subscriptions.len(), 2);
@@ -1918,7 +1918,7 @@ mod tests {
                 appearance: true,
                 connection: true,
                 automation: true,
-            routing: true,
+                routing: true,
             },
             last_seen_remote_sig: None,
             auto_sync: true,
@@ -1951,7 +1951,7 @@ mod tests {
                 appearance: true,
                 connection: true,
                 automation: true,
-            routing: true,
+                routing: true,
             },
             100,
         )
@@ -2054,7 +2054,7 @@ mod tests {
                 appearance: None,
                 connection: None,
                 automation: None,
-            routing_modules: Vec::new(),
+                routing_modules: Vec::new(),
             },
             remote_bundle: None,
             remote_device: None,

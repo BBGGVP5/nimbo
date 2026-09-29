@@ -35,7 +35,12 @@ struct RouteHealthHistory {
 
 impl RouteHealthHistory {
     fn new(now: Instant) -> Self {
-        Self { observed_id: None, observed_route: None, since: now, failures: 0 }
+        Self {
+            observed_id: None,
+            observed_route: None,
+            since: now,
+            failures: 0,
+        }
     }
 
     fn observe(&mut self, id: &str, route: Option<crate::latency::PingRoute>, now: Instant) {
@@ -50,14 +55,20 @@ impl RouteHealthHistory {
     }
 
     fn record(&mut self, healthy: bool, now: Instant) -> bool {
-        self.failures = if healthy { 0 } else { self.failures.saturating_add(1) };
+        self.failures = if healthy {
+            0
+        } else {
+            self.failures.saturating_add(1)
+        };
         should_failover(self.failures, now.duration_since(self.since))
     }
 }
 
 fn same_auto_context(
-    before: &PersistedState, after: &PersistedState,
-    before_route: Option<&crate::latency::PingRoute>, after_route: Option<&crate::latency::PingRoute>,
+    before: &PersistedState,
+    after: &PersistedState,
+    before_route: Option<&crate::latency::PingRoute>,
+    after_route: Option<&crate::latency::PingRoute>,
 ) -> bool {
     before.auto_subscription_url == after.auto_subscription_url
         && before.active_server_id == after.active_server_id
@@ -134,7 +145,12 @@ async fn active_route_responds(state: &AppState, server_id: &str) -> bool {
     };
     let valid = || {
         intent == CONNECTION_INTENT.load(Ordering::SeqCst)
-            && same_auto_context(&before, &state.snapshot(), Some(&route), state.runtime(|runtime| runtime.ping_route.clone()).as_ref())
+            && same_auto_context(
+                &before,
+                &state.snapshot(),
+                Some(&route),
+                state.runtime(|runtime| runtime.ping_route.clone()).as_ref(),
+            )
     };
     let (google, apple, cloudflare, telegram) = tokio::join!(
         crate::latency::measure_http_guarded(&route, "http_get", PROBE_URLS[0], 3_500, &valid),
@@ -202,9 +218,14 @@ pub async fn connect_auto_server(
         let already_active =
             state.snapshot().connected && state.snapshot().active_server_id.as_deref() == Some(&id);
         if !already_active
-            && commands::connect_server_inner(app.clone(), state.clone(), id.clone(), snapshot.core_profiles.preferred_core)
-                .await
-                .is_err()
+            && commands::connect_server_inner(
+                app.clone(),
+                state.clone(),
+                id.clone(),
+                snapshot.core_profiles.preferred_core,
+            )
+            .await
+            .is_err()
         {
             continue;
         }
@@ -216,7 +237,10 @@ pub async fn connect_auto_server(
             state
                 .mutate(|saved| {
                     saved.auto_subscription_url = Some(url.clone());
-                    saved.session_core_preference = Some(nimbo_mihomo::selection::CorePreference::from(snapshot.core_profiles.preferred_core));
+                    saved.session_core_preference =
+                        Some(nimbo_mihomo::selection::CorePreference::from(
+                            snapshot.core_profiles.preferred_core,
+                        ));
                 })
                 .map_err(|error| format!("Не удалось сохранить режим Авто: {error}"))?;
             let _ = crate::tray::refresh_tray_menu(&app);
@@ -258,7 +282,9 @@ pub fn start_monitor(app: AppHandle) {
                 // silently reconnect on next launch. Only retry a failure
                 // observed by this running monitor; launch auto-connect is a
                 // separate user preference handled by the app startup path.
-                let Some(previous_retry) = last_retry else { continue; };
+                let Some(previous_retry) = last_retry else {
+                    continue;
+                };
                 if previous_retry.elapsed() < RETRY_DISCONNECTED {
                     continue;
                 }
@@ -270,7 +296,13 @@ pub fn start_monitor(app: AppHandle) {
                 health.observe(current, checked_route.clone(), Instant::now());
                 let healthy = active_route_responds(&state, current).await;
                 if ticket != CONNECTION_INTENT.load(Ordering::SeqCst)
-                    || !same_auto_context(&snap, &state.session_snapshot(), checked_route.as_ref(), state.runtime(|runtime| runtime.ping_route.clone()).as_ref()) {
+                    || !same_auto_context(
+                        &snap,
+                        &state.session_snapshot(),
+                        checked_route.as_ref(),
+                        state.runtime(|runtime| runtime.ping_route.clone()).as_ref(),
+                    )
+                {
                     continue;
                 }
                 if !health.record(healthy, Instant::now()) {
@@ -283,7 +315,12 @@ pub fn start_monitor(app: AppHandle) {
             let _operation = CONNECTION_OPERATION.lock().await;
             let current = state.session_snapshot();
             if ticket != CONNECTION_INTENT.load(Ordering::SeqCst)
-                || !same_auto_context(&snap, &current, checked_route.as_ref(), state.runtime(|runtime| runtime.ping_route.clone()).as_ref())
+                || !same_auto_context(
+                    &snap,
+                    &current,
+                    checked_route.as_ref(),
+                    state.runtime(|runtime| runtime.ping_route.clone()).as_ref(),
+                )
             {
                 continue;
             }
@@ -330,14 +367,25 @@ pub fn start_monitor(app: AppHandle) {
                 }
                 attempted = true;
                 tracing::info!("Auto: testing fallback node");
-                let healthy = commands::connect_server_inner(app.clone(), state.clone(), id.clone(), current.core_profiles.preferred_core)
-                    .await
-                    .is_ok()
+                let healthy = commands::connect_server_inner(
+                    app.clone(),
+                    state.clone(),
+                    id.clone(),
+                    current.core_profiles.preferred_core,
+                )
+                .await
+                .is_ok()
                     && active_route_responds(&state, &id).await;
-                if ticket != CONNECTION_INTENT.load(Ordering::SeqCst) { break; }
+                if ticket != CONNECTION_INTENT.load(Ordering::SeqCst) {
+                    break;
+                }
                 if healthy {
                     health = RouteHealthHistory::new(Instant::now());
-                    health.observe(&id, state.runtime(|runtime| runtime.ping_route.clone()), Instant::now());
+                    health.observe(
+                        &id,
+                        state.runtime(|runtime| runtime.ping_route.clone()),
+                        Instant::now(),
+                    );
                     recovered = true;
                     break;
                 }
@@ -345,7 +393,9 @@ pub fn start_monitor(app: AppHandle) {
             }
             // A cancelled observation is neither a failed node nor permission
             // to tear down the session while a newer manual action is waiting.
-            if ticket != CONNECTION_INTENT.load(Ordering::SeqCst) { continue; }
+            if ticket != CONNECTION_INTENT.load(Ordering::SeqCst) {
+                continue;
+            }
             if !recovered && attempted {
                 let _ = commands::stop_runtime(&state);
                 let _ = state.mutate(|saved| {
@@ -408,14 +458,34 @@ mod tests {
         before.connected = true;
         before.active_server_id = Some("same".into());
         before.auto_subscription_url = Some("https://example.com/sub".into());
-        assert!(same_auto_context(&before, &before, Some(&route), Some(&route)));
-        assert!(!same_auto_context(&before, &before, Some(&route), Some(&replacement)));
+        assert!(same_auto_context(
+            &before,
+            &before,
+            Some(&route),
+            Some(&route)
+        ));
+        assert!(!same_auto_context(
+            &before,
+            &before,
+            Some(&route),
+            Some(&replacement)
+        ));
         let mut after = before.clone();
         after.auto_subscription_url = None;
-        assert!(!same_auto_context(&before, &after, Some(&route), Some(&route)));
+        assert!(!same_auto_context(
+            &before,
+            &after,
+            Some(&route),
+            Some(&route)
+        ));
         after = before.clone();
         after.connected = false;
-        assert!(!same_auto_context(&before, &after, Some(&route), Some(&route)));
+        assert!(!same_auto_context(
+            &before,
+            &after,
+            Some(&route),
+            Some(&route)
+        ));
     }
 
     #[test]
@@ -436,12 +506,21 @@ mod tests {
 
         let reconnected = start + Duration::from_secs(100);
         health.observe("same", Some(replacement), reconnected);
-        assert!(!health.record(false, reconnected), "old failures must not disconnect a fresh session");
+        assert!(
+            !health.record(false, reconnected),
+            "old failures must not disconnect a fresh session"
+        );
         assert!(!health.record(false, reconnected + Duration::from_secs(30)));
-        assert!(!health.record(false, reconnected + Duration::from_secs(60)), "fresh session requires full dwell");
+        assert!(
+            !health.record(false, reconnected + Duration::from_secs(60)),
+            "fresh session requires full dwell"
+        );
         assert!(health.record(false, reconnected + Duration::from_secs(90)));
         assert!(!health.record(true, reconnected + Duration::from_secs(120)));
-        assert!(!health.record(false, reconnected + Duration::from_secs(150)), "success resets consecutive failures");
+        assert!(
+            !health.record(false, reconnected + Duration::from_secs(150)),
+            "success resets consecutive failures"
+        );
     }
 
     #[test]

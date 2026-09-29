@@ -11,8 +11,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::routing::RoutingRule;
 use crate::config::{TAG_BLOCK, TAG_DIRECT, TAG_PROXY};
+use crate::routing::RoutingRule;
 
 /// Модуль так, как его хранит приложение.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

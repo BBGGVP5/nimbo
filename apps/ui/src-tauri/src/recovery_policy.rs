@@ -1,4 +1,10 @@
-pub fn may_recover(ticket: u64, current: u64, server: &str, active: Option<&str>, attempt: usize) -> bool {
+pub fn may_recover(
+    ticket: u64,
+    current: u64,
+    server: &str,
+    active: Option<&str>,
+    attempt: usize,
+) -> bool {
     ticket == current && active == Some(server) && attempt < 3
 }
 

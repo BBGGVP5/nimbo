@@ -225,7 +225,10 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .tooltip(tray_tooltip(snapshot.connected, snapshot.preferences.language.resolved()))
+        .tooltip(tray_tooltip(
+            snapshot.connected,
+            snapshot.preferences.language.resolved(),
+        ))
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| match event {
             TrayIconEvent::DoubleClick { .. }
@@ -268,7 +271,10 @@ pub fn refresh_tray_menu(app: &AppHandle) -> tauri::Result<()> {
     let connected = snapshot.connected;
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         tray.set_icon(Some(get_tray_icon(connected)?))?;
-        tray.set_tooltip(Some(tray_tooltip(connected, snapshot.preferences.language.resolved())))?;
+        tray.set_tooltip(Some(tray_tooltip(
+            connected,
+            snapshot.preferences.language.resolved(),
+        )))?;
     }
     // Also update the window taskbar icon so the indicator shows there too
     if let Some(window) = app.get_webview_window("main") {
@@ -650,9 +656,13 @@ fn refresh_all_subscriptions(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if app.state::<AppState>().snapshot().connected {
-            let _ = app.emit_to(MENU_WINDOW, "tray-menu:action-done", serde_json::json!({
-                "action": "refresh_subscriptions", "ok": false
-            }));
+            let _ = app.emit_to(
+                MENU_WINDOW,
+                "tray-menu:action-done",
+                serde_json::json!({
+                    "action": "refresh_subscriptions", "ok": false
+                }),
+            );
             return;
         }
         let urls = app
@@ -668,7 +678,9 @@ fn refresh_all_subscriptions(app: &AppHandle) {
         let total = urls.len();
         for url in urls {
             let state = app.state::<AppState>();
-            if state.snapshot().connected { break; }
+            if state.snapshot().connected {
+                break;
+            }
             if crate::commands::refresh_subscription(state, url)
                 .await
                 .is_ok()
@@ -714,7 +726,8 @@ fn ping_all_servers(app: &AppHandle) {
         let mut best: Option<u64> = None;
         if !server_ids.is_empty() {
             let state = app.state::<AppState>();
-            if let Ok(results) = crate::commands::ping_servers(app.clone(), state, server_ids).await {
+            if let Ok(results) = crate::commands::ping_servers(app.clone(), state, server_ids).await
+            {
                 for result in &results {
                     if let Some(latency) = result.latency_ms {
                         count += 1;
@@ -873,10 +886,28 @@ mod universal_tray_tests {
 
     #[test]
     fn tray_routes_and_non_navigation_actions_are_separate() {
-        for (action, route) in [("home", "/"), ("profiles", "/subscriptions"), ("routing", "/routing"), ("sync", "/sync"), ("apps", "/apps"), ("connections", "/connections"), ("statistics", "/statistics"), ("logs", "/tunnel-logs"), ("settings", "/settings")] {
+        for (action, route) in [
+            ("home", "/"),
+            ("profiles", "/subscriptions"),
+            ("routing", "/routing"),
+            ("sync", "/sync"),
+            ("apps", "/apps"),
+            ("connections", "/connections"),
+            ("statistics", "/statistics"),
+            ("logs", "/tunnel-logs"),
+            ("settings", "/settings"),
+        ] {
             assert_eq!(tray_action_route(action), Some(route));
         }
-        for action in ["connect", "disconnect", "server", "quit", "refresh_subscriptions", "ping_servers", "unknown"] {
+        for action in [
+            "connect",
+            "disconnect",
+            "server",
+            "quit",
+            "refresh_subscriptions",
+            "ping_servers",
+            "unknown",
+        ] {
             assert_eq!(tray_action_route(action), None);
         }
     }
@@ -899,7 +930,9 @@ mod universal_tray_tests {
             let mut pixels = vec![0; reader.output_buffer_size()];
             let info = reader.next_frame(&mut pixels).unwrap();
             assert_eq!((info.width, info.height), (128, 128));
-            assert!(pixels[..info.buffer_size()].chunks_exact(4).all(|p| p[3] == 0 || (p[0] == p[1] && p[1] == p[2])));
+            assert!(pixels[..info.buffer_size()]
+                .chunks_exact(4)
+                .all(|p| p[3] == 0 || (p[0] == p[1] && p[1] == p[2])));
         }
     }
 }

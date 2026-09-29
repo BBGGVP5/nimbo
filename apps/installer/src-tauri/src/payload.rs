@@ -4,9 +4,9 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
+use crate::awg_payload;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
-use crate::awg_payload;
 
 /// Mode flag set once during process bootstrap and read by the UI to decide
 /// whether to render the install screen or the uninstall screen. We use a
@@ -583,7 +583,13 @@ fn install_blocking_linux(
     match install_linux_helper(&helper_path) {
         Ok(()) => emit(&app, "helper", "done", 60, "Служба TUN готова"),
         Err(error) => {
-            emit(&app, "helper", "warning", 60, &format!("TUN без службы: {error}"));
+            emit(
+                &app,
+                "helper",
+                "warning",
+                60,
+                &format!("TUN без службы: {error}"),
+            );
         }
     }
 
@@ -993,14 +999,21 @@ fn verify_embedded_awg() -> Result<(), String> {
 
 fn awg_paths(install_dir: &Path) -> Result<(PathBuf, PathBuf), String> {
     let layout = awg_payload::target_layout(env!("NIMBO_TARGET_TRIPLE"))?;
-    let dir = install_dir.join("resources").join("awg").join(layout.platform);
-    Ok((dir.join(layout.filename), dir.join(format!("{}.manifest.json", layout.filename))))
+    let dir = install_dir
+        .join("resources")
+        .join("awg")
+        .join(layout.platform);
+    Ok((
+        dir.join(layout.filename),
+        dir.join(format!("{}.manifest.json", layout.filename)),
+    ))
 }
 
 fn verify_installed_awg(install_dir: &Path) -> Result<(), String> {
     let (binary, manifest) = awg_paths(install_dir)?;
     let bytes = fs::read(binary).map_err(|e| format!("Не удалось проверить файл AWG: {e}"))?;
-    let metadata = fs::read(manifest).map_err(|e| format!("Не удалось проверить манифест AWG: {e}"))?;
+    let metadata =
+        fs::read(manifest).map_err(|e| format!("Не удалось проверить манифест AWG: {e}"))?;
     if metadata != AWG_MANIFEST_BYTES {
         return Err("Установленный манифест AWG не совпадает с пакетом".into());
     }
@@ -1016,17 +1029,25 @@ struct PayloadInstallation {
 
 impl PayloadInstallation {
     fn new() -> Self {
-        Self { files: Vec::new(), committed: false }
+        Self {
+            files: Vec::new(),
+            committed: false,
+        }
     }
 
     fn replace(&mut self, path: &Path, bytes: &[u8]) -> Result<(), String> {
         let backup = if path.exists() {
             if !path.is_file() {
-                return Err(format!("Путь компонента занят не файлом: {}", path.display()));
+                return Err(format!(
+                    "Путь компонента занят не файлом: {}",
+                    path.display()
+                ));
             }
             let old = old_payload_path(path);
-            remove_file_with_retries(&old).map_err(|e| format!("Не удалось очистить копию компонента: {e}"))?;
-            rename_with_retries(path, &old).map_err(|e| format!("Не удалось сохранить прежний компонент: {e}"))?;
+            remove_file_with_retries(&old)
+                .map_err(|e| format!("Не удалось очистить копию компонента: {e}"))?;
+            rename_with_retries(path, &old)
+                .map_err(|e| format!("Не удалось сохранить прежний компонент: {e}"))?;
             Some(old)
         } else {
             None
@@ -1047,7 +1068,9 @@ impl PayloadInstallation {
 
 impl Drop for PayloadInstallation {
     fn drop(&mut self) {
-        if self.committed { return; }
+        if self.committed {
+            return;
+        }
         for (path, backup) in self.files.iter().rev() {
             let _ = remove_file_with_retries(path);
             if let Some(backup) = backup {
@@ -1069,7 +1092,9 @@ fn install_awg_payload(install_dir: &Path) -> Result<PayloadInstallation, String
     Ok(installation)
 }
 
-fn install_runtime_payloads(install_dir: &Path) -> Result<(PayloadInstallation, PayloadInstallation), String> {
+fn install_runtime_payloads(
+    install_dir: &Path,
+) -> Result<(PayloadInstallation, PayloadInstallation), String> {
     // AWG must be installed and read back successfully before replacing the app
     // whose embedded digest expects it. Guards restore the complete prior set.
     let awg = install_awg_payload(install_dir)?;
@@ -1753,13 +1778,19 @@ mod awg_install_tests {
             static NEXT: AtomicU64 = AtomicU64::new(0);
             let root = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../../target/installer-awg-tests")
-                .join(format!("{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+                .join(format!(
+                    "{}-{}",
+                    std::process::id(),
+                    NEXT.fetch_add(1, Ordering::Relaxed)
+                ));
             fs::create_dir_all(&root).unwrap();
             Self(root)
         }
     }
     impl Drop for Fixture {
-        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
     }
 
     #[test]
@@ -1769,12 +1800,23 @@ mod awg_install_tests {
         let installation = install_awg_payload(&fixture.0).unwrap();
         let (binary, manifest) = awg_paths(&fixture.0).unwrap();
         let layout = awg_payload::target_layout(env!("NIMBO_TARGET_TRIPLE")).unwrap();
-        assert_eq!(binary, fixture.0.join("resources/awg").join(layout.platform).join(layout.filename));
+        assert_eq!(
+            binary,
+            fixture
+                .0
+                .join("resources/awg")
+                .join(layout.platform)
+                .join(layout.filename)
+        );
         assert_eq!(fs::read(&binary).unwrap(), AWG_BYTES);
         assert_eq!(fs::read(&manifest).unwrap(), AWG_MANIFEST_BYTES);
-        #[cfg(unix)] {
+        #[cfg(unix)]
+        {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(fs::metadata(&binary).unwrap().permissions().mode() & 0o111, 0o111);
+            assert_eq!(
+                fs::metadata(&binary).unwrap().permissions().mode() & 0o111,
+                0o111
+            );
         }
         installation.commit();
         verify_installed_awg(&fixture.0).unwrap();
@@ -1802,8 +1844,14 @@ mod awg_install_tests {
         write_payload(&binary, b"previous binary").unwrap();
         write_payload(&manifest, b"previous manifest").unwrap();
         let installation = install_awg_payload(&fixture.0).unwrap();
-        assert_eq!(fs::read(old_payload_path(&binary)).unwrap(), b"previous binary");
-        assert_eq!(fs::read(old_payload_path(&manifest)).unwrap(), b"previous manifest");
+        assert_eq!(
+            fs::read(old_payload_path(&binary)).unwrap(),
+            b"previous binary"
+        );
+        assert_eq!(
+            fs::read(old_payload_path(&manifest)).unwrap(),
+            b"previous manifest"
+        );
         installation.commit();
         verify_installed_awg(&fixture.0).unwrap();
         assert!(!old_payload_path(&binary).exists());
@@ -1858,7 +1906,10 @@ mod awg_install_tests {
         drop(app);
         drop(awg);
         assert_eq!(fs::read(fixture.0.join(APP_EXE)).unwrap(), b"previous app");
-        assert_eq!(fs::read(fixture.0.join(HELPER_EXE)).unwrap(), b"previous helper");
+        assert_eq!(
+            fs::read(fixture.0.join(HELPER_EXE)).unwrap(),
+            b"previous helper"
+        );
         assert_eq!(fs::read(binary).unwrap(), b"previous awg");
         assert_eq!(fs::read(manifest).unwrap(), b"previous manifest");
     }
@@ -1873,7 +1924,10 @@ mod awg_install_tests {
         fs::create_dir(&manifest).unwrap();
         assert!(install_runtime_payloads(&fixture.0).is_err());
         assert_eq!(fs::read(fixture.0.join(APP_EXE)).unwrap(), b"previous app");
-        assert_eq!(fs::read(fixture.0.join(HELPER_EXE)).unwrap(), b"previous helper");
+        assert_eq!(
+            fs::read(fixture.0.join(HELPER_EXE)).unwrap(),
+            b"previous helper"
+        );
         assert_eq!(fs::read(binary).unwrap(), b"previous awg");
     }
 

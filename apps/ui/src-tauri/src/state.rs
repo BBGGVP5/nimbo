@@ -249,7 +249,10 @@ pub struct AppPreferences {
     pub accent_mode: AccentMode,
     pub accent_color: String,
     pub language: Language,
-    #[serde(default = "default_latency_protocol", deserialize_with = "deserialize_latency_protocol")]
+    #[serde(
+        default = "default_latency_protocol",
+        deserialize_with = "deserialize_latency_protocol"
+    )]
     pub latency_protocol: String,
     pub latency_test_url: String,
     pub latency_timeout_ms: u32,
@@ -396,10 +399,16 @@ fn default_servers_ui_scale() -> u32 {
     100
 }
 
-fn default_latency_protocol() -> String { "nimbo".into() }
+fn default_latency_protocol() -> String {
+    "nimbo".into()
+}
 
-fn deserialize_latency_protocol<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    Ok(Option::<String>::deserialize(deserializer)?.filter(|value| !value.trim().is_empty()).unwrap_or_else(default_latency_protocol))
+fn deserialize_latency_protocol<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(default_latency_protocol))
 }
 
 impl Default for AppPreferences {
@@ -693,7 +702,8 @@ impl AppState {
     pub fn session_snapshot(&self) -> PersistedState {
         let mut snapshot = self.snapshot();
         snapshot.core_profiles.preferred_core = nimbo_mihomo::selection::recovery_preference(
-            snapshot.core_profiles.preferred_core, snapshot.session_core_preference
+            snapshot.core_profiles.preferred_core,
+            snapshot.session_core_preference,
         );
         snapshot
     }
@@ -712,12 +722,15 @@ impl AppState {
 
     /// Full-profile writes only become visible after durable storage succeeds.
     pub fn transaction<F, R>(&self, f: F) -> Result<R, String>
-    where F: FnOnce(&mut PersistedState) -> Result<R, String> {
+    where
+        F: FnOnce(&mut PersistedState) -> Result<R, String>,
+    {
         let _persist_guard = self.persist_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut candidate = guard.clone();
         let result = f(&mut candidate)?;
-        write_state(&self.storage_path, &candidate).map_err(|_| "STATE_WRITE_FAILED".to_string())?;
+        write_state(&self.storage_path, &candidate)
+            .map_err(|_| "STATE_WRITE_FAILED".to_string())?;
         *guard = candidate;
         Ok(result)
     }
@@ -750,9 +763,15 @@ fn write_state(storage_path: &Path, state: &PersistedState) -> anyhow::Result<()
 }
 
 fn write_state_bytes(storage_path: &Path, json: &[u8]) -> anyhow::Result<()> {
-    if let Some(parent) = storage_path.parent() { std::fs::create_dir_all(parent)?; }
+    if let Some(parent) = storage_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let temp_path = storage_path.with_extension("json.tmp");
-    let mut temp = std::fs::OpenOptions::new().create(true).truncate(true).write(true).open(&temp_path)?;
+    let mut temp = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&temp_path)?;
     temp.write_all(json)?;
     temp.sync_all()?;
     drop(temp);
@@ -812,45 +831,89 @@ mod tests {
 
     #[test]
     fn core_profiles_migrate_and_roundtrip_without_flattening() {
-        let path = std::env::temp_dir().join(format!("nimbo-mihomo-state-{}.json",uuid::Uuid::new_v4()));
-        std::fs::write(&path, br#"{"subscriptions":[],"preferences":{"theme_mode":"dark"}}"#).unwrap();
-        let state=AppState::load_from_path(path.clone()).unwrap();
+        let path =
+            std::env::temp_dir().join(format!("nimbo-mihomo-state-{}.json", uuid::Uuid::new_v4()));
+        std::fs::write(
+            &path,
+            br#"{"subscriptions":[],"preferences":{"theme_mode":"dark"}}"#,
+        )
+        .unwrap();
+        let state = AppState::load_from_path(path.clone()).unwrap();
         assert!(state.snapshot().core_profiles.preferred_core.is_none());
-        let source="\u{feff}# exact\r\nproxy-providers: {}\r\nproxy-groups: []\r\n";
-        let profile=nimbo_mihomo::FullProfile::new("Profile".into(),nimbo_mihomo::ProfileKind::MihomoYaml,source.into()).unwrap();
-        let id=profile.id.clone();
-        state.transaction(|s|{s.core_profiles.profiles.push(profile);s.core_profiles.preferred_core=Some(nimbo_mihomo::CoreKind::Mihomo);Ok(())}).unwrap();
-        state.transaction(|s|{s.core_profiles.profile_mut(&id).unwrap().selections.insert("Main / 日本".into(),"DIRECT".into());Ok(())}).unwrap();
-        let reloaded=AppState::load_from_path(path.clone()).unwrap().snapshot();
-        let saved=reloaded.core_profiles.profile(&id).unwrap();
-        assert_eq!(saved.original_text,source);saved.verify().unwrap();
-        assert_eq!(saved.selections["Main / 日本"],"DIRECT");assert!(reloaded.subscriptions.is_empty());
+        let source = "\u{feff}# exact\r\nproxy-providers: {}\r\nproxy-groups: []\r\n";
+        let profile = nimbo_mihomo::FullProfile::new(
+            "Profile".into(),
+            nimbo_mihomo::ProfileKind::MihomoYaml,
+            source.into(),
+        )
+        .unwrap();
+        let id = profile.id.clone();
+        state
+            .transaction(|s| {
+                s.core_profiles.profiles.push(profile);
+                s.core_profiles.preferred_core = Some(nimbo_mihomo::CoreKind::Mihomo);
+                Ok(())
+            })
+            .unwrap();
+        state
+            .transaction(|s| {
+                s.core_profiles
+                    .profile_mut(&id)
+                    .unwrap()
+                    .selections
+                    .insert("Main / 日本".into(), "DIRECT".into());
+                Ok(())
+            })
+            .unwrap();
+        let reloaded = AppState::load_from_path(path.clone()).unwrap().snapshot();
+        let saved = reloaded.core_profiles.profile(&id).unwrap();
+        assert_eq!(saved.original_text, source);
+        saved.verify().unwrap();
+        assert_eq!(saved.selections["Main / 日本"], "DIRECT");
+        assert!(reloaded.subscriptions.is_empty());
         std::fs::remove_file(path).unwrap();
     }
     #[test]
     fn core_transaction_io_failure_does_not_acknowledge_memory_change() {
-        let path=std::env::temp_dir().join(format!("nimbo-mihomo-transaction-{}.json",uuid::Uuid::new_v4()));
-        let state=AppState::load_from_path(path.clone()).unwrap();
-        let temporary=path.with_extension("json.tmp");
+        let path = std::env::temp_dir().join(format!(
+            "nimbo-mihomo-transaction-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let state = AppState::load_from_path(path.clone()).unwrap();
+        let temporary = path.with_extension("json.tmp");
         std::fs::create_dir(&temporary).unwrap();
-        let result=state.transaction(|s|{s.core_profiles.preferred_core=Some(nimbo_mihomo::CoreKind::Mihomo);Ok(())});
-        assert!(result.is_err());assert!(state.snapshot().core_profiles.preferred_core.is_none());
-        std::fs::remove_dir(temporary).unwrap();std::fs::remove_file(path).unwrap();
+        let result = state.transaction(|s| {
+            s.core_profiles.preferred_core = Some(nimbo_mihomo::CoreKind::Mihomo);
+            Ok(())
+        });
+        assert!(result.is_err());
+        assert!(state.snapshot().core_profiles.preferred_core.is_none());
+        std::fs::remove_dir(temporary).unwrap();
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn nimbo_is_default_only_for_unset_latency_preferences() {
-        for input in [serde_json::json!({}), serde_json::json!({"latency_protocol":null}), serde_json::json!({"latency_protocol":""})] {
+        for input in [
+            serde_json::json!({}),
+            serde_json::json!({"latency_protocol":null}),
+            serde_json::json!({"latency_protocol":""}),
+        ] {
             let preferences: AppPreferences = serde_json::from_value(input).unwrap();
-            assert_eq!(preferences.latency_protocol,"nimbo");
+            assert_eq!(preferences.latency_protocol, "nimbo");
         }
-        for mode in ["tcp_connect","icmp","http_head","http_get","nimbo"] {
-            let preferences: AppPreferences = serde_json::from_value(serde_json::json!({"latency_protocol":mode})).unwrap();
-            assert_eq!(preferences.latency_protocol,mode);
-            let roundtrip: AppPreferences = serde_json::from_value(serde_json::to_value(preferences).unwrap()).unwrap();
-            assert_eq!(roundtrip.latency_protocol,mode);
+        for mode in ["tcp_connect", "icmp", "http_head", "http_get", "nimbo"] {
+            let preferences: AppPreferences =
+                serde_json::from_value(serde_json::json!({"latency_protocol":mode})).unwrap();
+            assert_eq!(preferences.latency_protocol, mode);
+            let roundtrip: AppPreferences =
+                serde_json::from_value(serde_json::to_value(preferences).unwrap()).unwrap();
+            assert_eq!(roundtrip.latency_protocol, mode);
         }
-        assert_eq!(PersistedState::default().preferences.latency_protocol,"nimbo");
+        assert_eq!(
+            PersistedState::default().preferences.latency_protocol,
+            "nimbo"
+        );
     }
 
     #[test]
@@ -873,9 +936,8 @@ mod tests {
 
     #[test]
     fn beta_upgrade_preserves_explicit_stable_channel() {
-        let preferences: AppPreferences = serde_json::from_value(
-            serde_json::json!({"update_channel": "stable"})
-        ).unwrap();
+        let preferences: AppPreferences =
+            serde_json::from_value(serde_json::json!({"update_channel": "stable"})).unwrap();
         assert_eq!(preferences.update_channel, UpdateChannel::Stable);
         assert_eq!(UpdateChannel::default(), UpdateChannel::Beta);
     }

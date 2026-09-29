@@ -445,8 +445,7 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
             tls_fragment,
             mirrors,
             // Пустое значение = работал основной домен подписки.
-            active_url: Some(source_url)
-                .filter(|source| !source.eq_ignore_ascii_case(url.trim())),
+            active_url: Some(source_url).filter(|source| !source.eq_ignore_ascii_case(url.trim())),
         },
         servers,
         info,

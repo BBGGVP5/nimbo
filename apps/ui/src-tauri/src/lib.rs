@@ -1,44 +1,43 @@
-mod mihomo_runtime;
-mod mihomo_proxy;
-mod diagnostic_template;
-mod diagnostics;
-mod xray_release;
-mod latency;
 mod auto_route;
-mod awg_runtime;
 mod awg_routes;
+mod awg_runtime;
 pub mod commands;
 pub mod cross_sync;
+mod diagnostic_template;
+mod diagnostics;
 #[cfg(windows)]
 pub mod helper;
 #[cfg(target_os = "linux")]
 pub mod helper_linux;
+mod latency;
 pub mod logging;
+mod mihomo_proxy;
+mod mihomo_runtime;
 mod recovery_policy;
 pub mod state;
 pub mod tray;
 pub mod updater;
+mod xray_release;
 
 use crate::commands::{
-    add_subscription, app_ready, clear_tunnel_logs, connect_server, delete_routing_profile,
-    disconnect_server, export_app_backup, export_app_proxy_rules_file, export_routing_profile,
-    get_app_icon, get_device_info, get_memory_usage, get_preferences, get_routing_profile,
-    get_run_through_nimbo_context_menu_enabled, get_session_traffic, get_status,
-    get_subscription_logo, get_traffic_stats, get_tun_status, get_tunnel_logs,
+    add_subscription, app_ready, clear_tunnel_logs, connect_server, delete_routing_module,
+    delete_routing_profile, disconnect_server, export_app_backup, export_app_proxy_rules_file,
+    export_routing_profile, get_app_icon, get_device_info, get_memory_usage, get_preferences,
+    get_routing_profile, get_run_through_nimbo_context_menu_enabled, get_session_traffic,
+    get_status, get_subscription_logo, get_traffic_stats, get_tun_status, get_tunnel_logs,
     get_user_agent_override, helper_status, import_app_backup, import_routing_profile,
     inspect_subscription_headers, install_helper, install_tun, list_active_connections,
-    delete_routing_module, list_app_proxy_rules, list_conflicting_processes, list_installed_apps,
-    list_routing_modules, list_routing_profiles, save_routing_module, toggle_routing_module,
-    list_subscription_app_proxy_rules, list_subscriptions, migrate_subscriptions, open_logs_folder,
-    open_routing_folder, pick_app_executable, ping_server, ping_servers, read_clipboard_text,
-    reapply_runtime_config, refresh_subscription, refresh_tray_menu, remove_subscription,
-    reset_kill_switch,
-    reorder_subscriptions, reset_builtin_routing_profiles, reset_device_id, reset_traffic_totals,
-    restart_as_admin, run_through_nimbo, set_active_routing_profile, set_active_server,
-    set_active_subscription, set_app_proxy_rules, set_connection_mode, set_preferences,
-    set_proxy_settings, set_run_through_nimbo_context_menu, set_user_agent_override,
-    stop_conflicting_processes, uninstall_helper, update_routing_profile,
-    update_subscription_settings, write_clipboard_text,
+    list_app_proxy_rules, list_conflicting_processes, list_installed_apps, list_routing_modules,
+    list_routing_profiles, list_subscription_app_proxy_rules, list_subscriptions,
+    migrate_subscriptions, open_logs_folder, open_routing_folder, pick_app_executable, ping_server,
+    ping_servers, read_clipboard_text, reapply_runtime_config, refresh_subscription,
+    refresh_tray_menu, remove_subscription, reorder_subscriptions, reset_builtin_routing_profiles,
+    reset_device_id, reset_kill_switch, reset_traffic_totals, restart_as_admin, run_through_nimbo,
+    save_routing_module, set_active_routing_profile, set_active_server, set_active_subscription,
+    set_app_proxy_rules, set_connection_mode, set_preferences, set_proxy_settings,
+    set_run_through_nimbo_context_menu, set_user_agent_override, stop_conflicting_processes,
+    toggle_routing_module, uninstall_helper, update_routing_profile, update_subscription_settings,
+    write_clipboard_text,
 };
 use crate::cross_sync::{
     cross_sync_accept_import, cross_sync_approve, cross_sync_cancel, cross_sync_list_devices,
@@ -327,8 +326,9 @@ pub fn run() {
                 // Auto is explicitly a background mode. Closing the main window
                 // must leave its native health owner alive in the tray; the tray's
                 // Quit action remains the explicit way to stop the process.
-                if snapshot.preferences.minimize_to_tray ||
-                    (snapshot.connected && snapshot.auto_subscription_url.is_some()) {
+                if snapshot.preferences.minimize_to_tray
+                    || (snapshot.connected && snapshot.auto_subscription_url.is_some())
+                {
                     api.prevent_close();
                     let _ = window.hide();
                 } else {
@@ -424,7 +424,6 @@ pub fn run() {
             mihomo_runtime::mihomo_refresh_provider,
             mihomo_runtime::mihomo_refresh_rule_provider,
             mihomo_runtime::mihomo_delay,
-
             app_ready,
             get_status,
             auto_route::connect_auto_server,
