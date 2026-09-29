@@ -5,8 +5,8 @@ package com.danila.nimbo.shared.subscription
  * Incrementing it silently reparses already stored subscriptions after an update.
  */
 object SubscriptionParserMigration {
-    // 3: имя сервера отделено от хвоста #fragment, описание больше не теряется.
-    const val currentRevision: Int = 3
+    // 4: Android retains provider balancing JSON/routes and explicit descriptions.
+    const val currentRevision: Int = 4
 
     fun needsMigration(parserRevision: Int): Boolean = parserRevision < currentRevision
 

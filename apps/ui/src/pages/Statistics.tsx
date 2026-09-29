@@ -1,3 +1,5 @@
+import { Dialog } from "../components/Universal";
+import { StatePanel, useSecondaryCopy } from "../components/Secondary";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { serverDisplayLabel } from "../lib/serverUiOverrides";
@@ -10,6 +12,10 @@ import { BackButton } from "../components/BackButton";
 
 export function Statistics() {
   const m = useMessages();
+  const copy = useSecondaryCopy();
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   const status = useAppStore((s) => s.status);
   const connected = status?.state === "connected";
 
@@ -23,7 +29,7 @@ export function Statistics() {
   const activeServerId = useAppStore((s) => s.activeServerId);
   const subscriptions = useAppStore((s) => s.subscriptions);
   const serverPings = useAppStore((s) => s.serverPings);
-  const [range, setRange] = useState<SignalStatsRange>("day");
+  const [range, setRange] = useState<SignalStatsRange>("session");
   const appTraffic = useAppStore((state) => state.appTraffic);
   const sessionHistory = useAppStore((state) => state.sessionHistory);
   const activeServer = subscriptions
@@ -33,14 +39,15 @@ export function Statistics() {
   const activePing = activeServerId ? serverPings[activeServerId] : undefined;
 
   const handleReset = async () => {
+    setResetBusy(true); setResetError(null);
     try {
       await api.resetTrafficTotals();
       const next = await api.getTrafficStats().catch(() => null);
       if (next) setTrafficStats(next);
-      notifyInfo(m.statistics.totalsReset);
+      notifyInfo(m.statistics.totalsReset); setResetOpen(false);
     } catch (e) {
-      notifyError(String(e));
-    }
+      setResetError(String(e)); notifyError(String(e));
+    } finally { setResetBusy(false); }
   };
 
   const statusLabel = connected
@@ -55,13 +62,11 @@ export function Statistics() {
   if (preferences.ui_style === "signal") {
     const sessionUp = stats?.session_upload ?? 0;
     const sessionDown = stats?.session_download ?? 0;
-    const points = speedHistory.length > 0
-      ? speedHistory.map((sample) => ({ download: sample.download, upload: sample.upload }))
-      : [{ download: 0, upload: 0 }, { download: 0, upload: 0 }];
-    const axis = signalAxis(range, m);
-    const totals = range === "hour"
+    const points = speedHistory.map((sample) => ({ download: sample.download, upload: sample.upload }));
+    const axis = speedHistory.length > 1 ? [speedHistory[0].at, speedHistory[speedHistory.length - 1].at].map(at => new Date(at).toLocaleTimeString(m.common.locale)) : [];
+    const totals = range === "session"
       ? { down: sessionDown, up: sessionUp }
-      : range === "day"
+      : range === "month"
         ? { down: stats?.monthly_download ?? 0, up: stats?.monthly_upload ?? 0 }
         : { down: stats?.all_time_download ?? 0, up: stats?.all_time_upload ?? 0 };
     // Приложения: текущая сессия — живая оценка, завершённые — то, что
@@ -103,11 +108,13 @@ export function Statistics() {
     ];
 
     return (
+      <>
       <SignalStatistics
         labels={m}
         subtitle={statusLabel}
         range={range}
         onRange={setRange}
+        available={Boolean(stats)}
         totalBytes={totals.down + totals.up}
         downloadBytes={totals.down}
         uploadBytes={totals.up}
@@ -115,8 +122,12 @@ export function Statistics() {
         axis={axis}
         apps={signalApps}
         sessions={sessions}
-        onReset={() => void handleReset()}
+        onReset={() => setResetOpen(true)}
       />
+      {resetOpen && <Dialog title={m.statistics.reset} closeLabel={m.common.close} onClose={() => setResetOpen(false)} closeDisabled={resetBusy} footer={<><button className="btn" disabled={resetBusy} onClick={() => setResetOpen(false)}>{m.common.cancel}</button><button className="primary-button btn" disabled={resetBusy} onClick={() => void handleReset()}>{resetBusy ? m.common.savingProgress : m.statistics.reset}</button></>}>
+        <p>{copy.resetHint}</p>{resetError && <StatePanel title={copy.error} detail={resetError} error />}
+      </Dialog>}
+      </>
     );
   }
 
@@ -360,13 +371,6 @@ function CalendarIcon() {
       <path d="M16 3v4M8 3v4M3 11h18" />
     </svg>
   );
-}
-
-/** Подписи оси под выбранный период — как на превью. */
-function signalAxis(range: SignalStatsRange, m: ReturnType<typeof useMessages>): string[] {
-  if (range === "hour") return ["-60", "-45", "-30", "-15", m.signal.axisNow];
-  if (range === "week") return ["-7", "-5", "-3", "-1", m.signal.axisNow];
-  return ["00:00", "06:00", "12:00", "18:00", "23:59"];
 }
 
 /** Длительность сессии в формате чч:мм:сс. */

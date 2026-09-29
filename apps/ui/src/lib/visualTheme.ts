@@ -34,13 +34,8 @@ export function applyVisualPreferences(
     providerTheme && typeof providerTheme.blur === "number" && Number.isFinite(providerTheme.blur)
       ? providerTheme.blur
       : null;
-  const themeUiStyle =
-    providerTheme?.ui_style === "material_you" || providerTheme?.ui_style === "nimbo"
-    || providerTheme?.ui_style === "dotted" || providerTheme?.ui_style === "signal"
-    || providerTheme?.ui_style === "manga"
-      ? providerTheme.ui_style
-      : null;
-  const effectiveUiStyle = themeUiStyle ?? preferences.ui_style;
+  // A provider may choose colors and branding, never an alternate app layout.
+  const effectiveUiStyle = preferences.ui_style;
 
   const media = window.matchMedia("(prefers-color-scheme: light)");
   const apply = () => {
@@ -70,7 +65,7 @@ export function applyVisualPreferences(
       && preferences.accent_color.toLowerCase() === DEFAULT_ACCENT_COLOR;
     // В светлой теме эмбер темнеет, иначе оранжевый на белом не держит контраст.
     const styleAccent = effectiveUiStyle === "signal" && untouchedAccent
-      ? (preferences.theme_mode === "light" ? SIGNAL_ACCENT_LIGHT : SIGNAL_ACCENT_COLOR)
+      ? (isLightTheme ? SIGNAL_ACCENT_LIGHT : SIGNAL_ACCENT_COLOR)
       : null;
     const accent = themeAccent
       ?? styleAccent
@@ -156,6 +151,14 @@ export function applyVisualPreferences(
     root.style.setProperty("--radius-2xl", scaledRadius(16));
     root.style.setProperty("--radius-3xl", scaledRadius(24));
     root.style.setProperty("--color-accent", accent);
+    // The unified UI keeps its geometry; user/provider colours still apply.
+    const rgb = accent.replace("#", "");
+    const channels = [0, 2, 4].map(i => parseInt(rgb.slice(i, i + 2), 16) / 255);
+    const linear = channels.map(c => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+    const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+    document.body.style.setProperty("--universal-primary", accent);
+    document.body.style.setProperty("--universal-on-primary", luminance > 0.179 ? "#121212" : "#ffffff");
+
     root.style.setProperty("--color-accent-deep", usesDefaultAccent ? DEFAULT_ACCENT_STRONG : accent);
     root.style.setProperty("--color-accent-bright", bright);
     root.style.setProperty("--color-accent-soft", soft);

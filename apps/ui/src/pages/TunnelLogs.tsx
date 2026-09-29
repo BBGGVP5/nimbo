@@ -1,16 +1,16 @@
+import { PageHeader, StatePanel, useSecondaryCopy } from "../components/Secondary";
+import { Surface } from "../components/Universal";
 import {
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { api, type TunnelLogEntry } from "../lib/api";
 import { useMessages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
-import { BackButton } from "../components/BackButton";
+import { startVisiblePolling } from "../lib/visiblePolling";
 
 type LevelFilter = "all" | "info" | "warn" | "error" | "debug";
 type LogLevel = Exclude<LevelFilter, "all">;
@@ -28,6 +28,7 @@ const LOG_LEVELS: LogLevel[] = ["info", "warn", "error", "debug"];
 
 export function TunnelLogs() {
   const m = useMessages();
+  const copy = useSecondaryCopy();
   const [entries, setEntries] = useState<TunnelLogEntry[]>([]);
   const [query, setQuery] = useState("");
   const [level, setLevel] = useState<LevelFilter>("all");
@@ -38,26 +39,44 @@ export function TunnelLogs() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const pendingLoad = useRef<Promise<void> | null>(null);
+  const lifecycleGeneration = useRef(0);
+
+  useEffect(() => {
+    lifecycleGeneration.current += 1;
+    return () => { lifecycleGeneration.current += 1; };
+  }, []);
 
   const loadLogs = useCallback(async () => {
+    if (pendingLoad.current) return pendingLoad.current;
+    const generation = lifecycleGeneration.current;
+    const isCurrent = () => generation === lifecycleGeneration.current;
     setRefreshing(true);
-    try {
-      const next = await api.getTunnelLogs(1000);
-      setEntries(next);
-      setLoadError(null);
-      setLastUpdated(new Date());
-    } catch (error) {
-      setLoadError(String(error));
-    } finally {
-      setRefreshing(false);
-    }
+    const request = (async () => {
+      try {
+        const next = await api.getTunnelLogs(1000);
+        if (!isCurrent() || document.visibilityState !== "visible") return;
+        // Preserve list identity when nothing changed: no refilter/autoscroll.
+        setEntries(current => current.length === next.length && current.every((entry, i) =>
+          entry.source === next[i].source && entry.level === next[i].level &&
+          entry.timestamp === next[i].timestamp && entry.message === next[i].message
+        ) ? current : next);
+        setLoadError(null);
+        setLastUpdated(new Date());
+      } catch (error) {
+        if (isCurrent()) setLoadError(String(error));
+      } finally {
+        if (isCurrent()) setRefreshing(false);
+      }
+    })();
+    pendingLoad.current = request;
+    try { await request; }
+    finally { pendingLoad.current = null; }
   }, []);
 
   useEffect(() => {
     if (paused) return;
-    void loadLogs();
-    const timer = window.setInterval(() => void loadLogs(), 2000);
-    return () => window.clearInterval(timer);
+    return startVisiblePolling(loadLogs, 2000);
   }, [loadLogs, paused]);
 
   const sources = useMemo(
@@ -96,6 +115,8 @@ export function TunnelLogs() {
 
   const onClear = async () => {
     try {
+      // Let an older snapshot finish before clearing the underlying log.
+      await pendingLoad.current;
       await api.clearTunnelLogs();
       await loadLogs();
       notifyInfo(m.tunnelLogs.cleared);
@@ -117,16 +138,9 @@ export function TunnelLogs() {
     : m.tunnelLogs.neverUpdated;
 
   return (
-    <div className="tunnel-logs-page h-full flex flex-col overflow-hidden">
-      <BackButton />
-      <div className="tunnel-logs-header">
-        <div className="tunnel-logs-title-block">
-          <div className="tunnel-logs-eyebrow">
-            <span className={["tunnel-logs-live-dot", loadError ? "is-error" : paused ? "is-paused" : ""].join(" ")} />
-            {loadError ? m.tunnelLogs.loadError : paused ? m.tunnelLogs.paused : m.tunnelLogs.live}
-          </div>
-          <h1 className="page-title">{m.tunnelLogs.title}</h1>
-          <p className="tunnel-logs-subtitle">{m.tunnelLogs.subtitle}</p>
+    <div className="page-view secondary-page tunnel-logs-page">
+      <PageHeader title={m.tunnelLogs.title} description={m.tunnelLogs.subtitle} actions={<span className="secondary-status">{loadError ? m.tunnelLogs.loadError : paused ? m.tunnelLogs.paused : m.tunnelLogs.live}</span>} />
+      <Surface className="logs-controls">
           <div className="tunnel-logs-summary">
             <span>{m.tunnelLogs.recordCount.replace("{count}", String(entries.length))}</span>
             <span>{m.tunnelLogs.shownCount.replace("{count}", String(filtered.length))}</span>
@@ -143,7 +157,6 @@ export function TunnelLogs() {
               )
             ))}
           </div>
-        </div>
         <div className="tunnel-logs-actions">
           <div className="tunnel-logs-search">
             <SearchIcon />
@@ -151,6 +164,7 @@ export function TunnelLogs() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              aria-label={m.tunnelLogs.searchPlaceholder}
               placeholder={m.tunnelLogs.searchPlaceholder}
               className="tunnel-logs-search-input"
             />
@@ -207,24 +221,16 @@ export function TunnelLogs() {
             <TrashIcon />
           </button>
         </div>
-      </div>
+      </Surface>
 
       {loadError && (
-        <div className="tunnel-logs-error" role="status">
-          <span>{m.tunnelLogs.loadError}</span>
-          <code>{loadError}</code>
-          <button type="button" onClick={() => void loadLogs()}>{m.tunnelLogs.refresh}</button>
-        </div>
+        <StatePanel error title={m.tunnelLogs.loadError} detail={loadError} action={<button className="btn" onClick={() => void loadLogs()}>{copy.retry}</button>} />
       )}
 
-      <div className="tunnel-logs-container">
+      <Surface className="tunnel-logs-container">
         <div ref={listRef} className="tunnel-logs-list">
-          {filtered.length === 0 ? (
-            <div className="tunnel-logs-empty">
-              <EmptyLogsIcon />
-              <strong>{m.tunnelLogs.empty}</strong>
-              <span>{m.tunnelLogs.emptyHint}</span>
-            </div>
+          {refreshing && !lastUpdated && !loadError ? <StatePanel title={copy.loading} busy /> : filtered.length === 0 ? (
+            <StatePanel title={query || level !== "all" || source !== "all" ? copy.noMatches : m.tunnelLogs.empty} detail={m.tunnelLogs.emptyHint} action={query || level !== "all" || source !== "all" ? <button className="btn" onClick={() => {setQuery(""); setLevel("all"); setSource("all");}}>{copy.resetFilters}</button> : undefined} />
           ) : (
             filtered.map((entry, idx) => (
               <div
@@ -268,7 +274,7 @@ export function TunnelLogs() {
             {m.tunnelLogs.recordCount.replace("{count}", String(filtered.length))}
           </span>
         </div>
-      </div>
+      </Surface>
     </div>
   );
 }
@@ -286,149 +292,7 @@ function LogFilterSelect<T extends string>({
   ariaLabel: string;
   className?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const listboxId = useId();
-  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
-  const selected = options[selectedIndex] ?? options[0];
-
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    setActiveIndex(selectedIndex);
-    const frame = window.requestAnimationFrame(() => optionRefs.current[selectedIndex]?.focus());
-    return () => window.cancelAnimationFrame(frame);
-  }, [open, selectedIndex]);
-
-  const closeAndFocus = () => {
-    setOpen(false);
-    window.requestAnimationFrame(() => triggerRef.current?.focus());
-  };
-
-  const choose = (option: FilterOption<T>) => {
-    onChange(option.value);
-    closeAndFocus();
-  };
-
-  const openAt = (index: number) => {
-    setActiveIndex(index);
-    setOpen(true);
-  };
-
-  const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const next = event.key === "ArrowDown"
-        ? selectedIndex
-        : Math.max(0, selectedIndex || options.length - 1);
-      openAt(next);
-    }
-  };
-
-  const onOptionKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeAndFocus();
-      return;
-    }
-    if (event.key === "Tab") {
-      setOpen(false);
-      return;
-    }
-
-    let nextIndex: number | null = null;
-    if (event.key === "ArrowDown") nextIndex = (activeIndex + 1) % options.length;
-    if (event.key === "ArrowUp") nextIndex = (activeIndex - 1 + options.length) % options.length;
-    if (event.key === "Home") nextIndex = 0;
-    if (event.key === "End") nextIndex = options.length - 1;
-    if (nextIndex !== null) {
-      event.preventDefault();
-      setActiveIndex(nextIndex);
-      optionRefs.current[nextIndex]?.focus();
-    }
-  };
-
-  if (!selected) return null;
-
-  return (
-    <div ref={rootRef} className={className}>
-      <button
-        ref={triggerRef}
-        type="button"
-        className={["tunnel-logs-select-trigger", open ? "is-open" : ""].join(" ")}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={listboxId}
-        onClick={() => open ? setOpen(false) : openAt(selectedIndex)}
-        onKeyDown={onTriggerKeyDown}
-      >
-        <span className={["tunnel-logs-select-dot", `is-${selected.tone ?? "source"}`].join(" ")} aria-hidden="true" />
-        <span className="tunnel-logs-select-value">{selected.label}</span>
-        <ChevronIcon />
-      </button>
-
-      {open && (
-        <div id={listboxId} className="tunnel-logs-select-menu" role="listbox" aria-label={ariaLabel}>
-          {options.map((option, index) => {
-            const isSelected = option.value === value;
-            return (
-              <button
-                key={option.value}
-                ref={(node) => { optionRefs.current[index] = node; }}
-                type="button"
-                role="option"
-                aria-selected={isSelected}
-                tabIndex={index === activeIndex ? 0 : -1}
-                className={[
-                  "tunnel-logs-select-option",
-                  isSelected ? "is-selected" : "",
-                  index === activeIndex ? "is-active" : "",
-                ].join(" ")}
-                onFocus={() => setActiveIndex(index)}
-                onKeyDown={onOptionKeyDown}
-                onClick={() => choose(option)}
-              >
-                <span className={["tunnel-logs-select-dot", `is-${option.tone ?? "source"}`].join(" ")} aria-hidden="true" />
-                <span className="tunnel-logs-select-option-label">{option.label}</span>
-                {option.meta !== undefined && <span className="tunnel-logs-select-meta">{option.meta}</span>}
-                <span className="tunnel-logs-select-check" aria-hidden="true">
-                  {isSelected && <CheckIcon />}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="tunnel-logs-select-chevron" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m7 9.5 5 5 5-5" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m4 10 3.5 3.5L16 5.5" />
-    </svg>
-  );
+  return <select className={className} aria-label={ariaLabel} value={value} onChange={e => onChange(e.target.value as T)}>{options.map(option => <option key={option.value} value={option.value}>{option.label}{option.meta !== undefined ? ` · ${option.meta}` : ""}</option>)}</select>;
 }
 
 function SearchIcon() {
@@ -469,11 +333,3 @@ function FolderIcon() {
   );
 }
 
-function EmptyLogsIcon() {
-  return (
-    <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 7h14l7 7v27H14Z" />
-      <path d="M28 7v8h7M19 23h11M19 29h11M19 35h7" />
-    </svg>
-  );
-}

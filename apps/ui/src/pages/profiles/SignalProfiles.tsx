@@ -1,7 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { CountryFlag } from "../../components/CountryFlag";
+import { AutoFastestLine } from "../../components/AutoFastestLine";
+import { useAppStore } from "../../store";
+import { LatencyDisplay } from "../../components/LatencyDisplay";
+import { useState, type ReactNode } from "react";
 import {
   protocolLabel,
-  serverListDescription,
   transportLabel,
   type Server,
   type Subscription,
@@ -9,17 +12,8 @@ import {
 import { type Messages } from "../../lib/i18n";
 import { SignalProfileCard } from "./SignalProfileCard";
 import { serverDisplayLabel, type ServerUiOverrides } from "../../lib/serverUiOverrides";
+import { ActionMenu } from "../../components/Universal";
 import { DotsIcon, StarIcon } from "../home/SignalServerRail";
-
-/**
- * Профили в стиле Signal: подписка — одна карточка, где собраны остаток
- * трафика, срок, описание провайдера, ссылки и всё управление (обновить,
- * пинг, порядок, настройки, удаление). Серверы всех подписок — одной
- * таблицей ниже, где протокол, транспорт и пинг стоят в своих колонках.
- *
- * Клик по карточке фильтрует таблицу по этой подписке, поэтому список
- * серверов не дублируется внутри карточек.
- */
 
 export interface SignalProfilesProps {
   labels: Messages;
@@ -79,10 +73,8 @@ export function SignalProfiles({
   order,
 }: SignalProfilesProps) {
   const [collapsedUrls, setCollapsedUrls] = useState<Set<string>>(() => new Set());
+  const autoSubscription = useAppStore(state => state.status?.auto_subscription_url);
   const needle = query.trim().toLowerCase();
-  // Таблица нужна, только пока хоть одна показанная подписка развёрнута:
-  // иначе под свёрнутыми карточками висела пустая шапка с «серверов нет».
-  const expandedInScope = subs.some((sub) => !collapsedUrls.has(sub.url));
   const rows = subs
     .filter((sub) => !collapsedUrls.has(sub.url))
     .flatMap((sub) =>
@@ -129,84 +121,30 @@ export function SignalProfiles({
             updatedLabel={updatedLabel(sub)}
             supportUrl={supportUrl(sub)}
             siteUrl={siteUrl(sub)}
-          />
+          >
+            <div className="parity-server-list">
+              {!needle && <AutoFastestLine servers={sub.servers.filter(server => !hiddenServerIds.has(server.id))} subscriptionUrl={sub.url} autoSelected={autoSubscription === sub.url} activeId={activeId} pings={Object.fromEntries(Object.entries(pingByServer).filter((entry): entry is [string, number] => entry[1] !== undefined))} displayName={server => serverDisplayLabel(server, serverOverrides)}/>}
+              {!rows.some(row => row.sub.url === sub.url) && <p className="parity-list-empty">{m.profiles.emptyTitle}</p>}
+              {rows.filter(row => row.sub.url === sub.url).map(({ server }) => {
+                const active = server.id === activeId;
+                const connecting = server.id === connectingId;
+                return <div key={server.id} className={`parity-server-row${active ? " is-active" : ""}`}>
+                  <button className="parity-server-select" type="button" onClick={() => onPickServer(sub, server)} aria-pressed={active} disabled={connecting}>
+                    <span className="parity-server-flag"><CountryFlag serverName={server.name} fallback={<span aria-hidden="true">◎</span>}/></span>
+                    <span className="parity-server-copy"><strong>{serverDisplayLabel(server, serverOverrides)}</strong><small>{protocolLabel(server.protocol)} · {transportLabel(server.protocol) || "JSON"}</small></span>
+                    <span className="parity-server-latency">{connecting ? m.home.connecting : <LatencyDisplay value={pingByServer[server.id]} />}</span>
+                    {active && <span aria-label={m.signal.active}>✓</span>}
+                  </button>
+                  <button type="button" className={`signal-star${favorites.has(server.id) ? " is-on" : ""}`} onClick={() => onToggleFavorite(server.id)} aria-label={m.profiles.favorite} aria-pressed={favorites.has(server.id)}><StarIcon filled={favorites.has(server.id)}/></button>
+                  <SignalRowMenu labels={m} onPing={() => onPingServer(server.id)} onRename={() => onRenameServer(server.id)} onHide={() => onHideServer(server.id)}/>
+                </div>;
+              })}
+            </div>
+          </SignalProfileCard>
         ))}
       </div>
 
-      {expandedInScope && (
-      <div className="signal-table-wrap">
-        <table className="signal-table">
-          <thead>
-            <tr>
-              <th className="signal-table-name">{m.signal.columnServer}</th>
-              <th>{m.signal.columnProtocol}</th>
-              <th>{m.signal.columnTransport}</th>
-              <th>{m.signal.columnPing}</th>
-              <th className="signal-table-action">{m.signal.columnAction}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={5} className="signal-table-empty">
-                  {m.profiles.emptyTitle}
-                </td>
-              </tr>
-            )}
-            {rows.map(({ sub, server }) => {
-              const isActive = server.id === activeId;
-              const isConnecting = server.id === connectingId;
-              const ping = pingByServer[server.id];
-              const description = serverListDescription(server, sub.servers);
-              return (
-                <tr
-                  key={`${sub.url}:${server.id}`}
-                  className={isActive ? "is-active" : isConnecting ? "is-connecting" : ""}
-                >
-                  <td className="signal-table-name">
-                    <button
-                      type="button"
-                      className={`signal-star${favorites.has(server.id) ? " is-on" : ""}`}
-                      onClick={() => onToggleFavorite(server.id)}
-                      title={m.profiles.favorite}
-                      aria-pressed={favorites.has(server.id)}
-                    >
-                      <StarIcon filled={favorites.has(server.id)} />
-                    </button>
-                    <span className="signal-table-copy">
-                      <span className="signal-table-title">{serverDisplayLabel(server, serverOverrides)}</span>
-                      {description && <span className="signal-table-description">{description}</span>}
-                    </span>
-                  </td>
-                  <td>
-                    <span className="signal-tag">{protocolLabel(server.protocol)}</span>
-                  </td>
-                  <td className="signal-num">{transportLabel(server.protocol) || "JSON"}</td>
-                  <td className="signal-num">{ping != null ? `${ping} ms` : "—"}</td>
-                  <td className="signal-table-action">
-                    <span className="signal-row-actions">
-                      <button
-                        type="button"
-                        className={`signal-chip${isActive ? " is-on" : ""}`}
-                        onClick={() => onPickServer(sub, server)}
-                      >
-                        {isActive ? m.signal.active : isConnecting ? m.home.connecting : m.home.connect}
-                      </button>
-                      <SignalRowMenu
-                        labels={m}
-                        onPing={() => onPingServer(server.id)}
-                        onRename={() => onRenameServer(server.id)}
-                        onHide={() => onHideServer(server.id)}
-                      />
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      )}
+
     </div>
   );
 }
@@ -223,60 +161,9 @@ function SignalRowMenu({
   onRename: () => void;
   onHide: () => void;
 }) {
-  // Таблица прокручивается, поэтому меню рисуется фиксированно от кнопки —
-  // иначе его обрезает контейнер со скроллом.
-  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
-  const pick = (action: () => void) => () => {
-    setAnchor(null);
-    action();
-  };
-
-  useEffect(() => {
-    if (!anchor) return;
-    const close = () => setAnchor(null);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => {
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [anchor]);
-
-  return (
-    <>
-      <button
-        type="button"
-        className="signal-icon-btn"
-        onClick={(event) => {
-          if (anchor) {
-            setAnchor(null);
-            return;
-          }
-          const rect = event.currentTarget.getBoundingClientRect();
-          setAnchor({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
-        }}
-        aria-expanded={anchor != null}
-        title={m.profiles.serverMenu}
-        aria-label={m.profiles.serverMenu}
-      >
-        <DotsIcon />
-      </button>
-      {anchor && (
-        <>
-          <span className="signal-menu-scrim" onClick={() => setAnchor(null)} />
-          <span className="signal-menu signal-menu--floating" style={{ top: anchor.top, right: anchor.right }}>
-            <button type="button" onClick={pick(onPing)}>
-              {m.profiles.testLatency}
-            </button>
-            <button type="button" onClick={pick(onRename)}>
-              {m.profiles.renameServer}
-            </button>
-            <button type="button" className="is-danger" onClick={pick(onHide)}>
-              {m.profiles.deleteServer}
-            </button>
-          </span>
-        </>
-      )}
-    </>
-  );
+  return <ActionMenu label={m.profiles.serverMenu} actions={[
+    { label: m.profiles.testLatency, onClick: onPing },
+    { label: m.profiles.renameServer, onClick: onRename },
+    { label: m.profiles.deleteServer, onClick: onHide, danger: true },
+  ]}><DotsIcon/></ActionMenu>;
 }

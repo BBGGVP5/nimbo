@@ -9,9 +9,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    CURRENT_PROJECT_VERSION: 15
-    MARKETING_VERSION: 1.2.0
-    NIMBO_DISPLAY_VERSION: 1.2.0-beta.4
+    CURRENT_PROJECT_VERSION: 180
+    MARKETING_VERSION: 1.3.0
+    NIMBO_DISPLAY_VERSION: 1.3.0-beta.1
     NIMBO_APP_BUNDLE_ID: com.nimbo.resignable
     NIMBO_PACKET_TUNNEL_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).PacketTunnel"
     NIMBO_CONTROL_WIDGET_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).ControlWidget"
@@ -36,8 +36,7 @@ targets:
           Нужен для синхронизации подписок и настроек с компьютером или
           Android-устройством в вашей сети Wi-Fi.
         NSCameraUsageDescription: >-
-          Камера нужна только чтобы отсканировать QR синхронизации со второго
-          устройства.
+          Камера нужна для сканирования QR-кодов подписок и синхронизации устройств.
         NSBonjourServices:
           - _nimbo-sync._tcp
         NimboPacketTunnelBundleIdentifier: "$(NIMBO_PACKET_TUNNEL_BUNDLE_ID)"
@@ -65,6 +64,7 @@ targets:
       - path: Shared
     resources:
       - path: Nimbo/Assets.xcassets
+      - path: Branding/Branding.xcassets
     dependencies:
       - target: NimboPacketTunnel
         embed: true
@@ -72,6 +72,13 @@ targets:
         embed: true
       - framework: ../shared/build/XCFrameworks/release/NimboShared.xcframework
         embed: false
+      # App-side diagnostics run independently of the packet tunnel process.
+      # This remains one combined Go runtime per executable, never two.
+      - framework: Vendor/LibXray.xcframework
+        embed: false
+      - sdk: libresolv.tbd
+      - sdk: Security.framework
+      - sdk: CoreFoundation.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: "$(NIMBO_APP_BUNDLE_ID)"
@@ -120,6 +127,9 @@ targets:
       - framework: Vendor/LibXray.xcframework
         embed: false
       - sdk: libresolv.tbd
+      # The final Swift link must resolve Go's Darwin x509 framework symbols.
+      - sdk: Security.framework
+      - sdk: CoreFoundation.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: "$(NIMBO_PACKET_TUNNEL_BUNDLE_ID)"
@@ -155,6 +165,10 @@ targets:
           - allow-vpn
     sources:
       - path: ControlWidget
+      - path: Shared/NimboConstants.swift
+      - path: Shared/NimboTunnelControl.swift
+    resources:
+      - path: Branding/Branding.xcassets
     dependencies:
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework

@@ -9,45 +9,71 @@ struct DiagnosticsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Что попадёт в файл") {
+            NimboPage {
+                NimboNotice(title: "Проверить подключение", detail: "Проверьте установку или подготовьте файл с событиями приложения и туннеля.", symbol: "waveform.path.ecg")
+                NavigationLink {
+                    ReadinessView().environmentObject(vpn)
+                } label: {
+                    HStack {
+                        Label("Готовность установки", systemImage: "checklist")
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right").accessibilityHidden(true)
+                    }
+                }
+                .buttonStyle(NimboActionStyle())
+                NavigationLink {
+                    AllowlistCheckView()
+                } label: {
+                    HStack {
+                        Label("Проверка БС", systemImage: "network")
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right").accessibilityHidden(true)
+                    }
+                }
+                .buttonStyle(NimboActionStyle())
+                NimboSection(title: "ДИАГНОСТИЧЕСКИЙ ФАЙЛ") {
                     Label("Этапы запуска приложения и туннеля", systemImage: "list.bullet.rectangle")
+                    Divider()
                     Label("Версии приложения, iOS и устройства", systemImage: "iphone")
+                    Divider()
                     Label("Короткие коды ошибок и состояние сети", systemImage: "waveform.path.ecg")
                 }
-                Section("Конфиденциальность") {
-                    Text("Ссылки подписок, токены, UUID, пароли и IP-адреса маскируются до записи на диск.")
-                }
+                NimboNotice(title: "Конфиденциальность", detail: "Ссылки подписок, токены, UUID, пароли и IP-адреса маскируются до записи на диск.", symbol: "lock").nimboCard()
                 if let errorMessage {
-                    Section("Ошибка") { Text(errorMessage).foregroundStyle(.red) }
+                    NimboNotice(title: "Не удалось подготовить файл", detail: errorMessage,
+                                symbol: "exclamationmark.circle", tint: NimboNative.error).nimboCard()
                 }
-                Section {
-                    Button {
-                        prepareExport()
-                    } label: {
-                        Label(isPreparing ? "Подготовка…" : "Подготовить диагностику", systemImage: "square.and.arrow.up")
-                    }
-                    .disabled(isPreparing)
-
-                    if let exportedURL {
-                        ShareLink(item: exportedURL) {
-                            Label("Отправить файл", systemImage: "paperplane.fill")
-                        }
-                    }
+                if isPreparing {
+                    NimboNotice(title: "Подготовка диагностики…", detail: "Собираем события приложения и доступные данные туннеля.", busy: true).nimboCard()
+                }
+                Button(action: prepareExport) {
+                    Label(isPreparing ? "Подготовка…" : "Подготовить диагностику", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(NimboActionStyle(prominent: true))
+                .disabled(isPreparing)
+                if let exportedURL {
+                    NimboNotice(title: "Файл готов", detail: exportedURL.lastPathComponent,
+                                symbol: "checkmark.circle", tint: NimboNative.success).nimboCard()
+                    ShareLink(item: exportedURL) {
+                        Label("Отправить файл", systemImage: "square.and.arrow.up")
+                    }.buttonStyle(NimboActionStyle())
                 }
             }
+            .nimboSheetStyle()
             .navigationTitle("Диагностика iOS")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Готово") { dismiss() }
+                    Button("Готово") { dismiss() }.frame(minWidth: 44, minHeight: 44)
                 }
             }
         }
     }
 
     private func prepareExport() {
+        guard !isPreparing else { return }
         isPreparing = true
         errorMessage = nil
+        exportedURL = nil
         Task {
             do {
                 await NimboDiagnostics.shared.record(.info, stage: .app, code: "IOS_DIAGNOSTICS_EXPORT", message: "Пользователь подготовил диагностический пакет")
@@ -60,7 +86,7 @@ struct DiagnosticsView: View {
                 let url = try await NimboDiagnostics.shared.exportBundle(additionalSections: sections)
                 await MainActor.run { exportedURL = url; isPreparing = false }
             } catch {
-                await MainActor.run { errorMessage = error.localizedDescription; isPreparing = false }
+                await MainActor.run { errorMessage = NimboRedactor.redact(error.localizedDescription); isPreparing = false }
             }
         }
     }

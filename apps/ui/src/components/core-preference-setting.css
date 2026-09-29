@@ -1,0 +1,36 @@
+.settings-card > .settings-row.core-preference-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.settings-row.core-preference-setting > .core-preference-setting__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.settings-row.core-preference-setting .settings-input {
+  flex: 0 0 auto;
+  width: min(100%, 240px);
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.settings-row.core-preference-setting > .settings-row-description {
+  width: 100%;
+  max-width: 76ch;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}

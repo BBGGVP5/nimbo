@@ -1,3 +1,4 @@
+import { Dialog } from "../components/Universal";
 import { Link } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
@@ -246,16 +247,8 @@ function RoutingCard({
   return (
     <div
       className={["routing-card", active ? "routing-card-active" : ""].join(" ")}
-      role="button"
-      tabIndex={0}
-      onClick={onActivate}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onActivate();
-        }
-      }}
     >
+      <button type="button" className="routing-card-select" onClick={onActivate} aria-pressed={active}>
       <div className="routing-card-body">
         <div className="routing-card-head">
           <div className="routing-card-name">{profile.name}</div>
@@ -274,6 +267,7 @@ function RoutingCard({
           <span className="routing-card-meta-text">{profile.strategy}</span>
         </div>
       </div>
+      </button>
       <div className="routing-card-actions">
         {active && (
           <span className="routing-active-pill">
@@ -396,36 +390,63 @@ function RoutingEditorDialog({
     }
   };
 
-  return (
-    <div className="routing-editor-backdrop" role="presentation" onClick={onClose}>
-      <div
-        className="routing-editor-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="routing-editor-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="routing-editor-header">
-          <div>
-            <h2 id="routing-editor-title" className="routing-editor-title">
-              {mode === "create" ? labels.routing.newProfile : labels.routing.editProfile}
-            </h2>
-            <div className="routing-editor-subtitle">
-              {draft.builtin ? labels.routing.builtin : labels.routing.customProfile}
-            </div>
+  return <Dialog className="routing-editor-dialog" title={mode === "create" ? labels.routing.newProfile : labels.routing.editProfile} subtitle={draft.builtin ? labels.routing.builtin : labels.routing.customProfile} closeLabel={labels.common.close} onClose={onClose} closeDisabled={saving || deleting}
+    footer={<div className="routing-editor-footer">
+          <div className="routing-editor-footer-left">
+            {mode === "edit" && (
+              confirmDelete ? (
+                <div className="routing-delete-confirm">
+                  <span>{fillTemplate(labels.routing.deleteConfirm, { name: draft.name })}</span>
+                  <button
+                    type="button"
+                    className="routing-editor-danger"
+                    disabled={deleting || saving}
+                    onClick={() => void remove()}
+                  >
+                    {deleting ? labels.common.savingProgress : labels.routing.delete}
+                  </button>
+                  <button
+                    type="button"
+                    className="routing-editor-secondary"
+                    disabled={deleting}
+                    onClick={() => setConfirmDelete(false)}
+                  >
+                    {labels.common.cancel}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="routing-editor-danger"
+                  disabled={saving}
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  <TrashIcon />
+                  <span>{labels.routing.delete}</span>
+                </button>
+              )
+            )}
           </div>
-          <button
-            type="button"
-            className="routing-card-icon-btn"
-            title={labels.common.close}
-            aria-label={labels.common.close}
-            onClick={onClose}
-          >
-            <CloseIcon />
-          </button>
-        </div>
-
-        <div className="routing-editor-scroll">
+          <div className="routing-editor-actions">
+            <button
+              type="button"
+              className="routing-editor-secondary"
+              disabled={saving || deleting}
+              onClick={onClose}
+            >
+              {labels.common.cancel}
+            </button>
+            <button
+              type="button"
+              className="routing-editor-primary"
+              disabled={saving || deleting}
+              onClick={() => void save()}
+            >
+              {saving ? labels.common.saving : labels.common.save}
+            </button>
+          </div>
+        </div>}>
+        <div className="routing-editor-content">
           <section className="routing-editor-section">
             <div className="routing-editor-grid">
               <TextField
@@ -555,64 +576,7 @@ function RoutingEditorDialog({
           </section>
         </div>
 
-        <div className="routing-editor-footer">
-          <div className="routing-editor-footer-left">
-            {mode === "edit" && (
-              confirmDelete ? (
-                <div className="routing-delete-confirm">
-                  <span>{fillTemplate(labels.routing.deleteConfirm, { name: draft.name })}</span>
-                  <button
-                    type="button"
-                    className="routing-editor-danger"
-                    disabled={deleting || saving}
-                    onClick={() => void remove()}
-                  >
-                    {deleting ? labels.common.savingProgress : labels.routing.delete}
-                  </button>
-                  <button
-                    type="button"
-                    className="routing-editor-secondary"
-                    disabled={deleting}
-                    onClick={() => setConfirmDelete(false)}
-                  >
-                    {labels.common.cancel}
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="routing-editor-danger"
-                  disabled={saving}
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  <TrashIcon />
-                  <span>{labels.routing.delete}</span>
-                </button>
-              )
-            )}
-          </div>
-          <div className="routing-editor-actions">
-            <button
-              type="button"
-              className="routing-editor-secondary"
-              disabled={saving || deleting}
-              onClick={onClose}
-            >
-              {labels.common.cancel}
-            </button>
-            <button
-              type="button"
-              className="routing-editor-primary"
-              disabled={saving || deleting}
-              onClick={() => void save()}
-            >
-              {saving ? labels.common.saving : labels.common.save}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  </Dialog>;
 }
 
 function TextField({
@@ -730,51 +694,11 @@ function RoutingDeleteDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  return (
-    <div className="routing-delete-backdrop" role="presentation" onClick={onCancel}>
-      <div
-        className="routing-delete-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="routing-delete-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="routing-delete-icon" aria-hidden="true">
-          <TrashIcon />
-        </div>
-        <div className="routing-delete-content">
-          <h2 id="routing-delete-title" className="routing-delete-title">
-            {labels.routing.deleteTitle}
-          </h2>
-          <p className="routing-delete-description">
-            {fillTemplate(labels.routing.deleteDescription, { name: profile.name })}
-          </p>
-          <div className="routing-delete-profile">
-            <span>{profile.name}</span>
-            <small>{profile.rules_count} {labels.routing.rulesLabel}</small>
-          </div>
-        </div>
-        <div className="routing-delete-actions">
-          <button
-            type="button"
-            className="routing-editor-secondary"
-            disabled={deleting}
-            onClick={onCancel}
-          >
-            {labels.common.cancel}
-          </button>
-          <button
-            type="button"
-            className="routing-editor-danger"
-            disabled={deleting}
-            onClick={onConfirm}
-          >
-            {deleting ? labels.common.savingProgress : labels.routing.delete}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  return <Dialog title={labels.routing.deleteTitle} closeLabel={labels.common.close} onClose={onCancel} closeDisabled={deleting}
+    footer={<><button className="btn" disabled={deleting} onClick={onCancel}>{labels.common.cancel}</button><button className="routing-editor-danger" disabled={deleting} onClick={onConfirm}>{deleting ? labels.common.savingProgress : labels.routing.delete}</button></>}>
+    <p className="universal-confirm-description">{fillTemplate(labels.routing.deleteDescription, { name: profile.name })}</p>
+    <div className="routing-delete-profile"><span>{profile.name}</span><small>{profile.rules_count} {labels.routing.rulesLabel}</small></div>
+  </Dialog>;
 }
 
 function makeNewRoutingProfile(
@@ -979,10 +903,3 @@ function TrashIcon() {
   );
 }
 
-function CloseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  );
-}

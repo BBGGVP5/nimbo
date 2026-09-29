@@ -10,7 +10,10 @@ enum PacketTunnelNetwork {
         let interfaceName: String
     }
 
-    static func settings(options: NimboRoutingOptions = .default) -> NEPacketTunnelNetworkSettings {
+    static func settings(
+        options: NimboRoutingOptions = .default,
+        awg: NimboAWGConfiguration? = nil
+    ) -> NEPacketTunnelNetworkSettings {
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
 
         let ipv4 = NEIPv4Settings(
@@ -37,12 +40,12 @@ enum PacketTunnelNetwork {
         settings.ipv6Settings = ipv6
 
         // «Системный» набор означает отсутствие своих DNS: адреса выдаёт сеть.
-        if let servers = options.dnsServers {
+        if let servers = awg.flatMap({ $0.dns.isEmpty ? nil : $0.dns }) ?? options.dnsServers {
             let dns = NEDNSSettings(servers: servers)
             dns.matchDomains = [""]
             settings.dnsSettings = dns
         }
-        settings.mtu = NSNumber(value: mtu)
+        settings.mtu = NSNumber(value: awg?.mtu ?? mtu)
         return settings
     }
 

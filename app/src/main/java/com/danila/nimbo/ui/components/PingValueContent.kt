@@ -1,0 +1,59 @@
+package com.danila.nimbo.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.danila.nimbo.network.PingDisplay
+import com.danila.nimbo.network.pingBars
+import com.danila.nimbo.network.displayPingMs
+import com.danila.nimbo.network.displayPingLabel
+
+@Composable
+internal fun currentPingProtocol(): Int =
+    com.danila.nimbo.NebulaGuardApplication.instance.preferencesManager.pingProtocolState.value
+
+/** Uses the enclosing badge's existing color, shape and loading animation. */
+@Composable
+internal fun PingValueContent(ping: Int?, displayMode: Int, color: Color) {
+    val mode = PingDisplay.fromId(displayMode)
+    val protocol = currentPingProtocol()
+    val label = displayPingLabel(ping, protocol) + if (ping != null && ping >= 0) " ms" else ""
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = label }
+    ) {
+        if (mode == PingDisplay.DOTS) {
+            Box(Modifier.size(9.dp).background(color, CircleShape))
+        }
+        if (mode == PingDisplay.BARS || mode == PingDisplay.BOTH) {
+            val bars = pingBars(displayPingMs(ping, protocol))
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                repeat(4) { index ->
+                    Box(Modifier.width(3.dp).height((5 + index * 3).dp)
+                        .background(color.copy(alpha = if (index < bars) 1f else 0.18f), RoundedCornerShape(1.dp)))
+                }
+            }
+        }
+        if (mode == PingDisplay.NUMERIC || mode == PingDisplay.BOTH) {
+            Text(label, color = color, style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+        }
+    }
+}

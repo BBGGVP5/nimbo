@@ -8,22 +8,41 @@ import Foundation
 /// идти некуда. Поэтому для них расширение получает список реальных серверов
 /// профиля и собирает балансировщик само — так же, как это делает Android.
 enum NimboStagingPayload {
+    static let automaticServerID = "nimbo:auto"
     /// Сколько узлов уходит в балансировщик.
     private static let maximumBalancerNodes = 16
+
+    /// Virtual selection backed by the Packet Tunnel's leastPing balancer.
+    /// It is never mixed into the parsed subscription's real server list.
+    static func automaticServer(in profile: NimboSubscriptionProfile) -> NimboSubscriptionServer? {
+        guard balancerCandidates(in: profile).count >= 2 else { return nil }
+        return NimboSubscriptionServer(
+            id: automaticServerID, name: "Автобалансер Nimbo", protocol: "auto",
+            host: "", port: 0, transport: "", security: "",
+            rawConfiguration: "{\"nimbo\":{\"balancer\":true}}",
+            isNativeXrayJson: false
+        )
+    }
+
+    private static func balancerCandidates(in profile: NimboSubscriptionProfile) -> [NimboSubscriptionServer] {
+        profile.servers.filter { candidate in
+            !isAutoBalancer(candidate) &&
+                !["amneziawg", "awg", "wireguard"].contains(candidate.protocol.lowercased()) &&
+                !candidate.isNativeXrayJson && !candidate.host.isEmpty &&
+                candidate.rawConfiguration.contains("://")
+        }
+    }
 
     static func make(
         for server: NimboSubscriptionServer,
         in profile: NimboSubscriptionProfile?
     ) -> Data {
         let plain = Data(server.rawConfiguration.utf8)
+        // AWG is staged verbatim; its peer is never part of an Xray balancer.
+        if ["amneziawg", "awg", "wireguard"].contains(server.protocol.lowercased()) { return plain }
         guard isAutoBalancer(server), let profile else { return plain }
 
-        let candidates = profile.servers.filter { candidate in
-            !isAutoBalancer(candidate) &&
-                !candidate.isNativeXrayJson &&
-                !candidate.host.isEmpty &&
-                candidate.rawConfiguration.contains("://")
-        }
+        let candidates = balancerCandidates(in: profile)
         // Балансировщику ни к чему вся подписка: каждый узел в нём — это
         // отдельный выход в ядре и отдельная проверка по кругу. На сотне
         // узлов расширение упирается в память, а круг проверок растягивается
@@ -68,8 +87,7 @@ enum NimboStagingPayload {
 
     /// Чем меньше число, тем раньше узел попадёт в балансировщик.
     private static func rank(_ latency: Int?) -> Int {
-        guard let latency else { return 100_000 }
-        return latency > 0 ? latency : 200_000
+        NimboPingPolicy.selectionRank(latency)
     }
 
     /// Те же признаки, что и в `ServerPolicyManager.isAutoBalancerServer`

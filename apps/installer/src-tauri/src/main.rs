@@ -1,5 +1,6 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod awg_payload;
 mod payload;
 
 #[cfg(windows)]

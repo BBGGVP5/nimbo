@@ -7,6 +7,6 @@
 | `ui/` | Основной интерфейс: React frontend и Rust/Tauri backend | Windows, Linux |
 | `service/` | Служба с повышенными правами для сетевых операций | Windows |
 | `installer/` | Отдельная оболочка установщика и скрипты упаковки | Windows, Linux |
-| `android/` | Зарезервированное место будущего Android-клиента | Android |
+| `../app/` | Актуальный Android-клиент (Gradle-проект в корне репозитория) | Android |
 
-Не переносите desktop-файлы в `android/`: Android-клиент будет отдельным Gradle-проектом. Общие форматы подписок и конфигурации нужно развивать в `crates/subscription` и `crates/xray-config`, чтобы desktop-клиент сохранял совместимость.
+Общий Compose Multiplatform-код Android, iOS и desktop находится в `../shared/`. Для Android нужен собранный отдельно `app/libs/libxray.aar`; бинарный файл не хранится в Git.

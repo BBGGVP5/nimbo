@@ -12,10 +12,13 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+serde_json.workspace = true
+sha2.workspace = true
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 dirs.workspace = true
 tauri = { version = "2", features = [] }
 

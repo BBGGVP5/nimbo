@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,8 +34,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,155 +41,69 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
-    var query by remember { mutableStateOf("") }
-    var favoritesOnly by remember { mutableStateOf(false) }
-    val visibleServers = remember(
-        state.servers,
-        query,
-        favoritesOnly,
-        state.favoriteServerIds,
-        state.serverSort,
-        state.favoritesFirst
-    ) {
-        val value = query.trim()
-        val filtered = state.servers
-            .filter { !favoritesOnly || it.id in state.favoriteServerIds }
-            .filter {
-                value.isEmpty() ||
-                    it.name.contains(value, ignoreCase = true) ||
-                    it.description.contains(value, ignoreCase = true) ||
-                    it.connectionLabel.contains(value, ignoreCase = true)
-            }
-        sortServers(filtered, state.serverSort, state.favoriteServerIds, state.favoritesFirst)
+    var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var favoritesOnly by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var expanded by androidx.compose.runtime.saveable.rememberSaveable(state.activeProfileName) { mutableStateOf(false) }
+    val visibleServers = remember(state.servers, query, favoritesOnly, state.favoriteServerIds, state.serverSort, state.favoritesFirst) {
+        filterAndSortServers(state, query, favoritesOnly)
     }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(top = 44.dp, bottom = 116.dp)
-            .nimboScreenPadding(),
+    val showServers = expanded || query.isNotBlank() || favoritesOnly
+    androidx.compose.foundation.lazy.LazyColumn(
+        modifier = Modifier.fillMaxSize().nimboScreenPadding(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = LocalNimboContentTop.current, bottom = LocalNimboContentBottom.current),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                BasicText("Профили", style = NimboTitleStyle)
-                BasicText(
-                    if (state.profileCount == 0) "Подписок пока нет" else "${state.serverCount} серверов · ${state.profileCount} подписка",
-                    style = NimboBodyStyle
-                )
-            }
-            // Сердечко фильтрует список по избранному; сами метки ставятся
-            // кнопкой «⋯» в строке сервера.
-            NimboIconButton(
-                NimboIconName.FAVORITE,
-                modifier = Modifier.size(46.dp),
-                selected = favoritesOnly,
-                onClick = { favoritesOnly = !favoritesOnly }
-            )
-            Spacer(Modifier.width(8.dp))
-            NimboIconButton(NimboIconName.ADD, modifier = Modifier.size(50.dp), onClick = actions.onAddProfile)
-        }
-
-        NimboSurface(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                NimboIcon(NimboIconName.SEARCH, tint = NimboPalette.TextTertiary, modifier = Modifier.size(26.dp))
-                Spacer(Modifier.width(12.dp))
-                BasicTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    textStyle = TextStyle(color = NimboPalette.Text, fontSize = 17.sp),
-                    cursorBrush = SolidColor(NimboPalette.Accent),
-                    decorationBox = { inner ->
-                        if (query.isBlank()) BasicText("Поиск серверов", style = NimboBodyStyle.copy(fontSize = 17.sp))
-                        inner()
-                    }
-                )
+        item {
+            NimboPageHeading("Профили", if (state.profileCount == 0) "Добавьте первую подписку" else serverCountLabel(state.serverCount)) {
+                NimboIconButton(NimboIconName.FAVORITE, Modifier.size(44.dp), selected = favoritesOnly, onClick = { favoritesOnly = !favoritesOnly })
+                Spacer(Modifier.width(8.dp))
+                NimboIconButton(NimboIconName.ADD, Modifier.size(44.dp), onClick = actions.onAddProfile)
             }
         }
-
+        item {
+            NimboSurface(Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    NimboIcon(NimboIconName.SEARCH, Modifier.size(20.dp), NimboPalette.TextTertiary)
+                    BasicTextField(value = query, onValueChange = { query = it }, modifier = Modifier.weight(1f)
+                        .heightIn(min = 24.dp).semantics { contentDescription = "Поиск серверов" }, singleLine = true,
+                        textStyle = NimboBodyStyle.copy(color = NimboPalette.Text), cursorBrush = SolidColor(NimboPalette.Accent),
+                        decorationBox = { inner -> if (query.isBlank()) BasicText("Поиск серверов", style = NimboBodyStyle); inner() })
+                }
+            }
+        }
         if (state.profileCount == 0) {
-            NimboSurface(modifier = Modifier.fillMaxWidth(), strong = true) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 22.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    NimboIcon(NimboIconName.CLOUD, tint = NimboPalette.Accent, modifier = Modifier.size(52.dp))
-                    BasicText("Добавьте первую подписку", style = NimboSectionTitleStyle)
-                    BasicText(
-                        "Поддерживаются URL подписок и отдельные конфигурации. Импорт откроется в защищённом окне Nimbo.",
-                        style = NimboBodyStyle,
-                        modifier = Modifier.padding(horizontal = 12.dp)
-                    )
-                    NimboPill("Добавить профиль", selected = true, onClick = actions.onAddProfile)
-                }
-            }
+            item { NimboAddProfileCard(actions) }
         } else {
-            ProfileSubscriptionCard(state, actions)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                NimboServerSort.entries.forEach { sort ->
-                    NimboPill(
-                        sort.title,
-                        modifier = Modifier.weight(1f),
-                        selected = state.serverSort == sort.key,
-                        onClick = { actions.onSetAppearance("serverSort", sort.key) }
-                    )
+            item { NimboSubscriptionHeader(state, actions, showServers) { expanded = !showServers; if (!expanded) { query = ""; favoritesOnly = false } } }
+            if (showServers) {
+                item {
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        NimboServerSort.entries.forEach { sort -> NimboPill(sort.title, selected = state.serverSort == sort.key,
+                            onClick = { actions.onSetAppearance("serverSort", sort.key) }) }
+                    }
                 }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                BasicText(
-                    if (favoritesOnly) "ИЗБРАННОЕ · ${visibleServers.size}" else "${state.serverCount} СЕРВЕРОВ",
-                    modifier = Modifier.weight(1f),
-                    style = NimboBodyStyle.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                )
-                // Кнопка на виду: пока замер запускался нажатием на число,
-                // догадаться о нём было нельзя.
-                // Значок без подписи: рядом стоит счётчик серверов, и текст
-                // «Проверить все» отбирал у него половину строки.
-                NimboIconButton(
-                    NimboIconName.PING,
-                    modifier = Modifier.size(40.dp),
-                    selected = state.pingInProgress,
-                    onClick = { if (!state.pingInProgress) actions.onPingAll() }
-                )
-            }
-            if (favoritesOnly && visibleServers.isEmpty()) {
-                NimboSurface(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-                    BasicText(
-                        "Избранных серверов пока нет. Отметьте нужные сердцем в строке сервера.",
-                        style = NimboBodyStyle
-                    )
+                if (query.isBlank() && !favoritesOnly) item { AutoFastestCard(state.servers, state.pingInProgress,
+                    actions.onConnectFastest, autoSelected = state.activeServerId == "nimbo:auto") }
+                if (visibleServers.isEmpty()) item {
+                    NimboSurface(Modifier.fillMaxWidth()) { BasicText(if (favoritesOnly) "В избранном пока пусто" else "По запросу ничего не найдено", style = NimboBodyStyle) }
                 }
-            }
-            // Первым в списке — не сервер, а способ выбора: разница между
-            // узлами это задержка, а не название страны, и читать полсотни
-            // строк ради неё не нужно.
-            AutoFastestCard(
-                servers = state.servers,
-                searching = state.pingInProgress,
-                onConnect = actions.onConnectFastest
-            )
-            visibleServers.forEach { server ->
-                ProfileServerCard(
-                    server = server,
-                    favorite = server.id in state.favoriteServerIds,
-                    onSelect = actions.onSelectServer,
-                    onToggleFavorite = actions.onToggleFavorite,
-                    onPing = actions.onPingServer
-                )
+                items(count = visibleServers.size, key = { visibleServers[it].id }) { index ->
+                    val server = visibleServers[index]
+                    ProfileServerCard(server, server.id in state.favoriteServerIds, actions.onSelectServer, actions.onToggleFavorite, actions.onPingServer)
+                }
             }
         }
     }
+}
+
+internal fun filterAndSortServers(state: NimboUiState, query: String, favoritesOnly: Boolean): List<NimboServerUi> {
+    val value = query.trim()
+    return sortServers(state.servers.filter { !favoritesOnly || it.id in state.favoriteServerIds }.filter {
+        value.isEmpty() || it.name.contains(value, true) || it.description.contains(value, true) || it.connectionLabel.contains(value, true)
+    }, state.serverSort, state.favoriteServerIds, state.favoritesFirst)
 }
 
 /**
@@ -197,23 +113,26 @@ internal fun NimboProfilesScreen(state: NimboUiState, actions: NimboUiActions) {
  * выбора, а не настройка страницей глубже.
  */
 @Composable
-private fun AutoFastestCard(
+internal fun AutoFastestCard(
     servers: List<NimboServerUi>,
     searching: Boolean,
-    onConnect: () -> Unit
+    onConnect: () -> Unit,
+    autoSelected: Boolean = false
 ) {
     val selected = servers.firstOrNull { it.selected }
-    val selectedPing = selected?.ping?.takeIf { it > 0 }
+    val selectedPing = selected?.ping?.takeIf { it >= 0 && !selected.pingInProgress }
     val subtitle = when {
         searching -> "Замеряю узлы…"
+        autoSelected -> "Авто выбрано · ядро меняет маршрут в фоне"
         selected != null && selectedPing != null ->
-            "Сейчас: ${withoutFlagEmoji(selected.name)} · $selectedPing мс"
+            "Сейчас: ${withoutFlagEmoji(selected.name)} · ${pingDisplayLabel(selectedPing, false, LocalNimboPingProtocol.current)}"
         else -> "Замерит все серверы и подключится к лучшему"
     }
     NimboSurface(
         modifier = Modifier.fillMaxWidth(),
         cornerRadius = 20.dp,
-        onClick = { if (!searching) onConnect() }
+        onClick = onConnect,
+        enabled = !searching && servers.isNotEmpty()
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -228,10 +147,10 @@ private fun AutoFastestCard(
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 BasicText(
-                    "Авто — самый быстрый",
-                    maxLines = 1,
+                    "Авто — лучший доступный",
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(
+                    style = TextStyle(fontFamily = NimboTypography.body, 
                         color = NimboPalette.Accent,
                         fontSize = 16.sp,
                         lineHeight = 22.sp,
@@ -240,244 +159,53 @@ private fun AutoFastestCard(
                 )
                 BasicText(
                     subtitle,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     style = NimboBodyStyle.copy(fontSize = 12.sp)
                 )
             }
             BasicText(
-                if (searching) "…" else "›",
-                style = TextStyle(color = NimboPalette.Accent, fontSize = 20.sp)
+                if (searching) "…" else if (autoSelected) "✓" else "›",
+                style = TextStyle(fontFamily = NimboTypography.body, color = NimboPalette.Accent, fontSize = 20.sp)
             )
         }
     }
 }
 
 @Composable
-private fun ProfileSubscriptionCard(state: NimboUiState, actions: NimboUiActions) {
-    val iconShape = nimboStyledShape(15.dp, 2.dp)
-    NimboSurface(modifier = Modifier.fillMaxWidth(), strong = true) {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier.size(48.dp).clip(iconShape).background(nimboStyledContainer(NimboPalette.Control)),
-                    contentAlignment = Alignment.Center
-                ) { NimboIcon(NimboIconName.CLOUD, tint = NimboPalette.Accent, modifier = Modifier.size(26.dp)) }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    BasicText(
-                        state.activeProfileName,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = NimboSectionTitleStyle.copy(fontSize = 19.sp)
-                    )
-                    BasicText("${state.serverCount} серверов", style = NimboBodyStyle)
-                }
-                NimboIconButton(NimboIconName.REFRESH, modifier = Modifier.size(46.dp), onClick = actions.onRefreshProfile)
-                Spacer(Modifier.width(6.dp))
-                NimboIconButton(NimboIconName.MORE, modifier = Modifier.size(46.dp), onClick = actions.onOpenProfileSettings)
-            }
-            // Описание провайдера целиком: на главной оно обрезано, чтобы
-            // карточка не превращалась в стену текста, и посмотреть его было
-            // негде.
-            if (state.profileAnnounce.isNotBlank()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(nimboStyledShape(16.dp, 2.dp))
-                        .background(nimboStyledContainer(NimboPalette.Control))
-                        .padding(14.dp)
-                ) {
-                    Column {
-                        BasicText(
-                            "ОПИСАНИЕ",
-                            style = NimboBodyStyle.copy(
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        BasicText(
-                            state.profileAnnounce,
-                            style = NimboBodyStyle.copy(fontSize = 13.sp, lineHeight = 19.sp)
-                        )
-                    }
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Значения приходят из заголовков подписки; пока их нет —
-                // честнее показать прочерк, чем выдуманную бесконечность.
-                ProfileMetric("ТРАФИК", state.profileTrafficLabel.ifBlank { "—" }, Modifier.weight(1f))
-                ProfileMetric("ИСТЕКАЕТ", state.profileExpiryLabel.ifBlank { "—" }, Modifier.weight(1f))
-                ProfileMetric("ОБНОВЛЕНО", state.profileUpdatedLabel.ifBlank { "—" }, Modifier.weight(1f))
-            }
-            // Пустую ссылку не показываем: кнопка, которая ничего не делает,
-            // хуже отсутствующей.
-            val support = state.supportUrl?.takeIf { it.isNotBlank() }
-            val website = state.websiteUrl?.takeIf { it.isNotBlank() }
-            if (support != null || website != null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (support != null) {
-                        NimboIconPill(
-                            NimboIconName.SUPPORT,
-                            "Поддержка",
-                            onClick = { actions.onOpenUrl(support) }
-                        )
-                    }
-                    if (website != null) {
-                        NimboIconPill(
-                            NimboIconName.SITE,
-                            "Сайт",
-                            onClick = { actions.onOpenUrl(website) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProfileMetric(title: String, value: String, modifier: Modifier) {
-    val style = LocalNimboElementStyle.current
-    val shape = nimboStyledShape(15.dp, 2.dp)
-    Box(
-        modifier
-            .clip(shape)
-            .background(nimboStyledContainer(NimboPalette.Control))
-            .border(if (style == NimboElementStyle.MANGA) 1.5.dp else 0.dp, nimboStyledBorder(Color.Transparent), shape)
-            .padding(11.dp)
-    ) {
-        Column {
-            BasicText(title, style = NimboBodyStyle.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold))
-            BasicText(value, style = TextStyle(color = NimboPalette.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold))
-        }
-    }
-}
-
-@Composable
-private fun ProfileServerCard(
+internal fun ProfileServerCard(
     server: NimboServerUi,
     favorite: Boolean,
     onSelect: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onPing: (String) -> Unit
 ) {
-    // Геометрия из ProxyRow: 64 dp, скругление 16 dp, полоска акцента слева
-    // у выбранного сервера и флаг в квадратном чипе.
-    val interaction = remember { MutableInteractionSource() }
-    val style = LocalNimboElementStyle.current
-    val shape = nimboStyledShape(16.dp, 3.dp)
-    val baseSurface = if (style == NimboElementStyle.MANGA) {
-        Modifier
-            .clip(shape)
-            .background(nimboStyledContainer(NimboMangaPalette.Paper, selected = server.selected))
-    } else {
-        Modifier.nimboGlassSurface(
-            shape = shape,
-            depth = if (server.selected) LiquidGlassDepth.CONTROL else LiquidGlassDepth.PANEL,
-            accent = NimboPalette.Accent,
-            isDark = true,
-            panelAlpha = 1f
-        )
-    }
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(58.dp)
-            .then(baseSurface)
-            .border(
-                if (style == NimboElementStyle.MANGA) if (server.selected) 2.dp else 1.5.dp else 1.dp,
-                nimboStyledBorder(
-                    if (server.selected) NimboPalette.Accent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.10f),
-                    selected = server.selected
-                ),
-                shape
-            )
-            .clickable(
-                interactionSource = interaction,
-                indication = null,
-                enabled = !server.selected,
-                onClick = { onSelect(server.id) }
-            )
-    ) {
-        if (server.selected) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .width(3.dp)
-                    .fillMaxHeight()
-                    .background(NimboPalette.Accent)
-            )
+    val shape = nimboStyledShape(14.dp)
+    Row(Modifier.fillMaxWidth().heightIn(min = 88.dp).clip(shape)
+        .background(if (server.selected) NimboPalette.Soft else NimboPalette.Surface)
+        .border(1.dp, if (server.selected) NimboPalette.TextSecondary else NimboPalette.Border, shape)
+        .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f).heightIn(min = 60.dp)
+            .clickable(enabled = !server.selected, role = androidx.compose.ui.semantics.Role.RadioButton) { onSelect(server.id) }
+            .semantics { selected = server.selected },
+            verticalArrangement = Arrangement.Center) {
+            BasicText(withoutFlagEmoji(server.name), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                style = NimboBodyStyle.copy(color = NimboPalette.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium))
+            BasicText(server.description.ifBlank { server.connectionLabel }, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                style = NimboBodyStyle.copy(fontSize = 11.sp, lineHeight = 15.sp))
         }
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(nimboStyledShape(12.dp, 2.dp))
-                    .background(
-                        if (server.selected) {
-                            NimboPalette.Accent.copy(alpha = 0.16f)
-                        } else {
-                            Color.White.copy(alpha = 0.08f)
-                        }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                NimboIcon(
-                    NimboIconName.SITE,
-                    tint = NimboPalette.Accent,
-                    modifier = Modifier.size(21.dp)
-                )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            NimboPingBadge(server, selected = server.selected)
+            Row {
+                NimboIconButton(NimboIconName.PING, Modifier.size(44.dp), enabled = !server.pingInProgress, onClick = { onPing(server.id) })
+                NimboIconButton(if (favorite) NimboIconName.FAVORITE else NimboIconName.FAVORITE_OFF,
+                    Modifier.size(44.dp), selected = favorite, onClick = { onToggleFavorite(server.id) })
             }
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                BasicText(
-                    text = withoutFlagEmoji(server.name),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(
-                        color = NimboPalette.Text,
-                        fontSize = 16.sp,
-                        lineHeight = 24.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                )
-                BasicText(
-                    text = server.description.ifBlank { server.connectionLabel },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(
-                        color = NimboPalette.TextSecondary,
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp
-                    )
-                )
-            }
-            NimboPill(server.pingLabel, selected = server.selected)
-            Spacer(Modifier.width(6.dp))
-            // Отдельная кнопка со спидометром: нажатие на само число оставили,
-            // но полагаться на него нельзя — его никто не находит.
-            NimboIconButton(
-                NimboIconName.PING,
-                modifier = Modifier.size(36.dp),
-                onClick = { onPing(server.id) }
-            )
-            Spacer(Modifier.width(6.dp))
-            NimboIconButton(
-                if (favorite) NimboIconName.FAVORITE else NimboIconName.FAVORITE_OFF,
-                modifier = Modifier.size(36.dp),
-                selected = favorite,
-                onClick = { onToggleFavorite(server.id) }
-            )
         }
     }
 }
-
 
 /** Порядок списка серверов. */
 internal enum class NimboServerSort(val key: String, val title: String) {

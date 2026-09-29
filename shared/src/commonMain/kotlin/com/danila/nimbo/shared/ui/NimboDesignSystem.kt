@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.BarChart
@@ -44,7 +45,6 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -79,12 +79,20 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -95,17 +103,20 @@ import androidx.compose.ui.unit.sp
  * расходился с Android по цвету.
  */
 /**
- * Стили интерфейса — те же, что на Android, с теми же названиями. Ключи
- * совпадают с андроидными индексами `ElementStyleMode`, поэтому смысл
- * сохранённого значения на обеих платформах одинаковый.
+ * Legacy style vocabulary retained for source compatibility. Production
+ * NimboAppShell always provides the universal surface style.
  */
+/** Native hosts reserve their own navigation safe area. */
+internal val LocalNimboContentBottom = staticCompositionLocalOf { 116.dp }
+internal val LocalNimboContentTop = staticCompositionLocalOf { 36.dp }
+
 internal enum class NimboElementStyle(
     val key: String,
     val title: String,
     val subtitle: String,
     val cornerScale: Float
 ) {
-    NIMBO_GLASS("glass", "Nimbo Glass", "iOS Liquid Glass", 1f),
+    NIMBO_GLASS("glass", "Nimbo", "Чистые поверхности", 1f),
     MATERIAL_YOU("material", "Material You", "Expressive", 1f),
     DOTTED("dotted", "Dotted", "Точечная сетка", 0.34f),
     SIGNAL("signal", "Signal", "Приборная панель", 0.75f),
@@ -127,13 +138,13 @@ internal val LocalNimboElementStyle = staticCompositionLocalOf { NimboElementSty
 @Composable
 internal fun nimboStyledShape(defaultRadius: Dp, mangaRadius: Dp = 3.dp): RoundedCornerShape {
     val style = LocalNimboElementStyle.current
-    return RoundedCornerShape(if (style == NimboElementStyle.MANGA) mangaRadius else defaultRadius * style.cornerScale)
+    return RoundedCornerShape((if (style == NimboElementStyle.MANGA) mangaRadius else defaultRadius * style.cornerScale) * LocalNimboAppearance.current.corners)
 }
 
 @Composable
 internal fun nimboStyledContainer(default: Color, selected: Boolean = false): Color =
     if (LocalNimboElementStyle.current == NimboElementStyle.MANGA) {
-        if (selected) NimboPalette.Accent.copy(alpha = 0.14f) else NimboMangaPalette.Paper
+        if (selected) NimboPalette.Accent.copy(alpha = 0.14f).compositeOver(NimboMangaPalette.Paper) else NimboMangaPalette.Paper
     } else default
 
 @Composable
@@ -146,63 +157,66 @@ internal fun nimboStyledBorder(default: Color, selected: Boolean = false): Color
 internal object NimboMangaPalette {
     // Тёплый тон вместо синевы: холодная бумага читается как погашенный
     // экран, а не как страница.
-    val Paper = Color(0xFF1B1814)
-    val PaperDeep = Color(0xFF15130F)
-    val Ink = Color(0xFFF4EEDF)
+    val Paper: Color @Composable get() = LocalNimboColors.current.paper
+    val PaperDeep: Color @Composable get() = LocalNimboColors.current.paperDeep
+    val Ink: Color @Composable get() = LocalNimboColors.current.ink
     val Accent = Color(0xFFE63329)
 }
 
 internal object NimboPalette {
-    val Background = Color(0xFF091321)
-    val BackgroundDeep = Color(0xFF080F1C)
-    val Surface = Color(0xFF101D31)
-    val SurfaceStrong = Color(0xFF14243A)
-    val Control = Color(0x09FFFFFF)
-    val Soft = Color(0x14FFFFFF)
-    val Border = Color(0x13FFFFFF)
-    val Hairline = Color(0x13FFFFFF)
-    val Accent = Color(0xFF75A7FF)
-    val AccentStrong = Color(0xFF4E8CFF)
-    val Text = Color(0xFFEAEBF2)
-    val TextSecondary = Color(0xA8EAEBF2)
-    val TextTertiary = Color(0x6BEAEBF2)
-    val Green = Color(0xFF5DD9A1)
-    val Amber = Color(0xFFE2A75F)
-    val Red = Color(0xFFFF7B7B)
+    val Background: Color @Composable get() = LocalNimboColors.current.background
+    val BackgroundDeep: Color @Composable get() = LocalNimboColors.current.backgroundDeep
+    val Surface: Color @Composable get() = LocalNimboColors.current.surface
+    val SurfaceStrong: Color @Composable get() = LocalNimboColors.current.surfaceStrong
+    val Control: Color @Composable get() = LocalNimboColors.current.control
+    val Soft: Color @Composable get() = LocalNimboColors.current.soft
+    val Border: Color @Composable get() = LocalNimboColors.current.border
+    val Hairline: Color @Composable get() = LocalNimboColors.current.border
+    val Accent: Color @Composable get() = LocalNimboColors.current.accent
+    val AccentStrong: Color @Composable get() = LocalNimboColors.current.accent
+    val Text: Color @Composable get() = LocalNimboColors.current.text
+    val TextSecondary: Color @Composable get() = LocalNimboColors.current.text.copy(alpha = 0.72f)
+    val TextTertiary: Color @Composable get() = LocalNimboColors.current.text.copy(alpha = 0.55f)
+    val Green: Color @Composable get() = LocalNimboColors.current.green
+    val Amber: Color @Composable get() = LocalNimboColors.current.amber
+    val Red: Color @Composable get() = LocalNimboColors.current.red
 }
 
-internal val NimboTitleStyle = TextStyle(
+internal val NimboTitleStyle: TextStyle @Composable get() = TextStyle(fontFamily = NimboTypography.heading, 
     color = NimboPalette.Text,
     fontSize = 28.sp,
     lineHeight = 32.sp,
-    fontWeight = FontWeight.ExtraBold
+    fontWeight = FontWeight.SemiBold,
+    letterSpacing = (-0.6).sp
 )
 
-internal val NimboSectionTitleStyle = TextStyle(
+internal val NimboSectionTitleStyle: TextStyle @Composable get() = TextStyle(fontFamily = NimboTypography.heading, 
     color = NimboPalette.Text,
-    fontSize = 21.sp,
-    lineHeight = 25.sp,
-    fontWeight = FontWeight.Bold
+    fontSize = 17.sp,
+    lineHeight = 23.sp,
+    fontWeight = FontWeight.SemiBold
 )
 
-internal val NimboBodyStyle = TextStyle(
+internal val NimboBodyStyle: TextStyle @Composable get() = TextStyle(fontFamily = NimboTypography.body, 
     color = NimboPalette.TextSecondary,
     fontSize = 15.sp,
     lineHeight = 20.sp,
-    fontWeight = FontWeight.Medium
+    fontWeight = FontWeight.Normal
 )
 
 @Composable
 internal fun NimboSurface(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 24.dp,
+    cornerRadius: Dp = 18.dp,
     strong: Boolean = false,
     padding: PaddingValues = PaddingValues(15.dp),
     onClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
     content: @Composable BoxScope.() -> Unit
 ) {
     val style = LocalNimboElementStyle.current
-    val shape = RoundedCornerShape(cornerRadius * style.cornerScale)
+    val appearance = LocalNimboAppearance.current
+    val shape = nimboStyledShape(cornerRadius)
     val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
@@ -212,20 +226,17 @@ internal fun NimboSurface(
                 when (style) {
                     // Стекло: тонировка, блик и ободок — как у системных
                     // материалов iOS.
-                    NimboElementStyle.NIMBO_GLASS -> Modifier.nimboGlassSurface(
-                        shape = shape,
-                        depth = if (strong) LiquidGlassDepth.FLOATING else LiquidGlassDepth.PANEL,
-                        accent = NimboPalette.Accent,
-                        isDark = true,
-                        panelAlpha = 1f
-                    )
+                    NimboElementStyle.NIMBO_GLASS -> Modifier
+                        .clip(shape)
+                        .background(if (strong) NimboPalette.SurfaceStrong else NimboPalette.Surface)
+                        .border(1.dp, NimboPalette.Border, shape)
                     // Material You: плотная тональная поверхность, подкрашенная
                     // акцентом, и никаких волосяных границ.
                     NimboElementStyle.MATERIAL_YOU -> Modifier
                         .clip(shape)
                         .background(
                             NimboPalette.Accent
-                                .copy(alpha = if (strong) 0.20f else 0.13f)
+                                .copy(alpha = if (strong) 0.12f else 0.045f)
                                 .compositeOver(NimboPalette.Surface)
                         )
                     // Dotted: почти квадратная панель, точечная сетка внутри и
@@ -237,11 +248,11 @@ internal fun NimboSurface(
                             NimboPalette.Text,
                             spacing = 11.dp,
                             radius = 0.72.dp,
-                            alpha = 0.12f
+                            alpha = 0.055f
                         )
                         .nimboDottedOutline(
-                            NimboPalette.Accent.copy(alpha = 0.75f),
-                            cornerRadius = cornerRadius * style.cornerScale
+                            NimboPalette.Text.copy(alpha = 0.36f),
+                            cornerRadius = cornerRadius * style.cornerScale * appearance.corners
                         )
                     // Signal: ровная подложка приборной панели и одна волосяная
                     // линия по краю — глубину даёт она, а не подсветка.
@@ -254,15 +265,17 @@ internal fun NimboSurface(
                     // жёсткая тень со смещением превращает панель в кадр: на
                     // компьютере именно она отличает стиль от «просто рамки».
                     NimboElementStyle.MANGA -> Modifier
-                        .nimboInkShadow(shape, offset = 5.dp)
+                        .nimboInkShadow(shape, offset = if (strong) 4.dp else 2.dp)
                         .clip(shape)
                         .background(NimboMangaPalette.Paper)
-                        .border(2.dp, NimboMangaPalette.Ink, shape)
+                        .border(if (strong) 2.dp else 1.5.dp, NimboMangaPalette.Ink, shape)
                 }
             )
             .then(
                 if (onClick != null) {
                     Modifier.clickable(
+                        enabled = enabled,
+                        role = androidx.compose.ui.semantics.Role.Button,
                         interactionSource = interaction,
                         indication = null,
                         onClick = onClick
@@ -280,6 +293,7 @@ internal fun NimboSurface(
  * Размытая тень — примета глянцевого интерфейса; в комиксе панель отбрасывает
  * ровный чернильный прямоугольник, и именно он читается как «нарисовано».
  */
+@Composable
 internal fun Modifier.nimboInkShadow(
     shape: RoundedCornerShape,
     offset: Dp,
@@ -341,8 +355,8 @@ private fun iconVector(name: NimboIconName, selected: Boolean): ImageVector = wh
     NimboIconName.SEARCH -> Icons.Filled.Search
     NimboIconName.REFRESH -> Icons.Filled.Refresh
     NimboIconName.MORE -> Icons.Filled.MoreVert
-    NimboIconName.LIST -> Icons.Filled.List
-    NimboIconName.CLOUD -> Icons.Filled.Cloud
+    NimboIconName.LIST -> Icons.AutoMirrored.Filled.List
+    NimboIconName.CLOUD -> NimboCloudVector
     NimboIconName.POWER -> Icons.Filled.PowerSettingsNew
     NimboIconName.ROUTE -> Icons.Filled.Route
     NimboIconName.CONNECTION -> Icons.Filled.VpnKey
@@ -392,32 +406,21 @@ internal fun NimboIconButton(
     onClick: () -> Unit
 ) {
     val style = LocalNimboElementStyle.current
-    val shape = nimboStyledShape(18.dp, 2.dp)
+    val shape = nimboStyledShape(12.dp, 2.dp)
     val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
-            .clip(shape)
-            .background(
-                nimboStyledContainer(
-                    if (selected) NimboPalette.Accent.copy(alpha = 0.20f) else NimboPalette.Control,
-                    selected
-                )
-            )
-            .border(
-                if (style == NimboElementStyle.MANGA) if (selected) 2.dp else 1.5.dp else 1.dp,
-                nimboStyledBorder(
-                    if (selected) NimboPalette.Accent.copy(alpha = 0.72f) else NimboPalette.Border,
-                    selected
-                ),
-                shape
-            )
+            .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
+            .semantics { contentDescription = name.accessibleLabel }
+            .nimboControlSurface(shape, accented = selected)
             .clickable(
                 enabled = enabled,
+                role = Role.Button,
                 interactionSource = interaction,
                 indication = null,
                 onClick = onClick
             )
-            .padding(12.dp),
+            .padding(10.dp),
         contentAlignment = androidx.compose.ui.Alignment.Center
     ) {
         NimboIcon(
@@ -432,7 +435,12 @@ internal fun NimboIconButton(
 @Composable
 internal fun Modifier.nimboRowClickable(onClick: () -> Unit): Modifier {
     val interaction = remember { MutableInteractionSource() }
-    return this.clickable(interactionSource = interaction, indication = null, onClick = onClick)
+    val haptic = LocalHapticFeedback.current
+    val enabled = LocalNimboAppearance.current.haptics
+    return this.clickable(interactionSource = interaction, indication = null) {
+        if (enabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        onClick()
+    }
 }
 
 /**
@@ -466,13 +474,8 @@ internal fun NimboLinkButton(
     val interaction = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
-            .clip(shape)
-            .background(nimboStyledContainer(NimboPalette.Accent.copy(alpha = 0.10f)))
-            .border(
-                if (style == NimboElementStyle.MANGA) 1.5.dp else 1.dp,
-                nimboStyledBorder(NimboPalette.Accent.copy(alpha = 0.55f)),
-                shape
-            )
+            .heightIn(min = 44.dp)
+            .nimboControlSurface(shape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -482,11 +485,11 @@ internal fun NimboLinkButton(
         androidx.compose.foundation.text.BasicText(
             text = label,
             maxLines = 1,
-            style = TextStyle(
+            style = TextStyle(fontFamily = NimboTypography.body, 
                 color = NimboPalette.Text,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
-                fontWeight = FontWeight.ExtraBold
+                fontWeight = FontWeight.SemiBold
             )
         )
     }
@@ -507,17 +510,19 @@ internal fun Modifier.nimboControlSurface(
 ): Modifier {
     val style = LocalNimboElementStyle.current
     return when (style) {
-        NimboElementStyle.NIMBO_GLASS -> this.nimboGlassSurface(
-            shape = shape,
-            depth = LiquidGlassDepth.CONTROL,
-            accent = NimboPalette.Accent,
-            isDark = true,
-            panelAlpha = 1f
-        )
+        NimboElementStyle.NIMBO_GLASS -> this.clip(shape)
+            .background(if (accented) NimboPalette.Soft else NimboPalette.Control)
+            .border(1.dp, if (accented) NimboPalette.TextSecondary else NimboPalette.Border, shape)
         NimboElementStyle.MANGA -> this
             .clip(shape)
-            .background(if (accented) NimboPalette.Accent.copy(alpha = 0.14f) else NimboMangaPalette.Paper)
+            .background(nimboStyledContainer(Color.Transparent, selected = accented))
             .border(1.5.dp, NimboMangaPalette.Ink, shape)
+        NimboElementStyle.MATERIAL_YOU -> this.clip(shape)
+            .background(NimboPalette.Accent.copy(alpha = if (accented) 0.18f else 0.045f).compositeOver(NimboPalette.Surface))
+        NimboElementStyle.DOTTED -> this.clip(shape)
+            .background(NimboPalette.Surface)
+            .nimboDotPattern(NimboPalette.Text, spacing = 11.dp, radius = 0.72.dp, alpha = 0.055f)
+            .nimboDottedOutline(if (accented) NimboPalette.Accent else NimboPalette.Text.copy(alpha = 0.36f), cornerRadius = 6.dp * LocalNimboAppearance.current.corners)
         else -> this
             .clip(shape)
             .background(
@@ -540,10 +545,11 @@ internal fun NimboIconPill(
     onClick: (() -> Unit)? = null
 ) {
     val style = LocalNimboElementStyle.current
-    val shape = nimboStyledShape(18.dp, 2.dp)
+    val shape = nimboStyledShape(12.dp, 2.dp)
     val interaction = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
+            .heightIn(min = if (onClick != null) 44.dp else 0.dp)
             .clip(shape)
             .background(nimboStyledContainer(NimboPalette.Control))
             .border(
@@ -580,11 +586,12 @@ internal fun NimboPill(
     onClick: (() -> Unit)? = null
 ) {
     val style = LocalNimboElementStyle.current
-    val shape = nimboStyledShape(18.dp, 2.dp)
+    val shape = nimboStyledShape(12.dp, 2.dp)
     val interaction = remember { MutableInteractionSource() }
     androidx.compose.foundation.text.BasicText(
         text = text,
         modifier = modifier
+            .heightIn(min = if (onClick != null) 44.dp else 0.dp)
             .clip(shape)
             .background(
                 nimboStyledContainer(
@@ -608,7 +615,7 @@ internal fun NimboPill(
                 ) else Modifier
             )
             .padding(horizontal = 13.dp, vertical = 9.dp),
-        style = TextStyle(
+        style = TextStyle(fontFamily = NimboTypography.body, 
             color = if (selected) NimboPalette.Accent else NimboPalette.TextSecondary,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold
@@ -623,6 +630,12 @@ internal fun NimboToggle(
     onChange: (Boolean) -> Unit
 ) {
     val style = LocalNimboElementStyle.current
+    val haptic = LocalHapticFeedback.current
+    val hapticEnabled = LocalNimboAppearance.current.haptics
+    val change: (Boolean) -> Unit = {
+        if (hapticEnabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        onChange(it)
+    }
     if (style == NimboElementStyle.MANGA) {
         val shape = RoundedCornerShape(2.dp)
         val thumbShape = RoundedCornerShape(1.dp)
@@ -631,13 +644,13 @@ internal fun NimboToggle(
             modifier = Modifier
                 .size(width = 48.dp, height = 28.dp)
                 .clip(shape)
-                .background(if (checked) NimboPalette.Accent.copy(alpha = 0.34f) else NimboMangaPalette.Paper)
+                .background(nimboStyledContainer(Color.Transparent, selected = checked))
                 .border(2.dp, if (checked) NimboPalette.Accent else NimboMangaPalette.Ink, shape)
                 .clickable(
                     enabled = enabled,
                     interactionSource = interaction,
                     indication = null
-                ) { onChange(!checked) },
+                ) { change(!checked) },
             contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
         ) {
             Box(
@@ -652,9 +665,9 @@ internal fun NimboToggle(
         Switch(
             checked = checked,
             enabled = enabled,
-            onCheckedChange = onChange,
+            onCheckedChange = change,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
+                checkedThumbColor = if (NimboPalette.Accent.luminance() > .5f) Color(0xFF202020) else Color.White,
                 checkedTrackColor = NimboPalette.Accent,
                 uncheckedThumbColor = NimboPalette.TextSecondary,
                 uncheckedTrackColor = NimboPalette.Control,
@@ -665,7 +678,7 @@ internal fun NimboToggle(
 }
 
 internal fun Modifier.nimboScreenPadding(): Modifier =
-    fillMaxWidth().padding(horizontal = 20.dp)
+    fillMaxWidth().padding(horizontal = 16.dp)
 
 /** Короткий идентификатор для новых записей: UUID в общем коде недоступен. */
 internal fun nimboRandomId(): String =
@@ -711,7 +724,7 @@ internal fun NimboDropdownRow(
             Column(modifier = Modifier.weight(1f)) {
                 androidx.compose.foundation.text.BasicText(
                     title,
-                    style = TextStyle(
+                    style = TextStyle(fontFamily = NimboTypography.body, 
                         color = NimboPalette.Text,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold
@@ -729,7 +742,7 @@ internal fun NimboDropdownRow(
                 // Пока список свёрнут, выбранное значение — единственное, что о
                 // нём известно, поэтому оно стоит в самой строке.
                 selected?.title ?: "—",
-                style = TextStyle(
+                style = TextStyle(fontFamily = NimboTypography.body, 
                     color = NimboPalette.Accent,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
@@ -739,7 +752,7 @@ internal fun NimboDropdownRow(
             androidx.compose.foundation.text.BasicText(
                 "›",
                 modifier = Modifier.graphicsLayer { rotationZ = chevron },
-                style = TextStyle(color = NimboPalette.TextSecondary, fontSize = 17.sp)
+                style = TextStyle(fontFamily = NimboTypography.body, color = NimboPalette.TextSecondary, fontSize = 17.sp)
             )
         }
 
@@ -769,7 +782,7 @@ internal fun NimboDropdownRow(
                         Column(modifier = Modifier.weight(1f)) {
                             androidx.compose.foundation.text.BasicText(
                                 option.title,
-                                style = TextStyle(
+                                style = TextStyle(fontFamily = NimboTypography.body, 
                                     color = if (active) NimboPalette.Accent else NimboPalette.Text,
                                     fontSize = 15.sp,
                                     fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
@@ -785,7 +798,7 @@ internal fun NimboDropdownRow(
                         if (active) {
                             androidx.compose.foundation.text.BasicText(
                                 "✓",
-                                style = TextStyle(
+                                style = TextStyle(fontFamily = NimboTypography.body, 
                                     color = NimboPalette.Accent,
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold

@@ -1,128 +1,85 @@
 package com.danila.nimbo.shared.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * Статистика соединений.
- *
- * На месте бывшего экрана приложений: выбор программ iOS не даёт, а вот
- * показать, сколько прошло через туннель, — вполне. Цифры настоящие: их
- * приносит счётчик utun-интерфейса, тот же, что кормит виджеты на главной.
- */
+/** A line requires two measured points; never fabricate a ramp from one sample. */
+internal fun hasMeasuredHistory(sampleCount: Int): Boolean = sampleCount >= 2
+
+internal data class NimboTrafficSummary(val title: String, val download: Long, val upload: Long)
+
+/** Disconnected interface counters are not a recorded session. History is newest-first. */
+internal fun trafficSummary(state: NimboUiState): NimboTrafficSummary? =
+    if (state.vpnState == "connected") NimboTrafficSummary("Текущая сессия", state.downloadTotal, state.uploadTotal)
+    else state.sessions.firstOrNull()?.let { NimboTrafficSummary("Последняя сессия", it.download, it.upload) }
+
 @Composable
 internal fun NimboStatsScreen(state: NimboUiState, actions: NimboUiActions) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(top = 44.dp, bottom = 116.dp)
-            .nimboScreenPadding(),
+    val connected = state.vpnState == "connected"
+    val summary = trafficSummary(state)
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().nimboScreenPadding(),
+        contentPadding = PaddingValues(top = LocalNimboContentTop.current, bottom = LocalNimboContentBottom.current),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        BasicText("Статистика", style = NimboTitleStyle)
-
-        NimboSurface(
-            modifier = Modifier.fillMaxWidth(),
-            cornerRadius = 22.dp,
-            padding = PaddingValues(16.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                BasicText(
-                    if (state.vpnState == "connected") "Текущая сессия" else "Последняя сессия",
-                    style = NimboSectionTitleStyle
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatValue("Скачано", formatTraffic(state.downloadTotal), NimboPalette.Accent, Modifier.weight(1f))
-                    StatValue("Отдано", formatTraffic(state.uploadTotal), NimboPalette.Green, Modifier.weight(1f))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatValue(
-                        "Приём",
-                        formatTraffic(state.downloadSpeed) + "/с",
-                        NimboPalette.Accent,
-                        Modifier.weight(1f)
-                    )
-                    StatValue(
-                        "Передача",
-                        formatTraffic(state.uploadSpeed) + "/с",
-                        NimboPalette.Green,
-                        Modifier.weight(1f)
-                    )
-                }
-                if (state.speedSamples.isNotEmpty()) {
-                    SpeedHistoryChart(state.speedSamples)
-                }
-            }
-        }
-
-        BasicText("Сессии", style = NimboSectionTitleStyle)
-        if (state.sessions.isEmpty()) {
-            NimboSurface(
-                modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 22.dp,
-                padding = PaddingValues(16.dp)
-            ) {
-                BasicText(
-                    "Пока пусто. Сессия записывается после отключения.",
-                    style = NimboBodyStyle
-                )
-            }
-        } else {
-            NimboSurface(
-                modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 22.dp,
-                padding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
-            ) {
-                Column {
-                    state.sessions.forEachIndexed { index, session ->
-                        SessionRow(session)
-                        if (index != state.sessions.lastIndex) {
-                            Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.06f)))
+        item("heading") { NimboPageHeading("Активность", "Трафик и история подключений") }
+        item("summary") {
+            NimboSurface(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    BasicText(summary?.title ?: "Пока нет подключений", style = NimboSectionTitleStyle)
+                    if (summary == null) {
+                        BasicText("Здесь появится трафик VPN. История сохраняется после отключения.", style = NimboBodyStyle)
+                    } else {
+                        MetricPair("↓ Скачано", formatTraffic(summary.download), "↑ Отдано", formatTraffic(summary.upload))
+                        if (connected) {
+                            MetricPair("↓ Приём", formatTraffic(state.downloadSpeed) + "/с", "↑ Передача", formatTraffic(state.uploadSpeed) + "/с")
+                            if (hasMeasuredHistory(state.speedSamples.size)) {
+                                SpeedChartCanvas(state.speedSamples, Modifier.fillMaxWidth().height(88.dp))
+                                BasicText("История скорости · приём и передача", style = NimboBodyStyle.copy(fontSize = 12.sp))
+                            } else {
+                                BasicText("Собираем историю скорости…", style = NimboBodyStyle.copy(fontSize = 12.sp))
+                            }
                         }
                     }
                 }
             }
         }
-
-        NimboSurface(
-            modifier = Modifier.fillMaxWidth(),
-            cornerRadius = 22.dp,
-            padding = PaddingValues(16.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                BasicText("Сервер", style = NimboSectionTitleStyle)
-                StatLine("Выбран", withoutFlagEmoji(state.activeServerName))
-                StatLine("Задержка", state.servers.firstOrNull { it.selected }?.pingLabel ?: "— ms")
-                StatLine("Всего серверов", state.serverCount.toString())
-                if (state.profileTrafficLabel.isNotBlank()) {
-                    StatLine("Трафик подписки", state.profileTrafficLabel)
+        item("server") {
+            NimboSurface(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    BasicText("Выбранный сервер", style = NimboSectionTitleStyle)
+                    BasicText(withoutFlagEmoji(state.activeServerName).ifBlank { "Не выбран" }, style = NimboBodyStyle.copy(color = NimboPalette.Text))
+                    val selected = state.servers.firstOrNull { it.selected || it.id == state.activeServerId }
+                    StatLine("Задержка", pingDisplayLabel(selected?.ping, selected?.pingInProgress == true, state.pingProtocol))
+                    StatLine("В подписке", serverCountLabel(state.serverCount))
+                    if (state.profileTrafficLabel.isNotBlank()) StatLine("Трафик подписки", state.profileTrafficLabel)
+                }
+            }
+        }
+        item("history-heading") { BasicText("История сессий", Modifier.padding(top = 8.dp), style = NimboSectionTitleStyle) }
+        if (state.sessions.isEmpty()) {
+            item("history-empty") {
+                BasicText("Завершённых сессий пока нет.", Modifier.padding(bottom = 12.dp), style = NimboBodyStyle)
+            }
+        } else {
+            // Each session is lazy: importing a long history must not compose every row.
+            itemsIndexed(state.sessions, key = { index, _ -> "session-$index" }, contentType = { _, _ -> "session" }) { _, session ->
+                NimboSurface(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        BasicText(session.startedAt, style = NimboBodyStyle.copy(color = NimboPalette.Text, fontWeight = FontWeight.Medium))
+                        BasicText(session.duration, style = NimboBodyStyle.copy(fontSize = 12.sp))
+                        MetricPair("↓ Скачано", formatTraffic(session.download), "↑ Отдано", formatTraffic(session.upload), compact = true)
+                    }
                 }
             }
         }
@@ -130,105 +87,45 @@ internal fun NimboStatsScreen(state: NimboUiState, actions: NimboUiActions) {
 }
 
 @Composable
-private fun StatValue(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    val style = LocalNimboElementStyle.current
-    val shape = nimboStyledShape(16.dp, 2.dp)
-    Column(
-        modifier = modifier
-            .clip(shape)
-            .background(nimboStyledContainer(NimboPalette.Control), shape)
-            .border(if (style == NimboElementStyle.MANGA) 1.5.dp else 0.dp, nimboStyledBorder(Color.Transparent), shape)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-    ) {
-        BasicText(
-            label,
-            style = TextStyle(
-                color = NimboPalette.TextTertiary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
-            )
-        )
-        Spacer(Modifier.height(4.dp))
-        BasicText(
-            value,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = TextStyle(color = color, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        )
+private fun MetricPair(firstLabel: String, firstValue: String, secondLabel: String, secondValue: String, compact: Boolean = false) {
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        if (maxWidth < (260 * fontScale).dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatValue(firstLabel, firstValue, compact)
+                StatValue(secondLabel, secondValue, compact)
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.weight(1f)) { StatValue(firstLabel, firstValue, compact) }
+                Box(Modifier.weight(1f)) { StatValue(secondLabel, secondValue, compact) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatValue(label: String, value: String, compact: Boolean) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        BasicText(label, style = NimboBodyStyle.copy(fontSize = 12.sp))
+        BasicText(value, style = NimboSectionTitleStyle.copy(fontSize = if (compact) 17.sp else 24.sp))
     }
 }
 
 @Composable
 private fun StatLine(label: String, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        BasicText(label, style = NimboBodyStyle)
-        Spacer(Modifier.weight(1f))
-        BasicText(
-            value,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = TextStyle(color = NimboPalette.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        )
-    }
-}
-
-@Composable
-private fun SessionRow(session: NimboSessionUi) {
-    Row(
-        modifier = Modifier.fillMaxWidth().height(56.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            BasicText(
-                session.startedAt,
-                maxLines = 1,
-                style = TextStyle(color = NimboPalette.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            )
-            BasicText(
-                session.duration,
-                modifier = Modifier.padding(top = 2.dp),
-                style = TextStyle(color = NimboPalette.TextSecondary, fontSize = 12.sp)
-            )
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            BasicText(
-                "↓ " + formatTraffic(session.download),
-                style = TextStyle(color = NimboPalette.Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            )
-            BasicText(
-                "↑ " + formatTraffic(session.upload),
-                modifier = Modifier.padding(top = 2.dp),
-                style = TextStyle(color = NimboPalette.Green, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            )
-        }
-    }
-}
-
-@Composable
-private fun SpeedHistoryChart(samples: List<NimboSpeedSample>) {
-    Canvas(modifier = Modifier.fillMaxWidth().height(56.dp)) {
-        val peak = samples
-            .flatMap { listOf(it.upload, it.download) }
-            .maxOrNull()
-            ?.coerceAtLeast(1L)
-            ?.toFloat() ?: 1f
-        val count = samples.size.coerceAtLeast(2)
-        samples.forEachIndexed { index, sample ->
-            val x = size.width * index / (count - 1)
-            val down = (sample.download.toFloat() / peak).coerceIn(0f, 1f) * size.height
-            val up = (sample.upload.toFloat() / peak).coerceIn(0f, 1f) * size.height
-            drawLine(
-                color = NimboPalette.Accent.copy(alpha = 0.75f),
-                start = androidx.compose.ui.geometry.Offset(x, size.height),
-                end = androidx.compose.ui.geometry.Offset(x, size.height - down),
-                strokeWidth = 2f
-            )
-            drawLine(
-                color = NimboPalette.Green.copy(alpha = 0.55f),
-                start = androidx.compose.ui.geometry.Offset(x, size.height),
-                end = androidx.compose.ui.geometry.Offset(x, size.height - up),
-                strokeWidth = 1.2f
-            )
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        if (maxWidth < (280 * fontScale).dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                BasicText(label, style = NimboBodyStyle)
+                BasicText(value, style = NimboBodyStyle.copy(color = NimboPalette.Text))
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+                BasicText(label, Modifier.weight(1f), style = NimboBodyStyle)
+                BasicText(value, Modifier.weight(1f), style = NimboBodyStyle.copy(color = NimboPalette.Text))
+            }
         }
     }
 }
@@ -250,3 +147,5 @@ internal fun formatTraffic(bytes: Long): String {
     }
     return "$rounded ${units[unit]}"
 }
+
+

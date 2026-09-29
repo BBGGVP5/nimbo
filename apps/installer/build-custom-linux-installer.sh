@@ -126,10 +126,10 @@ touch "$ui_dir/src-tauri/tauri.conf.json"
 for target_triple in "${targets[@]}"; do
   # Хелпер вшивается в установщик, поэтому собирается первым.
   echo "Building Linux helper for $target_triple..."
-  (cd "$repo_root" && cargo build -p nimbo-svc --release --target "$target_triple")
+  (cd "$repo_root" && cargo build --locked -p nimbo-svc --release --target "$target_triple")
 
   echo "Building Linux app payload for $target_triple..."
-  (cd "$repo_root" && cargo build -p nimbo-ui --release --features custom-protocol --target "$target_triple")
+  (cd "$repo_root" && cargo build --locked -p nimbo-ui --release --features custom-protocol --target "$target_triple")
 
   built_app="$cargo_target_dir/$target_triple/release/nimbo-ui"
   payload_dir="$repo_root/target/$target_triple/release"
@@ -149,7 +149,7 @@ ensure_node_modules "$installer_dir"
 created_installers=()
 for target_triple in "${targets[@]}"; do
   echo "Building custom Linux installer for $target_triple..."
-  (cd "$installer_dir" && npx tauri build --no-bundle --target "$target_triple")
+  (cd "$installer_dir" && npx tauri build --no-bundle --target "$target_triple" -- --locked)
 
   built="$cargo_target_dir/$target_triple/release/nimbo-installer"
   if [[ ! -f "$built" ]]; then

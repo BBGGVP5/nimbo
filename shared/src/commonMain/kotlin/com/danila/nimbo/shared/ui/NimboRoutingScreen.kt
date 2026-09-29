@@ -1,154 +1,64 @@
 package com.danila.nimbo.shared.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
-/**
- * Раздельного туннелирования по приложениям на iOS не существует: система не
- * даёт обычному VPN выбирать процессы (это умеет только управляемый профиль
- * MDM). Поэтому вместо экрана приложений здесь настоящая маршрутизация — то,
- * чем iOS действительно управляет: обход локальных сетей, DNS туннеля и
- * определение доменов.
- */
 @Composable
 internal fun NimboRoutingScreen(state: NimboUiState, actions: NimboUiActions) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(top = 44.dp, bottom = 116.dp)
-            .nimboScreenPadding(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            BasicText(
-                "‹ Настройки",
-                modifier = Modifier.nimboRowClickable {
-                    actions.onOpenScreen(NimboScreen.SETTINGS.wireName)
-                },
-                style = TextStyle(
-                    color = NimboPalette.Accent,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            )
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        .padding(top = LocalNimboContentTop.current, bottom = LocalNimboContentBottom.current).nimboScreenPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        NimboSettingsBack("Настройки") { actions.onOpenScreen(NimboScreen.SETTINGS.wireName) }
+        NimboPageHeading("Маршрутизация") {
+            NimboSettingsInfo("Маршрутизация", "Изменения применяются при следующем подключении. На iOS доступны правила по доменам и адресам; выбор приложений ограничен системой.")
         }
-        BasicText("Маршрутизация", style = NimboTitleStyle)
-        BasicText(
-            "Куда и как направлять трафик. Изменения применяются при следующем подключении.",
-            style = NimboBodyStyle
-        )
-
-        // Профиль решает, что вообще идёт через VPN, поэтому он стоит выше
-        // частных правил.
-        NimboSurface(
-            modifier = Modifier.fillMaxWidth(),
-            cornerRadius = 22.dp,
-            onClick = { actions.onOpenScreen(NimboScreen.ROUTING_PROFILES.wireName) }
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                NimboIcon(NimboIconName.ROUTE, tint = NimboPalette.Accent, modifier = Modifier.size(24.dp))
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    BasicText("Профили", style = NimboSectionTitleStyle.copy(fontSize = 16.sp))
-                    BasicText(
-                        state.routingProfiles.firstOrNull { it.id == state.routingProfileId }
-                            ?.let { "${it.name} · ${it.ruleCount} правил" }
-                            ?: "Что идёт через VPN, а что напрямую",
-                        style = NimboBodyStyle.copy(fontSize = 12.sp)
-                    )
-                }
-                BasicText("›", style = TextStyle(color = NimboPalette.Accent, fontSize = 20.sp))
+        SettingsSection("Правила") {
+            RoutingDestination("Профили", state.routingProfiles.firstOrNull { it.id == state.routingProfileId }
+                ?.let { "${it.name} · ${it.ruleCount} правил" } ?: "Не выбран") {
+                actions.onOpenScreen(NimboScreen.ROUTING_PROFILES.wireName)
+            }
+            SettingsDivider()
+            RoutingDestination("Модули", "${state.modules.count { it.enabled }} включено из ${state.modules.size}") {
+                actions.onOpenScreen(NimboScreen.MODULES.wireName)
             }
         }
-
-        // Модули — соседний способ управлять маршрутом, поэтому кнопка стоит
-        // здесь, а не прячется в настройках.
-        NimboSurface(
-            modifier = Modifier.fillMaxWidth(),
-            cornerRadius = 22.dp,
-            onClick = { actions.onOpenScreen(NimboScreen.MODULES.wireName) }
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                NimboIcon(NimboIconName.LIST, tint = NimboPalette.Accent, modifier = Modifier.size(24.dp))
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    BasicText("Модули", style = NimboSectionTitleStyle.copy(fontSize = 16.sp))
-                    BasicText(
-                        if (state.modules.isEmpty()) {
-                            "Свои правила: домены напрямую, через VPN или в блок"
-                        } else {
-                            "${state.modules.count { it.enabled }} включено из ${state.modules.size}"
-                        },
-                        style = NimboBodyStyle.copy(fontSize = 12.sp)
-                    )
-                }
-                BasicText("›", style = TextStyle(color = NimboPalette.Accent, fontSize = 20.sp))
+        SettingsSection("Соединение") {
+            AppearanceToggle("Обход локальных сетей", state.routingBypassLocal,
+                info = "Принтеры, NAS и роутер остаются доступны напрямую") {
+                actions.onSetRouting("bypassLocal", it.toString())
+            }
+            SettingsDivider()
+            AppearanceToggle("Определение доменов", state.routingSniffing,
+                info = "Ядро читает имя сайта из соединения — нужно для правил по доменам") {
+                actions.onSetRouting("sniffing", it.toString())
             }
         }
-
-        NimboSurface(
-            modifier = Modifier.fillMaxWidth(),
-            cornerRadius = 22.dp,
-            padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
-        ) {
-            Column {
-                RoutingToggleRow(
-                    title = "Обход локальных сетей",
-                    subtitle = "Принтеры, NAS и роутер остаются доступны напрямую",
-                    checked = state.routingBypassLocal,
-                    showDivider = true,
-                    onChange = { actions.onSetRouting("bypassLocal", it.toString()) }
-                )
-                RoutingToggleRow(
-                    title = "Определение доменов",
-                    subtitle = "Ядро читает имя сайта из соединения — нужно для правил по доменам",
-                    checked = state.routingSniffing,
-                    onChange = { actions.onSetRouting("sniffing", it.toString()) }
-                )
+        SettingsSection("DNS в туннеле") {
+            NimboSettingsSelector("Набор серверов", NimboDnsPreset.entries.map {
+                NimboDropdownOption(it.key, it.title, it.subtitle)
+            }, state.routingDns, subtitle = "Кому туннель задаёт вопросы об именах сайтов") {
+                actions.onSetRouting("dns", it)
             }
         }
+    }
+}
 
-        BasicText("DNS в туннеле", style = NimboSectionTitleStyle)
-        NimboSurface(
-            modifier = Modifier.fillMaxWidth(),
-            cornerRadius = 22.dp,
-            padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
-        ) {
-            NimboDropdownRow(
-                title = "Набор серверов",
-                subtitle = "Кому туннель задаёт вопросы об именах сайтов",
-                options = NimboDnsPreset.entries.map {
-                    NimboDropdownOption(it.key, it.title, it.subtitle)
-                },
-                selectedKey = state.routingDns,
-                onSelect = { actions.onSetRouting("dns", it) }
-            )
+@Composable
+private fun RoutingDestination(title: String, value: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button, onClick = onClick)
+        .padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            BasicText(title, style = NimboBodyStyle.copy(color = NimboPalette.Text))
+            BasicText(value, style = NimboBodyStyle)
         }
+        BasicText("›", Modifier.padding(start = 8.dp), style = NimboBodyStyle)
     }
 }
 
@@ -164,51 +74,3 @@ internal enum class NimboDnsPreset(
     SYSTEM("system", "Системный", "DNS оператора или Wi-Fi сети")
 }
 
-@Composable
-private fun RoutingToggleRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    showDivider: Boolean = false,
-    onChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().height(58.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            BasicText(
-                title,
-                style = TextStyle(
-                    color = NimboPalette.Text,
-                    fontSize = 16.sp,
-                    lineHeight = 24.sp,
-                    fontWeight = FontWeight.Normal
-                )
-            )
-            BasicText(
-                subtitle,
-                modifier = Modifier.padding(top = 2.dp),
-                style = TextStyle(
-                    color = NimboPalette.TextSecondary,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        NimboToggle(checked = checked, onChange = onChange)
-    }
-    if (showDivider) {
-        val style = LocalNimboElementStyle.current
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(if (style == NimboElementStyle.MANGA) 1.5.dp else 1.dp)
-                .background(
-                    if (style == NimboElementStyle.MANGA) NimboMangaPalette.Ink.copy(alpha = 0.34f)
-                    else Color.White.copy(alpha = 0.06f)
-                )
-        )
-    }
-}

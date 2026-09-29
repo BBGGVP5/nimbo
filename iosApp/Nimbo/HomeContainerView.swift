@@ -1,28 +1,19 @@
 import SwiftUI
 
+/// Native fallback surface; the active RootView continues to render shared Compose.
 struct HomeContainerView: View {
     @EnvironmentObject private var vpn: VpnController
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @ScaledMetric(relativeTo: .body) private var connectionIconSize = 24.0
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.025, green: 0.08, blue: 0.16), Color(red: 0.02, green: 0.035, blue: 0.09)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 28) {
-                Spacer(minLength: 24)
-                Text("Nimbo")
-                    .font(.system(size: 38, weight: .bold, design: .rounded))
-                Text(statusText)
-                    .font(.headline)
-                    .foregroundStyle(statusColor)
-                    .multilineTextAlignment(.center)
-
+        NimboPage {
+            NimboBrand()
+            VStack(alignment: .leading, spacing: 16) {
+                NimboNotice(title: statusText, detail: "VPN", symbol: vpn.state == .connected ? "checkmark.circle" : "power",
+                            tint: vpn.state == .connected ? NimboNative.success : NimboNative.secondary,
+                            busy: vpn.state == .preparing || vpn.state == .connecting || vpn.state == .disconnecting)
+                NimboOperationPhrase(operation: .connection,
+                                     isActive: vpn.state == .preparing || vpn.state == .connecting)
                 Button {
                     Task {
                         if vpn.state == .connected || vpn.state == .connecting {
@@ -32,76 +23,42 @@ struct HomeContainerView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: buttonIcon)
-                        .font(.system(size: 52, weight: .semibold))
-                        .frame(width: 154, height: 154)
-                }
-                .buttonStyle(NimboLiquidButtonStyle(
-                    active: vpn.state == .connected,
-                    reduceTransparency: reduceTransparency
-                ))
-                .disabled(vpn.state == .preparing || vpn.state == .disconnecting)
-                .accessibilityLabel(vpn.state == .connected ? "Отключить VPN" : "Подключить VPN")
-
-                if case let .failed(code, message) = vpn.state {
-                    VStack(spacing: 6) {
-                        Text(code).font(.caption.monospaced()).foregroundStyle(.orange)
-                        Text(message).font(.footnote).multilineTextAlignment(.center)
+                    Label {
+                        Text(vpn.state == .connected || vpn.state == .connecting ? "Отключить VPN" : "Подключить VPN")
+                    } icon: {
+                        if vpn.state == .connected {
+                            Image("NimboCloud")
+                                .renderingMode(.template)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: connectionIconSize, height: connectionIconSize)
+                                .accessibilityHidden(true)
+                        } else {
+                            Image(systemName: "power").accessibilityHidden(true)
+                        }
                     }
-                    .padding()
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 }
-                Spacer()
+                .buttonStyle(NimboActionStyle(prominent: true))
+                .disabled(vpn.state == .preparing || vpn.state == .disconnecting)
+            }.nimboCard()
+            if case let .failed(code, message) = vpn.state {
+                NimboSection(title: "ОШИБКА ПОДКЛЮЧЕНИЯ") {
+                    NimboNotice(title: "Не удалось подключиться", detail: NimboRedactor.redact(message), symbol: "exclamationmark.circle", tint: NimboNative.error)
+                    Text(code).nimboFont(12, relativeTo: .caption).monospaced().textSelection(.enabled)
+                }
             }
-            .padding(24)
         }
-        .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.82), value: statusText)
+        .nimboSheetStyle()
     }
 
     private var statusText: String {
         switch vpn.state {
-        case .idle: "Нажмите для подключения"
+        case .idle: "Готово к подключению"
         case .preparing: "Подготавливаем VPN…"
         case .connecting: "Подключение…"
-        case .connected: "Защищено"
+        case .connected: "Подключено"
         case .disconnecting: "Отключение…"
         case .failed: "Не удалось подключиться"
         }
-    }
-
-    private var statusColor: Color {
-        switch vpn.state {
-        case .connected: .green
-        case .failed: .orange
-        default: Color(red: 0.55, green: 0.72, blue: 1.0)
-        }
-    }
-
-    private var buttonIcon: String {
-        switch vpn.state {
-        case .connected: "lock.shield.fill"
-        case .connecting, .preparing, .disconnecting: "hourglass"
-        case .idle, .failed: "power"
-        }
-    }
-}
-
-private struct NimboLiquidButtonStyle: ButtonStyle {
-    let active: Bool
-    let reduceTransparency: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(.white)
-            .background {
-                Circle()
-                    .fill(reduceTransparency ? Color.blue : Color.blue.opacity(active ? 0.82 : 0.42))
-                    .overlay {
-                        Circle().stroke(.white.opacity(0.34), lineWidth: 1)
-                    }
-                    .shadow(color: active ? .green.opacity(0.42) : .blue.opacity(0.32), radius: 28)
-            }
-            .scaleEffect(configuration.isPressed ? 0.93 : 1)
-            .animation(.spring(response: 0.32, dampingFraction: 0.68), value: configuration.isPressed)
     }
 }

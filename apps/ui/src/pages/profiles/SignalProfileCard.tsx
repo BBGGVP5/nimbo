@@ -1,233 +1,76 @@
-import { useState } from "react";
-import {
-  formatBytes,
-  formatSubscriptionTerm,
-  type Subscription,
-} from "../../lib/api";
+import { HomeMetaIcon } from "../../components/HomeMetaIcon";
+import { useId, useState, type ReactNode } from "react";
+import { formatBytes, formatSubscriptionTerm, type Subscription } from "../../lib/api";
 import { expireLabels, type Messages } from "../../lib/i18n";
 import { useCachedSubscriptionLogo } from "../../lib/subscriptionLogo";
 import { useAppStore } from "../../store";
-import { ArrowIcon, ChevronIcon, DotsIcon, PingIcon, RefreshIcon } from "../home/SignalServerRail";
-
-/**
- * Карточка подписки в стиле Signal.
- *
- * Содержит всё, что раньше жило в старой карточке профиля: остаток трафика,
- * срок, время обновления, описание провайдера, ссылки поддержки и сайта,
- * порядок, пинг, обновление и меню с настройками и удалением. Серверы здесь
- * не дублируются — они живут в общей таблице ниже.
- */
+import { ChevronIcon, DotsIcon, PingIcon, RefreshIcon } from "../home/SignalServerRail";
+import { ActionMenu, InfoIcon } from "../../components/Universal";
+import { SubscriptionInfo } from "../../components/SubscriptionInfo";
 
 export interface SignalProfileCardProps {
+  children?: ReactNode;
   labels: Messages;
   sub: Subscription;
   serverCount: number;
   onRefresh: () => void;
   onPing: () => void;
-  onSettings: () => void;
-  onDelete: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
+  onSettings?: () => void;
+  onDelete?: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
   refreshing: boolean;
   pinging: boolean;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   updatedLabel: string;
-  supportUrl: string;
-  siteUrl: string | null;
+  supportUrl?: string;
+  siteUrl?: string | null;
 }
 
-export function SignalProfileCard({
-  labels: m,
-  sub,
-  serverCount,
-  onRefresh,
-  onPing,
-  onSettings,
-  onDelete,
-  onMoveUp,
-  onMoveDown,
-  canMoveUp,
-  canMoveDown,
-  refreshing,
-  pinging,
-  collapsed,
-  onToggleCollapsed,
-  updatedLabel,
-  supportUrl,
-  siteUrl,
-}: SignalProfileCardProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const showSubscriptionLogo = useAppStore((state) => state.preferences.show_subscription_logo);
-  const logoSrc = useCachedSubscriptionLogo(sub, showSubscriptionLogo);
-  const used = (sub.info?.upload ?? 0) + (sub.info?.download ?? 0);
-  const total = sub.info?.total ?? null;
-  const ratio = total ? Math.min(1, used / total) : 0;
+export function SignalProfileCard({ labels: m, sub, serverCount, onRefresh, onPing, onSettings, onDelete,
+  onMoveUp, onMoveDown, canMoveUp, canMoveDown, refreshing, pinging, collapsed, onToggleCollapsed,
+  updatedLabel, supportUrl, siteUrl, children }: SignalProfileCardProps) {
+  const [infoOpen, setInfoOpen] = useState(false);
+  const id = useId();
+  const showLogo = useAppStore(state => state.preferences.show_subscription_logo);
+  const logo = useCachedSubscriptionLogo(sub, showLogo);
   const name = sub.name?.trim() || m.common.subscription;
-  const description = sub.meta?.description?.trim() || "";
-  const visibleDescription = /^описание подписки$/i.test(description) ? "" : description;
-
-  return (
-    <article
-      className={`signal-profile${collapsed ? " is-collapsed" : ""}`}
-      onClick={onToggleCollapsed}
-      role="button"
-      tabIndex={0}
-      aria-expanded={!collapsed}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onToggleCollapsed();
-        }
-      }}
-    >
-      <header className="signal-profile-head">
-        <button
-          type="button"
-          className={`signal-collapse-btn${collapsed ? " is-collapsed" : ""}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleCollapsed();
-          }}
-          title={collapsed ? m.signal.expandCard : m.signal.collapseCard}
-          aria-label={collapsed ? m.signal.expandCard : m.signal.collapseCard}
-          aria-expanded={!collapsed}
-        >
-          <ChevronIcon direction="right" />
-        </button>
-        <span className="signal-sub-logo">
-          {logoSrc ? <img src={logoSrc} alt="" /> : name.slice(0, 2).toUpperCase()}
-        </span>
-        <span className="signal-profile-copy">
-          <span className="signal-profile-name">
-            {name}
-            <span className="signal-profile-count">{serverCount}</span>
-          </span>
-          <span className="signal-sub-meta">{updatedLabel}</span>
-        </span>
-
-        <span className="signal-profile-actions" data-no-toggle onClick={(event) => event.stopPropagation()}>
-          <button
-            type="button"
-            className="signal-icon-btn"
-            onClick={onMoveUp}
-            disabled={!canMoveUp}
-            title={m.profiles.moveUp}
-            aria-label={m.profiles.moveUp}
-          >
-            <ArrowIcon direction="up" />
-          </button>
-          <button
-            type="button"
-            className="signal-icon-btn"
-            onClick={onMoveDown}
-            disabled={!canMoveDown}
-            title={m.profiles.moveDown}
-            aria-label={m.profiles.moveDown}
-          >
-            <ArrowIcon direction="down" />
-          </button>
-          <button
-            type="button"
-            className={`signal-icon-btn${pinging ? " is-pinging" : ""}`}
-            onClick={onPing}
-            disabled={pinging}
-            title={m.profiles.testLatency}
-            aria-label={m.profiles.testLatency}
-          >
-            <PingIcon />
-          </button>
-          <button
-            type="button"
-            className={`signal-icon-btn${refreshing ? " is-busy" : ""}`}
-            onClick={onRefresh}
-            disabled={refreshing}
-            title={m.home.refreshSubscription}
-            aria-label={m.home.refreshSubscription}
-          >
-            <RefreshIcon />
-          </button>
-          <span className="signal-menu-wrap">
-            <button
-              type="button"
-              className="signal-icon-btn"
-              onClick={() => setMenuOpen((value) => !value)}
-              aria-expanded={menuOpen}
-              title={m.profiles.subscriptionMenu}
-              aria-label={m.profiles.subscriptionMenu}
-            >
-              <DotsIcon />
-            </button>
-            {menuOpen && (
-              <span className="signal-menu" onMouseLeave={() => setMenuOpen(false)}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onSettings();
-                  }}
-                >
-                  {m.profiles.subscriptionSettings}
-                </button>
-                <button
-                  type="button"
-                  className="is-danger"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onDelete();
-                  }}
-                >
-                  {m.profiles.delete}
-                </button>
-              </span>
-            )}
-          </span>
-        </span>
-      </header>
-
-      {!collapsed && (
-        <>
-      <div className="signal-profile-meta">
-        <div className="signal-meta-cell">
-          <span className="signal-tile-key">{m.profiles.traffic}</span>
-          <span className="signal-meta-value">
-            {total ? `${formatBytes(used)} / ${formatBytes(total)}` : `${formatBytes(used)} / ∞`}
-          </span>
-          {total ? (
-            <span className="signal-quota">
-              <i style={{ width: `${Math.round(ratio * 100)}%` }} />
-            </span>
-          ) : null}
-        </div>
-        <div className="signal-meta-cell">
-          <span className="signal-tile-key">{m.profiles.expires}</span>
-          <span className="signal-meta-value">{formatSubscriptionTerm(sub.info, expireLabels(m))}</span>
-        </div>
-        <div className="signal-meta-cell">
-          <span className="signal-tile-key">{m.profiles.updated}</span>
-          <span className="signal-meta-value">{updatedLabel}</span>
-        </div>
-      </div>
-
-      <div className="signal-profile-description">
-        <span className="signal-tile-key">{m.common.description}</span>
-        <p>{visibleDescription || m.common.noDescription}</p>
-      </div>
-
-      <div className="signal-profile-links" data-no-toggle onClick={(event) => event.stopPropagation()}>
-        <a className="signal-btn signal-btn--sm signal-btn--ghost" href={supportUrl} target="_blank" rel="noreferrer">
-          {m.common.support}
-        </a>
-        {siteUrl && (
-          <a className="signal-btn signal-btn--sm signal-btn--ghost" href={siteUrl} target="_blank" rel="noreferrer">
-            {m.common.site}
-          </a>
-        )}
-      </div>
-        </>
-      )}
-    </article>
-  );
+  const used = (sub.info?.upload ?? 0) + (sub.info?.download ?? 0);
+  const total = sub.info?.total;
+  return <article className={`signal-profile universal-subscription${collapsed ? " is-collapsed" : ""}`}
+    onClick={event => {
+      const target = event.target;
+      // React portals bubble through this component too. Only the tile's own
+      // non-interactive content discloses; disabled buttons remain excluded.
+      if (event.defaultPrevented || !(target instanceof Element) || !event.currentTarget.contains(target)) return;
+      if (target.closest("button,a,input,select,textarea,[role='button'],[role='menu'],[role='dialog'],[contenteditable],[data-no-toggle]")) return;
+      onToggleCollapsed();
+    }}>
+    <header className="signal-profile-head">
+      <button type="button" className="universal-subscription-toggle" onClick={onToggleCollapsed} aria-expanded={!collapsed} aria-controls={id}>
+        <span className="signal-sub-logo">{logo ? <img src={logo} alt=""/> : name.slice(0, 2).toUpperCase()}</span>
+        <span className="signal-profile-copy"><span className="signal-profile-name">{name}</span><span className="signal-sub-meta">{serverCount} {m.common.locale.startsWith("ru") ? (serverCount % 100 >= 11 && serverCount % 100 <= 14 ? "серверов" : serverCount % 10 === 1 ? "сервер" : serverCount % 10 >= 2 && serverCount % 10 <= 4 ? "сервера" : "серверов") : serverCount === 1 ? "server" : "servers"}</span></span>
+        <span className={`signal-collapse-btn${collapsed ? " is-collapsed" : ""}`}><ChevronIcon direction="right"/></span>
+      </button>
+      <button type="button" className="signal-icon-btn" aria-label={`${m.common.description}: ${name}`} title={m.common.description} onClick={() => setInfoOpen(true)}><InfoIcon/></button>
+      {onSettings && onDelete && onMoveUp && onMoveDown && <ActionMenu label={m.profiles.subscriptionMenu} actions={[
+        { label: m.profiles.subscriptionSettings, onClick: onSettings },
+        { label: m.profiles.moveUp, onClick: onMoveUp, disabled: !canMoveUp },
+        { label: m.profiles.moveDown, onClick: onMoveDown, disabled: !canMoveDown },
+        { label: m.profiles.delete, onClick: onDelete, danger: true },
+      ]}><DotsIcon/></ActionMenu>}
+    </header>
+    <div className="universal-subscription-summary"><span><HomeMetaIcon kind="traffic" />{sub.info ? total ? `${formatBytes(Math.max(0,total-used))} / ${formatBytes(total)}` : "∞" : "—"}</span><span><HomeMetaIcon kind="calendar" />{sub.info ? formatSubscriptionTerm(sub.info, expireLabels(m)) : "—"}</span></div>
+    {total ? <div className="signal-quota" aria-label={m.profiles.traffic}><i style={{width: `${Math.min(100, used / total * 100)}%`}}/></div> : null}
+    <footer className="universal-subscription-footer">
+      <button type="button" className="signal-btn signal-btn--sm signal-btn--ghost" onClick={onPing} disabled={pinging} title={m.profiles.testLatency} aria-label={m.profiles.testLatency}><PingIcon/>{m.signal.columnPing}</button>
+      <button type="button" className="signal-btn signal-btn--sm signal-btn--ghost" onClick={onRefresh} disabled={refreshing} title={m.home.refreshSubscription} aria-label={m.home.refreshSubscription}><RefreshIcon/>{m.common.refresh}</button>
+      <span>{updatedLabel}</span>
+    </footer>
+    <div id={id} hidden={collapsed} className="universal-subscription-servers" data-no-toggle>{children}</div>
+    {infoOpen && <SubscriptionInfo sub={sub} labels={m} onClose={() => setInfoOpen(false)} supportUrl={supportUrl} siteUrl={siteUrl}/>}
+  </article>;
 }

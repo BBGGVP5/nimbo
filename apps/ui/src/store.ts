@@ -1,3 +1,4 @@
+import { latencySettingsKey } from "./lib/latency";
 import { create } from "zustand";
 import {
   api,
@@ -82,7 +83,7 @@ interface AppStoreState {
   setActiveSubscription: (url: string | null) => Promise<void>;
   connectServer: (serverId: string) => Promise<void>;
   /** Замерить узлы и подключиться к самому быстрому. */
-  connectFastestServer: () => Promise<void>;
+  connectFastestServer: (subscriptionUrl?: string) => Promise<void>;
   disconnectServer: () => Promise<void>;
   syncStatus: () => Promise<void>;
   openConflictDialog: (conflicts: ConflictingProcess[]) => void;
@@ -92,7 +93,7 @@ interface AppStoreState {
   refreshHelperStatus: () => Promise<HelperStatus>;
   installHelper: () => Promise<void>;
   uninstallHelper: () => Promise<void>;
-  setServerPing: (serverId: string, latency: number) => void;
+  setServerPing: (serverId: string, latency: number | null) => void;
   openImportDialog: (source?: string) => void;
   closeImportDialog: () => void;
   setImportDialogSource: (source: string) => void;
@@ -105,12 +106,12 @@ interface AppStoreState {
  * настоящие настройки приходят из Rust асинхронно. Без этой заготовки первый
  * кадр рисовался стилем по умолчанию, и человек видел чужой экран.
  */
-function seededPreferences() {
+function seededPreferences(): AppPreferences {
   const remembered = readBootAppearance();
   if (!remembered) return defaultAppPreferences;
   return {
     ...defaultAppPreferences,
-    ui_style: remembered.uiStyle as AppPreferences["ui_style"],
+    ui_style: "signal",
     theme_mode: remembered.themeMode as AppPreferences["theme_mode"],
     nav_icon_motion: remembered.navMotion === "on",
   };
@@ -297,7 +298,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   setPreferences: async (preferences) => {
     const saved = await api.setPreferences(preferences);
-    set({ preferences: saved });
+    set(s => ({ preferences: saved, ...(latencySettingsKey(s.preferences) !== latencySettingsKey(saved) ? { serverPings: {} } : {}) }));
     return saved;
   },
 
@@ -357,14 +358,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const { status, activeServerId } = get();
     if (status?.state === "connected") {
       if (!serverId || serverId === activeServerId) return;
-      set({ switchingServerId: serverId, disconnecting: true, error: null });
+      set({ switchingServerId: serverId, error: null });
       try {
-        await api.disconnectServer();
-        get().resetTrafficSession();
-        // Wait 800ms for the OS to release sockets and ports
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        set({ switchingServerId: null });
+        // Rust validates compatibility before owning the stop/start sequence.
         await get().connectServer(serverId);
+        get().resetTrafficSession();
+        set({ switchingServerId: null });
       } catch (e) {
         set({ switchingServerId: null, disconnecting: false, error: String(e) });
         throw e;
@@ -392,31 +391,49 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     void api.refreshTrayMenu();
   },
 
-  connectFastestServer: async () => {
+  connectFastestServer: async (subscriptionUrl) => {
     const { subscriptions, activeSubscriptionUrl, status } = get();
     // Ищем среди серверов активной подписки: смешивать узлы разных подписок
     // человек не просил, и подключение «куда-то» его бы озадачило.
-    const pool = (
-      subscriptions.find((sub) => sub.url === activeSubscriptionUrl) ?? subscriptions[0]
-    )?.servers ?? [];
+    const subscription = subscriptions.find((sub) => sub.url === subscriptionUrl)
+      ?? subscriptions.find((sub) => sub.url === activeSubscriptionUrl) ?? subscriptions[0];
+    const pool = subscription?.servers ?? [];
     if (pool.length === 0) {
       set({ error: "Нет серверов для выбора" });
       return;
     }
+    // Auto is a selected background mode, not a command to re-run each time
+    // its row is clicked. In particular, do not disrupt a healthy active VPN.
+    if (status?.state === "connected" &&
+        status.auto_subscription_url === subscription?.url) return;
 
     set({ searchingFastest: true, error: null });
     try {
       const best = await measureFastestServer(pool, (result) => {
-        if (result.latency_ms != null) get().setServerPing(result.server_id, result.latency_ms);
+        get().setServerPing(result.server_id, result.latency_ms ?? null);
       });
       if (!best) {
         // Ни один узел не ответил: подключаться наугад хуже, чем сказать об этом.
         set({ error: "Ни один сервер не ответил на проверку" });
         return;
       }
-      const connected = status?.state === "connected";
-      await get().setActiveServer(best.id);
-      if (!connected) await get().connectServer(best.id);
+      const persisted = await api.connectAutoServer(best.id);
+      set((s) => ({
+        subscriptions: persisted.subscriptions,
+        activeServerId: persisted.active_server_id,
+        activeSubscriptionUrl: persisted.active_subscription_url ?? null,
+        sessionStartedAt: persisted.connected_at ?? Date.now(),
+        status: s.status ? {
+          ...s.status,
+          state: "connected",
+          connected_at: persisted.connected_at ?? Date.now(),
+          active_server_id: persisted.active_server_id,
+          active_subscription_url: persisted.active_subscription_url ?? null,
+          auto_subscription_url: persisted.auto_subscription_url ?? null,
+        } : s.status,
+      }));
+      await get().hydrate();
+      void api.refreshTrayMenu();
     } catch (e) {
       set({ error: String(e) });
       throw e;
@@ -594,12 +611,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   setServerPing: (serverId, latency) => {
-    set((s) => ({
-      serverPings: {
-        ...s.serverPings,
-        [serverId]: latency,
-      },
-    }));
+    set(s => {
+      const serverPings = { ...s.serverPings };
+      if (latency != null && Number.isFinite(latency) && latency >= 0) serverPings[serverId] = latency;
+      else delete serverPings[serverId];
+      return { serverPings };
+    });
   },
 
   openImportDialog: (source = "") => {

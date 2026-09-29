@@ -1,6 +1,10 @@
+import { AutoFastestLine } from "../components/AutoFastestLine";
+import { SubscriptionInfo } from "../components/SubscriptionInfo";
+import { Dialog } from "../components/Universal";
+
+import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { CountryFlag } from "../components/CountryFlag";
 import { notifyError, notifyInfo } from "../lib/notify";
 import { expireLabels, fillTemplate, useMessages, type Messages } from "../lib/i18n";
@@ -220,12 +224,13 @@ export function Subscriptions() {
   const pingSubscriptionServers = async (url: string) => {
     const sub = subs.find((item) => item.url === url);
     if (!sub) return;
+    sub.servers.forEach(server => setPageServerPing(server.id, null));
     setPingingUrl(url);
     try {
       await pingServersProgressively(
         sub.servers.map((server) => server.id),
         (result) => {
-          if (result.latency_ms != null) setPageServerPing(result.server_id, result.latency_ms);
+          setPageServerPing(result.server_id, result.latency_ms ?? null);
         },
       );
     } catch (e) {
@@ -237,9 +242,10 @@ export function Subscriptions() {
 
   /** Пинг одного сервера из таблицы. */
   const pingSingleServer = async (serverId: string) => {
+    setPageServerPing(serverId, null);
     try {
       await pingServersProgressively([serverId], (result) => {
-        if (result.latency_ms != null) setPageServerPing(result.server_id, result.latency_ms);
+        setPageServerPing(result.server_id, result.latency_ms ?? null);
       });
     } catch (e) {
       notifyError(String(e));
@@ -292,7 +298,7 @@ export function Subscriptions() {
             order={subs.map((item) => item.url)}
             onRefreshSubscription={(url) => {
               setRefreshingUrl(url);
-              void refreshSubscription(url).finally(() => setRefreshingUrl(null));
+              void refreshSubscription(url).catch(error => notifyError(String(error))).finally(() => setRefreshingUrl(null));
             }}
             onPingSubscription={(url) => void pingSubscriptionServers(url)}
             onOpenSettings={(url) => setSignalSettingsUrl(url)}
@@ -577,6 +583,8 @@ function ProfileCard({
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const setServerPing = useAppStore((s) => s.setServerPing);
   const showSubscriptionLogo = useAppStore((s) => s.preferences.show_subscription_logo);
+  const autoSelected = useAppStore((s) =>
+    s.status?.state === "connected" && s.status.auto_subscription_url === sub.url);
   const logoSrc = useCachedSubscriptionLogo(sub, showSubscriptionLogo);
 
   const trafficValue = total ? `${formatBytes(used)} / ${formatBytes(total)}` : `${formatBytes(used)} / ∞`;
@@ -618,6 +626,7 @@ function ProfileCard({
   const onPingClick = async () => {
     const serverIds = sub.servers.map((server) => server.id);
     setPinging(true);
+    serverIds.forEach(id => setServerPing(id, null));
     setPingingServerIds(new Set(serverIds));
     try {
       await pingServersProgressively(serverIds, (result) => {
@@ -626,9 +635,7 @@ function ProfileCard({
           next.delete(result.server_id);
           return next;
         });
-        if (result.latency_ms != null) {
-          setServerPing(result.server_id, result.latency_ms);
-        }
+        setServerPing(result.server_id, result.latency_ms ?? null);
       });
     } finally {
       setPinging(false);
@@ -643,10 +650,10 @@ function ProfileCard({
       return next;
     });
     try {
+      setServerPing(serverId, null);
       const result = await api.pingServer(serverId);
-      if (result.latency_ms != null) {
-        setServerPing(result.server_id, result.latency_ms);
-      }
+      if (result.error) notifyError(result.error);
+      setServerPing(result.server_id, result.latency_ms ?? null);
     } catch (e) {
       notifyError(String(e));
     } finally {
@@ -799,6 +806,8 @@ function ProfileCard({
         <div className="divide-y divide-[var(--color-border)] border-t border-[var(--color-border)] bg-[rgba(255,255,255,0.018)]">
           <AutoFastestLine
             servers={sub.servers}
+            subscriptionUrl={sub.url}
+            autoSelected={autoSelected}
             activeId={activeId}
             pings={serverPings}
             displayName={(server) => serverDisplayLabel(server, serverOverrides)}
@@ -864,89 +873,6 @@ function ProfileCard({
  * читается как ещё один вариант выбора, а не как настройка, спрятанная
  * страницей глубже.
  */
-function AutoFastestLine({
-  servers,
-  activeId,
-  pings,
-  displayName,
-}: {
-  servers: Server[];
-  activeId: string | null;
-  pings: Record<string, number>;
-  displayName: (server: Server) => string;
-}) {
-  const m = useMessages();
-  const searching = useAppStore((s) => s.searchingFastest);
-  const connectFastest = useAppStore((s) => s.connectFastestServer);
-  const active = servers.find((server) => server.id === activeId) ?? null;
-  const activePing = active ? pings[active.id] : undefined;
-
-  const subtitle = searching
-    ? m.profiles.fastestSearching
-    : active && typeof activePing === "number" && activePing > 0
-      ? fillTemplate(m.profiles.fastestCurrent, {
-          name: displayName(active),
-          ping: String(activePing),
-        })
-      : m.profiles.fastestHint;
-
-  const run = () => {
-    if (searching) return;
-    void connectFastest().catch((error) => notifyError(String(error)));
-  };
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={run}
-      onKeyDown={(event) => {
-        if (event.currentTarget !== event.target) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          run();
-        }
-      }}
-      className={[
-        "server-profile-row server-profile-row-auto group",
-        searching ? "server-profile-row-connecting" : "",
-      ].join(" ")}
-    >
-      <div className="server-profile-logo">
-        <BoltIcon />
-      </div>
-      <div className="server-profile-main">
-        <div className="server-profile-title-line">
-          <div className="server-profile-title">{m.profiles.fastestTitle}</div>
-          {searching && (
-            <span className="server-row-pill server-row-pill-selected">
-              {m.profiles.fastestSearching}
-            </span>
-          )}
-        </div>
-        <div className="server-profile-description">{subtitle}</div>
-      </div>
-      <div className="server-profile-actions" data-no-toggle>
-        <SignalIcon pulse={searching} small />
-      </div>
-    </div>
-  );
-}
-
-function BoltIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-      <path
-        d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function ServerLine({
   server,
   servers,
@@ -1136,10 +1062,10 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
       </span>
     );
   }
-  if (ping == null) return null;
+  if (ping == null) return <LatencyDisplay value={ping} />;
   return (
     <span className="server-ping-badge">
-      {ping} ms
+      <LatencyDisplay value={ping} />
     </span>
   );
 }
@@ -1157,49 +1083,11 @@ function RenameServerDialog({
   const [name, setName] = useState(initialName);
   const canSave = name.trim().length > 0;
 
-  return (
-    <ModalPortal>
-      <div className="app-dialog-backdrop" role="presentation" onClick={onClose}>
-        <div
-          className="panel server-rename-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="rename-server-title"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div id="rename-server-title" className="mb-2 text-xl font-bold text-white">
-            {m.profiles.renameServer}
-          </div>
-          <div className="mb-4 text-sm text-[var(--color-text-faint)]">
-            {m.profiles.renameServerDescription}
-          </div>
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="dark-input px-4 py-3 text-base"
-            autoFocus
-          />
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="interactive rounded-xl border border-[var(--color-border)] px-4 py-3 text-sm font-semibold text-[var(--color-text-dim)]"
-            >
-              {m.common.cancel}
-            </button>
-            <button
-              type="button"
-              disabled={!canSave}
-              onClick={() => canSave && onSave(name)}
-              className="primary-button interactive rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-50"
-            >
-              {m.common.save}
-            </button>
-          </div>
-        </div>
-      </div>
-    </ModalPortal>
-  );
+  return <Dialog title={m.profiles.renameServer} closeLabel={m.common.close} onClose={onClose}
+    footer={<><button className="btn" onClick={onClose}>{m.common.cancel}</button><button className="primary-button btn" disabled={!canSave} onClick={() => canSave && onSave(name)}>{m.common.save}</button></>}>
+    <p className="universal-confirm-description">{m.profiles.renameServerDescription}</p>
+    <input aria-label={m.profiles.renameServer} value={name} onChange={event => setName(event.target.value)} className="dark-input w-full px-4 py-3" autoFocus />
+  </Dialog>;
 }
 
 function SubscriptionSettingsDialog({
@@ -1208,7 +1096,6 @@ function SubscriptionSettingsDialog({
   updateInterval,
   supportUrl,
   siteUrl,
-  description,
   sourceUrl,
   onDelete,
   onSave,
@@ -1235,6 +1122,7 @@ function SubscriptionSettingsDialog({
   const [interval, setInterval] = useState(updateInterval);
   const [saving, setSaving] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const save = async () => {
     setSaving(true);
@@ -1272,32 +1160,33 @@ function SubscriptionSettingsDialog({
     }
   };
 
-  return (
-    <ModalPortal>
-      <div
-        className="subscription-settings-backdrop"
-        onClick={onClose}
-      >
-        <div
-          className="subscription-settings-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="subscription-settings-title"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="subscription-settings-header">
-            <h2 id="subscription-settings-title">{m.profiles.subscriptionSettings}</h2>
+  return <>
+    <Dialog title={m.profiles.subscriptionSettings} closeLabel={m.common.close} onClose={onClose} closeDisabled={saving} footer={<div className="subscription-settings-footer">
             <button
               type="button"
-              onClick={onClose}
-              className="subscription-settings-close"
-              title={m.common.close}
-              aria-label={m.common.close}
+              onClick={onDelete}
+              className="subscription-settings-delete"
             >
-              <XIcon />
+              {m.profiles.delete}
             </button>
-          </div>
-
+            <div className="subscription-settings-footer-actions">
+              <button
+                type="button"
+                onClick={onClose}
+                className="subscription-settings-cancel"
+              >
+                {m.common.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={save}
+                disabled={saving}
+                className="subscription-settings-save"
+              >
+                {saving ? m.common.saving : m.common.save}
+              </button>
+            </div>
+          </div>}>
           <div className="subscription-settings-body">
             <label className="subscription-settings-field">
               <span>{m.profiles.displayName}</span>
@@ -1334,14 +1223,7 @@ function SubscriptionSettingsDialog({
                 <div className="subscription-settings-row-title">{m.profiles.customUpdateInterval}</div>
                 <div className="subscription-settings-row-subtitle">{m.profiles.customUpdateIntervalDescription}</div>
               </div>
-              <button
-                type="button"
-                className="settings-toggle subscription-settings-switch settings-toggle-on"
-                aria-pressed="true"
-                title={m.profiles.customUpdateInterval}
-              >
-                <span />
-              </button>
+
             </div>
 
             <div className="subscription-settings-interval-grid">
@@ -1373,65 +1255,19 @@ function SubscriptionSettingsDialog({
               </div>
             </div>
 
-            <section className="subscription-settings-provider-links">
-              <div className="subscription-settings-label">{m.profiles.providerLinks}</div>
-              <div className="subscription-settings-provider-grid">
-                <a href={supportUrl} target="_blank" rel="noreferrer">
-                  <SupportIcon />
-                  {m.common.support}
-                </a>
-                {siteUrl && (
-                  <a href={siteUrl} target="_blank" rel="noreferrer">
-                    <GlobeIcon className="h-5 w-5" />
-                    {m.common.site}
-                  </a>
-                )}
-              </div>
-            </section>
+            <button type="button" className="signal-btn signal-btn--ghost" onClick={() => setInfoOpen(true)}>{m.profiles.providerLinks} · {m.common.description}</button>
 
-            {description && (
-              <section className="subscription-settings-announcement">
-                <div className="subscription-settings-label">{m.profiles.providerAnnouncement}</div>
-                <div>{description}</div>
-              </section>
-            )}
           </div>
 
-          <div className="subscription-settings-footer">
-            <button
-              type="button"
-              onClick={onDelete}
-              className="subscription-settings-delete"
-            >
-              {m.profiles.delete}
-            </button>
-            <div className="subscription-settings-footer-actions">
-              <button
-                type="button"
-                onClick={onClose}
-                className="subscription-settings-cancel"
-              >
-                {m.common.cancel}
-              </button>
-              <button
-                type="button"
-                onClick={save}
-                disabled={saving}
-                className="subscription-settings-save"
-              >
-                {saving ? m.common.saving : m.common.save}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </ModalPortal>
-  );
+    </Dialog>
+    {infoOpen && <SubscriptionInfo sub={sub} labels={m} supportUrl={supportUrl} siteUrl={siteUrl} onClose={() => setInfoOpen(false)}/>}
+  </>;
 }
 
 function networkBadge(protocol: Server["protocol"]): string {
   if (protocol.kind === "shadowsocks") return "SHADOWSOCKS";
   if (protocol.kind === "naive") return "NAIVEPROXY";
+  if (protocol.kind === "awg") return "AWG";
   const value = transportLabel(protocol).replace(" · ", " • ").trim();
   return value ? value.toUpperCase() : "JSON";
 }
@@ -1481,47 +1317,15 @@ function ConfirmDialog({
   onClose: () => void;
 }) {
   const m = useMessages();
-  return (
-    <ModalPortal>
-      <div
-        className="fixed inset-0 z-50 grid place-items-center p-5"
-        style={{ background: "rgba(0,0,0,0.58)", backdropFilter: "blur(9px)" }}
-        onClick={onClose}
-      >
-        <div
-          className="panel w-full max-w-md bg-[rgba(26,26,46,0.96)] p-5 shadow-[0_28px_90px_rgba(0,0,0,0.46)]"
-          onClick={(e) => e.stopPropagation()}
-        >
-        <div className="mb-2 text-xl font-bold text-white">{title}</div>
-        <div className="mb-5 text-sm leading-relaxed text-[var(--color-text-dim)]">{description}</div>
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={onClose}
-            disabled={busy}
-            className="interactive rounded-xl border border-[var(--color-border)] px-4 py-3 text-sm font-semibold text-[var(--color-text-dim)] disabled:opacity-50"
-          >
-            {m.common.cancel}
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={busy}
-            className={[
-              "interactive rounded-xl px-4 py-3 text-sm font-bold disabled:opacity-50",
-              danger ? "bg-[var(--color-status-error)] text-white" : "primary-button",
-            ].join(" ")}
-          >
-            {busy ? m.profiles.wait : confirmLabel}
-          </button>
-        </div>
-      </div>
-      </div>
-    </ModalPortal>
-  );
+  return <Dialog title={title} closeLabel={m.common.close} onClose={onClose} closeDisabled={busy} footer={<>
+      <button type="button" onClick={onClose} disabled={busy} className="signal-btn signal-btn--ghost">{m.common.cancel}</button>
+      <button type="button" onClick={onConfirm} disabled={busy} className={`signal-btn ${danger ? "universal-danger" : "signal-btn--primary"}`}>{busy ? m.profiles.wait : confirmLabel}</button>
+    </>}>
+    <p className="universal-confirm-description">{description}</p>
+
+  </Dialog>;
 }
 
-function ModalPortal({ children }: { children: ReactNode }) {
-  return createPortal(children, document.body);
-}
 
 function MiniStat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
@@ -1601,49 +1405,32 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center p-5"
-      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
-      onClick={onClose}
-    >
-      <div
-        className="panel w-full max-w-2xl p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold text-white">{m.profiles.importTitle}</h2>
-            <p className="text-sm text-[var(--color-text-faint)]">
-              {m.profiles.importSubtitle}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg bg-[var(--color-glass-bg)] px-3 py-2 text-sm text-[var(--color-text-dim)]"
-          >
-            {m.common.close}
-          </button>
-        </div>
-
-        <div className="grid grid-cols-[1fr_150px] gap-3 mobile-stack">
-          <input
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-            placeholder={m.profiles.sourcePlaceholder}
-            className="dark-input px-4 py-3 text-sm font-mono"
-          />
-          <button
+    <Dialog title={m.profiles.importTitle} closeLabel={m.common.close} onClose={onClose} closeDisabled={busy} footer={<><button className="btn" disabled={busy} onClick={onClose}>{m.common.cancel}</button><button
             onClick={() => importSource()}
             disabled={busy || !source.trim()}
             className="primary-button interactive rounded-xl px-4 py-3 text-sm disabled:opacity-40"
           >
             {busy ? m.common.importing : m.common.import}
-          </button>
+          </button></>}>
+      <p className="universal-confirm-description">{m.profiles.importSubtitle}</p>
+        <div className="grid grid-cols-1 gap-3">
+          <textarea
+            rows={3}
+            spellCheck={false}
+            autoComplete="off"
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            aria-label={m.profiles.sourcePlaceholder}
+            placeholder={m.profiles.sourcePlaceholder}
+            className="dark-input px-4 py-3 text-sm font-mono"
+          />
+
         </div>
 
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
+          aria-label={m.profiles.namePlaceholder}
           placeholder={m.profiles.namePlaceholder}
           className="dark-input mt-3 px-4 py-3 text-sm"
         />
@@ -1663,7 +1450,7 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
         />
 
         {err && (
-          <div className="mt-4 rounded-xl border border-[rgba(244,67,54,0.35)] bg-[rgba(244,67,54,0.12)] px-4 py-3 text-sm text-[var(--color-status-error)]">
+          <div role="alert" className="mt-4 rounded-xl border border-[rgba(244,67,54,0.35)] bg-[rgba(244,67,54,0.12)] px-4 py-3 text-sm text-[var(--color-status-error)]">
             {err}
           </div>
         )}
@@ -1673,8 +1460,7 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
             {fillTemplate(m.profiles.importedServers, { count: importedCount })}
           </div>
         )}
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -2010,51 +1796,25 @@ function XIcon() {
 function AdminRestartDialog({ onClose }: { onClose: () => void }) {
   const m = useMessages();
   const [restarting, setRestarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const restart = async () => {
     if (restarting) return;
-    setRestarting(true);
+    setRestarting(true); setError(null);
     try {
       await api.restartAsAdmin();
     } catch (e) {
-      setRestarting(false);
+      setRestarting(false); setError(String(e));
       notifyError(String(e));
     }
   };
 
-  return (
-    <ModalPortal>
-      <div className="app-dialog-backdrop" role="presentation" onClick={onClose}>
-        <div
-          className="panel w-full max-w-md bg-[rgba(26,26,46,0.98)] p-8 text-center shadow-[0_32px_100px_rgba(0,0,0,0.6)]"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="admin-dialog-title"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="mx-auto mb-6 grid h-20 w-20 place-items-center rounded-full bg-[var(--color-accent-active-bg)] text-[var(--color-accent-bright)]">
-            <ShieldAlertIcon />
-          </div>
-          <h2 id="admin-dialog-title" className="mb-4 text-2xl font-black text-white">
-            {m.home.adminTitle}
-          </h2>
-          <p className="mb-8 text-lg font-medium leading-relaxed text-[var(--color-text-dim)]">
-            {m.home.adminText}
-          </p>
-          <div className="grid grid-cols-1 gap-3">
-            <button
-              onClick={() => void restart()}
-              disabled={restarting}
-              className="primary-button interactive rounded-2xl py-4 text-lg font-bold"
-            >
-              {m.common.ok}
-            </button>
-          </div>
-        </div>
-      </div>
-    </ModalPortal>
-  );
+  return <Dialog title={m.home.adminTitle} closeLabel={m.common.close} onClose={onClose} closeDisabled={restarting}
+    footer={<><button className="btn" disabled={restarting} onClick={onClose}>{m.common.cancel}</button><button className="primary-button btn" onClick={() => void restart()} disabled={restarting}>{restarting ? m.common.savingProgress : m.common.ok}</button></>}>
+    <p className="universal-confirm-description">{m.home.adminText}</p>{error && <p role="alert" className="secondary-note">{error}</p>}
+  </Dialog>;
 }
+
 
 function deduplicateById<T extends { id: string }>(items: T[]): T[] {
   const seen = new Set<string>();
@@ -2070,12 +1830,3 @@ function isAdminRestartError(message: string): boolean {
   return normalized.includes("tun") && normalized.includes("администратор");
 }
 
-function ShieldAlertIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-10 w-10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  );
-}

@@ -1,0 +1,18 @@
+# Public synthetic fixture. Exact bytes, not a reconstructed export.
+mode: rule
+proxies:
+  - {name: PublicDirect, type: direct}
+proxy-providers:
+  Inline:
+    type: inline
+    payload: [{name: ProviderDirect, type: direct}]
+proxy-groups:
+  - name: PublicChoice
+    type: select
+    proxies: [PublicDirect, DIRECT, REJECT]
+    use: [Inline]
+    include-all-providers: true
+    hidden: false
+    icon: public-icon
+rules:
+  - MATCH,PublicChoice

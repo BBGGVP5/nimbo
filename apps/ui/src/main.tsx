@@ -137,3 +137,10 @@ function normalizeWindowSize(width: unknown, height: unknown): StoredWindowSize 
 }
 
 setupWindowSizeMemory();
+
+import "./universal.css";
+
+import "./secondary.css";
+
+import "./preview-parity.css";
+import "./preview-fonts.css";

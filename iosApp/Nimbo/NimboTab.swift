@@ -4,7 +4,20 @@ enum NimboTab: String, CaseIterable, Identifiable {
     case home
     case profiles
     case stats
+    case routing
     case settings
+    case modules
+    case routingProfiles = "routing-profiles"
+    case notifications
+
+    static let navigationTabs: [NimboTab] = [.home, .profiles, .stats, .settings]
+
+    var navigationTab: NimboTab {
+        switch self {
+        case .routing, .modules, .routingProfiles, .notifications: .settings
+        default: self
+        }
+    }
 
     var id: String { rawValue }
 
@@ -12,42 +25,29 @@ enum NimboTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "Главная"
         case .profiles: "Профили"
-        case .stats: "Статистика"
+        case .stats: "Активность"
+        case .routing: "Маршруты"
         case .settings: "Настройки"
+        case .modules: "Модули"
+        case .routingProfiles: "Профили маршрутизации"
+        case .notifications: "Уведомления"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .home: "house.fill"
-        case .profiles: "globe.europe.africa.fill"
-        case .stats: "chart.bar.fill"
-        case .settings: "gearshape.fill"
+        case .home: "power"
+        case .profiles: "square.stack.3d.up"
+        case .stats: "waveform.path"
+        case .routing: "arrow.triangle.branch"
+        case .settings: "slider.horizontal.3"
+        case .modules: "square.grid.2x2"
+        case .routingProfiles: "arrow.triangle.branch"
+        case .notifications: "bell"
         }
     }
 
     /// Имя SF Symbol для системной панели.
     var symbol: String { systemImage }
 
-    /// Подъём значка при выборе: прыгает только дом, остальным это ни к чему.
-    var motionLift: CGFloat {
-        switch self {
-        case .home: -5
-        default: 0
-        }
-    }
-
-    /// Поворот при выборе. Глобус делает полный оборот, шестерёнка — четверть,
-    /// статистика слегка качается.
-    var motionRotation: Double {
-        switch self {
-        case .profiles: 360
-        case .settings: 90
-        case .stats: -12
-        case .home: 0
-        }
-    }
-
-    /// Покачивание возвращается в исходное, проворот — нет.
-    var motionWobbles: Bool { self == .stats }
 }

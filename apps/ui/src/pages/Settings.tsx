@@ -1,57 +1,39 @@
-import { useEffect, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { AppearanceThemePreview } from "../components/AppearanceThemePreview";
+import { CorePreferenceSetting } from "../components/CorePreferenceSetting";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { showAppUpdateDialog } from "../App";
+import { OperationPhrase } from "../components/OperationPhrase";
+import { Surface } from "../components/Universal";
 import {
   api,
   APP_VERSION,
   DEFAULT_ACCENT_COLOR,
-  DEFAULT_ACCENT_PALETTE,
-  defaultAppPreferences,
   formatBytes,
   isTauriRuntime,
   type AppPreferences,
   type AppUpdateInfo,
   type AppUpdateProgress,
-  type ConnectButtonStyle,
   type ConnectionMode,
   type DeviceInfo,
   type ProxySettingsPatch,
   type Subscription,
   type SubscriptionTheme,
-  type ThemeMode,
 } from "../lib/api";
 import { fillTemplate, useMessages, type Messages } from "../lib/i18n";
+import { LATENCY_URL_PRESETS, normalizeLatencyTimeout, normalizeLatencyUrl } from "../lib/latency";
 import { notifyError, notifyInfo } from "../lib/notify";
 import { useCachedSubscriptionLogo } from "../lib/subscriptionLogo";
 import { cachedSubscriptionTheme } from "../lib/subscriptionTheme";
-import {
-  BACKGROUND_PRESETS,
-  accentGradientCss,
-  clearBackgroundBlob,
-  removePalettePreset,
-  saveBackgroundBlob,
-  savePalettePreset,
-  setAppearance,
-  useAppearance,
-  type AppearanceState,
-  type PalettePreset,
-} from "../lib/appearance";
 import { useAppStore } from "../store";
-import { showAppUpdateDialog } from "../App";
 
 const NIMBO_UA_FALLBACK = `Nimbo/${APP_VERSION}`;
 const HAPP_UA = "Happ/2.0.0";
 const INCY_UA = "Incy/2.1.0";
 const SOCKS_USERNAME_FALLBACK = "nimbo";
 const SOCKS_PASSWORD_FALLBACK = "nmb-preview-password";
-const VISUAL_PREFERENCE_SAVE_DELAY = 260;
-
-type VisualPreferenceKey =
-  | "interface_panel_brightness"
-  | "interface_transparency"
-  | "interface_blur"
-  | "interface_rounding";
 
 function withFallback(value: string | null | undefined, fallback: string): string {
   const trimmed = value?.trim();
@@ -113,7 +95,11 @@ export function Settings() {
   const refreshSubscription = useAppStore((s) => s.refreshSubscription);
   const status = useAppStore((s) => s.status);
   const hydrate = useAppStore((s) => s.hydrate);
-  const [section, setSection] = useState<SettingsSection>("general");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSection = searchParams.get("section");
+  const section = sectionItems.find(item => item.id === requestedSection)?.id ?? null;
+  const setSection = (next: SettingsSection | null) => setSearchParams(next ? { section: next } : {});
+  const ru = m.common.locale.startsWith("ru");
   const [device, setDevice] = useState<DeviceInfo | null>(null);
   const [override, setOverride] = useState<string | null>(null);
   const [mode, setMode] = useState<UaMode>("default");
@@ -329,47 +315,12 @@ export function Settings() {
 
   return (
     <div className="settings-page h-full overflow-auto">
-      <h1 className="page-title">{m.settings.title}</h1>
-
-      <nav className="settings-tools-row" aria-label={m.app.settings}>
-        <Link to="/routing" className="settings-tools-item interactive">
-          <span className="settings-tools-icon"><RouteIcon /></span>
-          <span className="settings-tools-label">{m.app.routing}</span>
-        </Link>
-        <Link to="/connections" className="settings-tools-item interactive">
-          <span className="settings-tools-icon"><ConnectionsIcon /></span>
-          <span className="settings-tools-label">{m.app.connections}</span>
-        </Link>
-        <Link to="/statistics" className="settings-tools-item interactive">
-          <span className="settings-tools-icon"><StatsBarsIcon /></span>
-          <span className="settings-tools-label">{m.app.statistics}</span>
-        </Link>
-        <Link to="/tunnel-logs" className="settings-tools-item interactive">
-          <span className="settings-tools-icon"><LogsIcon /></span>
-          <span className="settings-tools-label">{m.app.tunnelLogs}</span>
-        </Link>
-      </nav>
-
-      <div className="settings-layout">
-        <aside className="settings-side liquid-card">
-          {sectionItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setSection(item.id)}
-              aria-label={m.settings[item.labelKey]}
-              title={m.settings[item.labelKey]}
-              className={[
-                "settings-side-item interactive",
-                section === item.id ? "settings-side-item-active" : "",
-              ].join(" ")}
-            >
-              <span className="settings-side-icon">{item.icon}</span>
-              <span className="settings-side-label">{m.settings[item.labelKey]}</span>
-            </button>
-          ))}
-        </aside>
-
-        <main className="settings-content">
+      {section ? <><button type="button" className="parity-back" onClick={() => setSection(null)} aria-label={m.common.locale.startsWith("ru") ? "Назад к настройкам" : "Back to settings"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m14 6-6 6 6 6M8 12h12"/></svg><span>{m.settings.title}</span></button>
+        <h1 className="page-title">{m.settings[sectionItems.find(item => item.id === section)!.labelKey]}</h1></> :
+        <header className="parity-page-heading"><h1 className="page-title">{m.settings.title}</h1><p>{ru ? "Всё нужное — на своём месте." : "Everything you need, in its place."}</p></header>}
+      {!section && <SettingsOverview preferences={preferences} version={appVersion} onSelect={setSection} />}
+      {section && <div className="parity-settings-detail">
+        <div className="settings-content">
           {section === "general" && (
             <GeneralSection
               preferences={preferences}
@@ -461,92 +412,35 @@ export function Settings() {
               onCopyHwid={onCopyHwid}
             />
           )}
-        </main>
-      </div>
+        </div>
+      </div>}
     </div>
   );
 }
 
-const accentPresets: Array<{
-  color: string;
-  labelKey:
-    | "accentViolet"
-    | "accentBlue"
-    | "accentGreen"
-    | "accentRose"
-    | "accentAmber"
-    | "accentCyan"
-    | "accentEmber";
-}> = [
-  { color: DEFAULT_ACCENT_COLOR, labelKey: "accentBlue" },
-  { color: "#ff9345", labelKey: "accentEmber" },
-  { color: "#7c5dfa", labelKey: "accentViolet" },
-  { color: "#21a67a", labelKey: "accentGreen" },
-  { color: "#e24d70", labelKey: "accentRose" },
-  { color: "#f5a623", labelKey: "accentAmber" },
-  { color: "#00a8c8", labelKey: "accentCyan" },
-];
-
-const extraAccentPresets: Array<{ color: string; label: string }> = [
-  { color: "#ef4444", label: "Red" },
-  { color: "#f97316", label: "Orange" },
-  { color: "#eab308", label: "Gold" },
-  { color: "#84cc16", label: "Lime" },
-  { color: "#14b8a6", label: "Teal" },
-  { color: "#6366f1", label: "Indigo" },
-  { color: "#ec4899", label: "Pink" },
-  { color: "#64748b", label: "Slate" },
-];
-
-const gradientAccentPresets: Array<{ label: string; colors: string[] }> = [
-  { label: "Aurora", colors: ["#7c5dfa", "#4f8cff"] },
-  { label: "Candy", colors: ["#e24d70", "#7c5dfa"] },
-  { label: "Sunset", colors: ["#f5a623", "#e24d70"] },
-  { label: "Lagoon", colors: ["#21a67a", "#00a8c8"] },
-  { label: "Spectrum", colors: ["#7c5dfa", "#e24d70", "#f5a623"] },
-  { label: "Reef", colors: ["#00a8c8", "#21a67a", "#4f8cff"] },
-];
-
-function usePersistentToggle(key: string, defaultValue: boolean) {
-  const [value, setValue] = useState<boolean>(() => {
-    if (typeof window === "undefined") return defaultValue;
-    try {
-      const raw = window.localStorage.getItem(key);
-      return raw == null ? defaultValue : raw === "1";
-    } catch {
-      return defaultValue;
-    }
-  });
-  const toggle = () =>
-    setValue((current) => {
-      const next = !current;
-      try {
-        window.localStorage.setItem(key, next ? "1" : "0");
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  return [value, toggle] as const;
-}
-
-function readSystemAccentColor(): string {
-  if (typeof document === "undefined") return DEFAULT_ACCENT_COLOR;
-  try {
-    const sample = document.createElement("span");
-    sample.style.color = "Highlight";
-    sample.style.position = "fixed";
-    sample.style.visibility = "hidden";
-    document.body.appendChild(sample);
-    const value = getComputedStyle(sample).color;
-    sample.remove();
-    const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
-    if (!match) return DEFAULT_ACCENT_COLOR;
-    const toHex = (n: number) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0");
-    return `#${toHex(Number(match[1]))}${toHex(Number(match[2]))}${toHex(Number(match[3]))}`;
-  } catch {
-    return DEFAULT_ACCENT_COLOR;
-  }
+function SettingsOverview({ preferences, version, onSelect }: { preferences: AppPreferences; version: string; onSelect: (section: SettingsSection) => void }) {
+  const m = useMessages();
+  const ru = m.common.locale.startsWith("ru");
+  const row = (id: SettingsSection, detail?: string) => {
+    const item = sectionItems.find(item => item.id === id)!;
+    return <button type="button" className="parity-setting-link" key={id} onClick={() => onSelect(id)}><span className="parity-setting-icon">{item.icon}</span><span><strong>{m.settings[item.labelKey]}</strong>{detail && <small>{detail}</small>}</span><span aria-hidden="true">›</span></button>;
+  };
+  const link = (to: string, title: string, icon: ReactNode, detail?: string) => <Link className="parity-setting-link" to={to}><span className="parity-setting-icon">{icon}</span><span><strong>{title}</strong>{detail && <small>{detail}</small>}</span><span aria-hidden="true">›</span></Link>;
+  return <div className="parity-settings-overview">
+    <div><section className="parity-settings-group"><h2>{m.settings.connection}</h2><div className="parity-settings-list">
+      {row("latency", preferences.latency_protocol === "nimbo" ? "Nimbo Ping" : ({ tcp_connect: "TCP Connect", http_get: "HTTP GET", http_head: "HTTP HEAD", icmp: "ICMP" }[preferences.latency_protocol] ?? preferences.latency_protocol))}
+      {link("/routing", m.app.routing, <RouteIcon />, ru ? "Правила и модули" : "Rules and modules")}
+      {row("tunnel", "DNS · TLS · MTU")}{row("connection", ru ? "Режим, прокси и Kill Switch" : "Mode, proxy and Kill Switch")}{row("lan")}
+    </div></section><section className="parity-settings-group"><h2>{m.settings.subscriptions}</h2><div className="parity-settings-list">
+      {row("subscriptions", ru ? "Обновление и импорт" : "Refresh and import")}{row("servers")}{link("/sync", m.app.sync, <RefreshIcon />)}{row("backup")}
+    </div></section></div>
+    <div><section className="parity-settings-group"><h2>{ru ? "Приложение" : "Application"}</h2><div className="parity-settings-list">
+      {row("appearance", ru ? "Тема и цвет" : "Theme and colour")}{row("updates", `v${version}`)}{row("general")}
+      {link("/apps", m.app.apps, <ConnectionsIcon />)}{link("/notifications", m.app.notifications, <InfoIcon />)}
+    </div></section><section className="parity-settings-group"><h2>{ru ? "Диагностика" : "Diagnostics"}</h2><div className="parity-settings-list">
+      {link("/connections", m.app.connections, <ConnectionsIcon />)}{link("/statistics", m.app.statistics, <StatsBarsIcon />)}{link("/tunnel-logs", m.app.tunnelLogs, <LogsIcon />)}{row("about", `Nimbo · ${version}`)}
+    </div></section></div>
+  </div>;
 }
 
 function GeneralSection({
@@ -619,467 +513,29 @@ function GeneralSection({
   );
 }
 
-function AppearanceSection({
-  preferences,
-  previewSubscription,
-  onChange,
-}: {
-  preferences: AppPreferences;
-  previewSubscription: Subscription | null;
+function AppearanceSection({ preferences, previewSubscription, onChange }: {
+  preferences: AppPreferences; previewSubscription: Subscription | null;
   onChange: (patch: Partial<AppPreferences>) => Promise<void>;
 }) {
   const m = useMessages();
-  const providerThemePreview = cachedSubscriptionTheme(previewSubscription);
-  const providerLogoPreview = useCachedSubscriptionLogo(previewSubscription, true);
-  const [systemAccent, setSystemAccent] = useState(DEFAULT_ACCENT_COLOR);
-  const appearance = useAppearance();
-  const [interfaceOpen, toggleInterface] = usePersistentToggle("nimbo.collapse.interface", true);
-  const [detailsOpen, toggleDetails] = usePersistentToggle("nimbo.collapse.details", false);
-  const [themeOpen, toggleTheme] = usePersistentToggle("nimbo.collapse.theme", false);
-  const [accentOpen, toggleAccent] = usePersistentToggle("nimbo.collapse.accent", false);
-  const [backgroundOpen, toggleBackground] = usePersistentToggle("nimbo.collapse.background", true);
-  const [connectionStyleOpen, toggleConnectionStyle] = usePersistentToggle("nimbo.collapse.connectionStyle", true);
-  const [languageOpen, toggleLanguage] = usePersistentToggle("nimbo.collapse.language", true);
-  const [providerThemeOpen, toggleProviderTheme] = usePersistentToggle("nimbo.collapse.providerThemeAndLogo", true);
-
-  const samePalette = (a: string[], b: string[]) =>
-    a.join(",").toLowerCase() === b.join(",").toLowerCase();
-  const matchedGradient = gradientAccentPresets.find((g) => samePalette(g.colors, appearance.palette));
-
-  const [isCustomActive, setIsCustomActive] = useState(() => preferences.accent_mode === "custom" && !matchedGradient);
-
-  const livePalette = (colors: string[]) => {
-    setIsCustomActive(true);
-    setAppearance({ palette: colors.length ? colors.slice(0, 3) : [...DEFAULT_ACCENT_PALETTE] });
-  };
-  const commitPalette = (colors: string[], fromPreset = false) => {
-    const next = colors.length ? colors.slice(0, 3) : [...DEFAULT_ACCENT_PALETTE];
-    setAppearance({ palette: next });
-    void onChange({ accent_mode: "custom", accent_color: next[0] });
-    if (!fromPreset) {
-      setIsCustomActive(true);
-    }
-  };
-  const [visualDraft, setVisualDraft] = useState({
-    interface_panel_brightness: preferences.interface_panel_brightness,
-    interface_transparency: preferences.interface_transparency,
-    interface_blur: preferences.interface_blur,
-    interface_rounding: preferences.interface_rounding,
-  });
-  const visualTimers = useRef<Partial<Record<VisualPreferenceKey, ReturnType<typeof setTimeout>>>>({});
-
-  useEffect(() => {
-    setSystemAccent(readSystemAccentColor());
-  }, []);
-
-  useEffect(() => {
-    setVisualDraft({
-      interface_panel_brightness: preferences.interface_panel_brightness,
-      interface_transparency: preferences.interface_transparency,
-      interface_blur: preferences.interface_blur,
-      interface_rounding: preferences.interface_rounding,
-    });
-  }, [
-    preferences.interface_panel_brightness,
-    preferences.interface_transparency,
-    preferences.interface_blur,
-    preferences.interface_rounding,
-  ]);
-
-  useEffect(() => {
-    return () => {
-      Object.values(visualTimers.current).forEach((timer) => {
-        if (timer) clearTimeout(timer);
-      });
-    };
-  }, []);
-
-  const saveVisualPreference = (key: VisualPreferenceKey, value: number, immediate = false) => {
-    setVisualDraft((current) => ({ ...current, [key]: value }));
-    const timer = visualTimers.current[key];
-    if (timer) clearTimeout(timer);
-
-    const commit = () => {
-      if (preferences[key] === value) return;
-      void onChange({ [key]: value } as Partial<AppPreferences>);
-    };
-
-    if (immediate) {
-      commit();
-      return;
-    }
-
-    visualTimers.current[key] = setTimeout(commit, VISUAL_PREFERENCE_SAVE_DELAY);
-  };
-
-  const hasGlobalChanges =
-    visualDraft.interface_panel_brightness !== defaultAppPreferences.interface_panel_brightness ||
-    visualDraft.interface_transparency !== defaultAppPreferences.interface_transparency ||
-    visualDraft.interface_blur !== defaultAppPreferences.interface_blur ||
-    visualDraft.interface_rounding !== defaultAppPreferences.interface_rounding;
-
-  const resetAllVisuals = () => {
-    // 1. Update React visual draft immediately so UI reflects reset instantly
-    setVisualDraft({
-      interface_panel_brightness: defaultAppPreferences.interface_panel_brightness,
-      interface_transparency: defaultAppPreferences.interface_transparency,
-      interface_blur: defaultAppPreferences.interface_blur,
-      interface_rounding: defaultAppPreferences.interface_rounding,
-    });
-
-    // 2. Clear all scheduled saving timers
-    Object.values(visualTimers.current).forEach((timer) => {
-      if (timer) clearTimeout(timer);
-    });
-
-    // 3. Perform a single unified API save call
-    void onChange({
-      interface_panel_brightness: defaultAppPreferences.interface_panel_brightness,
-      interface_transparency: defaultAppPreferences.interface_transparency,
-      interface_blur: defaultAppPreferences.interface_blur,
-      interface_rounding: defaultAppPreferences.interface_rounding,
-    });
-  };
-
-  const accentPresetActive = (color: string) =>
-    preferences.accent_mode === "preset" && preferences.accent_color.toLowerCase() === color.toLowerCase();
-
-  return (
-    <Section title={m.settings.appearance}>
-      <SettingsCard>
-        <CollapsibleSection
-          title={m.settings.interfaceStyle}
-          description={m.settings.interfaceStyleDescription}
-          open={interfaceOpen}
-          onToggle={toggleInterface}
-        >
-          <div className="settings-interface-grid" role="radiogroup" aria-label={m.settings.interfaceStyle}>
-            <InterfaceStyleOption
-              styleId="nimbo"
-              title={m.settings.nimboStyle}
-              subtitle={m.settings.nimboStyleSubtitle}
-              selected={preferences.ui_style === "nimbo"}
-              onClick={() => onChange({ ui_style: "nimbo" })}
-            />
-            <InterfaceStyleOption
-              styleId="material_you"
-              title={m.settings.materialYouStyle}
-              subtitle={m.settings.materialYouStyleSubtitle}
-              selected={preferences.ui_style === "material_you"}
-              onClick={() => onChange({ ui_style: "material_you" })}
-            />
-            <InterfaceStyleOption
-              styleId="dotted"
-              title={m.settings.dottedStyle}
-              subtitle={m.settings.dottedStyleSubtitle}
-              selected={preferences.ui_style === "dotted"}
-              onClick={() => onChange({ ui_style: "dotted" })}
-            />
-            <InterfaceStyleOption
-              styleId="signal"
-              title={m.settings.signalStyle}
-              subtitle={m.settings.signalStyleSubtitle}
-              selected={preferences.ui_style === "signal"}
-              onClick={() => onChange({ ui_style: "signal" })}
-            />
-            <InterfaceStyleOption
-              styleId="manga"
-              title={m.settings.mangaStyle}
-              subtitle={m.settings.mangaStyleSubtitle}
-              selected={preferences.ui_style === "manga"}
-              onClick={() => onChange({ ui_style: "manga" })}
-            />
-          </div>
-          {/* Настройка движения — не стиль: внутри сетки она занимала место
-              карточки и вставала вплотную к Manga. */}
-          <div className="settings-interface-extras">
-            <ToggleRow
-              label={m.settings.navIconMotion}
-              description={m.settings.navIconMotionDescription}
-              enabled={preferences.nav_icon_motion}
-              onToggle={(enabled: boolean) => onChange({ nav_icon_motion: enabled })}
-            />
-          </div>
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title={m.settings.styleDetails}
-          description={m.settings.styleDetailsDescription}
-          open={detailsOpen}
-          onToggle={toggleDetails}
-          action={
-            hasGlobalChanges ? (
-              <button onClick={resetAllVisuals} className="settings-reset-all-btn" title={m.settings.resetAll}>
-                <RotateCcwIcon />
-                <span>{m.settings.resetAll}</span>
-              </button>
-            ) : undefined
-          }
-        >
-          <div className="appearance-slider-stack">
-            <VisualSliderRow
-              label={m.settings.panelBrightness}
-              description={m.settings.panelBrightnessDescription}
-              value={visualDraft.interface_panel_brightness}
-              min={60}
-              max={140}
-              step={5}
-              formatValue={(value) => `${value}%`}
-              onChange={(value) => saveVisualPreference("interface_panel_brightness", value)}
-              onCommit={(value) => saveVisualPreference("interface_panel_brightness", value, true)}
-              defaultValue={defaultAppPreferences.interface_panel_brightness}
-              onReset={() => saveVisualPreference("interface_panel_brightness", defaultAppPreferences.interface_panel_brightness, true)}
-            />
-            <VisualSliderRow
-              label={m.settings.elementTransparency}
-              description={m.settings.elementTransparencyDescription}
-              value={visualDraft.interface_transparency}
-              min={0}
-              max={80}
-              step={5}
-              formatValue={(value) => `${value}%`}
-              onChange={(value) => saveVisualPreference("interface_transparency", value)}
-              onCommit={(value) => saveVisualPreference("interface_transparency", value, true)}
-              defaultValue={defaultAppPreferences.interface_transparency}
-              onReset={() => saveVisualPreference("interface_transparency", defaultAppPreferences.interface_transparency, true)}
-            />
-            <VisualSliderRow
-              label={m.settings.blurRadius}
-              description={m.settings.blurRadiusDescription}
-              value={visualDraft.interface_blur}
-              min={0}
-              max={48}
-              step={1}
-              formatValue={(value) => `${value} px`}
-              onChange={(value) => saveVisualPreference("interface_blur", value)}
-              onCommit={(value) => saveVisualPreference("interface_blur", value, true)}
-              defaultValue={defaultAppPreferences.interface_blur}
-              onReset={() => saveVisualPreference("interface_blur", defaultAppPreferences.interface_blur, true)}
-            />
-            <VisualSliderRow
-              label={m.settings.elementRounding}
-              description={m.settings.elementRoundingDescription}
-              value={visualDraft.interface_rounding}
-              min={50}
-              max={180}
-              step={5}
-              formatValue={(value) => `${(value / 100).toFixed(2)}x`}
-              onChange={(value) => saveVisualPreference("interface_rounding", value)}
-              onCommit={(value) => saveVisualPreference("interface_rounding", value, true)}
-              defaultValue={defaultAppPreferences.interface_rounding}
-              onReset={() => saveVisualPreference("interface_rounding", defaultAppPreferences.interface_rounding, true)}
-            />
-          </div>
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title={m.settings.theme}
-          description={m.settings.themeDescription}
-          open={themeOpen}
-          onToggle={toggleTheme}
-        >
-          <div className="settings-theme-grid settings-theme-grid-4" role="radiogroup" aria-label={m.settings.theme}>
-            <ThemePreviewOption
-              title={m.settings.lightTheme}
-              value="light"
-              selected={preferences.theme_mode === "light"}
-              onClick={() => onChange({ theme_mode: "light" })}
-            />
-            <ThemePreviewOption
-              title={m.settings.darkTheme}
-              value="dark"
-              selected={preferences.theme_mode === "dark"}
-              onClick={() => onChange({ theme_mode: "dark" })}
-            />
-            <ThemePreviewOption
-              title={m.settings.blackTheme}
-              value="black"
-              selected={preferences.theme_mode === "black"}
-              onClick={() => onChange({ theme_mode: "black" })}
-            />
-            <ThemePreviewOption
-              title={m.settings.systemTheme}
-              value="system"
-              selected={preferences.theme_mode === "system"}
-              onClick={() => onChange({ theme_mode: "system" })}
-            />
-          </div>
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title={m.settings.accentColor}
-          description={m.settings.accentDescription}
-          open={accentOpen}
-          onToggle={toggleAccent}
-        >
-          <div className="settings-accent-grid" role="radiogroup" aria-label={m.settings.accentColor}>
-            <AccentPreviewOption
-              title={m.settings.systemAccent}
-              color={systemAccent}
-              selected={preferences.accent_mode === "system"}
-              onClick={() => {
-                setIsCustomActive(false);
-                onChange({ accent_mode: "system" });
-              }}
-            />
-            {accentPresets.map(({ color, labelKey }) => (
-              <AccentPreviewOption
-                key={color}
-                title={m.settings[labelKey]}
-                color={color}
-                selected={accentPresetActive(color)}
-                onClick={() => {
-                  setIsCustomActive(false);
-                  onChange({ accent_mode: "preset", accent_color: color });
-                }}
-              />
-            ))}
-            {extraAccentPresets.map(({ color, label }) => (
-              <AccentPreviewOption
-                key={color}
-                title={label}
-                color={color}
-                selected={accentPresetActive(color)}
-                onClick={() => {
-                  setIsCustomActive(false);
-                  onChange({ accent_mode: "preset", accent_color: color });
-                }}
-              />
-            ))}
-            {gradientAccentPresets.map((gradient) => (
-              <GradientAccentOption
-                key={gradient.label}
-                label={gradient.label}
-                colors={gradient.colors}
-                selected={preferences.accent_mode === "custom" && !isCustomActive && samePalette(gradient.colors, appearance.palette)}
-                onClick={() => {
-                  setIsCustomActive(false);
-                  commitPalette(gradient.colors, true);
-                }}
-              />
-            ))}
-            <AccentCustomOption
-              title={m.settings.customAccent}
-              colors={appearance.palette}
-              selected={preferences.accent_mode === "custom" && (isCustomActive || !matchedGradient)}
-              onClick={() => {
-                setIsCustomActive(true);
-                commitPalette(appearance.palette);
-              }}
-            />
-          </div>
-          {preferences.accent_mode === "custom" && (
-            <CustomPaletteEditor
-              palette={appearance.palette}
-              presets={appearance.presets}
-              onLive={livePalette}
-              onCommit={commitPalette}
-            />
-          )}
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title={m.settings.backgroundTitle}
-          description={m.settings.backgroundDescription}
-          open={backgroundOpen}
-          onToggle={toggleBackground}
-        >
-          <BackgroundChooser appearance={appearance} />
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title={m.settings.connectionStyle}
-          description={m.settings.connectionStyleDescription}
-          open={connectionStyleOpen}
-          onToggle={toggleConnectionStyle}
-        >
-          <div className="settings-connect-style-grid" role="radiogroup" aria-label={m.settings.connectionStyle}>
-            <ConnectionStyleOption
-              title={m.profiles.classic}
-              description={m.settings.classicConnectStyleDescription}
-              value="classic"
-              selected={preferences.servers_connect_button === "classic"}
-              icon={<ClassicButtonIcon />}
-              onClick={() => onChange({ servers_connect_button: "classic" })}
-            />
-            <ConnectionStyleOption
-              title={m.settings.compact}
-              description={m.settings.compactConnectStyleDescription}
-              value="compact"
-              selected={preferences.servers_connect_button === "compact"}
-              icon={<CompactButtonIcon />}
-              onClick={() => onChange({ servers_connect_button: "compact" })}
-            />
-          </div>
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title={m.settings.language}
-          description={m.settings.languageDescription}
-          open={languageOpen}
-          onToggle={toggleLanguage}
-        >
-          <div className="settings-theme-grid settings-language-grid" role="radiogroup" aria-label={m.settings.language}>
-            <LanguagePreviewOption
-              flag="ru"
-              title="Русский"
-              sampleTitle="Подключено"
-              sampleLine="Выберите сервер"
-              sampleChip="Серверы"
-              selected={preferences.language === "ru"}
-              onClick={() => onChange({ language: "ru" })}
-            />
-            <LanguagePreviewOption
-              flag="gb"
-              title="English"
-              sampleTitle="Connected"
-              sampleLine="Choose a server"
-              sampleChip="Servers"
-              selected={preferences.language === "en"}
-              onClick={() => onChange({ language: "en" })}
-            />
-            <LanguagePreviewOption
-              icon={<GlobeIcon />}
-              title={m.settings.systemLanguage}
-              sampleTitle="RU · EN"
-              sampleLine={m.settings.systemLanguageSubtitle}
-              sampleChip="OS"
-              selected={preferences.language === "system"}
-              onClick={() => onChange({ language: "system" })}
-            />
-          </div>
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title={m.settings.providerThemeAndLogo}
-          description={m.settings.providerThemeAndLogoDescription}
-          open={providerThemeOpen}
-          onToggle={toggleProviderTheme}
-        >
-          <SubscriptionProviderPreview
-            sub={previewSubscription}
-            theme={providerThemePreview}
-            logoSrc={providerLogoPreview}
-            themeEnabled={preferences.provider_theme}
-            logoEnabled={preferences.show_subscription_logo}
-            labels={m}
-          />
-          <ProviderThemeRow
-            label={m.settings.providerTheme}
-            description={m.settings.providerThemeDescription}
-            enabled={preferences.provider_theme}
-            onToggle={(provider_theme) => onChange({ provider_theme })}
-          />
-          <ProviderThemeRow
-            label={m.settings.showSubscriptionLogo}
-            description={m.settings.showSubscriptionLogoDescription}
-            enabled={preferences.show_subscription_logo}
-            onToggle={(show_subscription_logo) => onChange({ show_subscription_logo })}
-          />
-        </CollapsibleSection>
-      </SettingsCard>
-    </Section>
-  );
+  const ru = m.common.locale.startsWith("ru");
+  const logo = useCachedSubscriptionLogo(previewSubscription, true);
+  const theme = cachedSubscriptionTheme(previewSubscription);
+  return <Section title={m.settings.appearance}>
+    <SettingsCard>
+      <div className="parity-appearance-block"><h3>{m.settings.theme}</h3><div className="parity-theme-options" role="radiogroup" aria-label={m.settings.theme}>
+        {([ ["system", m.settings.systemTheme], ["light", m.settings.lightTheme], ["dark", m.settings.darkTheme], ["black", m.settings.blackTheme] ] as const).map(([value,label]) => <AppearanceThemePreview key={value} title={label} value={value} selected={preferences.theme_mode === value} onClick={() => void onChange({theme_mode:value})}/>)}
+      </div></div>
+      <div className="parity-appearance-block"><h3>{m.settings.accentColor}</h3><div className="parity-palette" role="radiogroup" aria-label={m.settings.accentColor}>
+        {[{color:DEFAULT_ACCENT_COLOR,label:ru ? "Чёрно-белая" : "Monochrome"},{color:"#7298ee",label:ru ? "Кобальт" : "Cobalt"},{color:"#55b8b0",label:ru ? "Лагуна" : "Lagoon"},{color:"#c77e67",label:ru ? "Терракота" : "Terracotta"}].map(({color,label},i) => <button type="button" role="radio" aria-checked={preferences.accent_mode === "preset" && preferences.accent_color === color} key={color} onClick={() => void onChange({accent_mode:"preset",accent_color:color})}><i style={{background:i===0 ? "linear-gradient(135deg,#333 50%,#eee 50%)" : color}}/><span>{label}</span><span className="parity-selection-mark" aria-hidden="true">{preferences.accent_mode === "preset" && preferences.accent_color === color ? "✓" : ""}</span></button>)}
+      </div><label className={`parity-custom-color${preferences.accent_mode === "custom" ? " is-selected" : ""}`}><span className="parity-color-swatch" style={{background:preferences.accent_color}}/><span>{m.settings.customAccent}<small>{preferences.accent_mode === "custom" ? preferences.accent_color.toUpperCase() : (ru ? "Выбрать цвет" : "Choose colour")}</small></span><span className="parity-selection-mark" aria-hidden="true">{preferences.accent_mode === "custom" ? "✓" : "+"}</span><input type="color" aria-label={m.settings.customAccent} value={preferences.accent_color} onChange={event => void onChange({accent_mode:"custom",accent_color:event.target.value})}/></label></div>
+      <SettingsChoiceRow label={m.settings.language} value={preferences.language} options={[{value:"system",label:m.settings.systemLanguage},{value:"ru",label:"Русский"},{value:"en",label:"English"}]} onChange={language => onChange({language})}/>
+      <ToggleRow label={m.settings.navIconMotion} description={m.settings.navIconMotionDescription} enabled={preferences.nav_icon_motion} onToggle={nav_icon_motion => onChange({nav_icon_motion})}/>
+      <ToggleRow label={m.settings.showSubscriptionLogo} enabled={preferences.show_subscription_logo} onToggle={show_subscription_logo => onChange({show_subscription_logo})}/>
+      <ToggleRow label={m.settings.providerTheme} description={m.settings.providerThemeDescription} enabled={preferences.provider_theme} onToggle={provider_theme => onChange({provider_theme})}/>
+      {preferences.provider_theme && <SubscriptionProviderPreview sub={previewSubscription} theme={theme} logoSrc={logo} themeEnabled logoEnabled={preferences.show_subscription_logo} labels={m}/>}
+    </SettingsCard>
+  </Section>;
 }
 
 function ConnectionSection({
@@ -1148,6 +604,7 @@ function ConnectionSection({
   return (
     <Section title={m.settings.connection}>
       <SettingsCard>
+        <CorePreferenceSetting />
         <div className="settings-row settings-row-block">
           <div>
             <div className="settings-row-title">{m.settings.connectionMode}</div>
@@ -1559,20 +1016,19 @@ function LatencySection({
 }) {
   const m = useMessages();
   const [testUrlDraft, setTestUrlDraft] = useState(preferences.latency_test_url);
-  const [timeoutDraft, setTimeoutDraft] = useState(String(preferences.latency_timeout_ms));
+  const [customUrl, setCustomUrl] = useState(!LATENCY_URL_PRESETS.some(p => p.value === preferences.latency_test_url));
+  const [timeoutDraft, setTimeoutDraft] = useState(String(preferences.latency_timeout_ms / 1000));
 
   useEffect(() => {
     setTestUrlDraft(preferences.latency_test_url);
   }, [preferences.latency_test_url]);
 
   useEffect(() => {
-    setTimeoutDraft(String(preferences.latency_timeout_ms));
+    setTimeoutDraft(String(preferences.latency_timeout_ms / 1000));
   }, [preferences.latency_timeout_ms]);
 
   const saveTestUrl = () => {
-    const next = /^https?:\/\//i.test(testUrlDraft.trim())
-      ? testUrlDraft.trim()
-      : defaultAppPreferences.latency_test_url;
+    const next = normalizeLatencyUrl(testUrlDraft);
     setTestUrlDraft(next);
     if (next !== preferences.latency_test_url) {
       void onChange({ latency_test_url: next });
@@ -1580,11 +1036,8 @@ function LatencySection({
   };
 
   const saveTimeout = () => {
-    const parsed = Number.parseInt(timeoutDraft, 10);
-    const next = Number.isFinite(parsed)
-      ? Math.min(60000, Math.max(500, parsed))
-      : defaultAppPreferences.latency_timeout_ms;
-    setTimeoutDraft(String(next));
+    const next = normalizeLatencyTimeout(timeoutDraft.trim() ? Number(timeoutDraft.replace(",", ".")) * 1000 : undefined);
+    setTimeoutDraft(String(next / 1000));
     if (next !== preferences.latency_timeout_ms) {
       void onChange({ latency_timeout_ms: next });
     }
@@ -1593,42 +1046,52 @@ function LatencySection({
   return (
     <Section title={m.settings.latency}>
       <SettingsCard>
-        <SettingsChoiceRow
-          label={m.settings.protocol}
-          description={m.settings.latencyProtocolDescription}
-          value={preferences.latency_protocol}
-          options={[
-            { value: "tcp_connect", label: m.settings.latencyTcpConnect },
-            { value: "icmp", label: m.settings.latencyIcmp },
-            { value: "http_head", label: m.settings.latencyHttpHead },
-          ]}
-          onChange={(latency_protocol) => onChange({ latency_protocol })}
-          icon={<SignalIcon />}
-        />
-        {preferences.latency_protocol === "http_head" && (
-          <SettingsInputRow
+        <fieldset className="parity-radio-list"><legend>{m.settings.protocol}</legend>
+          {[
+            { value: "nimbo", label: "Nimbo Ping", detail: m.settings.latencyEstimateDescription },
+            { value: "tcp_connect", label: m.settings.latencyTcpConnect, detail: "TCP" },
+            { value: "http_get", label: "HTTP GET", detail: m.settings.latencyProtocolDescription },
+            { value: "http_head", label: m.settings.latencyHttpHead, detail: "HTTP HEAD" },
+            { value: "icmp", label: m.settings.latencyIcmp, detail: "ICMP" },
+          ].map(option => <label key={option.value}><span><strong>{option.label}</strong><small>{option.detail}</small></span><input type="radio" name="latency-protocol" value={option.value} checked={preferences.latency_protocol === option.value} onChange={() => void onChange({ latency_protocol: option.value as AppPreferences["latency_protocol"] })}/></label>)}
+        </fieldset>
+        {["nimbo", "http_get", "http_head"].includes(preferences.latency_protocol) && (<>
+          <SettingsChoiceRow
+            label={m.settings.testUrl}
+            description={m.settings.latencyActiveRouteOnly}
+            value={customUrl ? "custom" : preferences.latency_test_url}
+            options={[...LATENCY_URL_PRESETS, { value: "custom", label: m.settings.latencyCustomUrl }]}
+            onChange={async value => {
+              setCustomUrl(value === "custom");
+              if (value !== "custom") { setTestUrlDraft(value); await onChange({ latency_test_url: value }); }
+            }}
+            icon={<GlobeIcon />}
+          />
+          {customUrl && <SettingsInputRow
             label={m.settings.testUrl}
             value={testUrlDraft}
             inputMode="url"
             onChange={setTestUrlDraft}
             onCommit={saveTestUrl}
             icon={<GlobeIcon />}
-          />
-        )}
+          />}
+        </>)}
         <SettingsInputRow
-          label={m.settings.timeoutMs}
+          label={m.common.locale.startsWith("ru") ? "Таймаут, с" : "Timeout, s"}
           value={timeoutDraft}
-          inputMode="numeric"
+          inputMode="decimal"
           onChange={setTimeoutDraft}
           onCommit={saveTimeout}
           icon={<SlidersIcon />}
         />
         <SettingsChoiceRow
           label={m.settings.displayFormat}
-          value={preferences.latency_display_format}
+          value={preferences.latency_display_format === "ms" ? "numeric" : preferences.latency_display_format === "badge" ? "dots" : preferences.latency_display_format}
           options={[
-            { value: "ms", label: m.settings.latencyMs },
-            { value: "badge", label: m.settings.latencyBadge },
+            { value: "numeric", label: m.settings.latencyMs },
+            { value: "bars", label: m.settings.latencyBars },
+            { value: "both", label: m.settings.latencyBoth },
+            { value: "dots", label: m.settings.latencyDots },
           ]}
           onChange={(latency_display_format) => onChange({ latency_display_format })}
           icon={<InfoIcon />}
@@ -1777,13 +1240,13 @@ function UpdatesSection({
             <div className="update-progress-card" aria-live="polite">
               <div className="update-progress-heading">
                 <div>
-                  <strong>{progress?.stage === "verifying" ? m.settings.verifyingUpdate : m.settings.downloadUpdate}</strong>
+                  <strong>{progress?.stage === "ready" ? m.settings.readyUpdate : progress?.stage === "verifying" ? m.settings.verifyingUpdate : m.settings.downloadingUpdate}</strong>
                   <span>{m.settings.updateDownloadProtection}</span>
                 </div>
                 <b>{percent}%</b>
               </div>
               <div className="update-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
-                <span style={{ width: `${Math.max(percent, 1)}%` }} />
+                <span style={{ width: `${Math.max(percent, 0)}%` }} />
               </div>
               <div className="update-progress-meta">
                 <span>{formatBytes(downloadedBytes)}</span>
@@ -1792,6 +1255,7 @@ function UpdatesSection({
             </div>
           )}
 
+          <OperationPhrase active={installing && progress?.stage !== "ready"} kind="download" locale={m.common.locale} />
           <div className="update-center-actions">
             {updateInfo?.release_url && (
               <a className="settings-action" href={updateInfo.release_url} target="_blank" rel="noreferrer">
@@ -1807,7 +1271,7 @@ function UpdatesSection({
                 onClick={() => void onDownload(updateInfo)}
                 className="settings-action settings-action-primary"
               >
-                {installing ? m.settings.verifyingUpdate : m.settings.downloadUpdate}
+                {installing ? (progress?.stage === "verifying" ? m.settings.verifyingUpdate : progress?.stage === "ready" ? m.settings.readyUpdate : m.settings.downloadingUpdate) : m.settings.downloadUpdate}
               </button>
             )}
           </div>
@@ -2174,7 +1638,7 @@ function Section({
 }
 
 function SettingsCard({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={["settings-card", className].filter(Boolean).join(" ")}>{children}</div>;
+  return <Surface className={["settings-card", className].filter(Boolean).join(" ")}>{children}</Surface>;
 }
 
 function ToggleRow({
@@ -2306,82 +1770,6 @@ function SettingsChoiceRow<T extends string>({
   );
 }
 
-function VisualSliderRow({
-  label,
-  description,
-  value,
-  min,
-  max,
-  step,
-  formatValue,
-  onChange,
-  onCommit,
-  defaultValue,
-  onReset,
-}: {
-  label: string;
-  description?: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  formatValue: (value: number) => string;
-  onChange: (value: number) => void;
-  onCommit: (value: number) => void;
-  defaultValue?: number;
-  onReset?: () => void;
-}) {
-  const m = useMessages();
-  const progress = max > min ? ((value - min) / (max - min)) * 100 : 0;
-  const formattedValue = formatValue(value);
-  const commitFromInput = (input: HTMLInputElement) => onCommit(Number(input.value));
-  const hasChanges = defaultValue !== undefined && value !== defaultValue;
-
-  return (
-    <div className="appearance-slider-row">
-      <div className="appearance-slider-copy">
-        <div className="settings-row-title">{label}</div>
-        {description && <div className="settings-row-description">{description}</div>}
-      </div>
-      <div
-        className="appearance-slider-control"
-        style={{ "--appearance-slider-progress": `${Math.min(100, Math.max(0, progress))}%` } as CSSProperties}
-      >
-        <input
-          className="appearance-slider-input"
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          aria-label={label}
-          aria-valuetext={formattedValue}
-          onChange={(event) => onChange(Number(event.currentTarget.value))}
-          onBlur={(event) => commitFromInput(event.currentTarget)}
-          onPointerUp={(event) => commitFromInput(event.currentTarget)}
-          onKeyUp={(event) => {
-            if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)) {
-              commitFromInput(event.currentTarget);
-            }
-          }}
-        />
-      </div>
-      <div className="appearance-slider-value">
-        <span>{formattedValue}</span>
-        {hasChanges && onReset && (
-          <button
-            onClick={onReset}
-            className="appearance-slider-reset"
-            title={m.settings.resetValue}
-          >
-            <RotateCcwIcon />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function NumberPreferenceRow({
   label,
   description,
@@ -2458,7 +1846,7 @@ function SettingsInputRow({
 }: {
   label: string;
   value: string;
-  inputMode: "text" | "url" | "numeric";
+  inputMode: "text" | "url" | "numeric" | "decimal";
   type?: "text" | "password";
   placeholder?: string;
   compact?: boolean;
@@ -2479,11 +1867,12 @@ function SettingsInputRow({
         className={[
           "settings-value-actions settings-input-actions",
           compact ? "settings-input-actions-compact" : "",
-          inputMode === "numeric" ? "settings-input-actions-numeric" : "",
+          (inputMode === "numeric" || inputMode === "decimal") ? "settings-input-actions-numeric" : "",
         ].join(" ")}
       >
         <input
           type={type}
+          aria-label={label}
           value={value}
           inputMode={inputMode}
           placeholder={placeholder}
@@ -2496,7 +1885,7 @@ function SettingsInputRow({
           }}
           className={[
             "settings-input settings-field-input",
-            inputMode === "numeric" ? "settings-field-input-numeric" : "",
+            (inputMode === "numeric" || inputMode === "decimal") ? "settings-field-input-numeric" : "",
           ].join(" ")}
         />
         {copyValue !== undefined && <CopyButton value={copyValue} />}
@@ -2588,526 +1977,6 @@ function UaOption({
   );
 }
 
-function ThemePreviewOption({
-  title,
-  value,
-  selected,
-  onClick,
-}: {
-  title: string;
-  value: Extract<ThemeMode, "light" | "dark" | "black" | "system">;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onClick}
-      className={[
-        "settings-theme-card",
-        `settings-theme-card-${value}`,
-        selected ? "settings-theme-card-active" : "",
-      ].join(" ")}
-    >
-      <span className="settings-theme-preview" aria-hidden="true">
-        <span className="settings-theme-preview-rail">
-          <span />
-          <span />
-        </span>
-        <span className="settings-theme-preview-canvas">
-          <span className="settings-theme-preview-top" />
-          <span className="settings-theme-preview-row">
-            <span />
-            <span />
-          </span>
-        </span>
-      </span>
-      <span className="settings-theme-card-label">{title}</span>
-    </button>
-  );
-}
-
-function AccentPreviewArt() {
-  return (
-    <span className="settings-theme-preview" aria-hidden="true">
-      <span className="settings-theme-preview-rail">
-        <span />
-        <span />
-      </span>
-      <span className="settings-theme-preview-canvas">
-        <span className="settings-theme-preview-top" />
-        <span className="settings-theme-preview-row">
-          <span />
-          <span />
-        </span>
-      </span>
-    </span>
-  );
-}
-
-function AccentPreviewOption({
-  title,
-  color,
-  selected,
-  onClick,
-}: {
-  title: string;
-  color: string;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onClick}
-      style={{ "--theme-preview-accent": color, "--accent-card-color": color } as CSSProperties}
-      className={[
-        "settings-theme-card settings-accent-card",
-        selected ? "settings-accent-card-active" : "",
-      ].join(" ")}
-    >
-      <AccentPreviewArt />
-      <span className="settings-theme-card-label">{title}</span>
-    </button>
-  );
-}
-
-function AccentSplitPreview({ colors }: { colors: string[] }) {
-  const accentColor = colors[0] ?? DEFAULT_ACCENT_COLOR;
-  if (colors.length <= 1) {
-    return (
-      <span
-        className="settings-theme-preview"
-        style={{ "--theme-preview-accent": accentColor } as CSSProperties}
-        aria-hidden="true"
-      >
-        <span className="settings-theme-preview-rail">
-          <span />
-          <span />
-        </span>
-        <span className="settings-theme-preview-canvas">
-          <span className="settings-theme-preview-top" />
-          <span className="settings-theme-preview-row">
-            <span />
-            <span />
-          </span>
-        </span>
-      </span>
-    );
-  }
-  return (
-    <span className="settings-accent-split" aria-hidden="true">
-      <span
-        className="settings-accent-split-preview settings-theme-preview"
-        style={{ "--theme-preview-accent": accentColor } as CSSProperties}
-      >
-        <span className="settings-theme-preview-rail">
-          <span />
-          <span />
-        </span>
-        <span className="settings-theme-preview-canvas">
-          <span className="settings-theme-preview-top" />
-          <span className="settings-theme-preview-row">
-            <span />
-            <span />
-          </span>
-        </span>
-      </span>
-      <span className="settings-accent-split-colors">
-        {colors.map((color, index) => (
-          <span key={index} style={{ background: color }} />
-        ))}
-      </span>
-    </span>
-  );
-}
-
-function GradientAccentOption({
-  label,
-  colors,
-  selected,
-  onClick,
-}: {
-  label: string;
-  colors: string[];
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onClick}
-      style={{ "--accent-card-color": colors[0] } as CSSProperties}
-      className={[
-        "settings-theme-card settings-accent-card settings-accent-card-split",
-        selected ? "settings-accent-card-active" : "",
-      ].join(" ")}
-    >
-      <AccentSplitPreview colors={colors} />
-      <span className="settings-theme-card-label">{label}</span>
-    </button>
-  );
-}
-
-function AccentCustomOption({
-  title,
-  colors,
-  selected,
-  onClick,
-}: {
-  title: string;
-  colors: string[];
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onClick}
-      style={{ "--accent-card-color": colors[0] ?? DEFAULT_ACCENT_COLOR } as CSSProperties}
-      className={[
-        "settings-theme-card settings-accent-card settings-accent-card-split settings-accent-card-custom",
-        selected ? "settings-accent-card-active" : "",
-      ].join(" ")}
-    >
-      <AccentSplitPreview colors={colors.length ? colors : [...DEFAULT_ACCENT_PALETTE]} />
-      <span className="settings-theme-card-label">{title}</span>
-    </button>
-  );
-}
-
-function CustomPaletteEditor({
-  palette,
-  presets,
-  onLive,
-  onCommit,
-}: {
-  palette: string[];
-  presets: PalettePreset[];
-  onLive: (colors: string[]) => void;
-  onCommit: (colors: string[]) => void;
-}) {
-  const m = useMessages();
-  const colors = palette.length ? palette : [...DEFAULT_ACCENT_PALETTE];
-
-  const setColorAt = (index: number, value: string, commit: boolean) => {
-    const next = colors.map((c, i) => (i === index ? value : c));
-    (commit ? onCommit : onLive)(next);
-  };
-  const addColor = () => {
-    if (colors.length >= 3) return;
-    onCommit([...colors, colors[colors.length - 1] ?? "#4f8cff"]);
-  };
-  const removeColorAt = (index: number) => {
-    if (colors.length <= 1) return;
-    onCommit(colors.filter((_, i) => i !== index));
-  };
-
-  return (
-    <div className="settings-palette-editor">
-      <span className="settings-palette-bar" style={{ backgroundImage: accentGradientCss(colors) }} aria-hidden="true" />
-      <div className="settings-palette-slots">
-        {colors.map((color, index) => (
-          <div key={index} className="settings-palette-slot">
-            <label className="settings-palette-swatch" style={{ backgroundColor: color }}>
-              <input
-                type="color"
-                value={color}
-                onChange={(event) => setColorAt(index, event.target.value, false)}
-                onBlur={(event) => setColorAt(index, event.target.value, true)}
-                aria-label={`${m.settings.customPaletteTitle} ${index + 1}`}
-              />
-            </label>
-            {colors.length > 1 && (
-              <button
-                type="button"
-                className="settings-palette-remove"
-                onClick={() => removeColorAt(index)}
-                title={m.settings.removeColor}
-                aria-label={m.settings.removeColor}
-              >
-                <XMarkIcon />
-              </button>
-            )}
-          </div>
-        ))}
-        {colors.length < 3 && (
-          <button
-            type="button"
-            className="settings-palette-add"
-            onClick={addColor}
-            title={m.settings.addColor}
-            aria-label={m.settings.addColor}
-          >
-            <PlusSmIcon />
-          </button>
-        )}
-      </div>
-      <div className="settings-palette-actions">
-        <span className="settings-palette-hint">{m.settings.customPaletteHint}</span>
-        <button
-          type="button"
-          className="settings-action"
-          onClick={() => {
-            savePalettePreset(colors);
-            notifyInfo(m.settings.presetSaved);
-          }}
-        >
-          {m.settings.savePreset}
-        </button>
-      </div>
-      {presets.length > 0 && (
-        <div className="settings-palette-presets">
-          <div className="settings-palette-presets-label">{m.settings.savedPresets}</div>
-          <div className="settings-palette-presets-list">
-            {presets.map((preset) => (
-              <div key={preset.id} className="settings-palette-preset">
-                <button
-                  type="button"
-                  className="settings-palette-preset-swatch"
-                  style={{ backgroundImage: accentGradientCss(preset.colors) }}
-                  onClick={() => onCommit(preset.colors)}
-                  title={preset.colors.join(", ")}
-                  aria-label={preset.colors.join(", ")}
-                />
-                <button
-                  type="button"
-                  className="settings-palette-preset-remove"
-                  onClick={() => removePalettePreset(preset.id)}
-                  title={m.settings.deletePreset}
-                  aria-label={m.settings.deletePreset}
-                >
-                  <XMarkIcon />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CollapsibleSection({
-  title,
-  description,
-  open,
-  onToggle,
-  action,
-  children,
-}: {
-  title: string;
-  description: string;
-  open: boolean;
-  onToggle: () => void;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <>
-      <div className="appearance-collapse-head">
-        <button
-          type="button"
-          className="appearance-collapse-toggle"
-          aria-expanded={open}
-          onClick={onToggle}
-        >
-          <span className="appearance-collapse-titles">
-            <span className="settings-row-title">{title}</span>
-            <span className="settings-row-description">{description}</span>
-          </span>
-          <span className={["appearance-collapse-chevron", open ? "is-open" : ""].join(" ")} aria-hidden="true">
-            <ChevronDownIcon />
-          </span>
-        </button>
-        {action}
-      </div>
-      <div className={["appearance-collapse-body", open ? "is-open" : ""].join(" ")}>
-        <div className="appearance-collapse-inner">{children}</div>
-      </div>
-    </>
-  );
-}
-
-function InterfaceStyleOption({
-  styleId,
-  title,
-  subtitle,
-  selected,
-  onClick,
-}: {
-  styleId: "signal" | "nimbo" | "material_you" | "dotted" | "manga";
-  title: string;
-  subtitle: string;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onClick}
-      className={[
-        "settings-theme-card settings-interface-card",
-        `settings-interface-card-${styleId}`,
-        selected ? "settings-theme-card-active" : "",
-      ].join(" ")}
-    >
-      <span className="settings-interface-preview" aria-hidden="true">
-        <span className="settings-interface-preview-panel">
-          <span className="settings-interface-preview-pill" />
-          <span className="settings-interface-preview-line" />
-          <span className="settings-interface-preview-line settings-interface-preview-line-sm" />
-        </span>
-        <span className="settings-interface-preview-nav">
-          <span />
-          <span className="is-active" />
-          <span />
-        </span>
-      </span>
-      <span className="settings-interface-card-copy">
-        <span className="settings-theme-card-label">{title}</span>
-        <span className="settings-interface-card-subtitle">{subtitle}</span>
-      </span>
-    </button>
-  );
-}
-
-function BackgroundChooser({ appearance }: { appearance: AppearanceState }) {
-  const m = useMessages();
-  const fileRef = useRef<HTMLInputElement | null>(null);
-
-  const onFile = async (file: File) => {
-    const isVideo = file.type.startsWith("video");
-    const isImage = file.type.startsWith("image");
-    if (!isVideo && !isImage) {
-      notifyError(m.settings.backgroundUploadError);
-      return;
-    }
-    try {
-      await saveBackgroundBlob(file);
-      setAppearance({
-        background: "custom",
-        customType: isVideo ? "video" : "image",
-        customName: file.name,
-      });
-    } catch {
-      notifyError(m.settings.backgroundUploadError);
-    }
-  };
-
-  const removeCustom = async () => {
-    try {
-      await clearBackgroundBlob();
-    } catch {
-      /* ignore */
-    }
-    setAppearance({ background: "none", customType: null, customName: null });
-  };
-
-  return (
-    <div className="settings-background-block">
-      <div className="settings-background-grid" role="radiogroup" aria-label={m.settings.backgroundTitle}>
-        {BACKGROUND_PRESETS.map((preset) => (
-          <button
-            key={preset.id}
-            type="button"
-            role="radio"
-            aria-checked={appearance.background === preset.id}
-            onClick={() => setAppearance({ background: preset.id })}
-            className={[
-              "settings-background-card",
-              appearance.background === preset.id ? "settings-background-card-active" : "",
-            ].join(" ")}
-          >
-            <span className={["settings-background-thumb", `settings-background-thumb-${preset.id}`].join(" ")} aria-hidden="true">
-              {preset.animated && preset.id !== "none" && (
-                <span className="settings-background-anim-badge">
-                  <AnimIcon />
-                </span>
-              )}
-            </span>
-            <span className="settings-background-label">{preset.id === "none" ? m.settings.backgroundNone : preset.label}</span>
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className={[
-            "settings-background-card settings-background-card-custom",
-            appearance.background === "custom" ? "settings-background-card-active" : "",
-          ].join(" ")}
-        >
-          <span className="settings-background-thumb settings-background-thumb-upload" aria-hidden="true">
-            <UploadIcon />
-          </span>
-          <span className="settings-background-label">{m.settings.backgroundCustom}</span>
-        </button>
-      </div>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*,video/*"
-        className="hidden"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) void onFile(file);
-          event.target.value = "";
-        }}
-      />
-      <div className="settings-background-formats">{m.settings.backgroundFormats}</div>
-
-      {appearance.background === "custom" && (
-        <div className="settings-background-custom-row">
-          <span className="settings-background-custom-name">{appearance.customName ?? "—"}</span>
-          <div className="settings-background-custom-actions">
-            <button type="button" className="settings-action" onClick={() => fileRef.current?.click()}>
-              {m.settings.backgroundReplace}
-            </button>
-            <button type="button" className="settings-action" onClick={() => void removeCustom()}>
-              {m.settings.backgroundRemove}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {appearance.background !== "none" && (
-        <div className="settings-background-sliders">
-          <VisualSliderRow
-            label={m.settings.backgroundDim}
-            value={appearance.backgroundDim}
-            min={0}
-            max={90}
-            step={5}
-            formatValue={(value) => `${value}%`}
-            onChange={(value) => setAppearance({ backgroundDim: value })}
-            onCommit={(value) => setAppearance({ backgroundDim: value })}
-          />
-          <VisualSliderRow
-            label={m.settings.backgroundBlur}
-            value={appearance.backgroundBlur}
-            min={0}
-            max={40}
-            step={1}
-            formatValue={(value) => `${value} px`}
-            onChange={(value) => setAppearance({ backgroundBlur: value })}
-            onCommit={(value) => setAppearance({ backgroundBlur: value })}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
 function isHexColor(value: string | null | undefined): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value.trim());
 }
@@ -3181,137 +2050,6 @@ function SubscriptionProviderPreview({
   );
 }
 
-function ProviderThemeRow({
-  label,
-  description,
-  enabled,
-  onToggle,
-}: {
-  label: string;
-  description: string;
-  enabled: boolean;
-  onToggle: (enabled: boolean) => void;
-}) {
-  return (
-    <div className="settings-provider-theme">
-      <div className="settings-row">
-        <div className="settings-row-label-container">
-          <div>
-            <div className="settings-row-title">{label}</div>
-            <div className="settings-row-description">{description}</div>
-          </div>
-        </div>
-        <button
-          type="button"
-          aria-pressed={enabled}
-          onClick={() => onToggle(!enabled)}
-          className={["settings-toggle", enabled ? "settings-toggle-on" : ""].join(" ")}
-        >
-          <span />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function LanguagePreviewOption({
-  flag,
-  icon,
-  title,
-  sampleTitle,
-  sampleLine,
-  sampleChip,
-  selected,
-  onClick,
-}: {
-  flag?: string;
-  icon?: ReactNode;
-  title: string;
-  sampleTitle: string;
-  sampleLine: string;
-  sampleChip: string;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      aria-label={title}
-      onClick={onClick}
-      className={[
-        "settings-theme-card",
-        "settings-language-card",
-        selected ? "settings-theme-card-active" : "",
-      ].join(" ")}
-    >
-      <span className="settings-theme-preview settings-language-preview" aria-hidden="true">
-        <span
-          className={[
-            "settings-language-preview-flag",
-            icon ? "settings-language-preview-flag-icon" : "",
-          ].join(" ")}
-        >
-          {icon ?? <span className={`fi fi-${flag}`} />}
-        </span>
-        <span className="settings-language-preview-body">
-          <span className="settings-language-preview-title">{sampleTitle}</span>
-          <span className="settings-language-preview-line">{sampleLine}</span>
-          <span className="settings-language-preview-chip">{sampleChip}</span>
-        </span>
-      </span>
-      <span className="settings-theme-card-label">{title}</span>
-    </button>
-  );
-}
-
-function ConnectionStyleOption({
-  title,
-  description,
-  value,
-  selected,
-  icon,
-  onClick,
-}: {
-  title: string;
-  description: string;
-  value: ConnectButtonStyle;
-  selected: boolean;
-  icon: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      aria-label={`${title}. ${description}`}
-      data-style={value}
-      onClick={onClick}
-      className={[
-        "settings-connect-style-card",
-        selected ? "settings-connect-style-card-active" : "",
-      ].join(" ")}
-    >
-      <span className="settings-connect-style-icon" aria-hidden="true">{icon}</span>
-      <span className="settings-connect-style-copy">
-        <span className="settings-connect-style-title">{title}</span>
-      </span>
-    </button>
-  );
-}
-
-function XMarkIcon() {
-  return <Icon><path d="M6 6l12 12M18 6 6 18" /></Icon>;
-}
-function PlusSmIcon() {
-  return <Icon><path d="M12 5v14" /><path d="M5 12h14" /></Icon>;
-}
-function UploadIcon() {
-  return <Icon><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M5 20h14" /></Icon>;
-}
-
 function SlidersIcon() {
   return <Icon><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /><path d="M8 4v4" /><path d="M16 10v4" /><path d="M11 16v4" /></Icon>;
 }
@@ -3372,12 +2110,6 @@ function LogsIcon() {
 function ConnectionsIcon() {
   return <Icon><path d="M4 7h16M4 12h16M4 17h16" /><circle cx="8" cy="7" r="1.5" /><circle cx="14" cy="12" r="1.5" /><circle cx="10" cy="17" r="1.5" /></Icon>;
 }
-function ClassicButtonIcon() {
-  return <Icon><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none" /></Icon>;
-}
-function CompactButtonIcon() {
-  return <Icon><rect x="3" y="8" width="18" height="8" rx="4" /><circle cx="16" cy="12" r="2.4" fill="currentColor" stroke="none" /></Icon>;
-}
 function PowerIcon() {
   return <Icon><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Icon>;
 }
@@ -3401,26 +2133,6 @@ function UserIcon() {
 }
 function LockIcon() {
   return <Icon><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></Icon>;
-}
-function RotateCcwIcon() {
-  return (
-    <Icon>
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-    </Icon>
-  );
-}
-function ChevronDownIcon() {
-  return <Icon><path d="m6 9 6 6 6-6" /></Icon>;
-}
-
-function AnimIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-full w-full" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21.5 2v6h-6" />
-      <path d="M21.34 15.57a10 10 0 1 1-.57-8.38l.73-.73" />
-    </svg>
-  );
 }
 
 function Icon({ children }: { children: ReactNode }) {

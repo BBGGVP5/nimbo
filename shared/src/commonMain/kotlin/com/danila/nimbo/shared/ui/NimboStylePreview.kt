@@ -56,8 +56,8 @@ internal fun NimboStylePreviewCard(
             .clip(shape)
             .background(
                 when {
+                    activeManga -> nimboStyledContainer(NimboMangaPalette.Paper, selected)
                     selected -> NimboPalette.Accent.copy(alpha = if (activeManga) 0.14f else 0.13f)
-                    activeManga -> NimboMangaPalette.Paper
                     else -> NimboPalette.Surface
                 }
             )
@@ -80,7 +80,7 @@ internal fun NimboStylePreviewCard(
         BasicText(
             style.title,
             maxLines = 1,
-            style = TextStyle(
+            style = TextStyle(fontFamily = NimboTypography.body, 
                 color = if (selected) NimboPalette.Text else NimboPalette.Text.copy(alpha = 0.86f),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
@@ -89,7 +89,7 @@ internal fun NimboStylePreviewCard(
         BasicText(
             style.subtitle,
             maxLines = 1,
-            style = TextStyle(color = NimboPalette.TextSecondary, fontSize = 11.sp)
+            style = TextStyle(fontFamily = NimboTypography.body, color = NimboPalette.TextSecondary, fontSize = 11.sp)
         )
     }
 }

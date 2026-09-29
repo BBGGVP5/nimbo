@@ -1,11 +1,12 @@
 use crate::model::Server;
 use crate::parser::{
-    b64_decode_str, hysteria2, naive, shadowsocks, trojan, vless, vmess, xray_json, ParseError,
+    awg, b64_decode_str, hysteria2, naive, shadowsocks, trojan, vless, vmess, xray_json, ParseError,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Base64Aggregate,
+    AwgIni,
     PlainList,
     XrayJson,
     SingboxJson,
@@ -15,6 +16,9 @@ pub enum Format {
 
 pub fn detect_format(body: &str) -> Format {
     let trimmed = body.trim();
+    if awg::looks_like_ini(trimmed) {
+        return Format::AwgIni;
+    }
     if trimmed.is_empty() {
         return Format::Unknown;
     }
@@ -67,6 +71,7 @@ pub fn detect_format(body: &str) -> Format {
 
 pub fn parse_aggregate(body: &str) -> Result<Vec<Server>, ParseError> {
     match detect_format(body) {
+        Format::AwgIni => awg::parse(body).map(|server| vec![server]),
         Format::Base64Aggregate => {
             let decoded = b64_decode_str(body.trim())?;
             parse_plain_list(&decoded)
@@ -92,7 +97,7 @@ fn parse_plain_list(text: &str) -> Result<Vec<Server>, ParseError> {
         match parse_single(line) {
             Ok(server) => out.push(server),
             Err(e) => {
-                tracing::debug!(line = %line, err = ?e, "skipping unparseable line");
+                tracing::debug!("skipping unparseable subscription entry");
                 last_err = Some(e);
             }
         }
@@ -105,6 +110,10 @@ fn parse_plain_list(text: &str) -> Result<Vec<Server>, ParseError> {
 }
 
 pub fn parse_single(line: &str) -> Result<Server, ParseError> {
+    let line = line.trim();
+    if awg::is_uri(line) || awg::looks_like_ini(line) {
+        return awg::parse(line);
+    }
     if line.starts_with("vless://") {
         vless::parse(line)
     } else if line.starts_with("vmess://") {
@@ -128,7 +137,8 @@ pub fn parse_single(line: &str) -> Result<Server, ParseError> {
 }
 
 fn looks_like_proxy_url(line: &str) -> bool {
-    line.starts_with("vless://")
+    awg::is_uri(line)
+        || line.starts_with("vless://")
         || line.starts_with("vmess://")
         || line.starts_with("trojan://")
         || line.starts_with("ss://")

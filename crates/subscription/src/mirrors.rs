@@ -43,7 +43,10 @@ pub fn parse(raw: &str) -> Vec<String> {
         if entry.is_empty() || !is_plausible_entry(entry) {
             continue;
         }
-        if out.iter().any(|existing| existing.eq_ignore_ascii_case(entry)) {
+        if out
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(entry))
+        {
             continue;
         }
         out.push(entry.to_string());
@@ -124,7 +127,11 @@ pub fn rewrite(primary_url: &str, mirror: &str) -> Option<String> {
 /// Порядок обхода доменов: сначала зеркало, которое сработало в прошлый раз
 /// (иначе клиент каждый раз упирался бы в заблокированный основной домен и ждал
 /// таймаут), затем основная ссылка, затем остальные зеркала.
-pub fn candidates(primary_url: &str, mirrors: &[String], preferred_url: Option<&str>) -> Vec<String> {
+pub fn candidates(
+    primary_url: &str,
+    mirrors: &[String],
+    preferred_url: Option<&str>,
+) -> Vec<String> {
     let primary = primary_url.trim();
     if primary.is_empty() {
         return Vec::new();
@@ -138,7 +145,10 @@ pub fn candidates(primary_url: &str, mirrors: &[String], preferred_url: Option<&
 
     let mut ordered: Vec<String> = Vec::new();
     let push = |value: &str, ordered: &mut Vec<String>| {
-        if !ordered.iter().any(|existing| existing.eq_ignore_ascii_case(value)) {
+        if !ordered
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(value))
+        {
             ordered.push(value.to_string());
         }
     };
@@ -181,7 +191,10 @@ pub struct LinkWithMirrors {
 pub fn extract_from_url(raw_url: &str) -> LinkWithMirrors {
     let trimmed = raw_url.trim();
     let Ok(parsed) = Url::parse(trimmed) else {
-        return LinkWithMirrors { url: trimmed.to_string(), mirrors: Vec::new() };
+        return LinkWithMirrors {
+            url: trimmed.to_string(),
+            mirrors: Vec::new(),
+        };
     };
 
     let mut kept: Vec<(String, String)> = Vec::new();
@@ -195,18 +208,27 @@ pub fn extract_from_url(raw_url: &str) -> LinkWithMirrors {
     }
 
     if found.is_empty() {
-        return LinkWithMirrors { url: trimmed.to_string(), mirrors: Vec::new() };
+        return LinkWithMirrors {
+            url: trimmed.to_string(),
+            mirrors: Vec::new(),
+        };
     }
 
     let mut clean = parsed.clone();
     if kept.is_empty() {
         clean.set_query(None);
     } else {
-        clean.query_pairs_mut().clear().extend_pairs(kept.iter().map(|(k, v)| (k, v)));
+        clean
+            .query_pairs_mut()
+            .clear()
+            .extend_pairs(kept.iter().map(|(k, v)| (k, v)));
     }
 
     found.truncate(MAX_MIRRORS);
-    LinkWithMirrors { url: clean.to_string(), mirrors: found }
+    LinkWithMirrors {
+        url: clean.to_string(),
+        mirrors: found,
+    }
 }
 
 /// Объединяет уже известные зеркала с новыми, сохраняя порядок и лимит.
@@ -216,7 +238,10 @@ pub fn merge(known: &[String], added: &[String]) -> Vec<String> {
         if entry.trim().is_empty() {
             continue;
         }
-        if !merged.iter().any(|existing| existing.eq_ignore_ascii_case(entry)) {
+        if !merged
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(entry))
+        {
             merged.push(entry.clone());
         }
         if merged.len() >= MAX_MIRRORS {
@@ -291,7 +316,10 @@ mod tests {
 
     #[test]
     fn candidates_start_with_primary() {
-        let mirrors = vec!["sub2.example.com".to_string(), "sub3.example.com".to_string()];
+        let mirrors = vec![
+            "sub2.example.com".to_string(),
+            "sub3.example.com".to_string(),
+        ];
         let list = candidates(PRIMARY, &mirrors, None);
         assert_eq!(list[0], PRIMARY);
         assert_eq!(list.len(), 3);
@@ -299,7 +327,10 @@ mod tests {
 
     #[test]
     fn last_working_mirror_goes_first() {
-        let mirrors = vec!["sub2.example.com".to_string(), "sub3.example.com".to_string()];
+        let mirrors = vec![
+            "sub2.example.com".to_string(),
+            "sub3.example.com".to_string(),
+        ];
         let working = "https://sub3.example.com/api/sub/abc123?format=json";
         let list = candidates(PRIMARY, &mirrors, Some(working));
         assert_eq!(list[0], working);
@@ -323,7 +354,10 @@ mod tests {
         assert_eq!(link.url, "https://sub.example.com/sub/abc123?format=json");
         assert_eq!(
             link.mirrors,
-            vec!["sub2.example.com".to_string(), "sub3.example.net".to_string()]
+            vec![
+                "sub2.example.com".to_string(),
+                "sub3.example.net".to_string()
+            ]
         );
     }
 
@@ -345,11 +379,17 @@ mod tests {
     fn merge_keeps_order_and_drops_duplicates() {
         let merged = merge(
             &["sub2.example.com".to_string()],
-            &["SUB2.example.com".to_string(), "sub3.example.com".to_string()],
+            &[
+                "SUB2.example.com".to_string(),
+                "sub3.example.com".to_string(),
+            ],
         );
         assert_eq!(
             merged,
-            vec!["sub2.example.com".to_string(), "sub3.example.com".to_string()]
+            vec![
+                "sub2.example.com".to_string(),
+                "sub3.example.com".to_string()
+            ]
         );
     }
 

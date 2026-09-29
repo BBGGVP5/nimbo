@@ -4,6 +4,7 @@ import Foundation
 struct PreparedXrayConfiguration {
     let json: String
     let outboundCount: Int
+    let pingRouteVerified: Bool
 }
 
 enum XrayConfigurationBuilder {
@@ -17,6 +18,8 @@ enum XrayConfigurationBuilder {
         tunnelInterfaceName: String,
         assetDirectory: String,
         options: NimboRoutingOptions = .default,
+        tunnelMTU: Int = PacketTunnelNetwork.mtu,
+        pingRoute: NimboPingRoute? = nil,
         bridge: LibXrayBridge
     ) throws -> PreparedXrayConfiguration {
         guard !tunnelInterfaceName.isEmpty else { throw XrayConfigurationError.tunnelInterfaceUnknown }
@@ -44,7 +47,7 @@ enum XrayConfigurationBuilder {
             assetDirectory: assetDirectory
         )
         configuration["inbounds"] = [
-            tunnelInbound(interfaceName: tunnelInterfaceName, sniffing: options.sniffingEnabled)
+            tunnelInbound(interfaceName: tunnelInterfaceName, sniffing: options.sniffingEnabled, mtu: tunnelMTU)
         ]
         let sanitized = sanitizedOutbounds(outbounds, balanced: source.balanced)
         configuration["outbounds"] = appendUtilityOutbounds(to: sanitized)
@@ -60,12 +63,24 @@ enum XrayConfigurationBuilder {
             configuration["observatory"] = observatorySettings
         }
 
+        let pingTag = NimboPingRoute.verifiedTag(outbounds: sanitized, balanced: source.balanced)
+        if let pingRoute, let pingTag {
+            var inbounds = configuration["inbounds"] as? [[String: Any]] ?? []
+            inbounds.append(pingRoute.inbound)
+            configuration["inbounds"] = inbounds
+            var routing = configuration["routing"] as? [String: Any] ?? [:]
+            // The private entry cannot match module/profile/direct rules or fall back.
+            routing["rules"] = [NimboPingRoute.rule(proxyTag: pingTag)] + (routing["rules"] as? [[String: Any]] ?? [])
+            configuration["routing"] = routing
+        }
+
         let data = try JSONSerialization.data(withJSONObject: configuration, options: [.sortedKeys])
         guard data.count <= maximumInputBytes,
               let json = String(data: data, encoding: .utf8) else {
             throw XrayConfigurationError.tooLarge
         }
-        return PreparedXrayConfiguration(json: json, outboundCount: outbounds.count)
+        return PreparedXrayConfiguration(json: json, outboundCount: outbounds.count,
+                                         pingRouteVerified: pingRoute != nil && pingTag != nil)
     }
 
     private static func configurationObject(
@@ -87,13 +102,114 @@ enum XrayConfigurationBuilder {
                 .joined(separator: "\n")
             guard !text.isEmpty else { throw XrayConfigurationError.empty }
             let requested = (object?["nimbo"] as? [String: Any])?["balancer"] as? Bool ?? true
-            return (try bridge.convertShareText(text), requested && links.count > 1)
+            return (try convertShareText(text, bridge: bridge), requested && links.count > 1)
         }
 
         if let object, object["outbounds"] is [Any] {
             return (object, false)
         }
-        return (try bridge.convertShareText(sourceText), false)
+        return (try convertShareText(sourceText, bridge: bridge), false)
+    }
+
+    /// Конверсия ссылок силами libXray плюс то, чего его парсер не знает.
+    private static func convertShareText(
+        _ text: String,
+        bridge: LibXrayBridge
+    ) throws -> [String: Any] {
+        let configuration = try bridge.convertShareText(text)
+        return applyHysteriaFinalMask(to: configuration, links: text)
+    }
+
+    /// Панели Remnawave кладут блок `finalMask` в параметр `fm` ссылки
+    /// hysteria2 — там живут настройки QUIC, например `congestion: bbr`.
+    /// Парсер libXray этот параметр не читает вовсе: он собирает finalMask
+    /// только из `up`/`down`/`ports`/`obfs`, а когда их нет — отдаёт nil.
+    /// В результате узел поднимался с дефолтным QUIC вместо запрошенного, и
+    /// соединение не вставало. Дописываем блок сами, уже после конверсии.
+    private static func applyHysteriaFinalMask(
+        to configuration: [String: Any],
+        links text: String
+    ) -> [String: Any] {
+        let masks = hysteriaFinalMasks(in: text)
+        guard !masks.isEmpty,
+              var outbounds = configuration["outbounds"] as? [[String: Any]] else {
+            return configuration
+        }
+
+        var result = configuration
+        var changed = false
+        for index in outbounds.indices {
+            guard (outbounds[index]["protocol"] as? String)?.lowercased() == "hysteria" else { continue }
+
+            var stream = outbounds[index]["streamSettings"] as? [String: Any] ?? [:]
+            let settings = outbounds[index]["settings"] as? [String: Any]
+            let endpoint = endpointKey(
+                host: settings?["address"] as? String,
+                port: settings?["port"]
+            )
+            // По адресу и порту, а при единственном узле — просто по нему:
+            // в конфиге с одним hysteria-выходом сопоставлять нечего.
+            guard let mask = masks[endpoint] ?? (masks.count == 1 ? masks.values.first : nil) else { continue }
+
+            // Значения, которые libXray всё же вывел из явных параметров
+            // ссылки, важнее: они заданы человеком в самой ссылке.
+            var merged = mask
+            if let existing = stream["finalMask"] as? [String: Any] {
+                existing.forEach { merged[$0.key] = $0.value }
+            }
+            stream["finalMask"] = merged
+            outbounds[index]["streamSettings"] = stream
+            changed = true
+        }
+
+        guard changed else { return configuration }
+        result["outbounds"] = outbounds
+        return result
+    }
+
+    /// `fm` из каждой hysteria2-ссылки, разложенный по «хост:порт».
+    private static func hysteriaFinalMasks(in text: String) -> [String: [String: Any]] {
+        var masks: [String: [String: Any]] = [:]
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            let scheme = line.prefix(while: { $0 != ":" }).lowercased()
+            guard scheme == "hysteria2" || scheme == "hy2",
+                  let url = URL(string: line),
+                  let items = URLComponents(string: line)?.queryItems,
+                  let raw = items.first(where: { $0.name == "fm" })?.value,
+                  let mask = decodeFinalMask(raw) else { continue }
+            masks[endpointKey(host: url.host, port: url.port)] = mask
+        }
+        return masks
+    }
+
+    /// Параметр приходит либо голым JSON, либо в base64url — встречались оба.
+    private static func decodeFinalMask(_ raw: String) -> [String: Any]? {
+        func object(from data: Data) -> [String: Any]? {
+            (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        }
+        if let data = raw.data(using: .utf8), let decoded = object(from: data) {
+            return decoded
+        }
+        var encoded = raw.replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        if encoded.count % 4 != 0 {
+            encoded += String(repeating: "=", count: 4 - encoded.count % 4)
+        }
+        guard let data = Data(base64Encoded: encoded) else { return nil }
+        return object(from: data)
+    }
+
+    private static func endpointKey(host: String?, port: Any?) -> String {
+        let name = (host ?? "").lowercased()
+        let number: Int
+        switch port {
+        case let value as Int: number = value
+        case let value as NSNumber: number = value.intValue
+        case let value as String: number = Int(value) ?? 0
+        default: number = 0
+        }
+        return "\(name):\(number)"
     }
 
     /// leastPing выбирает выход по замерам обсерватории; до первого замера она
@@ -118,13 +234,13 @@ enum XrayConfigurationBuilder {
     /// `infra/conf/tun.go` разбирает настройки как `name`/`mtu` строчными
     /// буквами, а имя обязано быть настоящим `utunN`: на Darwin ядро без
     /// дескриптора пытается открыть интерфейс по имени и отвергает «tun0».
-    private static func tunnelInbound(interfaceName: String, sniffing: Bool) -> [String: Any] {
+    private static func tunnelInbound(interfaceName: String, sniffing: Bool, mtu: Int) -> [String: Any] {
         var inbound: [String: Any] = [
             "tag": "tun-in",
             "protocol": "tun",
             "settings": [
                 "name": interfaceName,
-                "mtu": PacketTunnelNetwork.mtu
+                "mtu": mtu
             ]
         ]
         if sniffing {

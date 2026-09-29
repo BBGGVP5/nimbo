@@ -189,9 +189,9 @@ enum NimboSyncBundleMapper {
 
         let defaults = UserDefaults.standard
         let appearance = NimboSyncAppearance(
-            themeMode: "dark",
-            uiStyle: defaults.string(forKey: "com.nimbo.appearance.elementStyle") ?? "glass",
-            accentColor: "#75a7ff",
+            themeMode: defaults.string(forKey: "com.nimbo.appearance.themeMode") ?? "system",
+            uiStyle: "glass", // Compatibility field; the interface has a single composition.
+            accentColor: "#" + (defaults.string(forKey: "com.nimbo.appearance.accentHex") ?? "E8E8E8"),
             panelBrightness: 100,
             transparency: 0,
             blur: 25,
@@ -243,10 +243,13 @@ enum NimboSyncBundleMapper {
 
         if let appearance = bundle.appearance {
             let defaults = UserDefaults.standard
-            // Стили именуются одинаково на обеих платформах, кроме андроидных,
-            // которых на iOS нет: неизвестное значение оставляем как есть.
-            if ["glass", "material", "dotted", "signal", "manga"].contains(appearance.uiStyle) {
-                defaults.set(appearance.uiStyle, forKey: "com.nimbo.appearance.elementStyle")
+            // Keep theme and color; incoming legacy layout fields are ignored.
+            if ["system", "light", "dark", "oled"].contains(appearance.themeMode) {
+                defaults.set(appearance.themeMode, forKey: "com.nimbo.appearance.themeMode")
+            }
+            let hex = appearance.accentColor.replacingOccurrences(of: "#", with: "")
+            if hex.count == 6, UInt(hex, radix: 16) != nil {
+                defaults.set(hex.uppercased(), forKey: "com.nimbo.appearance.accentHex")
             }
             applied.append("оформление")
         }
@@ -275,11 +278,7 @@ enum NimboSyncBundleMapper {
 
         // Подписка — главное: без неё остальное бессмысленно.
         if let subscription = bundle.subscriptions.first(where: { !$0.url.isEmpty }) {
-            _ = try NimboSubscriptionRepository.shared.importPayload(
-                Data(subscription.url.utf8),
-                source: subscription.url
-            )
-            _ = try? await NimboSubscriptionRepository.shared.refresh()
+            _ = try await NimboSubscriptionRepository.shared.importRemote(subscription.url)
             applied.append("подписка")
         }
 

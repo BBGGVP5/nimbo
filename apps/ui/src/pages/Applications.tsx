@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { PageHeader, StatePanel, Metric, useSecondaryCopy } from "../components/Secondary";
+import { Dialog, Surface } from "../components/Universal";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   api,
@@ -98,6 +100,10 @@ function useAppIconLazy(executablePath: string) {
 }
 
 export function Applications() {
+  const copy = useSecondaryCopy();
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const m = useMessages();
   const preferences = useAppStore((s) => s.preferences);
   const setPreferences = useAppStore((s) => s.setPreferences);
@@ -125,8 +131,9 @@ export function Applications() {
     setMode(readAppRoutingMode(preferences.app_routing_mode));
   }, [preferences.app_routing_mode]);
 
-  useEffect(() => {
-    Promise.all([
+  const loadApps = useCallback(async () => {
+    setLoading(true); setLoadError(null);
+    await Promise.all([
       api.listInstalledApps(),
       api.listAppProxyRules(),
       api.listSubscriptionAppProxyRules(),
@@ -142,13 +149,15 @@ export function Applications() {
           void api.setAppProxyRules(normalizedSaved);
         }
       })
-      .catch(() => {
+      .catch((error) => {
+        setLoadError(String(error));
         setInstalledPaths(new Set());
         setApps([]);
         setRules([]);
         setSubRules([]);
-      });
+      }).finally(() => setLoading(false));
   }, []);
+  useEffect(() => { void loadApps(); }, [loadApps]);
 
   const subscriptionByPath = useMemo(() => {
     const map = new Map<string, AppProxyRule>();
@@ -308,12 +317,12 @@ export function Applications() {
   }, []);
 
   const save = async (next: AppProxyRule[]) => {
-    setBusy(true);
+    setBusy(true); setSaveError(null);
     try {
       await api.setAppProxyRules(next);
       scheduleReapply();
     } catch (e) {
-      console.error(e);
+      setSaveError(String(e)); notifyError(String(e));
     } finally {
       setBusy(false);
     }
@@ -398,42 +407,14 @@ export function Applications() {
   };
 
   return (
-    <div className="page-view">
-      <h1 className="page-title">{m.appsPage.title}</h1>
+    <div className="page-view secondary-page applications-page">
+      <PageHeader title={m.appsPage.title} description={copy.appHint} />
+      <div className="secondary-metrics"><Metric label={copy.selected} value={loading ? "—" : selectedPaths.size} /><Metric label={copy.available} value={loading ? "—" : apps.length} /><Metric label={copy.inherited} value={loading ? "—" : subRules.length} /></div>
+      {saveError && <StatePanel title={copy.error} detail={saveError} error />}
+      <div className="apps-workspace"><Surface className="apps-catalog">
 
-      <section className="mb-7 rounded-[22px] border border-[var(--color-border)] bg-[var(--color-glass-bg)] p-5">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="min-w-[240px] flex-1">
-            <h2 className="text-lg font-black text-[var(--color-text)]">{m.appsPage.protectedLaunch}</h2>
-            <p className="mt-1 text-sm font-semibold text-[var(--color-text-dim)]">
-              {m.appsPage.protectedLaunchDescription}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="connections-action"
-            disabled={protectedLaunchBusy}
-            onClick={() => void protectedLaunch()}
-          >
-            {protectedLaunchBusy ? m.appsPage.protectedLaunchRunning : m.appsPage.protectedLaunchPick}
-          </button>
-        </div>
-        <button
-          type="button"
-          className="mt-4 flex w-full items-center justify-between rounded-2xl border border-[var(--color-border)] px-4 py-3 text-left"
-          onClick={() => void toggleExplorerIntegration()}
-        >
-          <span>
-            <strong className="block text-[var(--color-text)]">{m.appsPage.explorerIntegration}</strong>
-            <small className="text-[var(--color-text-dim)]">{m.appsPage.explorerIntegrationDescription}</small>
-          </span>
-          <span className={explorerIntegration ? "connections-badge connections-badge-proxy" : "connections-badge connections-badge-unknown"}>
-            {explorerIntegration ? "ON" : "OFF"}
-          </span>
-        </button>
-      </section>
-
-      <div className="mt-7 mb-7 grid max-w-2xl grid-cols-2 gap-3 mobile-stack">
+      <h2>{copy.catalog}</h2>
+      <div className="apps-mode-options">
         <ModeButton active={mode === "direct"} onClick={() => void setAllMode("direct")}>
           {m.appsPage.direct}
         </ModeButton>
@@ -442,16 +423,17 @@ export function Applications() {
         </ModeButton>
       </div>
 
-      <p className="page-subtitle mb-7">
+      <p className="apps-mode-description">
         {mode === "direct" ? m.appsPage.directDescription : m.appsPage.proxyDescription}
       </p>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative min-w-[220px] flex-1">
+      <div className="apps-catalog-toolbar">
+        <div className="apps-search relative">
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={m.appsPage.search}
+            aria-label={m.appsPage.search}
             className="dark-input w-full px-5 py-4 pr-12 text-lg"
           />
           {query && (
@@ -543,11 +525,9 @@ export function Applications() {
         {busy ? ` · ${m.common.savingProgress}` : ""}
       </div>
 
-      <div className="panel overflow-hidden">
-        {filtered.length === 0 ? (
-          <div className="px-6 py-16 text-center text-[var(--color-text-faint)]">
-            {m.appsPage.empty}
-          </div>
+      <div className="apps-list">
+        {loading ? <StatePanel title={copy.loading} busy /> : loadError ? <StatePanel title={copy.error} detail={loadError} error action={<button className="btn" onClick={() => void loadApps()}>{copy.retry}</button>} /> : filtered.length === 0 ? (
+          <StatePanel title={query || filterMode !== "all" ? copy.noMatches : m.appsPage.empty} action={query || filterMode !== "all" ? <button className="btn" onClick={() => { setQuery(""); setFilterMode("all"); }}>{copy.resetFilters}</button> : <button className="primary-button btn" onClick={() => setShowAddCustom(true)}>{m.appsPage.addCustom}</button>} />
         ) : (
           <div className="divide-y divide-[var(--color-border)]">
             {filtered.map((app) => {
@@ -570,6 +550,41 @@ export function Applications() {
         )}
       </div>
 
+      </Surface>
+      <Surface className="apps-launch-tools">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="min-w-[240px] flex-1">
+            <h2 className="text-lg font-black text-[var(--color-text)]">{m.appsPage.protectedLaunch}</h2>
+            <p className="mt-1 text-sm font-semibold text-[var(--color-text-dim)]">
+              {m.appsPage.protectedLaunchDescription}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="connections-action"
+            disabled={protectedLaunchBusy}
+            onClick={() => void protectedLaunch()}
+          >
+            {protectedLaunchBusy ? m.appsPage.protectedLaunchRunning : m.appsPage.protectedLaunchPick}
+          </button>
+        </div>
+        <button
+          type="button"
+          aria-pressed={explorerIntegration}
+          className="mt-4 flex w-full items-center justify-between rounded-2xl border border-[var(--color-border)] px-4 py-3 text-left"
+          onClick={() => void toggleExplorerIntegration()}
+        >
+          <span>
+            <strong className="block text-[var(--color-text)]">{m.appsPage.explorerIntegration}</strong>
+            <small className="text-[var(--color-text-dim)]">{m.appsPage.explorerIntegrationDescription}</small>
+          </span>
+          <span className={explorerIntegration ? "connections-badge connections-badge-proxy" : "connections-badge connections-badge-unknown"}>
+            {explorerIntegration ? "ON" : "OFF"}
+          </span>
+        </button>
+      </Surface>
+
+      </div>
       {showAddCustom && (
         <AddCustomDialog
           onAdd={(path, name) => void addCustomEntry(path, name)}
@@ -1209,11 +1224,10 @@ function AddCustomDialog({
   const [entries, setEntries] = useState<DraftEntry[]>([newDraftEntry()]);
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEffect(() => () => {
+    timers.current.forEach(timer => clearTimeout(timer));
+    timers.current.clear();
+  }, []);
 
   const updatePath = (id: string, value: string) => {
     setEntries((prev) =>
@@ -1236,6 +1250,8 @@ function AddCustomDialog({
   };
 
   const removeEntry = (id: string) => {
+    clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
     setEntries((prev) => (prev.length === 1 ? prev : prev.filter((e) => e.id !== id)));
   };
 
@@ -1269,22 +1285,24 @@ function AddCustomDialog({
 
   const validCount = entries.filter((e) => e.path.trim()).length;
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-5"
-      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(12px)" }}
-      role="presentation"
-      onClick={onClose}
-    >
-      <div
-        className="panel w-full max-w-lg p-6"
-        role="dialog"
-        aria-modal="true"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="mb-5 text-lg font-black text-white">{m.appsPage.addCustom}</h2>
-
-        <div className="mb-3 flex max-h-[55vh] flex-col gap-2.5 overflow-y-auto pr-1">
+  return <Dialog className="apps-add-dialog" title={m.appsPage.addCustom} closeLabel={m.common.close} onClose={onClose}
+    footer={<>
+          <button
+            onClick={onClose}
+            className="flex-1 rounded-xl border border-[var(--color-border)] py-3 text-[var(--color-text-dim)] transition-colors hover:text-white"
+          >
+            {m.common.cancel}
+          </button>
+          <button
+            onClick={handleAdd}
+            disabled={validCount === 0}
+            className="primary-button interactive flex-1 rounded-xl py-3 font-bold disabled:opacity-40"
+          >
+            {validCount > 1
+              ? fillTemplate(m.appsPage.customAddCount, { count: validCount })
+              : m.appsPage.customAdd}
+          </button></>}>
+        <div className="mb-3 flex flex-col gap-2.5">
           {entries.map((entry, idx) => (
             <DraftEntryRow
               key={entry.id}
@@ -1308,26 +1326,7 @@ function AddCustomDialog({
           {m.appsPage.customAddMore}
         </button>
 
-        <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 rounded-xl border border-[var(--color-border)] py-3 text-[var(--color-text-dim)] transition-colors hover:text-white"
-          >
-            {m.common.cancel}
-          </button>
-          <button
-            onClick={handleAdd}
-            disabled={validCount === 0}
-            className="primary-button interactive flex-1 rounded-xl py-3 font-bold disabled:opacity-40"
-          >
-            {validCount > 1
-              ? fillTemplate(m.appsPage.customAddCount, { count: validCount })
-              : m.appsPage.customAdd}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  </Dialog>;
 }
 
 function DraftEntryRow({
@@ -1398,6 +1397,7 @@ function DraftEntryRow({
             onKeyDown={(e) => {
               if (e.key === "Enter") onEnter();
             }}
+            aria-label={m.appsPage.customPlaceholder}
             placeholder={m.appsPage.customPlaceholder}
             className="dark-input min-w-0 flex-1 px-4 py-2.5 text-sm"
             autoFocus={autoFocus}
@@ -1418,6 +1418,7 @@ function DraftEntryRow({
           onKeyDown={(e) => {
             if (e.key === "Enter") onEnter();
           }}
+          aria-label={m.appsPage.customNamePlaceholder}
           placeholder={m.appsPage.customNamePlaceholder}
           className="dark-input w-full px-4 py-2.5 text-sm"
         />
@@ -1427,6 +1428,7 @@ function DraftEntryRow({
       {showRemove ? (
         <button
           onClick={onRemove}
+          aria-label={m.profiles.delete}
           className="mt-0.5 grid h-11 w-7 shrink-0 place-items-center rounded-lg text-[var(--color-text-faint)] transition-colors hover:text-white"
         >
           <XIcon />
@@ -1450,6 +1452,7 @@ function ModeButton({
   return (
     <button
       onClick={onClick}
+      aria-pressed={active}
       className={[
         "interactive rounded-2xl border px-5 py-4 text-base font-black",
         active
@@ -1515,18 +1518,8 @@ function AppRow({
   const subscriptionModeLabel = subscriptionMode === "proxy" ? m.appsPage.modeProxy : m.appsPage.modeDirect;
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onClick();
-        }
-      }}
-      className="grid w-full grid-cols-[54px_minmax(0,1fr)_34px_34px] items-center gap-4 px-6 py-4 text-left transition-colors hover:bg-[var(--color-glass-bg)]"
-    >
+    <div className="app-entry">
+      <button type="button" className="app-entry-select" role="checkbox" aria-checked={selected} aria-label={app.name} onClick={onClick}>
       <div
         ref={containerRef}
         className="relative grid h-11 w-11 place-items-center overflow-hidden rounded-xl text-lg font-black text-white transition-colors"
@@ -1567,11 +1560,12 @@ function AppRow({
         ].join(" ")}
       >
         {selected && (
-          <svg viewBox="0 0 12 10" className="h-3.5 w-3.5" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg viewBox="0 0 12 10" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <polyline points="1,5 4.5,8.5 11,1" />
           </svg>
         )}
       </div>
+      </button>
       {showTrash ? (
         <button
           type="button"

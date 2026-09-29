@@ -22,6 +22,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 custom-protocol = ["tauri/custom-protocol"]
 
 [build-dependencies]
+sha2.workspace = true
+serde_json.workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
@@ -29,6 +31,7 @@ nimbo-device.workspace = true
 nimbo-ipc.workspace = true
 nimbo-subscription.workspace = true
 nimbo-xray-config.workspace = true
+nimbo-mihomo.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true

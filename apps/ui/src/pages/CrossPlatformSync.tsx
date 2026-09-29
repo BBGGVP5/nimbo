@@ -1,3 +1,5 @@
+import { Surface } from "../components/Universal";
+import { OperationPhrase } from "../components/OperationPhrase";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -216,7 +218,7 @@ export function CrossPlatformSync() {
   }
 
   return (
-    <div className="page-view cross-sync-page">
+    <div className="page-view cross-sync-page" data-sync-state={session?.state ?? "idle"}>
       <header className="cross-sync-header">
         <div>
           <h1 className="page-title">{m.crossSync.title}</h1>
@@ -235,7 +237,7 @@ export function CrossPlatformSync() {
       </header>
 
       {!showPairing && (
-        <section className="cross-sync-card cross-sync-overview">
+        <Surface className="cross-sync-card cross-sync-overview">
           <div className="cross-sync-overview-main">
             <div className="cross-sync-overview-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -260,26 +262,18 @@ export function CrossPlatformSync() {
           <button className="cross-sync-primary" onClick={openPairing} disabled={busy}>
             {devices.length > 0 ? m.crossSync.addMore : m.crossSync.connectPhone}
           </button>
-        </section>
+        </Surface>
       )}
 
       {showPairing && (
       <div className="cross-sync-layout">
-        <section className="cross-sync-card cross-sync-pair-card">
+        <Surface className="cross-sync-card cross-sync-pair-card">
           <div className="cross-sync-card-heading">
             <span className="cross-sync-step">1</span>
             <div>
               <h2>{m.crossSync.pairTitle}</h2>
               <p>{m.crossSync.pairHint}</p>
             </div>
-          </div>
-
-          <div className={`cross-sync-link-visual${session?.remote_device ? " is-linked" : " is-waiting"}`} aria-hidden="true">
-            <span className="cross-sync-link-device"><PlatformIcon platform="desktop" /></span>
-            <span className="cross-sync-link-rail">
-              <i /><i /><i />
-            </span>
-            <span className="cross-sync-link-device"><PlatformIcon platform="android" /></span>
           </div>
 
           {session?.qr_payload && !session.remote_device && (
@@ -313,16 +307,16 @@ export function CrossPlatformSync() {
               {m.crossSync.createQr}
             </button>
           )}
-          {busy && <div className="cross-sync-loading"><i />{m.crossSync.preparing}</div>}
+          {busy && <div className="cross-sync-loading" role="status"><i />{m.crossSync.preparing}</div>}
 
           {session?.remote_device && (
             <div className="cross-sync-device-passport">
               <div className="cross-sync-device-topline">
-                <div className="cross-sync-device-icon"><PlatformIcon platform="android" /></div>
+                <div className="cross-sync-device-icon"><PlatformIcon platform={remoteInfo?.platform || "android"} /></div>
                 <div className="cross-sync-device-identity">
                   <span className="cross-sync-device-eyebrow">{m.crossSync.deviceFound}</span>
                   <strong>{remoteInfo?.name || session.remote_device}</strong>
-                  <span>{[remoteInfo?.os_name || "Android", remoteInfo?.os_version].filter(Boolean).join(" ")}</span>
+                  <span>{[remoteInfo?.os_name || platformLabel(remoteInfo?.platform || "android"), remoteInfo?.os_version].filter(Boolean).join(" ")}</span>
                 </div>
                 <span className="cross-sync-online">{m.crossSync.online}</span>
               </div>
@@ -342,9 +336,9 @@ export function CrossPlatformSync() {
               <small>{m.crossSync.sameCodeOnPhone}</small>
             </div>
           )}
-        </section>
+        </Surface>
 
-        <section className="cross-sync-card">
+        <Surface className="cross-sync-card">
           <div className="cross-sync-card-heading">
             <span className="cross-sync-step">2</span>
             <div>
@@ -357,16 +351,114 @@ export function CrossPlatformSync() {
             <SyncOption title={m.crossSync.optAppearance} detail={m.crossSync.optAppearanceDetail} checked={categories.appearance} disabled={categoriesLocked} onChange={(v) => updateCategory("appearance", v)} />
             <SyncOption title={m.crossSync.optConnection} detail={m.crossSync.optConnectionDetail} checked={categories.connection} disabled={categoriesLocked} onChange={(v) => updateCategory("connection", v)} />
             <SyncOption title={m.crossSync.optAutomation} detail={m.crossSync.optAutomationDetail} checked={categories.automation} disabled={categoriesLocked} onChange={(v) => updateCategory("automation", v)} />
+            <SyncOption title={m.crossSync.optRouting} detail={m.crossSync.optRoutingShort} checked={categories.routing} disabled={categoriesLocked} onChange={(v) => updateCategory("routing", v)} />
           </div>
           <div className="cross-sync-excluded">
             {m.crossSync.notTransferred}
           </div>
-        </section>
+        </Surface>
       </div>
       )}
 
+      {session?.state === "awaiting_approval" && (
+        <Surface className="cross-sync-card cross-sync-confirm">
+          <div>
+            <h2>{fillTemplate(m.crossSync.allowPairing, { device: session.remote_device ?? "" })}</h2>
+            <p>{fillTemplate(m.crossSync.allowPairingHint, { count: selectedCount })}</p>
+            {recommended && (
+              <div className="cross-sync-recommendation">
+                {fillTemplate(m.crossSync.recommendation, {
+                  text: recommended === "android_to_desktop"
+                    ? m.crossSync.recommendPhoneToPc
+                    : m.crossSync.recommendPcToPhone,
+                })}
+              </div>
+            )}
+            <div className="cross-sync-direction">
+              <span className="cross-sync-direction-label">{m.crossSync.directionLabel}</span>
+              <label className="cross-sync-direction-option">
+                <input
+                  type="radio"
+                  name="cross-sync-direction"
+                  checked={direction === "desktop_to_android"}
+                  onChange={() => setDirection("desktop_to_android")}
+                />
+                <span><strong>{m.crossSync.pcToPhone}</strong><small>{m.crossSync.pcToPhoneDetail}</small></span>
+              </label>
+              <label className="cross-sync-direction-option">
+                <input
+                  type="radio"
+                  name="cross-sync-direction"
+                  checked={direction === "android_to_desktop"}
+                  onChange={() => setDirection("android_to_desktop")}
+                />
+                <span><strong>{m.crossSync.phoneToPc}</strong><small>{m.crossSync.phoneToPcDetail}</small></span>
+              </label>
+            </div>
+          </div>
+          <div className="cross-sync-actions">
+            <button className="cross-sync-secondary" onClick={() => void reject()} disabled={busy}>{m.crossSync.reject}</button>
+            <button className="cross-sync-primary" onClick={() => void approve()} disabled={busy || selectedCount === 0}>{m.crossSync.allow}</button>
+          </div>
+        </Surface>
+      )}
+
+      {session?.state === "device_offline" && (
+        <Surface role="status" className="cross-sync-card cross-sync-status-card cross-sync-offline-card">
+          <div className="cross-sync-offline" />
+          <div>
+            <h2>{m.crossSync.offlineTitle}</h2>
+            <p>{m.crossSync.offlineHint}</p>
+          </div>
+        </Surface>
+      )}
+
+      {session?.state === "paired" && (
+        <Surface role="status" className="cross-sync-card cross-sync-status-card">
+          <div className="cross-sync-pulse" />
+          <div><h2>{m.crossSync.pairedTitle}</h2><p>{m.crossSync.pairedHint}</p></div>
+        </Surface>
+      )}
+
+      {session?.state === "awaiting_import_confirmation" && (
+        <Surface className="cross-sync-card cross-sync-confirm">
+          <div>
+            <h2>{fillTemplate(m.crossSync.importTitle, { device: session.remote_device ?? "" })}</h2>
+            <p>{fillTemplate(m.crossSync.importHint, { count: remote?.subscriptions ?? 0 })}</p>
+          </div>
+          <div className="cross-sync-actions">
+            <button className="cross-sync-secondary" onClick={() => void reject()} disabled={busy}>{m.crossSync.reject}</button>
+            <button className="cross-sync-primary" onClick={() => void acceptImport()} disabled={busy}>{m.crossSync.importAction}</button>
+          </div>
+        </Surface>
+      )}
+
+      {session?.state === "export_authorized" && (
+        <Surface role="status" className="cross-sync-card cross-sync-status-card">
+          <div className="cross-sync-pulse" />
+          <div><h2>{m.crossSync.transferAllowedTitle}</h2><p>{m.crossSync.transferAllowedHint}</p></div>
+        </Surface>
+      )}
+
+      {session?.state === "completed" && (
+        <Surface role="status" className="cross-sync-card cross-sync-success">
+          <div>
+            <strong>{m.crossSync.deviceConnected}</strong>
+            <span>{fillTemplate(m.crossSync.addedSubscriptions, { count: session.result?.added_subscriptions.length ?? 0 })}</span>
+          </div>
+          <div className="cross-sync-actions">
+            <button className="cross-sync-secondary" onClick={() => void startSession()} disabled={busy}>{m.crossSync.addMore}</button>
+            <button className="cross-sync-primary" onClick={() => void closePairing()} disabled={busy}>{m.crossSync.done}</button>
+          </div>
+        </Surface>
+      )}
+
+      {(error || session?.error) && <Surface className="cross-sync-error" role="alert">{error || session?.error}</Surface>}
+
+      <OperationPhrase active={busy && !error && !session?.error && session?.state !== "completed"} kind="sync" locale={m.common.locale} />
+
       {devices.length > 0 && (
-        <section className="cross-sync-card cross-sync-devices-card">
+        <Surface className="cross-sync-card cross-sync-devices-card">
           <div className="cross-sync-card-heading">
             <span className="cross-sync-step">{showPairing ? "3" : devices.length}</span>
             <div>
@@ -472,103 +564,8 @@ export function CrossPlatformSync() {
               );
             })}
           </div>
-        </section>
+        </Surface>
       )}
-
-      {session?.state === "awaiting_approval" && (
-        <section className="cross-sync-card cross-sync-confirm">
-          <div>
-            <h2>{fillTemplate(m.crossSync.allowPairing, { device: session.remote_device ?? "" })}</h2>
-            <p>{fillTemplate(m.crossSync.allowPairingHint, { count: selectedCount })}</p>
-            {recommended && (
-              <div className="cross-sync-recommendation">
-                {fillTemplate(m.crossSync.recommendation, {
-                  text: recommended === "android_to_desktop"
-                    ? m.crossSync.recommendPhoneToPc
-                    : m.crossSync.recommendPcToPhone,
-                })}
-              </div>
-            )}
-            <div className="cross-sync-direction">
-              <span className="cross-sync-direction-label">{m.crossSync.directionLabel}</span>
-              <label className="cross-sync-direction-option">
-                <input
-                  type="radio"
-                  name="cross-sync-direction"
-                  checked={direction === "desktop_to_android"}
-                  onChange={() => setDirection("desktop_to_android")}
-                />
-                <span><strong>{m.crossSync.pcToPhone}</strong><small>{m.crossSync.pcToPhoneDetail}</small></span>
-              </label>
-              <label className="cross-sync-direction-option">
-                <input
-                  type="radio"
-                  name="cross-sync-direction"
-                  checked={direction === "android_to_desktop"}
-                  onChange={() => setDirection("android_to_desktop")}
-                />
-                <span><strong>{m.crossSync.phoneToPc}</strong><small>{m.crossSync.phoneToPcDetail}</small></span>
-              </label>
-            </div>
-          </div>
-          <div className="cross-sync-actions">
-            <button className="cross-sync-secondary" onClick={() => void reject()} disabled={busy}>{m.crossSync.reject}</button>
-            <button className="cross-sync-primary" onClick={() => void approve()} disabled={busy || selectedCount === 0}>{m.crossSync.allow}</button>
-          </div>
-        </section>
-      )}
-
-      {session?.state === "device_offline" && (
-        <section className="cross-sync-card cross-sync-status-card cross-sync-offline-card">
-          <div className="cross-sync-offline" />
-          <div>
-            <h2>{m.crossSync.offlineTitle}</h2>
-            <p>{m.crossSync.offlineHint}</p>
-          </div>
-        </section>
-      )}
-
-      {session?.state === "paired" && (
-        <section className="cross-sync-card cross-sync-status-card">
-          <div className="cross-sync-pulse" />
-          <div><h2>{m.crossSync.pairedTitle}</h2><p>{m.crossSync.pairedHint}</p></div>
-        </section>
-      )}
-
-      {session?.state === "awaiting_import_confirmation" && (
-        <section className="cross-sync-card cross-sync-confirm">
-          <div>
-            <h2>{fillTemplate(m.crossSync.importTitle, { device: session.remote_device ?? "" })}</h2>
-            <p>{fillTemplate(m.crossSync.importHint, { count: remote?.subscriptions ?? 0 })}</p>
-          </div>
-          <div className="cross-sync-actions">
-            <button className="cross-sync-secondary" onClick={() => void reject()} disabled={busy}>{m.crossSync.reject}</button>
-            <button className="cross-sync-primary" onClick={() => void acceptImport()} disabled={busy}>{m.crossSync.importAction}</button>
-          </div>
-        </section>
-      )}
-
-      {session?.state === "export_authorized" && (
-        <section className="cross-sync-card cross-sync-status-card">
-          <div className="cross-sync-pulse" />
-          <div><h2>{m.crossSync.transferAllowedTitle}</h2><p>{m.crossSync.transferAllowedHint}</p></div>
-        </section>
-      )}
-
-      {session?.state === "completed" && (
-        <section className="cross-sync-card cross-sync-success">
-          <div>
-            <strong>{m.crossSync.deviceConnected}</strong>
-            <span>{fillTemplate(m.crossSync.addedSubscriptions, { count: session.result?.added_subscriptions.length ?? 0 })}</span>
-          </div>
-          <div className="cross-sync-actions">
-            <button className="cross-sync-secondary" onClick={() => void startSession()} disabled={busy}>{m.crossSync.addMore}</button>
-            <button className="cross-sync-primary" onClick={() => void closePairing()} disabled={busy}>{m.crossSync.done}</button>
-          </div>
-        </section>
-      )}
-
-      {(error || session?.error) && <div className="cross-sync-error">{error || session?.error}</div>}
 
       <footer className="cross-sync-footer">
         <span>{m.crossSync.encryptionFooter}</span>

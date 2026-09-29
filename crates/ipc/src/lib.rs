@@ -18,11 +18,17 @@ pub const FRAME_MAX_BYTES: u32 = 2 * 1024 * 1024;
 pub enum Command {
     Ping,
     GetStatus,
-    Connect { server_id: String },
+    Connect {
+        server_id: String,
+    },
     Disconnect,
-    SetAppProxyRules { rules: Vec<AppProxyRule> },
+    SetAppProxyRules {
+        rules: Vec<AppProxyRule>,
+    },
     ReloadConfig,
-    KillProcesses { pids: Vec<u32> },
+    KillProcesses {
+        pids: Vec<u32>,
+    },
     /// Поднять TUN: хелпер запускает ядро с переданным конфигом от root и
     /// сам восстанавливает маршруты, когда туннель гаснет.
     TunUp(TunRequest),
@@ -30,7 +36,9 @@ pub enum Command {
     TunDown,
     /// Положить ядро в каталог хелпера. Вызывается из повышенного процесса
     /// (pkexec), поэтому источник выбирает пользователь осознанно.
-    InstallCore { source_path: String },
+    InstallCore {
+        source_path: String,
+    },
     Shutdown,
 }
 

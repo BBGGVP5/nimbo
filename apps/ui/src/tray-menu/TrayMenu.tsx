@@ -1,3 +1,9 @@
+import { ConnectionStateIcon } from "../components/ConnectionStateIcon";
+import { OperationPhrase } from "../components/OperationPhrase";
+import nimboLogo from "../assets/nimbo.png";
+import { fillTemplate, getMessages } from "../lib/i18n";
+import { latencyPresentation, type LatencyProtocol } from "../lib/latency";
+import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -9,6 +15,7 @@ import {
 } from "../lib/api";
 import { applyAccentGradient, refreshAppearance, subscribeAppearance } from "../lib/appearance";
 import { applyVisualPreferences } from "../lib/visualTheme";
+import { favoriteServers } from "./quickServers";
 
 type ConnectionMode = "system_proxy" | "tun" | "both";
 
@@ -19,9 +26,10 @@ interface TrayServer {
   latencyMs?: number | null;
 }
 
-interface TrayState {
+export interface TrayState {
   connected: boolean;
   activeServerId: string | null;
+  autoSelected: boolean;
   connectionMode: ConnectionMode;
   subscriptionCount: number;
   serverCount: number;
@@ -43,6 +51,7 @@ const LABELS = {
     connected: "Подключено",
     disconnected: "Отключено",
     active: "Активный сервер",
+    autoActive: "Авто · текущий сервер",
     noActive: "Сервер не выбран",
     mode: "Режим",
     subscriptionsShort: "подп.",
@@ -54,7 +63,12 @@ const LABELS = {
     disconnecting: "Отключение…",
     adminNeeded: "Для TUN нужны права администратора",
     restartAdmin: "Перезапустить",
-    quick: "Быстро",
+    quick: "Разделы",
+    routing: "Маршрутизация",
+    sync: "Синхронизация",
+    favorites: "Избранное",
+    favoriteHint: "Отметьте серверы звёздочкой в Nimbo",
+    connectionFailed: "Действие подключения не выполнено. Подробности — в логах.",
     profiles: "Профили",
     connections: "Соединения",
     apps: "Приложения",
@@ -87,6 +101,7 @@ const LABELS = {
     connected: "Connected",
     disconnected: "Disconnected",
     active: "Active server",
+    autoActive: "Auto · current server",
     noActive: "No server selected",
     mode: "Mode",
     subscriptionsShort: "subs",
@@ -98,7 +113,12 @@ const LABELS = {
     disconnecting: "Disconnecting…",
     adminNeeded: "TUN needs administrator rights",
     restartAdmin: "Restart",
-    quick: "Quick",
+    quick: "Sections",
+    routing: "Routing",
+    sync: "Sync",
+    favorites: "Favorites",
+    favoriteHint: "Star servers in Nimbo to see them here",
+    connectionFailed: "Connection action failed. Check the logs for details.",
     profiles: "Profiles",
     connections: "Connections",
     apps: "Applications",
@@ -150,8 +170,10 @@ interface TrayActionDone {
   servers?: number;
 }
 
-export function TrayMenu() {
-  const [state, setState] = useState<TrayState | null>(null);
+export function TrayMenu({ previewState }: { previewState?: TrayState } = {}) {
+  const [state, setState] = useState<TrayState | null>(previewState ?? null);
+  const [favoriteIds, setFavoriteIds] = useState<string | null>(null);
+  const [connectionFailed, setConnectionFailed] = useState(false);
   const [openNonce, setOpenNonce] = useState(0);
   const [task, setTask] = useState<TrayTask | null>(null);
   // The state the user just asked the toggle to reach, held from the click until
@@ -179,16 +201,39 @@ export function TrayMenu() {
   }, []);
 
   const load = useCallback(async () => {
+    if (previewState) return;
     try {
       setState(await invoke<TrayState>("tray_menu_state"));
     } catch {
       // The backend may briefly be unavailable; the next open retries.
     }
-  }, []);
+  }, [previewState]);
 
   const act = useCallback((action: string, serverId?: string) => {
-    void invoke("tray_menu_action", { action, serverId: serverId ?? null }).catch(() => {});
-  }, []);
+    if (previewState) {
+      setState(current => current ? { ...current,
+        connected: action === "disconnect" ? false : action === "connect" || action === "server" ? true : current.connected,
+        activeServerId: serverId ?? current.activeServerId,
+      } : current);
+      setPendingTarget(null);
+      return;
+    }
+    void invoke("tray_menu_action", { action, serverId: serverId ?? null }).catch(() => {
+      setConnectionFailed(true);
+      setPendingTarget(null);
+      clearSwitchTimer();
+    });
+  }, [previewState, clearSwitchTimer]);
+
+  useEffect(() => {
+    const read = () => {
+      try { setFavoriteIds(previewState ? JSON.stringify(previewState.servers.map(s => s.id)) : localStorage.getItem("nimbo.favorites")); }
+      catch { setFavoriteIds(null); }
+    };
+    read();
+    window.addEventListener("storage", read);
+    return () => window.removeEventListener("storage", read);
+  }, [openNonce, previewState]);
 
   // Maintenance actions keep the flyout open: show a live status and let the
   // backend report the result via `tray-menu:action-done`.
@@ -204,6 +249,7 @@ export function TrayMenu() {
   );
 
   useEffect(() => {
+    if (previewState) return;
     void load();
     const subscriptions: Array<Promise<UnlistenFn>> = [
       listen("tray-menu:open", () => {
@@ -221,6 +267,9 @@ export function TrayMenu() {
       // switching state right away and raise the admin prompt if that was why.
       listen<TrayConnectResult>("tray-menu:connect-result", (event) => {
         const { ok, error } = event.payload;
+        setConnectionFailed(!ok);
+        clearSwitchTimer();
+        setPendingTarget(null);
         if (!ok) {
           clearSwitchTimer();
           setPendingTarget(null);
@@ -249,7 +298,7 @@ export function TrayMenu() {
       clearTaskTimers();
       subscriptions.forEach((p) => void p.then((un) => un()).catch(() => {}));
     };
-  }, [load, clearTaskTimers, clearSwitchTimer]);
+  }, [load, clearTaskTimers, clearSwitchTimer, previewState]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -308,7 +357,7 @@ export function TrayMenu() {
   // keeps the window bounds, DWM rounding and the fallback rounded region in
   // lock-step, so Windows never exposes the native rectangle behind the flyout.
   useLayoutEffect(() => {
-    if (!state) return;
+    if (!state || previewState) return;
     const card = cardRef.current;
     if (!card) return;
 
@@ -346,7 +395,7 @@ export function TrayMenu() {
       if (raf) window.cancelAnimationFrame(raf);
       observer.disconnect();
     };
-  }, [state, openNonce]);
+  }, [state, openNonce, previewState]);
 
   const lang: "ru" | "en" = state?.language === "en" ? "en" : "ru";
   const t = LABELS[lang];
@@ -354,6 +403,7 @@ export function TrayMenu() {
   const connected = state?.connected ?? false;
   const activeId = state?.activeServerId ?? null;
   const servers = state?.servers ?? [];
+  const favorites = useMemo(() => favoriteServers(servers, favoriteIds), [servers, favoriteIds]);
   const activeServer = useMemo(
     () => servers.find((server) => server.id === activeId) ?? null,
     [activeId, servers],
@@ -411,8 +461,24 @@ export function TrayMenu() {
     void invoke("restart_as_admin").catch(() => {});
   }, []);
 
+  const connectFavorite = (id: string) => {
+    if (switching) return;
+    clearSwitchTimer();
+    setPendingTarget(true);
+    act("server", id);
+    if (!previewState) switchTimer.current = window.setTimeout(() => {
+      setPendingTarget(null);
+      setConnectionFailed(true);
+      void load();
+    }, 30000);
+  };
+
   const taskBusy = task?.status === "running";
-  const taskLabel = task ? describeTask(task, t) : null;
+  const taskLabel = task ? describeTask(task, t, state?.visualPreferences?.latency_protocol) : null;
+  const taskEstimate = latencyPresentation(task?.best, state?.visualPreferences?.latency_protocol);
+  const taskExplanation = task?.kind === "ping_servers" && taskEstimate.approximate
+    ? fillTemplate(getMessages(lang).settings.latencyEstimateLabel, { estimate: taskEstimate.label, raw: task!.best! })
+    : undefined;
 
   return (
     <div className="tray-shell">
@@ -420,18 +486,19 @@ export function TrayMenu() {
         key={openNonce}
         ref={cardRef}
         className="tray-card"
+        style={{ maxHeight: Math.max(240, window.screen.availHeight - 64), overflowY: "auto" }}
         data-connected={connected ? "true" : "false"}
       >
         <div className="tray-card-inner">
         <div className="tray-hero">
           <span className={`tray-status-orb ${connected ? "is-on" : "is-off"}`} aria-hidden="true">
-            <span />
+            <img src={nimboLogo} alt="" className="tray-brand-cloud"/>
           </span>
           <div className="tray-hero-copy">
             <div className="tray-eyebrow">Nimbo</div>
             <div className="tray-status-title">{connected ? t.connected : t.disconnected}</div>
             <div className="tray-status-subtitle" title={activeServerName}>
-              <span>{t.active}</span>
+              <span>{state?.autoSelected && connected ? t.autoActive : t.active}</span>
               <strong>{activeServerName}</strong>
             </div>
           </div>
@@ -457,7 +524,7 @@ export function TrayMenu() {
           className={`tray-connect-toggle ${canToggle ? "" : "is-disabled"}`}
           data-on={targetOn ? "true" : "false"}
           data-busy={switching ? "true" : "false"}
-          disabled={!canToggle}
+          disabled={!canToggle || switching}
           role="switch"
           aria-checked={connected}
           aria-busy={switching}
@@ -465,7 +532,7 @@ export function TrayMenu() {
           onClick={toggleConnection}
         >
           <span className="tray-power" aria-hidden="true">
-            <PowerIcon />
+            <ConnectionStateIcon connected={connected} busy={switching} />
             <span className="tray-power-ring" />
           </span>
           <span className="tray-connect-text">
@@ -474,6 +541,8 @@ export function TrayMenu() {
             </span>
           </span>
         </button>
+
+        <OperationPhrase active={switching && !connectionFailed} locale={lang} />
 
         {showAdmin ? (
           <div className="tray-admin-notice" role="alert">
@@ -487,34 +556,58 @@ export function TrayMenu() {
           </div>
         ) : null}
 
-        <button
-          type="button"
-          className="tray-tile tray-tile-settings"
-          onClick={() => act("settings")}
-          title={t.settings}
-        >
-          <SettingsIcon />
-          <span>{t.settings}</span>
-        </button>
+        {connectionFailed ? (
+          <div className="tray-task is-error" role="alert">
+            <span className="tray-task-text">{t.connectionFailed}</span>
+            <button className="tray-admin-action" type="button" onClick={() => act("logs")}>{t.logs}</button>
+            <button className="tray-close-button" type="button" aria-label={t.close} onClick={() => setConnectionFailed(false)}><CloseIcon /></button>
+          </div>
+        ) : null}
 
-        <div className="tray-utility-grid" aria-label={t.quick}>
-          <button type="button" onClick={() => act("connections")}>
-            <ConnectionsIcon />
-            <span>{t.connections}</span>
-          </button>
-          <button type="button" onClick={() => act("apps")}>
-            <AppsIcon />
-            <span>{t.apps}</span>
-          </button>
-        </div>
+        <section className="tray-favorites" aria-label={t.favorites}>
+          <div className="tray-favorites-heading">
+            <span>{t.favorites}</span>
+            <button type="button" className="tray-admin-action" onClick={() => act("profiles")}>{t.profiles} →</button>
+          </div>
+          <div className="tray-servers">
+            {favorites.length === 0 ? <p className="tray-server-empty">{t.favoriteHint}</p> : favorites.map(server => (
+              <button key={server.id} type="button" className={`tray-server ${server.id === activeId ? "is-active" : ""}`}
+                aria-current={server.id === activeId ? "true" : undefined}
+                aria-label={`${t.connect}: ${displayServerName(server)}`}
+                disabled={switching || (connected && server.id === activeId)}
+                onClick={() => connectFavorite(server.id)}>
+                <span className="tray-flag" aria-hidden="true">☆</span>
+                <span className="tray-server-copy">
+                  <span className="tray-server-name" title={displayServerName(server)}>{displayServerName(server)}</span>
+                  <span className="tray-server-meta"><span>{server.subscriptionName}</span><span>{server.latencyMs != null ? <LatencyDisplay value={server.latencyMs} format={state?.visualPreferences?.latency_display_format} protocol={state?.visualPreferences?.latency_protocol} language={lang} /> : t.noPing}</span></span>
+                </span>
+                <span className="tray-check" aria-hidden="true">{server.id === activeId ? "✓" : "→"}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <nav className="tray-utility-grid" aria-label={t.quick}>
+          <button type="button" onClick={() => act("routing")}><ConnectionsIcon /><span>{t.routing}</span></button>
+          <button type="button" onClick={() => act("sync")}><RefreshIcon /><span>{t.sync}</span></button>
+          <button type="button" onClick={() => act("apps")}><SettingsIcon /><span>{t.apps}</span></button>
+          <button type="button" onClick={() => act("connections")}><ConnectionsIcon /><span>{t.connections}</span></button>
+          <button type="button" onClick={() => act("statistics")}><RadarIcon /><span>{t.statistics}</span></button>
+          <button type="button" onClick={() => act("settings")}><SettingsIcon /><span>{t.settings}</span></button>
+          <button type="button" onClick={() => act("logs")}><ConnectionsIcon /><span>{t.logs}</span></button>
+        </nav>
+
+        <details className="tray-maintenance">
+          <summary>{t.maintenance}</summary>
 
         <div className="tray-utility-grid" aria-label={t.maintenance}>
           <button
             type="button"
-            disabled={subscriptionCount === 0 || taskBusy}
-            className={subscriptionCount === 0 || taskBusy ? "is-disabled" : ""}
+            disabled={connected || subscriptionCount === 0 || taskBusy}
+            className={connected || subscriptionCount === 0 || taskBusy ? "is-disabled" : ""}
+            title={connected ? (lang === "ru" ? "Сначала отключите VPN" : "Disconnect VPN first") : t.refresh}
             onClick={() =>
-              subscriptionCount > 0 && !taskBusy && runMaintenance("refresh_subscriptions")
+              !connected && subscriptionCount > 0 && !taskBusy && runMaintenance("refresh_subscriptions")
             }
           >
             <RefreshIcon />
@@ -531,6 +624,8 @@ export function TrayMenu() {
           </button>
         </div>
 
+        </details>
+
         {task && taskLabel ? (
           <div className={`tray-task is-${task.status}`} role="status" aria-live="polite">
             {task.status === "running" ? (
@@ -540,11 +635,12 @@ export function TrayMenu() {
                 {task.status === "done" ? <TaskDoneIcon /> : <TaskErrorIcon />}
               </span>
             )}
-            <span className="tray-task-text">{taskLabel}</span>
+            <span className="tray-task-text" title={taskExplanation} aria-label={taskExplanation ? `${taskLabel}. ${taskExplanation}` : undefined}>{taskLabel}</span>
           </div>
         ) : null}
 
         <div className="tray-footer">
+          <button type="button" className="tray-quit" onClick={() => act("show")}>{t.show} Nimbo</button>
           <button type="button" className="tray-quit" onClick={() => act("quit")}>
             <QuitIcon />
             <span>{t.quit}</span>
@@ -588,16 +684,9 @@ function displayServerName(server: TrayServer): string {
   return serverDisplayName(server.name) || server.name || "Server";
 }
 
-// A successful probe always took *some* time; CDN-fronted servers just connect
-// to a nearby edge in well under a millisecond, which `as_millis()` truncates to
-// 0. Show "<1 ms" rather than a "0 ms" that reads as broken.
-function formatMs(value: number): string {
-  return value < 1 ? "<1 ms" : `${Math.round(value)} ms`;
-}
-
 type Labels = (typeof LABELS)[keyof typeof LABELS];
 
-function describeTask(task: TrayTask, t: Labels): string {
+function describeTask(task: TrayTask, t: Labels, protocol?: LatencyProtocol): string {
   if (task.status === "running") {
     if (task.kind === "ping_servers") {
       return typeof task.done === "number" && typeof task.total === "number"
@@ -613,7 +702,7 @@ function describeTask(task: TrayTask, t: Labels): string {
     const parts: string[] = [t.pingDone];
     if (typeof task.count === "number") parts.push(`${task.count} ${t.serversShort}`);
     if (typeof task.best === "number" && Number.isFinite(task.best)) {
-      parts.push(`${t.pingBest} ${formatMs(task.best)}`);
+      parts.push(`${t.pingBest} ${latencyPresentation(task.best, protocol).label}`);
     }
     return parts.join(" · ");
   }
@@ -628,17 +717,6 @@ function ConnectionsIcon() {
       <path d="M4 7h10M4 12h16M4 17h8" />
       <circle cx="17" cy="7" r="2" />
       <circle cx="15" cy="17" r="2" />
-    </svg>
-  );
-}
-
-function AppsIcon() {
-  return (
-    <svg {...svgProps}>
-      <rect x="4" y="4" width="6" height="6" rx="1.4" />
-      <rect x="14" y="4" width="6" height="6" rx="1.4" />
-      <rect x="4" y="14" width="6" height="6" rx="1.4" />
-      <rect x="14" y="14" width="6" height="6" rx="1.4" />
     </svg>
   );
 }
@@ -674,15 +752,6 @@ function TaskErrorIcon() {
     >
       <path d="M12 7v6" />
       <path d="M12 16.5h0.01" />
-    </svg>
-  );
-}
-
-function PowerIcon() {
-  return (
-    <svg {...svgProps}>
-      <path d="M12 3.5v8" />
-      <path d="M7.3 6.8a7 7 0 1 0 9.4 0" />
     </svg>
   );
 }

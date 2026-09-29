@@ -1,3 +1,5 @@
+import { PageHeader, StatePanel, Metric, useSecondaryCopy } from "../components/Secondary";
+import { Surface } from "../components/Universal";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { notifyError, notifyInfo } from "../lib/notify";
 import {
@@ -12,7 +14,7 @@ import {
 import { CountryFlag } from "../components/CountryFlag";
 import { useMessages, type Messages } from "../lib/i18n";
 import { useAppStore } from "../store";
-import { BackButton } from "../components/BackButton";
+import { startVisiblePolling } from "../lib/visiblePolling";
 
 type FirewallAction = "block" | "direct" | "proxy";
 type RuleKind = "domain" | "ip";
@@ -25,9 +27,12 @@ type ConnectionsTab = "live" | "rules";
 
 export function Connections() {
   const m = useMessages();
+  const copy = useSecondaryCopy();
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
   const status = useAppStore((s) => s.status);
   const activeServerId = useAppStore((s) => s.activeServerId);
-  const connectServer = useAppStore((s) => s.connectServer);
   const [profile, setProfile] = useState<RoutingProfile | null>(null);
   const [activeProfileName, setActiveProfileName] = useState("");
   const [target, setTarget] = useState("");
@@ -43,10 +48,13 @@ export function Connections() {
   const connectionsSignatureRef = useRef("");
 
   const loadProfile = async () => {
-    const list = await api.listRoutingProfiles();
-    const active = await api.getRoutingProfile(list.active);
-    setProfile(active);
-    setActiveProfileName(active.name || list.active);
+    setProfileLoading(true); setProfileError(null);
+    try {
+      const list = await api.listRoutingProfiles();
+      const active = await api.getRoutingProfile(list.active);
+      setProfile(active); setActiveProfileName(active.name || list.active);
+    } catch (error) { setProfileError(String(error)); }
+    finally { setProfileLoading(false); }
   };
 
   const loadConnections = useCallback(async (silent = false) => {
@@ -54,6 +62,7 @@ export function Connections() {
       connectionsSignatureRef.current = "";
       setConnections([]);
       setConnectionsUpdatedAt(null);
+      setLoadError(null);
       setConnectionsBusy(false);
       return;
     }
@@ -63,7 +72,8 @@ export function Connections() {
     if (!silent) setConnectionsBusy(true);
     try {
       const list = await api.listActiveConnections();
-      if (!connectedRef.current || generation !== connectionsGenerationRef.current) return;
+      if (!connectedRef.current || generation !== connectionsGenerationRef.current || document.visibilityState !== "visible") return;
+      setLoadError(null);
       const signature = activeConnectionsSignature(list);
       if (signature !== connectionsSignatureRef.current) {
         connectionsSignatureRef.current = signature;
@@ -71,10 +81,11 @@ export function Connections() {
       }
       setConnectionsUpdatedAt(new Date());
     } catch (error) {
-      if (!silent) notifyError(String(error));
+      if (generation === connectionsGenerationRef.current) setLoadError(String(error));
+      if (!silent && generation === connectionsGenerationRef.current) notifyError(String(error));
     } finally {
       loadingConnectionsRef.current = false;
-      if (!silent) setConnectionsBusy(false);
+      if (generation === connectionsGenerationRef.current) setConnectionsBusy(false);
     }
   }, []);
 
@@ -88,20 +99,19 @@ export function Connections() {
     const connected = status?.state === "connected";
     connectionsGenerationRef.current += 1;
     connectedRef.current = connected;
-    if (connected && tab === "live") {
-      void loadConnections();
-    } else if (!connected) {
+    setConnectionsBusy(connected);
+    if (!connected) {
       connectionsSignatureRef.current = "";
       setConnections([]);
       setConnectionsUpdatedAt(null);
-      setConnectionsBusy(false);
+      setLoadError(null);
     }
+    return () => { connectionsGenerationRef.current += 1; };
   }, [loadConnections, status?.state, tab]);
 
   useEffect(() => {
     if (tab !== "live" || status?.state !== "connected") return;
-    const id = window.setInterval(() => void loadConnections(true), 1500);
-    return () => window.clearInterval(id);
+    return startVisiblePolling(() => loadConnections(true), 1500);
   }, [loadConnections, status?.state, tab]);
 
   const rules = useMemo(() => {
@@ -158,7 +168,7 @@ export function Connections() {
       notifyInfo(action === "remove" ? m.connectionsPage.removed : m.connectionsPage.saved);
       if (status?.state === "connected" && activeServerId) {
         notifyInfo(m.connectionsPage.reapplying);
-        await connectServer(activeServerId);
+        await api.reapplyRuntimeConfig();
         await loadConnections(true);
       }
     } catch (error) {
@@ -204,15 +214,11 @@ export function Connections() {
   };
 
   return (
-    <div className="page-view connections-page">
-      <BackButton />
+    <div className="page-view secondary-page connections-page">
+      <PageHeader title={m.connectionsPage.title} description={copy.liveHint} />
+      <div className="secondary-metrics"><Metric label={m.connectionsPage.activeProfile} value={activeProfileName || "—"} /><Metric label={m.connectionsPage.liveTab} value={status?.state === "connected" ? connections.length : "—"} /><Metric label={m.connectionsPage.rulesTab} value={profileLoading ? "—" : rules.length} /></div>
+      {profileError && <StatePanel error title={copy.error} detail={profileError} action={<button className="btn" onClick={() => void loadProfile()}>{copy.retry}</button>} />}
       <div className="connections-header">
-        <div>
-          <h1 className="page-title">{m.connectionsPage.title}</h1>
-          <div className="connections-active-profile">
-            {m.connectionsPage.activeProfile}: {activeProfileName || "..."}
-          </div>
-        </div>
         <div className="connections-tabs" role="tablist" aria-label={m.connectionsPage.title}>
           <button
             type="button"
@@ -236,7 +242,7 @@ export function Connections() {
       </div>
 
       {tab === "live" ? (
-        <section className="connections-section">
+        <Surface className="connections-section">
           <div className="connections-section-header connections-live-section-header">
             <div className="connections-section-title">
               <h2>{m.connectionsPage.liveTitle}</h2>
@@ -261,6 +267,7 @@ export function Connections() {
             <input
               value={connectionsQuery}
               onChange={(event) => setConnectionsQuery(event.target.value)}
+              aria-label={m.connectionsPage.liveSearch}
               placeholder={m.connectionsPage.liveSearch}
               className="dark-input connections-input"
             />
@@ -276,12 +283,8 @@ export function Connections() {
               <span>{m.connectionsPage.state}</span>
               <span>{m.connectionsPage.quickActions}</span>
             </div>
-            {filteredConnections.length === 0 ? (
-              <div className="connections-empty">
-                {connectionsQuery.trim()
-                  ? m.connectionsPage.liveEmptyFiltered
-                  : m.connectionsPage.liveEmpty}
-              </div>
+            {status?.state !== "connected" ? <StatePanel title={copy.offline} detail={copy.offlineHint} /> : loadError ? <StatePanel error title={copy.error} detail={loadError} action={<button className="btn" onClick={() => void loadConnections()}>{copy.retry}</button>} /> : connectionsBusy && !connectionsUpdatedAt ? <StatePanel title={copy.loading} busy /> : filteredConnections.length === 0 ? (
+              <StatePanel title={connectionsQuery.trim() ? copy.noMatches : m.connectionsPage.liveEmpty} action={connectionsQuery.trim() ? <button className="btn" onClick={() => setConnectionsQuery("")}>{copy.resetFilters}</button> : undefined} />
             ) : (
               filteredConnections.map((connection) => (
                 <div key={connection.id} className="connections-live-row">
@@ -292,14 +295,14 @@ export function Connections() {
                       {connection.remote_port > 0 ? ` · ${connection.remote_port}` : ""}
                     </span>
                   </div>
-                  <div className="connections-process">
+                  <div className="connections-process" data-label={m.connectionsPage.process}>
                     <span title={processTitle(connection)}>{displayProcessName(connection)}</span>
                     <small title={processTitle(connection)}>{processDetail(connection)}</small>
                   </div>
                   <span className={`connections-badge connections-badge-${routeBadgeClass(connection.route)}`}>
                     {routeLabel(connection.route, m)}
                   </span>
-                  <div className="connections-server">
+                  <div className="connections-server" data-label={m.connectionsPage.server}>
                     <span className="connections-server-name">
                       {connection.server_name ? (
                         <CountryFlag
@@ -312,7 +315,7 @@ export function Connections() {
                     </span>
                     <small>{connection.server_protocol || connection.rule}</small>
                   </div>
-                  <span className="connections-source-address">{connection.source}</span>
+                  <span className="connections-source-address" data-label={m.connectionsPage.source}>{connection.source}</span>
                   <span className="connections-kind">{connection.state}</span>
                   <div className="connections-quick-actions">
                     <button
@@ -347,9 +350,9 @@ export function Connections() {
               ))
             )}
           </div>
-        </section>
+        </Surface>
       ) : (
-        <section className="connections-section">
+        <Surface className="connections-section">
           <div className="connections-section-header">
             <div className="connections-section-title">
               <h2>{m.connectionsPage.rulesTitle}</h2>
@@ -364,18 +367,19 @@ export function Connections() {
               onKeyDown={(event) => {
                 if (event.key === "Enter") void applyTarget("block");
               }}
+              aria-label={m.connectionsPage.targetPlaceholder}
               placeholder={m.connectionsPage.targetPlaceholder}
               className="dark-input connections-input"
             />
-            <button type="button" className="connections-action connections-action-block" disabled={busy} onClick={() => void applyTarget("block")}>
+            <button type="button" className="connections-action connections-action-block" disabled={busy || !profile || profileLoading} onClick={() => void applyTarget("block")}>
               <BlockIcon />
               <span>{m.connectionsPage.block}</span>
             </button>
-            <button type="button" className="connections-action" disabled={busy} onClick={() => void applyTarget("direct")}>
+            <button type="button" className="connections-action" disabled={busy || !profile || profileLoading} onClick={() => void applyTarget("direct")}>
               <DirectIcon />
               <span>{m.connectionsPage.direct}</span>
             </button>
-            <button type="button" className="connections-action" disabled={busy} onClick={() => void applyTarget("proxy")}>
+            <button type="button" className="connections-action" disabled={busy || !profile || profileLoading} onClick={() => void applyTarget("proxy")}>
               <ProxyIcon />
               <span>{m.connectionsPage.proxy}</span>
             </button>
@@ -388,8 +392,8 @@ export function Connections() {
               <span>{m.connectionsPage.source}</span>
               <span />
             </div>
-            {rules.length === 0 ? (
-              <div className="connections-empty">{m.connectionsPage.empty}</div>
+            {profileLoading ? <StatePanel title={copy.loading} busy /> : rules.length === 0 ? (
+              <StatePanel title={m.connectionsPage.empty} />
             ) : (
               rules.map((rule) => (
                 <div key={`${rule.action}-${rule.kind}-${rule.target}`} className="connections-row">
@@ -414,7 +418,7 @@ export function Connections() {
               ))
             )}
           </div>
-        </section>
+        </Surface>
       )}
     </div>
   );

@@ -1,19 +1,10 @@
 import type { ReactNode } from "react";
+import { HomeMetaIcon } from "../../components/HomeMetaIcon";
+import { Link } from "react-router-dom";
 import type { Messages } from "../../lib/i18n";
 import { fillTemplate } from "../../lib/i18n";
 import { ChevronIcon } from "./SignalServerRail";
-
-/**
- * Приборная панель стиля Signal.
- *
- * Экран отвечает на три вопроса сразу: подключён ли я, куда и насколько
- * быстро. Кольцо состояния со временем сессии, скорости отдельными ячейками,
- * ряд плиток с режимом сети — и список серверов в правом рельсе.
- *
- * Компонент только раскладывает данные: подключением, пингом и списком
- * серверов по-прежнему занимается страница «Главная», поэтому остальные
- * стили интерфейса продолжают работать со своей прежней разметкой.
- */
+import { Surface } from "../../components/Universal";
 
 export type SignalConnectionState = "connected" | "connecting" | "disconnecting" | "switching" | "idle";
 
@@ -36,9 +27,11 @@ export interface SignalHomeProps {
   profileSubtitle: string;
   serverFlag: ReactNode;
   serverName: string;
+  autoSelected: boolean;
   serverProtocol: string;
-  serverPing: string | null;
+  serverPing: ReactNode;
   serverDescription: string | null;
+  telemetryAvailable: boolean;
   downloadRate: string;
   downloadUnit: string;
   downloadTotal: string;
@@ -63,195 +56,40 @@ export interface SignalHomeProps {
   expandLabel: string;
 }
 
-const RING_CIRCUMFERENCE = 2 * Math.PI * 43;
-
-export function SignalHome({
-  labels: m,
-  state,
-  stateWord,
-  modeLabel,
-  sessionLabel,
-  sessionProgress,
-  metaLine,
-  profileTitle,
-  profileSubtitle,
-  serverFlag,
-  serverName,
-  serverProtocol,
-  serverPing,
-  serverDescription,
-  downloadRate,
-  downloadUnit,
-  downloadTotal,
-  uploadRate,
-  uploadUnit,
-  uploadTotal,
-  tiles,
-  chart,
-  extras,
-  actions,
-  serverRail,
-  onOpenServers,
-  onCheckPings,
-  onRefreshSubscription,
-  refreshing = false,
-  pinging,
-  railWidth,
-  railCollapsed,
-  onResizeStart,
-  onResizeReset,
-  onExpandRail,
-  expandLabel,
-}: SignalHomeProps) {
-  const dash = Math.max(0, Math.min(1, sessionProgress)) * RING_CIRCUMFERENCE;
-
-  return (
-    <div
-      className={`signal-home${railCollapsed ? " signal-home-rail-collapsed" : ""}`}
-      style={{ "--servers-panel-width": `${railWidth}px` } as React.CSSProperties}
-    >
-      <section className="signal-work">
-        <header className="signal-work-head">
-          <div className="signal-work-head-copy">
-            <div className="signal-work-title">{profileTitle}</div>
-            <div className="signal-work-sub">{profileSubtitle}</div>
-          </div>
-          <div className="signal-work-actions">
-            {onRefreshSubscription && (
-              <button
-                type="button"
-                className="signal-btn signal-btn--ghost signal-btn--sm"
-                onClick={onRefreshSubscription}
-                disabled={refreshing}
-              >
-                {m.home.refreshSubscription}
-              </button>
-            )}
-            <button
-              type="button"
-              className="signal-btn signal-btn--ghost signal-btn--sm"
-              onClick={onCheckPings}
-              disabled={pinging}
-            >
-              {m.home.pingServers}
-            </button>
-          </div>
-        </header>
-
-        <section className={`signal-hero signal-hero--${state}`}>
-          <div className="signal-hero-top">
-            <div className="signal-ring" aria-hidden="true">
-              <svg viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="43" className="signal-ring-track" />
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="43"
-                  className="signal-ring-value"
-                  strokeDasharray={`${dash} ${RING_CIRCUMFERENCE}`}
-                />
-              </svg>
-              {state === "connected" && <span className="signal-ring-pulse" />}
-              <span className="signal-ring-core">{sessionLabel}</span>
-            </div>
-
-            <div className="signal-hero-state">
-              <div className="signal-state-line">
-                <span className="signal-state-word">{stateWord}</span>
-                <span className="signal-state-pill">{modeLabel}</span>
-              </div>
-              <div className="signal-state-meta">{metaLine}</div>
-
-              {/* Сама плашка сервера и открывает список — отдельная кнопка
-                  «Серверы» рядом была лишней. */}
-              <button
-                type="button"
-                className="signal-server-chip"
-                title={m.signal.serversTitle}
-                onClick={onOpenServers}
-              >
-                <span className="signal-server-flag">{serverFlag}</span>
-                <span className="signal-server-copy">
-                  <span className="signal-server-name">{serverName}</span>
-                  <span className="signal-server-proto">{serverProtocol}</span>
-                  {serverDescription && (
-                    <span className="signal-server-description">{serverDescription}</span>
-                  )}
-                </span>
-                {serverPing && <span className="signal-server-ping">{serverPing}</span>}
-                <span className="signal-server-open" aria-hidden="true">
-                  <ChevronIcon direction="right" />
-                </span>
-              </button>
-            </div>
-
-            <div className="signal-power">{actions}</div>
-          </div>
-
-          <div className="signal-flow">
-            <div className="signal-flow-cell">
-              <span className="signal-flow-label">
-                <i className="signal-flow-dot signal-flow-dot--down" />
-                {m.signal.download}
-              </span>
-              <span className="signal-flow-value">
-                {downloadRate}
-                <small>{downloadUnit}</small>
-              </span>
-              <span className="signal-flow-total">
-                {fillTemplate(m.signal.perSession, { value: downloadTotal })}
-              </span>
-            </div>
-            <div className="signal-flow-cell">
-              <span className="signal-flow-label">
-                <i className="signal-flow-dot signal-flow-dot--up" />
-                {m.signal.upload}
-              </span>
-              <span className="signal-flow-value">
-                {uploadRate}
-                <small>{uploadUnit}</small>
-              </span>
-              <span className="signal-flow-total">
-                {fillTemplate(m.signal.perSession, { value: uploadTotal })}
-              </span>
-            </div>
-          </div>
-
-          {chart && <div className="signal-chart">{chart}</div>}
-
-          <div className="signal-tiles">
-            {tiles.map((tile) => (
-              <div className="signal-tile" key={tile.key}>
-                <span className="signal-tile-key">{tile.label}</span>
-                <span className="signal-tile-value">
-                  <i className={`signal-led signal-led--${tile.tone}`} />
-                  {tile.value}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {extras && <div className="signal-extras">{extras}</div>}
+export function SignalHome(props: SignalHomeProps) {
+  const { labels: m, state, stateWord, modeLabel, sessionLabel, metaLine, profileTitle, profileSubtitle,
+    serverFlag, serverName, autoSelected, serverProtocol, serverPing, telemetryAvailable, downloadRate, downloadUnit, downloadTotal,
+    uploadRate, uploadUnit, uploadTotal, tiles, chart, extras, actions, serverRail, onOpenServers, onCheckPings,
+    pinging } = props;
+  const ru = m.common.locale.startsWith("ru");
+  return <div className="universal-home">
+    <header className="universal-page-heading"><div><h1>{m.app.home}</h1><p>{profileSubtitle}</p></div>
+      </header>
+    <div className="universal-home-grid">
+      <section className="universal-connection-section">
+        <header className="universal-section-heading"><h2>{m.settings.connection}</h2><span>{profileTitle}</span></header>
+        <Surface className={`universal-connection universal-connection--${state}`}>
+          <div className="universal-connection-top"><div><span className="universal-eyebrow"><i aria-hidden="true" />{state === "connected" ? (ru ? "VPN АКТИВЕН" : "VPN ACTIVE") : modeLabel}{state === "connected" ? ` · ${modeLabel}` : ""}</span>
+            <h2 role="status">{state === "connected" ? (ru ? "Вы подключены" : "You are connected") : stateWord}</h2><p>{state === "connected" ? (ru ? "Через выбранный сервер" : "Using the selected server") : metaLine}</p></div><div className="universal-power">{actions}</div></div>
+          <button type="button" className="universal-selected-server" title={m.signal.serversTitle} onClick={onOpenServers}>
+            <span className="signal-server-flag">{serverFlag}</span><span className="signal-server-copy">
+              <span className="signal-tile-key">{autoSelected ? (ru ? "Авто · текущий сервер" : "Auto · current server") : m.home.selectedServer}</span><strong>{serverName}</strong><small>{profileTitle} · {serverProtocol}</small></span><ChevronIcon direction="right"/>
+          </button>
+          <div className="universal-session"><div><span><HomeMetaIcon kind="clock" />{m.home.sessionDuration}</span><strong>{sessionLabel}</strong></div>
+            <div><span><HomeMetaIcon kind="ping" />{ru ? "Пинг сервера" : "Server latency"}</span><strong>{serverPing}</strong></div></div>
+          <Link to="/routing" className="universal-route-summary"><HomeMetaIcon kind="route" /><span><b>{m.app.routing}</b><small>{tiles.map(tile => tile.value).join(" · ")}</small></span><ChevronIcon direction="right"/></Link>
+        </Surface>
       </section>
-
-      {!railCollapsed && (
-        <div className="signal-rail-resizer" onMouseDown={onResizeStart} onDoubleClick={onResizeReset} />
-      )}
-      {railCollapsed ? (
-        <button
-          type="button"
-          className="signal-rail-expand"
-          onClick={onExpandRail}
-          title={expandLabel}
-          aria-label={expandLabel}
-        >
-          <ChevronIcon direction="left" />
-          <span className="signal-rail-expand-text">{expandLabel}</span>
-        </button>
-      ) : (
-        <aside className="signal-rail-right">{serverRail}</aside>
-      )}
+      <section className="universal-subscription-section"><header className="universal-section-heading"><h2>{ru ? "Мои подписки" : "My subscriptions"}</h2><Link to="/subscriptions">{m.app.profiles} ↗</Link></header>
+        {serverRail}
+        {pinging && <div className="universal-home-tools"><button type="button" className="signal-btn signal-btn--ghost" onClick={onCheckPings}>{m.common.cancel}</button></div>}
+      </section>
     </div>
-  );
+    {state === "connected" && <div className="universal-metrics-grid">
+      <Surface className={`universal-speed${telemetryAvailable ? "" : " is-waiting"}`}><h2 className="universal-metric-title">{ru ? "Скорость соединения" : "Connection speed"}</h2>{!telemetryAvailable ? <p className="universal-telemetry-wait" role="status">{ru ? "Ожидаем данные от ядра" : "Waiting for core measurements"}</p> : <><div className="signal-flow">
+        <div className="signal-flow-cell"><span className="signal-flow-label">↓ {m.signal.download}</span><span className="signal-flow-value">{downloadRate}<small>{downloadUnit}</small></span><span className="signal-flow-total">{fillTemplate(m.signal.perSession, { value: downloadTotal })}</span></div>
+        <div className="signal-flow-cell"><span className="signal-flow-label">↑ {m.signal.upload}</span><span className="signal-flow-value">{uploadRate}<small>{uploadUnit}</small></span><span className="signal-flow-total">{fillTemplate(m.signal.perSession, { value: uploadTotal })}</span></div>
+      </div>{chart}</>}</Surface>{extras}
+    </div>}
+  </div>;
 }

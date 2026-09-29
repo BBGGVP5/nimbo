@@ -5,7 +5,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize, PhysicalSize } from "@tauri-apps/api/dpi";
 import nimboLogo from "../../ui/src/assets/nimbo.png";
+import installerPackage from "../package.json";
 import "./styles.css";
+import "./universal.css";
 
 type StepState = "queued" | "running" | "done" | "failed";
 
@@ -108,16 +110,15 @@ function applyAppTheme(theme: AppTheme | null | undefined) {
       ? "signal"
       : theme?.ui_style === "dotted"
         ? "dotted"
-        : "nebula";
+        : "signal";
   root.dataset.uiStyle = uiStyle;
-  // Стиль Signal нарисован под тёплый эмбер: пока пользователь не выбрал
-  // собственный акцент, установщик показывает тот же цвет, что и приложение.
+  // The default shell follows the universal monochrome palette; retain explicit saved accents.
   const savedAccent = typeof theme?.accent_color === "string" && /^#[0-9a-f]{6}$/i.test(theme.accent_color)
     ? theme.accent_color
     : null;
   const untouchedAccent = !savedAccent || savedAccent.toLowerCase() === "#75a7ff";
   const accent = uiStyle === "signal" && untouchedAccent
-    ? "#ff9345"
+    ? (mode === "light" ? "#202020" : "#e8e8e8")
     : savedAccent ?? "#75a7ff";
   root.style.setProperty("--accent", accent);
 }
@@ -134,7 +135,7 @@ type ResizeDirection =
 
 const DEFAULT_WINDOW_WIDTH = 1080;
 const DEFAULT_WINDOW_HEIGHT = 680;
-const MIN_RESTORED_WINDOW_WIDTH = 780;
+const MIN_RESTORED_WINDOW_WIDTH = 360;
 const MIN_RESTORED_WINDOW_HEIGHT = 520;
 
 type InstallerPhase = "idle" | "installing" | "done" | "failed";
@@ -185,7 +186,7 @@ const resizeHandles: Array<{ direction: ResizeDirection; className: string }> = 
 
 const previewProbe: InstallerProbe = {
   default_install_dir: "C:\\Users\\User\\AppData\\Local\\Programs\\Nimbo",
-  product_version: "1.0.1",
+  product_version: installerPackage.version,
   product_arch: "Windows x64",
   platform: "windows",
   existing_install: false,
@@ -195,7 +196,7 @@ const previewProbe: InstallerProbe = {
 
 const previewUninstallProbe: UninstallerProbe = {
   install_dir: "C:\\Users\\User\\AppData\\Local\\Programs\\Nimbo",
-  product_version: "1.0.1",
+  product_version: installerPackage.version,
   product_arch: "Windows x64",
   platform: "windows",
   helper_installed: true,
@@ -296,7 +297,7 @@ function startWindowDrag(event: React.MouseEvent<HTMLElement>) {
   if (event.button !== 0) {
     return;
   }
-  void getCurrentWindow().startDragging();
+  if ("__TAURI_INTERNALS__" in window) void getCurrentWindow().startDragging();
 }
 
 function startShellDrag(event: React.MouseEvent<HTMLElement>) {
@@ -363,27 +364,6 @@ function useAppThemeSync() {
   }, []);
 }
 
-function useAnimatedProgress(progress: number): number {
-  const [displayed, setDisplayed] = React.useState(0);
-  React.useEffect(() => {
-    let frame = 0;
-    let start: number | null = null;
-    const initial = displayed;
-    const target = progress;
-    if (initial === target) return;
-    const duration = 600;
-    const tick = (timestamp: number) => {
-      if (start === null) start = timestamp;
-      const t = Math.min(1, (timestamp - start) / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplayed(Math.round(initial + (target - initial) * eased));
-      if (t < 1) frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [progress]);
-  return displayed;
-}
 
 function Shell({
   phaseClass,
@@ -415,7 +395,7 @@ function Shell({
 
   return (
     <main className={`installer-shell ${phaseClass}`} style={shellStyle} onMouseDown={startShellDrag}>
-      <div className="ambient-glow" aria-hidden="true" />
+      <div className="installer-caption" aria-hidden="true">Nimbo</div>
 
       {resizeHandles.map((handle) => (
         <div
@@ -436,53 +416,18 @@ function Shell({
         </div>
 
         <div className="rail-center">
-          <div
-            className={`progress-orbit${isDone ? " is-done" : ""}`}
-            aria-hidden="true"
-          >
-            {isDone ? (
-              <svg className="progress-check" viewBox="0 0 64 64" width="56" height="56">
-                <path
-                  d="M19 33 L28 42 L46 23"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            ) : (
-              <div className="progress-number">{displayedProgress}<span>%</span></div>
-            )}
-            <div className="progress-ring" style={{ "--progress": progress } as React.CSSProperties} />
+          <div className="installer-progress-heading"><span>{phaseSubline}</span><strong>{displayedProgress}%</strong></div>
+          <div className="installer-progress-track" role="progressbar" aria-label={phaseSubline} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
+            <span style={{ width: `${progress}%` }} />
           </div>
-
-          <div className="progress-subline">
-            <span>{phaseSubline}</span>
-            <em>{completedSteps}/{steps.length}</em>
-          </div>
-
-          <div
-            key={currentStep.id + currentStep.state}
-            className={`current-step is-${currentStep.state}`}
-          >
-            <div className="current-step-dot" />
-            <div className="current-step-body">
-              <div className="current-step-title">{currentStep.title}</div>
-              <div className="current-step-state">{progressLabel(currentStep.state, runningStepLabel)}</div>
-            </div>
-          </div>
+          <p className="installer-step-count">{completedSteps} / {steps.length}</p>
+          <ol className="installer-step-list">{steps.map((step, index) => <li key={step.id} className={`is-${step.state}`} aria-current={index === currentStepIndex && !isDone ? "step" : undefined}>
+            <span className="installer-step-index" aria-hidden="true">{step.state === "done" ? "✓" : index + 1}</span>
+            <div><strong>{step.title}</strong><small>{progressLabel(step.state, runningStepLabel)}</small></div>
+          </li>)}</ol>
+          <p className="installer-current-detail" role="status">{currentStep.detail}</p>
         </div>
 
-        <div className="rail-foot" aria-hidden="true">
-          {steps.map((step, index) => (
-            <span
-              key={step.id}
-              className={`rail-step rail-step-${step.state}${index === currentStepIndex ? " is-active" : ""}`}
-              style={{ "--step-index": index } as React.CSSProperties}
-            />
-          ))}
-        </div>
       </section>
 
       <section className="install-panel" onMouseDown={startShellDrag}>
@@ -507,7 +452,7 @@ function InstallApp() {
   const archLabel = probe?.product_arch ?? "Windows";
   const isLinux = probe?.platform === "linux";
   const stepsTemplate = React.useMemo(() => createSteps(probe?.platform), [probe?.platform]);
-  const displayedProgress = useAnimatedProgress(progress);
+  const displayedProgress = progress;
   const currentStep =
     steps.find((step) => step.state === "running") ??
     steps.find((step) => step.state === "failed") ??
@@ -549,7 +494,7 @@ function InstallApp() {
       }
     }).then((fn) => {
       unlisten = fn;
-    });
+    }).catch(() => undefined);
     return () => {
       if (unlisten) unlisten();
     };
@@ -572,9 +517,11 @@ function InstallApp() {
       });
       setResult(value);
       setProgress(100);
+      setSteps(current => current.map(step => ({ ...step, state: "done" })));
       setPhase("done");
     } catch (err) {
       setError(formatInstallerError(err));
+      setSteps(current => current.map(step => step.state === "running" ? { ...step, state: "failed" } : step));
       setPhase("failed");
     }
   };
@@ -663,8 +610,8 @@ function InstallApp() {
               {probe?.existing_install
                 ? "Подписки и настройки сохранятся — подтвердите установку, чтобы получить последнюю версию."
                 : isLinux
-                  ? "Подготовим приложение, desktop entry и протокол nimbo://. Займёт меньше минуты."
-                  : "Подготовим приложение, сетевые компоненты и ярлыки. Займёт меньше минуты."}
+                  ? "Подготовим приложение, desktop entry и протокол nimbo://."
+                  : "Подготовим приложение, сетевые компоненты и ярлыки."}
             </p>
           </div>
 
@@ -672,7 +619,7 @@ function InstallApp() {
             <div className="path-row-label">
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <span className="status-kicker">Папка установки</span>
-                <span className="install-size-pill">27.1 МБ</span>
+
               </div>
               <span className="path-row-helper">
                 {isLinux
@@ -790,7 +737,7 @@ function UninstallApp() {
   const [result, setResult] = React.useState<UninstallResult | null>(null);
   const versionLabel = probe?.product_version ? `v${probe.product_version}` : "v—";
   const archLabel = probe?.product_arch ?? "Windows";
-  const displayedProgress = useAnimatedProgress(progress);
+  const displayedProgress = progress;
   const currentStep =
     steps.find((step) => step.state === "running") ??
     steps.find((step) => step.state === "failed") ??
@@ -826,7 +773,7 @@ function UninstallApp() {
       }
     }).then((fn) => {
       unlisten = fn;
-    });
+    }).catch(() => undefined);
     return () => {
       if (unlisten) unlisten();
     };
@@ -844,9 +791,11 @@ function UninstallApp() {
       });
       setResult(value);
       setProgress(100);
+      setSteps(current => current.map(step => ({ ...step, state: "done" })));
       setPhase("done");
     } catch (err) {
       setError(formatInstallerError(err));
+      setSteps(current => current.map(step => step.state === "running" ? { ...step, state: "failed" } : step));
       setPhase("failed");
     }
   };

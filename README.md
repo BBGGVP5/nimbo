@@ -4,7 +4,7 @@
 
 <h1 align="center">Nimbo</h1>
 
-<p align="center">Лёгкий VPN-клиент для подписок, совместимых с Xray.</p>
+<p align="center">VPN-клиент для Android, iOS и desktop с Xray, AmneziaWG и Mihomo.</p>
 
 <p align="center">
   <a href="https://github.com/BBGGVP5/nimbo/actions">GitHub Actions</a> ·
@@ -31,7 +31,10 @@ Nimbo импортирует подписки с `vless://`, `vmess://`, `trojan
 | Windows 10/11 x64 | Основная | NSIS setup (`.exe`) |
 | Linux x64 | Экспериментальная | AppImage, DEB, RPM |
 | Linux arm64 | Поддержан Xray runtime; пакет нужно собирать на arm64 Linux | AppImage/DEB/RPM при нативной сборке |
-| Android | Планируется | Исходники будут в `apps/android/`; клиента пока нет |
+| Android | Актуальный клиент в `app/` | APK после сборки native AAR |
+| iOS/iPadOS | Исходники и переподписываемая IPA через GitHub Actions | IPA (нужна подпись и разрешение Network Extension) |
+
+На iOS Mihomo TUN пока недоступен; наличие Mihomo-кода и успешная сборка IPA не означают рабочий VPN-туннель на этом ядре.
 
 AppImage подходит большинству дистрибутивов. DEB предназначен для Ubuntu, Debian, Linux Mint и Pop!_OS; RPM — для Fedora, RHEL-подобных систем и openSUSE.
 
@@ -39,22 +42,27 @@ AppImage подходит большинству дистрибутивов. DEB
 
 ```text
 nimbo/
+├── app/              # Актуальный Android-клиент
+├── shared/           # Compose Multiplatform UI и общие модели
+├── iosApp/           # iOS-приложение и Packet Tunnel
 ├── apps/
 │   ├── ui/             # Tauri 2 + React desktop-клиент
 │   ├── service/        # Windows-служба для привилегированных операций
-│   ├── installer/      # Кастомные установщики Windows/Linux
-│   └── android/        # Зарезервировано для будущего Android-клиента
+│   └── installer/      # Кастомные установщики Windows/Linux
 ├── crates/
 │   ├── device/         # Идентификация устройства
 │   ├── ipc/            # Общие типы IPC
 │   ├── subscription/   # Загрузка и разбор подписок
-│   └── xray-config/    # Построение конфигурации Xray
+│   ├── xray-config/    # Построение конфигурации Xray
+│   └── mihomo/         # Desktop-интеграция Mihomo
 ├── docs/
 │   └── build/          # Инструкции по сборке
 └── .github/workflows/  # Проверки и публикация релизов
 ```
 
 Подробности по границам модулей — в [apps/README.md](./apps/README.md).
+
+Android-проект собирается из корня (`gradlew :app:assembleDebug`). Ему нужен предварительно подготовленный `app/libs/libxray.aar`: большой нативный бинарный файл не включён в Git. Поэтому GitHub-проверка Android пока проверяет исходники и `shared`, а не выпускает APK. iOS IPA собирается workflow `build-ios-unsigned.yml` на macOS; артефакт требует переподписания.
 
 ## Требования для разработки
 

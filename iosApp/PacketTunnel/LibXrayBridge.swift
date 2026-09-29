@@ -8,7 +8,7 @@ import LibXray
 /// made through the Packet Tunnel target and the caller must not run ping/test
 /// methods while the tunnel is active.
 final class LibXrayBridge {
-    private static let apiVersion = 1
+    private static let apiVersion = 3
     private static let maximumEnvelopeBytes = 16 * 1_024 * 1_024
 
     /// Xray's iOS TUN implementation reads the NetworkExtension descriptor
@@ -46,8 +46,8 @@ final class LibXrayBridge {
 
     func run(configurationJSON: String) throws {
         _ = try invoke(
-            method: "runXrayFromJson",
-            payload: ["configJSON": configurationJSON]
+            method: "runXray",
+            payload: ["xrayJson": configurationJSON]
         )
     }
 

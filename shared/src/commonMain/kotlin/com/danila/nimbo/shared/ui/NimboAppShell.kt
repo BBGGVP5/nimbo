@@ -1,28 +1,41 @@
 package com.danila.nimbo.shared.ui
 
+import com.danila.nimbo.shared.updates.ReleaseDefaults
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -41,8 +54,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 
 data class NimboUiState(
+    val appearance: NimboAppearance = NimboAppearance(),
     val vpnState: String = "idle",
     val errorCode: String? = null,
     val errorMessage: String? = null,
@@ -52,7 +70,7 @@ data class NimboUiState(
     val profileCount: Int = 0,
     val deviceName: String = "iPhone",
     val systemName: String = "iOS",
-    val appVersion: String = "1.2.0 Beta",
+    val appVersion: String = ReleaseDefaults.VERSION,
     val appBundleIds: String = "",
     val activeServerId: String? = null,
     val servers: List<NimboServerUi> = emptyList(),
@@ -79,6 +97,10 @@ data class NimboUiState(
     val routingDns: String = "cloudflare",
     /** «Использовано / всего» из заголовка subscription-userinfo. */
     val profileTrafficLabel: String = "",
+    /** Quota is shown only when the provider supplied a positive limit. */
+    val profileTrafficUsed: Long = 0,
+    val profileTrafficTotal: Long = 0,
+    val connectionDuration: String = "",
     /** Срок действия подписки оттуда же. */
     val profileExpiryLabel: String = "",
     /** Когда подписка обновлялась последний раз. */
@@ -95,11 +117,14 @@ data class NimboUiState(
     val backgroundStyle: Int = 0,
     /** Палитра фона: индекс из backgroundPaletteModeForIndex. */
     val backgroundPalette: Int = 0,
-    val backgroundMotion: Boolean = true,
+    val backgroundMotion: Boolean = false,
     /** Прыжок значков нижней панели при переходе между вкладками. */
     val navIconMotion: Boolean = true,
     val showSpeedWidget: Boolean = true,
     val showMemoryWidget: Boolean = true,
+    val pingOnLaunch: Boolean = true,
+    val pingAfterRefresh: Boolean = true,
+    val refreshOnLaunch: Boolean = false,
     /** Стиль элементов: glass / material / dotted / signal. */
     val elementStyle: String = "glass",
     /** Порядок серверов: subscription / ping / name. */
@@ -112,7 +137,7 @@ data class NimboUiState(
     val burstEventId: Long = 0,
     val burstTrigger: String = "activity",
     /** Статусные частицы можно выключить, как на Android. */
-    val statusParticles: Boolean = true,
+    val statusParticles: Boolean = false,
     /** Стиль главной кнопки: «classic» — кольцо, «compact» — полоса. */
     val connectStyle: String = "classic",
     /** История уведомлений и сообщение, которое показывается сейчас. */
@@ -123,13 +148,14 @@ data class NimboUiState(
     /** Профили маршрутизации и тот, что выбран сейчас. */
     val routingProfiles: List<com.danila.nimbo.shared.routing.NimboRoutingProfile> = emptyList(),
     val routingProfileId: String = "global",
-    val pingProtocol: String = "tcp",
+    val pingProtocol: String = "nimbo",
+    val pingDisplay: String = "numeric",
     val pingTimeoutMs: Int = 3000,
     val pingUrl: String = "https://www.gstatic.com/generate_204",
     val updateVersion: String = "",
     val updateNotes: String = "",
     /** Канал обновлений: `beta` — вместе с предварительными сборками. */
-    val updateChannel: String = "beta",
+    val updateChannel: String = ReleaseDefaults.UPDATE_CHANNEL,
     /** Сообщать ли о новой сборке уведомлением. */
     val updateNotify: Boolean = true,
     /** Итог последней проверки для подписи под кнопкой. */
@@ -245,7 +271,9 @@ data class NimboUiActions(
     /** Восстановить копию из файла. */
     val onImportBackup: () -> Unit = {},
     /** Открыть перенос данных с другого устройства. */
-    val onOpenSync: () -> Unit = {}
+    val onOpenSync: () -> Unit = {},
+    /** Native core selector; absent on clients that do not provide this sheet. */
+    val onOpenCoreSettings: (() -> Unit)? = null
 )
 
 @Composable
@@ -263,12 +291,30 @@ fun NimboAppShell(
 ) {
     var internalScreen by remember(initialScreen) { mutableStateOf(initialScreen) }
     val selectedScreen = externalScreen ?: internalScreen
+    val routedActions = actions.copy(onOpenScreen = { wireName ->
+        internalScreen = NimboScreen.fromWireName(wireName)
+        actions.onOpenScreen(wireName)
+    })
+    val appearance = state.appearance.normalized().copy(brightness = 1f, transparency = 0f, corners = 1f)
+    val systemDark = isSystemInDarkTheme()
+    val dark = appearance.isDark(systemDark)
+    val density = LocalDensity.current
 
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val wideNavigation = showBottomBar && maxWidth >= 1280.dp
     CompositionLocalProvider(
-        LocalNimboElementStyle provides NimboElementStyle.fromKey(state.elementStyle)
+        LocalNimboContentBottom provides if (showBottomBar && !wideNavigation) 116.dp else 16.dp,
+        LocalNimboContentTop provides if (showBottomBar) 36.dp else 24.dp,
+        LocalNimboPingDisplay provides normalizePingDisplay(state.pingDisplay),
+        LocalNimboPingProtocol provides normalizePingProtocol(state.pingProtocol),
+        LocalNimboElementStyle provides NimboElementStyle.NIMBO_GLASS,
+        LocalNimboAppearance provides appearance,
+        LocalNimboDark provides dark,
+        LocalNimboColors provides nimboColors(appearance, systemDark),
+        LocalDensity provides Density(density.density, density.fontScale * appearance.textScale)
     ) {
     MaterialTheme(
-        colorScheme = darkColorScheme(
+        colorScheme = (if (dark) darkColorScheme() else lightColorScheme()).copy(
             primary = NimboPalette.Accent,
             secondary = NimboPalette.AccentStrong,
             background = NimboPalette.BackgroundDeep,
@@ -279,51 +325,37 @@ fun NimboAppShell(
         )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Ровно тот же фон, что и на Android: общий код, а не похожая копия.
-            // Manga: страница в клетку вместо свечения — иначе градиенты фона
-            // спорят с чернильными панелями и стиль не читается. Выбранный
-            // эффект сохраняется и вернётся с другим стилем.
-            if (NimboElementStyle.fromKey(state.elementStyle) == NimboElementStyle.MANGA) {
-                NimboMangaBackdrop()
-            } else {
-                NimboBackdrop(
-                    accent = NimboPalette.Accent,
-                    background = NimboPalette.Background,
-                    styleMode = backgroundStyleModeForIndex(state.backgroundStyle),
-                    paletteMode = backgroundPaletteModeForIndex(state.backgroundPalette),
-                    motionEnabled = state.backgroundMotion
-                )
-            }
+            // Universal-v2 has one matte canvas; persisted legacy styles cannot replace it.
+            Box(Modifier.fillMaxSize().background(NimboPalette.Background))
 
+            Row(Modifier.align(Alignment.TopCenter)
+                .widthIn(max = if (wideNavigation) 1080.dp else 840.dp).fillMaxSize()) {
+            if (wideNavigation) {
+                NimboDesktopNavigation(selectedScreen, { internalScreen = it },
+                    Modifier.width(248.dp).fillMaxHeight())
+            }
             AnimatedContent(
                 targetState = selectedScreen,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
                 transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(110)) },
                 label = "nimbo-primary-screen"
             ) { screen ->
                 when (screen) {
                     NimboScreen.HOME -> NimboHomeScreen(
                         state = state,
-                        actions = actions,
-                        onOpenProfiles = { actions.onOpenScreen(NimboScreen.PROFILES.wireName) }
+                        actions = routedActions,
+                        onOpenProfiles = { routedActions.onOpenScreen(NimboScreen.PROFILES.wireName) }
                     )
-                    NimboScreen.PROFILES -> NimboProfilesScreen(state, actions)
-                    NimboScreen.STATS -> NimboStatsScreen(state, actions)
-                    NimboScreen.ROUTING -> NimboRoutingScreen(state, actions)
-                    NimboScreen.MODULES -> NimboModulesScreen(state, actions)
-                    NimboScreen.ROUTING_PROFILES -> NimboRoutingProfilesScreen(state, actions)
-                    NimboScreen.NOTIFICATIONS -> NimboNotificationsScreen(state, actions)
-                    NimboScreen.SETTINGS -> NimboSettingsScreen(state, actions)
+                    NimboScreen.PROFILES -> NimboProfilesScreen(state, routedActions)
+                    NimboScreen.STATS -> NimboStatsScreen(state, routedActions)
+                    NimboScreen.ROUTING -> NimboRoutingScreen(state, routedActions)
+                    NimboScreen.MODULES -> NimboModulesScreen(state, routedActions)
+                    NimboScreen.ROUTING_PROFILES -> NimboRoutingProfilesScreen(state, routedActions)
+                    NimboScreen.NOTIFICATIONS -> NimboNotificationsScreen(state, routedActions)
+                    NimboScreen.SETTINGS -> NimboSettingsScreen(state, routedActions)
                 }
             }
-
-            // Частицы рисуются поверх содержимого, но под сообщениями:
-            // всплывающую полосу они перекрывать не должны.
-            NimboEdgeBurstOverlay(
-                eventId = state.burstEventId,
-                trigger = NimboBurstTrigger.fromWireName(state.burstTrigger),
-                enabled = state.statusParticles && state.backgroundMotion,
-                modifier = Modifier.fillMaxSize()
-            )
+            }
 
             // Сообщение висит поверх содержимого и над панелью: на Android оно
             // тоже перекрывает экран, иначе его не замечают.
@@ -338,7 +370,7 @@ fun NimboAppShell(
                 }
             }
 
-            if (showBottomBar) {
+            if (showBottomBar && !wideNavigation) {
                 NimboBottomNavigation(
                     selected = selectedScreen,
                     onSelected = { internalScreen = it },
@@ -347,6 +379,50 @@ fun NimboAppShell(
             }
         }
     }
+    }
+    }
+}
+
+private val DesktopNavigationSections = listOf(
+    "Основное" to listOf(NimboScreen.HOME, NimboScreen.PROFILES, NimboScreen.STATS),
+    "Инструменты" to listOf(NimboScreen.ROUTING, NimboScreen.MODULES,
+        NimboScreen.ROUTING_PROFILES, NimboScreen.NOTIFICATIONS),
+    "Приложение" to listOf(NimboScreen.SETTINGS)
+)
+
+@Composable
+private fun NimboDesktopNavigation(selected: NimboScreen, onSelected: (NimboScreen) -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier.padding(start = 16.dp, top = 24.dp, end = 12.dp, bottom = 24.dp)
+        .clip(RoundedCornerShape(24.dp)).background(NimboPalette.Surface)
+        .border(1.dp, NimboPalette.Border, RoundedCornerShape(24.dp))
+        .verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        BasicText("nimbo", Modifier.padding(start = 12.dp, top = 8.dp, bottom = 20.dp),
+            style = NimboSectionTitleStyle.copy(fontSize = 22.sp, fontWeight = FontWeight.Bold))
+        DesktopNavigationSections.forEachIndexed { index, (heading, screens) ->
+            if (index > 0) Spacer(Modifier.fillMaxWidth().padding(vertical = 8.dp).height(1.dp).background(NimboPalette.Border))
+            BasicText(heading.uppercase(), Modifier.padding(start = 12.dp, top = 6.dp, bottom = 4.dp),
+                style = NimboBodyStyle.copy(color = NimboPalette.TextTertiary, fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold))
+            screens.forEach { screen ->
+                val active = screen == selected
+                val shape = RoundedCornerShape(14.dp)
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(shape)
+                    .background(if (active) NimboPalette.Soft else Color.Transparent)
+                    .semantics {
+                        contentDescription = "Навигация: ${screen.title}"
+                        if (active) stateDescription = "Текущая страница"
+                    }
+                    .clickable(enabled = !active, role = Role.Button) { onSelected(screen) }
+                    .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    NimboIcon(screen.iconName, Modifier.size(20.dp),
+                        if (active) NimboPalette.Accent else NimboPalette.TextSecondary)
+                    BasicText(screen.title, style = NimboBodyStyle.copy(
+                        color = if (active) NimboPalette.Text else NimboPalette.TextSecondary,
+                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium))
+                }
+            }
+        }
     }
 }
 
@@ -363,6 +439,7 @@ private fun NimboBottomNavigation(
     // читается прокручивающийся список.
     Box(
         modifier = modifier
+            .widthIn(max = 520.dp)
             .fillMaxWidth()
             .padding(horizontal = 18.dp, vertical = 18.dp)
             .clip(outerShape)
@@ -383,24 +460,24 @@ private fun NimboBottomNavigation(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 NimboScreen.entries.filter { it.inTabBar }.forEach { screen ->
-                    val isSelected = screen == selected
+                    val isSelected = screen == (if (selected.inTabBar) selected else NimboScreen.SETTINGS)
                     val shape = nimboStyledShape(25.dp, 2.dp)
                     val interaction = remember { MutableInteractionSource() }
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .height(62.dp)
+                            .heightIn(min = 56.dp).padding(vertical = 8.dp)
                             .clip(shape)
                             .background(
                                 nimboStyledContainer(
-                                    if (isSelected) NimboPalette.Accent.copy(alpha = 0.18f) else Color.Transparent,
+                                    if (isSelected) NimboPalette.Soft else Color.Transparent,
                                     selected = isSelected
                                 )
                             )
                             .then(
                                 if (isSelected) Modifier.border(
                                     if (style == NimboElementStyle.MANGA) 2.dp else 1.dp,
-                                    nimboStyledBorder(NimboPalette.Accent.copy(alpha = 0.42f), selected = true),
+                                    nimboStyledBorder(NimboPalette.Border, selected = true),
                                     shape
                                 ) else Modifier
                             )
@@ -422,8 +499,7 @@ private fun NimboBottomNavigation(
                         Spacer(Modifier.size(2.dp))
                         BasicText(
                             text = screen.shortTitle,
-                            maxLines = 1,
-                            style = TextStyle(
+                            style = TextStyle(fontFamily = NimboTypography.body, 
                                 color = if (isSelected) NimboPalette.Text else NimboPalette.TextSecondary,
                                 fontSize = 10.sp,
                                 textAlign = TextAlign.Center,

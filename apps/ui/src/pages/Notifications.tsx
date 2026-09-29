@@ -1,3 +1,5 @@
+import { PageHeader, StatePanel, Metric, useSecondaryCopy } from "../components/Secondary";
+import { Surface, Dialog } from "../components/Universal";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fillTemplate, useMessages } from "../lib/i18n";
 import {
@@ -19,6 +21,8 @@ type NotificationGroup = {
 
 export function Notifications() {
   const m = useMessages();
+  const copy = useSecondaryCopy();
+  const [clearOpen, setClearOpen] = useState(false);
   const { items } = useNotificationHistory();
   const [filter, setFilter] = useState<NotificationFilter>("all");
   // Snapshot the timestamp before marking the page as seen so new items stay highlighted.
@@ -61,84 +65,16 @@ export function Notifications() {
 
   const onClearAll = () => {
     clearNotificationHistory();
-    setFilter("all");
+    setFilter("all"); setClearOpen(false);
     notify(m.notifications.cleared, "info", false);
   };
 
   return (
-    <div className="page-view notification-page">
-      <header className="notification-page-header">
-        <div className="notification-page-heading">
-          <span className="notification-page-heading-icon" aria-hidden="true">
-            <BellIcon />
-          </span>
-          <div>
-            <h1 className="page-title">{m.notifications.title}</h1>
-            <p className="page-subtitle">
-              {items.length > 0
-                ? formatHistoryCount(items.length, m)
-                : m.notifications.subtitle}
-            </p>
-          </div>
-        </div>
-        {items.length > 0 && (
-          <button
-            type="button"
-            onClick={onClearAll}
-            className="notification-history-clear"
-            title={m.notifications.clearAll}
-            aria-label={m.notifications.clearAll}
-          >
-            <TrashIcon />
-          </button>
-        )}
-      </header>
-
-      <section className="notification-overview" aria-labelledby="notification-overview-title">
-        <div className="notification-overview-main">
-          <div className="notification-overview-count" aria-label={formatHistoryCount(items.length, m)}>
-            {items.length}
-          </div>
-          <div className="notification-overview-copy">
-            <div className="notification-overview-eyebrow">{m.notifications.centerLabel}</div>
-            <h2 id="notification-overview-title">
-              {items.length > 0 ? m.notifications.centerTitle : m.notifications.centerEmptyTitle}
-            </h2>
-            <p>
-              {latestItem
-                ? fillTemplate(m.notifications.latest, {
-                    time: relativeTime(latestItem.createdAt, m),
-                  })
-                : m.notifications.centerEmptyHint}
-            </p>
-          </div>
-        </div>
-
-        <div className="notification-overview-progress" aria-hidden="true">
-          {items.length === 0 ? (
-            <span className="notification-progress-empty" />
-          ) : (
-            <>
-              {toneCounts.success > 0 && (
-                <span data-tone="success" style={{ flexGrow: toneCounts.success }} />
-              )}
-              {toneCounts.error > 0 && (
-                <span data-tone="error" style={{ flexGrow: toneCounts.error }} />
-              )}
-              {activityCount > 0 && (
-                <span data-tone="activity" style={{ flexGrow: activityCount }} />
-              )}
-            </>
-          )}
-        </div>
-
-        <div className="notification-overview-stats">
-          <OverviewStat tone="success" value={toneCounts.success} label={m.notifications.statReady} />
-          <OverviewStat tone="error" value={toneCounts.error} label={m.notifications.statErrors} />
-          <OverviewStat tone="activity" value={activityCount} label={m.notifications.statActivity} />
-        </div>
-      </section>
-
+    <div className="page-view secondary-page notification-page">
+      <PageHeader title={m.notifications.title} description={items.length ? formatHistoryCount(items.length, m) : m.notifications.subtitle} actions={items.length > 0 && <button className="btn" onClick={() => setClearOpen(true)}>{m.notifications.clearAll}</button>} />
+      <div className="secondary-metrics"><Metric label={m.notifications.statReady} value={toneCounts.success} /><Metric label={m.notifications.statErrors} value={toneCounts.error} /><Metric label={m.notifications.statActivity} value={activityCount} /></div>
+      {latestItem && <p className="secondary-note">{fillTemplate(m.notifications.latest, { time: relativeTime(latestItem.createdAt, m) })}</p>}
+      <Surface className="notification-workspace">
       <section className="notification-filters" aria-labelledby="notification-filters-title">
         <div className="notification-section-label" id="notification-filters-title">
           <FilterIcon />
@@ -164,9 +100,9 @@ export function Notifications() {
       </section>
 
       {items.length === 0 ? (
-        <EmptyState title={m.notifications.empty} hint={m.notifications.emptyHint} />
+        <StatePanel title={m.notifications.empty} detail={m.notifications.emptyHint} />
       ) : filteredItems.length === 0 ? (
-        <EmptyState title={m.notifications.noMatches} hint={m.notifications.noMatchesHint} />
+        <StatePanel title={m.notifications.noMatches} detail={m.notifications.noMatchesHint} action={<button className="btn" onClick={() => setFilter("all")}>{copy.resetFilters}</button>} />
       ) : (
         <div className="notification-history-list">
           {groups.map((group) => (
@@ -193,38 +129,8 @@ export function Notifications() {
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function OverviewStat({
-  tone,
-  value,
-  label,
-}: {
-  tone: "success" | "error" | "activity";
-  value: number;
-  label: string;
-}) {
-  return (
-    <div className="notification-overview-stat" data-tone={tone}>
-      <span className="notification-overview-stat-dot" aria-hidden="true" />
-      <div>
-        <strong>{value}</strong>
-        <span>{label}</span>
-      </div>
-    </div>
-  );
-}
-
-function EmptyState({ title, hint }: { title: string; hint: string }) {
-  return (
-    <div className="notification-history-empty">
-      <span className="notification-history-empty-icon">
-        <BellIcon />
-      </span>
-      <div className="notification-history-empty-title">{title}</div>
-      <div className="notification-history-empty-hint">{hint}</div>
+      </Surface>
+      {clearOpen && <Dialog title={copy.confirmClear} closeLabel={m.common.close} onClose={() => setClearOpen(false)} footer={<><button className="btn" onClick={() => setClearOpen(false)}>{m.common.cancel}</button><button className="primary-button btn" onClick={onClearAll}>{m.notifications.clearAll}</button></>}><p>{copy.clearHint}</p></Dialog>}
     </div>
   );
 }
@@ -392,15 +298,6 @@ function TrashIcon() {
       <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
       <path d="M19 6 18 20a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
       <path d="M10 11v6M14 11v6" />
-    </svg>
-  );
-}
-
-function BellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
     </svg>
   );
 }

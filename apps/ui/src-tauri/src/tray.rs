@@ -12,7 +12,7 @@ use tauri::{
 use crate::state::{AppPreferences, AppState, ConnectionMode, Language, PersistedState};
 use nimbo_subscription::SubscriptionTheme;
 
-// Pre-computed PNG bytes for the connected-state tray icon (green dot overlay).
+// Pre-computed PNG bytes for the connected-state tray icon (neutral state ring).
 static CONNECTED_ICON_PNG: OnceLock<Vec<u8>> = OnceLock::new();
 
 static DISCONNECTED_ICON_PNG: OnceLock<Vec<u8>> = OnceLock::new();
@@ -131,16 +131,15 @@ fn make_tray_icon_png(
     }
 
     if connected {
-        // Accent-colored ring (#75a7ff) around the perimeter, with a soft outer halo.
+        // Neutral ring distinguishes the confirmed connected state without recoloring the cloud.
         let cx = (dst_w as f32 - 1.0) / 2.0;
         let cy = (dst_h as f32 - 1.0) / 2.0;
         let max_r = (dst_w.min(dst_h) as f32) / 2.0;
         let outer_r = max_r - 1.5;
         let ring_thickness = (max_r * 0.08).max(3.0);
         let inner_r = outer_r - ring_thickness;
-        let halo_outer = outer_r + (max_r * 0.05).max(2.0);
 
-        let (ar, ag, ab) = (117u8, 167u8, 255u8);
+        let (ar, ag, ab) = (232u8, 232u8, 232u8);
 
         for py in 0..dst_h {
             for px in 0..dst_w {
@@ -157,15 +156,7 @@ fn make_tray_icon_png(
                     0
                 };
 
-                // Outer halo
-                let alpha_halo: u8 = if d > outer_r && d <= halo_outer {
-                    let t = 1.0 - (d - outer_r) / (halo_outer - outer_r).max(0.001);
-                    (t.clamp(0.0, 1.0) * 90.0) as u8
-                } else {
-                    0
-                };
-
-                let alpha = alpha_ring.max(alpha_halo);
+                let alpha = alpha_ring;
                 if alpha > 0 {
                     let idx = (py * dst_w + px) * 4;
                     let a = alpha as f32 / 255.0;
@@ -193,7 +184,7 @@ fn make_tray_icon_png(
 
 const TRAY_ID: &str = "nimbo-tray";
 const MENU_WINDOW: &str = "tray-menu";
-const MENU_WINDOW_BG: Color = Color(32, 34, 49, 255);
+const MENU_WINDOW_BG: Color = Color(28, 28, 28, 255);
 
 /// Tray icon rectangle (physical px: x, y, width, height) captured on
 /// right-click, plus whether a reveal is pending. The popup measures its
@@ -234,7 +225,10 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .tooltip(tray_tooltip(snapshot.connected))
+        .tooltip(tray_tooltip(
+            snapshot.connected,
+            snapshot.preferences.language.resolved(),
+        ))
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| match event {
             TrayIconEvent::DoubleClick { .. }
@@ -273,10 +267,14 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn refresh_tray_menu(app: &AppHandle) -> tauri::Result<()> {
-    let connected = app.state::<AppState>().snapshot().connected;
+    let snapshot = app.state::<AppState>().snapshot();
+    let connected = snapshot.connected;
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         tray.set_icon(Some(get_tray_icon(connected)?))?;
-        tray.set_tooltip(Some(tray_tooltip(connected)))?;
+        tray.set_tooltip(Some(tray_tooltip(
+            connected,
+            snapshot.preferences.language.resolved(),
+        )))?;
     }
     // Also update the window taskbar icon so the indicator shows there too
     if let Some(window) = app.get_webview_window("main") {
@@ -293,11 +291,27 @@ pub fn refresh_tray_menu(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-fn tray_tooltip(connected: bool) -> &'static str {
-    if connected {
-        "Nimbo — Подключено"
-    } else {
-        "Nimbo"
+fn tray_tooltip(connected: bool, language: Language) -> &'static str {
+    match (connected, language) {
+        (true, Language::En) => "Nimbo — Connected",
+        (false, Language::En) => "Nimbo — Disconnected",
+        (true, _) => "Nimbo — Подключено",
+        (false, _) => "Nimbo — Отключено",
+    }
+}
+
+fn tray_action_route(action: &str) -> Option<&'static str> {
+    match action {
+        "home" => Some("/"),
+        "profiles" => Some("/subscriptions"),
+        "routing" => Some("/routing"),
+        "sync" => Some("/sync"),
+        "connections" => Some("/connections"),
+        "apps" => Some("/apps"),
+        "statistics" => Some("/statistics"),
+        "logs" => Some("/tunnel-logs"),
+        "settings" => Some("/settings"),
+        _ => None,
     }
 }
 
@@ -387,6 +401,7 @@ pub struct TrayMenuServer {
 pub struct TrayMenuState {
     connected: bool,
     active_server_id: Option<String>,
+    auto_selected: bool,
     connection_mode: ConnectionMode,
     subscription_count: usize,
     server_count: usize,
@@ -445,6 +460,7 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
     TrayMenuState {
         connected: snapshot.connected,
         active_server_id,
+        auto_selected: snapshot.auto_subscription_url.is_some() && snapshot.connected,
         connection_mode,
         subscription_count,
         server_count,
@@ -596,7 +612,7 @@ pub fn tray_menu_action(app: AppHandle, action: String, server_id: Option<String
     // instead of the window vanishing the instant it is clicked.
     let keep_open = matches!(
         action.as_str(),
-        "refresh_subscriptions" | "ping_servers" | "connect" | "disconnect"
+        "refresh_subscriptions" | "ping_servers" | "connect" | "disconnect" | "server"
     );
     if !keep_open {
         if let Some(window) = app.get_webview_window(MENU_WINDOW) {
@@ -606,13 +622,9 @@ pub fn tray_menu_action(app: AppHandle, action: String, server_id: Option<String
     match action.as_str() {
         "hide" => {}
         "show" => show_main_window(&app),
-        "home" => open_main_route(&app, "/"),
-        "profiles" => open_main_route(&app, "/subscriptions"),
-        "connections" => open_main_route(&app, "/connections"),
-        "apps" => open_main_route(&app, "/apps"),
-        "statistics" => open_main_route(&app, "/statistics"),
-        "logs" => open_main_route(&app, "/tunnel-logs"),
-        "settings" => open_main_route(&app, "/settings"),
+        route if tray_action_route(route).is_some() => {
+            open_main_route(&app, tray_action_route(route).unwrap());
+        }
         "refresh_subscriptions" => refresh_all_subscriptions(&app),
         "ping_servers" => ping_all_servers(&app),
         "connect" => connect_active_server(&app),
@@ -643,6 +655,16 @@ fn show_main_window(app: &AppHandle) {
 fn refresh_all_subscriptions(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        if app.state::<AppState>().snapshot().connected {
+            let _ = app.emit_to(
+                MENU_WINDOW,
+                "tray-menu:action-done",
+                serde_json::json!({
+                    "action": "refresh_subscriptions", "ok": false
+                }),
+            );
+            return;
+        }
         let urls = app
             .state::<AppState>()
             .snapshot()
@@ -653,8 +675,12 @@ fn refresh_all_subscriptions(app: &AppHandle) {
             .collect::<Vec<_>>();
 
         let mut ok = 0usize;
+        let total = urls.len();
         for url in urls {
             let state = app.state::<AppState>();
+            if state.snapshot().connected {
+                break;
+            }
             if crate::commands::refresh_subscription(state, url)
                 .await
                 .is_ok()
@@ -677,7 +703,7 @@ fn refresh_all_subscriptions(app: &AppHandle) {
             "tray-menu:action-done",
             serde_json::json!({
                 "action": "refresh_subscriptions",
-                "ok": true,
+                "ok": ok == total,
                 "count": ok,
                 "servers": servers,
             }),
@@ -700,7 +726,8 @@ fn ping_all_servers(app: &AppHandle) {
         let mut best: Option<u64> = None;
         if !server_ids.is_empty() {
             let state = app.state::<AppState>();
-            if let Ok(results) = crate::commands::ping_servers(state, server_ids).await {
+            if let Ok(results) = crate::commands::ping_servers(app.clone(), state, server_ids).await
+            {
                 for result in &results {
                     if let Some(latency) = result.latency_ms {
                         count += 1;
@@ -851,4 +878,61 @@ fn apply_rounded_region(
     _scale: f64,
     _css_radius: f64,
 ) {
+}
+
+#[cfg(test)]
+mod universal_tray_tests {
+    use super::*;
+
+    #[test]
+    fn tray_routes_and_non_navigation_actions_are_separate() {
+        for (action, route) in [
+            ("home", "/"),
+            ("profiles", "/subscriptions"),
+            ("routing", "/routing"),
+            ("sync", "/sync"),
+            ("apps", "/apps"),
+            ("connections", "/connections"),
+            ("statistics", "/statistics"),
+            ("logs", "/tunnel-logs"),
+            ("settings", "/settings"),
+        ] {
+            assert_eq!(tray_action_route(action), Some(route));
+        }
+        for action in [
+            "connect",
+            "disconnect",
+            "server",
+            "quit",
+            "refresh_subscriptions",
+            "ping_servers",
+            "unknown",
+        ] {
+            assert_eq!(tray_action_route(action), None);
+        }
+    }
+
+    #[test]
+    fn tray_tooltips_expose_real_state_in_both_languages() {
+        assert_eq!(tray_tooltip(true, Language::En), "Nimbo — Connected");
+        assert_eq!(tray_tooltip(false, Language::En), "Nimbo — Disconnected");
+        assert_eq!(tray_tooltip(true, Language::Ru), "Nimbo — Подключено");
+        assert_eq!(tray_tooltip(false, Language::Ru), "Nimbo — Отключено");
+    }
+
+    #[test]
+    fn tray_cloud_states_are_valid_distinct_monochrome_pngs() {
+        let off = make_tray_icon_png(false).unwrap();
+        let on = make_tray_icon_png(true).unwrap();
+        assert_ne!(off, on);
+        for bytes in [&off, &on] {
+            let mut reader = png::Decoder::new(bytes.as_slice()).read_info().unwrap();
+            let mut pixels = vec![0; reader.output_buffer_size()];
+            let info = reader.next_frame(&mut pixels).unwrap();
+            assert_eq!((info.width, info.height), (128, 128));
+            assert!(pixels[..info.buffer_size()]
+                .chunks_exact(4)
+                .all(|p| p[3] == 0 || (p[0] == p[1] && p[1] == p[2])));
+        }
+    }
 }

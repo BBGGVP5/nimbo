@@ -70,7 +70,8 @@ mod tests {
 
     #[test]
     fn zero_total_and_expire_mean_no_limit() {
-        let info = parse_subscription_userinfo("upload=0; download=104693457348; total=0; expire=0");
+        let info =
+            parse_subscription_userinfo("upload=0; download=104693457348; total=0; expire=0");
         assert_eq!(info.download, Some(104693457348));
         assert!(info.total.is_none());
         assert!(info.expire.is_none());
