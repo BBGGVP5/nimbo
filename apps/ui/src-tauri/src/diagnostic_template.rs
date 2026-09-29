@@ -78,7 +78,7 @@ pub(crate) fn derive(server: &Server, template: &Value, base: &Value) -> Result<
     let proxy_count = outbounds.iter().filter(|out| proxy(out)).count();
     if template["routing"]["balancers"]
         .as_array()
-        .is_none_or(|items| items.is_empty())
+        .map_or(true, |items| items.is_empty())
         && nimbo_subscription::parser::xray_json::parse_value(template)
             .ok()
             .is_some_and(|nodes| nodes.len() < proxy_count)

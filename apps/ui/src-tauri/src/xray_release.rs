@@ -165,7 +165,7 @@ mod tests {
             Some(new_exe.clone())
         ); // fresh bundle accepted
         assert!(asset
-            .select_runtime(Some(&old_exe), &[new_exe.clone()])
+            .select_runtime(Some(&old_exe), std::slice::from_ref(&new_exe))
             .is_err());
         assert_eq!(std::fs::read(&old_exe).unwrap(), b"old 26.3.27");
         assert_eq!(

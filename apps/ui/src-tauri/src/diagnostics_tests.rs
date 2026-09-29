@@ -138,12 +138,11 @@ async fn hung_startup_and_caller_drop_kill_reap_and_remove_private_files() {
 #[test]
 fn executor_shutdown_does_not_recursively_spawn_cleanup_or_leave_files() {
     let root = parent();
-    let private;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
-    private = runtime.block_on(async {
+    let private = runtime.block_on(async {
         let mut resources = Resources::default();
         resources.directory(&root).unwrap();
         let private = resources.directory.clone().unwrap();

@@ -968,14 +968,13 @@ pub async fn add_subscription(
             return Err("Подписка с таким URL уже добавлена".into());
         }
         let merged = merge_mirrors(&existing.meta.mirrors, &link_mirrors);
-        let updated = state
+        state
             .mutate(|s| {
                 if let Some(item) = s.subscriptions.iter_mut().find(|item| item.url == source) {
                     item.meta.mirrors = merged.clone();
                 }
             })
             .map_err(|e| format!("Не удалось сохранить: {e}"))?;
-        let _ = updated;
         return state
             .snapshot()
             .subscriptions
@@ -8464,7 +8463,7 @@ pub fn reconnect_runtime_after_resume(app: &AppHandle) {
     let Some(server_id) = snapshot.active_server_id.clone() else {
         return;
     };
-    let now = unix_timestamp_millis() as u64;
+    let now = unix_timestamp_millis();
     if !crate::recovery_policy::accepts_wake(now, LAST_WAKE_RECOVERY.load(Ordering::SeqCst))
         || RESUME_RECONNECT_IN_FLIGHT.swap(true, Ordering::SeqCst)
     {
