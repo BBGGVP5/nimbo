@@ -938,7 +938,6 @@ fun NimboMiniApp(
     val onUpdatesClickRemembered = remember { { navigateTo(MiniDestination.Updates) } }
     val onLogsClickRemembered = remember { { navigateTo(MiniDestination.Logs) } }
     val onRoutingClickRemembered = remember { { navigateTo(MiniDestination.Routing) } }
-    val onConnectionsClickRemembered = remember { { navigateTo(MiniDestination.Connections) } }
     val onStatsClickRemembered = remember { { navigateTo(MiniDestination.Statistics) } }
     val onWhitelistClickRemembered = remember { { navigateTo(MiniDestination.WhitelistCheck) } }
     val onCrossSyncClickRemembered = remember { { navigateTo(MiniDestination.CrossPlatformSync) } }
@@ -1041,7 +1040,6 @@ fun NimboMiniApp(
                     onUpdatesClick = onUpdatesClickRemembered,
                     onLogsClick = onLogsClickRemembered,
                     onRoutingClick = onRoutingClickRemembered,
-                    onConnectionsClick = onConnectionsClickRemembered,
                     onStatsClick = onStatsClickRemembered,
                     onWhitelistClick = onWhitelistClickRemembered,
                     onCrossSyncClick = onCrossSyncClickRemembered,
@@ -4646,7 +4644,6 @@ private fun NimboSettingsScreen(
     onUpdatesClick: () -> Unit,
     onLogsClick: () -> Unit,
     onRoutingClick: () -> Unit,
-    onConnectionsClick: () -> Unit,
     onStatsClick: () -> Unit,
     onWhitelistClick: () -> Unit,
     onCrossSyncClick: () -> Unit,
@@ -4731,14 +4728,12 @@ private fun NimboSettingsScreen(
         Spacer(Modifier.height(20.dp))
         SettingsGroupLabel(t("ПРОФИЛИ", "PROFILES"))
         SettingsCompactCard {
-            SettingsRow(Icons.Default.Layers, t("Мои подписки", "My subscriptions"), null, onOpenSubscription)
             SettingsRow(Icons.Default.Refresh, t("Обновление подписок", "Subscription updates"), null, { section = 5 })
             SettingsRow(Icons.Default.Dns, t("Настройки серверов", "Server settings"), null, { section = 6 }, false)
         }
         Spacer(Modifier.height(20.dp))
         SettingsGroupLabel(t("ДИАГНОСТИКА", "DIAGNOSTICS"))
         SettingsCompactCard {
-            SettingsRow(Icons.AutoMirrored.Filled.ShowChart, t("Активность", "Activity"), t("Соединения и сетевой экран", "Connections and network shield"), onConnectionsClick)
             SettingsRow(Icons.Default.BarChart, t("Статистика", "Statistics"), null, onStatsClick)
             SettingsRow(Icons.Default.NetworkCheck, t("Проверка сети", "Network check"), null, onWhitelistClick)
             SettingsRow(Icons.AutoMirrored.Filled.Article, t("Журнал", "Logs"), null, onLogsClick)

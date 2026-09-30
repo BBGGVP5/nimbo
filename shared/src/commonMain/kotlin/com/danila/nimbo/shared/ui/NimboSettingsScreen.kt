@@ -104,11 +104,6 @@ private fun GeneralPage(state: NimboUiState, actions: NimboUiActions) {
         AppearanceToggle("Виброотклик", state.appearance.haptics) { actions.onSetAppearance("haptics", it.toString()) }
     }
     SettingsSection("Соединение") {
-        SettingsRow(NimboIconName.CONNECTION, "Проверка БС",
-            "Доступность контрольных сервисов через текущую сеть", showDivider = true,
-            onClick = actions.onOpenDiagnostics)
-        SettingsRow(NimboIconName.ROUTE, "Маршрутизация", "Обход локальных сетей, DNS и определение доменов",
-            showDivider = true, onClick = { actions.onOpenScreen(NimboScreen.ROUTING.wireName) })
         SettingsRow(NimboIconName.CONNECTION, "Системные настройки VPN", "Профиль Nimbo в настройках iOS",
             onClick = actions.onOpenSystemSettings)
     }
@@ -124,9 +119,6 @@ private fun GeneralPage(state: NimboUiState, actions: NimboUiActions) {
         AppearanceToggle("Память", state.showMemoryWidget, info = "Сколько занимает приложение") {
             actions.onSetAppearance("showMemoryWidget", it.toString())
         }
-        SettingsDivider()
-        SettingsRow(NimboIconName.STATS, "История подключений", "Трафик и завершённые сессии",
-            onClick = { actions.onOpenScreen(NimboScreen.STATS.wireName) })
     }
 }
 
