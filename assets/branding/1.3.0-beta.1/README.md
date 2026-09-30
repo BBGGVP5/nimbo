@@ -8,3 +8,19 @@
 The canonical cloud bounds are x184–840, y296–728, centered on 512,512. The larger crown and open right swoosh follow the approved reference. The raster master retains soft white tonal depth; system glyphs are solid white on alpha. Android adaptive vectors and raster fallbacks both use 0.78 scale inside the 108dp canvas. The generated-icon revision refreshes built-in cached icons without replacing imported user images.
 
 Keep Android code18, iOS build180/marketing1.3.0/display1.3.0-beta.1, and desktop semver1.3.0-beta.1. Earlier published 1.2.0 binaries, notes and artifact ledgers are immutable history.
+
+## Tooling
+
+The `.cjs` scripts require Node.js and `sharp`. Install tooling separately from
+application dependencies (PowerShell, from the repository root):
+
+```powershell
+npm install --prefix .build-dependencies/branding --no-save sharp@0.34.3
+$env:NODE_PATH = (Resolve-Path .build-dependencies/branding/node_modules).Path
+node scripts/check-brand-master.cjs
+```
+
+`check-brand-master.cjs` validates existing assets and writes a local verification
+JSON. `generate-brand-master.cjs` and `package-brand-root.cjs` regenerate assets;
+do not run them merely to validate a checkout. `sync-brand-assets.cjs` requires
+explicit desktop and website workspace paths and does not publish either app.
