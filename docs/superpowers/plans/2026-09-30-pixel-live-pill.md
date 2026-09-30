@@ -12,7 +12,7 @@
 **Files:** `app/src/main/java/com/danila/nimbo/utils/VpnLiveUpdate.kt`, `app/src/test/java/com/danila/nimbo/utils/VpnLiveUpdateTest.kt`.
 - [x] Add enum `VpnPillState { CONNECTING, CONNECTED, WAITING_NETWORK, RECOVERING, PAUSED, ATTENTION }`.
 - [x] Test `vpnPillText(state,seconds,english)` for every state/localization, text length <=7, CONNECTED's six-second boundary, negative durations, and no private names/links.
-- [x] Implement localized fixed vocabulary (`РџРѕРґРєР».`/`Connect`, `VPN`, `РЎРµС‚СЊ`/`Network`, `РџРѕРІС‚РѕСЂ`/`Retry`, `РџР°СѓР·Р°`/`Paused`, `!`) with icon-only settled connection.
+- [x] Implement localized fixed vocabulary (`Р СџР С•Р Т‘Р С”Р В».`/`Connect`, `VPN`, `Р РЋР ВµРЎвЂљРЎРЉ`/`Network`, `Р СџР С•Р Р†РЎвЂљР С•РЎР‚`/`Retry`, `Р СџР В°РЎС“Р В·Р В°`/`Paused`, `!`) with icon-only settled connection.
 
 ### Task 2: System eligibility and existing notification
 **Files:** create `utils/VpnLiveUpdatePlatform.kt`, modify `utils/PreferencesManager.kt`, `utils/NotificationManager.kt`, `vpn/MyVpnService.kt`.
@@ -31,9 +31,9 @@
 ### Task 4: Platform delivery
 **Files:** existing isolated checkout `.codex-tmp/github-ios-build-20260928`, existing iOS CI workflow and source contracts.
 - [x] Sync only reviewed task changes into the isolated checkout, preserving unrelated/untracked files. Check Android native artifact download/build plumbing before updating remote.
-- [ ] Run Apple source/build/ping/navigation contracts with updated pins and desktop tests for transferred visual changes.
-- [ ] Push reviewed source branch, attach created PR, dispatch existing unsigned IPA workflow. Report actual CI outcome, not source checks as an IPA build.
-- [ ] Keep remaining full iOS Mihomo Network Extension ownership/all-protocol device testing explicit; no admission bypass or website false support claims.
+- [x] Run Apple source/build/ping/navigation contracts with updated pins and desktop tests for transferred visual changes.
+- [x] Push reviewed source branch, attach created PR, dispatch existing unsigned IPA workflow. Report actual CI outcome, not source checks as an IPA build.
+- [x] Keep remaining full iOS Mihomo Network Extension ownership/all-protocol device testing explicit; no admission bypass or website false support claims.
 
 ## Evidence
 Android official Live Updates requirements: BigTextStyle allowed, non-runtime POST_PROMOTED_NOTIFICATIONS and requested promotion, ongoing/title, no custom views/group summary/colorized true, channel must not be MIN. Native size, animation, promotion and icon-only presentation are controlled by SystemUI. User confirmed Android 17 Pixel.
@@ -47,3 +47,7 @@ Android official Live Updates requirements: BigTextStyle allowed, non-runtime PO
 
 ## Verification (2026-09-30)
 Android debug assembly and 663 unit/host tests passed, no skipped tests. arm64 APK signature v2 verified; SHA256 58633dd0ba42aa4beead469243d5ffec76ce9612456e865238631e4095841e10. Native desktop helper rebuilt and staged from verified source; 47,939,072 bytes, SHA256 5195dce5c76fe3cc39975b72d4815b7d1b2730e6aaf4002b72811781de6f3255. Desktop frontend tests/build and three Xray pin/cache tests passed. iOS ActivityKit requires 16.2 for explicit stale-date safety; no APNs or background keepalive. iOS Xcode build and device/system-UI verification remain pending.
+
+Delivery: PR https://github.com/BBGGVP5/nimbo/pull/77, source commit 46de1fb, IPA run https://github.com/BBGGVP5/nimbo/actions/runs/36744423081. Swift policy execution and iOS 16.0 app/16.2 widget typechecks passed on macOS CI. All three PR checks passed (shared sources, Windows Rust/frontend, Linux Rust/frontend). Full IPA Xcode compilation is still running. Desktop Rust: 121 passed, 3 native integration gates ignored; no device installation performed.
+
+Android delivery: verified `com.danila.nimbo.debug`, label `Nimbo Debug`, arm64-v8a only. Uploaded the explicitly requested APK to https://dropmefiles.com/lRyJb; upload UI showed 1 file / 134.7 MiB / complete. This is the debug app alongside release, not a replacement signed with the user's release key. No device installed or network setting changed.

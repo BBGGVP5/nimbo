@@ -45,4 +45,4 @@
 - Source/original config hash is preserved; normalized smart groups affect only effective graph/runtime. Subscription-defined whitelist and fallback groups remain; external emergency pool fetching/cached members removed.
 - Report scope is explicitly "last prepared configuration": no connection/network lookup is started by export. Only already-redacted snapshots reach disk; unavailable snapshots are marked, never raw-fallback. Last ping fixed-vocabulary phases/failure are included.
 - Website archive: `C:/Users/Danila/Documents/Nimbo-site/release/nimbo-site-php-html-1.3.0-beta.1-updated-2026-09-30.zip`, 40 entries, verified. Not deployed.
-- Remaining: real phone/SystemUI/tunnel tests; IPA/macOS archive build and signing; desktop redistribution. Current platform changes are local, not newly pushed in this execution.
+- Remaining: real phone/SystemUI/tunnel tests; IPA/macOS archive build and signing; desktop redistribution. Current Android/iOS/desktop changes are published in PR #77; IPA CI is running. Website archive remains a separate local export.
