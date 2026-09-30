@@ -41,7 +41,7 @@ jobs:
         run: python tools/release/check-versions.py
 
       - name: Установить Go для AmneziaWG
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.27.1'
           cache-dependency-path: tools/native/awg-core/go.sum
@@ -127,7 +127,7 @@ jobs:
         run: python tools/release/check-versions.py
 
       - name: Установить Go для AmneziaWG
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.27.1'
           cache-dependency-path: tools/native/awg-core/go.sum
