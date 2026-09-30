@@ -4,6 +4,9 @@ import Foundation
 struct LiveActivityPolicyTests {
     static func main() {
         for phase in [NimboLivePhase.connecting, .connected, .recovering, .disconnecting, .idle] {
+            precondition(NimboLiveActivityPolicy.shouldEnd(phase: phase, enabled: false, authorized: true))
+            precondition(NimboLiveActivityPolicy.shouldEnd(phase: phase, enabled: true, authorized: false))
+            precondition(NimboLiveActivityPolicy.shouldEnd(phase: phase, enabled: true, authorized: true) == !phase.isOngoing)
             for english in [false, true] {
                 precondition((phase.compactText(english: english)?.count ?? 0) <= 7)
                 precondition(phase.compactText(english: english, stale: true) == "?")

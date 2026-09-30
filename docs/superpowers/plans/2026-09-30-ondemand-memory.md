@@ -43,3 +43,12 @@ Android network-specific on-demand requires a separate lifecycle-aware implement
 - Latest pre-final Windows Rust CI: 120 passed, 1 failed, 3 intentionally ignored. Failure is the pre-existing four-second PowerShell large-output fixture timeout, not an on-demand/native assertion; final-head CI must rerun before merge. Linux Rust/frontend and shared contracts passed.
 - No device network changes, installation, RSS benchmarks or battery measurement performed. iOS on-demand transitions and real system pill rendering require device verification.
 - Android standalone `libwg-go.so` AWG runtime is separate and not tuned by the LibXray memory JNI call. Standalone desktop upstream Xray remains unchanged; desktop budget applies to Nimbo's source-built Mihomo helper. Android network-specific on-demand remains a separate unfinished task.
+
+### Task 4: explicit pill-off presentation (Android and iOS)
+Files: Android `VpnLiveUpdate.kt`, `NotificationManager.kt`, `VpnLiveUpdateSettings.kt`, `VpnLiveUpdateTest.kt`; iOS policy/controller/settings and Live Activity tests.
+- [x] Add Android policy tests for every state with the preference off: `promoted == false`, `shortCriticalText == null`; preserve the existing foreground notification and service preference listener.
+- [x] Add Swift `shouldEnd(phase:enabled:authorized:)` policy tests: disabling ends every phase; background alone does not end an active activity.
+- [x] Use the tested policies in the notification builder and ActivityKit controller. Show an ordinary-notification preview when disabled on Android; explicitly label Dynamic Island / Live Activity and hide its preview when disabled on iOS. Neither toggle touches tunnel control.
+- [x] Run Android debug build / unit tests and Python source contracts; add an iOS16 settings-view SDK typecheck to the existing macOS CI gate. Commit only task files and dispatch the latest iOS build.
+
+Pill-off verification: Android debug APK and 665 unit/host tests passed; 5 Live Activity and 4 On Demand source contracts passed. New macOS settings-view SDK gate and latest IPA build are dispatched with this change; device/SystemUI verification remains pending.

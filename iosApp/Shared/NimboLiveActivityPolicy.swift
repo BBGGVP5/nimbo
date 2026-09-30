@@ -27,6 +27,9 @@ enum NimboLivePhase: String, Codable, Hashable {
 enum NimboLiveActivityPolicy {
     static let preferenceKey = "com.nimbo.notifications.liveActivity"
     static let staleInterval: TimeInterval = 65
+    static func shouldEnd(phase: NimboLivePhase, enabled: Bool, authorized: Bool) -> Bool {
+        !phase.isOngoing || !enabled || !authorized
+    }
     static func shouldStart(phase: NimboLivePhase, enabled: Bool, authorized: Bool,
                             foreground: Bool, dismissed: Bool) -> Bool {
         phase.isOngoing && enabled && authorized && foreground && !dismissed

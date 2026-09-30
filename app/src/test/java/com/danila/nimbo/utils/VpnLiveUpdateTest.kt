@@ -5,6 +5,23 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class VpnLiveUpdateTest {
+    @Test fun disabledPillAlwaysKeepsOrdinaryNotificationPresentation() {
+        for (state in VpnPillState.entries) for (english in listOf(false, true)) {
+            for (seconds in listOf(0, 6, 3600)) {
+                val presentation = vpnNotificationPresentation(false, state, seconds, english)
+                assertEquals(false, presentation.promoted)
+                assertNull(presentation.shortCriticalText)
+            }
+        }
+    }
+    @Test fun enabledPillRequestsPromotionEvenAfterTextCollapses() {
+        for (state in VpnPillState.entries) for (english in listOf(false, true)) {
+            val presentation = vpnNotificationPresentation(true, state, 6, english)
+            assertEquals(true, presentation.promoted)
+            assertEquals(vpnPillText(state, 6, english), presentation.shortCriticalText)
+        }
+    }
+
     @Test fun compactVocabularyFitsNativeChipInBothLanguages() {
         for (state in VpnPillState.entries) for (english in listOf(false, true)) {
             val text = vpnPillText(state, 0, english)

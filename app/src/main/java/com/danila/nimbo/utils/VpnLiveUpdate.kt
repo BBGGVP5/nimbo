@@ -2,6 +2,16 @@ package com.danila.nimbo.utils
 
 enum class VpnPillState { CONNECTING, CONNECTED, WAITING_NETWORK, RECOVERING, PAUSED, ATTENTION }
 
+internal data class VpnNotificationPresentation(val promoted: Boolean, val shortCriticalText: String?)
+
+/** Changes presentation only; the same foreground notification stays posted when disabled. */
+internal fun vpnNotificationPresentation(
+    enabled: Boolean, state: VpnPillState, seconds: Int, english: Boolean
+): VpnNotificationPresentation = VpnNotificationPresentation(
+    promoted = enabled,
+    shortCriticalText = if (enabled) vpnPillText(state, seconds, english) else null
+)
+
 internal enum class VpnPillAvailability {
     UNSUPPORTED, APP_DISABLED, NOTIFICATIONS_BLOCKED, CHANNEL_BLOCKED,
     CHANNEL_MINIMIZED, SYSTEM_DISABLED, AVAILABLE, UNKNOWN
