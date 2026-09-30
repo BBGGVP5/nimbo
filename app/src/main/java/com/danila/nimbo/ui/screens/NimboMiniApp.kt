@@ -17,6 +17,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Route
@@ -1918,6 +1919,9 @@ private fun MihomoHomeSelectedServerBar(
                 mapOf(choice.name to fingerprint))[choice.name]
         }
     }
+    val presentation = com.danila.nimbo.mihomo.mihomoHomePresentation(
+        liveSelection, lastChoice?.name, lastChoice?.group, connected,
+        english = t("ru", "en") == "en")
     Column(Modifier.fillMaxWidth()) {
         HorizontalDivider(color = colors.divider)
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1933,20 +1937,10 @@ private fun MihomoHomeSelectedServerBar(
                     }
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(if (liveSelection != null && lastChoice == null)
-                            t("Авто · ${liveSelection!!.group}", "Auto · ${liveSelection!!.group}")
-                            else lastChoice?.name ?: t("Авто · Mihomo", "Auto · Mihomo"),
+                        Text(presentation.title,
                             style = MaterialTheme.typography.titleSmall, color = colors.textPrimary,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(when {
-                            liveSelection?.perConnection == true ->
-                                t("Балансировка · сервер выбирается для каждого соединения",
-                                    "Load balancing · a server is picked per connection")
-                            liveSelection?.member != null ->
-                                t("Сейчас: ${liveSelection!!.member}", "Now: ${liveSelection!!.member}")
-                            lastChoice != null -> lastChoice.group
-                            else -> t("Выберите локацию в профилях", "Choose a location in Profiles")
-                        },
+                        Text(presentation.subtitle,
                             style = MaterialTheme.typography.bodySmall, color = colors.textSecondary,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 4.dp))
@@ -4661,6 +4655,8 @@ private fun NimboSettingsScreen(
     onConnect: (Server) -> Unit
 ) {
     var section by rememberSaveable { mutableStateOf(-1) }
+    var developerUnlocked by rememberSaveable { mutableStateOf(false) }
+    val tapGate = remember { com.danila.nimbo.utils.DeveloperTapGate() }
     androidx.activity.compose.BackHandler(enabled = section >= 0) { section = -1 }
     val motionEnabled = rememberMiniMotionEnabled()
     AnimatedContent(section, transitionSpec = {
@@ -4678,6 +4674,7 @@ private fun NimboSettingsScreen(
         6 -> t("Серверы", "Servers")
         7 -> t("Резервная копия", "Backup")
         8 -> t("Ядро VPN", "VPN core")
+        11 -> t("Разработчик", "Developer")
         else -> t("DNS и транспорт", "DNS and transport")
     }
     if (activeSection >= 0) {
@@ -4693,6 +4690,7 @@ private fun NimboSettingsScreen(
                     6 -> ServersSettingsSection(preferencesManager)
                     7 -> BackupSettingsSection(preferencesManager)
                     8 -> NimboCoreSettings(preferencesManager, onConnect, onOpenSubscription)
+                    11 -> DeveloperSettingsSection()
                     else -> AdvancedSettingsSection(preferencesManager)
                 }
             }
@@ -4701,7 +4699,9 @@ private fun NimboSettingsScreen(
     }
     Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp).padding(top = 20.dp, bottom = LocalFloatingNavHeight.current + 16.dp)) {
-        com.danila.nimbo.ui.components.NimboBrandHeader()
+        Box(Modifier.fillMaxWidth().clickable {
+            if (tapGate.tap(android.os.SystemClock.elapsedRealtime())) { developerUnlocked = true; section = 11 }
+        }) { com.danila.nimbo.ui.components.NimboBrandHeader() }
         Spacer(Modifier.height(20.dp))
         Text(t("Настройки", "Settings"), style = MaterialTheme.typography.headlineMedium,
             color = LocalNebulaColors.current.textPrimary, modifier = Modifier.semantics { heading() })
@@ -4750,6 +4750,7 @@ private fun NimboSettingsScreen(
             SettingsRow(Icons.Default.SystemUpdate, t("Обновления", "Updates"), "Nimbo v${BuildConfig.VERSION_NAME}", onUpdatesClick)
             SettingsRow(Icons.Default.Info, t("О приложении", "About"), "Nimbo v${BuildConfig.VERSION_NAME}", onAboutClick)
             SettingsRow(Icons.Default.Policy, t("Условия использования", "Terms of use"), null, onDisclaimerClick, false)
+            if (developerUnlocked) SettingsRow(Icons.Default.Build, t("Разработчик", "Developer"), null, { section = 11 }, false)
         }
     }
     }

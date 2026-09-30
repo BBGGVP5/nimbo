@@ -27,11 +27,18 @@ func invokeStartID(t *testing.T, fields map[string]any, id string) testReply {
 	}
 	return r
 }
+
+var cancellationTestSequence atomic.Uint64
+
 func TestCancelBeforeDispatchAndDuringStart(t *testing.T) {
+	// Cancellation tombstones intentionally survive stop. Repeated test runs must
+	// obey the API contract too: never reuse a start request ID in one process.
+	suffix := fmt.Sprint(cancellationTestSequence.Add(1))
+	beforeID, inflightID, committedID := "cancel-before-"+suffix, "cancel-inflight-"+suffix, "committed-"+suffix
 	stopTest(t)
 	defer stopTest(t)
-	requireOK(t, call(t, "cancel", map[string]any{"targetRequestId": "cancel-before"}))
-	r := invokeStartID(t, startFields(t, simpleConfig), "cancel-before")
+	requireOK(t, call(t, "cancel", map[string]any{"targetRequestId": beforeID}))
+	r := invokeStartID(t, startFields(t, simpleConfig), beforeID)
 	if r.Success || r.Error.Code != "START_CANCELLED" {
 		t.Fatal("pre-dispatch cancellation ignored")
 	}
@@ -40,14 +47,14 @@ func TestCancelBeforeDispatchAndDuringStart(t *testing.T) {
 	defer server.Close()
 	fields := startFields(t, fmt.Sprintf("proxy-providers: {remote: {type: http, url: %q}}\n", server.URL))
 	done := make(chan testReply, 1)
-	go func() { done <- invokeStartID(t, fields, "cancel-inflight") }()
+	go func() { done <- invokeStartID(t, fields, inflightID) }()
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("start did not reach provider")
 	}
 	start := time.Now()
-	requireOK(t, call(t, "cancel", map[string]any{"targetRequestId": "cancel-inflight"}))
+	requireOK(t, call(t, "cancel", map[string]any{"targetRequestId": inflightID}))
 	select {
 	case r := <-done:
 		if r.Success {
@@ -59,8 +66,8 @@ func TestCancelBeforeDispatchAndDuringStart(t *testing.T) {
 	if time.Since(start) > 2*time.Second {
 		t.Fatal("cancel blocked")
 	}
-	requireOK(t, invokeStartID(t, startFields(t, simpleConfig), "committed-unique"))
-	late := call(t, "cancel", map[string]any{"targetRequestId": "committed-unique"})
+	requireOK(t, invokeStartID(t, startFields(t, simpleConfig), committedID))
+	late := call(t, "cancel", map[string]any{"targetRequestId": committedID})
 	if late.Success || late.Error.Code != "ALREADY_COMMITTED" {
 		t.Fatal("late cancel not distinguished")
 	}
@@ -208,10 +215,10 @@ rules: ["MATCH,Choice"]
 	if got := data.Groups["Auto"].All; len(got) != 2 || got[0] != "a" || got[1] != "z" {
 		t.Fatalf("native lexical inclusion semantics changed: %v", got)
 	}
-	for _, g := range []string{"Auto", "Failover"} {
-		requireOK(t, call(t, "select", map[string]any{"group": g, "name": "z"}))
+	for _, g := range []string{"Auto", "Failover", "Balanced"} {
+		if call(t, "select", map[string]any{"group": g, "name": "z"}).Success {
+			t.Fatalf("automatic %s group accepted a manual selection", g)
+		}
 	}
-	if call(t, "select", map[string]any{"group": "Balanced", "name": "a"}).Success {
-		t.Fatal("load-balance advertised as selector")
-	}
+	requireOK(t, call(t, "select", map[string]any{"group": "Choice", "name": "Auto"}))
 }

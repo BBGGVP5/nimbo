@@ -78,6 +78,7 @@ object XrayManager {
                 tunFd = vpnFd
             )
 
+            runCatching { com.danila.nimbo.utils.SupportDiagnosticStore.captureConfig(context, "xray", config) }
             val runResult = LibXray.invoke(XrayCoreProtocol.runXrayFromJson(config))
             if (isOk(runResult)) {
                 isConnected = true

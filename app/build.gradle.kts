@@ -39,7 +39,7 @@ android {
         // Beta 1.3.0 installs over published stable 1.2.0 (17).
         versionCode = 18
         versionName = "1.3.0-beta.1"
-        buildConfigField("String", "LIBXRAY_VERSION", "\"26.9.9\"")
+        buildConfigField("String", "LIBXRAY_VERSION", "\"26.9.30\"")
 
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

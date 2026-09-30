@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -307,6 +308,12 @@ class MyVpnService : VpnService() {
     
     private lateinit var customNotificationManager: com.danila.nimbo.utils.NotificationManager
     private lateinit var preferencesManager: PreferencesManager
+    private val liveUpdatePreferencesListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == PreferencesManager.KEY_VPN_LIVE_UPDATE_ENABLED && !serviceStopping &&
+            (isConnected || isConnecting || preferencesManager.vpnConnectionDesired)) {
+            refreshForegroundNotification()
+        }
+    }
     // Saved preferences apply to the next manual start, never to a live recovery cycle.
     private var sessionCoreId: String = "auto"
     private var lastConnectedServer: Server? = null
@@ -324,6 +331,7 @@ class MyVpnService : VpnService() {
         Log.d(TAG, "Service created")
 
         preferencesManager = PreferencesManager(this)
+        preferencesManager.sharedPreferences.registerOnSharedPreferenceChangeListener(liveUpdatePreferencesListener)
         sessionCoreId = if (preferencesManager.vpnConnectionDesired) preferencesManager.activeVpnCore
             else preferencesManager.vpnCore
         VpnManager.restoreConnectionMode(this)
@@ -2149,7 +2157,17 @@ class MyVpnService : VpnService() {
             statusOverride = statusOverride,
             showPauseAction = recoveryStatus == VpnRecoveryStatus.IDLE,
             subscriptionLogoBitmap = currentProfileLogoBitmap
-                ?.takeIf { preferencesManager.showSubscriptionLogo }
+                ?.takeIf { preferencesManager.showSubscriptionLogo },
+            pillState = when (recoveryStatus) {
+                VpnRecoveryStatus.PAUSED_BY_SCREEN -> com.danila.nimbo.utils.VpnPillState.PAUSED
+                VpnRecoveryStatus.WAITING_FOR_NETWORK -> com.danila.nimbo.utils.VpnPillState.WAITING_NETWORK
+                VpnRecoveryStatus.RETRYING -> com.danila.nimbo.utils.VpnPillState.RECOVERING
+                VpnRecoveryStatus.IDLE -> when {
+                    !isConnected -> com.danila.nimbo.utils.VpnPillState.CONNECTING
+                    connectionStatusOverride != null -> com.danila.nimbo.utils.VpnPillState.ATTENTION
+                    else -> com.danila.nimbo.utils.VpnPillState.CONNECTED
+                }
+            }
         )
     }
 
@@ -3125,6 +3143,7 @@ class MyVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        preferencesManager.sharedPreferences.unregisterOnSharedPreferenceChangeListener(liveUpdatePreferencesListener)
         if (DiagnosticSocketProtection.service === this) DiagnosticSocketProtection.service = null
         Log.d(TAG, "Service destroyed")
         unregisterScreenReceiver()

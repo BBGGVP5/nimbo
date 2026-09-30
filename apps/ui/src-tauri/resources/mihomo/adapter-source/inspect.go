@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -32,9 +33,14 @@ type declaredGraph struct {
 type inspection struct {
 	OriginalYAML  string        `json:"originalYAML"`
 	SourceSHA256  string        `json:"sourceSHA256"`
+	DocumentKind  string        `json:"documentKind"`
+	RootKeys      []string      `json:"rootKeys"`
 	DeclaredGraph declaredGraph `json:"declaredGraph"`
 	StrictIssues  []issue       `json:"strictIssues"`
 	root          map[string]any
+	mobile        bool
+	finalConfig   map[string]any
+	android       bool
 }
 
 func decodeDocument(source string) (map[string]any, error) {
@@ -106,8 +112,19 @@ func inspect(source string) (*inspection, error) {
 	if err != nil {
 		return nil, err
 	}
+	normalizeSmartGroups(root)
 	sum := sha256.Sum256([]byte(source))
-	d := &inspection{OriginalYAML: source, SourceSHA256: hex.EncodeToString(sum[:]), root: root, StrictIssues: []issue{}, DeclaredGraph: declaredGraph{Proxies: []map[string]any{}, Groups: []map[string]any{}, Providers: map[string]map[string]any{}}}
+	d := &inspection{OriginalYAML: source, SourceSHA256: hex.EncodeToString(sum[:]), DocumentKind: "yaml", RootKeys: make([]string, 0, len(root)), root: root, StrictIssues: []issue{}, DeclaredGraph: declaredGraph{Proxies: []map[string]any{}, Groups: []map[string]any{}, Providers: map[string]map[string]any{}}}
+	for key := range root {
+		d.RootKeys = append(d.RootKeys, key)
+	}
+	sort.Strings(d.RootKeys)
+	for _, key := range d.RootKeys {
+		if isMihomoRootKey(key) {
+			d.DocumentKind = "mihomo"
+			break
+		}
+	}
 	for _, key := range []string{"proxies", "proxy-groups"} {
 		if value, exists := root[key]; exists {
 			items, ok := value.([]any)
@@ -142,4 +159,24 @@ func inspect(source string) (*inspection, error) {
 	}
 	d.StrictIssues = policy(d)
 	return d, nil
+}
+
+// isMihomoRootKey classifies source using the already parsed YAML mapping. It
+// deliberately avoids substring heuristics: ordinary share-link text and
+// unrelated YAML must never be mistaken for a native profile.
+func isMihomoRootKey(key string) bool {
+	switch key {
+	case "proxies", "proxy-groups", "proxy-providers", "rule-providers", "rules", "sub-rules",
+		"mode", "mixed-port", "port", "socks-port", "redir-port", "tproxy-port", "allow-lan",
+		"bind-address", "ipv6", "dns", "hosts", "tun", "profile", "log-level", "external-controller",
+		"external-controller-tls", "external-controller-unix", "external-controller-pipe", "external-ui",
+		"external-ui-url", "external-ui-name", "secret", "find-process-mode", "interface-name",
+		"routing-mark", "geodata-mode", "geo-auto-update", "geox-url", "global-client-fingerprint",
+		"unified-delay", "tcp-concurrent", "keep-alive-idle", "keep-alive-interval", "disable-keep-alive",
+		"sniffer", "ntp", "iptables", "listeners", "authentication", "lan-allowed-ips", "lan-disallowed-ips",
+		"default-nameserver", "proxy-server-nameserver", "proxy-server-nameserver-policy", "experimental":
+		return true
+	default:
+		return false
+	}
 }

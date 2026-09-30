@@ -117,6 +117,8 @@ object MihomoSubscriptionFetcher {
             }
                 catch (_: Exception) { throw MihomoException("SUBSCRIPTION_FETCH_FAILED") }
             response.use {
+                runCatching { com.danila.nimbo.utils.SupportDiagnosticStore.captureHeaders(
+                    NebulaGuardApplication.instance, sourceUrl, it.headers.toMultimap()) }
                 if (it.code in 300..399) {
                     if (redirect == 4) throw MihomoException("SUBSCRIPTION_REDIRECT_LIMIT")
                     val location = it.header("Location") ?: throw MihomoException("INVALID_SUBSCRIPTION_URL")

@@ -31,7 +31,7 @@ jobs:
       - name: Проверить исходники объединённого Mihomo
         run: python3 scripts/ci/test-ios-mihomo-source.py
 
-      # The root Android project needs the pinned 238 MB libxray.aar. It is
+      # The root Android project needs the pinned ~191 MB libxray.aar. It is
       # intentionally not committed; this job validates checked-in sources,
       # not an APK built against a missing native artifact.
       - name: Проверить общие Kotlin-тесты

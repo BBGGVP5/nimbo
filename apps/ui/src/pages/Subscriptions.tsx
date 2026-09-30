@@ -913,6 +913,7 @@ function ServerLine({
   return (
     <div
       role="button"
+      aria-pressed={active}
       tabIndex={0}
       onClick={onSelect}
       onKeyDown={(event) => {
@@ -939,6 +940,9 @@ function ServerLine({
       <div className="server-profile-main">
         <div className="server-profile-title-line">
           <div className="server-profile-title">{label}</div>
+          {active && !connecting && <span className="server-selection-badge">
+            ✓ {m.common.locale.startsWith("ru") ? "Выбран" : "Selected"}
+          </span>}
           {connecting && (
             <span className="server-row-pill server-row-pill-selected">
               {m.common.connecting}

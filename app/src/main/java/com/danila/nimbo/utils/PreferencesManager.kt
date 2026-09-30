@@ -52,6 +52,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_SHOW_SPEED = "show_speed"
         private const val KEY_SHOW_NOTIFICATION_SPEED = "show_notification_speed"
         private const val KEY_SHOW_NOTIFICATION_CONNECTION_TIME = "show_notification_connection_time"
+        internal const val KEY_VPN_LIVE_UPDATE_ENABLED = "vpn_live_update_enabled"
         private const val KEY_ONBOARDING_COMPLETE = "onboarding_complete"
         private const val KEY_TUNNEL_MODE = "tunnel_mode"
         private const val KEY_SUBSCRIPTION_AUTO_UPDATE = "subscription_auto_update"
@@ -1010,7 +1011,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
                     return try {
                         val parsed: List<SubscriptionProfile> = gson.fromJson(json, type)
                         Log.d("PreferencesManager", "Loaded ${parsed.size} profiles from $sourceName")
-                        parsed
+                        parsed.map { it.copy(servers = it.servers.filterNot { server -> server.isFallback }) }
                     } catch (e: Exception) {
                         Log.e("PreferencesManager", "Failed to parse profiles from $sourceName: ${e.message}")
                         null
@@ -1255,6 +1256,10 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     var showNotificationConnectionTime: Boolean
         get() = sharedPreferences.getBoolean(KEY_SHOW_NOTIFICATION_CONNECTION_TIME, true)
         set(value) = sharedPreferences.edit().putBoolean(KEY_SHOW_NOTIFICATION_CONNECTION_TIME, value).apply()
+
+    var vpnLiveUpdateEnabled: Boolean
+        get() = sharedPreferences.getBoolean(KEY_VPN_LIVE_UPDATE_ENABLED, true)
+        set(value) = sharedPreferences.edit().putBoolean(KEY_VPN_LIVE_UPDATE_ENABLED, value).apply()
 
     var autoBypassByNetwork: Boolean
         get() = true
@@ -2140,6 +2145,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         try {
             if (serverData.startsWith("{")) {
                 return gson.fromJson(serverData, com.danila.nimbo.model.Server::class.java)
+                    ?.takeUnless { it.isFallback }
                     ?.let { parsed ->
                         if (parsed.profileUrl.isNullOrBlank() && !fallbackProfileUrl.isNullOrBlank()) {
                             parsed.copy(profileUrl = fallbackProfileUrl)

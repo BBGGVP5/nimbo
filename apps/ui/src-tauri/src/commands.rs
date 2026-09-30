@@ -6524,7 +6524,7 @@ async fn connect_tun(
 
         if !linux_helper_core_matches_pin() {
             stop_child(&mut naive);
-            return Err("The Linux helper kernel does not match verified Xray 26.9.9".into());
+            return Err("The Linux helper kernel does not match verified Xray 26.9.30".into());
         }
         let config = match std::fs::read_to_string(&config_path) {
             Ok(config) => config,
@@ -10011,7 +10011,7 @@ mod tests {
     #[test]
     fn latency_dedicated_route_overrides_direct_rules_and_ignores_foreign_outbounds() {
         let mut server = test_server();
-        // Xray 26.9.9 rejects unencrypted public VLESS; this offline fixture uses
+        // Xray 26.9.30 rejects unencrypted public VLESS; this offline fixture uses
         // a private endpoint and is only parsed via `run -test` (never started).
         if let nimbo_subscription::Protocol::Vless(config) = &mut server.protocol {
             config.address = "127.0.0.1".into();

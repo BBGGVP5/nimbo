@@ -54,18 +54,27 @@ func dnsPolicy(value any) []issue {
 
 type dnsState struct {
 	defaultResolver, proxy, direct resolver.Resolver
+	defaultMapper                  resolver.Enhancer
+	defaultService                 resolver.Service
 	hosts                          resolver.Hosts
 	systemHosts                    bool
 }
 
 func saveDNS() dnsState {
-	return dnsState{resolver.DefaultResolver, resolver.ProxyServerHostResolver, resolver.DirectHostResolver, resolver.DefaultHosts, resolver.UseSystemHosts}
+	return dnsState{
+		defaultResolver: resolver.DefaultResolver, proxy: resolver.ProxyServerHostResolver,
+		direct: resolver.DirectHostResolver, defaultMapper: resolver.DefaultHostMapper,
+		defaultService: resolver.DefaultService, hosts: resolver.DefaultHosts,
+		systemHosts: resolver.UseSystemHosts,
+	}
 }
 func (s dnsState) restore() {
 	if resolver.DefaultResolver != nil {
 		resolver.DefaultResolver.ResetConnection()
 	}
 	resolver.DefaultResolver = s.defaultResolver
+	resolver.DefaultHostMapper = s.defaultMapper
+	resolver.DefaultService = s.defaultService
 	resolver.ProxyServerHostResolver = s.proxy
 	resolver.DirectHostResolver = s.direct
 	resolver.DefaultHosts = s.hosts

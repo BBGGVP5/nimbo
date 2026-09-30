@@ -223,11 +223,7 @@ object SubscriptionManager {
                                 "Subscription loaded from mirror ${SubscriptionMirrors.hostOf(candidateUrl)}"
                             )
                         }
-                        val loaded = mergeFallbackPool(
-                            baseInfo = info,
-                            mainUrl = candidateUrl,
-                            requestUserAgent = attemptUserAgent
-                        )
+                        val loaded = info
                         // A Nimbo response may be Xray even when the same subscription
                         // exposes a server-rendered Mihomo template at its public format route.
                         // Keep both; optional discovery must never break ordinary refresh.
@@ -491,55 +487,6 @@ object SubscriptionManager {
         return baseInfo
     }
 
-    /**
-     * Аварийный пул серверов из заголовка подписки nimbo-fallback.
-     *
-     * Если основной ответ принёс заголовок nimbo-fallback с URL, best-effort скачиваем
-     * этот отдельный пул и подмешиваем его узлы в конец списка servers как fallback-группу
-     * (самый низкий приоритет — основные серверы идут первыми). Дубликаты основных серверов
-     * отбрасываем по тому же ключу, что и dedupeServerLinks. Строго best-effort: любая ошибка
-     * сети/парсинга тихо проглатывается и НЕ ломает обновление основной подписки.
-     */
-    private fun mergeFallbackPool(
-        baseInfo: SubscriptionInfo,
-        mainUrl: String,
-        requestUserAgent: String
-    ): SubscriptionInfo {
-        val fallbackUrl = baseInfo.fallbackUrl?.trim()?.takeIf { it.isNotBlank() } ?: return baseInfo
-        if (fallbackUrl.equals(mainUrl.trim(), ignoreCase = true)) return baseInfo
-
-        return runCatching {
-            // Одиночный запрос без записи last_subscription_url и без рекурсии в собственный
-            // nimbo-fallback пула — берём только готовые ссылки.
-            val poolInfo = loadInternalOnce(
-                fallbackUrl,
-                requestUserAgent,
-                persistAsLastUrl = false,
-                bestEffort = true
-            )
-            val fallbackLinks = dedupeServerLinks(
-                poolInfo.servers.map { it.trim() }.filter { it.isNotBlank() && isProtocolLink(it) }
-            )
-            if (fallbackLinks.isEmpty()) return@runCatching baseInfo
-
-            val mainKeys = baseInfo.servers.map { dedupeKeyForLink(it) }.toHashSet()
-            val newFallback = fallbackLinks.filter { dedupeKeyForLink(it) !in mainKeys }
-            if (newFallback.isEmpty()) return@runCatching baseInfo
-
-            Log.i(
-                "SubscriptionManager",
-                "Merged ${newFallback.size} fallback server(s) from emergency pool ${fallbackUrl.take(80)}"
-            )
-            baseInfo.copy(
-                servers = baseInfo.servers + newFallback,
-                fallbackServers = newFallback
-            )
-        }.getOrElse {
-            Log.d("SubscriptionManager", "Fallback pool merge skipped: ${it.message}")
-            baseInfo
-        }
-    }
-
     /** Ключ дедупликации ссылки — тот же, что использует dedupeServerLinks. */
     private fun dedupeKeyForLink(link: String): String {
         val trimmed = link.trim()
@@ -666,11 +613,10 @@ object SubscriptionManager {
             .newCall(request)
             .execute()
 
-        // Логируем все заголовки для отладки
-        Log.d("SubscriptionManager", "Response headers received")
-        for (i in 0 until response.headers.size) {
-            Log.d("SubscriptionManager", "  ${response.headers.name(i)}: ${response.headers.value(i)}")
-        }
+        // Never print subscription credentials/header values to logcat.
+        appContext?.let { context -> runCatching {
+            com.danila.nimbo.utils.SupportDiagnosticStore.captureHeaders(context, url, response.headers.toMultimap())
+        } }
 
         // Получаем заголовки с информацией о подписке (Remnawave и другие)
         var uploadTotal = response.header("Subscription-Upload")?.toLongOrNull()
@@ -763,16 +709,8 @@ object SubscriptionManager {
             Log.w("SubscriptionManager", "Ignoring invalid Nimbo-TLS-Fragment header")
         }
 
-        // Аварийный пул серверов (nimbo-fallback): URL отдельной подписки/пула, который
-        // клиент best-effort подмешивает как fallback-группу. decodeBase64Header не тронет
-        // обычный https-URL (двоеточие/слэш не входят в base64-алфавит), но поддержит
-        // явный "base64:"-префикс.
-        val fallbackUrl = (response.headers["nimbo-fallback"]
-            ?: response.headers["Nimbo-Fallback"]
-            ?: response.headers["x-nimbo-fallback"]
-            ?: response.headers["dropweb-fallback"])
-            ?.let { decodeBase64Header(it) ?: it }
-            ?.trim()?.takeIf { it.isNotBlank() }
+        // No external emergency pool: source subscription routes remain authoritative.
+        val fallbackUrl: String? = null
 
         // Мультидомен: список зеркал сабпейджа. Панель может отдать их одним
         // заголовком, в том числе в base64 — как и nimbo-fallback.

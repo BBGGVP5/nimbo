@@ -13,3 +13,7 @@
 *.ico binary
 *.icns binary
 *.png binary
+
+# Frozen source/notices are byte-for-byte evidence bound to native build hashes.
+apps/ui/src-tauri/resources/mihomo/** -text whitespace=cr-at-eol,-blank-at-eof
+apps/ui/src-tauri/resources/mihomo/adapter-source/*.patch -whitespace

@@ -259,6 +259,10 @@ func proxyIssues(p map[string]any, path string) []issue {
 		option = outbound.Hysteria2Option{}
 	case "tuic":
 		option = outbound.TuicOption{}
+	case "wireguard":
+		option = outbound.WireGuardOption{}
+	case "mieru":
+		option = outbound.MieruOption{}
 	case "anytls":
 		option = outbound.AnyTLSOption{}
 	default:
@@ -334,12 +338,8 @@ func mihomoProxyIssues(p map[string]any, path string) []issue {
 		option = outbound.TrustTunnelOption{}
 	case "openvpn":
 		option = outbound.OpenVPNOption{}
-	case "tailscale":
-		option = outbound.TailscaleOption{}
-	case "zerotier":
-		option = outbound.ZeroTierOption{}
-	case "easytier":
-		option = outbound.EasyTierOption{}
+	case "tailscale", "zerotier", "easytier":
+		return []issue{{"UNSUPPORTED_CONFIG", "mesh protocol removed from Nimbo build", path + ".type"}}
 	default:
 		return []issue{{"UNSUPPORTED_CONFIG", "proxy protocol is not supported by the pinned Mihomo parser", path + ".type"}}
 	}

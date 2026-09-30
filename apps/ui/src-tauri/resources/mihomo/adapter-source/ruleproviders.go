@@ -2,6 +2,7 @@ package mihomocore
 
 import (
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	C "github.com/metacubex/mihomo/constant"
 	P "github.com/metacubex/mihomo/constant/provider"
 	"github.com/metacubex/mihomo/rules"
+	RB "github.com/metacubex/mihomo/rules/bundle"
 	RC "github.com/metacubex/mihomo/rules/common"
 	RP "github.com/metacubex/mihomo/rules/provider"
 	"github.com/metacubex/mihomo/tunnel"
@@ -20,6 +22,7 @@ import (
 // Block only rules needing unowned geodata/process facilities, including inside
 // logical rules. Native parser remains the authority for all admitted syntax.
 var gatedRule = regexp.MustCompile(`(?:^|\()\s*(?:GEOSITE|GEOIP|SRC-GEOIP|IP-ASN|SRC-IP-ASN|PROCESS-[A-Z-]+|UID)\s*,`)
+var androidUnownedProcessRule = regexp.MustCompile(`(?:^|\()\s*(?:PROCESS-[A-Z-]+|UID)\s*,`)
 
 func ruleListPolicy(value any, path string) []issue {
 	out := []issue{}
@@ -80,6 +83,69 @@ func ruleProviderPolicy(value any) []issue {
 	return out
 }
 
+type androidRuleProviderSchema struct {
+	Type         string              `provider:"type"`
+	Behavior     string              `provider:"behavior"`
+	Path         string              `provider:"path,omitempty"`
+	URL          string              `provider:"url,omitempty"`
+	Proxy        string              `provider:"proxy,omitempty"`
+	Format       string              `provider:"format,omitempty"`
+	Interval     int                 `provider:"interval,omitempty"`
+	SizeLimit    int64               `provider:"size-limit,omitempty"`
+	Payload      []string            `provider:"payload,omitempty"`
+	Header       map[string][]string `provider:"header,omitempty"`
+	PathInBundle string              `provider:"path-in-bundle,omitempty"`
+}
+
+// Android reuses Mihomo's native rule-provider implementation, including
+// HTTP headers/proxy/size-limit, bundle providers and binary MRS. Only rules
+// requiring process/UID flow metadata are blocked because Android's TUN bridge
+// does not expose that metadata to Mihomo.
+func androidRuleProviderIssues(provider map[string]any, path string) []issue {
+	if issues := checkAndroidStructuredFields(provider, reflect.TypeOf(androidRuleProviderSchema{}), "provider", path); len(issues) > 0 {
+		return issues
+	}
+	typeName, _ := provider["type"].(string)
+	if typeName != "inline" && typeName != "file" && typeName != "http" {
+		return []issue{{"UNSUPPORTED_ANDROID_CONFIG", "expected native Mihomo inline/file/http rule provider", path + ".type"}}
+	}
+	behavior, _ := provider["behavior"].(string)
+	if behavior != "domain" && behavior != "ipcidr" && behavior != "classical" {
+		return []issue{{"INVALID_CONFIG", "expected domain/ipcidr/classical", path + ".behavior"}}
+	}
+	format, _ := provider["format"].(string)
+	if format != "" && format != "yaml" && format != "text" && format != "mrs" {
+		return []issue{{"INVALID_CONFIG", "expected yaml, text or mrs", path + ".format"}}
+	}
+	for _, key := range []string{"interval", "size-limit"} {
+		if value, exists := provider[key]; exists {
+			n, ok := numericConfig(value)
+			if !ok || n < 0 {
+				return []issue{{"INVALID_CONFIG", "must be a nonnegative number", path + "." + key}}
+			}
+		}
+	}
+	if typeName == "http" {
+		if err := checkURL(str(provider, "url")); err != nil {
+			return []issue{{"INVALID_CONFIG", "explicit HTTP(S) URL without userinfo required", path + ".url"}}
+		}
+	}
+	if payload, exists := provider["payload"]; exists {
+		rows, ok := payload.([]any)
+		if !ok {
+			return []issue{{"INVALID_CONFIG", "string sequence required", path + ".payload"}}
+		}
+		for index, value := range rows {
+			_, ok := value.(string)
+			if !ok {
+				return []issue{{"INVALID_CONFIG", "string required", fmt.Sprintf("%s.payload[%d]", path, index)}}
+			}
+
+		}
+	}
+	return nil
+}
+
 type managedRule struct {
 	mu       sync.RWMutex
 	current  P.RuleProvider
@@ -87,6 +153,8 @@ type managedRule struct {
 	name     string
 	behavior P.RuleBehavior
 	kind     P.VehicleType
+	mobile   bool
+	android  bool
 }
 
 func (p *managedRule) Name() string               { return p.name }
@@ -141,15 +209,20 @@ func (p *managedRule) publish(r P.RuleProvider) {
 	tunnel.Tunnel.RuleUpdateCallback().Emit(p)
 }
 
-func makeRulePayload(name string, behavior P.RuleBehavior, values []string) (P.RuleProvider, error) {
+func makeRulePayload(name string, behavior P.RuleBehavior, values []string, mobile, android bool) (P.RuleProvider, error) {
 	if len(values) == 0 {
 		return nil, fmt.Errorf("rule provider payload empty")
 	}
 	for _, s := range values {
-		if s == "" || gatedRule.MatchString(s) {
+		if s == "" || (!android && gatedRule.MatchString(s)) {
 			return nil, fmt.Errorf("empty or gated rule provider entry")
 		}
 		if behavior == P.Classical {
+			if mobile {
+				if err := mobileRuleEntryPolicy(s, false); err != nil {
+					return nil, fmt.Errorf("mobile rule provider entry rejected: %w", err)
+				}
+			}
 			tp, payload, target, params := RC.ParseRulePayload(s, false)
 			if tp == "MATCH" || tp == "RULE-SET" || tp == "SUB-RULE" {
 				return nil, fmt.Errorf("classical rule provider cannot contain %s", tp)
@@ -182,13 +255,34 @@ func ruleStrings(v any) ([]string, error) {
 }
 func rebindRuleProviders(cfg *config.Config, d *inspection, home string) error {
 	defs, _ := d.root["rule-providers"].(map[string]any)
+	if d.android {
+		// Use Mihomo's native rule provider implementation for YAML, text, MRS,
+		// inline payloads, HTTP headers/size limits and bundled MRS assets. The
+		// parser wrapper only removes process/UID rules, which Android's TUN flow
+		// metadata does not expose; every network fetch still uses the mandatory
+		// protected socket hook.
+		RP.SetTunnel(tunnel.Tunnel)
+		for name, raw := range defs {
+			mapping, ok := raw.(map[string]any)
+			if !ok {
+				return fmt.Errorf("rule provider %s must be a mapping", name)
+			}
+			provider, err := RP.ParseRuleProvider(name, mapping, parseAndroidRule, RB.MakeBundleFile)
+			if err != nil {
+				return fmt.Errorf("rule provider %s: %w", name, err)
+			}
+			closeProvider(cfg.RuleProviders[name])
+			cfg.RuleProviders[name] = provider
+		}
+		return nil
+	}
 	for name, v := range defs {
 		m := v.(map[string]any)
 		behavior, err := P.ParseBehavior(str(m, "behavior"))
 		if err != nil {
 			return err
 		}
-		p := &managedRule{name: name, behavior: behavior, kind: P.Inline}
+		p := &managedRule{name: name, behavior: behavior, kind: P.Inline, mobile: d.mobile, android: d.android}
 		parser := func(b []byte) (P.RuleProvider, error) {
 			var values []string
 			if str(m, "format") == "text" {
@@ -214,14 +308,14 @@ func rebindRuleProviders(cfg *config.Config, d *inspection, home string) error {
 					return nil, err
 				}
 			}
-			return makeRulePayload(name, behavior, values)
+			return makeRulePayload(name, behavior, values, p.mobile, p.android)
 		}
 		if raw, exists := m["payload"]; exists {
 			values, err := ruleStrings(raw)
 			if err != nil {
 				return err
 			}
-			p.current, err = makeRulePayload(name, behavior, values)
+			p.current, err = makeRulePayload(name, behavior, values, p.mobile, p.android)
 			if err != nil {
 				return err
 			}
@@ -254,4 +348,8 @@ func rebindRuleProviders(cfg *config.Config, d *inspection, home string) error {
 		cfg.RuleProviders[name] = p
 	}
 	return nil
+}
+
+func parseAndroidRule(tp, payload, target string, params []string, subRules map[string][]C.Rule) (C.Rule, error) {
+	return rules.ParseRule(tp, payload, target, params, subRules)
 }

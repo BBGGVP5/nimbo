@@ -1,11 +1,19 @@
 {
   "sourceRoot": "C:\\Users\\Danila\\AndroidStudioProjects\\Nimbo\\tools\\native\\mihomo-core",
   "target": "windows/amd64",
-  "binarySHA256": "624384c47c7d5b0d2d068e00d66724ad81cdd9676df5b4ffe4404ce6cc5eb688",
+  "binarySHA256": "5195dce5c76fe3cc39975b72d4815b7d1b2730e6aaf4002b72811781de6f3255",
   "buildSourceFiles": [
     {
+      "path": "android_runtime_test.go",
+      "sha256": "7280698e1663e6eb8ebecc445ce76944f18037201dfa04a807042b3b1c7eb5c1"
+    },
+    {
+      "path": "android_runtime.go",
+      "sha256": "6b6818b045a043eedc681cf9c8a8edc2fad66a62b360e4596da62eea84276076"
+    },
+    {
       "path": "API.md",
-      "sha256": "8f073f3c4374d3baecf28fa8663e710040ff3cd348dd8007c05321d45334daf9"
+      "sha256": "1694d593d1831c94c876120129607c8a9f5a42b040e4ca7263d9cb7c108ceed5"
     },
     {
       "path": "cache_test.go",
@@ -25,7 +33,19 @@
     },
     {
       "path": "dns.go",
-      "sha256": "a99c878bfdc724964a4e458900b6f3b9f90f1fda039acd9f50955416c3cf8ff8"
+      "sha256": "ecc42ec18d69d2c02fa1bdd7477dd63a186d522561631e4810400485a934911d"
+    },
+    {
+      "path": "effective_test.go",
+      "sha256": "00aa4cf22d1f15a7b2bea24a230d117f2a3fbe16027f9e2cb449c763bd2910ca"
+    },
+    {
+      "path": "effective.go",
+      "sha256": "e851546f50a38dd4231c10730ad8a78a7240a5ff4630c1768360e2ba392a368a"
+    },
+    {
+      "path": "flow_owner.go",
+      "sha256": "d337bfa44af5ce05d8f1bd457515b7918fa61189e28cd010b86e63da6351c337"
     },
     {
       "path": "go.mod",
@@ -37,11 +57,11 @@
     },
     {
       "path": "hardening_test.go",
-      "sha256": "05919882e38b2b4237122b1ea023820dbc75e953b3bbd56086853afe601af785"
+      "sha256": "f20163b45a46ab7acc246036a105674adbd88beada714789cc0bf88ca44d32bb"
     },
     {
       "path": "inspect.go",
-      "sha256": "e6fde5e7ee88a01841a43853052148ba6592020afa27fd61c731a1ac740b0767"
+      "sha256": "97b3bb116e69f6d9ab973402437ac1c06daeb257c68e8b3654c9dcdebe702a26"
     },
     {
       "path": "json.go",
@@ -52,40 +72,96 @@
       "sha256": "909c006fb7f6479289bb789f43b812026b2808a1a7fc85335b87fca162977716"
     },
     {
+      "path": "managed_protocols_test.go",
+      "sha256": "1c21f271bd4e301e673037038308ed2e85512545cb9169500288968d700dbe7b"
+    },
+    {
+      "path": "mihomo-reality-client-version.patch",
+      "sha256": "a9cbaa2055b43c0ca1e6fe0eb5af6009e0257dc12e76754e61a015e5f66f3e2a"
+    },
+    {
+      "path": "mihomo-session-lifecycle.patch",
+      "sha256": "d16bc518d4252dd33af042040157a8e42fac85b814812854ac4c1db20bb26774"
+    },
+    {
+      "path": "mobile_dns.go",
+      "sha256": "8117d92ca087be9f31d172a8399cb619cd547b1e6c7fa0879823acc81ba24195"
+    },
+    {
+      "path": "mobile_platform_stub.go",
+      "sha256": "813afa3fac2ac35a45aa1902c89c5a9f2be015e38e51da6793f8fd32a8aa2aa0"
+    },
+    {
+      "path": "mobile_session.go",
+      "sha256": "0ca3ce32ce4eee2bed2d1eda87bafb3738a450ac2240606ec38faf9d9e41a75d"
+    },
+    {
+      "path": "mobile_stack_test.go",
+      "sha256": "7feaf0e9cfca9217b213a342ed4dd0f302cfc5ed44fa360f68ccc369549cff21"
+    },
+    {
+      "path": "mobile_test.go",
+      "sha256": "f399af1340acd12d30b1e6328d5aad6d35abda49d6a1a35ac1e54ce259a97b7c"
+    },
+    {
+      "path": "mobile_tun_android.go",
+      "sha256": "cb811fb54f55c799d629e9ae53ff1a367a758a2d555a0f288474fc0a2db03640"
+    },
+    {
+      "path": "mobile.go",
+      "sha256": "2498b5e61e094c88b4f4408d7be581d3da31ab4abe1d23bfdb108cc5a3e6a55e"
+    },
+    {
       "path": "pins.json",
       "sha256": "0b781ac7f5e2882087b8ccf74499205732f952d2d7bbf9ca3da697cfdfa8326c"
     },
     {
       "path": "platform.go",
-      "sha256": "69016cd296adb45af43d3b5bc0ff25d47c642acd7182fb88cd5ec495227d52a3"
+      "sha256": "375f8ac09d3199c99d297a224cb916ef666aa92c34be2bb40b78b39399c88f5d"
     },
     {
       "path": "policy.go",
-      "sha256": "5605ef327dcb723c480fe5f693034a97d228dd9091f20a64356688c9a18f2e67"
+      "sha256": "bcb454879b3502c1b5af991c3d2e3f106246c12672b8d6d2dd74208d7e26a1f8"
+    },
+    {
+      "path": "preflight_test.go",
+      "sha256": "fca0c0e428752b79ec9084e4a12bb2aa2e1aadf7d6dac12427767ca52a4c76b8"
     },
     {
       "path": "protobuf-directive.patch",
       "sha256": "42fffbb27d139e3decd7815e06bf6f1a539cb6c4dd4a005d65514c0e6964d60f"
     },
     {
+      "path": "provider_mobile_test.go",
+      "sha256": "20b0aa2a24cd4070efd2de0a5355b61e23da9dcfb1b5e2e25649fd98a2bdd6e8"
+    },
+    {
       "path": "providers.go",
-      "sha256": "1e66e2303f64b0a3b3f422e3ce36e501c1daf7fca7e73c82184860912398f75f"
+      "sha256": "c3450055a2b489f2e04850374dbb0a769061d8cd183b1855880d059cf09b3ce6"
     },
     {
       "path": "README.md",
-      "sha256": "0f3cd8de817ca0afa3a5f283569bd96132b4c030ec17a3136d757afc665a65c7"
+      "sha256": "815461e133decc40c82d11fb0123bb45473871679c451a5417731cf56a1cda43"
     },
     {
       "path": "ruleproviders.go",
-      "sha256": "7610739fd31f2f718015c2880b10f617cabe9ed20f991a426017e3f350d9e86c"
+      "sha256": "519caa0615af1ebff0666fdfcecdca75f6454594478cdaf8a2fc4f27dc952834"
     },
     {
       "path": "runtime_test.go",
-      "sha256": "69dca3037271002af1e1ee1388c9ee57aedb907029b2d5f8e89d3b2cf2d6bb80"
+      "sha256": "205d073cb7fbb577b9d9ebdc2a6a877b71e44b912b9bddc84ba94927afc72d71"
     },
     {
       "path": "runtime.go",
-      "sha256": "923c0121d17219d24298e7f6abb72e08b9fd6df27dc0872ce805a5b3ab89347e"
+      "sha256": "635064691ba220459b176b4ed7f120170a316e77396f0f568a0337dc8e04de06"
+    },
+    {
+      "path": "standalone_probe_test.go",
+      "sha256": "bc4a6fcd8e9b5902cedcc64851e0514a79cc0f22342eb557650d0ee00b0cd9ff"
+    },
+    {
+      "path": "standalone_probe.go",
+      "sha256": "2b56cb122dc79862fe0bee90eeb014a9ec014cc1c35777c5b72b4bd229dd3513"
     },
     {
       "path": "testdata/inspect-source.yaml",
@@ -93,13 +169,13 @@
     },
     {
       "path": "testdata/inspect-wire-v1.json",
-      "sha256": "85ed3f1853a5302f2cf7456108a154e15efdd1dbc720adbb9ae1d6b828efe368"
+      "sha256": "d7c879f2f22757fcf1857746f33abcb0482481c523bf9528ba529069408f9c78"
     },
     {
       "path": "VERIFICATION.md",
       "sha256": "47855203e05fa2ef6821d9f0e6d182a85e494aa361b7b82b7b585e026f788248"
     }
   ],
-  "sourceLicenseManifestSHA256": "f3e426ea3b2a73d021912e798f377ca0978b47b56488afe2771ec12f5b2bfe91",
+  "sourceLicenseManifestSHA256": "697da3f41e768d57cdf0c28a9eb2af544bd0c8962969a33f31c7eb845a821270",
   "releaseGate": "Corresponding-source/license review remains mandatory; no deployment performed"
 }

@@ -70,6 +70,9 @@ fun NotificationHistoryScreen(onNavigateBack: () -> Unit) {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp,
                 bottom = LocalFloatingNavHeight.current + 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item(key = "live-update") {
+                NimboPanel(Modifier.fillMaxWidth()) { VpnLiveUpdateSettings() }
+            }
             item(key = "settings") {
                 NimboPanel(Modifier.fillMaxWidth()) {
                     Column {

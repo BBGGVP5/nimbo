@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go.yaml.in/yaml/v3"
 	"io"
 	"os"
 	"path/filepath"
@@ -127,18 +128,19 @@ type session struct {
 	tun                io.Closer
 }
 type manager struct {
-	probeRequestID  string
-	probeCancel     context.CancelFunc
-	probeContext    context.Context
-	mu              sync.Mutex
-	op              sync.Mutex
-	generation      uint64
-	state           string
-	cancel          context.CancelFunc
-	session         *session
-	info            runtimeStatus
-	startRequestID  string
-	cancelledStarts map[string]time.Time
+	probeRequestID       string
+	probeCancel          context.CancelFunc
+	probeContext         context.Context
+	mu                   sync.Mutex
+	op                   sync.Mutex
+	generation           uint64
+	state                string
+	cancel               context.CancelFunc
+	session              *session
+	info                 runtimeStatus
+	startRequestID       string
+	cancelledStarts      map[string]time.Time
+	lastDiagnosticConfig map[string]any
 }
 
 var singleton = manager{state: "stopped"}
@@ -337,6 +339,11 @@ func (m *manager) dispatch(r *request) (any, error) {
 		return nil, err
 	}
 	switch r.Operation {
+	case "diagnosticConfig":
+		if m.lastDiagnosticConfig == nil {
+			return map[string]any{"available": false}, nil
+		}
+		return m.lastDiagnosticConfig, nil
 	case "probeAndroid":
 		return m.probeAndroid(*r)
 	case "start":
@@ -647,7 +654,11 @@ func nativeParse(d *inspection) (*config.Config, error) {
 	oldLogLevel := log.Level()
 	defer log.SetLevel(oldLogLevel)
 	log.SetLevel(log.SILENT)
-	raw, err := config.UnmarshalRawConfig([]byte(d.OriginalYAML))
+	source, err := effectiveYAML(d)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := config.UnmarshalRawConfig(source)
 	if err != nil {
 		return nil, problem("INVALID_CONFIG", "$", err.Error())
 	}
@@ -658,6 +669,9 @@ func nativeParse(d *inspection) (*config.Config, error) {
 	// The managed resolver has no implicit geodata downloads. An explicit true
 	// is rejected by admission; an omitted filter uses this documented default.
 	raw.DNS.FallbackFilter.GeoIP = false
+	if serialized, marshalErr := yaml.Marshal(raw); marshalErr == nil {
+		d.finalConfig, _ = decodeDocument(string(serialized))
+	}
 	cfg, err := config.ParseRawConfig(raw)
 	if err != nil {
 		return nil, problem("INVALID_CONFIG", "$", err.Error())
@@ -781,6 +795,7 @@ func (m *manager) start(r request) (result any, err error) {
 	s.cacheOpened = true
 	if android {
 		s.cfg, err = nativeParseAndroid(d, o.AndroidIPv6, o.AndroidSystemDNS)
+		m.lastDiagnosticConfig = d.finalConfig
 	} else {
 		s.cfg, err = nativeParse(d)
 	}

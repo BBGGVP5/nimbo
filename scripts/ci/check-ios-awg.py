@@ -60,7 +60,7 @@ def main():
     check('@SerialName("amneziawg")' in read("shared/src/commonMain/kotlin/com/danila/nimbo/shared/subscription/SubscriptionModels.kt"), "Compose must decode native AWG profiles")
     check("v3.1.20260828" in lock, "AWG version must be pinned")
     check("v0.0.0-20260122175437-89a5d21be8f0" in lock, "Combined module must retain Xray's compatible gVisor")
-    check("070a5b573f5a907d31dc23064c89a8cac2cbf9a8baf7df64c42b9cac78b50d4b" in build, "Source checksum is required")
+    check("0b9162518c1eb2aadca13f39e63e9c5f7c904c4843ad6bc8f8251f2d1f99c185" in build, "Source checksum is required")
     check("-mod=readonly" in build and "go mod verify" in build, "Locked dependency verification is required")
     check("go get" not in build and "@latest" not in build, "Build must not resolve floating dependencies")
     subprocess.run([sys.executable, str(ROOT / "scripts/ci/test-ios-release.py")], check=True, cwd=ROOT)

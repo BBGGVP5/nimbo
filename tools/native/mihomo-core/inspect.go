@@ -39,6 +39,7 @@ type inspection struct {
 	StrictIssues  []issue       `json:"strictIssues"`
 	root          map[string]any
 	mobile        bool
+	finalConfig   map[string]any
 	android       bool
 }
 
@@ -111,6 +112,7 @@ func inspect(source string) (*inspection, error) {
 	if err != nil {
 		return nil, err
 	}
+	normalizeSmartGroups(root)
 	sum := sha256.Sum256([]byte(source))
 	d := &inspection{OriginalYAML: source, SourceSHA256: hex.EncodeToString(sum[:]), DocumentKind: "yaml", RootKeys: make([]string, 0, len(root)), root: root, StrictIssues: []issue{}, DeclaredGraph: declaredGraph{Proxies: []map[string]any{}, Groups: []map[string]any{}, Providers: map[string]map[string]any{}}}
 	for key := range root {

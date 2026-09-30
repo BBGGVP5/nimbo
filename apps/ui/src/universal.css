@@ -539,3 +539,14 @@ body[data-ui-style="signal"] .settings-tools-row { display: none; }
     font-size: 12px;
   }
 }
+
+/* Selection is visible without relying on a subtle background tint. */
+.server-profile-row-active,
+body[data-ui-style="signal"] .server-profile-row-active,
+body[data-ui-style="signal"] .signal-srv-row.is-active {
+  border-color:var(--color-accent);
+  background:color-mix(in srgb,var(--color-accent) 20%,var(--color-card));
+  box-shadow:inset 4px 0 0 var(--color-accent),inset 0 0 0 1px var(--color-accent);
+}
+.server-selection-badge { display:inline-flex; align-items:center; gap:4px; flex-shrink:0; padding:3px 8px; border-radius:20px; background:var(--color-text); color:var(--color-bg); font-size:11px; font-weight:700; line-height:1.6; }
+body[data-ui-style="signal"] .signal-table tr.is-active { outline:2px solid var(--color-accent); outline-offset:-2px; background:color-mix(in srgb,var(--color-accent) 20%,var(--color-card)); }

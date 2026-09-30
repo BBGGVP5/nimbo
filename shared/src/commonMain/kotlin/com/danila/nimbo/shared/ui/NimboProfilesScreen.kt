@@ -182,8 +182,8 @@ internal fun ProfileServerCard(
 ) {
     val shape = nimboStyledShape(14.dp)
     Row(Modifier.fillMaxWidth().heightIn(min = 88.dp).clip(shape)
-        .background(if (server.selected) NimboPalette.Soft else NimboPalette.Surface)
-        .border(1.dp, if (server.selected) NimboPalette.TextSecondary else NimboPalette.Border, shape)
+        .background(if (server.selected) NimboPalette.Accent.copy(alpha = .22f) else NimboPalette.Surface)
+        .border(if (server.selected) 2.dp else 1.dp, if (server.selected) NimboPalette.Accent else NimboPalette.Border, shape)
         .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -191,6 +191,8 @@ internal fun ProfileServerCard(
             .clickable(enabled = !server.selected, role = androidx.compose.ui.semantics.Role.RadioButton) { onSelect(server.id) }
             .semantics { selected = server.selected },
             verticalArrangement = Arrangement.Center) {
+            if (server.selected) BasicText("✓ Выбран", style = NimboBodyStyle.copy(
+                color = NimboPalette.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold))
             BasicText(withoutFlagEmoji(server.name), maxLines = 2, overflow = TextOverflow.Ellipsis,
                 style = NimboBodyStyle.copy(color = NimboPalette.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium))
             BasicText(server.description.ifBlank { server.connectionLabel }, maxLines = 2, overflow = TextOverflow.Ellipsis,

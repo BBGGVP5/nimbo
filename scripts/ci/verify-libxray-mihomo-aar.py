@@ -131,7 +131,7 @@ def main():
                 metadata = subprocess.run([args.go, "version", "-m", str(native)],
                                           check=True, capture_output=True, text=True).stdout
                 for module, version in (
-                    ("github.com/xtls/xray-core", "v1.260327.1-0.20260908222543-52a412d9e2f5"),
+                    ("github.com/xtls/xray-core", "v1.260327.1-0.20260930074004-b26a91de4f32"),
                     ("github.com/metacubex/mihomo", "v1.19.31"),
                 ):
                     replacement = dependency(metadata, module, version)
@@ -149,6 +149,12 @@ def main():
                             raise ValueError(f"Compiled Mihomo source is not the verified staged pin in {abi}")
                 if "go1.27.1" not in metadata or "with_gvisor" not in metadata:
                     raise ValueError(f"Unexpected toolchain/TUN build tag in {abi}")
+                for tag in ("no_tailscale", "no_zerotier", "no_easytier"):
+                    if tag not in metadata:
+                        raise ValueError(f"Missing lean-core build tag in {abi}: {tag}")
+                for module in ("github.com/metacubex/tailscale", "github.com/metacubex/zerotier-go", "github.com/easytier/easytier/easytier-go"):
+                    if any(line.strip().split()[:2] == ["dep", module] for line in metadata.splitlines()):
+                        raise ValueError(f"Mesh dependency still compiled in {abi}: {module}")
                 if "\tdep\tnimbo/mihomocore\tv0.0.0" not in metadata:
                     raise ValueError(f"Merged native adapter missing in {abi}")
     print(json.dumps({"aar": str(args.aar.resolve()), "sha256": hashlib.sha256(args.aar.read_bytes()).hexdigest(),

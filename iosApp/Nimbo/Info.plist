@@ -30,6 +30,8 @@
     <true/>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+    <key>NSSupportsLiveActivities</key>
+    <true/>
 	<key>NimboPacketTunnelBundleIdentifier</key>
 	<string>$(NIMBO_PACKET_TUNNEL_BUNDLE_ID)</string>
 	<key>NimboDisplayVersion</key>

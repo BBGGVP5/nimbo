@@ -235,7 +235,8 @@ object NotificationManager {
         upSpeedBytes: Long = 0,
         statusOverride: String? = null,
         showPauseAction: Boolean = true,
-        subscriptionLogoBitmap: Bitmap? = null
+        subscriptionLogoBitmap: Bitmap? = null,
+        pillState: VpnPillState? = null
     ): Notification {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -346,6 +347,18 @@ object NotificationManager {
             )
         }
 
+        if (Build.VERSION.SDK_INT >= 36) {
+            // Native Live Update, not a window drawn over other applications.
+            // Keep the existing ID/channel/actions and honor SystemUI promotion settings.
+            val state = pillState ?: when {
+                !isConnected -> VpnPillState.CONNECTING
+                statusOverride != null -> VpnPillState.ATTENTION
+                else -> VpnPillState.CONNECTED
+            }
+            builder.setRequestPromotedOngoing(prefs.vpnLiveUpdateEnabled)
+                .setShortCriticalText(if (prefs.vpnLiveUpdateEnabled)
+                    vpnPillText(state, connectionTimeSeconds, isEn) else null)
+        }
         return builder.build()
     }
 
