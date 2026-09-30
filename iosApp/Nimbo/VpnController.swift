@@ -351,6 +351,15 @@ final class VpnController: ObservableObject {
             // profile is used by app, widget and subsequent system starts.
             try await NimboOnDemandRules.persist(NimboOnDemandSettings.load(), on: manager)
             guard startAttempt.isCurrent(attempt) else { return }
+            // Arming On Demand may already have started the same tunnel.
+            // Do not issue a second start or turn a working session into failure.
+            switch manager.connection.status {
+            case .connected, .connecting, .reasserting:
+                synchronizeStatus()
+                return
+            case .disconnecting: throw NimboCoreSelectionError.busy
+            default: break
+            }
             startAttempt.requestedStart(for: attempt)
             startRequestedAt = Date()
             transitionStartedAt = startRequestedAt

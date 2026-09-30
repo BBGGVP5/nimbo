@@ -52,6 +52,11 @@ enum NimboTunnelControl {
             preference: proto.providerConfiguration?[NimboCorePreference.providerKey], data: data,
             declaredEngine: proto.providerConfiguration?[NimboCorePreference.profileEngineKey])
         try await NimboOnDemandRules.persist(NimboOnDemandRules.stagedSettings(in: proto), on: manager)
+        switch manager.connection.status {
+        case .connected, .connecting, .reasserting: return
+        case .disconnecting: throw ControlError.busy
+        default: break
+        }
         try manager.connection.startVPNTunnel()
     }
 
