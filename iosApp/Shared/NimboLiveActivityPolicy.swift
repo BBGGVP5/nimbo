@@ -17,9 +17,9 @@ enum NimboLivePhase: String, Codable, Hashable {
         if stale { return english ? "Open Nimbo to update status" : "Откройте Nimbo для обновления статуса" }
         switch self {
         case .connecting: return english ? "Connecting" : "Подключаемся"
-        case .connected: return english ? "VPN connected" : "VPN подключён"
+        case .connected: return english ? "NIMBO connected" : "NIMBO подключён"
         case .recovering: return english ? "Reconnecting" : "Восстанавливаем связь"
-        case .disconnecting, .idle: return english ? "VPN disconnected" : "VPN отключён"
+        case .disconnecting, .idle: return english ? "NIMBO disconnected" : "NIMBO отключён"
         }
     }
 }

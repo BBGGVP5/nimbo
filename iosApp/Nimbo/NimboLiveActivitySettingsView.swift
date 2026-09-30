@@ -15,7 +15,7 @@ struct NimboLiveActivitySettingsView: View {
             Text("Live Activity на экране блокировки и Dynamic Island, если поддерживается устройством.")
                 .font(.caption).foregroundStyle(NimboNative.secondary)
             HStack {
-                Label("nimbo", systemImage: "cloud.fill")
+                Label("NIMBO", systemImage: "cloud.fill")
                     .font(.caption.weight(.semibold)).padding(.horizontal, 14).padding(.vertical, 8)
                     .foregroundStyle(.white).background(.black, in: Capsule())
                     .accessibilityLabel("Предпросмотр пилюли")

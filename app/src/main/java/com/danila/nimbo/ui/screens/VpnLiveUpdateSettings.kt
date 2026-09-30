@@ -3,6 +3,8 @@ package com.danila.nimbo.ui.screens
 import android.animation.ValueAnimator
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -122,8 +124,10 @@ private fun VpnPillPreview(enabled: Boolean, resumed: Boolean, english: Boolean)
             Icon(painterResource(R.drawable.nimbo_cloud), t("Облачко Nimbo", "Nimbo cloud"),
                 Modifier.size(20.dp), tint = Color.White.copy(alpha = if (enabled) 1f else 0.4f))
             AnimatedContent(targetState = text, label = "vpn-pill-preview", transitionSpec = {
-                (fadeIn(tween(if (motionAllowed) 180 else 0)) togetherWith
-                    fadeOut(tween(if (motionAllowed) 140 else 0))).using(
+                ((fadeIn(tween(if (motionAllowed) 200 else 0)) +
+                    slideInVertically(tween(if (motionAllowed) 220 else 0)) { if (motionAllowed) it / 3 else 0 }) togetherWith
+                    (fadeOut(tween(if (motionAllowed) 140 else 0)) +
+                    slideOutVertically(tween(if (motionAllowed) 180 else 0)) { if (motionAllowed) -it / 3 else 0 })).using(
                     SizeTransform { _, _ -> tween(if (motionAllowed) 220 else 0) })
             }) { value ->
                 if (value != null) Text(value, color = Color.White, style = MaterialTheme.typography.labelLarge,

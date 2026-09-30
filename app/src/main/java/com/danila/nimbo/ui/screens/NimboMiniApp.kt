@@ -4917,14 +4917,14 @@ private fun ColumnScope.GeneralSettingsSection(
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = t("Снять ограничение по памяти", "Remove memory limit"),
+                            text = t("Автоматический бюджет по памяти", "Remove memory limit"),
                             style = MaterialTheme.typography.bodyLarge,
                             color = nebulaColors.textPrimary,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            text = t("Для мощных устройств. Больше памяти повышает стабильность под нагрузкой.", "For powerful devices. More memory increases stability under load."),
+                            text = t("Мягкий бюджет общего Go-ядра; не лимит всей памяти приложения.", "Soft budget for the shared Go runtime, not total app memory."),
                             style = MaterialTheme.typography.bodyMedium,
                             color = nebulaColors.textSecondary
                         )
@@ -4950,9 +4950,9 @@ private fun ColumnScope.GeneralSettingsSection(
             Spacer(Modifier.height(14.dp))
             Text(
                 text = if (memoryLimitDisabled) {
-                    t("Лимит памяти: без ограничений", "Memory limit: unlimited")
+                    t("Бюджет ядра: автоматически · 96 MiB", "Core budget: automatic · 96 MiB")
                 } else {
-                    t("Лимит памяти: ${memoryLimitMb} MB", "Memory limit: ${memoryLimitMb} MB")
+                    t("Бюджет ядра: ${memoryLimitMb} MiB", "Core budget: ${memoryLimitMb} MiB")
                 },
                 style = MaterialTheme.typography.bodyLarge,
                 color = nebulaColors.textPrimary,
@@ -4961,9 +4961,9 @@ private fun ColumnScope.GeneralSettingsSection(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = if (memoryLimitDisabled) {
-                    t("Режим для мощных устройств и максимальной стабильности.", "Mode for powerful devices and maximum stability.")
+                    t("Go освобождает неиспользуемую память без постоянного принудительного GC.", "Go reclaims unused memory without repeated forced GC.")
                 } else {
-                    t("Ниже лимит — ниже расход памяти, выше лимит — стабильнее при высокой нагрузке.", "Lower limit — lower memory consumption, higher limit — more stable under high load.")
+                    t("Это мягкий бюджет: живые соединения не прерываются при превышении.", "A soft budget: live connections are not stopped if it is exceeded.")
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = nebulaColors.textSecondary

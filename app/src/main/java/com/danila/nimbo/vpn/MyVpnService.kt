@@ -290,6 +290,7 @@ class MyVpnService : VpnService() {
     private var autoHealthJob: Job? = null
     @Volatile
     private var autoAvoidCandidateKey: String? = null
+    private var appliedRuntimeMemoryMb: Int? = null
     private var autoConnectedAtMs: Long = 0L
     private var networkDebounceJob: Job? = null
     private var networkHandoffJob: Job? = null
@@ -331,6 +332,7 @@ class MyVpnService : VpnService() {
         Log.d(TAG, "Service created")
 
         preferencesManager = PreferencesManager(this)
+        enforceSoftMemoryLimitIfNeeded()
         preferencesManager.sharedPreferences.registerOnSharedPreferenceChangeListener(liveUpdatePreferencesListener)
         sessionCoreId = if (preferencesManager.vpnConnectionDesired) preferencesManager.activeVpnCore
             else preferencesManager.vpnCore
@@ -2092,20 +2094,16 @@ class MyVpnService : VpnService() {
     }
 
     private fun enforceSoftMemoryLimitIfNeeded() {
-        if (preferencesManager.memoryLimitDisabled) return
-
-        val limitMb = preferencesManager.memoryLimitMb
-        val usedMb = currentProcessMemoryMb()
-        if (usedMb <= limitMb) return
-
-        Log.w(TAG, "Soft memory limit exceeded: used=${usedMb}MB, limit=${limitMb}MB. Triggering GC.")
-        Runtime.getRuntime().gc()
-        Runtime.getRuntime().runFinalization()
-        val afterGcMb = currentProcessMemoryMb()
-
-        if (afterGcMb > limitMb + 30) {
-            Log.w(TAG, "Memory still high after GC: ${afterGcMb}MB (limit=${limitMb}MB)")
-        }
+        // JVM GC cannot enforce the native Go heap budget. Configure the shared
+        // runtime once/change; Go's pacer handles pressure without a GC timer.
+        val limitMb = if (preferencesManager.memoryLimitDisabled) 96 else preferencesManager.memoryLimitMb
+        if (appliedRuntimeMemoryMb == limitMb) return
+        runCatching {
+            com.danila.nimbo.NebulaGuardApplication.ensureXrayCoreLoaded()
+            val response = org.json.JSONObject(libXray.LibXray.nimboConfigureRuntimeMemory(limitMb.toLong()))
+            check(response.optBoolean("success")) { "Native memory policy rejected" }
+            appliedRuntimeMemoryMb = limitMb
+        }.onFailure { Logger.w(TAG, "Could not apply native memory policy") }
     }
 
     private fun currentProcessMemoryMb(): Long {

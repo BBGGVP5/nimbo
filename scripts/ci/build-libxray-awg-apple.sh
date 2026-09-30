@@ -30,6 +30,7 @@ trap 'rm -rf "${WORK_DIR}"' EXIT
 tar -xzf "${ARCHIVE}" -C "${WORK_DIR}"
 SOURCE_DIR="${WORK_DIR}/libXray-${LIBXRAY_COMMIT}"
 cp "${BRIDGE_DIR}/"*.go "${SOURCE_DIR}/cgo_bridge/"
+cp "${ROOT_DIR}/tools/native/libxray-memory/memory_ios.go" "${SOURCE_DIR}/memory/memory_ios.go"
 cp "${BRIDGE_DIR}/go.mod" "${BRIDGE_DIR}/go.sum" "${SOURCE_DIR}/"
 cd "${SOURCE_DIR}"
 go mod edit "-replace=nimbo/awgcore=${AWG_DIR}"
@@ -112,6 +113,8 @@ ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
   echo "awg_version=${AWG_VERSION}"
   echo "go_version=${GO_VERSION}"
   echo 'go_runtime_archives_per_slice=1'
+  echo 'runtime_memory_policy=soft-budget-no-forced-gc-timer'
+  shasum -a 256 "${ROOT_DIR}/tools/native/libxray-memory/memory_ios.go"
   echo 'native_api3_awg_contract_test=passed'
   echo 'native_mihomo_v1_contract_test=passed'
   echo 'mihomo_version=v1.19.31'

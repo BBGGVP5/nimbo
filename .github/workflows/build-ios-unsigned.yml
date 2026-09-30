@@ -54,6 +54,9 @@ jobs:
       - name: Verify native Live Activity policy and packaging
         run: python3 iosApp/Tests/test_live_activity_contracts.py --swift
 
+      - name: Verify on-demand policy and native memory contracts
+        run: python3 iosApp/Tests/test_on_demand_contracts.py --swift
+
       - name: Install build tools
         run: brew install xcodegen ldid-procursus
 

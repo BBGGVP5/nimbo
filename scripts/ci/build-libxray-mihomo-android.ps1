@@ -45,8 +45,9 @@ if ((& $go version) -ne 'go version go1.27.1 windows/amd64') { throw 'Go toolcha
 if ($LASTEXITCODE) { throw 'Source extraction failed.' }
 Copy-Item -LiteralPath (Join-Path $appleBridge 'go.mod'),(Join-Path $appleBridge 'go.sum') -Destination $source
 Get-ChildItem -LiteralPath $bridge -Filter '*.go' -File | Copy-Item -Destination $source
+Copy-Item -LiteralPath (Join-Path $repo 'tools/native/libxray-memory/memory_ios.go') -Destination (Join-Path $source 'memory/memory_ios.go')
 
-$inputs = @($bridge,$appleBridge,(Join-Path $repo 'tools/native/awg-core'),$mihomo) | ForEach-Object {
+$inputs = @((Join-Path $repo 'tools/native/libxray-memory'),$bridge,$appleBridge,(Join-Path $repo 'tools/native/awg-core'),$mihomo) | ForEach-Object {
     Get-ChildItem -LiteralPath $_ -Recurse -File | Where-Object {
         $_.FullName -notmatch '[\\/]\.build[\\/]' -and ($_.Extension -eq '.go' -or $_.Name -in @('go.mod','go.sum','pins.json','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch'))
     }

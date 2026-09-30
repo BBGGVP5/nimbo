@@ -13,7 +13,7 @@ struct NimboLiveActivityWidget: Widget {
             HStack(spacing: 12) {
                 Image(systemName: context.isStale ? "cloud" : "cloud.fill").font(.title2)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("nimbo").font(.headline)
+                    Text("NIMBO").font(.headline)
                     Text(context.state.phase.title(english: context.state.english, stale: context.isStale))
                         .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                 }
@@ -27,19 +27,19 @@ struct NimboLiveActivityWidget: Widget {
                 DynamicIslandExpandedRegion(.leading) {
                     Image(systemName: "cloud.fill").font(.title2).padding(.leading, 6)
                 }
-                DynamicIslandExpandedRegion(.trailing) { Text("nimbo").font(.headline) }
+                DynamicIslandExpandedRegion(.trailing) { Text("NIMBO").font(.headline) }
                 DynamicIslandExpandedRegion(.bottom) {
                     Text(context.state.phase.title(english: context.state.english, stale: context.isStale))
                         .font(.subheadline).lineLimit(2).padding(.bottom, 4)
                 }
             } compactLeading: {
-                Image(systemName: "cloud.fill").accessibilityLabel("Nimbo VPN")
+                Image(systemName: "cloud.fill").accessibilityLabel("NIMBO")
             } compactTrailing: {
                 if let text = context.state.phase.compactText(english: context.state.english, stale: context.isStale) {
                     Text(text).font(.caption2).lineLimit(1)
                 }
             } minimal: {
-                Image(systemName: context.isStale ? "cloud" : "cloud.fill").accessibilityLabel("Nimbo VPN")
+                Image(systemName: context.isStale ? "cloud" : "cloud.fill").accessibilityLabel("NIMBO")
             }
             .keylineTint(.white.opacity(0.35))
         }

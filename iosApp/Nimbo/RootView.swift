@@ -20,6 +20,7 @@ struct RootView: View {
     @AppStorage("com.nimbo.readiness.checkedBuild") private var readinessBuild = ""
     @State private var showAbout = false
     @State private var showCoreSettings = false
+    @State private var showOnDemandSettings = false
     @State private var selectedTab: NimboTab = .home
     @State private var metrics = NimboMetricsAccumulator()
     @State private var sessionStartedAt: Date?
@@ -49,6 +50,9 @@ struct RootView: View {
 
     var body: some View {
         lifecycleLayer
+            .sheet(isPresented: $showOnDemandSettings) {
+                NavigationStack { NimboOnDemandSettingsView().environmentObject(vpn) }
+            }
             .sheet(isPresented: $showReadiness) {
                 NavigationStack {
                     ReadinessView().environmentObject(vpn)
@@ -87,6 +91,16 @@ struct RootView: View {
         .tint(NimboNative.accent)
         .safeAreaInset(edge: .top, spacing: 0) {
             if selectedTab == .notifications { NimboLiveActivitySettingsView() }
+            if selectedTab == .settings {
+                Button { showOnDemandSettings = true } label: {
+                    HStack {
+                        Label("Автоподключение · On-demand", systemImage: "wifi")
+                        Spacer()
+                        Text(NimboOnDemandSettings.load().enabled ? (vpn.manager?.isOnDemandEnabled == true ? "Включено" : "Пауза") : "Выключено")
+                            .font(.caption).foregroundStyle(NimboNative.secondary)
+                    }.frame(minHeight: 44)
+                }.padding(.horizontal, 20)
+            }
         }
     }
 

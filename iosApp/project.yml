@@ -200,6 +200,10 @@ targets:
       - path: ControlWidget
       - path: Shared/NimboConstants.swift
       - path: Shared/NimboTunnelControl.swift
+      - path: Shared/NimboOnDemandPolicy.swift
+      - path: Shared/NimboOnDemandRules.swift
+      - path: Shared/NimboAWGConfiguration.swift
+      - path: Nimbo/NimboCoreSelection.swift
     resources:
       - path: Branding/Branding.xcassets
     dependencies:

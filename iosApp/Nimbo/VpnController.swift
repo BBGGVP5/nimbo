@@ -21,6 +21,7 @@ final class VpnController: ObservableObject {
     @Published private(set) var manager: NETunnelProviderManager?
     @Published private(set) var isSavingCorePreference = false
     private var isStagingConfiguration = false
+    private var isSavingOnDemand = false
 
     /// Only observed NE state is published; a button press is not a connection.
     func refreshLiveActivity() {
@@ -38,7 +39,7 @@ final class VpnController: ObservableObject {
     /// Called before any disconnect, profile selection, or NetworkExtension write.
     @discardableResult
     func validateCore(data: Data) throws -> NimboCoreProfile {
-        guard !isSavingCorePreference, !isStagingConfiguration else { throw NimboCoreSelectionError.busy }
+        guard !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { throw NimboCoreSelectionError.busy }
         let preference = UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey)
         if let full = try NimboConfigurationStore.shared.loadFullConfiguration() {
             return try NimboCoreAdmission.validate(preference: preference, data: full.sourceData,
@@ -50,7 +51,7 @@ final class VpnController: ObservableObject {
     /// Saves the next-start choice only. The active provider receives no command.
     func setCorePreference(_ preference: NimboCorePreference) async throws {
         guard preference.isAvailable else { throw NimboCoreSelectionError.unavailable }
-        guard !isSavingCorePreference, !isStagingConfiguration,
+        guard !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand,
               state != .preparing, state != .connecting, state != .disconnecting else {
             throw NimboCoreSelectionError.busy
         }
@@ -110,7 +111,7 @@ final class VpnController: ObservableObject {
     }
 
     func prepare() async {
-        guard !isSavingCorePreference, !isStagingConfiguration else { return }
+        guard !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { return }
         state = .preparing
         await NimboDiagnostics.shared.record(
             .info,
@@ -167,7 +168,7 @@ final class VpnController: ObservableObject {
         let preference = try NimboCorePreference.decode(
             UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey)
         )
-        guard !isSavingCorePreference, !isStagingConfiguration else { throw NimboCoreSelectionError.busy }
+        guard !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { throw NimboCoreSelectionError.busy }
         isStagingConfiguration = true
         defer { isStagingConfiguration = false }
         if manager == nil { manager = try await loadOrCreateManager() }
@@ -181,6 +182,7 @@ final class VpnController: ObservableObject {
         tunnelProtocol.includeAllNetworks = false
         tunnelProtocol.providerConfiguration = [
             "schema": 2,
+            NimboOnDemandRules.providerKey: try JSONEncoder().encode(NimboOnDemandSettings.load()),
             "configData": data,
             NimboCorePreference.providerKey: preference.rawValue,
             NimboCorePreference.profileEngineKey: profileEngine.rawValue,
@@ -292,7 +294,7 @@ final class VpnController: ObservableObject {
 
     func connect() async {
         guard state != .connected, state != .connecting, state != .preparing,
-              state != .disconnecting, !isSavingCorePreference, !isStagingConfiguration else { return }
+              state != .disconnecting, !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { return }
         let attempt = startAttempt.begin()
         statusPollTimer?.invalidate()
         statusPollTimer = nil
@@ -345,11 +347,10 @@ final class VpnController: ObservableObject {
             state = .connecting
             await NimboDiagnostics.shared.record(.info, stage: .tunnelStart, code: "IOS_TUNNEL_START_REQUESTED", message: "Запуск Packet Tunnel запрошен пользователем")
             guard startAttempt.isCurrent(attempt) else { return }
-            // Правило «по требованию» здесь не включается намеренно. Оно
-            // поднимает туннель само, и если запуск падает — а на пределе
-            // памяти он падает, — система повторяет попытку по кругу:
-            // со стороны это выглядит как VPN, который сам включается и
-            // выключается, и кнопка перестаёт что-либо значить.
+            // Only a user opt-in may arm On Demand. The same admitted staged
+            // profile is used by app, widget and subsequent system starts.
+            try await NimboOnDemandRules.persist(NimboOnDemandSettings.load(), on: manager)
+            guard startAttempt.isCurrent(attempt) else { return }
             startAttempt.requestedStart(for: attempt)
             startRequestedAt = Date()
             transitionStartedAt = startRequestedAt
@@ -377,27 +378,54 @@ final class VpnController: ObservableObject {
         // Правило могло остаться от прежней версии: без снятия система
         // подняла бы туннель обратно через секунду, и кнопка выглядела бы
         // сломанной.
-        if let manager { try? await setOnDemand(false, on: manager) }
+        if let manager {
+            do { try await setOnDemand(false, on: manager) }
+            catch { fail(code: "IOS_ON_DEMAND_PAUSE_FAILED", error: error); return }
+        }
         manager?.connection.stopVPNTunnel()
         synchronizeStatus()
         await NimboDiagnostics.shared.record(.info, stage: .stop, code: "IOS_TUNNEL_STOP_REQUESTED", message: "Остановка Packet Tunnel запрошена пользователем")
     }
 
-    /// Включает или снимает правило автоматического подъёма туннеля.
-    private func setOnDemand(_ enabled: Bool, on manager: NETunnelProviderManager) async throws {
-        if enabled {
-            let rule = NEOnDemandRuleConnect()
-            // Без ограничения по интерфейсу: туннель нужен и на сотовой сети,
-            // и на Wi-Fi.
-            rule.interfaceTypeMatch = .any
-            manager.onDemandRules = [rule]
-        } else {
-            manager.onDemandRules = []
+    /// Explicit settings save can arm system starts. Never called on launch.
+    func saveOnDemandSettings(_ candidate: NimboOnDemandSettings) async throws {
+        guard !isSavingOnDemand, !isSavingCorePreference, !isStagingConfiguration,
+              state != .preparing, state != .connecting, state != .disconnecting else {
+            throw NimboCoreSelectionError.busy
         }
-        guard manager.isOnDemandEnabled != enabled else { return }
-        manager.isOnDemandEnabled = enabled
-        try await manager.saveToPreferences()
-        try await manager.loadFromPreferences()
+        let settings = try candidate.validated()
+        isSavingOnDemand = true
+        defer { isSavingOnDemand = false }
+        guard let existing = try await NimboTunnelControl.manager() else {
+            throw VpnControllerError.missingConfiguration
+        }
+        guard let proto = existing.protocolConfiguration?.copy() as? NETunnelProviderProtocol else {
+            throw VpnControllerError.managerUnavailable
+        }
+        if settings.enabled {
+            guard let data = proto.providerConfiguration?["configData"] as? Data, !data.isEmpty else {
+                throw VpnControllerError.missingConfiguration
+            }
+            try NimboCoreAdmission.validate(
+                preference: proto.providerConfiguration?[NimboCorePreference.providerKey], data: data,
+                declaredEngine: proto.providerConfiguration?[NimboCorePreference.profileEngineKey])
+        }
+        let encoded = try JSONEncoder().encode(settings)
+        var values = proto.providerConfiguration ?? [:]
+        values[NimboOnDemandRules.providerKey] = encoded
+        proto.providerConfiguration = values
+        existing.protocolConfiguration = proto
+        existing.isEnabled = true
+        try await NimboOnDemandRules.persist(settings, on: existing)
+        UserDefaults.standard.set(encoded, forKey: NimboOnDemandSettings.preferenceKey)
+        manager = existing
+        synchronizeStatus()
+    }
+
+    /// Manual stop pauses system rules, but preserves saved opt-in for resume.
+    private func setOnDemand(_ enabled: Bool, on manager: NETunnelProviderManager) async throws {
+        try await NimboOnDemandRules.persist(
+            enabled ? NimboOnDemandSettings.load() : NimboOnDemandSettings(), on: manager)
     }
 
     private func loadOrCreateManager() async throws -> NETunnelProviderManager {
@@ -440,10 +468,12 @@ final class VpnController: ObservableObject {
         value.protocolConfiguration = tunnelProtocol
         value.localizedDescription = "Nimbo"
         value.isEnabled = true
-        // У тех, кто успел получить прошлую сборку, правило осталось
-        // включённым и продолжало бы поднимать туннель само.
-        value.isOnDemandEnabled = false
-        value.onDemandRules = []
+        // Preserve opt-in rules on reload. New/legacy profiles without our
+        // explicit settings are disabled; old unconditional rules never migrate.
+        if existing == nil || tunnelProtocol.providerConfiguration?[NimboOnDemandRules.providerKey] == nil {
+            value.isOnDemandEnabled = false
+            value.onDemandRules = []
+        }
         try await value.saveToPreferences()
         try await value.loadFromPreferences()
         return value
