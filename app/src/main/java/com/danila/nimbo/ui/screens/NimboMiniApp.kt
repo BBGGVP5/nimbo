@@ -4917,7 +4917,7 @@ private fun ColumnScope.GeneralSettingsSection(
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = t("Автоматический бюджет по памяти", "Remove memory limit"),
+                            text = t("Автоматический бюджет памяти", "Automatic memory budget"),
                             style = MaterialTheme.typography.bodyLarge,
                             color = nebulaColors.textPrimary,
                             fontWeight = FontWeight.Bold

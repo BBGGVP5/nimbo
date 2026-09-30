@@ -4,14 +4,14 @@
   "coreCommit": "ab405bad5beeeac8b003bb01f60f134f6df54471",
   "toolchain": "go version go1.27.1 windows/amd64",
   "target": "windows/amd64",
-  "sha256": "5195dce5c76fe3cc39975b72d4815b7d1b2730e6aaf4002b72811781de6f3255",
+  "sha256": "166f6550522e6ebfd4c946ced6d55e371dda888303f209e428597e23e1e2b46d",
   "goModSHA256": "162e45c25acfced804116dadd24eff907bbd5c40252f9aa667b6a79ea073a3dd",
   "goSumSHA256": "f57878079bd857d4a96d56fc07bbe7223db63049dbf48c29bb03f8a26f6daf99",
-  "effectiveModSHA256": "cc1dad1723b183a9dfe40c33ca479c00c14ce19eeecccb4678d2f8253ac9c965",
+  "effectiveModSHA256": "e3921caff7fb9c06610179aed921968a5424092c1388e43751458a82eadb9adc",
   "lifecyclePatchSHA256": "d16bc518d4252dd33af042040157a8e42fac85b814812854ac4c1db20bb26774",
   "realityPatchSHA256": "a9cbaa2055b43c0ca1e6fe0eb5af6009e0257dc12e76754e61a015e5f66f3e2a",
   "pinsSHA256": "0b781ac7f5e2882087b8ccf74499205732f952d2d7bbf9ca3da697cfdfa8326c",
-  "sourceLicenseManifestSHA256": "697da3f41e768d57cdf0c28a9eb2af544bd0c8962969a33f31c7eb845a821270",
+  "sourceLicenseManifestSHA256": "75462e20d81e54a36e12e768d9420090a86cd550cf8b941c81a361cab5e0e85a",
   "sourceFiles": [
     {
       "path": "android_runtime_test.go",
@@ -39,7 +39,7 @@
     },
     {
       "path": "cmd/nimbo-mihomo/main.go",
-      "sha256": "5a2cfebc49acfe276c201b0cc8937363cd4a956af35862b49bb796a86a9d6ba9"
+      "sha256": "49dfa531d6a20130ac2238f75cee93274becd9224095392d9b9609baa3cb7bd2"
     },
     {
       "path": "dns.go",
@@ -156,6 +156,14 @@
     {
       "path": "ruleproviders.go",
       "sha256": "519caa0615af1ebff0666fdfcecdca75f6454594478cdaf8a2fc4f27dc952834"
+    },
+    {
+      "path": "runtime_memory_test.go",
+      "sha256": "35062ac1f0aea062419602373fce1e3f11285039c2bd507a015ae4f863f32399"
+    },
+    {
+      "path": "runtime_memory.go",
+      "sha256": "97b170e3e2510b621878aaa54bade7c8c6d132163dea10827294568f78bf3179"
     },
     {
       "path": "runtime_test.go",
