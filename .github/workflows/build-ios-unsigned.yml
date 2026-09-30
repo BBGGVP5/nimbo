@@ -29,7 +29,7 @@ jobs:
           java-version: '21'
 
       - name: Set up Gradle cache
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Set up pinned Go for the combined Xray and AWG runtime
         uses: actions/setup-go@v5
