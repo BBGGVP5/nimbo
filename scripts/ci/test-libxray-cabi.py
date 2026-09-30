@@ -58,7 +58,7 @@ def main():
         return result.get("data")
 
     version = invoke("xrayVersion")["version"]
-    assert version == "26.9.9", version
+    assert version == "26.9.30", version
     invoke("xrayVersion", version=1, success=False)
     invoke("runXrayFromJson", {"configJSON": "{}"}, success=False)
     invoke("runXray", {"configJSON": "{}"}, success=False)

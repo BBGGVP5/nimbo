@@ -85,12 +85,28 @@ struct RootView: View {
         }
         .background(NimboNative.canvas.ignoresSafeArea())
         .tint(NimboNative.accent)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if selectedTab == .notifications { NimboLiveActivitySettingsView() }
+        }
     }
 
     private var lifecycleLayer: some View {
         interfaceLayer
             .onAppear(perform: synchronizeComposeState)
             .onAppear(perform: publishSessions)
+            .onChange(of: scenePhase) { phase in
+                if phase == .active { vpn.refreshLiveActivity() }
+            }
+            .task(id: scenePhase) {
+                guard scenePhase == .active else { return }
+                // Renew only while UI is active. Suspension expires the verified status;
+                // no keepalive or permission is added to keep this timer in background.
+                while !Task.isCancelled {
+                    vpn.refreshLiveActivity()
+                    do { try await Task.sleep(nanoseconds: 30_000_000_000) }
+                    catch { return }
+                }
+            }
             .task { if pingOnLaunch { await measurePings() } }
             .task { await loadSubscriptionMetaIfNeeded() }
             .task { await checkForUpdate() }

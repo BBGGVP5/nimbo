@@ -18,6 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -323,13 +326,18 @@ internal fun MihomoProxiesScreen(onAddSubscription: () -> Unit) {
                     choicesVersion++
                 } }
                 else if (subgroup != null) groupName = subgroup.name
-            }, enabled = !ui.busy, shape = RoundedCornerShape(18.dp), color = if (selected) colors.accent.copy(alpha = .09f) else colors.surface,
-                border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) colors.accent else colors.textSecondary.copy(alpha = .16f)),
-                modifier = Modifier.height(132.dp).testTag("mihomo-proxy-$member")) {
+            }, enabled = !ui.busy, shape = RoundedCornerShape(18.dp), color = if (selected) colors.accent.copy(alpha = .22f) else colors.surface,
+                border = BorderStroke(if (selected) 2.5.dp else 1.dp, if (selected) colors.accent else colors.textSecondary.copy(alpha = .16f)),
+                modifier = Modifier.height(132.dp).testTag("mihomo-proxy-$member")
+                    .semantics { this.selected = selected }) {
                 Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(verticalAlignment = Alignment.Top) {
-                        Text(member, Modifier.weight(1f), color = colors.textPrimary, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        if (selected) Icon(Icons.Default.CheckCircle, t("Выбран", "Selected"), Modifier.size(16.dp), tint = colors.accent)
+                        Text(member, Modifier.weight(1f), color = colors.textPrimary, style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (selected) Surface(shape = androidx.compose.foundation.shape.CircleShape, color = colors.accent) {
+                            Icon(Icons.Default.Check, t("Выбран", "Selected"), Modifier.padding(3.dp).size(18.dp),
+                                tint = com.danila.nimbo.ui.components.contrastingLabel(colors.accent))
+                        }
                     }
                     Text(if (subgroup != null) "$type · ${subgroup.selected}" else type,
                         color = colors.textSecondary, style = MaterialTheme.typography.bodySmall,

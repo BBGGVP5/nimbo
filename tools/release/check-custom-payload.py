@@ -30,7 +30,7 @@ def main():
     selected = sys.argv[1:] or list(TARGETS)
     version = json.loads((ROOT / "apps/ui/package.json").read_text())["version"]
     xray_release = json.loads((ROOT / "apps/ui/src-tauri/xray-release.json").read_text())
-    assert xray_release["version"] == "26.9.9", "Unexpected desktop core pin"
+    assert xray_release["version"] == "26.9.30", "Unexpected desktop core pin"
     for platform in selected:
         target, arch, expected_machine = TARGETS[platform]
         windows = platform.startswith("windows")

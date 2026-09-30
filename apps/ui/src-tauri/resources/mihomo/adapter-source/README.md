@@ -20,7 +20,7 @@ Optional `cmd/cbridge` contains versioned C entry/free symbols; CGO/linking requ
 a platform compiler and is a separate build gate. Do not add another Go runtime
 beside an existing Go archive to use this wrapper.
 
-## Implemented semantics and explicit limits
+## Desktop implemented semantics and explicit limits
 
 * Inspect returns exact original UTF-8, SHA-256 and complete declared proxy/group/
   provider mappings. Unknown keys remain in original/graph; strict issues prevent
@@ -103,7 +103,7 @@ mobile DNS/provider/UDP path is protected. Both mobile owners require an egress 
    archive. Agree packaging/migration first; do not add a third runtime. Establish
    via VpnService, borrow/dup FD, protect/bind every egress TCP/UDP/DNS socket before
    traffic; fail closed on protection failure. Disable OS auto-route/redirect/discovery.
-3. Managed cancellation by unique requestId is implemented; mobile FD handoff,
+3. Managed cancellation by unique requestId and Android FD handoff are implemented;
    mobile traffic counters,
    network changes/sleep/wake, actual IPv4/IPv6 TCP/UDP/DNS packet traffic and leaks
    remain acceptance gates. A loopback listener cannot acknowledge mobile TUN readiness.
@@ -132,3 +132,8 @@ distribution must include the corresponding pinned source, local adapter/modific
 build/install scripts and required notices; a binary plus go.sum alone is not a
 complete GPL source offer. App-store/platform terms and complete transitive notice
 inventory remain release/legal review gates, not waived by passing unit tests.
+
+## Constrained Android native milestone (2026-09-24)
+
+See [ANDROID-MILESTONE.md](ANDROID-MILESTONE.md) and the trusted Android section of [API.md](API.md). StartAndroid + with_gvisor owns a CLOEXEC duplicate and session-scoped IPv4 TCP/UDP/DNS tasks. Generic Android Invoke start is rejected. Android rule mode now supports only native IP-CIDR/SRC-IP-CIDR, port, network, managed RULE-SET and explicit final MATCH rules; unsupported rule classes are rejected and unmatched traffic drops. This is not full Mihomo mobile support; keep the product gate. Bootstrap DNS and provider HTTP are protected direct; application DNS follows the session's selected native rule graph over TCP without implicit direct fallback. Desktop behavior above remains separate.
+

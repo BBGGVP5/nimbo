@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Compile upstream API3, AWG, diagnostics and Mihomo V1 in ONE package main.
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LIBXRAY_COMMIT=50b95979f5db551bd273165cf469e5daaf791341
-LIBXRAY_SOURCE_SHA256=070a5b573f5a907d31dc23064c89a8cac2cbf9a8baf7df64c42b9cac78b50d4b
+LIBXRAY_COMMIT=3c694b23290f9849fe52284a345ebd4343bc90cd
+LIBXRAY_SOURCE_SHA256=0b9162518c1eb2aadca13f39e63e9c5f7c904c4843ad6bc8f8251f2d1f99c185
 GO_VERSION=go1.27.1
 AWG_VERSION=v3.1.20260828
 BRIDGE_DIR="${ROOT_DIR}/iosApp/GoBridge"
@@ -15,6 +15,7 @@ DESTINATION="${ROOT_DIR}/iosApp/Vendor/LibXray.xcframework"
 ARCHIVE="${CACHE_DIR}/libxray-source.tar.gz"
 
 [[ "$(uname -s)" == Darwin ]] || { echo 'Apple archives require macOS and Xcode' >&2; exit 20; }
+export GOFLAGS='-tags=no_tailscale,no_zerotier,no_easytier'
 export GOTOOLCHAIN=local GOWORK=off GOSUMDB=sum.golang.org
 [[ "$(go env GOVERSION)" == "${GO_VERSION}" ]] || { echo "Use ${GO_VERSION}" >&2; exit 20; }
 [[ -f "${AWG_DIR}/go.mod" ]] || { echo 'Shared AWG sources are missing' >&2; exit 20; }
@@ -72,7 +73,7 @@ build_slice() {
     CC="$(xcrun --sdk "${sdk}" --find clang)" \
     CXX="$(xcrun --sdk "${sdk}" --find clang++)" \
     CGO_CFLAGS="${flags}" CGO_CXXFLAGS="${flags}" CGO_LDFLAGS="${flags}" \
-    go build -mod=readonly -tags=ios -trimpath -buildvcs=false \
+    go build -mod=readonly -tags=ios,no_tailscale,no_zerotier,no_easytier -trimpath -buildvcs=false \
       -ldflags='-s -w -buildid=' -buildmode=c-archive -o "${out}/libXray.a" ./cgo_bridge
   cp "${out}/libXray.h" "${out}/Headers/"
   cp build/template/module.modulemap "${out}/Headers/"
@@ -105,7 +106,7 @@ xcodebuild -create-xcframework \
 rm -rf "${DESTINATION}"
 ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
 {
-  echo 'libxray_version=26.9.9'
+  echo 'libxray_version=26.9.30'
   echo "libxray_commit=${LIBXRAY_COMMIT}"
   echo "libxray_source_sha256=${LIBXRAY_SOURCE_SHA256}"
   echo "awg_version=${AWG_VERSION}"
@@ -123,4 +124,4 @@ ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
 } > "${ROOT_DIR}/iosApp/Vendor/libxray-build-info.txt"
 cp "${WORK_DIR}/mihomo-dependencies/mihomo-source-verification.json" \
   "${ROOT_DIR}/iosApp/Vendor/mihomo-source-verification.json"
-echo "Prepared single-runtime LibXray 26.9.9 / AWG ${AWG_VERSION} / Mihomo V1 bridge; iOS Mihomo TUN remains unavailable"
+echo "Prepared single-runtime LibXray 26.9.30 / AWG ${AWG_VERSION} / Mihomo V1 bridge; iOS Mihomo TUN remains unavailable"

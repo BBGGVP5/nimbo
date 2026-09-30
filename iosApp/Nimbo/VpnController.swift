@@ -15,10 +15,25 @@ final class VpnController: ObservableObject {
         case failed(code: String, message: String)
     }
 
-    @Published private(set) var state: State = .idle
+    @Published private(set) var state: State = .idle {
+        didSet { refreshLiveActivity() }
+    }
     @Published private(set) var manager: NETunnelProviderManager?
     @Published private(set) var isSavingCorePreference = false
     private var isStagingConfiguration = false
+
+    /// Only observed NE state is published; a button press is not a connection.
+    func refreshLiveActivity() {
+        let phase: NimboLivePhase
+        switch manager?.connection.status {
+        case .connected?: phase = .connected
+        case .connecting?: phase = .connecting
+        case .reasserting?: phase = .recovering
+        case .disconnecting?: phase = .disconnecting
+        default: phase = .idle
+        }
+        NimboLiveActivityBridge.synchronize(phase)
+    }
 
     /// Called before any disconnect, profile selection, or NetworkExtension write.
     @discardableResult

@@ -13,12 +13,20 @@ url?,timeoutMs?,expectedStatus?,targetRequestId?}`. Unknown/duplicate request fi
 
 * `inspect`: exact UTF-8 source in `yaml`; no network, native construction or disk IO.
   Returns `{originalYAML,sourceSHA256,documentKind,rootKeys,declaredGraph:{proxies:[],groups:[],providers:{}},
-  strictIssues:[{code,message,path}]}`. Graph entries are **complete declared YAML
-  mappings**, including unknown fields; dynamic flags/use are not materialized.
+  strictIssues:[{code,message,path}]}`. Graph entries retain declared YAML
+  mappings and unknown fields, except `smart` groups are projected to stable
+  `url-test` (`interval:600`, `lazy:true`, `tolerance:100`) with ML/telemetry
+  options removed. Dynamic flags/use are not materialized.
   `documentKind` is `mihomo` only when a parsed root mapping contains a recognized
   Mihomo key; `rootKeys` are sorted keys from that parsed mapping. Byte-exact source
   is authoritative (comments, anchors, ordering retained there).
   Unknown/unsupported content remains inspectable, but cannot validate/start.
+* `diagnosticConfig`: returns the last prepared Android raw configuration, or
+  `{available:false}` if none was prepared. Serialized with native operations;
+  no network or disk IO, no core restart. This is an internal sensitive snapshot,
+  not a sanitized export. Kotlin's fail-closed redactor must run before writing
+  or sharing it. It can predate current settings and excludes final TUN ownership
+  projection; reports label that scope explicitly.
 * `validate`: strict policy then actual pinned Mihomo config parser, only stopped.
   No provider fetch, listener, TUN or rule asset downloads. Native parse errors fail.
 * `preflightAndroid`: `yaml`; strict inspection followed by the unchanged Android

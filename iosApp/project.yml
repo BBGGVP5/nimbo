@@ -15,6 +15,7 @@ settings:
     NIMBO_APP_BUNDLE_ID: com.nimbo.resignable
     NIMBO_PACKET_TUNNEL_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).PacketTunnel"
     NIMBO_CONTROL_WIDGET_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).ControlWidget"
+    NIMBO_LIVE_ACTIVITY_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).LiveActivity"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: minimal
     OTHER_LDFLAGS: "$(inherited) -ObjC"
@@ -32,6 +33,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CADisableMinimumFrameDurationOnPhone: true
         ITSAppUsesNonExemptEncryption: false
+        NSSupportsLiveActivities: true
         NSLocalNetworkUsageDescription: >-
           Нужен для синхронизации подписок и настроек с компьютером или
           Android-устройством в вашей сети Wi-Fi.
@@ -69,6 +71,8 @@ targets:
       - target: NimboPacketTunnel
         embed: true
       - target: NimboControlWidget
+        embed: true
+      - target: NimboLiveActivity
         embed: true
       - framework: ../shared/build/XCFrameworks/release/NimboShared.xcframework
         embed: false
@@ -137,6 +141,35 @@ targets:
         SKIP_INSTALL: YES
         APPLICATION_EXTENSION_API_ONLY: YES
 
+  NimboLiveActivity:
+    type: app-extension
+    platform: iOS
+    deploymentTarget:
+      iOS: "16.2"
+    info:
+      path: LiveActivity/Info.plist
+      properties:
+        CFBundleDisplayName: Nimbo
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    sources:
+      - path: LiveActivity
+      - path: Shared/NimboLiveActivityAttributes.swift
+      - path: Shared/NimboLiveActivityPolicy.swift
+    dependencies:
+      - sdk: ActivityKit.framework
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(NIMBO_LIVE_ACTIVITY_BUNDLE_ID)"
+        PRODUCT_NAME: NimboLiveActivity
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        IPHONEOS_DEPLOYMENT_TARGET: "16.2"
+
   NimboControlWidget:
     type: app-extension
     platform: iOS
@@ -190,6 +223,7 @@ schemes:
         Nimbo: all
         NimboPacketTunnel: all
         NimboControlWidget: all
+        NimboLiveActivity: all
     run:
       config: Debug
     archive:

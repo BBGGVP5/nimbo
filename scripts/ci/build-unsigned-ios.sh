@@ -144,6 +144,8 @@ fi
 
 TUNNEL_PATH="${APP_PATH}/PlugIns/NimboPacketTunnel.appex"
 WIDGET_PATH="${APP_PATH}/PlugIns/NimboControlWidget.appex"
+LIVE_ACTIVITY_PATH="${APP_PATH}/PlugIns/NimboLiveActivity.appex"
+[[ -d "${LIVE_ACTIVITY_PATH}" ]] || { echo 'Live Activity extension is missing' >&2; exit 4; }
 if [[ ! -d "${TUNNEL_PATH}" ]]; then
   echo "Packet Tunnel extension is missing from the app bundle" >&2
   exit 4
@@ -181,7 +183,10 @@ assert_plist "${APP_PATH}/Info.plist" "NimboPacketTunnelBundleIdentifier" "${TUN
 assert_plist "${TUNNEL_PATH}/Info.plist" "CFBundleIdentifier" "${TUNNEL_BUNDLE_ID}"
 assert_plist "${TUNNEL_PATH}/Info.plist" "NSExtension:NSExtensionPointIdentifier" "com.apple.networkextension.packet-tunnel"
 assert_plist "${TUNNEL_PATH}/Info.plist" "NSExtension:NSExtensionPrincipalClass" "NimboPacketTunnel.PacketTunnelProvider"
-for bundle in "${TUNNEL_PATH}" "${WIDGET_PATH}"; do
+assert_plist "${APP_PATH}/Info.plist" "NSSupportsLiveActivities" "true"
+assert_plist "${LIVE_ACTIVITY_PATH}/Info.plist" "CFBundleIdentifier" "${APP_BUNDLE_ID}.LiveActivity"
+assert_plist "${LIVE_ACTIVITY_PATH}/Info.plist" "NSExtension:NSExtensionPointIdentifier" "com.apple.widgetkit-extension"
+for bundle in "${TUNNEL_PATH}" "${WIDGET_PATH}" "${LIVE_ACTIVITY_PATH}"; do
   [[ -d "${bundle}" ]] || continue
   assert_plist "${bundle}/Info.plist" "CFBundleShortVersionString" "${MARKETING_VERSION}"
   assert_plist "${bundle}/Info.plist" "CFBundleVersion" "${BUILD_NUMBER}"
@@ -220,6 +225,7 @@ done < <(find "${APP_PATH}" -type f -name '*.dylib' -print)
 
 APP_EXECUTABLE="${APP_PATH}/$(read_plist "${APP_PATH}/Info.plist" "CFBundleExecutable")"
 TUNNEL_EXECUTABLE="${TUNNEL_PATH}/$(read_plist "${TUNNEL_PATH}/Info.plist" "CFBundleExecutable")"
+LIVE_ACTIVITY_EXECUTABLE="${LIVE_ACTIVITY_PATH}/$(read_plist "${LIVE_ACTIVITY_PATH}/Info.plist" "CFBundleExecutable")"
 # Элемент Пункта управления собирается только на новых Xcode: если его нет,
 # сборка не должна падать — кнопка приятная, но не обязательная.
 WIDGET_EXECUTABLE=""
@@ -280,6 +286,11 @@ codesign --remove-signature "${TUNNEL_EXECUTABLE}" 2>/dev/null || true
 codesign --remove-signature "${APP_EXECUTABLE}" 2>/dev/null || true
 "${LDID_BIN}" -S"${TUNNEL_ENTITLEMENTS}" "${TUNNEL_EXECUTABLE}"
 "${LDID_BIN}" -S"${APP_ENTITLEMENTS}" "${APP_EXECUTABLE}"
+# This display-only widget must not receive VPN/Network Extension entitlements.
+LIVE_ACTIVITY_ENTITLEMENTS="${LDID_ENTITLEMENTS_DIR}/LiveActivity.entitlements"
+printf '%s\n' '<?xml version="1.0"?><plist version="1.0"><dict/></plist>' > "${LIVE_ACTIVITY_ENTITLEMENTS}"
+codesign --remove-signature "${LIVE_ACTIVITY_EXECUTABLE}" 2>/dev/null || true
+"${LDID_BIN}" -S"${LIVE_ACTIVITY_ENTITLEMENTS}" "${LIVE_ACTIVITY_EXECUTABLE}"
 if [[ -n "${WIDGET_EXECUTABLE}" ]]; then
   codesign --remove-signature "${WIDGET_EXECUTABLE}" 2>/dev/null || true
   "${LDID_BIN}" -S"${WIDGET_ENTITLEMENTS}" "${WIDGET_EXECUTABLE}"
@@ -288,7 +299,7 @@ fi
 ENTITLEMENTS_REPORT_DIR="${ARTIFACT_DIR}/codesign-entitlements"
 rm -rf "${ENTITLEMENTS_REPORT_DIR}"
 mkdir -p "${ENTITLEMENTS_REPORT_DIR}"
-SIGNED_EXECUTABLES=("${APP_EXECUTABLE}" "${TUNNEL_EXECUTABLE}")
+SIGNED_EXECUTABLES=("${APP_EXECUTABLE}" "${TUNNEL_EXECUTABLE}" "${LIVE_ACTIVITY_EXECUTABLE}")
 if [[ -n "${WIDGET_EXECUTABLE}" ]]; then
   SIGNED_EXECUTABLES+=("${WIDGET_EXECUTABLE}")
 fi
@@ -301,6 +312,12 @@ for signed_executable in "${SIGNED_EXECUTABLES[@]}"; do
   # preserve the entitlement correctly while installing the bundle.
   entitlements="$("${LDID_BIN}" -e "${signed_executable}" 2>&1)"
   printf '%s\n' "${entitlements}" > "${report_path}"
+  if [[ "${signed_executable}" == "${LIVE_ACTIVITY_EXECUTABLE}" ]]; then
+    if [[ "${entitlements}" == *"packet-tunnel-provider"* || "${entitlements}" == *"allow-vpn"* ]]; then
+      echo 'Display-only Live Activity incorrectly requests VPN entitlement' >&2; exit 7
+    fi
+    continue
+  fi
   # Право туннеля обязательно для приложения и самого туннеля. Виджету оно
   # не положено: он переключает готовый туннель, а с лишним правом iOS 27
   # отвергает связку расширений целиком.
@@ -343,11 +360,12 @@ signed=adhoc-ldid
 apple_certificate=false
 apple_provisioning_profile=false
 contains_packet_tunnel=true
+contains_live_activity=true
 requires_resigning=true
 requires_network_extension_entitlement=true
 resignable=true
-libxray_version=26.9.9
-libxray_source_sha256=070a5b573f5a907d31dc23064c89a8cac2cbf9a8baf7df64c42b9cac78b50d4b
+libxray_version=26.9.30
+libxray_source_sha256=0b9162518c1eb2aadca13f39e63e9c5f7c904c4843ad6bc8f8251f2d1f99c185
 awg_version=v3.1.20260828
 go_runtime_archives_per_slice=1
 MANIFEST

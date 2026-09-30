@@ -3,6 +3,7 @@ package mihomocore
 import (
 	"encoding/json"
 	"errors"
+	"runtime"
 	"sync"
 	"syscall"
 
@@ -23,14 +24,20 @@ func init() {
 		}()
 		singleton.mu.Lock()
 		allowed := (singleton.state == "starting" || singleton.state == "running") && singleton.session != nil && singleton.session.ctx.Err() == nil
+		probe := singleton.state == "stopped" && singleton.probeContext != nil && singleton.probeContext.Err() == nil
+		mobile := singleton.session != nil && singleton.session.mobile != nil
+		s := singleton.session
 		singleton.mu.Unlock()
-		if !allowed {
+		if !allowed && !probe {
 			return errors.New("Nimbo runtime is stopped")
 		}
 		protectorLock.RLock()
 		p := socketProtector
 		protectorLock.RUnlock()
 		if p == nil {
+			if mobile || runtime.GOOS == "android" {
+				return errors.New("mobile socket protection is required")
+			}
 			return nil
 		}
 		protected := false
@@ -39,6 +46,9 @@ func init() {
 		}
 		if !protected {
 			return errors.New("platform socket protection failed")
+		}
+		if s != nil && s.ctx.Err() != nil {
+			return errors.New("session stopped during socket protection")
 		}
 		return nil
 	}

@@ -70,6 +70,33 @@ raise SystemExit(0 if "packet-tunnel-provider" in values else 1)
 PY
 }
 
+# Every embedded extension needs its own matching provisioning profile. Never
+# silently remove the pill/control extension or sign it using tunnel privileges.
+EXTRA_BUNDLES=()
+EXTRA_ENTITLEMENTS=()
+prepare_display_extension() {
+  local name="$1" profile="$2" suffix="$3"
+  local bundle="${APP_PATH}/PlugIns/${name}.appex"
+  [[ -d "${bundle}" ]] || return 0
+  [[ -f "${profile}" ]] || { echo "Set a provisioning profile for ${name} (NIMBO_${suffix}_PROFILE)" >&2; exit 8; }
+  local identifier="${NIMBO_APP_BUNDLE_ID}.${suffix}"
+  "${PLIST_BUDDY}" -c "Set :CFBundleIdentifier ${identifier}" "${bundle}/Info.plist"
+  cp "${profile}" "${bundle}/embedded.mobileprovision"
+  security cms -D -i "${profile}" > "${WORK_DIR}/${name}-profile.plist"
+  local profile_id
+  profile_id="$("${PLIST_BUDDY}" -c 'Print :Entitlements:application-identifier' "${WORK_DIR}/${name}-profile.plist")"
+  [[ "${profile_id}" == *."${identifier}" ]] || { echo "Profile does not match ${identifier}" >&2; exit 8; }
+  if profile_has_packet_tunnel "${WORK_DIR}/${name}-profile.plist"; then
+    echo "${name} must not request packet-tunnel-provider" >&2; exit 8
+  fi
+  local entitlements="${WORK_DIR}/${name}-entitlements.plist"
+  "${PLIST_BUDDY}" -x -c 'Print :Entitlements' "${WORK_DIR}/${name}-profile.plist" > "${entitlements}"
+  EXTRA_BUNDLES+=("${bundle}")
+  EXTRA_ENTITLEMENTS+=("${entitlements}")
+}
+prepare_display_extension NimboLiveActivity "${NIMBO_LIVE_ACTIVITY_PROFILE:-}" LiveActivity
+prepare_display_extension NimboControlWidget "${NIMBO_CONTROL_WIDGET_PROFILE:-}" ControlWidget
+
 if ! profile_has_packet_tunnel "${WORK_DIR}/app-profile.plist"; then
   echo "Main app profile does not contain packet-tunnel-provider entitlement" >&2
   exit 6
@@ -92,6 +119,10 @@ fi
 
 codesign --force --sign "${NIMBO_SIGNING_IDENTITY}" --timestamp=none \
   --entitlements "${WORK_DIR}/tunnel-entitlements.plist" "${TUNNEL_PATH}"
+for ((index=0; index<${#EXTRA_BUNDLES[@]}; index++)); do
+  codesign --force --sign "${NIMBO_SIGNING_IDENTITY}" --timestamp=none \
+    --entitlements "${EXTRA_ENTITLEMENTS[index]}" "${EXTRA_BUNDLES[index]}"
+done
 codesign --force --sign "${NIMBO_SIGNING_IDENTITY}" --timestamp=none \
   --entitlements "${WORK_DIR}/app-entitlements.plist" "${APP_PATH}"
 

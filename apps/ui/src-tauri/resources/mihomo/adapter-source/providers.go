@@ -173,7 +173,25 @@ func matches(rs []*regexp2.Regexp, s string) (bool, error) {
 	}
 	return false, nil
 }
-func strictProxyParser(name string, m map[string]any) (func([]byte) ([]C.Proxy, error), error) {
+func strictProxyParser(name string, m map[string]any, extra ...func(map[string]any, string) error) (func([]byte) ([]C.Proxy, error), error) {
+	return strictProxyParserWith(name, m, proxyIssues, extra...)
+}
+
+func strictMihomoProxyParser(name string, m map[string]any, extra ...func(map[string]any, string) error) (func([]byte) ([]C.Proxy, error), error) {
+	checks := []func(map[string]any, string) error{func(proxy map[string]any, at string) error {
+		if _, exists := proxy["interface-name"]; exists {
+			return problem("UNSUPPORTED_ANDROID_CONFIG", at+".interface-name", "physical interface binding belongs to Android Network")
+		}
+		if _, exists := proxy["routing-mark"]; exists {
+			return problem("UNSUPPORTED_ANDROID_CONFIG", at+".routing-mark", "host routing marks are not available inside Android VpnService")
+		}
+		return nil
+	}}
+	checks = append(checks, extra...)
+	return strictProxyParserWith(name, m, mihomoProxyIssues, checks...)
+}
+
+func strictProxyParserWith(name string, m map[string]any, validate func(map[string]any, string) []issue, extra ...func(map[string]any, string) error) (func([]byte) ([]C.Proxy, error), error) {
 	include, err := compileFilters(str(m, "filter"))
 	if err != nil {
 		return nil, err
@@ -210,8 +228,13 @@ func strictProxyParser(name string, m map[string]any) (func([]byte) ([]C.Proxy, 
 			if !ok {
 				return result, fmt.Errorf("provider row %d is not mapping", i)
 			}
-			if issues := proxyIssues(p, fmt.Sprintf("provider.%s[%d]", name, i)); len(issues) > 0 {
+			if issues := validate(p, fmt.Sprintf("provider.%s[%d]", name, i)); len(issues) > 0 {
 				return result, &issues[0]
+			}
+			for _, check := range extra {
+				if err := check(p, fmt.Sprintf("provider.%s[%d]", name, i)); err != nil {
+					return result, err
+				}
 			}
 			pn := str(p, "name")
 			if seen[pn] {
@@ -269,8 +292,19 @@ func strictProxyParser(name string, m map[string]any) (func([]byte) ([]C.Proxy, 
 	}, nil
 }
 
-func managedProvider(name string, m map[string]any, home string) (P.ProxyProvider, error) {
-	parser, err := strictProxyParser(name, m)
+func managedProvider(name string, m map[string]any, home string, extra ...func(map[string]any, string) error) (P.ProxyProvider, error) {
+	return managedProviderWithParser(name, m, home, strictProxyParser, extra...)
+}
+
+func managedMihomoProvider(name string, m map[string]any, home string, extra ...func(map[string]any, string) error) (P.ProxyProvider, error) {
+	return managedProviderWithParser(name, m, home, strictMihomoProxyParser, extra...)
+}
+
+func managedProviderWithParser(name string, m map[string]any, home string,
+	parserFactory func(string, map[string]any, ...func(map[string]any, string) error) (func([]byte) ([]C.Proxy, error), error),
+	extra ...func(map[string]any, string) error,
+) (P.ProxyProvider, error) {
+	parser, err := parserFactory(name, m, extra...)
 	if err != nil {
 		return nil, err
 	}
@@ -312,6 +346,14 @@ func managedProvider(name string, m map[string]any, home string) (P.ProxyProvide
 // The original config was already validated by the pinned parser. No YAML export
 // is ever reconstructed from this runtime graph.
 func rebindProviders(cfg *config.Config, d *inspection, home string) error {
+	if d.android {
+		// ParseRawConfig already built the complete, pinned Mihomo provider and
+		// group graph. Keep those upstream implementations on Android so provider
+		// proxy/header/size-limit/age/override options, auto groups and refresh
+		// callbacks retain their native semantics. The Android admission layer
+		// validates platform-owned routing fields before this point.
+		return nil
+	}
 	for _, p := range cfg.Providers {
 		closeProvider(p)
 	}
@@ -334,7 +376,27 @@ func rebindProviders(cfg *config.Config, d *inspection, home string) error {
 	}
 	sort.Strings(allProviders)
 	for _, name := range allProviders {
-		p, err := managedProvider(name, d.DeclaredGraph.Providers[name], home)
+		var checks []func(map[string]any, string) error
+		if d.mobile {
+			checks = append(checks, mobileProxyPolicy)
+			if mobileAutomaticProviderUsed(d, name) {
+				checks = append(checks, func(proxy map[string]any, at string) error {
+					if str(proxy, "type") == "direct" {
+						return problem("UNSUPPORTED_MOBILE_CONFIG", at+".type", "providers used by automatic groups may not contain DIRECT")
+					}
+					return nil
+				})
+			}
+		}
+		var (
+			p   P.ProxyProvider
+			err error
+		)
+		if d.android {
+			p, err = managedMihomoProvider(name, d.DeclaredGraph.Providers[name], home)
+		} else {
+			p, err = managedProvider(name, d.DeclaredGraph.Providers[name], home, checks...)
+		}
 		if err != nil {
 			return err
 		}

@@ -2081,9 +2081,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // чтобы пользователь мог выбрать нужный шаблон (например, автобалансер или обход).
                 val parsedFromResponse = mutableListOf<Server>()
 
-                // Ссылки из аварийного пула (заголовок nimbo-fallback) — помечаем такие
-                // серверы isFallback, чтобы они уходили в backup-группу балансера.
-                val fallbackLinkSet = result.fallbackServers.map { it.trim() }.toHashSet()
 
                 // 1. Сначала парсим direct servers, если они присутствуют
                 if (hasDirectSubscriptionServers) {
@@ -2103,7 +2100,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             val line = indexedLine.value
                             try {
                                 val parsed = LinkParser.parse(line)
-                                    .copy(profileUrl = url, isFallback = line in fallbackLinkSet)
+                                    .copy(profileUrl = url, isFallback = false)
                                 val hostUuidFromLink = runCatching {
                                     android.net.Uri.parse(line).getQueryParameter("hostUuid")
                                 }.getOrNull()?.trim()?.lowercase()

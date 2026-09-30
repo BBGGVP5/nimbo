@@ -51,6 +51,9 @@ jobs:
       - name: Verify iPad navigation source contracts
         run: python3 iosApp/Tests/test_ipad_navigation_contracts.py
 
+      - name: Verify native Live Activity policy and packaging
+        run: python3 iosApp/Tests/test_live_activity_contracts.py --swift
+
       - name: Install build tools
         run: brew install xcodegen ldid-procursus
 

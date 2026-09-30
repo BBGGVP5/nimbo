@@ -3,6 +3,7 @@ package mihomocore
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -203,6 +204,17 @@ func tagFields(t reflect.Type, tag string) map[string]reflect.Type {
 	return fields
 }
 func checkFields(m map[string]any, fields map[string]reflect.Type, tag, path string) []issue {
+	return checkFieldsMode(m, fields, tag, path, false)
+}
+
+// Mihomo has deliberately open-ended option maps (for example Shadowsocks
+// plugin-opts). Keep strict checking for typed fields while delegating those
+// maps to the pinned upstream decoder instead of rejecting valid protocols.
+func checkMihomoFields(m map[string]any, fields map[string]reflect.Type, tag, path string) []issue {
+	return checkFieldsMode(m, fields, tag, path, true)
+}
+
+func checkFieldsMode(m map[string]any, fields map[string]reflect.Type, tag, path string, allowOpaqueMaps bool) []issue {
 	out := []issue{}
 	for k, v := range m {
 		t, ok := fields[k]
@@ -215,10 +227,10 @@ func checkFields(m map[string]any, fields map[string]reflect.Type, tag, path str
 		}
 		if t.Kind() == reflect.Struct {
 			if child, ok := v.(map[string]any); ok {
-				out = append(out, checkFields(child, tagFields(t, tag), tag, path+"."+k)...)
+				out = append(out, checkFieldsMode(child, tagFields(t, tag), tag, path+"."+k, allowOpaqueMaps)...)
 			}
 		}
-		if t.Kind() == reflect.Map && t.Elem().Kind() == reflect.Interface {
+		if !allowOpaqueMaps && t.Kind() == reflect.Map && t.Elem().Kind() == reflect.Interface {
 			out = append(out, issue{"UNSUPPORTED_CONFIG", "opaque options need an explicit schema before native use", path + "." + k})
 		}
 	}
@@ -247,6 +259,10 @@ func proxyIssues(p map[string]any, path string) []issue {
 		option = outbound.Hysteria2Option{}
 	case "tuic":
 		option = outbound.TuicOption{}
+	case "wireguard":
+		option = outbound.WireGuardOption{}
+	case "mieru":
+		option = outbound.MieruOption{}
 	case "anytls":
 		option = outbound.AnyTLSOption{}
 	default:
@@ -264,4 +280,109 @@ func proxyIssues(p map[string]any, path string) []issue {
 		out = append(out, issue{"INVALID_CONFIG", "nonempty proxy name required", path + ".name"})
 	}
 	return out
+}
+
+// mihomoProxyIssues validates against the pinned upstream protocol option types
+// for Android provider payloads. The older managed desktop/mobile admission
+// remains deliberately narrower; Android's upstream runtime does not share it.
+func mihomoProxyIssues(p map[string]any, path string) []issue {
+	var option any
+	switch p["type"] {
+	case "direct":
+		option = outbound.DirectOption{}
+	case "reject":
+		option = outbound.RejectOption{}
+	case "rematch":
+		option = outbound.RematchOption{}
+	case "dns":
+		option = outbound.DnsOption{}
+	case "ss":
+		option = outbound.ShadowSocksOption{}
+	case "ssr":
+		option = outbound.ShadowSocksROption{}
+	case "socks5":
+		option = outbound.Socks5Option{}
+	case "http":
+		option = outbound.HttpOption{}
+	case "vmess":
+		option = outbound.VmessOption{}
+	case "vless":
+		option = outbound.VlessOption{}
+	case "snell":
+		option = outbound.SnellOption{}
+	case "trojan":
+		option = outbound.TrojanOption{}
+	case "hysteria":
+		option = outbound.HysteriaOption{}
+	case "hysteria2":
+		option = outbound.Hysteria2Option{}
+	case "wireguard":
+		option = outbound.WireGuardOption{}
+	case "tuic":
+		option = outbound.TuicOption{}
+	case "shadowquic":
+		option = outbound.ShadowQuicOption{}
+	case "gost-relay":
+		option = outbound.GostRelayOption{}
+	case "ssh":
+		option = outbound.SshOption{}
+	case "mieru":
+		option = outbound.MieruOption{}
+	case "anytls":
+		option = outbound.AnyTLSOption{}
+	case "sudoku":
+		option = outbound.SudokuOption{}
+	case "masque":
+		option = outbound.MasqueOption{}
+	case "trusttunnel":
+		option = outbound.TrustTunnelOption{}
+	case "openvpn":
+		option = outbound.OpenVPNOption{}
+	case "tailscale", "zerotier", "easytier":
+		return []issue{{"UNSUPPORTED_CONFIG", "mesh protocol removed from Nimbo build", path + ".type"}}
+	default:
+		return []issue{{"UNSUPPORTED_CONFIG", "proxy protocol is not supported by the pinned Mihomo parser", path + ".type"}}
+	}
+	fields := tagFields(reflect.TypeOf(option), "proxy")
+	fields["type"] = reflect.TypeOf("")
+	// Generators commonly annotate DIRECT with udp: true. Direct intrinsically
+	// supports UDP; udp: false would require a semantic override we do not invent.
+	if (p["type"] == "direct" || p["type"] == "hysteria2") && p["udp"] == true {
+		fields["udp"] = reflect.TypeOf(true)
+	}
+
+	// Generator annotations that describe intrinsic transport properties.
+	if p["type"] == "ss" && p["network"] == "tcp" {
+		fields["network"] = reflect.TypeOf("")
+	}
+	if (p["type"] == "trojan" || p["type"] == "anytls") && p["tls"] == true {
+		fields["tls"] = reflect.TypeOf(true)
+	}
+	// uTLS fingerprints do not apply to Hysteria2's QUIC TLS implementation.
+	if p["type"] == "hysteria2" {
+		fields["client-fingerprint"] = reflect.TypeOf("")
+	}
+	checked := p
+	if options, ok := p["xhttp-opts"].(map[string]any); ok {
+		if serverSecs, exists := options["sc-stream-up-server-secs"]; exists {
+			// This is a SERVER lifetime range, not a client transport setting.
+			value, ok := serverSecs.(string)
+			if !ok || !regexp.MustCompile(`^[0-9]+(-[0-9]+)?$`).MatchString(value) {
+				return []issue{{"INVALID_CONFIG", "server lifetime range required", path + ".xhttp-opts.sc-stream-up-server-secs"}}
+			}
+			checked = make(map[string]any, len(p))
+			for k, v := range p {
+				checked[k] = v
+			}
+			clientOptions := make(map[string]any, len(options))
+			for k, v := range options {
+				if k != "sc-stream-up-server-secs" {
+					clientOptions[k] = v
+				}
+			}
+			checked["xhttp-opts"] = clientOptions
+		}
+	}
+
+	return checkMihomoFields(checked, fields, "proxy", path)
 }

@@ -45,7 +45,7 @@ def main():
         return response(library.NimboMihomoInvokeV1(json.dumps(request).encode()))
 
     xray = response(library.CGoInvoke(b'{"apiVersion":3,"method":"xrayVersion","payload":{}}'))
-    assert xray['success'] and xray['data']['version'] == '26.9.9'
+    assert xray['success'] and xray['data']['version'] == '26.9.30'
     for invalid in [None, b'x' * (8 * 1024 * 1024 + 1), b'{"apiVersion":9,"operation":"status"}']:
         assert not response(library.NimboMihomoInvokeV1(invalid), native_free=True)['success']
     inspected = call('inspect', yaml=FIXTURE)

@@ -273,7 +273,8 @@ fun NimboSubscriptionServerRow(title: String, subtitle: String, selected: Boolea
     onClick: () -> Unit, latency: @Composable () -> Unit, flag: String = "") {
     val colors = LocalNebulaColors.current
     Surface(onClick = onClick, shape = RoundedCornerShape(9.dp),
-        color = if (selected) colors.controlFill else Color.Transparent,
+        color = if (selected) colors.accent.copy(alpha = .22f) else Color.Transparent,
+        border = if (selected) BorderStroke(2.dp, colors.accent) else null,
         modifier = Modifier.fillMaxWidth().heightIn(min = 57.dp).semantics { this.selected = selected }) {
         Row(Modifier.padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             NimboServerFlag(flag)
@@ -285,7 +286,7 @@ fun NimboSubscriptionServerRow(title: String, subtitle: String, selected: Boolea
             Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End) {
                 latency()
-                if (selected) Text(t("Выбран", "Selected"), style = MaterialTheme.typography.labelSmall, color = colors.textSecondary)
+                if (selected) Text("✓ " + t("Выбран", "Selected"), style = MaterialTheme.typography.labelSmall, color = colors.accent)
             }
         }
     }

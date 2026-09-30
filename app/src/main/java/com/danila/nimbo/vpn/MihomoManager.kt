@@ -253,6 +253,8 @@ object MihomoManager {
                         stage = MihomoStartStage.RESTORE_SELECTION
                         com.danila.nimbo.mihomo.MihomoGroupChoices.restore(context, MihomoProtocol.sourceHash(yaml), running.generation)
                         check(continuation.isActive && ticket == epoch.get()) { "Mihomo start cancelled" }
+                        runCatching { com.danila.nimbo.utils.SupportDiagnosticStore.captureConfig(
+                            context, "mihomo", MihomoBridge.call("diagnosticConfig").toString()) }
                         isConnected = true
                         true
                     } catch (error: Exception) {

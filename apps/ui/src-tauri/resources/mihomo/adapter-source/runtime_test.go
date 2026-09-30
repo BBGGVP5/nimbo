@@ -52,6 +52,19 @@ func call(t *testing.T, operation string, fields map[string]any) testReply {
 	}
 	return r
 }
+func TestCapabilitiesExposeOwnerMatrix(t *testing.T) {
+	r := call(t, "capabilities", nil)
+	requireOK(t, r)
+	var caps capabilitySet
+	if err := json.Unmarshal(r.Data, &caps); err != nil {
+		t.Fatal(err)
+	}
+	if !caps.DesktopProxy || caps.IOSVPN || caps.IPv6 != androidTunCompiled || caps.RuleRouting != androidTunCompiled ||
+		!caps.GroupAuto || !caps.HealthChecks || !caps.ProviderAuto {
+		t.Fatalf("unexpected capability matrix: %+v", caps)
+	}
+}
+
 func requireOK(t *testing.T, r testReply) {
 	t.Helper()
 	if !r.Success {
@@ -214,6 +227,10 @@ func TestLoopbackProxySelectionControllerAndStop(t *testing.T) {
 		t.Fatalf("control: %s", b)
 	}
 	requireOK(t, call(t, "delay", map[string]any{"name": "DIRECT", "url": target.URL, "timeoutMs": 1000, "expectedStatus": "200"}))
+	requireOK(t, call(t, "nimboDelay", map[string]any{"name": "local", "url": target.URL, "timeoutMs": 1000, "expectedStatus": "200"}))
+	if call(t, "nimboDelay", map[string]any{"name": "Choice", "url": target.URL, "timeoutMs": 1000, "expectedStatus": "200"}).Success {
+		t.Fatal("Nimbo Ping must not measure a group instead of a concrete node")
+	}
 	if call(t, "start", startFields(t, simpleConfig)).Success {
 		t.Fatal("second instance allowed")
 	}
