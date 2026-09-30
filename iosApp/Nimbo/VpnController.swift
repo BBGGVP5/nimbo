@@ -406,7 +406,10 @@ final class VpnController: ObservableObject {
         isSavingOnDemand = true
         defer { isSavingOnDemand = false }
         guard let existing = try await NimboTunnelControl.manager() else {
-            throw VpnControllerError.missingConfiguration
+            guard !settings.enabled else { throw VpnControllerError.missingConfiguration }
+            UserDefaults.standard.set(try JSONEncoder().encode(settings),
+                                      forKey: NimboOnDemandSettings.preferenceKey)
+            return
         }
         guard let proto = existing.protocolConfiguration?.copy() as? NETunnelProviderProtocol else {
             throw VpnControllerError.managerUnavailable

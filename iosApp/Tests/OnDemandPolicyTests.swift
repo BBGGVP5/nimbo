@@ -24,6 +24,17 @@ import Foundation
         value.trustedSSIDs = (0..<33).map { "WiFi-\($0)" }
         do { _ = try value.validated(); preconditionFailure("too many SSIDs accepted") }
         catch NimboOnDemandSettings.ValidationError.tooManySSIDs {}
+        let domain = "nimbo.ondemand.test.\(UUID().uuidString)"
+        let storage = UserDefaults(suiteName: domain)!
+        defer { storage.removePersistentDomain(forName: domain) }
+        precondition(NimboOnDemandSettings.load(defaults: storage) == defaults)
+        var saved = defaults
+        saved.enabled = true
+        saved.wifi = false
+        storage.set(try JSONEncoder().encode(saved), forKey: NimboOnDemandSettings.preferenceKey)
+        precondition(NimboOnDemandSettings.load(defaults: storage) == saved)
+        storage.set(Data("corrupt".utf8), forKey: NimboOnDemandSettings.preferenceKey)
+        precondition(!NimboOnDemandSettings.load(defaults: storage).enabled)
         print("On-demand policy: PASS")
     }
 }
