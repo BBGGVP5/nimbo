@@ -24,6 +24,13 @@ class DropdownAlignmentTests(unittest.TestCase):
         self.assertNotIn("DropdownMenu", source)
         self.assertNotIn("maxLines = 1", source)
 
+    def test_options_have_no_divider_or_edge_to_edge_highlight_seam(self):
+        source = (ROOT / "app/src/main/java/com/danila/nimbo/ui/components/NimboExpandingChoiceCard.kt").read_text(encoding="utf-8")
+        self.assertNotIn("HorizontalDivider", source)
+        self.assertIn("padding(horizontal = 6.dp)", source)
+        self.assertIn(".clip(optionShape)", source)
+        self.assertLess(source.index(".clip(optionShape)"), source.index(".background(if (option.value"))
+
     def test_app_mode_dropdown_matches_field_and_preserves_selection(self):
         source = selector("app/src/main/java/com/danila/nimbo/ui/screens/AppProxySettingsScreen.kt",
                           "AppRoutingModeSelector", "AppSelectionFilter")

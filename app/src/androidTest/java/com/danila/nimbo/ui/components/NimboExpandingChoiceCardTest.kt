@@ -55,6 +55,10 @@ class NimboExpandingChoiceCardTest {
         assertTrue("The envelope grows, rather than opening a popup", intermediate > collapsed)
         assertTrue("Expansion has intermediate frames", intermediate < open)
         assertTrue(compose.onNodeWithTag("below").fetchSemanticsNode().boundsInRoot.top > initialNextTop)
+        val cardBounds = compose.onNodeWithTag("choice-card").fetchSemanticsNode().boundsInRoot
+        val optionBounds = compose.onNodeWithTag("choice-card-option-1").fetchSemanticsNode().boundsInRoot
+        assertTrue("Highlight must not meet the card border", optionBounds.left > cardBounds.left)
+        assertTrue("Highlight must not meet the card border", optionBounds.right < cardBounds.right)
         compose.onNodeWithTag("choice-card-option-1").assertIsSelected()
         compose.onNodeWithTag("choice-card-option-2").performClick()
         compose.mainClock.advanceTimeBy(320)

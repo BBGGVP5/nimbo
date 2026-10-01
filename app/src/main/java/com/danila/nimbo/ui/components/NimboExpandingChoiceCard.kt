@@ -22,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.testTag
@@ -47,6 +48,7 @@ fun NimboExpandingChoiceCard(
     if (options.isEmpty()) return
     val colors = LocalNebulaColors.current
     val shape = nimboControlShape(12.dp, 3.dp)
+    val optionShape = nimboControlShape(8.dp, 2.dp)
     var expanded by rememberSaveable { mutableStateOf(false) }
     val current = options.firstOrNull { it.value == selectedValue } ?: options.first()
     val rotation by animateFloatAsState(
@@ -94,12 +96,15 @@ fun NimboExpandingChoiceCard(
                 exit = shrinkVertically(animationSpec = tween(220, easing = FastOutSlowInEasing),
                     shrinkTowards = Alignment.Top) + fadeOut(animationSpec = tween(100))
             ) {
-                Column(Modifier.fillMaxWidth().selectableGroup()) {
-                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 12.dp))
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 6.dp).padding(bottom = 6.dp).selectableGroup(),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
                     options.forEach { option ->
                         key(option.value) {
                             Row(
                                 Modifier.fillMaxWidth().testTag("$testTag-option-${option.value}")
+                                    .clip(optionShape)
                                     .background(if (option.value == selectedValue) colors.accent.copy(alpha = 0.08f)
                                         else androidx.compose.ui.graphics.Color.Transparent)
                                     .selectable(selected = option.value == selectedValue,
@@ -107,7 +112,7 @@ fun NimboExpandingChoiceCard(
                                             onSelect(option.value)
                                             expanded = false
                                         })
-                                    .heightIn(min = 64.dp).padding(horizontal = 12.dp, vertical = 10.dp),
+                                    .heightIn(min = 64.dp).padding(horizontal = 6.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 RadioButton(selected = option.value == selectedValue, onClick = null,

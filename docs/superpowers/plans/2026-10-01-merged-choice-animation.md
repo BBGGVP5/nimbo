@@ -25,3 +25,8 @@
 - Python dropdown contracts: 3 passed; adjacent sync settings contracts: 3 passed.
 - Three Compose interaction tests cover intermediate animation frames/layout reflow, interrupted expansion without persistence changes, selection/collapse and Back dismissal. They compiled, but were **not executed on a device**. No phone/ADB access or device performance claim.
 - Changed Android sources/tests match between primary and isolated Git checkouts. Preference values and VPN lifecycle remain unchanged.
+
+## Follow-up: remove the highlighted-row seam
+- Removed the header/options divider; inset options 6dp from the outer border and clipped highlight/ripple to the control-style option shape. Animation, values and callbacks unchanged.
+- Added a failing-then-passing source contract against the divider/edge-to-edge highlight; four contracts pass. Added instrumented assertions that the selected option does not touch the card edges (compiled, not device-executed).
+- Debug APK, Android unit/shared host checks and Android interaction-test compilation succeeded in 44s; no visual/device verification claimed.
