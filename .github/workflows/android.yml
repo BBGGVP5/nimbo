@@ -34,6 +34,9 @@ jobs:
       - name: Проверить раскладку синхронизации и отсутствие дублей навигации
         run: python3 scripts/ci/test-sync-settings-layout.py
 
+      - name: Проверить привязку выпадающих списков к полям
+        run: python3 scripts/ci/test-dropdown-alignment.py
+
       # The root Android project needs the pinned ~191 MB libxray.aar. It is
       # intentionally not committed; this job validates checked-in sources,
       # not an APK built against a missing native artifact.

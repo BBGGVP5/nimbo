@@ -951,6 +951,7 @@ private fun AddCustomRuleDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppRoutingModeSelector(mode: Int, onModeChange: (Int) -> Unit) {
     val colors = LocalNebulaColors.current
@@ -963,11 +964,12 @@ private fun AppRoutingModeSelector(mode: Int, onModeChange: (Int) -> Unit) {
             t("Остальные приложения идут напрямую", "Other apps connect directly")
     )
     val currentChoice = choices[mode - 1]
-    Box(Modifier.fillMaxWidth()) {
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it },
+        modifier = Modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().clip(shape).background(colors.panelFill)
                 .border(1.dp, colors.panelBorder, shape)
-                .clickable(role = Role.Button, onClickLabel = t("Изменить режим", "Change mode")) { expanded = true }
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                 .heightIn(min = 64.dp).padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -977,24 +979,29 @@ private fun AppRoutingModeSelector(mode: Int, onModeChange: (Int) -> Unit) {
                 Text(currentChoice.second, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
             }
             Spacer(Modifier.width(12.dp))
-            Icon(Icons.Default.ExpandMore, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+            Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null,
+                tint = colors.textSecondary, modifier = Modifier.size(20.dp))
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.selectableGroup()) {
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false },
+            matchAnchorWidth = true, modifier = Modifier.selectableGroup(), shape = shape,
+            containerColor = colors.panelFill, border = BorderStroke(1.dp, colors.panelBorder)) {
             choices.forEachIndexed { index, (title, description) ->
                 DropdownMenuItem(
-                    modifier = Modifier.semantics {
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).semantics {
                         selected = mode == index + 1
                         role = Role.RadioButton
                     },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text(description, style = MaterialTheme.typography.bodySmall)
+                            Text(title, style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                            Text(description, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
                         }
                     },
                     leadingIcon = {
                         RadioButton(selected = mode == index + 1, onClick = null,
-                            colors = RadioButtonDefaults.colors(selectedColor = colors.accent))
+                            colors = RadioButtonDefaults.colors(selectedColor = colors.accent,
+                                unselectedColor = colors.textSecondary))
                     },
                     onClick = { onModeChange(index + 1); expanded = false }
                 )
