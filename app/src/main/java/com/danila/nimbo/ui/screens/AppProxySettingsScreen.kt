@@ -954,60 +954,20 @@ private fun AddCustomRuleDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppRoutingModeSelector(mode: Int, onModeChange: (Int) -> Unit) {
-    val colors = LocalNebulaColors.current
-    val shape = nimboControlShape(12.dp, 3.dp)
-    var expanded by remember { mutableStateOf(false) }
     val choices = listOf(
         t("Выбранные — напрямую", "Selected apps bypass VPN") to
             t("Остальные приложения используют VPN", "Other apps use VPN"),
         t("Только выбранные — через VPN", "Only selected apps use VPN") to
             t("Остальные приложения идут напрямую", "Other apps connect directly")
     )
-    val currentChoice = choices[mode - 1]
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it },
-        modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().clip(shape).background(colors.panelFill)
-                .border(1.dp, colors.panelBorder, shape)
-                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                .heightIn(min = 64.dp).padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(currentChoice.first, style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
-                Text(currentChoice.second, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
-            }
-            Spacer(Modifier.width(12.dp))
-            Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null,
-                tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-        }
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false },
-            matchAnchorWidth = true, modifier = Modifier.selectableGroup(), shape = shape,
-            containerColor = colors.panelFill, border = BorderStroke(1.dp, colors.panelBorder)) {
-            choices.forEachIndexed { index, (title, description) ->
-                DropdownMenuItem(
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).semantics {
-                        selected = mode == index + 1
-                        role = Role.RadioButton
-                    },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(title, style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
-                            Text(description, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
-                        }
-                    },
-                    leadingIcon = {
-                        RadioButton(selected = mode == index + 1, onClick = null,
-                            colors = RadioButtonDefaults.colors(selectedColor = colors.accent,
-                                unselectedColor = colors.textSecondary))
-                    },
-                    onClick = { onModeChange(index + 1); expanded = false }
-                )
-            }
-        }
-    }
+    NimboExpandingChoiceCard(
+        options = choices.mapIndexed { index, (title, description) ->
+            NimboChoiceOption(index + 1, title, description)
+        },
+        selectedValue = mode,
+        onSelect = onModeChange,
+        testTag = "app-routing-mode"
+    )
 }
 
 @Composable

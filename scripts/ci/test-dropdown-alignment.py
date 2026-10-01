@@ -1,4 +1,4 @@
-"""Anchored field dropdown source regressions; toolbar overflow menus are excluded."""
+"""Merged field-selector contracts; unrelated toolbar popups stay untouched."""
 from pathlib import Path
 import unittest
 
@@ -11,30 +11,36 @@ def selector(path, name, next_name):
 
 
 class DropdownAlignmentTests(unittest.TestCase):
-    def assert_anchored(self, source):
-        for token in ["ExposedDropdownMenuBox(", "ExposedDropdownMenu(",
-                      "menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)",
-                      "matchAnchorWidth = true", "Modifier.fillMaxWidth()",
-                      "selectableGroup()", "Role.RadioButton", "selected =", "containerColor = colors.panelFill"]:
+    def test_shared_card_animates_one_envelope_without_popup(self):
+        source = (ROOT / "app/src/main/java/com/danila/nimbo/ui/components/NimboExpandingChoiceCard.kt").read_text(encoding="utf-8")
+        self.assertEqual(source.count("Surface("), 1)
+        for token in ["AnimatedVisibility(", "expandVertically(", "shrinkVertically(",
+                      "expandFrom = Alignment.Top", "shrinkTowards = Alignment.Top",
+                      "fadeIn(", "fadeOut(", "animateFloatAsState(", ".rotate(rotation)",
+                      "selectableGroup()", "Role.RadioButton", "enabled = expanded",
+                      "BackHandler(enabled = expanded)", "stateDescription =",
+                      "heightIn(min = 64.dp)", "onSelect(option.value)"]:
             self.assertIn(token, source)
-        self.assertNotIn("\n        DropdownMenu(", source)
-        self.assertNotIn(".clickable(", source)
+        self.assertNotIn("DropdownMenu", source)
         self.assertNotIn("maxLines = 1", source)
 
     def test_app_mode_dropdown_matches_field_and_preserves_selection(self):
         source = selector("app/src/main/java/com/danila/nimbo/ui/screens/AppProxySettingsScreen.kt",
                           "AppRoutingModeSelector", "AppSelectionFilter")
-        self.assert_anchored(source)
-        self.assertIn("onModeChange(index + 1); expanded = false", source)
-        self.assertIn("colors.textSecondary", source)
-        self.assertIn("heightIn(min = 64.dp)", source)
+        self.assertIn("NimboExpandingChoiceCard(", source)
+        self.assertIn("index + 1", source)
+        self.assertIn("selectedValue = mode", source)
+        self.assertIn("onSelect = onModeChange", source)
+        self.assertNotIn("DropdownMenu", source)
 
     def test_retention_dropdown_matches_field_and_preserves_selection(self):
         source = selector("app/src/main/java/com/danila/nimbo/ui/screens/NimboMiniApp.kt",
                           "LogRetentionOptionGrid", "SettingsStepperRow")
-        self.assert_anchored(source)
-        self.assertIn("onSelect(value); open = false", source)
+        self.assertIn("NimboExpandingChoiceCard(", source)
+        self.assertIn("selectedValue = selected", source)
+        self.assertIn("onSelect = onSelect", source)
         self.assertIn("labels.zip(values)", source)
+        self.assertNotIn("DropdownMenu", source)
 
 
 if __name__ == "__main__":

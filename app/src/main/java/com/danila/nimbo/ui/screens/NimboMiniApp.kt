@@ -25,9 +25,6 @@ import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenu
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import com.danila.nimbo.ui.components.LocalFloatingNavHeight
@@ -391,6 +388,8 @@ import com.danila.nimbo.ui.components.nimboControlBorderColor
 import com.danila.nimbo.ui.components.nimboControlBorderWidth
 import com.danila.nimbo.ui.components.nimboControlContainer
 import com.danila.nimbo.ui.components.nimboControlShape
+import com.danila.nimbo.ui.components.NimboChoiceOption
+import com.danila.nimbo.ui.components.NimboExpandingChoiceCard
 import com.danila.nimbo.ui.theme.BackgroundPaletteMode
 import com.danila.nimbo.ui.theme.BackgroundStyleMode
 import com.danila.nimbo.ui.theme.DEFAULT_COLOR_THEME_INDEX
@@ -8233,35 +8232,13 @@ private fun AdvancedConnectionSettingsCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LogRetentionOptionGrid(labels: List<String>, values: List<Int>, selectedValue: Int, onSelect: (Int) -> Unit) {
-    val colors = LocalNebulaColors.current
-    var open by remember { mutableStateOf(false) }
     val selected = selectedValue.takeIf { it in values } ?: 24
-    val shape = RoundedCornerShape(12.dp)
-    ExposedDropdownMenuBox(expanded = open, onExpandedChange = { open = it }, modifier = Modifier.fillMaxWidth()) {
-        Surface(modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-            color = colors.controlFill, shape = shape) {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(labels.getOrElse(values.indexOf(selected)) { "—" }, Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium, color = colors.textPrimary)
-                Icon(if (open) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    null, tint = colors.textSecondary)
-            }
-        }
-        ExposedDropdownMenu(open, { open = false }, matchAnchorWidth = true,
-            modifier = Modifier.selectableGroup(), containerColor = colors.panelFill, shape = shape,
-            border = BorderStroke(1.dp, colors.panelBorder)) {
-            labels.zip(values).forEach { (label, value) ->
-                DropdownMenuItem(modifier = Modifier.fillMaxWidth().semantics {
-                    this.selected = value == selected; role = Role.RadioButton
-                }, text = { Text(label, color = colors.textPrimary) }, leadingIcon = {
-                    RadioButton(value == selected, onClick = null,
-                        colors = RadioButtonDefaults.colors(selectedColor = colors.accent,
-                            unselectedColor = colors.textSecondary))
-                }, onClick = { onSelect(value); open = false })
-            }
-        }
-    }
+    NimboExpandingChoiceCard(
+        options = labels.zip(values).map { (label, value) -> NimboChoiceOption(value, label) },
+        selectedValue = selected,
+        onSelect = onSelect,
+        testTag = "log-retention"
+    )
 }
 
 @Composable
