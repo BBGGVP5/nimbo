@@ -11,7 +11,7 @@
 - Удаление явно подтверждается, ожидает очистку системного профиля и только затем удаляет локальный профиль и метаданные. Ошибки больше не игнорируются.
 - Настройки on-demand восстанавливаются из системного профиля при потере локальных данных; чтение сохраняет ручную паузу. Сохранение блокирует повторное нажатие и закрытие формы.
 - Правила on-demand и переключатель Live Activity/Dynamic Island уже присутствуют. Проверка на устройстве и корректная подпись NetworkExtension всё ещё необходимы.
-- **Mihomo TUN недоступен**: ядро/формат не подменяются Xray. Нельзя объявлять все Mihomo-протоколы поддержанными в iOS VPN до готовности native TUN.
+- **Mihomo packet-flow интегрирован в исходниках**: публичный поток NetworkExtension связан с native Mihomo, DNS, IPv6 и группами без подмены Xray. Apple archive/провайдер прошли линковку; исправленная полная IPA и проверка туннеля на iPhone остаются отдельными этапами. Это не заявление о поддержке всех конфигураций и транспортов.
 
 ### Desktop
 - Добавлены opt-in правила автоподключения для Wi-Fi, Ethernet и мобильной сети: Windows WLAN/IP Helper и Linux NetworkManager (`nmcli`, без сканирования). Ручное отключение сохраняет паузу между запусками; явное подключение возобновляет правила и запоминает сервер/ядро. Для первого включения нужен установленный сеанс. Правила работают, пока приложение открыто, включая трей; выключены по умолчанию и не переносятся резервной копией/синхронизацией.
@@ -126,6 +126,14 @@ suite and vet. Desktop controller cancellation ownership passes all 31 portable
 Rust tests; four staged-helper integration tests remain ignored in this local run.
 The iOS full-profile card avoids cross-file private presentation API, keeps native
 automatic groups non-selectable without disabling their context menus, and stores
-completed pings under source/node digests. Portable Swift cache round-trip is an
-Apple CI gate, not claimed as run on Windows. New IPA supersedes 37024926758.
+completed pings under source/node digests. Portable Swift cache round-trip and core admission passed the
+early Apple CI gate in run 37027205853; full IPA is still building. New IPA supersedes 37024926758.
 Desktop Mihomo managed TUN remains unimplemented and is still refused explicitly.
+
+### Current artifact gate links
+
+Code revision 62c2cec: IPA https://github.com/BBGGVP5/nimbo/actions/runs/37027205853;
+Windows/Linux https://github.com/BBGGVP5/nimbo/actions/runs/37027211807.
+These are artifact-only builds (publish=false); pending is not successful. Run
+37024926758 passed combined C ABI and Apple provider linking, then failed on the
+private UI property fixed in 62c2cec. No main merge or public release.

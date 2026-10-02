@@ -17,7 +17,7 @@ Create tools/native/mihomo-core/packet_flow.go and packet_flow_test.go (with_gvi
 Files: tools/native/mihomo-core/runtime.go, mobile.go, platform.go; iosApp/GoBridge/nimbo_mihomo*.go; scripts/ci/test-libxray-mihomo-cabi.py.
 - [x] Introduce a versioned session/generation-owned packet start/input/output ABI in the existing Go runtime. No second Go archive and no borrowed user pointers.
 - [x] Wire source-preserving Mihomo runtime/protocol dispatch, managed DNS/IPv6/rules/groups and platform egress ownership. Do not broaden a narrow protocol admission silently.
-- [ ] Define bounded cancellation, deadline, backpressure and stop/join, with late callbacks rejected by generation. Verify all exported symbols on Apple.
+- [x] Define bounded cancellation, deadline, backpressure and stop/join, with late callbacks rejected by generation. Verify all exported symbols on Apple (37024926758); live/pre-dispatch probe cancellation regression tests pass.
 
 ## Task 3: NetworkExtension integration
 Files: iosApp/PacketTunnel/MihomoBridge.swift and PacketTunnelProvider.swift; both copies of NimboCoreSelection.swift; native profile screens.
@@ -26,7 +26,7 @@ Files: iosApp/PacketTunnel/MihomoBridge.swift and PacketTunnelProvider.swift; bo
 - [ ] Enable Mihomo admission only with actual linked packet start/readiness. Validate compile, start/stop, per-group selection, TCP/UDP/DNS/IPv6, cancellation and no-direct behavior; real iPhone acceptance remains a distinct gate.
 
 ## Task 4: Desktop TUN
-Files: apps/ui/src-tauri/src/mihomo_runtime.rs; crates/nimbo-svc platform engines; IPC; native adapter.
+Files: apps/ui/src-tauri/src/mihomo_runtime.rs; apps/service/src/platform_linux.rs and platform.rs; crates/ipc/src/lib.rs; native adapter.
 - [ ] Add privileged owned TUN and route/DNS lifecycle through the existing platform helper. Preflight permissions, missing native binary and unsupported config before replacing the working session.
 - [ ] Test rollback, manual stop, service/client disconnect, stale generation, DNS restore and adapter replacement in guarded disposable CI hosts.
 - [ ] Linux System Proxy requires an explicit platform backend; do not report it as implemented by adding a switch.
@@ -45,3 +45,12 @@ Files: apps/ui/src-tauri/src/mihomo_runtime.rs; crates/nimbo-svc platform engine
 
 ## Verified implementation checkpoint (2026-10-02)
 Native packet runtime and Swift provider/import/group controls are implemented in source. 159 native Go cases passed; four full-runtime ownership/DNS/IPv4+IPv6 TCP/live-selection fixtures repeated ten times. Pure source checks are distinct from Apple compilation and phone runtime verification. The merged archive now explicitly builds with_gvisor in all three Apple slices, adds packet C symbols and links the production Swift bridge. New IPA build required; no real iPhone acceptance yet. Desktop managed TUN is still task 4, not implicitly enabled by this iOS packet adapter.
+
+## Follow-up evidence
+
+62c2cec adds real live probe cancellation, opaque source-scoped iOS ping cache,
+settings-bound GET/HEAD/deadlines and desktop future-drop cancellation. 31 Rust
+unit tests pass; four explicitly staged native-helper fixtures were not executed
+in that local run. Apple 37027205853 passed Swift core admission and cache
+round-trip; full IPA/package builds remain separate. Primary code was mirrored
+only when baseline hashes matched, with unrelated local differences preserved.
