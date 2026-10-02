@@ -975,7 +975,6 @@ private extension Notification.Name {
     static let nimboConnectFastest = Notification.Name("com.nimbo.action.connect-fastest")
     static let nimboCopyText = Notification.Name("com.nimbo.action.copy-text")
     static let nimboExportModule = Notification.Name("com.nimbo.action.export-module")
-    static let nimboPingServer = Notification.Name("com.nimbo.action.ping-server")
     static let nimboPingAll = Notification.Name("com.nimbo.action.ping-all")
     static let nimboImportSubscription = Notification.Name("com.nimbo.action.import-subscription")
     static let nimboImportClipboard = Notification.Name("com.nimbo.action.import-clipboard")

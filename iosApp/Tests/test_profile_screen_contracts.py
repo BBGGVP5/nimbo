@@ -10,6 +10,15 @@ SOURCE = ROOT / "iosApp/Nimbo/ProfilesContainerView.swift"
 
 
 class ProfileScreenContracts(unittest.TestCase):
+    def test_ping_notification_is_visible_across_source_files(self):
+        actions = ROOT / "iosApp/Nimbo/NimboServerActions.swift"
+        self.assertTrue(actions.exists(), "Cross-file ping action must not live in a private extension")
+        source = actions.read_text(encoding="utf-8")
+        self.assertIn('static let nimboPingServer = Notification.Name("com.nimbo.action.ping-server")', source)
+        self.assertNotIn("private extension", source)
+        root = (ROOT / "iosApp/Nimbo/RootView.swift").read_text(encoding="utf-8")
+        self.assertNotIn("static let nimboPingServer", root)
+
     def test_native_row_is_split_into_small_type_checkable_views(self):
         source = SOURCE.read_text(encoding="utf-8")
         listing = source.split("private func serverList(", 1)[1].split("private func serverRow(", 1)[0]
@@ -65,6 +74,11 @@ def swift_tests():
         executable = str(Path(directory) / "ProfileSelectionTests")
         subprocess.run(["xcrun", "swiftc", "-parse-as-library", "iosApp/Nimbo/NimboProfileSelection.swift",
                         "iosApp/Tests/ProfileSelectionTests.swift", "-o", executable], cwd=ROOT, check=True)
+        subprocess.run([executable], check=True)
+        # Compile a real consumer in a separate source file, not a source-token check.
+        consumer = Path(directory) / "main.swift"
+        consumer.write_text('import Foundation\nprecondition(Notification.Name.nimboPingServer.rawValue == "com.nimbo.action.ping-server")\n', encoding="utf-8")
+        subprocess.run(["xcrun", "swiftc", "iosApp/Nimbo/NimboServerActions.swift", str(consumer), "-o", executable], cwd=ROOT, check=True)
         subprocess.run([executable], check=True)
 
 
