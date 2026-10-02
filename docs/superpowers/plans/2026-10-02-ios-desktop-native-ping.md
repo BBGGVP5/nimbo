@@ -29,7 +29,7 @@ Files: apps/ui/src-tauri/src/diagnostic_template.rs; apps/ui/src-tauri/src/diagn
 ## Task 4: Publication and evidence
 Files: docs/platform-readiness-2026-10-02.md and this plan.
 - [x] Run targeted iOS contracts and desktop frontend/native suites, record actual results.
-- [ ] Commit only these files, push draft PR78, dispatch latest IPA and artifact-only desktop packaging (publish=false).
+- [x] Commit only these files, push draft PR78, dispatch IPA 37017139855 and artifact-only desktop packaging 37017144971 (publish=false) at 2f5041a.
 - [x] Record unfinished native Mihomo TUN, iOS health balancers, desktop backup-loopback leastPing and real-device verification. No main merge and no universal feature-complete claim.
 
 ## Task 5: User-requested live server switching
@@ -39,7 +39,7 @@ Files: iosApp/Nimbo/VpnController.swift; iosApp/Nimbo/NimboProfileSelection.swif
 - [x] Native and Compose iOS entry points call the same controller method. Duplicate selection is rejected while switching; same staged configuration is a no-op.
 - [x] Desktop: retain native preflight and serialized reconnection; reject a second row action while an owned switch is pending. Test mismatch preservation and concurrent actions without frontend stop.
 - [x] Android: enable the existing service-owned hot-switch path by default for preferences without a saved choice, preserving explicit user opt-out. Existing Mihomo live group selection stays live. No native Mihomo TUN support is invented on iOS.
-- [ ] Run targeted regression tests, mirror baseline-safe changes, rebuild and publish only on the existing draft branch. Tests and baseline-safe source mirrors are complete; new packaging dispatch remains.
+- [x] Run targeted regression tests, mirror baseline-safe changes, rebuild and publish only on the existing draft branch. 2f5041a pushed and packaging dispatched; completed packaging/device verification are separate gates.
 
 ## Task 6: Embedded Mihomo live connection handoff
 Files: tools/native/mihomo-core/mobile_session.go; runtime.go; selection.go; selection_test.go; mobile_test.go; API.md.

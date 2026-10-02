@@ -171,3 +171,15 @@ Windows desktop builds use the same patched pinned source and can run those nati
 groups behind the managed System Proxy owner. This does not enable desktop TUN or
 make iOS available: iOS `StartIOS` remains `PLATFORM_UNAVAILABLE` until a real
 Network Extension packet-flow owner is implemented and device-verified.
+
+
+### Packet-flow device (native integration prerequisite, not an enabled owner)
+
+`with_gvisor` builds include the source-level `PacketFlowTun` component. It
+provides raw IPv4/IPv6 `IngestPacket`/context-bounded `ReadPacket`, one stack
+attachment, a nonblocking 128-packet output queue and idempotent draining close.
+It does not create an interface, discover an FD, change routes/DNS, install a
+socket hook, or claim native session readiness. The platform must reject late
+callbacks by session/generation, close/join its pump and supply real egress
+ownership. There is currently no production packet start/input/output ABI or
+Swift NetworkExtension connection; `StartIOS` remains unavailable.
