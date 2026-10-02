@@ -9812,7 +9812,9 @@ mod tests {
         let mut snapshot = PersistedState::default();
         snapshot.preferences.tunnel_tls_fragmentation = true;
         let template = diagnostic_transport_template(&snapshot, &server);
-        let (_, config) = crate::diagnostics::isolated_config(&server, template.as_ref()).unwrap();
+        let (_, config) =
+            crate::diagnostics::isolated_config(&server, template.as_ref(), "http://probe.invalid")
+                .unwrap();
         assert_probe_fragment(&config, "100-200", "10-20");
 
         let provider = TlsFragmentConfig {
@@ -9845,7 +9847,9 @@ mod tests {
             .insert(DEFAULT_XRAY_TEMPLATE_KEY.into(), json!({"outbounds":[raw]}));
         let original = snapshot.xray_templates.clone();
         let template = diagnostic_transport_template(&snapshot, &server);
-        let (_, config) = crate::diagnostics::isolated_config(&server, template.as_ref()).unwrap();
+        let (_, config) =
+            crate::diagnostics::isolated_config(&server, template.as_ref(), "http://probe.invalid")
+                .unwrap();
         assert_probe_fragment(&config, "120-240", "15-30");
         assert_eq!(
             config["outbounds"][1]["streamSettings"]["sockopt"]["tcpKeepAliveIdle"],
@@ -9860,7 +9864,9 @@ mod tests {
             .unwrap()
             .enabled = false;
         let template = diagnostic_transport_template(&snapshot, &server);
-        let (_, config) = crate::diagnostics::isolated_config(&server, template.as_ref()).unwrap();
+        let (_, config) =
+            crate::diagnostics::isolated_config(&server, template.as_ref(), "http://probe.invalid")
+                .unwrap();
         assert!(config["outbounds"]
             .as_array()
             .unwrap()

@@ -645,17 +645,7 @@ struct RootView: View {
 
     private func selectServer(_ serverID: String) async {
         do {
-            guard let profile = try NimboSubscriptionRepository.shared.loadProfile(migratingLegacy: false),
-                  let candidate = serverID == NimboStagingPayload.automaticServerID
-                    ? NimboStagingPayload.automaticServer(in: profile)
-                    : profile.servers.first(where: { $0.id == serverID }) else {
-                throw NimboSubscriptionRepositoryError.serverNotFound
-            }
-            try vpn.validateCore(data: NimboStagingPayload.make(for: candidate, in: profile))
-            let server = try NimboSubscriptionRepository.shared.select(serverID: serverID)
-            try await vpn.stageConfiguration(
-                data: NimboSubscriptionRepository.shared.stagingData(for: server)
-            )
+            _ = try await vpn.selectServer(serverID)
             synchronizeComposeState()
         } catch {
             notify("error", NimboRedactor.redact(error.localizedDescription))

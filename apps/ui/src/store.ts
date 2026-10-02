@@ -355,7 +355,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   setActiveServer: async (serverId) => {
-    const { status, activeServerId } = get();
+    const { status, activeServerId, switchingServerId, connectingServerId, disconnecting } = get();
+    if (switchingServerId || connectingServerId || disconnecting) {
+      throw new Error("Дождитесь завершения переключения сервера");
+    }
     if (status?.state === "connected") {
       if (!serverId || serverId === activeServerId) return;
       set({ switchingServerId: serverId, error: null });

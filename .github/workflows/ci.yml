@@ -76,6 +76,10 @@ jobs:
       - name: Запустить Rust-тесты
         run: cargo test --workspace --all-targets --exclude nimbo-installer
 
+      - name: Проверить изолированный Xray ping на настоящем CLI
+        if: runner.os == 'Linux'
+        run: python3 tools/release/run-native-ping-tests.py
+
       - name: Проверить форматирование Rust
         run: cargo fmt --all -- --check
 

@@ -20,6 +20,9 @@ final class VpnController: ObservableObject {
     }
     @Published private(set) var manager: NETunnelProviderManager?
     @Published private(set) var isSavingCorePreference = false
+    @Published private(set) var switchingServerID: String?
+    private var selectionIntent = UUID()
+    private var isStartingConnection = false
     private var isStagingConfiguration = false
     private var isSavingOnDemand = false
 
@@ -292,9 +295,12 @@ final class VpnController: ObservableObject {
         return (received, sent, memory)
     }
 
-    func connect() async {
+    func connect(selectionOwner: UUID? = nil) async {
+        guard !isStartingConnection, switchingServerID == nil || selectionOwner == selectionIntent else { return }
         guard state != .connected, state != .connecting, state != .preparing,
               state != .disconnecting, !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { return }
+        isStartingConnection = true
+        defer { isStartingConnection = false }
         let attempt = startAttempt.begin()
         statusPollTimer?.invalidate()
         statusPollTimer = nil
@@ -350,7 +356,14 @@ final class VpnController: ObservableObject {
             // Only a user opt-in may arm On Demand. The same admitted staged
             // profile is used by app, widget and subsequent system starts.
             try await NimboOnDemandRules.persist(NimboOnDemandSettings.load(), on: manager)
-            guard startAttempt.isCurrent(attempt) else { return }
+            if !startAttempt.isCurrent(attempt) {
+                // A user stop can race an awaited preferences write. No newer
+                // app start is allowed until this owner exits; restore pause.
+                try await setOnDemand(false, on: manager)
+                manager.connection.stopVPNTunnel()
+                synchronizeStatus()
+                return
+            }
             // Arming On Demand may already have started the same tunnel.
             // Do not issue a second start or turn a working session into failure.
             switch manager.connection.status {
@@ -375,7 +388,8 @@ final class VpnController: ObservableObject {
         }
     }
 
-    func disconnect() async {
+    func disconnect(invalidateSelection: Bool = true) async {
+        if invalidateSelection { selectionIntent = UUID() }
         // Осознанное отключение не должно выглядеть как сбой запуска.
         startAttempt.invalidate()
         transitionStartedAt = nil
@@ -394,6 +408,67 @@ final class VpnController: ObservableObject {
         manager?.connection.stopVPNTunnel()
         synchronizeStatus()
         await NimboDiagnostics.shared.record(.info, stage: .stop, code: "IOS_TUNNEL_STOP_REQUESTED", message: "Остановка Packet Tunnel запрошена пользователем")
+    }
+
+    /// One owner for native rows and Compose actions. Never start until the old
+    /// provider has actually stopped; manual disconnect revokes this intent.
+    func selectServer(_ serverID: String) async throws -> (server: NimboSubscriptionServer, reconnecting: Bool) {
+        guard switchingServerID == nil, !isStartingConnection, !isSavingCorePreference, !isStagingConfiguration,
+              !isSavingOnDemand, state != .preparing, state != .disconnecting else {
+            throw NimboCoreSelectionError.busy
+        }
+        guard let profile = try NimboSubscriptionRepository.shared.loadProfile(migratingLegacy: false),
+              let candidate = serverID == NimboStagingPayload.automaticServerID
+                ? NimboStagingPayload.automaticServer(in: profile)
+                : profile.servers.first(where: { $0.id == serverID }) else {
+            throw NimboSubscriptionRepositoryError.serverNotFound
+        }
+        let data = NimboStagingPayload.make(for: candidate, in: profile)
+        // Incompatible selections must leave the current tunnel untouched.
+        _ = try validateCore(data: data)
+        let wasActive = state == .connected || state == .connecting ||
+            manager?.connection.status == .connected || manager?.connection.status == .connecting ||
+            manager?.connection.status == .reasserting
+        if wasActive, NimboConfigurationStore.shared.activeServerID == serverID, profile.selectedServer?.id == candidate.id,
+           let proto = manager?.protocolConfiguration as? NETunnelProviderProtocol,
+           proto.providerConfiguration?["configData"] as? Data == data {
+            return (candidate, false)
+        }
+        switchingServerID = serverID
+        selectionIntent = UUID()
+        let intent = selectionIntent
+        defer { switchingServerID = nil }
+        let selected = try await NimboProfileSelection.apply(
+            validate: { _ = try self.validateCore(data: data) },
+            stop: {
+                guard wasActive else { return }
+                await self.disconnect(invalidateSelection: false)
+                if case let .failed(_, message) = self.state { throw VpnControllerError.switchFailed(message) }
+                guard self.manager != nil else { throw VpnControllerError.managerUnavailable }
+                let deadline = ProcessInfo.processInfo.systemUptime + 15
+                while let status = self.manager?.connection.status, status != .disconnected && status != .invalid {
+                    guard self.selectionIntent == intent else { throw CancellationError() }
+                    try Task.checkCancellation()
+                    guard ProcessInfo.processInfo.systemUptime < deadline else { throw VpnControllerError.switchStopTimeout }
+                    try await Task.sleep(nanoseconds: 100_000_000)
+                }
+                self.synchronizeStatus()
+            },
+            persist: {
+                guard self.selectionIntent == intent, !Task.isCancelled else { throw CancellationError() }
+                return try NimboSubscriptionRepository.shared.select(serverID: serverID)
+            },
+            stage: { _ in try await self.stageConfiguration(data: data) },
+            restart: {
+                guard wasActive else { return }
+                guard self.selectionIntent == intent, !Task.isCancelled else { throw CancellationError() }
+                // connect publishes .connecting before its first suspension.
+                await self.connect(selectionOwner: intent)
+                if case let .failed(_, message) = self.state { throw VpnControllerError.switchFailed(message) }
+                guard self.state == .connected || self.state == .connecting else { throw NimboCoreSelectionError.busy }
+            }
+        )
+        return (selected, wasActive)
     }
 
     /// Reading settings never creates a VPN profile, saves NE preferences or
@@ -812,6 +887,8 @@ enum VpnControllerError: LocalizedError {
     case managerUnavailable
     case configurationTooLarge
     case providerMessageEmpty
+    case switchStopTimeout
+    case switchFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -820,6 +897,8 @@ enum VpnControllerError: LocalizedError {
         case .managerUnavailable: "Системная конфигурация VPN недоступна (IOS_VPN_MANAGER_UNAVAILABLE)."
         case .configurationTooLarge: "Конфигурация превышает лимит 15 МиБ (IOS_CONFIG_TOO_LARGE)."
         case .providerMessageEmpty: "Расширение VPN не вернуло статус (IOS_PROVIDER_MESSAGE_EMPTY)."
+        case .switchStopTimeout: "Не удалось дождаться остановки VPN. Новый сервер не запущен."
+        case let .switchFailed(message): message
         }
     }
 }

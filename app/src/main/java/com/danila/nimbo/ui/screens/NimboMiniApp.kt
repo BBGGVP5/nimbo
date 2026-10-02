@@ -834,7 +834,7 @@ fun NimboMiniApp(
         val activeServer = VpnManager.connectedServer.value
         val isDifferentServer = activeServer == null || !server.matchesSelection(activeServer)
         val displayName = serverUiTitle(preferencesManager, server)
-        if (vpnActive && preferencesManager.allowServerSwitchWhileConnected && isDifferentServer) {
+        if (com.danila.nimbo.utils.ServerSwitchPolicy.shouldSwitch(vpnActive, preferencesManager.allowServerSwitchWhileConnected, isDifferentServer)) {
             mainViewModel.showTopNotification(loc("Переключение на $displayName…", "Switching to $displayName…"))
             onConnect(server)
         }

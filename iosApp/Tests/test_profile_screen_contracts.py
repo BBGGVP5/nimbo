@@ -32,11 +32,18 @@ class ProfileScreenContracts(unittest.TestCase):
         source = SOURCE.read_text(encoding="utf-8")
         selection = source.split("private func select(", 1)[1].split("private func removeConfiguration", 1)[0]
         for token in ["async", "guard !isWorking", "selectingServerID = server.id", "defer { selectingServerID = nil }",
-                      "try await NimboProfileSelection.apply(", "try vpn.validateCore(data:", "try await vpn.stageConfiguration"]:
+                      "try await vpn.selectServer(server.id)"]:
             self.assertIn(token, selection)
         self.assertNotIn("Task {", selection)
-        self.assertLess(selection.index("try vpn.validateCore"), selection.index("shared.select(serverID:"))
-        self.assertLess(selection.index("try await vpn.stageConfiguration"), selection.index('resultMessage = "'))
+        self.assertLess(selection.index("try await vpn.selectServer"), selection.index('resultMessage = "') if 'resultMessage = "' in selection else selection.index("resultMessage = selection.reconnecting"))
+        controller = (ROOT / "iosApp/Nimbo/VpnController.swift").read_text(encoding="utf-8")
+        central = controller.split("func selectServer(_ serverID:", 1)[1].split("/// Reading settings", 1)[0]
+        self.assertLess(central.index("try validateCore(data:"), central.index("disconnect(invalidateSelection: false)"))
+        for token in ["switchingServerID == nil", "selectionIntent == intent", "status != .disconnected",
+                      "switchStopTimeout", "restart:", "await self.connect(selectionOwner: intent)"]:
+            self.assertIn(token, central)
+        root = (ROOT / "iosApp/Nimbo/RootView.swift").read_text(encoding="utf-8")
+        self.assertIn("try await vpn.selectServer(serverID)", root)
         self.assertIn("Button { Task { await select(server) } }", source)
         self.assertIn(".disabled(isWorking)", source)
 

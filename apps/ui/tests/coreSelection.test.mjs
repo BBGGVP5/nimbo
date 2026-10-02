@@ -280,3 +280,27 @@ test('on-demand uses explicit native saves and has no browser persistence fallba
   await assert.rejects(browser.onDemandApi.save(defaultOnDemand), /NATIVE_UNAVAILABLE/);
   assert.equal(calls.length, 2);
 });
+
+
+test('a pending live server switch cannot launch a second row action', async () => {
+  const parsed = ts.createSourceFile('store.ts', read('../src/store.ts'), ts.ScriptTarget.Latest, true);
+  let action;
+  function visit(node) {
+    if (ts.isPropertyAssignment(node) && node.name.getText(parsed) === 'setActiveServer') action = node.initializer.getText(parsed);
+    ts.forEachChild(node, visit);
+  }
+  visit(parsed);
+  const output = ts.transpileModule(`export default ${action}`, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText.replace('export default ', 'return ');
+  let release; let starts = 0;
+  const state = { status: {state:'connected'}, activeServerId:'old', switchingServerId:null,
+    connectServer: async () => { starts++; await new Promise(resolve => { release=resolve; }); },
+    resetTrafficSession: () => {},
+  };
+  const switchServer = new Function('get','set','api',output)(()=>state,patch=>Object.assign(state,patch),{});
+  const first = switchServer('new');
+  assert.equal(state.switchingServerId,'new');
+  await assert.rejects(switchServer('third'), /Дождитесь/);
+  assert.equal(starts,1);
+  release(); await first;
+  assert.equal(state.switchingServerId,null);
+});

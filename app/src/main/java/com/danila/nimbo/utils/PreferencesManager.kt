@@ -314,7 +314,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     val pingDisplayModeState = mutableStateOf(PingDisplay.fromId(sharedPreferences.getInt(KEY_PING_DISPLAY_MODE, 0)).id)
     val pingThroughProxyState = mutableStateOf(sharedPreferences.getBoolean(KEY_PING_THROUGH_PROXY, false))
     val autoBypassByNetworkState = mutableStateOf(sharedPreferences.getBoolean(KEY_AUTO_BYPASS_BY_NETWORK, true))
-    val allowServerSwitchWhileConnectedState = mutableStateOf(sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false))
+    val allowServerSwitchWhileConnectedState = mutableStateOf(sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, ServerSwitchPolicy.DEFAULT_ENABLED))
     val connectButtonStyleState = mutableStateOf(sharedPreferences.getInt(KEY_CONNECT_BUTTON_STYLE, 0))
     val connectButtonSizeScaleState = mutableStateOf(sharedPreferences.getFloat(KEY_CONNECT_BUTTON_SIZE_SCALE, 1f))
     val compactConnectButtonState = mutableStateOf(sharedPreferences.getBoolean(KEY_COMPACT_CONNECT_BUTTON, false))
@@ -631,7 +631,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
             KEY_PING_DISPLAY_MODE -> pingDisplayModeState.value = PingDisplay.fromId(prefs.getInt(KEY_PING_DISPLAY_MODE, 0)).id
             KEY_PING_THROUGH_PROXY -> pingThroughProxyState.value = prefs.getBoolean(KEY_PING_THROUGH_PROXY, false)
             KEY_AUTO_BYPASS_BY_NETWORK -> autoBypassByNetworkState.value = true
-            KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED -> allowServerSwitchWhileConnectedState.value = prefs.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false)
+            KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED -> allowServerSwitchWhileConnectedState.value = prefs.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, ServerSwitchPolicy.DEFAULT_ENABLED)
             KEY_CONNECT_BUTTON_STYLE -> connectButtonStyleState.value = prefs.getInt(KEY_CONNECT_BUTTON_STYLE, 0)
             KEY_CONNECT_BUTTON_SIZE_SCALE -> connectButtonSizeScaleState.value = prefs.getFloat(KEY_CONNECT_BUTTON_SIZE_SCALE, 1f)
             KEY_COMPACT_CONNECT_BUTTON -> compactConnectButtonState.value = prefs.getBoolean(KEY_COMPACT_CONNECT_BUTTON, false)
@@ -706,7 +706,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         pingThroughProxyState.value = sharedPreferences.getBoolean(KEY_PING_THROUGH_PROXY, false)
         subscriptionUserAgent // migrate older Happ, Incy, and custom settings to Nimbo
         autoBypassByNetworkState.value = sharedPreferences.getBoolean(KEY_AUTO_BYPASS_BY_NETWORK, true)
-        allowServerSwitchWhileConnectedState.value = sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false)
+        allowServerSwitchWhileConnectedState.value = sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, ServerSwitchPolicy.DEFAULT_ENABLED)
         connectButtonStyleState.value = sharedPreferences.getInt(KEY_CONNECT_BUTTON_STYLE, 0)
         connectButtonSizeScaleState.value = sharedPreferences.getFloat(KEY_CONNECT_BUTTON_SIZE_SCALE, 1f)
         compactConnectButtonState.value = sharedPreferences.getBoolean(KEY_COMPACT_CONNECT_BUTTON, false)
@@ -1704,7 +1704,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         }
 
     var allowServerSwitchWhileConnected: Boolean
-        get() = sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false)
+        get() = sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, ServerSwitchPolicy.DEFAULT_ENABLED)
         set(value) {
             sharedPreferences.edit().putBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, value).apply()
             allowServerSwitchWhileConnectedState.value = value

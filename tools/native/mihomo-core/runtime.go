@@ -408,12 +408,20 @@ func (m *manager) dispatch(r *request) (any, error) {
 		if p.Type() != C.Selector {
 			return nil, problem("NOT_SELECTABLE", "group", "only native select groups accept a manual selection")
 		}
-		selector, ok := p.Adapter().(outboundgroup.SelectAble)
+		selector, ok := p.Adapter().(interface {
+			outboundgroup.SelectAble
+			Now() string
+		})
 		if !ok {
 			return nil, problem("NOT_SELECTABLE", "group", "native group does not support selection")
 		}
+		previous := selector.Now()
+		connections := selectedGroupConnections(s, r.Group)
 		if err := selector.Set(r.Name); err != nil {
 			return nil, problem("INVALID_SELECTION", "name", err.Error())
+		}
+		if previous != r.Name {
+			closeGroupConnections(connections)
 		}
 		if s.cfg.Profile.StoreSelected {
 			cachefile.Cache().SetSelected(r.Group, r.Name)
@@ -440,7 +448,10 @@ func (m *manager) dispatch(r *request) (any, error) {
 		if group.Type() != C.Selector {
 			return nil, problem("NOT_SELECTABLE", "group", "one-shot auto selection requires a manual select group")
 		}
-		selectable, ok := group.Adapter().(outboundgroup.SelectAble)
+		selectable, ok := group.Adapter().(interface {
+			outboundgroup.SelectAble
+			Now() string
+		})
 		if !ok {
 			return nil, problem("NOT_SELECTABLE", "group", "group does not support selection")
 		}
@@ -494,8 +505,13 @@ func (m *manager) dispatch(r *request) (any, error) {
 				return nil, problem("NOT_RUNNING", "", "runtime stopped before selection could commit")
 			}
 		}
+		previous := selectable.Now()
+		connections := selectedGroupConnections(s, r.Group)
 		if err := selectable.Set(best.Name()); err != nil {
 			return nil, problem("INVALID_SELECTION", "group", "healthy proxy disappeared before selection")
+		}
+		if previous != best.Name() {
+			closeGroupConnections(connections)
 		}
 		return map[string]any{"selected": best.Name(), "delayMs": delay, "probed": probed, "oneShot": true}, nil
 	case "refreshProvider":

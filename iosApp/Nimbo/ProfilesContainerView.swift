@@ -18,7 +18,7 @@ struct ProfilesContainerView: View {
     @State private var showInfo = false
     @State private var confirmRemoval = false
 
-    private var isWorking: Bool { isImporting || selectingServerID != nil || isRemoving }
+    private var isWorking: Bool { isImporting || selectingServerID != nil || isRemoving || vpn.switchingServerID != nil }
 
     private func displayTitle(_ profile: NimboSubscriptionProfile) -> String {
         let title = meta.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -244,19 +244,12 @@ struct ProfilesContainerView: View {
         resultMessage = nil
         defer { selectingServerID = nil }
         do {
-            guard let profile = try NimboSubscriptionRepository.shared.loadProfile(),
-                  let candidate = profile.servers.first(where: { $0.id == server.id }) else {
-                throw NimboSubscriptionRepositoryError.serverNotFound
-            }
-            let data = NimboStagingPayload.make(for: candidate, in: profile)
-            let selected = try await NimboProfileSelection.apply(
-                validate: { _ = try vpn.validateCore(data: data) },
-                persist: { try NimboSubscriptionRepository.shared.select(serverID: server.id) },
-                stage: { _ in try await vpn.stageConfiguration(data: data) }
-            )
+            let selection = try await vpn.selectServer(server.id)
             activeProfile = try NimboSubscriptionRepository.shared.loadProfile()
             resultIsError = false
-            resultMessage = "Выбран сервер «\(selected.name)» для следующего подключения."
+            resultMessage = selection.reconnecting
+                ? "Переключаемся на «\(selection.server.name)»…"
+                : "Выбран сервер «\(selection.server.name)»."
         } catch {
             // Staging can fail after persistence; do not display stale selection or fake success.
             activeProfile = try? NimboSubscriptionRepository.shared.loadProfile()

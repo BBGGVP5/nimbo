@@ -50,6 +50,11 @@ url?,timeoutMs?,expectedStatus?,targetRequestId?}`. Unknown/duplicate request fi
 * `snapshot`: `{groups:{name:upstreamProxyDTO},providers:{name:{name,vehicleType,
   version,proxies:upstreamProxyDTO[]}}}`. Snapshot members may change dynamically.
 * `select`: `group,name`; actual Set and snapshot readback. Missing selection fails.
+  A valid changed choice closes captured established connections whose native
+  chain contains this exact group, so clients reconnect through the new choice.
+  Same/invalid selections and other groups are not interrupted. Mobile route
+  lookup/dial/registration owns the graph read lock, never the relay lifetime.
+  The one-shot `autoSelect` uses the same established-connection handoff.
 * `refreshProvider`: `name`; strict payload parsing before native atomic membership
   replacement. Errors retain last valid membership. Returns snapshot.
 * `refreshRuleProvider`: `name`; same atomic strict replacement for rule providers.
