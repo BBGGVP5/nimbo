@@ -98,6 +98,10 @@ class PacketFlowContracts(unittest.TestCase):
         self.assertLess(provider.index('== "cancelMihomoProbe"'), provider.index("lifecycleQueue.async", provider.index("override func handleAppMessage")))
         native = source("tools/native/mihomo-core/runtime.go")
         self.assertIn("m.beginSessionProbe", native)
+        bridge = source("iosApp/PacketTunnel/MihomoPacketBridge.swift")
+        stop_cancel = bridge.split("func cancelPendingStart()", 1)[1].split("func stop()", 1)[0]
+        self.assertIn("pendingProbeID", stop_cancel)
+        self.assertIn("targetRequestId", stop_cancel)
 
     def test_portable_admission_target_parity(self):
         self.assertEqual(source("iosApp/Nimbo/NimboCoreSelection.swift"), source("iosApp/PacketTunnel/NimboCoreSelection.swift"))

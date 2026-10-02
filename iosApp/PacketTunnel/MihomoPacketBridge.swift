@@ -81,6 +81,7 @@ final class MihomoPacketBridge {
     private let outputQueue = DispatchQueue(label: "com.nimbo.mihomo.packet.output")
     private var generation: UInt64?
     private var pendingStartID: String?
+    private var pendingProbeID: String?
     private var sourceSHA256: String?
     private var readOutstanding = false
     private var flow: NEPacketTunnelFlow?
@@ -144,6 +145,15 @@ final class MihomoPacketBridge {
     }
 
     func command(_ operation: String, fields: [String: Any] = [:], requestID: String = UUID().uuidString) throws -> [String: Any] {
+        let isProbe = operation == "delay" || operation == "nimboDelay"
+        if isProbe { lock.lock(); pendingProbeID = requestID; lock.unlock() }
+        defer {
+            if isProbe {
+                lock.lock()
+                if pendingProbeID == requestID { pendingProbeID = nil }
+                lock.unlock()
+            }
+        }
         var request = fields
         request["apiVersion"] = 1; request["requestId"] = requestID; request["operation"] = operation
         if let generation = currentGeneration { request["generation"] = generation }
@@ -165,11 +175,13 @@ final class MihomoPacketBridge {
         return (try? json.withCString { try decode(NimboMihomoInvokeV1(UnsafeMutablePointer(mutating: $0))) }) != nil
     }
 
-    /// Safe outside lifecycleQueue: cancellation bypasses native operation lock.
+    /// Safe outside lifecycleQueue: stop cancels startup and a live delay before
+    /// waiting for serialized teardown; cancellation bypasses native operation lock.
     func cancelPendingStart() {
-        lock.lock(); let requestID = pendingStartID; lock.unlock()
-        guard let requestID else { return }
-        _ = try? command("cancel", fields: ["targetRequestId": requestID])
+        lock.lock(); let startID = pendingStartID; let probeID = pendingProbeID; lock.unlock()
+        for requestID in [startID, probeID].compactMap({ $0 }) {
+            _ = try? command("cancel", fields: ["targetRequestId": requestID])
+        }
     }
 
     func stop() {
