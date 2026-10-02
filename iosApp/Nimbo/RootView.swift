@@ -9,6 +9,8 @@ struct RootView: View {
     @EnvironmentObject private var vpn: VpnController
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showProfiles = false
+    @State private var fullConfiguration: NimboFullConfiguration?
+    @State private var fullServerCount = 0
     @AppStorage("com.nimbo.appearance.themeMode") private var themeMode = "system"
     @State private var isRefreshingSubscription = false
     @State private var didCheckLaunchSubscription = false
@@ -81,11 +83,19 @@ struct RootView: View {
             if UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular {
                 HStack(spacing: 0) {
                     NimboWideSidebar(selection: $selectedTab)
-                    ComposeScreen(tab: selectedTab)
+                    Group {
+                        if selectedTab == .profiles, fullConfiguration != nil {
+                            ProfilesContainerView().environmentObject(vpn)
+                        } else { ComposeScreen(tab: selectedTab) }
+                    }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
-                ComposeScreen(tab: selectedTab)
+                Group {
+                    if selectedTab == .profiles, fullConfiguration != nil {
+                        ProfilesContainerView().environmentObject(vpn)
+                    } else { ComposeScreen(tab: selectedTab) }
+                }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         NimboTabBar(selection: $selectedTab)
                     }
@@ -858,6 +868,12 @@ struct RootView: View {
 
     private func synchronizeComposeState() {
         let presentation = vpn.state.composePresentation
+        let full = try? NimboConfigurationStore.shared.loadFullConfiguration()
+        if fullConfiguration?.sourceSHA256 != full?.sourceSHA256 {
+            fullConfiguration = full
+            let graph = full.flatMap { try? NimboMihomoControl.inspection($0)["declaredGraph"] as? [String: Any] }
+            fullServerCount = (graph?["proxies"] as? [Any])?.count ?? 0
+        }
         let profile = try? NimboSubscriptionRepository.shared.loadProfile()
         let selected = profile?.selectedServer
         let profileJson = NimboSubscriptionRepository.shared.rawProfileJSON()
@@ -868,8 +884,8 @@ struct RootView: View {
             activeProfileName: NimboSubscriptionMetaStore.current.title
                 ?? profile?.title
                 ?? "Подписка не добавлена",
-            activeServerName: selected?.name ?? "Выберите сервер",
-            serverCount: Int32(profile?.servers.count ?? 0),
+            activeServerName: full.map { $0.groupSelections.sorted(by: { $0.key < $1.key }).first?.value ?? "Mihomo · Авто" } ?? selected?.name ?? "Выберите сервер",
+            serverCount: Int32(full == nil ? (profile?.servers.count ?? 0) : fullServerCount),
             profileCount: Int32(profile == nil ? 0 : 1),
             deviceName: NimboPlatformInfo.device,
             systemName: NimboPlatformInfo.system,

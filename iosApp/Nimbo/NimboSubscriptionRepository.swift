@@ -55,6 +55,21 @@ final class NimboSubscriptionRepository {
             throw NimboSubscriptionRepositoryError.invalidEncoding
         }
 
+        if NimboMihomoControl.looksLikeConfiguration(data) {
+            let sourceData: Data
+            if let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               let original = object["originalYAML"] as? String { sourceData = Data(original.utf8) }
+            else { sourceData = data }
+            try NimboMihomoControl.preflight(sourceData)
+            let previous = try NimboConfigurationStore.shared.loadFullConfiguration()
+            let candidate = try NimboFullConfiguration(data: sourceData, source: source,
+                title: previous?.source == source ? (previous?.title ?? "Mihomo") : "Mihomo",
+                groupSelections: previous?.sourceSHA256 == NimboFullConfiguration.digest(sourceData) ? (previous?.groupSelections ?? [:]) : [:])
+            _ = try NimboMihomoControl.inspection(candidate)
+            try NimboConfigurationStore.shared.saveFullConfiguration(candidate)
+            return summary(candidate)
+        }
+
         let normalizedData: Data
         if let awg = try NimboAWGConfiguration.parseIfPresent(payload) {
             let id = "awg-" + SHA256.hash(data: Data(awg.rawText.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -109,6 +124,8 @@ final class NimboSubscriptionRepository {
     }
 
     func loadProfile(migratingLegacy: Bool = true) throws -> NimboSubscriptionProfile? {
+        // Never resurrect the retained Xray profile under an active full document.
+        if let full = try NimboConfigurationStore.shared.loadFullConfiguration() { return summary(full) }
         if let data = try NimboConfigurationStore.shared.loadProfile() {
             let profile = try decoder.decode(NimboSubscriptionProfile.self, from: data)
             return profile
@@ -204,11 +221,24 @@ final class NimboSubscriptionRepository {
         // в самих ссылках этого нет.
         // Не меняем метаданные действующего профиля при ошибке разбора.
         let profile = try importPayload(data, source: source)
-        NimboSubscriptionMetaStore.save(NimboSubscriptionMeta(headers: http.allHeaderFields))
+        let meta = NimboSubscriptionMeta(headers: http.allHeaderFields)
+        NimboSubscriptionMetaStore.save(meta)
+        if let full = try NimboConfigurationStore.shared.loadFullConfiguration() {
+            let titled = try NimboFullConfiguration(data: full.sourceData, source: full.source,
+                title: meta.title ?? full.title, groupSelections: full.groupSelections)
+            try NimboConfigurationStore.shared.saveFullConfiguration(titled)
+            return summary(titled)
+        }
         return profile
     }
 
+    private func summary(_ full: NimboFullConfiguration) -> NimboSubscriptionProfile {
+        NimboSubscriptionProfile(parserRevision: Int(SubscriptionParserMigration.shared.currentRevision),
+            title: full.title, source: full.source, format: "mihomo-yaml", servers: [], diagnosticCode: nil)
+    }
+
     func rawProfileJSON() -> String? {
+        guard (try? NimboConfigurationStore.shared.loadFullConfiguration()) == nil else { return nil }
         guard let data = try? NimboConfigurationStore.shared.loadProfile() else { return nil }
         return String(data: data, encoding: .utf8)
     }

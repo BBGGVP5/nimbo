@@ -169,17 +169,48 @@ Mihomo build and joined during stop before the borrowed TUN is released. Provide
 subscription pull intervals stay disabled: only explicit refresh is admitted.
 Windows desktop builds use the same patched pinned source and can run those native
 groups behind the managed System Proxy owner. This does not enable desktop TUN or
-make iOS available: iOS `StartIOS` remains `PLATFORM_UNAVAILABLE` until a real
-Network Extension packet-flow owner is implemented and device-verified.
+use the legacy iOS FD ABI: `StartIOS` remains `PLATFORM_UNAVAILABLE`. The new
+public packet-flow owner is documented below; real iPhone acceptance is separate.
 
 
-### Packet-flow device (native integration prerequisite, not an enabled owner)
+### iOS public packet-flow owner (device acceptance pending)
 
-`with_gvisor` builds include the source-level `PacketFlowTun` component. It
-provides raw IPv4/IPv6 `IngestPacket`/context-bounded `ReadPacket`, one stack
-attachment, a nonblocking 128-packet output queue and idempotent draining close.
-It does not create an interface, discover an FD, change routes/DNS, install a
-socket hook, or claim native session readiness. The platform must reject late
-callbacks by session/generation, close/join its pump and supply real egress
-ownership. There is currently no production packet start/input/output ABI or
-Swift NetworkExtension connection; `StartIOS` remains unavailable.
+The legacy borrowed-FD `StartIOS` / `NimboMihomoStartIOSV1` remains unavailable.
+New production code uses `StartIOSPacketFlow` / `NimboMihomoStartIOSPacketFlowV1`
+with the trusted `ios-packet-flow` owner. Pure JSON Invoke cannot forge that owner.
+The same merged Go archive includes gVisor and Mihomo's real sing_tun handler:
+source protocol adapters, groups, full routing/sniffer and managed native DNS.
+No Xray conversion, host interface discovery, auto-route or second Go runtime.
+
+Start request API1 options: absolute app-private `dataDir`, `networkOwner` equal to
+`ios-packet-flow`, explicit `packetIPv6`, optional numeric `packetSystemDNS`,
+startup deadline <=25s. No mixed/controller listener. Install a socket protector
+while stopped: Swift binds IPv4/IPv6 egress to the underlying physical interface
+before connect, without checking public Internet availability.
+
+Binary packet ABI in generated libXray.h:
+- `NimboMihomoWriteIOSPacketV1(uint64 generation, void *input, int length)`:
+  raw IP without Darwin family prefix, 20..1500 bytes, copied synchronously.
+  Return 1 accepted, -1 stale/stopped owner, -2 malformed/invalid argument.
+- `NimboMihomoReadIOSPacketV1(uint64 generation, void *output, int capacity, int timeoutMs)`:
+  caller-owned output >=1500 and <=65536 bytes; 1..1000ms deadline. Return packet
+  byte count, 0 timeout, -1 stale/stop, -2 invalid arguments. No per-packet JSON,
+  base64 or native malloc; reads do not take the operation mutex. Stop cancels
+  pending reads; generation is rechecked after dequeue.
+- Start/control JSON responses must be freed once with `NimboMihomoFreeV1`.
+
+Public `NEPacketTunnelFlow` has one outstanding input read, generation-tagged
+late callbacks, <=32 packet output batches and a bounded 128-packet native queue.
+The system MTU/address/DNS settings match 1500, 172.19.0.1/30, 172.19.0.2 and
+optional fdfe:dcba:9876::1/126 / ::2. DNS must be source-enabled; implicit public
+fallback is not installed. `preflightIOSPacketFlow` checks source ownership before
+changing NetworkExtension preferences. Process/UID/package/host route filters and
+classical remote rule providers are rejected rather than silently ignored.
+Domain/IP providers are native. Full YAML/source identity survives import.
+
+`networkChanged` closes old native trackers and DNS connections. Native group
+`select` closes established flows using only the changed group, with no TUN
+replacement; full-document choices persist only after source-bound readback.
+Readiness is local stack attachment, NOT external connectivity. Loopback native
+fixtures exercise TCP IPv4+IPv6, UDP DNS, live group switching and stop/wake/stale
+packet ownership. Apple archive/Swift/IPA and a real iPhone remain separate gates.

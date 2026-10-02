@@ -60,6 +60,9 @@ jobs:
       - name: Verify on-demand policy and native memory contracts
         run: python3 iosApp/Tests/test_on_demand_contracts.py --swift
 
+      - name: Verify Mihomo packet-flow source contracts
+        run: python3 scripts/ci/test-ios-packet-flow.py --swift
+
       - name: Install build tools
         run: brew install xcodegen ldid-procursus
 

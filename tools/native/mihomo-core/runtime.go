@@ -45,6 +45,8 @@ type startOptions struct {
 	DataDir           string   `json:"dataDir"`
 	NetworkOwner      string   `json:"networkOwner"`
 	AndroidSystemDNS  []string `json:"androidSystemDNS,omitempty"`
+	PacketIPv6        bool     `json:"packetIPv6,omitempty"`
+	PacketSystemDNS   []string `json:"packetSystemDNS,omitempty"`
 	AndroidIPv6       bool     `json:"androidIPv6,omitempty"`
 	MixedAddress      string   `json:"mixedAddress"`
 	ControllerAddress string   `json:"controllerAddress"`
@@ -65,6 +67,7 @@ type request struct {
 	ExpectedStatus     string       `json:"expectedStatus,omitempty"`
 	TargetRequestID    string       `json:"targetRequestId,omitempty"`
 	responseGeneration uint64
+	packetOwner        bool   // trusted packet-flow entry; never decoded from JSON
 	borrowedFD         *int64 // trusted local entry only; never decoded from JSON
 }
 type response struct {
@@ -125,6 +128,7 @@ type session struct {
 	closeProvidersOnce sync.Once
 	cacheOpened        bool
 	mobile             *mobileSession
+	packet             ownedPacketFlow
 	tun                io.Closer
 }
 type manager struct {
@@ -146,16 +150,17 @@ type manager struct {
 var singleton = manager{state: "stopped"}
 
 func capabilities() capabilitySet {
+	mobileFeatures := androidTunCompiled || (packetFlowCompiled && runtime.GOOS == "ios")
 	return capabilitySet{
 		DesktopProxy: true,
 		AndroidVPN:   androidTunCompiled,
-		IOSVPN:       false,
-		RuleRouting:  androidTunCompiled,
+		IOSVPN:       packetFlowCompiled && runtime.GOOS == "ios",
+		RuleRouting:  mobileFeatures,
 		IPv4:         true,
-		IPv6:         androidTunCompiled, // The Android Builder and Mihomo TUN share an explicit dual-stack opt-in.
+		IPv6:         mobileFeatures, // The Android Builder and Mihomo TUN share an explicit dual-stack opt-in.
 		TCP:          true,
-		UDP:          androidTunCompiled,
-		DNS:          androidTunCompiled,
+		UDP:          mobileFeatures,
+		DNS:          mobileFeatures,
 		Providers:    true,
 		ProviderAuto: true,
 		GroupSelect:  true,
@@ -171,7 +176,11 @@ func Invoke(input string) (output string) {
 	return invoke(input, nil)
 }
 
-func invoke(input string, borrowedFD *int64) (output string) {
+func invoke(input string, borrowedFD *int64) string {
+	return invokeOwned(input, borrowedFD, false)
+}
+
+func invokeOwned(input string, borrowedFD *int64, packetOwner bool) (output string) {
 	r := request{}
 	resp := response{APIVersion: 1}
 	singleton.mu.Lock()
@@ -211,6 +220,11 @@ func invoke(input string, borrowedFD *int64) (output string) {
 	}
 	resp.RequestID = r.RequestID
 	r.borrowedFD = borrowedFD
+	r.packetOwner = packetOwner
+	if packetOwner && (r.Operation != "start" || borrowedFD != nil) {
+		resp.Error = problem("INVALID_REQUEST", "operation", "packet-flow entry accepts only start")
+		return
+	}
 	if borrowedFD != nil && r.Operation != "start" {
 		resp.Error = problem("INVALID_REQUEST", "operation", "StartAndroid accepts only start")
 		return
@@ -237,7 +251,7 @@ func invoke(input string, borrowedFD *int64) (output string) {
 func (m *manager) statusLocked() runtimeStatus {
 	s := m.info
 	s.State = m.state
-	if m.state == "running" && m.session != nil && m.session.mobile != nil && m.session.ctx.Err() != nil {
+	if m.state == "running" && m.session != nil && (m.session.mobile != nil || m.session.packet != nil) && m.session.ctx.Err() != nil {
 		s.State = "failed"
 		s.TunReady = false
 	}
@@ -310,6 +324,19 @@ func (m *manager) dispatch(r *request) (any, error) {
 	}
 	if r.Operation == "inspect" {
 		return inspect(r.YAML)
+	}
+	if r.Operation == "preflightIOSPacketFlow" {
+		d, err := inspect(r.YAML)
+		if err != nil {
+			return nil, err
+		}
+		if err := packetRuntimePolicy(d); err != nil {
+			return nil, err
+		}
+		if err := androidRuntimePolicy(d); err != nil {
+			return nil, err
+		}
+		return map[string]any{"valid": true, "sourceSHA256": d.SourceSHA256, "scope": "ios-public-packet-flow", "compiled": packetFlowCompiled}, nil
 	}
 	if r.Operation == "preflightAndroid" {
 		// Pure source admission, safe alongside a live runtime. Do not call
@@ -398,6 +425,13 @@ func (m *manager) dispatch(r *request) (any, error) {
 		}
 	}()
 	switch r.Operation {
+	case "networkChanged":
+		if s.packet == nil {
+			return nil, problem("INVALID_REQUEST", "operation", "packet-flow session required")
+		}
+		statistic.DefaultManager.Range(func(c statistic.Tracker) bool { _ = c.Close(); return true })
+		resolver.ResetConnection()
+		return map[string]any{"reset": true}, nil
 	case "snapshot":
 		return snapshot(s)
 	case "select":
@@ -711,15 +745,21 @@ func (m *manager) start(r request) (result any, err error) {
 		return nil, problem("PLATFORM_UNAVAILABLE", "operation", "Android start requires trusted StartAndroid entry")
 	}
 	android := o.NetworkOwner == "android-vpn" && r.borrowedFD != nil
-	if !android && o.NetworkOwner != "desktop-proxy" {
+	packet := r.packetOwner && o.NetworkOwner == "ios-packet-flow" && packetFlowCompiled
+	if r.packetOwner && !packet {
+		return nil, problem("INVALID_REQUEST", "options.networkOwner", "packet flow requires ios-packet-flow ownership")
+	}
+	if !android && !packet && o.NetworkOwner != "desktop-proxy" {
 		return nil, problem("PLATFORM_UNAVAILABLE", "options.networkOwner", "exclusive mobile FD/TUN lifecycle not wired; never falls back to TCP")
 	}
 	if r.borrowedFD != nil && !android {
 		return nil, problem("INVALID_REQUEST", "options.networkOwner", "StartAndroid requires android-vpn")
 	}
-	if android {
-		if err = androidPlatformCheck(*r.borrowedFD); err != nil {
-			return nil, err
+	if android || packet {
+		if android {
+			if err = androidPlatformCheck(*r.borrowedFD); err != nil {
+				return nil, err
+			}
 		}
 		if o.MixedAddress != "" || o.ControllerAddress != "" || o.Secret != "" {
 			return nil, problem("INVALID_REQUEST", "options", "mobile has no mixed/controller listener")
@@ -740,7 +780,7 @@ func (m *manager) start(r request) (result any, err error) {
 	if o.StartupTimeoutMs < 1 || o.StartupTimeoutMs > 25000 {
 		return nil, problem("INVALID_REQUEST", "options.startupTimeoutMs", "expected 1..25000")
 	}
-	if !android {
+	if !android && !packet {
 		if err = loopbackAddress(o.MixedAddress); err != nil {
 			return nil, err
 		}
@@ -757,11 +797,16 @@ func (m *manager) start(r request) (result any, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if android {
+	if android || packet {
+		if packet {
+			if err = packetRuntimePolicy(d); err != nil {
+				return nil, err
+			}
+		}
 		if err = androidRuntimePolicy(d); err != nil {
 			return nil, err
 		}
-		d.android = true
+		d.android = true // shared source-preserving mobile ownership policy
 	} else if len(d.StrictIssues) > 0 {
 		return nil, &d.StrictIssues[0]
 	}
@@ -771,6 +816,8 @@ func (m *manager) start(r request) (result any, err error) {
 	s := &session{doc: d, home: filepath.Clean(o.DataDir), oldHome: C.Path.HomeDir(), oldIPv6: resolver.DisableIPv6, oldMode: tunnel.Mode(), oldProcess: tunnel.FindProcessMode(), oldStoreSelected: profile.StoreSelected.Load(), oldLogLevel: log.Level(), oldDNS: saveDNS(), ctx: ctx, cancel: cancel}
 	if android {
 		s.mobile = newMobileSession(ctx, cancel)
+		s.oldAndroidGlobals = captureAndroidGlobals()
+	} else if packet {
 		s.oldAndroidGlobals = captureAndroidGlobals()
 	}
 	m.mu.Lock()
@@ -809,7 +856,10 @@ func (m *manager) start(r request) (result any, err error) {
 		return nil, problem("CACHE_OPEN", "options.dataDir", err.Error())
 	}
 	s.cacheOpened = true
-	if android {
+	if packet {
+		s.cfg, err = nativeParsePacket(d, o.PacketIPv6, o.PacketSystemDNS)
+		m.lastDiagnosticConfig = d.finalConfig
+	} else if android {
 		s.cfg, err = nativeParseAndroid(d, o.AndroidIPv6, o.AndroidSystemDNS)
 		m.lastDiagnosticConfig = d.finalConfig
 	} else {
@@ -834,7 +884,7 @@ func (m *manager) start(r request) (result any, err error) {
 		s.mobile.cfg = s.cfg
 		// The native Mihomo DNS resolver/enhancer is installed below. The legacy
 		// mobile resolver remains only as a lifecycle lock for bridge mutations.
-	} else {
+	} else if !packet {
 		applyInternalDNS(s.cfg)
 	}
 	for _, p := range s.cfg.Providers {
@@ -876,12 +926,18 @@ func (m *manager) start(r request) (result any, err error) {
 		tunnel.SetFindProcessMode(process.FindProcessOff)
 	}
 	resolver.DisableIPv6 = !s.cfg.General.IPv6
-	if android {
+	if android || packet {
 		if err = applyUpstreamAndroidComponents(s.cfg); err != nil {
 			return nil, problem("MIHOMO_INITIALIZATION_FAILED", "", err.Error())
 		}
 	}
-	if s.mobile != nil {
+	if packet {
+		s.packet, err = startPacketRuntime(s)
+		if err != nil {
+			return nil, problem("TUN_START_FAILED", "packetFlow", err.Error())
+		}
+		s.tun = s.packet
+	} else if s.mobile != nil {
 		s.tun, err = startAndroidTun(*r.borrowedFD, s.cfg)
 		if err != nil {
 			return nil, problem("TUN_START_FAILED", "borrowedFD", err.Error())
@@ -1124,10 +1180,8 @@ func applyUpstreamAndroidComponents(cfg *config.Config) error {
 // outgoing socket before connect. No FD ownership is inferred from an integer.
 type SocketProtector interface{ Protect(fd int64) bool }
 
-// StartIOS is an explicit gate, not a fake successful TUN attach. A future bridge
-// must dup(borrowedFD), set nonblocking, pass ONLY the duplicate to sing-tun,
-// disable host auto-route/redirect/interface discovery, and acknowledge readiness
-// after native listener success. It must share the existing LibXray Go runtime.
+// StartIOS preserves the deprecated FD ABI gate. New callers must use
+// StartIOSPacketFlow: public NEPacketTunnelFlow, no borrowed utun FD scan.
 func StartIOS(requestJSON string, borrowedFD int64) string {
 	code := "PLATFORM_UNAVAILABLE"
 	message := "exclusive iOS TUN FD bridge is not implemented"

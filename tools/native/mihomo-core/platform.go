@@ -25,7 +25,7 @@ func init() {
 		singleton.mu.Lock()
 		allowed := (singleton.state == "starting" || singleton.state == "running") && singleton.session != nil && singleton.session.ctx.Err() == nil
 		probe := singleton.state == "stopped" && singleton.probeContext != nil && singleton.probeContext.Err() == nil
-		mobile := singleton.session != nil && singleton.session.mobile != nil
+		mobile := singleton.session != nil && (singleton.session.mobile != nil || singleton.session.doc.android)
 		s := singleton.session
 		singleton.mu.Unlock()
 		if !allowed && !probe {

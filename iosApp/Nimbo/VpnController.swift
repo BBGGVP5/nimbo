@@ -45,8 +45,10 @@ final class VpnController: ObservableObject {
         guard !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { throw NimboCoreSelectionError.busy }
         let preference = UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey)
         if let full = try NimboConfigurationStore.shared.loadFullConfiguration() {
-            return try NimboCoreAdmission.validate(preference: preference, data: full.sourceData,
+            let engine = try NimboCoreAdmission.validate(preference: preference, data: full.sourceData,
                                                    declaredEngine: full.coreId)
+            try NimboMihomoControl.preflight(full.sourceData)
+            return engine
         }
         return try NimboCoreAdmission.validate(preference: preference, data: data)
     }
@@ -187,6 +189,7 @@ final class VpnController: ObservableObject {
             "schema": 2,
             NimboOnDemandRules.providerKey: try JSONEncoder().encode(NimboOnDemandSettings.load()),
             "configData": data,
+            "mihomoSelections": (try NimboConfigurationStore.shared.loadFullConfiguration())?.groupSelections ?? [:],
             NimboCorePreference.providerKey: preference.rawValue,
             NimboCorePreference.profileEngineKey: profileEngine.rawValue,
             // Attribute only bytes that actually belong to the selected profile entry.

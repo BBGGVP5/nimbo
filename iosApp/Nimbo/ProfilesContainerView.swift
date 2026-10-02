@@ -7,6 +7,7 @@ struct ProfilesContainerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("com.nimbo.appearance.textScale") private var textScale = 1.0
     @State private var importText = ""
+    @State private var fullConfiguration = try? NimboConfigurationStore.shared.loadFullConfiguration()
     @State private var activeProfile = try? NimboSubscriptionRepository.shared.loadProfile()
     @State private var isImporting = false
     @State private var selectingServerID: String?
@@ -34,7 +35,12 @@ struct ProfilesContainerView: View {
     var body: some View {
         NavigationStack {
             NimboPage {
-                if let activeProfile {
+                if let fullConfiguration {
+                    NimboMihomoProfileCard(full: fullConfiguration).environmentObject(vpn)
+                    Button(role: .destructive) { confirmRemoval = true } label: {
+                        Label("Удалить конфигурацию", systemImage: "trash")
+                    }.buttonStyle(NimboActionStyle()).disabled(isWorking)
+                } else if let activeProfile {
                     activeConfigurationCard(activeProfile)
                 } else {
                     NimboNotice(title: "Добавьте первую подписку", detail: "Серверы появятся после импорта ссылки или конфигурации.", symbol: "square.stack.3d.up").nimboCard()
@@ -197,6 +203,7 @@ struct ProfilesContainerView: View {
         do {
             let profile = try await NimboSubscriptionImporter.importProfile(source)
             activeProfile = profile
+            fullConfiguration = try NimboConfigurationStore.shared.loadFullConfiguration()
             meta = NimboSubscriptionMetaStore.current
             importText = ""
             resultIsError = false
@@ -228,6 +235,7 @@ struct ProfilesContainerView: View {
         do {
             let profile = try await NimboSubscriptionRepository.shared.refresh()
             activeProfile = profile
+            fullConfiguration = try NimboConfigurationStore.shared.loadFullConfiguration()
             meta = NimboSubscriptionMetaStore.current
             resultIsError = false
             resultMessage = "Подписка обновлена: \(profile.servers.count) серверов."
@@ -269,6 +277,7 @@ struct ProfilesContainerView: View {
             NimboSubscriptionMetaStore.clear()
             meta = .empty
             activeProfile = nil
+            fullConfiguration = nil
             resultMessage = nil
         } catch {
             resultIsError = true
