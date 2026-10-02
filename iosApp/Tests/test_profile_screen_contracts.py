@@ -15,7 +15,7 @@ class ProfileScreenContracts(unittest.TestCase):
         self.assertTrue(actions.exists(), "Cross-file ping action must not live in a private extension")
         source = actions.read_text(encoding="utf-8")
         self.assertIn('static let nimboPingServer = Notification.Name("com.nimbo.action.ping-server")', source)
-        self.assertNotIn("private extension", source)
+        self.assertNotRegex(source, r"(?m)^\s*(?:private|fileprivate)\s+extension")
         root = (ROOT / "iosApp/Nimbo/RootView.swift").read_text(encoding="utf-8")
         self.assertNotIn("static let nimboPingServer", root)
 
