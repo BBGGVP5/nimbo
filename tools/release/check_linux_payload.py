@@ -95,7 +95,7 @@ def inspect_package(package, manifest):
             verify_helper(helper.read_bytes(), helper.stat().st_mode, manifest)
     else:
         entries = (tar_entries(run("dpkg-deb", "--fsys-tarfile", package)) if package.suffix == ".deb"
-                   else cpio_entries(run("rpm2cpio", package)))
+                   else tar_entries(run("bsdtar", "-cf", "-", "--format=pax", f"@{package}")))
         assert HELPER in entries, f"Helper missing from {package.name}"
         mode, data = entries[HELPER]
         verify_helper(data, mode, manifest)
