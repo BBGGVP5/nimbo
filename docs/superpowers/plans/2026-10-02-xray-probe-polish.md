@@ -25,8 +25,8 @@
 ### Task 4: Verify and build
 - [x] Mirror only baseline-matching Android/shared/iOS files to the user's primary project.
 - [x] Run targeted tests and inspect previous GitHub build outcomes.
-- [ ] Commit explicit paths, push existing PR branch and dispatch artifact-only desktop and re-signable iOS builds.
-- [ ] Record verified results and remaining device/native-runtime gaps without claiming all protocols work.
+- [x] Commit explicit paths, push existing PR branch and dispatch artifact-only desktop and re-signable iOS builds.
+- [x] Record verified results and remaining device/native-runtime gaps without claiming all protocols work.
 
 
 ### Verification and scope notes
@@ -36,3 +36,6 @@
 - A differing primary iOS source-contract file was preserved. Runtime files were mirrored only after baseline comparison; no partial desktop checkout was copied to the primary project.
 - Browser proof: title x=378, menu x=378, title bottom=438.734375, menu top=444.734375; modal portal remains in dialog. This is synthetic UI-only QA, not a real VPN test.
 - Remaining: Android large-text/device visual QA, full latest Apple build and device connectivity, and native iOS/desktop health-strategy balancer diagnostics. These are intentionally not checked off as complete.
+
+- Final primary rerun passed all 790 Kotlin tests including virtual-loopback selection and both debug/release packaging. Debug ARM64 is signed and side-by-side (`.debug`); release ARM64 is unsigned and is not presented as an installable release update.
+- Pushed runtime revision 33dea19 to PR78. IPA run 37005611847 and artifact-only desktop run 37005616172 are executing from that exact runtime revision. No main merge, tag publication, or user-host networking changes.

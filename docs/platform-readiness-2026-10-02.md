@@ -64,7 +64,7 @@
 
 ### GitHub проверки этого UI-прохода
 - `ff10fc6`: [Windows/Linux project CI](https://github.com/BBGGVP5/nimbo/actions/runs/37000897792) и [Android/shared CI](https://github.com/BBGGVP5/nimbo/actions/runs/37000897902) завершились успешно.
-- [Новая полная IPA](https://github.com/BBGGVP5/nimbo/actions/runs/37000894345) и [новые Windows/Linux установщики](https://github.com/BBGGVP5/nimbo/actions/runs/37001230692) запущены из этой же ревизии, пока выполняются. Старые скачанные артефакты не выдаются за сборки с серверным меню/отменой. Релиз автоматически не публикуется, `main` не изменён.
+- Предыдущая [полная IPA](https://github.com/BBGGVP5/nimbo/actions/runs/37000894345) завершилась ошибкой Swift type-check; [Windows/Linux установщики ff10fc6](https://github.com/BBGGVP5/nimbo/actions/runs/37001230692) собраны успешно. Следующий проход ниже исправляет Apple-выражение и запускает новые сборки. Релиз не публикуется, `main` не изменён.
 
 
 ## Xray route-fidelity and title-menu pass (2 October)
@@ -77,3 +77,12 @@
 - Verification before dispatch: 595 Android unit tests +119 shared desktop tests +76 shared host tests passed, along with Release Kotlin compilation; desktop 82 tests and TS/Vite production build passed; iOS source contracts (ping 18, profiles 5, Live Activity 5, on-demand 4) passed. Native Apple compilation/device tests are separate.
 - Runtime limits remain explicit: this Xray graph correction is Android-only. The iOS app-process Go diagnostic still rejects ambiguous multi-outbound/chain configurations; desktop diagnostics still reject health-driven balancer strategies. These are not silently measured as TCP or as an arbitrary member. Native Mihomo TUN and the earlier platform/device gaps are not declared complete.
 - Prior desktop packaging run 37001230692 completed successfully for Windows x64/x86/ARM64 and Linux x64/ARM64 (ff10fc6, before this pass). Its artifacts are not the newly compact/title-anchored build. New artifact-only packaging and IPA will be dispatched from the corrected revision, without publishing a release or merging main.
+
+
+### Final local results and dispatched builds (33dea19)
+- Primary project: `:app:testDebugUnitTest :shared:desktopTest :shared:testAndroidHostTest :app:assembleDebug :app:assembleRelease` — BUILD SUCCESSFUL, 4m34s; 595+119+76 tests, zero failures/errors. `packageRelease` completed; no release signing keys were changed or read.
+- ARM64 debug APK: 143,666,905 bytes, SHA256 `3c23096a04dfe043a6ad4511f7baece9c7cffb2c8ed9f6a61396f25595b53991`, ZIP valid, only arm64-v8a native libraries, apksigner verification passed, application ID `com.danila.nimbo.debug`. This is the installable side-by-side test build.
+- ARM64 release APK: 46,399,623 bytes, SHA256 `fa1250bced1502ad70ab4e108f22ebd108334090274176c2b49c75eb32cf20e2`, ZIP valid, only arm64-v8a libraries, application ID `com.danila.nimbo`. **Unsigned**: apksigner verification does not pass; Gradle packaging success is not a signed update over the installed release. It must be signed with the user's existing key through Studio/the established signing process.
+- [Latest re-signable IPA build](https://github.com/BBGGVP5/nimbo/actions/runs/37005611847): dispatched from 33dea19, in progress; no successful latest IPA claimed.
+- [Latest Windows/Linux artifact-only packaging](https://github.com/BBGGVP5/nimbo/actions/runs/37005616172): dispatched from 33dea19, in progress, publish=false.
+- [Latest Windows/Linux source CI](https://github.com/BBGGVP5/nimbo/actions/runs/37005617151) and [latest Android/shared source CI](https://github.com/BBGGVP5/nimbo/actions/runs/37005617185) dispatched on the same revision; statuses must be checked separately from previous passing runs.
