@@ -13,6 +13,7 @@ mod latency;
 pub mod logging;
 mod mihomo_proxy;
 mod mihomo_runtime;
+mod on_demand;
 mod recovery_policy;
 pub mod state;
 pub mod tray;
@@ -350,6 +351,7 @@ pub fn run() {
             apply_main_window_background(app.handle());
             crate::commands::cleanup_disconnected_runtime_on_startup(app.handle());
             auto_route::start_monitor(app.handle().clone());
+            on_demand::start_monitor(app.handle().clone());
 
             // Long-lived sync server: runs for the whole app lifetime so paired
             // phones can keep syncing after the sync tab is closed.
@@ -408,6 +410,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            on_demand::get_on_demand,
+            on_demand::set_on_demand,
             commands::resume_saved_connection,
             mihomo_runtime::get_core_availability,
             mihomo_runtime::get_core_profiles,

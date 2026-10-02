@@ -35,6 +35,16 @@ import Foundation
         precondition(NimboOnDemandSettings.load(defaults: storage) == saved)
         storage.set(Data("corrupt".utf8), forKey: NimboOnDemandSettings.preferenceKey)
         precondition(!NimboOnDemandSettings.load(defaults: storage).enabled)
-        print("On-demand policy: PASS")
+        let encoded = try JSONEncoder().encode(saved)
+        let disabled = try JSONEncoder().encode(defaults)
+        precondition(NimboOnDemandSettings.restored(local: nil, staged: encoded) == saved)
+        precondition(NimboOnDemandSettings.restored(local: disabled, staged: encoded) == saved)
+        precondition(NimboOnDemandSettings.restored(local: encoded, staged: disabled) == defaults)
+        precondition(NimboOnDemandSettings.restored(local: encoded, staged: Data("broken".utf8)) == saved)
+        precondition(NimboOnDemandSettings.restored(local: nil, staged: nil) == defaults)
+        // Pausing affects manager.isOnDemandEnabled, not the saved settings.
+        // Restoration must recover the enabled intent without applying any rules.
+        precondition(NimboOnDemandSettings.restored(local: nil, staged: encoded).enabled)
+        print("On-demand policy and staged restoration: PASS")
     }
 }

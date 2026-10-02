@@ -813,6 +813,7 @@ pub fn export_app_backup(state: State<'_, AppState>) -> Result<String, String> {
     snapshot.connected = false;
     snapshot.connected_at = None;
     snapshot.pending_system_proxy_snapshot = None;
+    snapshot.on_demand = crate::on_demand::Config::default();
     snapshot.pending_mihomo_proxy_port = None;
     snapshot.pending_tun_snapshot = None;
     let exported_at = std::time::SystemTime::now()
@@ -844,6 +845,7 @@ pub async fn import_app_backup(
     let mut imported: PersistedState = serde_json::from_value(state_value)
         .map_err(|e| format!("Не удалось применить резервную копию: {e}"))?;
     imported.normalize_runtime_defaults();
+    imported.on_demand = crate::on_demand::Config::default();
     imported.connected = false;
     imported.connected_at = None;
     imported.pending_system_proxy_snapshot = None;
@@ -4970,8 +4972,11 @@ pub async fn connect_server(
     server_id: String,
 ) -> Result<PersistedState, String> {
     preflight_server_connection(&app, &state.snapshot(), &server_id)?;
-    CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst);
+    let ticket = CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst) + 1;
     let _operation = CONNECTION_OPERATION.lock().await;
+    if ticket != CONNECTION_INTENT.load(Ordering::SeqCst) {
+        return Err("CONNECTION_CANCELLED".into());
+    }
     preflight_server_connection(&app, &state.snapshot(), &server_id)?;
     state
         .mutate(|s| s.auto_subscription_url = None)
@@ -4980,6 +4985,9 @@ pub async fn connect_server(
     // existing Mihomo session just because legacy UI invoked the wrong command.
     let preference = state.snapshot().core_profiles.preferred_core;
     let result = connect_server_inner(app, state.clone(), server_id, preference).await;
+    if result.is_ok() {
+        crate::on_demand::manual_connected(&state, ticket)?;
+    }
     if result.is_err() {
         let _ = stop_runtime(&state);
         let _ = state.mutate(|s| {
@@ -4999,6 +5007,9 @@ pub async fn resume_saved_connection(
 ) -> Result<bool, String> {
     let _operation = CONNECTION_OPERATION.lock().await;
     let snapshot = state.session_snapshot();
+    if snapshot.on_demand.settings.enabled {
+        return Ok(true);
+    }
     if snapshot.connected {
         return Ok(true);
     }
@@ -5111,6 +5122,7 @@ pub async fn disconnect_server(
 ) -> Result<PersistedState, String> {
     // Invalidate recovery immediately, even if a native startup is still finishing.
     CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst);
+    crate::on_demand::manual_pause(&state)?;
     let _operation = CONNECTION_OPERATION.lock().await;
     disconnect_server_inner(app, state).await
 }
@@ -8457,7 +8469,7 @@ impl Drop for ResumeGuard {
 pub fn reconnect_runtime_after_resume(app: &AppHandle) {
     let ticket = CONNECTION_INTENT.load(Ordering::SeqCst);
     let snapshot = app.state::<AppState>().snapshot();
-    if !snapshot.connected {
+    if !snapshot.connected || !crate::on_demand::permits_recovery(&snapshot) {
         return;
     }
     let Some(server_id) = snapshot.active_server_id.clone() else {
@@ -8482,6 +8494,7 @@ pub fn reconnect_runtime_after_resume(app: &AppHandle) {
             let state = app_handle.state::<AppState>();
             let current = state.session_snapshot();
             if !current.connected
+                || !crate::on_demand::permits_recovery(&current)
                 || !crate::recovery_policy::may_recover(
                     ticket,
                     CONNECTION_INTENT.load(Ordering::SeqCst),

@@ -318,7 +318,10 @@ pub fn check_network_mode(mode: ConnectionMode, kill_switch: bool) -> Result<(),
     )
 }
 
-fn preflight_profile(snapshot: &PersistedState, profile_id: &str) -> Result<FullProfile, String> {
+pub(crate) fn preflight_profile(
+    snapshot: &PersistedState,
+    profile_id: &str,
+) -> Result<FullProfile, String> {
     let profile = snapshot
         .core_profiles
         .profile(profile_id)
@@ -367,7 +370,9 @@ pub async fn connect_mihomo_profile(
     let ticket = CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst) + 1;
     let _lock = CONNECTION_OPERATION.lock().await;
     let snapshot = state.snapshot();
-    connect_profile_inner(app, state, profile_id, snapshot, ticket).await
+    let result = connect_profile_inner(app, state.clone(), profile_id, snapshot, ticket).await?;
+    crate::on_demand::manual_connected(&state, ticket)?;
+    Ok(result)
 }
 
 /// Caller owns CONNECTION_OPERATION. Lifecycle restoration supplies its durable

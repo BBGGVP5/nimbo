@@ -255,3 +255,28 @@ test('manual server switching lets Rust reject a mismatch without frontend teard
   assert.equal(disconnects, 0);
   assert.equal(resets, 1);
 });
+
+
+test('on-demand validation preserves exact network names and rejects invalid input', async () => {
+  const helpers = await moduleWithMocks('../src/lib/onDemand.ts', { invoke: async () => {}, isTauriRuntime: () => true });
+  const enabled = { ...helpers.defaultOnDemand, enabled: true };
+  assert.deepEqual(helpers.validatedOnDemand(enabled, ' Home \nHome\nhome\nCafe:Guest').trusted_ssids, ['Home', 'home', 'Cafe:Guest']);
+  assert.throws(() => helpers.validatedOnDemand(enabled, 'я'.repeat(17)), /INVALID_SSID/);
+  assert.throws(() => helpers.validatedOnDemand(enabled, 'bad\u0000name'), /INVALID_SSID/);
+  assert.throws(() => helpers.validatedOnDemand(enabled, Array.from({ length: 33 }, (_, i) => `WiFi${i}`).join('\n')), /TOO_MANY_SSIDS/);
+  assert.throws(() => helpers.validatedOnDemand({ ...enabled, wifi: false, cellular: false }, ''), /NO_TRANSPORT/);
+  assert.equal(helpers.validatedOnDemand({ ...enabled, wifi: false, cellular: false, ethernet: true }, '').ethernet, true);
+  assert.doesNotMatch(helpers.onDemandError('unexpected SSID=private-home', true), /private-home/);
+});
+
+test('on-demand uses explicit native saves and has no browser persistence fallback', async () => {
+  const calls = [];
+  const mocks = { invoke: async (...args) => { calls.push(args); return {}; }, isTauriRuntime: () => true };
+  const { onDemandApi, defaultOnDemand } = await moduleWithMocks('../src/lib/onDemand.ts', mocks);
+  await onDemandApi.get();
+  await onDemandApi.save(defaultOnDemand);
+  assert.deepEqual(calls, [['get_on_demand'], ['set_on_demand', { settings: defaultOnDemand }]]);
+  const browser = await moduleWithMocks('../src/lib/onDemand.ts', { ...mocks, isTauriRuntime: () => false });
+  await assert.rejects(browser.onDemandApi.save(defaultOnDemand), /NATIVE_UNAVAILABLE/);
+  assert.equal(calls.length, 2);
+});

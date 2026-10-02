@@ -396,6 +396,17 @@ final class VpnController: ObservableObject {
         await NimboDiagnostics.shared.record(.info, stage: .stop, code: "IOS_TUNNEL_STOP_REQUESTED", message: "Остановка Packet Tunnel запрошена пользователем")
     }
 
+    /// Reading settings never creates a VPN profile, saves NE preferences or
+    /// enables paused rules. Recover the stored choice from the system profile.
+    func loadOnDemandSettings() async throws -> (settings: NimboOnDemandSettings, armed: Bool) {
+        let existing = try await NimboTunnelControl.manager()
+        let proto = existing?.protocolConfiguration as? NETunnelProviderProtocol
+        let settings = NimboOnDemandSettings.restored(
+            local: UserDefaults.standard.data(forKey: NimboOnDemandSettings.preferenceKey),
+            staged: proto?.providerConfiguration?[NimboOnDemandRules.providerKey] as? Data)
+        return (settings, existing?.isOnDemandEnabled == true)
+    }
+
     /// Explicit settings save can arm system starts. Never called on launch.
     func saveOnDemandSettings(_ candidate: NimboOnDemandSettings) async throws {
         guard !isSavingOnDemand, !isSavingCorePreference, !isStagingConfiguration,
@@ -480,6 +491,12 @@ final class VpnController: ObservableObject {
         value.protocolConfiguration = tunnelProtocol
         value.localizedDescription = "Nimbo"
         value.isEnabled = true
+        // Recover preferences used by the next explicit connect. Merely loading
+        // a manually paused system profile does not enable its on-demand rules.
+        let restored = NimboOnDemandSettings.restored(
+            local: UserDefaults.standard.data(forKey: NimboOnDemandSettings.preferenceKey),
+            staged: tunnelProtocol.providerConfiguration?[NimboOnDemandRules.providerKey] as? Data)
+        UserDefaults.standard.set(try JSONEncoder().encode(restored), forKey: NimboOnDemandSettings.preferenceKey)
         // Preserve opt-in rules on reload. New/legacy profiles without our
         // explicit settings are disabled; old unconditional rules never migrate.
         if existing == nil || tunnelProtocol.providerConfiguration?[NimboOnDemandRules.providerKey] == nil {

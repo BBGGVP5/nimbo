@@ -52,7 +52,7 @@ def swift_tests():
         subprocess.run(["xcrun","swiftc","-typecheck","-parse-as-library","-target","arm64-apple-ios16.0","-sdk",sdk,*shared],cwd=ROOT,check=True)
         subprocess.run(["xcrun","swiftc","-typecheck","-parse-as-library","-application-extension","-target","arm64-apple-ios18.0","-sdk",sdk,*shared,"iosApp/Shared/NimboConstants.swift","iosApp/Shared/NimboAWGConfiguration.swift","iosApp/Nimbo/NimboCoreSelection.swift","iosApp/Shared/NimboTunnelControl.swift"],cwd=ROOT,check=True)
         stub=pathlib.Path(directory)/"VpnController.swift"
-        stub.write_text("import SwiftUI\n@MainActor final class VpnController: ObservableObject { func saveOnDemandSettings(_ settings: NimboOnDemandSettings) async throws {} }\n")
+        stub.write_text("import SwiftUI\n@MainActor final class VpnController: ObservableObject { func saveOnDemandSettings(_ settings: NimboOnDemandSettings) async throws {} ; func loadOnDemandSettings() async throws -> (settings: NimboOnDemandSettings, armed: Bool) { (NimboOnDemandSettings(), false) } }\n")
         subprocess.run(["xcrun","swiftc","-typecheck","-parse-as-library","-target","arm64-apple-ios16.0","-sdk",sdk,"iosApp/Shared/NimboOnDemandPolicy.swift","iosApp/Nimbo/NimboOnDemandSettingsView.swift",str(stub)],cwd=ROOT,check=True)
 if __name__=="__main__":
     parser=argparse.ArgumentParser();parser.add_argument("--swift",action="store_true");args=parser.parse_args()

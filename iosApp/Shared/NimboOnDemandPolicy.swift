@@ -34,11 +34,19 @@ struct NimboOnDemandSettings: Codable, Equatable {
         }
     }
 
+    static func decoded(_ data: Data?) -> Self? {
+        guard let data, let value = try? JSONDecoder().decode(Self.self, from: data) else { return nil }
+        return try? value.validated()
+    }
+
+    // The persisted system profile is authoritative after a partial save or
+    // app-data reset. This recovers intent only; it never re-arms paused rules.
+    static func restored(local: Data?, staged: Data?) -> Self {
+        decoded(staged) ?? decoded(local) ?? Self()
+    }
+
     static func load(defaults: UserDefaults = .standard) -> Self {
-        guard let data = defaults.data(forKey: preferenceKey),
-              let value = try? JSONDecoder().decode(Self.self, from: data),
-              let valid = try? value.validated() else { return Self() }
-        return valid
+        decoded(defaults.data(forKey: preferenceKey)) ?? Self()
     }
 
     enum Rule: Equatable {

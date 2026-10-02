@@ -1,4 +1,5 @@
 import { AppearanceThemePreview } from "../components/AppearanceThemePreview";
+import { OnDemandSetting } from "../components/OnDemandSetting";
 import { CorePreferenceSetting } from "../components/CorePreferenceSetting";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { CSSProperties, ReactNode } from "react";
@@ -635,6 +636,7 @@ function ConnectionSection({
         />
         <ResetKillSwitchRow />
       </SettingsCard>
+      <SettingsCard><OnDemandSetting /></SettingsCard>
       <SettingsCard>
         <ValueRow label="HTTP proxy" value={httpProxy} copyValue={httpProxy} mono icon={<PlugIcon />} />
         <ValueRow label="SOCKS5 proxy" value={socksProxy} copyValue={socksProxy} mono icon={<PlugIcon />} />
