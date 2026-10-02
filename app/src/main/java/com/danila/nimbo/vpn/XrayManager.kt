@@ -355,7 +355,8 @@ object XrayManager {
         // dies. Inject the profile's concrete servers as proxy/<i> outbounds (matching the
         // balancer selector prefix) and drop the remnawave key xray-core doesn't understand.
         if (proxyServers.isNotEmpty() &&
-            (RemnawaveApiClient.hasBalancerOrInjectHosts(json) || (server != null && com.danila.nimbo.utils.isAutoBalancerServer(server)))
+            (RemnawaveApiClient.hasBalancerOrInjectHosts(json) || (server != null && com.danila.nimbo.utils.isAutoBalancerServer(server))) &&
+            XrayBalancerMembers.needsInjection(json)
         ) {
             val injectHosts = json.optJSONObject("remnawave")?.optJSONArray("injectHosts")
             var injected = 0

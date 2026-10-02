@@ -199,14 +199,9 @@ internal fun ProfileServerCard(
             verticalArrangement = Arrangement.Center) {
             if (server.selected) BasicText("✓ Выбран", style = NimboBodyStyle.copy(
                 color = NimboPalette.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold))
-            BasicText(withoutFlagEmoji(server.name), maxLines = 2, overflow = TextOverflow.Ellipsis,
-                style = NimboBodyStyle.copy(color = NimboPalette.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium))
-            BasicText(server.description.ifBlank { server.connectionLabel }, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                style = NimboBodyStyle.copy(fontSize = 11.sp, lineHeight = 15.sp))
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            NimboPingBadge(server, selected = server.selected)
             Box {
+                BasicText(withoutFlagEmoji(server.name), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    style = NimboBodyStyle.copy(color = NimboPalette.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium))
                 DropdownMenu(menuExpanded, { menuExpanded = false }, containerColor = NimboPalette.Surface) {
                     DropdownMenuItem(text = { BasicText(if (server.pingInProgress) "Остановить пинг" else "Пинг сервера", style = NimboBodyStyle.copy(color = NimboPalette.Text)) },
                         onClick = { menuExpanded = false; onPing(server.id) })
@@ -214,6 +209,11 @@ internal fun ProfileServerCard(
                         onClick = { menuExpanded = false; onToggleFavorite(server.id) })
                 }
             }
+            BasicText(server.description.ifBlank { server.connectionLabel }, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                style = NimboBodyStyle.copy(fontSize = 11.sp, lineHeight = 15.sp))
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            NimboPingBadge(server, selected = server.selected)
             Row {
                 NimboIconButton(if (favorite) NimboIconName.FAVORITE else NimboIconName.FAVORITE_OFF,
                     Modifier.size(44.dp), selected = favorite, onClick = { onToggleFavorite(server.id) })

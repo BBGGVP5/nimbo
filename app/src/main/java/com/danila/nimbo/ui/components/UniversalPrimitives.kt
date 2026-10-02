@@ -229,10 +229,13 @@ fun NimboServerRow(title: String, subtitle: String, selected: Boolean,
                 NimboServerFlag(flag)
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleSmall,
-                        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (selected) colors.accent else colors.textPrimary)
+                    Box {
+                        Text(title, style = MaterialTheme.typography.titleSmall,
+                            maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) colors.accent else colors.textPrimary)
+                        menu()
+                    }
                     Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary,
                         maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
@@ -242,7 +245,6 @@ fun NimboServerRow(title: String, subtitle: String, selected: Boolean,
             modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp)) {
             Box(Modifier.padding(horizontal = 6.dp, vertical = 8.dp), contentAlignment = Alignment.Center) { ping() }
         }
-        menu()
     }
 }
 

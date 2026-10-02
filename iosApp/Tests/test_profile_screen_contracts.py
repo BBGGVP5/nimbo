@@ -10,6 +10,15 @@ SOURCE = ROOT / "iosApp/Nimbo/ProfilesContainerView.swift"
 
 
 class ProfileScreenContracts(unittest.TestCase):
+    def test_native_row_is_split_into_small_type_checkable_views(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        listing = source.split("private func serverList(", 1)[1].split("private func serverRow(", 1)[0]
+        self.assertIn("serverRow(server, isSelected:", listing)
+        self.assertNotIn("HStack(", listing)
+        row = source.split("private func serverRow(", 1)[1].split("private func serverRowLabel(", 1)[0]
+        self.assertIn("serverRowLabel(server, isSelected:", row)
+        self.assertIn(".contextMenu {", row)
+
     def test_selection_is_one_awaited_guarded_operation(self):
         source = SOURCE.read_text(encoding="utf-8")
         selection = source.split("private func select(", 1)[1].split("private func removeConfiguration", 1)[0]

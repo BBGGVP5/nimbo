@@ -212,7 +212,7 @@ function ServerLine({
       </div>
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="truncate text-lg font-black text-white">{server.name}</div>
+          <div className="truncate text-lg font-black text-white" data-server-menu-anchor>{server.name}</div>
           <PingBadge ping={latency} loading={pinging} />
         </div>
         {description && (

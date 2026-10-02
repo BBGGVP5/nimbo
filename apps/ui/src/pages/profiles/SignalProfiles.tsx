@@ -137,7 +137,7 @@ export function SignalProfiles({
                 ]}>
                   <button className="parity-server-select" type="button" onClick={() => onPickServer(sub, server)} aria-pressed={active} disabled={connecting}>
                     <span className="parity-server-flag"><CountryFlag serverName={server.name} fallback={<span aria-hidden="true">◎</span>}/></span>
-                    <span className="parity-server-copy"><strong>{serverDisplayLabel(server, serverOverrides)}</strong><small>{protocolLabel(server.protocol)} · {transportLabel(server.protocol) || "JSON"}</small></span>
+                    <span className="parity-server-copy"><strong data-server-menu-anchor>{serverDisplayLabel(server, serverOverrides)}</strong><small>{protocolLabel(server.protocol)} · {transportLabel(server.protocol) || "JSON"}</small></span>
                     <span className="parity-server-latency">{connecting ? m.home.connecting : <LatencyDisplay value={pingByServer[server.id]} loading={pingingServerIds?.has(server.id)} />}</span>
                     {active && <span aria-label={m.signal.active}>✓</span>}
                   </button>

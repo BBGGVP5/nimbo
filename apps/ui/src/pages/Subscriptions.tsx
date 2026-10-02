@@ -897,7 +897,7 @@ function ServerLine({
       </div>
       <div className="server-profile-main">
         <div className="server-profile-title-line">
-          <div className="server-profile-title">{label}</div>
+          <div className="server-profile-title" data-server-menu-anchor>{label}</div>
           {active && !connecting && <span className="server-selection-badge">
             ✓ {m.common.locale.startsWith("ru") ? "Выбран" : "Selected"}
           </span>}

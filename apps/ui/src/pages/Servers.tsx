@@ -332,7 +332,7 @@ function ServerRow({
       </div>
       <div className="server-profile-main">
         <div className="server-profile-title-line">
-          <div className="server-profile-title">{label}</div>
+          <div className="server-profile-title" data-server-menu-anchor>{label}</div>
         </div>
         {description && (
           <div className="server-detail-row-description">

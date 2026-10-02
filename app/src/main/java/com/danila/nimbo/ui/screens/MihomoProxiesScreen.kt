@@ -336,8 +336,18 @@ internal fun MihomoProxiesScreen(onAddSubscription: () -> Unit) {
                     .semantics { this.selected = selected }) {
                 Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(verticalAlignment = Alignment.Top) {
-                        Text(member, Modifier.weight(1f), color = colors.textPrimary, style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Box(Modifier.weight(1f)) {
+                            Text(member, color = colors.textPrimary, style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            DropdownMenu(menuExpanded, { menuExpanded = false }, containerColor = colors.panelFill,
+                                shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, colors.panelBorder)) {
+                                if (member in declaredProxies) DropdownMenuItem(
+                                    text = { Text(if (measuringName == member) t("Остановить пинг", "Stop ping") else t("Пинг сервера", "Ping server")) },
+                                    enabled = !ui.busy && (measurement == null || measuringName == member),
+                                    leadingIcon = { Icon(if (measuringName == member) Icons.Default.Stop else Icons.Default.Speed, null) },
+                                    onClick = { menuExpanded = false; measureOnly(member) })
+                            }
+                        }
                         if (selected) Surface(shape = androidx.compose.foundation.shape.CircleShape, color = colors.accent) {
                             Icon(Icons.Default.Check, t("Выбран", "Selected"), Modifier.padding(3.dp).size(18.dp),
                                 tint = com.danila.nimbo.ui.components.contrastingLabel(colors.accent))
@@ -364,16 +374,7 @@ internal fun MihomoProxiesScreen(onAddSubscription: () -> Unit) {
                         }
                         Spacer(Modifier.weight(1f))
                         if (measuringName == member) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.accent)
-                        Box {
-                            DropdownMenu(menuExpanded, { menuExpanded = false }, containerColor = colors.panelFill,
-                                shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, colors.panelBorder)) {
-                                if (member in declaredProxies) DropdownMenuItem(
-                                    text = { Text(if (measuringName == member) t("Остановить пинг", "Stop ping") else t("Пинг сервера", "Ping server")) },
-                                    enabled = !ui.busy && (measurement == null || measuringName == member),
-                                    leadingIcon = { Icon(if (measuringName == member) Icons.Default.Stop else Icons.Default.Speed, null) },
-                                    onClick = { menuExpanded = false; measureOnly(member) })
-                            }
-                        }
+
                     }
                 }
             }

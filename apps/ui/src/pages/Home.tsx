@@ -1495,7 +1495,7 @@ function ServerSidePanel({
                     />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="server-side-name text-[14px] font-semibold text-white">{label}</div>
+                    <div className="server-side-name text-[14px] font-semibold text-white" data-server-menu-anchor>{label}</div>
                     {description && (
                       <div className="server-side-description text-[12px] text-[var(--color-text-faint)]">
                         {description}

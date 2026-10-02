@@ -3963,7 +3963,6 @@ private fun WindowsProfileServerLine(
         flag = extractFlagEmoji(server.name), onSelect = onClick, onOpenMenu = { menuExpanded = true },
         ping = { WindowsPingPill(server.ping ?: -1, isPinging, pingDisplayMode) },
         menu = {
-            Box {
                 DropdownMenu(menuExpanded, { menuExpanded = false }, containerColor = colors.panelFill,
                     shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, colors.panelBorder)) {
                     DropdownMenuItem(text = { Text(if (isPinging) t("Остановить пинг", "Stop ping") else t("Пинг сервера", "Ping server")) },
@@ -3978,7 +3977,6 @@ private fun WindowsProfileServerLine(
                         leadingIcon = { Icon(Icons.Default.Delete, null, tint = colors.statusError) },
                         onClick = { menuExpanded = false; hideConfirmOpen = true })
                 }
-            }
         })
     if (showDivider) HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 12.dp))
     if (renameOpen) NimboRenameServerDialog(displayName, { renameOpen = false }) { name -> onRename(name); renameOpen = false }
@@ -10893,15 +10891,16 @@ private fun PingDisplayOption(display: PingDisplay, selected: Boolean, onClick: 
         PingDisplay.BOTH -> t("Числа и полоски", "Numbers and bars")
         PingDisplay.DOTS -> t("Точки", "Dots")
     }
-    Surface(onClick = onClick, modifier = modifier.heightIn(min = 67.dp).semantics {
+    Surface(onClick = onClick, modifier = modifier.heightIn(min = 48.dp).semantics {
         this.selected = selected; role = Role.RadioButton
     }, color = if (selected) colors.accent.copy(alpha = 0.13f) else colors.panelFill,
         border = BorderStroke(1.dp, if (selected) colors.accent else colors.panelBorder),
         shape = RoundedCornerShape(12.dp)) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(title, color = colors.textPrimary, style = MaterialTheme.typography.labelMedium,
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, Modifier.weight(1f), color = colors.textPrimary, style = MaterialTheme.typography.labelMedium,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
             PingValueContent(87, display.id, colors.accent)
         }
     }
@@ -14538,10 +14537,10 @@ private fun SubscriptionSettingsDialog(
             Pair(t("1 час", "1 hour"), 1), Pair(t("2 часа", "2 hours"), 2),
             Pair(t("6 часов", "6 hours"), 6), Pair(t("12 часов", "12 hours"), 12),
             Pair(t("24 часа", "24 hours"), 24), Pair(t("По умолчанию", "Default"), null))
-        NimboToolActions(minCellDp = 100f) {
+        NimboToolActions(minCellDp = 72f) {
             intervals.forEach { (label, hours) ->
-                NetworkSettingsChoice(label, selectedIntervalHours == hours,
-                    { selectedIntervalHours = hours }, Modifier.weight(1f))
+                com.danila.nimbo.ui.components.NetworkSettingsCompactChoice(label, selectedIntervalHours == hours,
+                    { selectedIntervalHours = hours })
             }
         }
         Text(t("URL подписки", "Subscription URL"), style = MaterialTheme.typography.titleSmall)

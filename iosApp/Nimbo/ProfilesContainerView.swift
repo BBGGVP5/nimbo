@@ -116,44 +116,51 @@ struct ProfilesContainerView: View {
     private func serverList(_ profile: NimboSubscriptionProfile) -> some View {
         LazyVStack(alignment: .leading, spacing: 8) {
             ForEach(profile.servers) { server in
-                let isSelected = server.id == profile.selectedServer?.id
-                Button { Task { await select(server) } } label: {
-                    HStack(alignment: .top, spacing: 12) {
-                        if selectingServerID == server.id {
-                            ProgressView().tint(NimboNative.accent).accessibilityHidden(true)
-                        } else {
-                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(isSelected ? NimboNative.ink : NimboNative.secondary)
-                                .accessibilityHidden(true)
-                        }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(server.name).nimboFont(16, weight: .semibold)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Text(server.connectionLabel.isEmpty ? server.protocol.uppercased() : server.connectionLabel)
-                                .nimboFont(12, relativeTo: .caption).foregroundStyle(NimboNative.secondary)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                    .background(isSelected ? NimboNative.raised : Color.clear, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(NimboNative.accent, lineWidth: isSelected ? 2 : 0))
-                    .contentShape(RoundedRectangle(cornerRadius: 12))
-                }
-                .buttonStyle(.plain)
-                .disabled(isWorking)
-                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-                .accessibilityIdentifier("nimbo.profile.server.\(server.id)")
-                .contextMenu {
-                    Button("Пинг сервера", systemImage: "gauge.with.dots.needle.67percent") {
-                        NotificationCenter.default.post(name: .nimboPingServer, object: server.id)
-                    }
-                }
-                .accessibilityAction(named: "Пинг сервера") {
-                    NotificationCenter.default.post(name: .nimboPingServer, object: server.id)
-                }
+                serverRow(server, isSelected: server.id == profile.selectedServer?.id)
             }
         }
+    }
+
+    private func serverRow(_ server: NimboSubscriptionServer, isSelected: Bool) -> some View {
+        Button { Task { await select(server) } } label: {
+            serverRowLabel(server, isSelected: isSelected)
+        }
+        .buttonStyle(.plain)
+        .disabled(isWorking)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("nimbo.profile.server.\(server.id)")
+        .contextMenu {
+            Button("Пинг сервера", systemImage: "gauge.with.dots.needle.67percent") {
+                NotificationCenter.default.post(name: .nimboPingServer, object: server.id)
+            }
+        }
+        .accessibilityAction(named: "Пинг сервера") {
+            NotificationCenter.default.post(name: .nimboPingServer, object: server.id)
+        }
+    }
+
+    private func serverRowLabel(_ server: NimboSubscriptionServer, isSelected: Bool) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            if selectingServerID == server.id {
+                ProgressView().tint(NimboNative.accent).accessibilityHidden(true)
+            } else {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? NimboNative.ink : NimboNative.secondary)
+                    .accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(server.name).nimboFont(16, weight: .semibold)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(server.connectionLabel.isEmpty ? server.protocol.uppercased() : server.connectionLabel)
+                    .nimboFont(12, relativeTo: .caption).foregroundStyle(NimboNative.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        .background(isSelected ? NimboNative.raised : Color.clear, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(NimboNative.accent, lineWidth: isSelected ? 2 : 0))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private var importCard: some View {

@@ -7,21 +7,27 @@ import { serverHold } from "../lib/serverHold";
 export function ServerContextMenu({ actions, label, children, ...props }: HTMLAttributes<HTMLDivElement> & {
   actions: MenuAction[]; label: string; children: ReactNode;
 }) {
-  const [anchor, setAnchor] = useState<{ right: number; bottom: number }>();
+  const [anchor, setAnchor] = useState<{ left: number; bottom: number }>();
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const row = useRef<HTMLDivElement>(null), menu = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const id = useId();
-  const open = (x: number, y: number) => {
+  const open = (_x: number, _y: number) => {
+    const title = row.current?.querySelector<HTMLElement>('[data-server-menu-anchor], .parity-server-copy strong, .signal-srv-name, .server-row-name, .server-title');
+    const rect = (title ?? row.current)?.getBoundingClientRect();
+    if (!rect) return;
     previousFocus.current = document.activeElement as HTMLElement;
-    setAnchor({ right: x, bottom: y });
+    // Same anchor for hold, mouse and keyboard: never place actions beside the latency badge.
+    setAnchor({ left: rect.left, bottom: rect.bottom });
   };
   const [hold] = useState(() => serverHold(open));
   const close = () => { setAnchor(undefined); previousFocus.current?.focus(); };
   useEffect(() => () => hold.cancel(), [hold]);
   useLayoutEffect(() => {
     if (!anchor || !menu.current) return;
-    setPosition(menuPosition(anchor, menu.current.getBoundingClientRect(), { width: innerWidth, height: innerHeight }));
+    const bounds = menu.current.getBoundingClientRect();
+    setPosition(menuPosition({ right: anchor.left + bounds.width, bottom: anchor.bottom }, bounds,
+      { width: innerWidth, height: innerHeight }));
     menu.current.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
     const outside = (event: Event) => { if (!menu.current?.contains(event.target as Node)) setAnchor(undefined); };
     const dismiss = () => { hold.cancel(); setAnchor(undefined); };
@@ -30,7 +36,10 @@ export function ServerContextMenu({ actions, label, children, ...props }: HTMLAt
     window.addEventListener("scroll", dismiss, true);
     return () => { document.removeEventListener("pointerdown", outside); window.removeEventListener("resize", dismiss); window.removeEventListener("scroll", dismiss, true); };
   }, [anchor, hold]);
-  const excluded = (target: EventTarget) => (target as HTMLElement).closest('[data-server-action], .signal-star, .server-row-icon-button, .server-side-action-button, input, a, [role="dialog"], dialog');
+  const excluded = (target: EventTarget) => {
+    const control = (target as HTMLElement).closest('[data-server-action], .signal-star, .server-row-icon-button, .server-side-action-button, input, a, [role="dialog"], dialog');
+    return control && row.current?.contains(control);
+  };
   return <><div {...props} ref={row} aria-haspopup="menu" aria-controls={anchor ? id : undefined} aria-expanded={Boolean(anchor)}
     onPointerDown={event => { if (event.isPrimary && event.button === 0 && !excluded(event.target)) hold.down(event.clientX, event.clientY); }}
     onPointerMove={event => hold.move(event.clientX, event.clientY)} onPointerUp={() => hold.up()}

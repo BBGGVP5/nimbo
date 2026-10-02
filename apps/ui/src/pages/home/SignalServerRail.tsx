@@ -249,7 +249,7 @@ export function SignalServerRail({
                   <CountryFlag serverName={server.name} fallback={<span className="signal-srv-globe">◍</span>} className="country-flag-sm" />
                 </span>
                 <span className="signal-srv-copy">
-                  <span className="signal-srv-name">{serverDisplayLabel(server)}</span>
+                  <span className="signal-srv-name" data-server-menu-anchor>{serverDisplayLabel(server)}</span>
                   <span className="signal-srv-sub">
                     {isActive
                       ? fillTemplate(m.signal.activeNow, { protocol: protocolLabel(server.protocol) })
