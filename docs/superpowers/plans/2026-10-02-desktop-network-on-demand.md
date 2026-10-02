@@ -24,3 +24,8 @@
 ### Verification and delivery
 - [ ] Run Rust policy/runtime tests, frontend build/tests and Clippy. Inspect the actual rendered settings page at normal/narrow widths. Run iOS contracts and macOS IPA workflow; keep device-only network transitions explicit.
 - [ ] Mirror verified iOS files into primary checkout after baseline comparison, update readiness, commit explicit paths, push PR78 and wait for CI. No main merge or device VPN manipulation.
+
+### Release packaging regression found during verification
+- [ ] Build/stage pinned Mihomo in Windows CI using the installed Python/Go toolchains.
+- [ ] Include the exact Mihomo helper, frozen adapter source and licenses in the x64 custom installer; verify hashes and roll back with the application on failure. Other architectures remain explicitly unsupported by Mihomo.
+- [ ] Exercise packaging tests and dispatch artifact-only desktop release builds; do not publish or merge main.

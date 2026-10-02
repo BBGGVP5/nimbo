@@ -50,6 +50,21 @@ def main():
                 assert hashlib.sha256(data).hexdigest() == expected_hash, f"Stale Xray payload: {filename}"
                 if filename == "xray.exe":
                     parts.append(("Xray", data))
+        mihomo_files = []
+        if platform == "windows-x64":
+            root = ROOT / "apps/ui/src-tauri/resources/mihomo"
+            metadata = json.loads((root / "windows-x64/build-manifest.json").read_text(encoding="utf-8-sig"))
+            helper = (root / "windows-x64/nimbo-mihomo.exe").read_bytes()
+            assert hashlib.sha256(helper).hexdigest() == metadata["sha256"], "Mihomo digest mismatch"
+            parts.append(("Mihomo", helper))
+            mihomo_files.extend(root / "adapter-source" / entry["path"] for entry in metadata["sourceFiles"])
+            mihomo_files.extend(root / "windows-x64" / name for name in ("build-manifest.json", "go.mod", "go.sum", "pins.json"))
+            mihomo_files.extend(root / "notices" / name for name in ("source-license-manifest.json", "Mihomo-LICENSE", "Mihomo-README.md", "Protobuf-LICENSE", "Protobuf-PATENTS", "protobuf-directive.patch"))
+            inventory = json.loads((root / "notices/source-license-manifest.json").read_text(encoding="utf-8-sig"))
+            for module in inventory["modules"]:
+                for notice in module["notices"]:
+                    relative = notice["path"].removeprefix("licenses/")
+                    mihomo_files.append(root / "notices" / relative)
         for name in ("nimbo-ui", "nimbo-svc"):
             parts.append((name, (ROOT / f"target/{target}/release/{name}{suffix}").read_bytes()))
         with installer.open("rb") as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as compiled:
@@ -57,10 +72,12 @@ def main():
             for name, data in parts:
                 assert machine(data, windows) == expected_machine, f"Wrong {name} architecture"
                 assert compiled.find(data) >= 0, f"Installer is missing the exact {name} payload"
+            for path in mihomo_files:
+                assert compiled.find(path.read_bytes()) >= 0, f"Missing Mihomo source/notice: {path.name}"
             if windows:
                 for filename in ("geoip.dat", "geosite.dat"):
                     assert compiled.find((ROOT / "target/xray" / target / filename).read_bytes()) >= 0, f"Missing Xray data: {filename}"
-        print(f"{platform}: installer contains matching application, helper and AWG 3.1 payloads")
+        print(f"{platform}: installer contains matching application and core payloads, including required source/notices")
 
 
 if __name__ == "__main__":

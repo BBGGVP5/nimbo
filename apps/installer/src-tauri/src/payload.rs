@@ -6,7 +6,11 @@ use std::time::Duration;
 
 use crate::awg_payload;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
 use tauri::{AppHandle, Emitter};
+
+include!(concat!(env!("OUT_DIR"), "/mihomo_files.rs"));
 
 /// Mode flag set once during process bootstrap and read by the UI to decide
 /// whether to render the install screen or the uninstall screen. We use a
@@ -36,6 +40,12 @@ pub fn get_installer_mode() -> &'static str {
         "install"
     }
 }
+
+#[cfg(test)]
+const MAIN_APP_BYTES: &[u8] = b"test-only main_app_bytes";
+
+#[cfg(test)]
+const HELPER_BYTES: &[u8] = b"test-only helper_bytes";
 
 const PRODUCT_NAME: &str = "Nimbo";
 const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -88,6 +98,7 @@ const UNINSTALL_EXE: &str = "Uninstall.exe";
 const UNINSTALL_EXE: &str = "Uninstall";
 
 #[cfg(windows)]
+#[cfg(not(test))]
 const MAIN_APP_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
@@ -95,6 +106,7 @@ const MAIN_APP_BYTES: &[u8] = include_bytes!(concat!(
     "/release/nimbo-ui.exe"
 ));
 #[cfg(not(windows))]
+#[cfg(not(test))]
 const MAIN_APP_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
@@ -102,6 +114,7 @@ const MAIN_APP_BYTES: &[u8] = include_bytes!(concat!(
     "/release/nimbo-ui"
 ));
 #[cfg(windows)]
+#[cfg(not(test))]
 const HELPER_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
@@ -111,6 +124,7 @@ const HELPER_BYTES: &[u8] = include_bytes!(concat!(
 /// Привилегированный хелпер для Linux: без него TUN недоступен, потому что
 /// GUI работает под обычным пользователем.
 #[cfg(target_os = "linux")]
+#[cfg(not(test))]
 const HELPER_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
@@ -720,6 +734,9 @@ fn perform_uninstall(
     let tun_dir = roaming_nimbo_bin_dir()?;
     let _ = fs::remove_dir_all(&tun_dir);
     let _ = fs::remove_dir_all(install_dir.join("resources").join("awg"));
+    for (relative, _, _) in MIHOMO_FILES {
+        let _ = fs::remove_file(install_dir.join("resources/mihomo").join(relative));
+    }
     // Remove only an empty resource parent; leave other installed resources alone.
     let _ = fs::remove_dir(install_dir.join("resources"));
 
@@ -1092,6 +1109,27 @@ fn install_awg_payload(install_dir: &Path) -> Result<PayloadInstallation, String
     Ok(installation)
 }
 
+// Keep the helper and its source/license inventory in the same rollback guard
+// as the app whose compiled digest authorizes this exact helper.
+fn install_mihomo_payload(
+    install_dir: &Path,
+    installation: &mut PayloadInstallation,
+) -> Result<(), String> {
+    let root = install_dir.join("resources/mihomo");
+    for (relative, bytes, expected) in MIHOMO_FILES {
+        if format!("{:x}", Sha256::digest(bytes)) != *expected {
+            return Err("Повреждён встроенный компонент Mihomo".into());
+        }
+        let path = root.join(relative);
+        installation.replace(&path, bytes)?;
+        let written = fs::read(&path).map_err(|e| format!("Не удалось проверить Mihomo: {e}"))?;
+        if format!("{:x}", Sha256::digest(written)) != *expected {
+            return Err("Записанный компонент Mihomo не совпадает с пакетом".into());
+        }
+    }
+    Ok(())
+}
+
 fn install_runtime_payloads(
     install_dir: &Path,
 ) -> Result<(PayloadInstallation, PayloadInstallation), String> {
@@ -1099,6 +1137,7 @@ fn install_runtime_payloads(
     // whose embedded digest expects it. Guards restore the complete prior set.
     let awg = install_awg_payload(install_dir)?;
     let mut app = PayloadInstallation::new();
+    install_mihomo_payload(install_dir, &mut app)?;
     app.replace(&install_dir.join(APP_EXE), MAIN_APP_BYTES)?;
     app.replace(&install_dir.join(HELPER_EXE), HELPER_BYTES)?;
     make_executable(&install_dir.join(APP_EXE))?;
@@ -1943,5 +1982,67 @@ mod awg_install_tests {
         assert_eq!(fs::read(fixture.0.join(APP_EXE)).unwrap(), b"previous app");
         assert_eq!(fs::read(binary).unwrap(), b"previous awg");
         assert_eq!(fs::read(manifest).unwrap(), b"previous manifest");
+    }
+    #[test]
+    fn mihomo_payload_is_exact_and_rolls_back_with_app() {
+        let fixture = Fixture::new();
+        for (relative, _, _) in MIHOMO_FILES {
+            write_payload(
+                &fixture.0.join("resources/mihomo").join(relative),
+                b"previous resource",
+            )
+            .unwrap();
+        }
+        let (app, awg) = install_runtime_payloads(&fixture.0).unwrap();
+        for (relative, bytes, _) in MIHOMO_FILES {
+            assert_eq!(
+                fs::read(fixture.0.join("resources/mihomo").join(relative)).unwrap(),
+                *bytes
+            );
+        }
+        drop(app);
+        drop(awg);
+        for (relative, _, _) in MIHOMO_FILES {
+            assert_eq!(
+                fs::read(fixture.0.join("resources/mihomo").join(relative)).unwrap(),
+                b"previous resource"
+            );
+        }
+    }
+
+    #[test]
+    fn mihomo_write_failure_restores_earlier_resources() {
+        let fixture = Fixture::new();
+        let Some((last, _, _)) = MIHOMO_FILES.last() else {
+            return;
+        };
+        let root = fixture.0.join("resources/mihomo");
+        for (relative, _, _) in &MIHOMO_FILES[..MIHOMO_FILES.len() - 1] {
+            write_payload(&root.join(relative), b"previous resource").unwrap();
+        }
+        fs::create_dir_all(root.join(last)).unwrap();
+        assert!(install_runtime_payloads(&fixture.0).is_err());
+        assert!(!fixture.0.join(APP_EXE).exists());
+        for (relative, _, _) in &MIHOMO_FILES[..MIHOMO_FILES.len() - 1] {
+            assert_eq!(fs::read(root.join(relative)).unwrap(), b"previous resource");
+        }
+    }
+    #[test]
+    fn mihomo_commit_keeps_exact_resources_without_private_stage_receipt() {
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        assert!(!MIHOMO_FILES.is_empty());
+        let fixture = Fixture::new();
+        let (app, awg) = install_runtime_payloads(&fixture.0).unwrap();
+        app.commit();
+        awg.commit();
+        for (relative, bytes, _) in MIHOMO_FILES {
+            let path = fixture.0.join("resources/mihomo").join(relative);
+            assert_eq!(fs::read(&path).unwrap(), *bytes);
+            assert!(!old_payload_path(&path).exists());
+        }
+        assert!(!fixture
+            .0
+            .join("resources/mihomo/windows-x64/desktop-stage-receipt.json")
+            .exists());
     }
 }

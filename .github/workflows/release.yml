@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   windows:
-    name: Windows x64
+    name: Windows x64 / x86 / ARM64
     runs-on: windows-latest
 
     steps:
@@ -49,6 +49,14 @@ jobs:
       - name: Проверить зашифрованный обмен AWG
         working-directory: tools/native/awg-core
         run: go test ./... -timeout 90s
+
+      - name: Собрать и проверить Mihomo из закреплённых исходников
+        shell: pwsh
+        run: |
+          $goRoot = go env GOROOT
+          if ($LASTEXITCODE) { throw 'Cannot locate the pinned Go toolchain' }
+          & ./scripts/ci/build-mihomo-core.ps1 -GoRoot $goRoot -Python (Get-Command python).Source
+          & ./apps/ui/src-tauri/native/stage-mihomo.ps1 -CoreSource ./tools/native/mihomo-core
 
       - name: Установить Rust
         uses: dtolnay/rust-toolchain@stable
@@ -80,6 +88,9 @@ jobs:
       - name: Собрать фирменные установщики
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File apps/installer/build-custom-installer.ps1 -All
+
+      - name: Проверить откат файлов установщика
+        run: cargo test --locked -p nimbo-installer --bin nimbo-installer
 
       - name: Проверить встроенные ядра в установщиках
         run: python tools/release/check-custom-payload.py windows-x64 windows-x86 windows-arm64

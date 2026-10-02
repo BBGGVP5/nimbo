@@ -1,6 +1,5 @@
-param([string]$GoRoot, [switch]$PrepareOnly, [switch]$Resolve)
+param([string]$GoRoot, [string]$Python = 'python', [switch]$PrepareOnly, [switch]$Resolve)
 $ErrorActionPreference = 'Stop'
-$Python = "$env:LOCALAPPDATA/Programs/Python/Python311/python.exe"
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../tools/native/mihomo-core'))
 if (!$GoRoot) { $GoRoot = Join-Path $env:USERPROFILE 'go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64' }
 $go = Join-Path $GoRoot 'bin/go.exe'
