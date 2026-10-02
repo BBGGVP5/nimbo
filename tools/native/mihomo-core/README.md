@@ -20,7 +20,22 @@ Optional `cmd/cbridge` contains versioned C entry/free symbols; CGO/linking requ
 a platform compiler and is a separate build gate. Do not add another Go runtime
 beside an existing Go archive to use this wrapper.
 
-## Desktop implemented semantics and explicit limits
+## Privileged desktop TUN native path (2026-10-02)
+
+A separate trusted `StartDesktopTun` / framed `serve-tun` path now uses the real
+Mihomo sing-tun system stack on Windows/Linux. It does not convert YAML to Xray
+or pretend a TCP proxy is a VPN. Native rules/resolver/providers and hot selection
+remain upstream; interface/routes/DNS have one privileged lifetime. See the
+ownership contract and remaining service/UI/crash-recovery gates in [API.md](API.md).
+The legacy `desktop-proxy` path below is intentionally unchanged and narrower.
+
+Portable source verification/build:
+`python scripts/ci/build-mihomo-desktop.py --target linux/amd64 --output /absolute/scratch/output`
+(or linux/arm64 / windows/amd64). Includes source hashes and upstream notices.
+No root GUI and no new command on the Windows helper's existing broad pipe.
+Only guarded disposable namespaces exercise native host-network mutation.
+
+## Desktop-proxy implemented semantics and explicit limits
 
 * Inspect returns exact original UTF-8, SHA-256 and complete declared proxy/group/
   provider mappings. Unknown keys remain in original/graph; strict issues prevent

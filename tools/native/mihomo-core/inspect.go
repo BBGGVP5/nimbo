@@ -40,6 +40,7 @@ type inspection struct {
 	root          map[string]any
 	mobile        bool
 	finalConfig   map[string]any
+	desktop       bool
 	android       bool
 }
 

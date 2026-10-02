@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -16,8 +17,14 @@ import (
 func main() { os.Exit(run()) }
 func run() int {
 	logrus.SetOutput(os.Stderr)
+	if len(os.Args) == 2 && os.Args[1] == "serve-tun" {
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(signals)
+		return runTun(os.Stdin, os.Stdout, signals, core.StartDesktopTun, core.Invoke)
+	}
 	if len(os.Args) != 2 || (os.Args[1] != "inspect" && os.Args[1] != "serve") {
-		fmt.Fprintln(os.Stderr, "usage: nimbo-mihomo inspect|serve (stdin to EOF)")
+		fmt.Fprintln(os.Stderr, "usage: nimbo-mihomo inspect|serve (stdin to EOF) | serve-tun (framed privileged startup + stdin lease)")
 		return 2
 	}
 	b, err := io.ReadAll(io.LimitReader(os.Stdin, (8<<20)+1))
@@ -56,7 +63,7 @@ func run() int {
 		return 0
 	}
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()

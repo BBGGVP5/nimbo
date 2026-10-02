@@ -1,5 +1,6 @@
 // Package mihomocore embeds the pinned Mihomo core behind a versioned JSON facade.
-// It never changes the host system proxy, routes, DNS configuration or firewall.
+// Host network mutation is restricted to the trusted privileged desktop TUN entry.
+// Plain Invoke and the desktop-proxy owner never change routes/DNS/firewall.
 package mihomocore
 
 import (
@@ -42,6 +43,7 @@ const coreVersion = "v1.19.31"
 const coreCommit = "ab405bad5beeeac8b003bb01f60f134f6df54471"
 
 type startOptions struct {
+	DesktopIPv6       bool     `json:"desktopIPv6,omitempty"`
 	DataDir           string   `json:"dataDir"`
 	NetworkOwner      string   `json:"networkOwner"`
 	AndroidSystemDNS  []string `json:"androidSystemDNS,omitempty"`
@@ -67,6 +69,7 @@ type request struct {
 	ExpectedStatus     string       `json:"expectedStatus,omitempty"`
 	TargetRequestID    string       `json:"targetRequestId,omitempty"`
 	responseGeneration uint64
+	desktopOwner       bool   // trusted privileged entry; never decoded from JSON
 	packetOwner        bool   // trusted packet-flow entry; never decoded from JSON
 	borrowedFD         *int64 // trusted local entry only; never decoded from JSON
 }
@@ -91,6 +94,7 @@ type runtimeStatus struct {
 }
 
 type capabilitySet struct {
+	DesktopTun   bool `json:"desktopTun"`
 	DesktopProxy bool `json:"desktopProxy"`
 	AndroidVPN   bool `json:"androidVpn"`
 	IOSVPN       bool `json:"iosVpn"`
@@ -122,6 +126,7 @@ type session struct {
 	oldLogLevel        log.LogLevel
 	oldDNS             dnsState
 	oldAndroidGlobals  androidGlobalState
+	desktopCleanupErr  error
 	ctx                context.Context
 	cancel             context.CancelFunc
 	watchDone          chan struct{}
@@ -153,6 +158,7 @@ func capabilities() capabilitySet {
 	mobileFeatures := androidTunCompiled || (packetFlowCompiled && runtime.GOOS == "ios")
 	return capabilitySet{
 		DesktopProxy: true,
+		DesktopTun:   desktopTunCompiled,
 		AndroidVPN:   androidTunCompiled,
 		IOSVPN:       packetFlowCompiled && runtime.GOOS == "ios",
 		RuleRouting:  mobileFeatures,
@@ -180,7 +186,11 @@ func invoke(input string, borrowedFD *int64) string {
 	return invokeOwned(input, borrowedFD, false)
 }
 
-func invokeOwned(input string, borrowedFD *int64, packetOwner bool) (output string) {
+func invokeOwned(input string, borrowedFD *int64, packetOwner bool) string {
+	return invokeOwners(input, borrowedFD, packetOwner, false)
+}
+
+func invokeOwners(input string, borrowedFD *int64, packetOwner, desktopOwner bool) (output string) {
 	r := request{}
 	resp := response{APIVersion: 1}
 	singleton.mu.Lock()
@@ -221,6 +231,11 @@ func invokeOwned(input string, borrowedFD *int64, packetOwner bool) (output stri
 	resp.RequestID = r.RequestID
 	r.borrowedFD = borrowedFD
 	r.packetOwner = packetOwner
+	r.desktopOwner = desktopOwner
+	if desktopOwner && (r.Operation != "start" || packetOwner || borrowedFD != nil) {
+		resp.Error = problem("INVALID_REQUEST", "operation", "desktop TUN entry accepts only start")
+		return
+	}
 	if packetOwner && (r.Operation != "start" || borrowedFD != nil) {
 		resp.Error = problem("INVALID_REQUEST", "operation", "packet-flow entry accepts only start")
 		return
@@ -251,7 +266,7 @@ func invokeOwned(input string, borrowedFD *int64, packetOwner bool) (output stri
 func (m *manager) statusLocked() runtimeStatus {
 	s := m.info
 	s.State = m.state
-	if m.state == "running" && m.session != nil && (m.session.mobile != nil || m.session.packet != nil) && m.session.ctx.Err() != nil {
+	if m.state == "running" && m.session != nil && (m.session.mobile != nil || m.session.packet != nil || m.session.doc.desktop) && m.session.ctx.Err() != nil {
 		s.State = "failed"
 		s.TunReady = false
 	}
@@ -347,6 +362,16 @@ func (m *manager) dispatch(r *request) (any, error) {
 	}
 	if r.Operation == "inspect" {
 		return inspect(r.YAML)
+	}
+	if r.Operation == "preflightDesktopTun" {
+		d, err := inspect(r.YAML)
+		if err != nil {
+			return nil, err
+		}
+		if err := desktopRuntimePolicy(d); err != nil {
+			return nil, err
+		}
+		return map[string]any{"valid": true, "sourceSHA256": d.SourceSHA256, "scope": "privileged-desktop-tun", "compiled": desktopTunCompiled}, nil
 	}
 	if r.Operation == "preflightIOSPacketFlow" {
 		d, err := inspect(r.YAML)
@@ -765,12 +790,30 @@ func (m *manager) start(r request) (result any, err error) {
 	if runtime.GOOS == "android" && r.borrowedFD == nil {
 		return nil, problem("PLATFORM_UNAVAILABLE", "operation", "Android start requires trusted StartAndroid entry")
 	}
+	desktop := r.desktopOwner && o.NetworkOwner == "desktop-tun" && desktopTunCompiled
+	if r.desktopOwner && !desktop {
+		return nil, problem("PLATFORM_UNAVAILABLE", "options.networkOwner", "trusted desktop entry requires desktop-tun")
+	}
+	if desktop {
+		if os.Getenv("SKIP_SAFE_PATH_CHECK") != "" || os.Getenv("SAFE_PATHS") != "" {
+			return nil, problem("UNSAFE_DESKTOP_ENVIRONMENT", "", "privileged owner must not inherit unsafe native path overrides")
+		}
+		if err = desktopPrivilegeCheck(); err != nil {
+			return nil, err
+		}
+		if o.ControllerAddress == "" {
+			return nil, problem("INVALID_REQUEST", "options.controllerAddress", "authenticated loopback controller required")
+		}
+		if !o.DesktopIPv6 {
+			return nil, problem("DESKTOP_IPV6_REQUIRED", "options.desktopIPv6", "dual-stack capture is required; IPv6 must not bypass the tunnel")
+		}
+	}
 	android := o.NetworkOwner == "android-vpn" && r.borrowedFD != nil
 	packet := r.packetOwner && o.NetworkOwner == "ios-packet-flow" && packetFlowCompiled
 	if r.packetOwner && !packet {
 		return nil, problem("INVALID_REQUEST", "options.networkOwner", "packet flow requires ios-packet-flow ownership")
 	}
-	if !android && !packet && o.NetworkOwner != "desktop-proxy" {
+	if !android && !packet && !desktop && o.NetworkOwner != "desktop-proxy" {
 		return nil, problem("PLATFORM_UNAVAILABLE", "options.networkOwner", "exclusive mobile FD/TUN lifecycle not wired; never falls back to TCP")
 	}
 	if r.borrowedFD != nil && !android {
@@ -801,7 +844,7 @@ func (m *manager) start(r request) (result any, err error) {
 	if o.StartupTimeoutMs < 1 || o.StartupTimeoutMs > 25000 {
 		return nil, problem("INVALID_REQUEST", "options.startupTimeoutMs", "expected 1..25000")
 	}
-	if !android && !packet {
+	if !android && !packet && (!desktop || o.MixedAddress != "") {
 		if err = loopbackAddress(o.MixedAddress); err != nil {
 			return nil, err
 		}
@@ -828,6 +871,11 @@ func (m *manager) start(r request) (result any, err error) {
 			return nil, err
 		}
 		d.android = true // shared source-preserving mobile ownership policy
+	} else if desktop {
+		if err = desktopRuntimePolicy(d); err != nil {
+			return nil, err
+		}
+		d.desktop = true
 	} else if len(d.StrictIssues) > 0 {
 		return nil, &d.StrictIssues[0]
 	}
@@ -838,7 +886,7 @@ func (m *manager) start(r request) (result any, err error) {
 	if android {
 		s.mobile = newMobileSession(ctx, cancel)
 		s.oldAndroidGlobals = captureAndroidGlobals()
-	} else if packet {
+	} else if packet || desktop {
 		s.oldAndroidGlobals = captureAndroidGlobals()
 	}
 	m.mu.Lock()
@@ -860,6 +908,10 @@ func (m *manager) start(r request) (result any, err error) {
 	defer func() {
 		if !committed {
 			s.cleanup()
+			if s.desktopCleanupErr != nil {
+				result = nil
+				err = problem("TUN_CLEANUP_FAILED", "", s.desktopCleanupErr.Error())
+			}
 			m.mu.Lock()
 			m.session = nil
 			m.cancel = nil
@@ -879,6 +931,9 @@ func (m *manager) start(r request) (result any, err error) {
 	s.cacheOpened = true
 	if packet {
 		s.cfg, err = nativeParsePacket(d, o.PacketIPv6, o.PacketSystemDNS)
+		m.lastDiagnosticConfig = d.finalConfig
+	} else if desktop {
+		s.cfg, err = nativeParseVPN(d, o.DesktopIPv6, true)
 		m.lastDiagnosticConfig = d.finalConfig
 	} else if android {
 		s.cfg, err = nativeParseAndroid(d, o.AndroidIPv6, o.AndroidSystemDNS)
@@ -905,7 +960,7 @@ func (m *manager) start(r request) (result any, err error) {
 		s.mobile.cfg = s.cfg
 		// The native Mihomo DNS resolver/enhancer is installed below. The legacy
 		// mobile resolver remains only as a lifecycle lock for bridge mutations.
-	} else if !packet {
+	} else if !packet && !desktop {
 		applyInternalDNS(s.cfg)
 	}
 	for _, p := range s.cfg.Providers {
@@ -941,13 +996,13 @@ func (m *manager) start(r request) (result any, err error) {
 	tunnel.UpdateProxies(s.cfg.Proxies, s.cfg.Providers)
 	tunnel.UpdateRules(s.cfg.Rules, s.cfg.SubRules, s.cfg.RuleProviders)
 	tunnel.SetMode(s.cfg.General.Mode)
-	if android {
+	if android || desktop {
 		tunnel.SetFindProcessMode(s.cfg.General.FindProcessMode)
 	} else {
 		tunnel.SetFindProcessMode(process.FindProcessOff)
 	}
 	resolver.DisableIPv6 = !s.cfg.General.IPv6
-	if android || packet {
+	if android || packet || desktop {
 		if err = applyUpstreamAndroidComponents(s.cfg); err != nil {
 			return nil, problem("MIHOMO_INITIALIZATION_FAILED", "", err.Error())
 		}
@@ -962,6 +1017,16 @@ func (m *manager) start(r request) (result any, err error) {
 		s.tun, err = startAndroidTun(*r.borrowedFD, s.cfg)
 		if err != nil {
 			return nil, problem("TUN_START_FAILED", "borrowedFD", err.Error())
+		}
+	} else if desktop {
+		s.tun, err = startDesktopTun(s.cfg)
+		if err != nil {
+			return nil, problem("TUN_START_FAILED", "", err.Error())
+		}
+		if o.MixedAddress != "" {
+			if err = s.listenMixed(o.MixedAddress); err != nil {
+				return nil, problem("LISTEN_FAILED", "options.mixedAddress", err.Error())
+			}
 		}
 	} else if err = s.listenMixed(o.MixedAddress); err != nil {
 		return nil, problem("LISTEN_FAILED", "options.mixedAddress", err.Error())
@@ -1009,7 +1074,10 @@ func (s *session) cleanup() {
 		}
 	}
 	if s.tun != nil {
-		_ = s.tun.Close()
+		closeErr := s.tun.Close()
+		if s.doc != nil && s.doc.desktop {
+			s.desktopCleanupErr = closeErr
+		}
 		s.tun = nil
 	}
 	if s.mobile != nil {
@@ -1040,7 +1108,7 @@ func (s *session) cleanup() {
 	log.SetLevel(s.oldLogLevel)
 	resolver.DisableIPv6 = s.oldIPv6
 	s.oldDNS.restore()
-	if s.doc != nil && s.doc.android {
+	if s.doc != nil && (s.doc.android || s.doc.desktop) {
 		s.oldAndroidGlobals.restore()
 	}
 	C.SetHomeDir(s.oldHome)
@@ -1087,6 +1155,9 @@ func (m *manager) stop() (any, error) {
 	m.startRequestID = ""
 	result := m.statusLocked()
 	m.mu.Unlock()
+	if s != nil && s.desktopCleanupErr != nil {
+		return nil, problem("TUN_CLEANUP_FAILED", "", s.desktopCleanupErr.Error())
+	}
 	return result, nil
 }
 func snapshot(s *session) (map[string]any, error) {

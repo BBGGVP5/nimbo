@@ -1,3 +1,41 @@
+# Desktop native TUN checkpoint — 2026-10-02
+
+Source-built pinned Linux/amd64 binary exercised in fresh WSL Linux network +
+mount namespaces, not the host namespace. Nine actual start/traffic/stop cycles
+passed: EOF, SIGTERM and generation-bound controller stop, each repeated three
+times. Each cycle validates TCPv4/TCPv6/UDP, DNS over UDP/TCP, native selection,
+REJECT without a direct fallback, resuming the selected group, stale generation
+and exact restoration of the pre-start route/rule snapshot. No public Internet,
+provider credentials, host DNS or physical host routes were used.
+
+Partial startup rollback (occupied controller after TUN construction) also passed:
+no retained interface or route/rule entries and the next owner acquired its lease.
+The fixture exposed asynchronous native interface retirement: Close now waits
+up to two seconds before releasing ownership. Cleanup failures propagate through
+the native API and produce a failed CLI exit rather than a success indication.
+
+Windows host Go suite with_gvisor: 182 passed test cases, zero failures; one
+private Android provider fixture deliberately skipped (no user secrets loaded).
+Default build tests and go vet passed. Pure iOS source gates: 9 packet contracts
+and 6 merged-source contracts passed; these are not C ABI or Apple compile tests.
+The prior full IPA at 98a6a59 passed separately (GitHub run 37028406362).
+
+An actual namespace fixture exposed and fixed two desktop socket bugs: the mobile
+hook suppressing native physical-interface selection (TUN loop), and rejection of
+the valid empty UDP wildcard host. Windows dual-stack UDP binds both families.
+No Windows TUN adapter/DNS runtime acceptance is claimed from host Go compilation.
+
+Remaining release gates: protected verified helper installation, authorized UID/SID
+IPC lease, GUI endpoint lifetime, service hard-crash route/DNS recovery, Windows
+adapter acceptance, explicit System Proxy backend on Linux, and firewall Kill Switch.
+These remain closed in desktop availability. Source-based CI tests both Linux CPU
+architectures and builds Windows; it creates internal artifacts, not public releases.
+
+The historical freeze below describes the narrower 2026-09-20 proxy milestone,
+not the current mobile or privileged TUN implementation.
+
+---
+
 # Native component freeze — 2026-09-20
 
 ## Executed evidence

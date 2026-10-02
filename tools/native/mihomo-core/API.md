@@ -223,3 +223,58 @@ native cancellation (three-second cleanup bound); it never cancels a new session
 iOS completed results persist under source/node hashes; cancellation preserves
 previous measurements. HTTP URL/method/deadline follow saved ping settings; no
 TCP/ICMP-to-HTTP substitution for a whole document.
+
+## Privileged desktop TUN native boundary (API1, 2026-10-02)
+
+`preflightDesktopTun` is source-only and has no host side effects. It admits the
+full pinned native proxy/group/rule/resolver graph, preserving the original YAML
+and SHA-256. Source-defined host listeners, arbitrary FD/interface/routes/table
+indices, system/DHCP DNS, custom TUN stack or incomplete DNS hijack are rejected.
+
+`StartDesktopTun(JSON)` is a **trusted local entry**, not a JSON field or public
+controller operation. Windows requires an elevated service token; Linux requires
+root. Plain `Invoke` cannot obtain desktop-tun ownership. `desktopTun` capability
+means the native primitive compiled, not that the GUI/service is installed.
+The Rust GUI still keeps TUN/Both/KS closed pending authenticated helper integration.
+Never elevate the entire GUI or expose new root commands on the legacy broad pipe.
+
+Start options: networkOwner `desktop-tun`, protected absolute service-private
+`dataDir`, `desktopIPv6: true`, authenticated loopback `controllerAddress` and
+random bearer secret >=32 bytes. Optional loopback mixed listener allows a future
+Both owner, but does not itself apply System Proxy. The service must verify and
+install the source-built binary and its matching resources in protected paths,
+clear unsafe inherited environment, authorize the installing user's UID/SID and
+coordinate ownership with existing Xray TUN before invoking the native entry.
+
+The actual sing-tun **system** stack owns `nimbo-mh0`, MTU 1500, IPv4
+172.29.255.1/30 and IPv6 fdfe:dcba:5288::1/126. UDP/TCP DNS port 53 is intercepted
+by the source-enabled native resolver, with no public DNS fallback. Native Linux
+routing table 52888 and priority range 22888..22903 are reserved and checked for
+existing entries before construction; existing interfaces are never adopted or
+removed. A root-only process lock / protected Windows global mutex prevents two
+native owners. Upstream listener construction/Close owns monitors, routes and
+adapter DNS; this is not a fake TUN readiness flag.
+
+The always-installed mobile socket hook suppresses upstream auto-interface binding.
+Desktop therefore binds each native socket to the physical interface in that hook:
+Linux SO_BINDTODEVICE; Windows IP_UNICAST_IF/IPV6_UNICAST_IF (including both families
+for dual-stack UDP). Empty/wildcard listen addresses are valid. A missing/invalid
+physical interface after readiness fails closed, not an unbound outbound fallback.
+Mobile protector callbacks remain unchanged.
+
+Privileged CLI `serve-tun`: one 4-byte big-endian length-prefixed JSON start frame
+<=8 MiB; retain stdin as the process lease. One JSON readiness line on stdout.
+EOF/extra lease bytes/SIGINT/SIGTERM cancel an in-flight start by request identity,
+then stop/join actual native cleanup. Authenticated generation-bound controller
+stop performs the same cleanup. The owner lock is retained during bounded interface
+retirement (up to two seconds); failure is TUN_CLEANUP_FAILED, and lease shutdown
+exits nonzero. The collision rollback fixture validates cleanup before readiness.
+Legacy `inspect` and `serve` remain unchanged.
+**Hard crash recovery and external firewall Kill Switch still require the service
+journal**: a SIGKILL is not a graceful cleanup or a claim of crash-safe readiness.
+
+`scripts/ci/test-mihomo-desktop-netns.py` checks real TCP IPv4/IPv6, UDP echo,
+UDP/TCP DNS, native live group selection, stale-generation rejection and exact
+route/rule restoration after EOF/SIGTERM/controller stop. Two synthetic network
+namespaces, no Internet or host routing changes; explicit disposable-test opt-in.
+These fixtures do not certify real provider transports or Windows adapter cleanup.

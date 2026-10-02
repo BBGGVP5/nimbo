@@ -27,9 +27,14 @@ func init() {
 		probe := singleton.state == "stopped" && singleton.probeContext != nil && singleton.probeContext.Err() == nil
 		mobile := singleton.session != nil && (singleton.session.mobile != nil || singleton.session.doc.android)
 		s := singleton.session
+		desktop := s != nil && s.doc.desktop
+		committed := singleton.state == "running"
 		singleton.mu.Unlock()
 		if !allowed && !probe {
 			return errors.New("Nimbo runtime is stopped")
+		}
+		if desktop {
+			return bindDesktopSocket(network, address, conn, committed)
 		}
 		protectorLock.RLock()
 		p := socketProtector

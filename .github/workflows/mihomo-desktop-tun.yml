@@ -1,0 +1,54 @@
+name: Mihomo desktop native TUN
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/ondemand-memory-20260930']
+    paths:
+      - 'tools/native/mihomo-core/**'
+      - 'scripts/ci/build-mihomo-desktop.py'
+      - 'scripts/ci/test-mihomo-desktop-netns.py'
+      - 'scripts/ci/prepare-mihomo-merged.py'
+      - '.github/workflows/mihomo-desktop-tun.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native ${{ matrix.target }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: linux/amd64
+            artifact: linux-x64
+          - runner: ubuntu-22.04-arm
+            target: linux/arm64
+            artifact: linux-arm64
+          - runner: windows-latest
+            target: windows/amd64
+            artifact: windows-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: tools/native/mihomo-core/go.sum
+      - name: Verify pinned source, test, vet and build actual native stack
+        run: python scripts/ci/build-mihomo-desktop.py --target '${{ matrix.target }}' --output 'native-desktop/${{ matrix.artifact }}'
+      - name: Actual TCP UDP DNS IPv6 selection and cleanup in isolated namespace
+        if: runner.os == 'Linux'
+        run: sudo env NIMBO_DISPOSABLE_NETNS=1 python3 scripts/ci/test-mihomo-desktop-netns.py --binary 'native-desktop/${{ matrix.artifact }}/nimbo-mihomo'
+      - name: Keep source fingerprints and internal native artifacts (not a public release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-native-${{ matrix.artifact }}
+          path: native-desktop/${{ matrix.artifact }}/
+          if-no-files-found: error

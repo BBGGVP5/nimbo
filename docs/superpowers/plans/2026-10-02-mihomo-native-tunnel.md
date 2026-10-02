@@ -54,3 +54,40 @@ unit tests pass; four explicitly staged native-helper fixtures were not executed
 in that local run. Apple 37027205853 passed Swift core admission and cache
 round-trip; full IPA/package builds remain separate. Primary code was mirrored
 only when baseline hashes matched, with unrelated local differences preserved.
+
+## Desktop execution slice (privileged native boundary)
+Files: tools/native/mihomo-core/desktop_runtime.go, desktop_tun_{linux,windows,stub}.go,
+runtime.go, platform.go, cmd/nimbo-mihomo/main.go, desktop_runtime_test.go;
+scripts/ci/test-mihomo-desktop-netns.py and its workflow.
+- [x] Add failing source-admission tests: desktop-tun cannot be forged through Invoke;
+  preflight retains exact source/hash and does not start listeners or mutate native globals;
+  reject arbitrary FD/device/routes/table indices, source host listeners and unowned DNS.
+- [x] Add trusted StartDesktopTun, explicit desktop IPv6, native system stack, full native
+  rules/resolver/sniffer/providers and physical interface finder; do not use mobile protection
+  callbacks or flatten into a TCP proxy. Only the privileged local owner may call this entry.
+- [x] Use the upstream sing-tun listener for interface/routes/DNS lifetime. Validate that
+  the named interface and reserved routing table/rules are vacant before construction.
+  Partial startup closes the upstream listener and restores all captured process globals.
+- [x] Add serve-tun framed startup with retained stdin lease: EOF/cancel/SIGTERM stops the
+  actual native session and joins cleanup, including EOF during provider initialization.
+  Leave legacy inspect/serve unchanged; never send secrets/configuration to log output.
+- [x] Test actual Linux TCP/UDP/DNS and teardown in a separate network namespace with
+  explicit disposable-CI opt-in. Never change the developer machine's routes/DNS.
+- [ ] Integrate protected pinned binary installation + authenticated service lease and
+  GUI endpoint ownership before marking TUN available. Windows pipe currently only
+  authorizes legacy process operations: do not expose new root operations through its
+  existing broad ACL. Artifact compilation alone is not TUN acceptance.
+
+Desktop native evidence: 182 Go cases passed, one private provider fixture skipped;
+default + with_gvisor builds tested, go vet passed. Three isolated namespace rounds
+(nine native lifecycles) passed TCP4/TCP6/UDP/DNS-UDP/DNS-TCP/native selection/REJECT
+without direct fallback/stale generation and exact route/rule restoration. Windows
+native compiles; no Windows adapter acceptance or helper/UI availability flip.
+Real test found/fixed the mobile-hook auto-binding suppression and empty UDP host.
+The first repeated snapshot test also caught delayed physical IPv6 link-local DAD;
+the fixture now disables automatic address generation before the baseline, without
+filtering out route differences. Service hard-crash recovery remains explicit work.
+
+Partial controller-start failure after TUN construction now has an actual namespace
+rollback fixture. It caught asynchronous interface retirement; the owner lock stays
+held until bounded device deletion and cleanup errors propagate to API/CLI failure.
