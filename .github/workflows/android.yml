@@ -31,6 +31,9 @@ jobs:
       - name: Проверить исходники объединённого Mihomo
         run: python3 scripts/ci/test-ios-mihomo-source.py
 
+      - name: Проверить контракты экрана профилей iOS
+        run: python3 iosApp/Tests/test_profile_screen_contracts.py
+
       - name: Проверить раскладку синхронизации и отсутствие дублей навигации
         run: python3 scripts/ci/test-sync-settings-layout.py
 

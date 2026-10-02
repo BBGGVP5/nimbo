@@ -22,6 +22,42 @@ async function moduleWithMocks(path, mocks) {
 
 const helpers = await moduleWithMocks('../src/lib/coreProfiles.ts', {});
 
+test('Mihomo workspace breadcrumb does not fall back to Home', async () => {
+  const Link = ({ to, children }) => createElement('a', { href: to }, children);
+  const { WorkspaceBar } = await moduleWithMocks('../src/components/WorkspaceBar.tsx', {
+    useState, Link, NavLink: Link, useLocation: () => ({ pathname: '/mihomo' }),
+    _jsx: jsxRuntime.jsx, _jsxs: jsxRuntime.jsxs, _Fragment: jsxRuntime.Fragment,
+    useMessages: () => ({ common: { locale: 'en' }, app: { home: 'Home', notifications: 'Notifications' } }),
+    useAppStore: selector => selector({ subscriptions: [] }), HomeMetaIcon: () => null, notifyError: () => {},
+  });
+  const html = renderToStaticMarkup(createElement(WorkspaceBar));
+  assert.match(html, /<strong>Mihomo profiles<\/strong>/);
+  assert.doesNotMatch(html, /<strong>Home<\/strong>/);
+});
+
+test('full-profile URL validation and errors never disclose a subscription token', () => {
+  assert.equal(helpers.validateCoreSourceUrl(' https://example.test/profile?token=private '), 'https://example.test/profile?token=private');
+  for (const value of ['file:///secret', 'ftp://example.test/profile', 'https://user:private@example.test/',
+    'https://example.test/#private', 'https://example.test/a b', 'https://example.test/\nprivate', 'https://example.test/' + 'x'.repeat(8192)]) {
+    assert.throws(() => helpers.validateCoreSourceUrl(value), /INVALID_SOURCE_URL/);
+  }
+  for (const code of ['SOURCE_FETCH_FAILED', 'SOURCE_FETCH_TIMEOUT', 'SOURCE_HTTP_ERROR', 'SOURCE_REDIRECT_BLOCKED', 'SOURCE_INVALID_UTF8', 'SOURCE_NOT_PROFILE']) {
+    const result = helpers.mihomoErrorMessage(`${code}: https://example.test/?token=private`, true);
+    assert.ok(!result.includes('private') && !result.includes('example.test'));
+    assert.ok(!result.includes('CORE_OPERATION_FAILED'), 'known download failure has a dedicated message');
+  }
+});
+
+test('URL import invokes only the native bounded importer and does not change network mode', async () => {
+  const calls = [];
+  const { coreApi } = await moduleWithMocks('../src/lib/coreApi.ts', {
+    isTauriRuntime: () => true,
+    tauriInvoke: async (...args) => { calls.push(args); return { inspection_error: null }; },
+  });
+  await coreApi.importUrl('My profile', 'https://example.test/profile');
+  assert.deepEqual(calls, [['import_mihomo_profile_url', { name: 'My profile', url: 'https://example.test/profile' }]]);
+});
+
 test('saving a preference while connected preserves the active session and never disconnects', async () => {
   let selected = 'auto';
   let fail = false;
@@ -105,6 +141,9 @@ test('full-profile page uses native categories and blocks connect for TUN/Both/K
   assert.match(html, /<button>Connect<\/button>/);
   assert.match(html, /type="file"/);
   assert.match(html, /Complete original YAML/);
+  assert.match(html, /Complete YAML URL/);
+  assert.match(html, /One-time download, up to 20 seconds/);
+  assert.match(html, /autocomplete="off"/i);
   assert.match(html, /Manual \/ 日本/);
   assert.match(html, /URLTest/);
   assert.match(html, /Subscription Feed/);
@@ -121,6 +160,35 @@ test('full-profile page uses native categories and blocks connect for TUN/Both/K
   html=renderToStaticMarkup(createElement(MihomoProfiles));
   assert.match(html, /<button disabled=""[^>]*>Connect<\/button>/);
   assert.match(html, /Turn it off yourself/);
+  state.runtime.profile_id = 'p';
+  html = renderToStaticMarkup(createElement(MihomoProfiles));
+  assert.match(html, /data-active="true"/);
+  assert.match(html, /Disconnect/);
+});
+
+test('full-profile page polls sequentially and does not start a live request after disposal', async () => {
+  let task, cleanup, stopped = 0, finishRefresh, snapshots = 0;
+  const state = {
+    data: { profiles: [] }, availability: [], runtime: { running: true }, busy: null, error: null,
+    refresh: () => new Promise(resolve => { finishRefresh = resolve; }),
+    live: async () => { snapshots++; },
+  };
+  const store = () => state;
+  store.getState = () => state;
+  const { MihomoProfiles } = await moduleWithMocks('../src/pages/MihomoProfiles.tsx', {
+    useEffect: effect => { cleanup = effect(); }, useState,
+    _jsx: jsxRuntime.jsx, _jsxs: jsxRuntime.jsxs, _Fragment: jsxRuntime.Fragment,
+    ...helpers, coreApi: {}, api: {}, isTauriRuntime: () => true,
+    useMessages: () => ({ common: { locale: 'en' } }), useCoreStore: store,
+    useAppStore: selector => selector({ status: { connection_mode: 'system_proxy' }, preferences: { connection_kill_switch: false } }),
+    startVisiblePolling: (callback, interval) => { task = callback; assert.equal(interval, 10000); return () => { stopped++; }; },
+    document: { visibilityState: 'visible' },
+  });
+  renderToStaticMarkup(createElement(MihomoProfiles));
+  const pending = task();
+  cleanup(); finishRefresh(); await pending;
+  assert.equal(stopped, 1);
+  assert.equal(snapshots, 0);
 });
 
 test('native selection is acknowledged and a stale session response is discarded', async () => {

@@ -12,7 +12,7 @@ export function WorkspaceBar() {
   const { pathname } = useLocation();
   const [busy, setBusy] = useState(false);
   const active = useAppStore(s => s.subscriptions.find(sub => sub.url === s.activeSubscriptionUrl)?.name);
-  const routes = [["/subscriptions", m.app.profiles], ["/routing", m.app.routing], ["/apps", m.app.apps], ["/statistics", m.app.statistics], ["/connections", m.app.connections], ["/tunnel-logs", m.app.tunnelLogs], ["/sync", m.app.sync], ["/notifications", m.app.notifications], ["/settings", m.app.settings]];
+  const routes = [["/mihomo", ru ? "Профили Mihomo" : "Mihomo profiles"], ["/subscriptions", m.app.profiles], ["/routing", m.app.routing], ["/apps", m.app.apps], ["/statistics", m.app.statistics], ["/connections", m.app.connections], ["/tunnel-logs", m.app.tunnelLogs], ["/sync", m.app.sync], ["/notifications", m.app.notifications], ["/settings", m.app.settings]];
   const title = routes.find(([path]) => pathname.startsWith(path))?.[1] ?? m.app.home;
   const activity = ["/statistics", "/connections", "/tunnel-logs"].includes(pathname);
   const toggleTheme = async () => {

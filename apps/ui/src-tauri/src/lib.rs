@@ -412,6 +412,7 @@ pub fn run() {
             mihomo_runtime::get_core_availability,
             mihomo_runtime::get_core_profiles,
             mihomo_runtime::import_mihomo_profile,
+            mihomo_runtime::import_mihomo_profile_url,
             mihomo_runtime::export_core_profile,
             mihomo_runtime::replace_core_profile,
             mihomo_runtime::inspect_core_profile,

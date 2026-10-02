@@ -160,6 +160,19 @@ pub async fn import_mihomo_profile(
     })
 }
 #[tauri::command]
+pub async fn import_mihomo_profile_url(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    url: String,
+) -> Result<ImportResult, String> {
+    // Neither URL nor headers are persisted; import never changes the active core.
+    let source = nimbo_mihomo::download::fetch_source(&url)
+        .await
+        .map_err(String::from)?;
+    import_mihomo_profile(app, state, name, source).await
+}
+#[tauri::command]
 pub fn export_core_profile(
     state: State<'_, AppState>,
     profile_id: String,

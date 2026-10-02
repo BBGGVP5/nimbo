@@ -21,6 +21,7 @@ export const coreApi = {
  profiles:()=>call<CoreProfilesState>('get_core_profiles'),
  preference:(core:CorePreference)=>call<void>('set_core_preference',{core}),
  import:(name:string,source:string)=>call<{profile:CoreProfile;inspection_error:string|null}>('import_mihomo_profile',{name,source}),
+ importUrl:(name:string,url:string)=>call<{profile:CoreProfile;inspection_error:string|null}>('import_mihomo_profile_url',{name,url}),
  export:(profileId:string)=>call<string>('export_core_profile',{profileId}),
  replace:(profileId:string,revision:number,source:string)=>call<CoreProfile>('replace_core_profile',{profileId,revision,source}),
  inspect:(profileId:string)=>call<CoreProfile>('inspect_core_profile',{profileId}),
