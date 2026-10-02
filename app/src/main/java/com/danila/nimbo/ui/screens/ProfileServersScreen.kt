@@ -719,8 +719,8 @@ fun ServerListItem(
         else -> Color.Transparent
     }
     val borderStrokeColor = when {
+        isSelected -> nebulaColors.accent
         materialYou -> Color.Transparent
-        isSelected -> nebulaColors.accent.copy(alpha = 0.6f)
         else -> nebulaColors.textPrimary.copy(alpha = 0.12f)
     }
 
@@ -744,7 +744,7 @@ fun ServerListItem(
                 .clip(RoundedCornerShape(18.dp))
                 .background(fillColor)
                 .then(if (fillBrush != null) Modifier.background(fillBrush) else Modifier)
-                .border(1.dp, borderStrokeColor, RoundedCornerShape(18.dp))
+                .border(if (isSelected) 2.dp else 1.dp, borderStrokeColor, RoundedCornerShape(18.dp))
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = { menuExpanded = true }
@@ -903,7 +903,7 @@ fun ServerListItem(
             ping = ping ?: -1,
             isPinging = isPinging,
             pingDisplayMode = pingDisplayMode,
-            onClick = onPingClick,
+            onClick = { menuExpanded = true },
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .offset(y = (-10).dp)
@@ -921,6 +921,10 @@ fun ServerListItem(
             shadowElevation = 0.dp,
             border = BorderStroke(1.dp, menuContentColor.copy(alpha = 0.18f))
         ) {
+            DropdownMenuItem(
+                text = { Text(if (isPinging) "Остановить пинг" else "Пинг сервера", color = menuContentColor) },
+                leadingIcon = { Icon(if (isPinging) Icons.Default.Stop else Icons.Default.Speed, null, tint = menuContentColor) },
+                onClick = { menuExpanded = false; onPingClick() })
             DropdownMenuItem(
                 text = {
                     Text(

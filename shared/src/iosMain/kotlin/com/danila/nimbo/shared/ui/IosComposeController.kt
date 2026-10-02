@@ -771,8 +771,6 @@ private val iosPendingPingIds = mutableStateOf<Set<String>>(emptySet())
 /** Start only the requested rows; a completed row must not spin until the batch ends. */
 fun NimboBeginIosPings(serverIds: List<String>) {
     iosPendingPingIds.value = serverIds.toSet()
-    iosPings.value = iosPings.value - iosPendingPingIds.value
-    NSUserDefaults.standardUserDefaults.setObject(iosJson.encodeToString(iosPings.value), PingResultsKey)
     NimboUpdateIosPings(emptyList(), emptyList(), serverIds.isNotEmpty())
 }
 

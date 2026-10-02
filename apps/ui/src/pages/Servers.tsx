@@ -1,3 +1,5 @@
+import { usePingActions } from "../lib/usePingActions";
+import { ServerContextMenu } from "../components/ServerContextMenu";
 import { Dialog } from "../components/Universal";
 import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useState } from "react";
@@ -6,7 +8,6 @@ import { CountryFlag } from "../components/CountryFlag";
 import { notifyError, notifyInfo } from "../lib/notify";
 import { useAppStore } from "../store";
 import {
-  api,
   formatBytes,
   formatSubscriptionTerm,
   protocolLabel,
@@ -61,7 +62,8 @@ export function Servers() {
   const serverPings = useAppStore((s) => s.serverPings);
   const setActive = useAppStore((s) => s.setActiveServer);
   const setServerPing = useAppStore((s) => s.setServerPing);
-  const [pingingServerIds, setPingingServerIds] = useState<Set<string>>(() => new Set());
+  const serverPing = usePingActions();
+  const pingingServerIds = serverPing.pending;
   const { favorites, toggle: toggleFavorite } = useFavoriteServers();
   const {
     overrides: serverOverrides,
@@ -101,25 +103,8 @@ export function Servers() {
   };
 
   const onPingServer = async (serverId: string) => {
-    setPingingServerIds((current) => {
-      const next = new Set(current);
-      next.add(serverId);
-      return next;
-    });
-    try {
-      setServerPing(serverId, null);
-      const result = await api.pingServer(serverId);
-      if (result.error) notifyError(result.error);
-      setServerPing(result.server_id, result.latency_ms ?? null);
-    } catch (e) {
-      notifyError(String(e));
-    } finally {
-      setPingingServerIds((current) => {
-        const next = new Set(current);
-        next.delete(serverId);
-        return next;
-      });
-    }
+    try { await serverPing.toggle([serverId], result => setServerPing(result.server_id, result.latency_ms ?? null)); }
+    catch (error) { notifyError(String(error)); }
   };
 
   const used = (sub.info?.upload ?? 0) + (sub.info?.download ?? 0);
@@ -308,12 +293,16 @@ function ServerRow({
   const proto = protocolLabel(server.protocol);
   const transport = networkBadge(server.protocol);
 
-  const [menuOpen, setMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [confirmHideOpen, setConfirmHideOpen] = useState(false);
 
   return (
-    <div
+    <ServerContextMenu
+      label={m.profiles.serverMenu} actions={[
+        { label: pinging ? (m.common.locale.startsWith("ru") ? "Остановить пинг" : "Stop ping") : m.profiles.testLatency, onClick: onPing },
+        { label: m.profiles.renameServer, onClick: () => setRenameOpen(true) },
+        { label: m.profiles.deleteServer, onClick: () => setConfirmHideOpen(true), danger: true },
+      ]}
       role="button"
       tabIndex={0}
       onClick={onSelect}
@@ -374,59 +363,7 @@ function ServerRow({
         >
           <HeartIcon filled={favorite} />
         </button>
-        <div className="server-row-menu-wrap">
-          <button
-            type="button"
-            title={m.profiles.serverMenu}
-            aria-label={m.profiles.serverMenu}
-            aria-expanded={menuOpen}
-            onClick={(event) => {
-              event.stopPropagation();
-              setMenuOpen((value) => !value);
-            }}
-            className="server-row-icon-button server-row-dots-button"
-          >
-            <DotsIcon />
-          </button>
-          {menuOpen && (
-            <div
-              className="server-row-menu"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  void onPing();
-                }}
-              >
-                <SignalIcon pulse={pinging} small />
-                {m.profiles.testLatency}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setRenameOpen(true);
-                }}
-              >
-                <EditIcon />
-                {m.profiles.renameServer}
-              </button>
-              <button
-                type="button"
-                className="server-row-menu-danger"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setConfirmHideOpen(true);
-                }}
-              >
-                <TrashIcon />
-                {m.profiles.deleteServer}
-              </button>
-            </div>
-          )}
-        </div>
+
       </div>
 
       {renameOpen && (
@@ -455,7 +392,7 @@ function ServerRow({
           onClose={() => setConfirmHideOpen(false)}
         />
       )}
-    </div>
+    </ServerContextMenu>
   );
 }
 
@@ -618,36 +555,7 @@ function SupportIcon() {
   );
 }
 
-function SignalIcon({ pulse = false, small = false }: { pulse?: boolean; small?: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={[small ? "h-4 w-4" : "h-5 w-5", pulse ? "animate-pulse" : ""].join(" ")}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M4 20v-2" />
-      <path d="M8 20v-5" />
-      <path d="M12 20v-8" />
-      <path d="M16 20v-11" />
-      <path d="M20 20V5" />
-    </svg>
-  );
-}
 
-function DotsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
-      <circle cx="5" cy="12" r="1.8" />
-      <circle cx="12" cy="12" r="1.8" />
-      <circle cx="19" cy="12" r="1.8" />
-    </svg>
-  );
-}
 
 function HeartIcon({ filled = false }: { filled?: boolean }) {
   return (
@@ -662,36 +570,6 @@ function HeartIcon({ filled = false }: { filled?: boolean }) {
       aria-hidden="true"
     >
       <path d="M20.8 4.6a5.2 5.2 0 0 0-7.4 0L12 6l-1.4-1.4a5.2 5.2 0 1 0-7.4 7.4L12 20.8 20.8 12a5.2 5.2 0 0 0 0-7.4Z" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-5 w-5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 6h18" />
-      <path d="M8 6V4h8v2" />
-      <path d="M6 6l1 15h10l1-15" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-    </svg>
-  );
-}
-
-function EditIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5Z" />
     </svg>
   );
 }

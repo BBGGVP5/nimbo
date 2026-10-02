@@ -3,6 +3,9 @@ package com.danila.nimbo.shared.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -172,6 +175,7 @@ internal fun AutoFastestCard(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun ProfileServerCard(
     server: NimboServerUi,
@@ -181,15 +185,17 @@ internal fun ProfileServerCard(
     onPing: (String) -> Unit
 ) {
     val shape = nimboStyledShape(14.dp)
+    var menuExpanded by remember(server.id) { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().heightIn(min = 88.dp).clip(shape)
         .background(if (server.selected) NimboPalette.Accent.copy(alpha = .22f) else NimboPalette.Surface)
         .border(if (server.selected) 2.dp else 1.dp, if (server.selected) NimboPalette.Accent else NimboPalette.Border, shape)
+        .combinedClickable(onClick = { if (!server.selected) onSelect(server.id) },
+            onLongClick = { menuExpanded = true }, onLongClickLabel = "Действия с сервером")
+        .semantics { selected = server.selected }
         .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Column(Modifier.weight(1f).heightIn(min = 60.dp)
-            .clickable(enabled = !server.selected, role = androidx.compose.ui.semantics.Role.RadioButton) { onSelect(server.id) }
-            .semantics { selected = server.selected },
+        Column(Modifier.weight(1f).heightIn(min = 60.dp),
             verticalArrangement = Arrangement.Center) {
             if (server.selected) BasicText("✓ Выбран", style = NimboBodyStyle.copy(
                 color = NimboPalette.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold))
@@ -200,8 +206,15 @@ internal fun ProfileServerCard(
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             NimboPingBadge(server, selected = server.selected)
+            Box {
+                DropdownMenu(menuExpanded, { menuExpanded = false }, containerColor = NimboPalette.Surface) {
+                    DropdownMenuItem(text = { BasicText(if (server.pingInProgress) "Остановить пинг" else "Пинг сервера", style = NimboBodyStyle.copy(color = NimboPalette.Text)) },
+                        onClick = { menuExpanded = false; onPing(server.id) })
+                    DropdownMenuItem(text = { BasicText(if (favorite) "Убрать из избранного" else "В избранное", style = NimboBodyStyle.copy(color = NimboPalette.Text)) },
+                        onClick = { menuExpanded = false; onToggleFavorite(server.id) })
+                }
+            }
             Row {
-                NimboIconButton(NimboIconName.PING, Modifier.size(44.dp), enabled = !server.pingInProgress, onClick = { onPing(server.id) })
                 NimboIconButton(if (favorite) NimboIconName.FAVORITE else NimboIconName.FAVORITE_OFF,
                     Modifier.size(44.dp), selected = favorite, onClick = { onToggleFavorite(server.id) })
             }

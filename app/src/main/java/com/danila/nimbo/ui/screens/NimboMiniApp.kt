@@ -3877,7 +3877,7 @@ private fun SubscriptionActionsRow(updated: Long, pinging: Boolean, refreshing: 
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(t("Обновлено: ", "Updated: ") + formatLastUpdateTime(updated), Modifier.weight(1f),
             style = MaterialTheme.typography.labelSmall, color = LocalNebulaColors.current.textSecondary)
-        com.danila.nimbo.ui.components.NimboIconAction(Icons.Default.SignalCellularAlt, pingLabel, pinging, onPing)
+        com.danila.nimbo.ui.components.NimboIconAction(Icons.Default.SignalCellularAlt, if (pinging) t("Остановить пинг", "Stop ping") else pingLabel, pinging, onPing, allowCancel = true)
         com.danila.nimbo.ui.components.NimboIconAction(Icons.Default.Refresh, t("Обновить подписку", "Refresh subscription"), refreshing, onRefresh)
     }
 }
@@ -3960,15 +3960,15 @@ private fun WindowsProfileServerLine(
     var hideConfirmOpen by remember { mutableStateOf(false) }
     com.danila.nimbo.ui.components.NimboServerRow(
         title = cleanServerName(displayName), subtitle = serverSubtitle(server), selected = selected,
-        flag = extractFlagEmoji(server.name), onSelect = onClick, onPing = onPing,
+        flag = extractFlagEmoji(server.name), onSelect = onClick, onOpenMenu = { menuExpanded = true },
         ping = { WindowsPingPill(server.ping ?: -1, isPinging, pingDisplayMode) },
         menu = {
             Box {
-                IconButton({ menuExpanded = true }, Modifier.size(48.dp)) {
-                    Icon(Icons.Default.MoreVert, t("Действия с сервером", "Server actions"), tint = colors.textSecondary)
-                }
                 DropdownMenu(menuExpanded, { menuExpanded = false }, containerColor = colors.panelFill,
                     shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, colors.panelBorder)) {
+                    DropdownMenuItem(text = { Text(if (isPinging) t("Остановить пинг", "Stop ping") else t("Пинг сервера", "Ping server")) },
+                        leadingIcon = { Icon(if (isPinging) Icons.Default.Stop else Icons.Default.Speed, null) },
+                        onClick = { menuExpanded = false; onPing() })
                     DropdownMenuItem(text = { Text(if (isFavorite) t("Убрать из избранного", "Remove favorite") else t("В избранное", "Add favorite")) },
                         leadingIcon = { Icon(if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder, null) },
                         onClick = { menuExpanded = false; onToggleFavorite() })

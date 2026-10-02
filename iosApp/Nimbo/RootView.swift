@@ -34,6 +34,10 @@ struct RootView: View {
     @State private var updateDownloadError: String?
     /// Проверка «трафик пошёл» после подключения и её однократное лечение.
     @State private var trafficCheck: Task<Void, Never>?
+    @State private var pingTask: Task<Void, Never>?
+    @State private var retiringPingTask: Task<Void, Never>?
+    @State private var pingRunID: UUID?
+    @State private var pingTargetID: String?
     /// Когда в последний раз записывали «трафик не пошёл»: чаще раза в пять
     /// минут засорять журнал незачем.
     @State private var lastSelfHealAt: Date?
@@ -191,10 +195,10 @@ struct RootView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboPingServer)) { notification in
                 guard let serverID = notification.object as? String else { return }
-                Task { await measurePing(serverID) }
+                togglePing(serverID: serverID)
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboPingAll)) { _ in
-                Task { await measurePings() }
+                togglePing(serverID: nil)
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboConnectFastest)) { _ in
                 Task { await connectFastest() }
@@ -319,7 +323,51 @@ struct RootView: View {
     }
 
     /// Nimbo проверяет каждый сервер отдельным маршрутом, не меняя подключённый VPN.
-    private func measurePings() async {
+    /// Only explicit repeated actions cancel. Automatic refresh never interrupts a user check.
+    @MainActor private func togglePing(serverID: String?) {
+        if pingTask != nil && (pingTargetID == serverID || pingTargetID == nil) {
+            pingRunID = nil
+            pingTask?.cancel()
+            retiringPingTask = pingTask
+            pingTask = nil
+            pingTargetID = nil
+            IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)
+            return
+        }
+        startPing(serverID: serverID)
+    }
+
+    @MainActor private func startPing(serverID: String?) {
+        let previous = pingTask ?? retiringPingTask
+        retiringPingTask = nil
+        previous?.cancel()
+        let runID = UUID()
+        pingRunID = runID
+        pingTargetID = serverID
+        pingTask = Task { @MainActor in
+            // The cancelled diagnostic process must retire before the next probe starts.
+            await previous?.value
+            guard !Task.isCancelled, pingRunID == runID else { return }
+            defer {
+                if pingRunID == runID {
+                    pingTask = nil
+                    pingRunID = nil
+                    pingTargetID = nil
+                    IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)
+                }
+            }
+            if let serverID { await measurePing(serverID, runID: runID) }
+            else { await measurePings(runID: runID) }
+        }
+    }
+
+    @MainActor private func measurePings() async {
+        guard pingTask == nil else { return }
+        startPing(serverID: nil)
+        await pingTask?.value
+    }
+
+    @MainActor private func measurePings(runID: UUID) async {
         guard let profile = try? NimboSubscriptionRepository.shared.loadProfile() else { return }
         let targets = profile.servers
             .map { (id: $0.id, host: $0.host, port: $0.port) }
@@ -331,13 +379,15 @@ struct RootView: View {
         // Признак «идёт замер» снимается в любом случае: если экран закрыли и
         // задачу отменили, надпись «Проверяю…» иначе оставалась навсегда.
         defer {
-            IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)
+            if pingRunID == runID { IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false) }
         }
         guard let results = await NimboPingService.shared.measureAll(targets, session: vpn.manager?.connection as? NETunnelProviderSession,
             configurations: Dictionary(profile.servers.map { ($0.id, $0.rawConfiguration) }, uniquingKeysWith: { first, _ in first }),
             progress: { id, value in
+                guard !Task.isCancelled, pingRunID == runID else { return }
                 IosComposeControllerKt.NimboUpdateIosPings(serverIds: [id], values: [KotlinInt(int: Int32(value))], inProgress: true)
             }) else { return }
+        guard !Task.isCancelled, pingRunID == runID else { return }
         let ordered = results.map { ($0.key, $0.value) }
         IosComposeControllerKt.NimboUpdateIosPings(
             serverIds: ordered.map { $0.0 },
@@ -399,18 +449,18 @@ struct RootView: View {
 
     /// Замер по одному серверу: нажали на плашку — перемеряли только его.
     /// Гонять весь список ради одной строки долго и незачем.
-    private func measurePing(_ serverID: String) async {
+    @MainActor private func measurePing(_ serverID: String, runID: UUID) async {
         guard let profile = try? NimboSubscriptionRepository.shared.loadProfile(),
               let server = profile.servers.first(where: { $0.id == serverID }) else { return }
 
         IosComposeControllerKt.NimboBeginIosPings(serverIds: [serverID])
         defer {
-            IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)
+            if pingRunID == runID { IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false) }
         }
         let value = await NimboPingService.shared.measureOne(host: server.host, port: server.port, id: server.id,
                                                            session: vpn.manager?.connection as? NETunnelProviderSession,
                                                            configuration: server.rawConfiguration)
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, pingRunID == runID else { return }
         IosComposeControllerKt.NimboUpdateIosPings(
             serverIds: [serverID],
             values: [KotlinInt(int: Int32(value))],

@@ -259,9 +259,9 @@ internal fun serverCountLabel(count: Int): String {
 }
 
 @Composable
-private fun SubscriptionAction(icon: NimboIconName, text: String, enabled: Boolean = true, onClick: () -> Unit) {
+private fun SubscriptionAction(icon: NimboIconName, text: String, enabled: Boolean = true, description: String = icon.accessibleLabel, onClick: () -> Unit) {
     Row(Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(10.dp)).background(NimboPalette.Control)
-        .semantics { contentDescription = icon.accessibleLabel }
+        .semantics { contentDescription = description }
         .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
         NimboIcon(icon, Modifier.size(17.dp), NimboPalette.TextSecondary)
@@ -315,7 +315,7 @@ internal fun NimboSubscriptionHeader(state: NimboUiState, actions: NimboUiAction
                 }
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SubscriptionAction(NimboIconName.PING, if (state.pingInProgress) "Проверяем…" else "Пинг", enabled = !state.pingInProgress, onClick = actions.onPingAll)
+                SubscriptionAction(NimboIconName.PING, if (state.pingInProgress) "Остановить пинг" else "Пинг", description = if (state.pingInProgress) "Остановить пинг" else NimboIconName.PING.accessibleLabel, onClick = actions.onPingAll)
                 SubscriptionAction(NimboIconName.REFRESH, "Обновить", onClick = actions.onRefreshProfile)
             }
             if (state.profileUpdatedLabel.isNotBlank()) BasicText("Обновлено ${state.profileUpdatedLabel}", style = NimboBodyStyle.copy(fontSize = 11.sp))

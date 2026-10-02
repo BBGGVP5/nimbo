@@ -23,6 +23,8 @@
 - [x] Exercise real Unix socket pairs for status/drop and owner disconnect; no native core, DNS, route or systemd mutation in these tests.
 
 ### Verification and release
-- [ ] Inspect actual AppImage/DEB/RPM helper bytes, ELF architecture, mode and digest in Linux CI; build and inspect both Linux architectures.
-- [ ] Run targeted Node/Rust tests, formatting and Clippy; push explicit sources to PR78, run GitHub checks and artifact-only package builds, download and verify results.
-- [ ] Record platform readiness and remaining Mihomo TUN work. Preserve the already verified iOS IPA unless iOS sources change.
+- [x] Inspect actual AppImage/DEB/RPM helper bytes, ELF architecture, mode and digest in Linux CI; build and inspect both Linux architectures.
+- [x] Run targeted Node/Rust tests, formatting and Clippy; push explicit sources to PR78, run GitHub checks and artifact-only package builds, download and verify results.
+- [x] Record platform readiness and remaining Mihomo TUN work. Preserve the already verified iOS IPA unless iOS sources change.
+
+Verified run 36997163348 on native x64/arm64: AppImage archive, DEB/RPM raw helper and manifest match; guarded disposable-runner install/upgrade/source-removal/restart/status/uninstall passed on both. All six downloaded package hashes/sizes match CI reports. AppImage ships the stored archive to prevent linuxdeploy ELF rewriting; runtime materializes only digest-verified bytes. RPM payload inspection uses libarchive. No local service/TUN was started.

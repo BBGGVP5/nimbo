@@ -144,6 +144,14 @@ struct ProfilesContainerView: View {
                 .disabled(isWorking)
                 .accessibilityAddTraits(isSelected ? [.isSelected] : [])
                 .accessibilityIdentifier("nimbo.profile.server.\(server.id)")
+                .contextMenu {
+                    Button("Пинг сервера", systemImage: "gauge.with.dots.needle.67percent") {
+                        NotificationCenter.default.post(name: .nimboPingServer, object: server.id)
+                    }
+                }
+                .accessibilityAction(named: "Пинг сервера") {
+                    NotificationCenter.default.post(name: .nimboPingServer, object: server.id)
+                }
             }
         }
     }

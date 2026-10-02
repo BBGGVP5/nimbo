@@ -84,10 +84,10 @@ class NimboSubscriptionPointerTest {
             assertEquals(0, toggles)
             state.value = state.value.copy(pingInProgress = true)
             scene.settle()
-            val disabled = scene.nodes().first { "Проверить пинг" in it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
-            assertTrue(disabled.config.contains(SemanticsProperties.Disabled))
-            scene.tap(disabled.boundsInRoot.center)
-            assertEquals(1, pings)
+            val cancel = scene.nodes().first { "Остановить пинг" in it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
+            assertTrue(!cancel.config.contains(SemanticsProperties.Disabled))
+            scene.tap(cancel.boundsInRoot.center)
+            assertEquals(2, pings)
             assertEquals(0, toggles)
             scene.tap(scene.labelPosition("Информация"))
             assertEquals(0, toggles)

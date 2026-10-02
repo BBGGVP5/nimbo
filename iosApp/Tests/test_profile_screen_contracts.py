@@ -32,6 +32,17 @@ class ProfileScreenContracts(unittest.TestCase):
         self.assertIn(".lineLimit(2...8)", source)
         self.assertIn("accessibilityReduceMotion", source)
 
+    def test_server_context_actions_have_no_permanent_ping_control(self):
+        native = SOURCE.read_text(encoding="utf-8")
+        self.assertIn('.contextMenu {', native)
+        self.assertIn('post(name: .nimboPingServer, object: server.id)', native)
+        self.assertIn('.accessibilityAction(named: "Пинг сервера")', native)
+        shared = (ROOT / "shared/src/commonMain/kotlin/com/danila/nimbo/shared/ui/NimboProfilesScreen.kt").read_text(encoding="utf-8")
+        self.assertIn('onLongClick = { menuExpanded = true }', shared)
+        self.assertIn('onPing(server.id)', shared)
+        self.assertIn('"Остановить пинг"', shared)
+        self.assertNotIn('NimboIconButton(NimboIconName.PING', shared)
+
     def test_removal_is_awaited_and_does_not_delete_before_clear_succeeds(self):
         source = SOURCE.read_text(encoding="utf-8").split("private func removeConfiguration", 1)[1]
         self.assertIn("guard !isWorking", source)

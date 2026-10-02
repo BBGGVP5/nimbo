@@ -5,6 +5,7 @@ package com.danila.nimbo.ui.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.getValue
@@ -208,16 +210,21 @@ fun NimboSubscriptionHeader(title: String, subtitle: String, expanded: Boolean,
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun NimboServerRow(title: String, subtitle: String, selected: Boolean,
-    onSelect: () -> Unit, onPing: () -> Unit,
+    onSelect: () -> Unit, onOpenMenu: () -> Unit,
     menu: @Composable () -> Unit, ping: @Composable () -> Unit, flag: String = "") {
     val colors = LocalNebulaColors.current
-    val pingLabel = t("Проверить пинг", "Check ping")
-    Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+    val shape = RoundedCornerShape(12.dp)
+    Row(Modifier.fillMaxWidth()
+        .border(if (selected) 2.dp else 0.dp, if (selected) colors.accent else Color.Transparent, shape)
+        .combinedClickable(onClick = onSelect, onLongClick = onOpenMenu,
+            onLongClickLabel = t("Действия с сервером", "Server actions"))
+        .semantics { this.selected = selected; role = Role.RadioButton }
+        .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Surface(onClick = onSelect, modifier = Modifier.weight(1f).heightIn(min = 56.dp)
-            .semantics { this.selected = selected }, color = Color.Transparent) {
+        Surface(modifier = Modifier.weight(1f).heightIn(min = 56.dp), color = Color.Transparent) {
             Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 NimboServerFlag(flag)
                 Spacer(Modifier.width(8.dp))
@@ -231,10 +238,8 @@ fun NimboServerRow(title: String, subtitle: String, selected: Boolean,
                 }
             }
         }
-        Surface(onClick = onPing, color = Color.Transparent, shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp).testTag("server-ping").semantics {
-                contentDescription = pingLabel
-            }) {
+        Surface(color = Color.Transparent, shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp)) {
             Box(Modifier.padding(horizontal = 6.dp, vertical = 8.dp), contentAlignment = Alignment.Center) { ping() }
         }
         menu()
@@ -392,9 +397,10 @@ fun NimboSubscriptionPanel(expanded: Boolean, onToggle: () -> Unit,
 
 @Composable
 fun NimboIconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String,
-    busy: Boolean = false, onClick: () -> Unit) {
-    IconButton(onClick, enabled = !busy, modifier = Modifier.size(48.dp).semantics { contentDescription = label }) {
-        if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = LocalNebulaColors.current.accent)
+    busy: Boolean = false, onClick: () -> Unit, allowCancel: Boolean = false) {
+    IconButton(onClick, enabled = !busy || allowCancel, modifier = Modifier.size(48.dp).semantics { contentDescription = label }) {
+        if (busy && allowCancel) Icon(Icons.Default.Stop, null, Modifier.size(22.dp), tint = LocalNebulaColors.current.accent)
+        else if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = LocalNebulaColors.current.accent)
         else Icon(icon, null, Modifier.size(22.dp), tint = LocalNebulaColors.current.textSecondary)
     }
 }

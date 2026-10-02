@@ -1,3 +1,4 @@
+import { ServerContextMenu } from "../../components/ServerContextMenu";
 import { LatencyDisplay } from "../../components/LatencyDisplay";
 import { useMemo, useState, type ReactNode } from "react";
 import { protocolLabel, transportLabel, type Server, type Subscription } from "../../lib/api";
@@ -39,6 +40,7 @@ export interface SignalServerRailProps {
   onPickServer: (server: Server, sub: Subscription) => void;
   pinging: boolean;
   onPing: () => void;
+  onPingServer?: (id: string) => void;
   onSwitchSubscription: (url: string) => void;
   onCollapse?: () => void;
   emptyAction?: ReactNode;
@@ -71,6 +73,7 @@ export function SignalServerRail({
   onPickServer,
   pinging,
   onPing,
+  onPingServer,
   onSwitchSubscription,
   onCollapse,
   emptyAction,
@@ -229,8 +232,11 @@ export function SignalServerRail({
           const loading = pingingServerIds.has(server.id);
           const favorite = favorites.has(server.id);
           return (
-            <div
-              key={`${sub.url}:${server.id}`}
+            <ServerContextMenu
+              key={`${sub.url}:${server.id}`} label={m.profiles.serverMenu} actions={[
+                { label: loading ? (m.common.locale.startsWith("ru") ? "Остановить пинг" : "Stop ping") : m.profiles.testLatency, onClick: () => onPingServer?.(server.id), disabled: !onPingServer },
+                { label: favorite ? m.home.removeFromFavorites : m.home.addToFavorites, onClick: () => onToggleFavorite(server.id) },
+              ]}
               className={`signal-srv-row${isActive ? " is-active" : ""}`}
             >
               <button
@@ -263,7 +269,7 @@ export function SignalServerRail({
               >
                 <StarIcon filled={favorite} />
               </button>
-            </div>
+            </ServerContextMenu>
           );
         })}
       </div>

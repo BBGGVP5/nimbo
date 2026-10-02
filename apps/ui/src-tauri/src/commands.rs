@@ -61,6 +61,20 @@ static RESUME_RECONNECT_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 pub(crate) static CONNECTION_INTENT: AtomicU64 = AtomicU64::new(0);
 static LAST_WAKE_RECOVERY: AtomicU64 = AtomicU64::new(0);
 static PING_INTENT: AtomicU64 = AtomicU64::new(0);
+static PING_CANCEL: std::sync::LazyLock<tokio::sync::watch::Sender<u64>> =
+    std::sync::LazyLock::new(|| tokio::sync::watch::channel(0).0);
+
+async fn ping_cancelled(intent: u64) {
+    let mut cancelled = PING_CANCEL.subscribe();
+    loop {
+        if PING_INTENT.load(Ordering::SeqCst) != intent {
+            return;
+        }
+        if cancelled.changed().await.is_err() {
+            return;
+        }
+    }
+}
 static XRAY_RESOLUTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static SIDECAR_RESOLUTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 pub(crate) static CONNECTION_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -787,7 +801,7 @@ pub async fn set_preferences(
     state
         .mutate(|s| {
             if !same_latency_settings(&s.preferences, &preferences) {
-                PING_INTENT.fetch_add(1, Ordering::SeqCst);
+                cancel_pings();
                 s.server_pings.clear();
             }
             s.preferences = preferences.clone();
@@ -2882,8 +2896,7 @@ pub async fn ping_servers(
     // Bounded concurrency without sharing a result between different server IDs.
     for chunk in ids.chunks(6) {
         if PING_INTENT.load(Ordering::SeqCst) != batch_intent {
-            out.extend(chunk.iter().map(|id| ping_failure(id, "Ping cancelled")));
-            continue;
+            break; // Queued nodes were not measured; never erase their saved values.
         }
         let measure = |index: usize| {
             let state = &*state;
@@ -2912,7 +2925,8 @@ pub async fn ping_servers(
 
 #[tauri::command]
 pub fn cancel_pings() {
-    PING_INTENT.fetch_add(1, Ordering::SeqCst);
+    let revision = PING_INTENT.fetch_add(1, Ordering::SeqCst) + 1;
+    PING_CANCEL.send_replace(revision);
 }
 
 fn same_latency_settings(a: &AppPreferences, b: &AppPreferences) -> bool {
@@ -2965,9 +2979,7 @@ async fn measure_server_latency(
     snap: &PersistedState,
     server: &Server,
 ) -> ServerPing {
-    let _ = state.mutate(|saved| {
-        saved.server_pings.remove(&server.id);
-    });
+    // Keep the last completed sample while pending; cancellation is not a failed measurement.
     let intent = CONNECTION_INTENT.load(Ordering::SeqCst);
     let ping_intent = PING_INTENT.load(Ordering::SeqCst);
     let protocol = normalize_latency_protocol(&snap.preferences.latency_protocol);
@@ -3077,7 +3089,10 @@ async fn measure_server_latency(
             ),
         }
     } else {
-        latency_ping_server(server, timeout_ms, &protocol).await
+        tokio::select! {
+            value = latency_ping_server(server, timeout_ms, &protocol) => value,
+            _ = ping_cancelled(ping_intent) => return ping_failure(&server.id, "Ping cancelled"),
+        }
     };
     let current = state.snapshot();
     let stale = (!is_nimbo && CONNECTION_INTENT.load(Ordering::SeqCst) != intent)

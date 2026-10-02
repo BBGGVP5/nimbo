@@ -550,3 +550,8 @@ body[data-ui-style="signal"] .signal-srv-row.is-active {
 }
 .server-selection-badge { display:inline-flex; align-items:center; gap:4px; flex-shrink:0; padding:3px 8px; border-radius:20px; background:var(--color-text); color:var(--color-bg); font-size:11px; font-weight:700; line-height:1.6; }
 body[data-ui-style="signal"] .signal-table tr.is-active { outline:2px solid var(--color-accent); outline-offset:-2px; background:color-mix(in srgb,var(--color-accent) 20%,var(--color-card)); }
+
+/* Selection outline stays visible without changing row geometry. */
+.parity-server-row.is-active, .server-profile-row-active { outline: 2px solid var(--color-accent); outline-offset: -2px; border-radius: 12px; }
+
+.signal-srv-row.is-active, .server-side-entry-active { outline: 2px solid var(--color-accent); outline-offset: -2px; border-radius: 12px; }
