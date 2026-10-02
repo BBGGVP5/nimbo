@@ -20,9 +20,10 @@
 - AWG требует подготовленного проверенного адаптера. Локальная компиляция с предупреждением об отсутствии AWG binary не является проверкой работающего AWG-туннеля.
 
 ## Проверки
-- Frontend: реальные production-модули/SSR и polling tests; TypeScript + Vite build.
-- Rust: workspace-тесты, включая локальные HTTP-фикстуры загрузчика; Clippy с `-D warnings`.
-- iOS: source contracts локально; четыре поведенческих Swift-теста проверяют порядок admission → persistence → staging, а macOS IPA workflow компилирует полный SwiftUI/NetworkExtension проект. Статус конкретной сборки приводится отдельно, запуск workflow не означает успешную IPA.
+- Frontend: 71 тест production-модулей/SSR и polling; TypeScript + Vite build успешны.
+- Rust: 262 workspace-теста, включая локальные HTTP-фикстуры загрузчика; Clippy с `-D warnings` и проверка форматирования успешны.
+- iOS: шесть source/release-наборов прошли локально; на macOS прошли четыре поведенческих Swift-теста порядка admission → persistence → staging и source contracts. Полная Release IPA сборка [36982167821](https://github.com/BBGGVP5/nimbo/actions/runs/36982167821) успешно скомпилировала SwiftUI/NetworkExtension из `9230991`. Артефакт `Nimbo_v1.3.0-beta.1_ios_resignable` опубликован до 9 октября 2026; для установки нужна переподпись. Это не проверка VPN на устройстве.
+- Регрессии в основном checkout: 589 Android + 76 Android-host + 118 shared-desktop = 783 теста, без ошибок. GitHub PR-проверки исходников `9230991` прошли для Windows/Linux и Android/shared.
 - Desktop UI проверяется в браузере как production-страница, не как рисованный макет. Native-команды в браузерном preview отключены; это не проверка VPN-соединения.
 
 ## Остаётся
