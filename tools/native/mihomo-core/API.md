@@ -214,3 +214,12 @@ replacement; full-document choices persist only after source-bound readback.
 Readiness is local stack attachment, NOT external connectivity. Loopback native
 fixtures exercise TCP IPv4+IPv6, UDP DNS, live group switching and stop/wake/stale
 packet ownership. Apple archive/Swift/IPA and a real iPhone remain separate gates.
+
+Live delay/nimboDelay now register a generation-bound cancellable probe. `cancel`
+interrupts the outbound immediately, including a cancellation that arrived before
+probe dispatch. iOS cancel IPC bypasses lifecycleQueue with immutable source and
+generation checks. Desktop controller future-drop sends the same authenticated
+native cancellation (three-second cleanup bound); it never cancels a new session.
+iOS completed results persist under source/node hashes; cancellation preserves
+previous measurements. HTTP URL/method/deadline follow saved ping settings; no
+TCP/ICMP-to-HTTP substitution for a whole document.

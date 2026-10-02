@@ -96,12 +96,18 @@ enum NimboMihomoControl {
 
     static func rpc(_ command: String, full: NimboFullConfiguration, session: NETunnelProviderSession,
                     fields: [String: Any] = [:]) async throws -> [String: Any] {
-        var request = fields; request["command"] = command; request["sourceSHA256"] = full.sourceSHA256
+        let requestID = UUID().uuidString
+        var request = fields; request["requestID"] = requestID; request["command"] = command; request["sourceSHA256"] = full.sourceSHA256
         let message = try JSONSerialization.data(withJSONObject: request)
         let completion = NimboPingCompletion<Result<Data, Error>>()
+        let cancelNative: () -> Void = {
+            guard command == "mihomoDelay", let data = try? JSONSerialization.data(withJSONObject:
+                ["command": "cancelMihomoProbe", "requestID": requestID, "sourceSHA256": full.sourceSHA256]) else { return }
+            try? session.sendProviderMessage(data, responseHandler: nil)
+        }
         let response: Data = try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-                let timer = DispatchWorkItem { completion.finish(.failure(NimboFullConfigurationError.staleRefresh)) }
+                let timer = DispatchWorkItem { cancelNative(); completion.finish(.failure(NimboFullConfigurationError.staleRefresh)) }
                 let observer = NotificationCenter.default.addObserver(forName: .NEVPNStatusDidChange, object: session, queue: nil) { _ in
                     completion.finish(.failure(NimboFullConfigurationError.staleRefresh))
                 }
@@ -122,7 +128,7 @@ enum NimboMihomoControl {
                     }
                 } catch { completion.finish(.failure(error)) }
             }
-        }, onCancel: { completion.finish(.failure(CancellationError())) })
+        }, onCancel: { cancelNative(); completion.finish(.failure(CancellationError())) })
         guard let outer = try JSONSerialization.jsonObject(with: response) as? [String: Any],
               outer["ok"] as? Bool == true, outer["sourceSHA256"] as? String == full.sourceSHA256,
               let reply = outer["reply"] as? [String: Any], reply["success"] as? Bool == true else {

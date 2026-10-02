@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -265,5 +267,55 @@ func TestPacketRuntimeRejectsUnownedProcessRules(t *testing.T) {
 		if packetRuntimePolicy(d) == nil {
 			t.Fatal("process/UID ownership silently discarded")
 		}
+	}
+}
+
+// Cancellation is real network cancellation, not just dismissal of the spinner.
+func TestPacketRuntimeDelayCancellation(t *testing.T) {
+	r := packetRuntimeFixture(t, packetDNSConfig+simpleConfig)
+	entered := make(chan struct{}, 1)
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		entered <- struct{}{}
+		<-req.Context().Done()
+	}))
+	defer target.Close()
+	done := make(chan testReply, 1)
+	go func() {
+		done <- call(t, "delay", map[string]any{"generation": r.Generation, "name": "local", "url": target.URL, "timeoutMs": 10000, "expectedStatus": "200"})
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("probe never reached local target")
+	}
+	requireOK(t, call(t, "cancel", map[string]any{"generation": r.Generation, "targetRequestId": "test-delay"}))
+	select {
+	case reply := <-done:
+		if reply.Success {
+			t.Fatal("cancelled probe succeeded")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancel did not interrupt native URLTest")
+	}
+	singleton.mu.Lock()
+	leaked := singleton.probeCancel != nil || singleton.probeRequestID != ""
+	singleton.mu.Unlock()
+	if leaked {
+		t.Fatal("probe cancellation owner leaked")
+	}
+}
+
+func TestPacketRuntimeDelayCancelledBeforeDispatch(t *testing.T) {
+	r := packetRuntimeFixture(t, packetDNSConfig+simpleConfig)
+	hits := 0
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { hits++; w.WriteHeader(204) }))
+	defer target.Close()
+	requireOK(t, call(t, "cancel", map[string]any{"generation": r.Generation, "targetRequestId": "test-nimboDelay"}))
+	reply := call(t, "nimboDelay", map[string]any{"generation": r.Generation, "name": "local", "url": target.URL, "timeoutMs": 1000, "expectedStatus": "204"})
+	if reply.Success || reply.Error == nil || reply.Error.Code != "PROBE_CANCELLED" {
+		t.Fatalf("early cancellation not respected: %+v", reply)
+	}
+	if hits != 0 {
+		t.Fatal("cancelled probe performed network I/O")
 	}
 }

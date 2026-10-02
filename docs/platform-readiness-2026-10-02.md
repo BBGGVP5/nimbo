@@ -117,3 +117,15 @@ The next implementation plan is `docs/superpowers/plans/2026-10-02-mihomo-native
 - Native source preflight is before preference/route changes. Source DNS must be enabled. Process/UID/package filters, custom host TUN route filters and classical remote rule providers remain explicitly unsupported on iOS rather than ignored. Domain/IP providers and protocol adapters remain native.
 - Local source suites do not prove Swift compilation or phone traffic. The Apple merged archive/Swift link/unsigned IPA must pass for this checkpoint; then real iPhone signed-extension tests (memory, background, sleep/wake, blocked networks, DNS/UDP/IPv6) remain required. No protocol-parity/site claim is widened just because source builds.
 - Desktop managed native TUN, rebuilt Android merged AAR and the broad protocol acceptance matrix remain open work. No host routes/DNS/system proxy were changed by this session.
+
+### Packet integration follow-up
+
+Native live delay cancellation is tested with a controlled hanging loopback HTTP
+server and pre-dispatch cancellation (ten repetitions), followed by the full Go
+suite and vet. Desktop controller cancellation ownership passes all 31 portable
+Rust tests; four staged-helper integration tests remain ignored in this local run.
+The iOS full-profile card avoids cross-file private presentation API, keeps native
+automatic groups non-selectable without disabling their context menus, and stores
+completed pings under source/node digests. Portable Swift cache round-trip is an
+Apple CI gate, not claimed as run on Windows. New IPA supersedes 37024926758.
+Desktop Mihomo managed TUN remains unimplemented and is still refused explicitly.

@@ -11,6 +11,33 @@ pub struct Controller {
     secret: String,
     generation: u64,
 }
+/// Dropping an HTTP future does not cancel Mihomo's outbound. Tie the actual
+/// native probe to this future, including disconnect/intent cancellation. The
+/// bounded cleanup task keeps the same token and generation; never a new session.
+struct ProbeCancellation {
+    controller: Controller,
+    request_id: String,
+    armed: bool,
+}
+impl Drop for ProbeCancellation {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let controller = self.controller.clone();
+        let id = self.request_id.clone();
+        runtime.spawn(async move {
+            let mut body = request("cancel", controller.generation);
+            body["targetRequestId"] = id.into();
+            let _ =
+                tokio::time::timeout(Duration::from_secs(3), controller.invoke(body, true)).await;
+        });
+    }
+}
+
 impl Controller {
     pub fn new(address: &str, secret: String, generation: u64) -> Result<Self, String> {
         let address = loopback_address(address)?;
@@ -148,7 +175,17 @@ impl Controller {
             }
             body["expectedStatus"] = status.into();
         }
-        Ok(self.invoke(body, true).await?.data)
+        let mut cancellation = ProbeCancellation {
+            controller: self.clone(),
+            request_id: body["requestId"]
+                .as_str()
+                .ok_or("INVALID_REQUEST")?
+                .to_owned(),
+            armed: true,
+        };
+        let response = self.invoke(body, true).await?;
+        cancellation.armed = false;
+        Ok(response.data)
     }
     pub async fn stop(&self) -> Result<(), String> {
         self.invoke(request("stop", self.generation), false)
@@ -246,5 +283,76 @@ mod tests {
     fn rejects_non_loopback_and_weak_secret() {
         assert!(Controller::new("192.0.2.1:1234", "x".repeat(64), 1).is_err());
         assert!(Controller::new("127.0.0.1:1234", "weak".into(), 1).is_err());
+    }
+    async fn read_body(stream: &mut tokio::net::TcpStream) -> Value {
+        let mut bytes = Vec::new();
+        loop {
+            let mut byte = [0];
+            stream.read_exact(&mut byte).await.unwrap();
+            bytes.push(byte[0]);
+            if bytes.ends_with(b"\r\n\r\n") {
+                break;
+            }
+        }
+        let header_end = bytes.len();
+        let headers = String::from_utf8(bytes.clone())
+            .unwrap()
+            .to_ascii_lowercase();
+        assert!(headers.contains(&format!("authorization: bearer {}", "x".repeat(64))));
+        let size: usize = headers
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length: "))
+            .unwrap()
+            .parse()
+            .unwrap();
+        bytes.resize(header_end + size, 0);
+        stream.read_exact(&mut bytes[header_end..]).await.unwrap();
+        serde_json::from_slice(&bytes[header_end..]).unwrap()
+    }
+    #[tokio::test]
+    async fn dropped_delay_sends_authenticated_generation_bound_native_cancel() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let c = Controller::new(
+            &listener.local_addr().unwrap().to_string(),
+            "x".repeat(64),
+            4,
+        )
+        .unwrap();
+        let (entered, received) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut probe, _) = listener.accept().await.unwrap();
+            let request = read_body(&mut probe).await;
+            assert_eq!(request["operation"], "delay");
+            entered.send(()).unwrap();
+            // Hold the first HTTP response open, just like a stalled node.
+            let (mut cancellation, _) = listener.accept().await.unwrap();
+            let cancel = read_body(&mut cancellation).await;
+            assert_eq!(cancel["operation"], "cancel");
+            assert_eq!(cancel["generation"], 4);
+            assert_eq!(cancel["targetRequestId"], request["requestId"]);
+            let body = serde_json::json!({"apiVersion":1,"requestId":cancel["requestId"],"generation":4,"success":true,"data":{}}).to_string();
+            cancellation
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        });
+        let probe = tokio::spawn(async move {
+            c.delay("local", "http://127.0.0.1:12345", 10000, Some("204"))
+                .await
+        });
+        received.await.unwrap();
+        probe.abort();
+        let _ = probe.await;
+        tokio::time::timeout(Duration::from_secs(2), server)
+            .await
+            .expect("native cancel was not sent")
+            .unwrap();
     }
 }

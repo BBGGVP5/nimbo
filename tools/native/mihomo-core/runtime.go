@@ -266,6 +266,29 @@ func (m *manager) checkGeneration(r request) error {
 	}
 	return nil
 }
+
+// m.op serializes probes, but cancel/stop bypass it via m.mu. Also consume a
+// cancellation arriving before dispatch, so no cancelled request dials a node.
+func (m *manager) beginSessionProbe(s *session, r request) (context.Context, func(), error) {
+	ctx, cancel := context.WithTimeout(s.ctx, time.Duration(r.TimeoutMs)*time.Millisecond)
+	m.mu.Lock()
+	if expiry, ok := m.cancelledStarts[r.RequestID]; ok && time.Now().Before(expiry) {
+		delete(m.cancelledStarts, r.RequestID)
+		m.mu.Unlock()
+		cancel()
+		return nil, nil, problem("PROBE_CANCELLED", "requestId", "check cancelled before dispatch")
+	}
+	m.probeRequestID, m.probeCancel = r.RequestID, cancel
+	m.mu.Unlock()
+	return ctx, func() {
+		cancel()
+		m.mu.Lock()
+		m.probeRequestID = ""
+		m.probeCancel = nil
+		m.mu.Unlock()
+	}, nil
+}
+
 func (m *manager) dispatch(r *request) (any, error) {
 	m.mu.Lock()
 	r.responseGeneration = m.generation
@@ -596,19 +619,17 @@ func (m *manager) dispatch(r *request) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		ctx, cancel := context.WithTimeout(s.ctx, time.Duration(r.TimeoutMs)*time.Millisecond)
-		defer cancel()
+		ctx, finishProbe, err := m.beginSessionProbe(s, *r)
+		if err != nil {
+			return nil, err
+		}
+		defer finishProbe()
 		if r.Operation == "nimboDelay" {
 			// Match standalone Nimbo Ping: a real GET through one named outbound.
 			// A group can silently select another node, so reject it here.
-			declared := false
-			for _, mapping := range s.doc.DeclaredGraph.Proxies {
-				if str(mapping, "name") == r.Name {
-					declared = true
-					break
-				}
-			}
-			if !declared {
+			// Provider-derived concrete nodes are also native outbounds. Test
+			// the real adapter, not only the source's static proxy declarations.
+			if _, group := p.Adapter().(interface{ Proxies() []C.Proxy }); group {
 				return nil, problem("PROBE_REQUIRES_SESSION", "name", "select a concrete node")
 			}
 			if s.mobile != nil {

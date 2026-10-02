@@ -136,6 +136,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         _ messageData: Data,
         completionHandler: ((Data?) -> Void)? = nil
     ) {
+        if let request = (try? JSONSerialization.jsonObject(with: messageData)) as? [String: Any],
+           request["command"] as? String == "cancelMihomoProbe" {
+            let cancelled = (request["requestID"] as? String).flatMap { id in
+                (request["sourceSHA256"] as? String).map { self.mihomo.cancelProbe(id, sourceHash: $0) }
+            } ?? false
+            completionHandler?(Self.responseData(["ok": cancelled]))
+            return
+        }
         lifecycleQueue.async { [weak self] in
             guard let self else {
                 completionHandler?(Self.responseData(["ok": false, "error": "provider unavailable"]))
@@ -189,12 +197,16 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                           request?["sourceSHA256"] as? String == sourceHash else {
                         throw MihomoPacketError.native("STALE_SOURCE")
                     }
-                    let operation = command == "mihomoSnapshot" ? "snapshot" : command == "mihomoSelect" ? "select" : "delay"
+                    let operation = command == "mihomoSnapshot" ? "snapshot" : command == "mihomoSelect" ? "select" :
+                        (request?["httpMethod"] as? String == "GET" ? "nimboDelay" : "delay")
                     var fields: [String: Any] = [:]
                     for key in ["group", "name", "url", "timeoutMs", "expectedStatus"] {
                         fields[key] = request?[key]
                     }
-                    let reply = try self.mihomo.command(operation, fields: fields)
+                    guard let requestID = request?["requestID"] as? String, UUID(uuidString: requestID) != nil else {
+                        throw MihomoPacketError.native("INVALID_REQUEST_ID")
+                    }
+                    let reply = try self.mihomo.command(operation, fields: fields, requestID: requestID)
                     completionHandler?(Self.responseData(["ok": true, "sourceSHA256": sourceHash, "reply": reply]))
                 } catch {
                     completionHandler?(Self.responseData(["ok": false, "error": NimboRedactor.redact(error.localizedDescription)]))

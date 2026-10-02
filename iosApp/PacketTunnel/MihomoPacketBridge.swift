@@ -81,6 +81,7 @@ final class MihomoPacketBridge {
     private let outputQueue = DispatchQueue(label: "com.nimbo.mihomo.packet.output")
     private var generation: UInt64?
     private var pendingStartID: String?
+    private var sourceSHA256: String?
     private var readOutstanding = false
     private var flow: NEPacketTunnelFlow?
     private var binding: MihomoPhysicalBinding?
@@ -133,7 +134,7 @@ final class MihomoPacketBridge {
                   let status = reply["data"] as? [String: Any], status["tunReady"] as? Bool == true else {
                 throw MihomoPacketError.packetFlow
             }
-            lock.lock(); generation = nativeGeneration; self.flow = flow; received = 0; sent = 0; lock.unlock()
+            lock.lock(); generation = nativeGeneration; sourceSHA256 = status["sourceSHA256"] as? String; self.flow = flow; received = 0; sent = 0; lock.unlock()
             for (group, member) in selections.sorted(by: { $0.key < $1.key }) {
                 _ = try command("select", fields: ["group": group, "name": member])
             }
@@ -142,12 +143,26 @@ final class MihomoPacketBridge {
         } catch { stop(); throw error }
     }
 
-    func command(_ operation: String, fields: [String: Any] = [:]) throws -> [String: Any] {
+    func command(_ operation: String, fields: [String: Any] = [:], requestID: String = UUID().uuidString) throws -> [String: Any] {
         var request = fields
-        request["apiVersion"] = 1; request["requestId"] = UUID().uuidString; request["operation"] = operation
+        request["apiVersion"] = 1; request["requestId"] = requestID; request["operation"] = operation
         if let generation = currentGeneration { request["generation"] = generation }
         let json = String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self)
         return try json.withCString { try decode(NimboMihomoInvokeV1(UnsafeMutablePointer(mutating: $0))) }
+    }
+
+    /// Cancellation must not queue behind the operation it interrupts. Bind it
+    /// to both immutable source and runtime generation under the pump lock.
+    func cancelProbe(_ requestID: String, sourceHash: String) -> Bool {
+        guard UUID(uuidString: requestID) != nil else { return false }
+        lock.lock()
+        guard let ticket = generation, sourceSHA256 == sourceHash else { lock.unlock(); return false }
+        lock.unlock()
+        let request: [String: Any] = ["apiVersion": 1, "requestId": UUID().uuidString,
+            "operation": "cancel", "generation": ticket, "targetRequestId": requestID]
+        guard let data = try? JSONSerialization.data(withJSONObject: request) else { return false }
+        let json = String(decoding: data, as: UTF8.self)
+        return (try? json.withCString { try decode(NimboMihomoInvokeV1(UnsafeMutablePointer(mutating: $0))) }) != nil
     }
 
     /// Safe outside lifecycleQueue: cancellation bypasses native operation lock.
@@ -158,7 +173,7 @@ final class MihomoPacketBridge {
     }
 
     func stop() {
-        lock.lock(); generation = nil; flow = nil; lock.unlock()
+        lock.lock(); generation = nil; sourceSHA256 = nil; flow = nil; lock.unlock()
         // Native stop cancels a blocking output read before joining this worker.
         _ = try? command("stop")
         outputQueue.sync {}

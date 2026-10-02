@@ -86,6 +86,19 @@ class PacketFlowContracts(unittest.TestCase):
         self.assertIn("current.sourceSHA256 == full.sourceSHA256", choice)
         self.assertIn("withTaskCancellationHandler", control)
 
+    def test_ping_native_cancellation_and_persistent_source_scoped_values(self):
+        card = source("iosApp/Nimbo/NimboMihomoProfileCard.swift")
+        self.assertNotIn("composePresentation", card) # private in RootView, inaccessible here
+        self.assertIn("NimboMihomoPingCache", card)
+        self.assertNotIn(".disabled(busy || !group.selectable)", card)
+        control = source("iosApp/Nimbo/NimboMihomoControl.swift")
+        self.assertIn('"cancelMihomoProbe"', control)
+        self.assertIn('request["requestID"] = requestID', control)
+        provider = source("iosApp/PacketTunnel/PacketTunnelProvider.swift")
+        self.assertLess(provider.index('== "cancelMihomoProbe"'), provider.index("lifecycleQueue.async", provider.index("override func handleAppMessage")))
+        native = source("tools/native/mihomo-core/runtime.go")
+        self.assertIn("m.beginSessionProbe", native)
+
     def test_portable_admission_target_parity(self):
         self.assertEqual(source("iosApp/Nimbo/NimboCoreSelection.swift"), source("iosApp/PacketTunnel/NimboCoreSelection.swift"))
         self.assertIn("var isAvailable: Bool { true }", source("iosApp/Nimbo/NimboCoreSelection.swift"))
@@ -106,4 +119,10 @@ if __name__ == "__main__":
             subprocess.run(["swiftc", str(ROOT / "iosApp/Shared/NimboAWGConfiguration.swift"),
                 str(ROOT / "iosApp/Nimbo/NimboCoreSelection.swift"),
                 str(ROOT / "iosApp/Tests/CoreSelectionTests.swift"), "-o", output], check=True)
+            subprocess.run([output], check=True)
+
+        with tempfile.TemporaryDirectory(prefix="nimbo-mihomo-ping-cache-") as directory:
+            output = str(Path(directory) / "cache-tests")
+            subprocess.run(["swiftc", str(ROOT / "iosApp/Nimbo/NimboMihomoPingCache.swift"),
+                str(ROOT / "iosApp/Tests/MihomoPingCacheTests.swift"), "-o", output], check=True)
             subprocess.run([output], check=True)
