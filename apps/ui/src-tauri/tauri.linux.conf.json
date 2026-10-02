@@ -8,14 +8,10 @@
     "resources": [
       "resources/naive/**/*",
       "resources/awg/**/*",
-      "resources/helper/linux/nimbo-svc.manifest.json"
+      "resources/helper/linux/nimbo-svc.manifest.json",
+      "resources/helper/linux/nimbo-svc.zip"
     ],
     "linux": {
-      "appimage": {
-        "files": {
-          "usr/bin/nimbo-svc": "resources/helper/linux/nimbo-svc"
-        }
-      },
       "deb": {
         "files": {
           "/usr/bin/nimbo-svc": "resources/helper/linux/nimbo-svc"

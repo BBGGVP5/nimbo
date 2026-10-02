@@ -19,11 +19,15 @@ for (const [target, machine] of [['x86_64-unknown-linux-gnu', 62], ['aarch64-unk
       writeFileSync(source, bytes, { mode: 0o755 }); chmodSync(source, 0o755);
       const metadata = stageLinuxHelper(source, dest, target, '1.3.0-beta.1');
       assert.deepEqual(readFileSync(dest), bytes);
+      const archive = readFileSync(dest + '.zip');
+      assert.equal(archive.readUInt32LE(0), 0x04034b50);
+      assert.deepEqual(archive.subarray(39, 39 + bytes.length), bytes);
       assert.deepEqual(JSON.parse(readFileSync(dest + '.manifest.json', 'utf8')), metadata);
       assert.equal(metadata.target, target);
       assert.equal(metadata.sha256, createHash('sha256').update(bytes).digest('hex'));
       if (process.platform !== 'win32') assert.equal(statSync(dest).mode & 0o777, 0o755);
       assert.equal(existsSync(dest + '.partial'), false);
+      assert.equal(existsSync(dest + '.zip.partial'), false);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 }

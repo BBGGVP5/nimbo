@@ -11,7 +11,7 @@
 //! упадёт, хелпер увидит разрыв и сам погасит туннель, вернув маршруты.
 
 use sha2::{Digest, Sha256};
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -165,10 +165,82 @@ fn helper_binary(app: &AppHandle) -> Result<PathBuf, String> {
     candidates.push(PathBuf::from(INSTALLED_HELPER));
     #[cfg(debug_assertions)]
     candidates.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/helper/linux/nimbo-svc"));
-    candidates
+    if let Some(path) = candidates
         .into_iter()
         .find(|path| verified(path, expected_digest()))
-        .ok_or_else(|| "Проверенный компонент TUN не найден. Переустановите пакет Nimbo.".into())
+    {
+        return Ok(path);
+    }
+    let resources = app.path().resource_dir().map_err(|e| e.to_string())?;
+    let archive = resources.join("resources/helper/linux/nimbo-svc.zip");
+    let directory = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("verified-helper")
+        .join(expected_digest());
+    materialize_helper(&archive, &directory, expected_digest())
+}
+
+fn materialize_helper(archive: &Path, directory: &Path, digest: &str) -> Result<PathBuf, String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    static EXTRACT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = EXTRACT
+        .lock()
+        .map_err(|_| "Не удалось подготовить компонент TUN")?;
+    let target = directory.join("nimbo-svc");
+    if verified(&target, digest) {
+        return Ok(target);
+    }
+    let prepare = || -> Result<(), String> {
+        let file = std::fs::File::open(archive).map_err(|_| "Компонент TUN отсутствует")?;
+        if file.metadata().map_err(|e| e.to_string())?.len() > 64 * 1024 * 1024 {
+            return Err("Архив компонента TUN слишком большой".into());
+        }
+        let mut zip =
+            zip::ZipArchive::new(file).map_err(|_| "Некорректный архив компонента TUN")?;
+        if zip.len() != 1 {
+            return Err("Некорректный состав архива TUN".into());
+        }
+        let mut bytes = Vec::new();
+        zip.by_name("nimbo-svc")
+            .map_err(|_| "Компонент TUN отсутствует в архиве")?
+            .take(64 * 1024 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        if digest.is_empty()
+            || bytes.len() > 64 * 1024 * 1024
+            || format!("{:x}", Sha256::digest(&bytes)) != digest
+        {
+            return Err("Контрольная сумма компонента TUN не совпадает".into());
+        }
+        std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
+        let metadata = std::fs::symlink_metadata(directory).map_err(|e| e.to_string())?;
+        if !metadata.is_dir()
+            || metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.permissions().mode() & 0o022 != 0
+        {
+            return Err("Небезопасный каталог компонента TUN".into());
+        }
+        let temporary = directory.join(format!(".nimbo-svc-{}.new", std::process::id()));
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|e| e.to_string())?;
+        let result = (|| -> std::io::Result<()> {
+            output.write_all(&bytes)?;
+            output.set_permissions(std::fs::Permissions::from_mode(0o755))?;
+            output.sync_all()?;
+            std::fs::rename(&temporary, &target)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(temporary);
+        }
+        result.map_err(|e| e.to_string())
+    };
+    prepare()?;
+    Ok(target)
 }
 
 // Reading status never elevates privileges or sends TunDown.
@@ -253,6 +325,39 @@ pub fn uninstall_service(app: &AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn archive_materialization_verifies_before_replacing_cached_executable() {
+        use std::os::unix::fs::PermissionsExt;
+        let root =
+            std::env::temp_dir().join(format!("nimbo-helper-archive-{}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let result = std::panic::catch_unwind(|| {
+            let payload = b"exact test helper";
+            let digest = format!("{:x}", Sha256::digest(payload));
+            let archive = root.join("helper.zip");
+            let file = std::fs::File::create(&archive).unwrap();
+            let mut writer = zip::ZipWriter::new(file);
+            writer
+                .start_file("nimbo-svc", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(payload).unwrap();
+            writer.finish().unwrap();
+            let cache = root.join("cache");
+            let helper = materialize_helper(&archive, &cache, &digest).unwrap();
+            assert!(verified(&helper, &digest));
+            assert!(materialize_helper(&archive, &cache, "wrong digest").is_err());
+            assert_eq!(std::fs::read(&helper).unwrap(), payload);
+            std::fs::remove_file(&archive).unwrap();
+            assert_eq!(
+                materialize_helper(&archive, &cache, &digest).unwrap(),
+                helper
+            );
+        });
+        std::fs::remove_dir_all(&root).unwrap();
+        result.unwrap();
+    }
+
     #[test]
     fn status_query_never_sends_tunnel_down() {
         let (client, server) = UnixStream::pair().unwrap();

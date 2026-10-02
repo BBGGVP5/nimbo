@@ -10,7 +10,8 @@ pub fn prepare() {
     };
     let binary = Path::new("resources/helper/linux/nimbo-svc");
     let manifest = binary.with_file_name("nimbo-svc.manifest.json");
-    for path in [binary, &manifest] {
+    let archive = binary.with_file_name("nimbo-svc.zip");
+    for path in [binary, &manifest, &archive] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
     if !binary.is_file() || !manifest.is_file() {
@@ -19,6 +20,10 @@ pub fn prepare() {
         return;
     }
     let bytes = std::fs::read(binary).unwrap();
+    assert!(
+        archive.is_file(),
+        "Linux helper archive missing; run build-linux.mjs --prepare-only"
+    );
     assert!(bytes.len() >= 24 && &bytes[..4] == b"\x7fELF" && bytes[4] == 2 && bytes[5] == 1);
     assert_eq!(
         u16::from_le_bytes([bytes[18], bytes[19]]),

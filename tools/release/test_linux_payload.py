@@ -1,11 +1,10 @@
 import hashlib
 import io
-import json
-from pathlib import Path
 import tarfile
 import unittest
+import zipfile
 
-from check_linux_payload import cpio_entries, tar_entries, verify_helper
+from check_linux_payload import archive_helper, cpio_entries, tar_entries, verify_helper
 
 
 def elf(machine):
@@ -26,6 +25,18 @@ def cpio_entry(name, data, mode=0o100755):
 
 
 class LinuxPayloadTests(unittest.TestCase):
+    def test_archive_exact_bytes_and_inventory(self):
+        for names in (["nimbo-svc"], ["../nimbo-svc"], ["nimbo-svc", "extra"]):
+            stream = io.BytesIO()
+            with zipfile.ZipFile(stream, "w") as archive:
+                for name in names:
+                    archive.writestr(name, elf(62))
+            if names == ["nimbo-svc"]:
+                self.assertEqual(archive_helper(stream.getvalue()), elf(62))
+            else:
+                with self.assertRaises(AssertionError):
+                    archive_helper(stream.getvalue())
+
     def test_both_elf_targets_and_wrong_permissions_digest_architecture(self):
         for target, machine in (("x86_64-unknown-linux-gnu", 62), ("aarch64-unknown-linux-gnu", 183)):
             data = elf(machine)

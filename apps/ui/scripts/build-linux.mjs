@@ -8,6 +8,22 @@ const ui = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const root = resolve(ui, '../..');
 const machines = { 'x86_64-unknown-linux-gnu': 62, 'aarch64-unknown-linux-gnu': 183 };
 
+// A stored ZIP prevents linuxdeploy from rewriting this privileged ELF. The
+// application verifies/decompresses it before explicit pkexec installation.
+function helperArchive(bytes) {
+  const name = Buffer.from('nimbo-svc');
+  let crc = 0xffffffff;
+  for (const byte of bytes) { crc ^= byte; for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0); }
+  crc = (crc ^ 0xffffffff) >>> 0;
+  const header = Buffer.alloc(30); header.writeUInt32LE(0x04034b50); header.writeUInt16LE(20, 4);
+  header.writeUInt32LE(crc, 14); header.writeUInt32LE(bytes.length, 18); header.writeUInt32LE(bytes.length, 22); header.writeUInt16LE(name.length, 26);
+  const directory = Buffer.alloc(46); directory.writeUInt32LE(0x02014b50); directory.writeUInt16LE(20, 4); directory.writeUInt16LE(20, 6);
+  directory.writeUInt32LE(crc, 16); directory.writeUInt32LE(bytes.length, 20); directory.writeUInt32LE(bytes.length, 24); directory.writeUInt16LE(name.length, 28);
+  const footer = Buffer.alloc(22); footer.writeUInt32LE(0x06054b50); footer.writeUInt16LE(1, 8); footer.writeUInt16LE(1, 10);
+  footer.writeUInt32LE(directory.length + name.length, 12); footer.writeUInt32LE(header.length + name.length + bytes.length, 16);
+  return Buffer.concat([header, name, bytes, directory, name, footer]);
+}
+
 export function stageLinuxHelper(source, destination, target, version) {
   const machine = machines[target];
   if (!machine) throw new Error('Unsupported Linux helper target');
@@ -24,11 +40,14 @@ export function stageLinuxHelper(source, destination, target, version) {
     writeFileSync(temporary, bytes, { mode: 0o755 });
     chmodSync(temporary, 0o755);
     renameSync(temporary, destination);
+    writeFileSync(destination + '.zip.partial', helperArchive(bytes));
+    renameSync(destination + '.zip.partial', destination + '.zip');
     writeFileSync(manifest + '.partial', JSON.stringify({ target, version, sha256 }, null, 2) + '\n');
     renameSync(manifest + '.partial', manifest);
   } finally {
     rmSync(temporary, { force: true });
     rmSync(manifest + '.partial', { force: true });
+    rmSync(destination + '.zip.partial', { force: true });
   }
   return { target, version, sha256 };
 }

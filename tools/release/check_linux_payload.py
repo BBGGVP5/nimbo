@@ -8,11 +8,13 @@ from pathlib import Path
 import subprocess
 import tarfile
 import tempfile
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 MACHINES = {"x86_64-unknown-linux-gnu": 62, "aarch64-unknown-linux-gnu": 183}
 HELPER = "usr/bin/nimbo-svc"
 MANIFEST_SUFFIX = "resources/helper/linux/nimbo-svc.manifest.json"
+ARCHIVE_PATH = "usr/lib/Nimbo/resources/helper/linux/nimbo-svc.zip"
 
 
 def run(*args):
@@ -59,11 +61,21 @@ def cpio_entries(data):
 def extracted_appimage_helper(package, directory):
     offset = int(run(package.resolve(), "--appimage-offset").strip())
     assert offset > 0, "Invalid AppImage SquashFS offset"
-    subprocess.run(["unsquashfs", "-o", str(offset), "-d", str(directory), "-f", str(package), HELPER],
+    subprocess.run(["unsquashfs", "-o", str(offset), "-d", str(directory), "-f", str(package), ARCHIVE_PATH],
                    check=True, stdout=subprocess.DEVNULL, timeout=120)
     helper = directory / HELPER
-    assert helper.is_file() and not helper.is_symlink(), "AppImage helper missing"
+    helper.parent.mkdir(parents=True, exist_ok=True)
+    helper.write_bytes(archive_helper((directory / ARCHIVE_PATH).read_bytes()))
+    helper.chmod(0o755)
     return helper
+
+
+def archive_helper(data):
+    assert len(data) <= 64 * 1024 * 1024, "Helper archive too large"
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        assert archive.namelist() == ["nimbo-svc"], "Invalid helper archive inventory"
+        assert archive.getinfo("nimbo-svc").file_size <= 64 * 1024 * 1024, "Helper payload too large"
+        return archive.read("nimbo-svc")
 
 
 def load_manifest(target):
@@ -72,6 +84,7 @@ def load_manifest(target):
     version = json.loads((ROOT / "apps/ui/package.json").read_text())["version"]
     assert manifest["target"] == target and manifest["version"] == version, "Stale helper metadata"
     verify_helper(stage.read_bytes(), stage.stat().st_mode, manifest)
+    verify_helper(archive_helper(stage.with_name(stage.name + ".zip").read_bytes()), 0o755, manifest)
     return manifest
 
 
@@ -88,6 +101,7 @@ def inspect_package(package, manifest):
         verify_helper(data, mode, manifest)
         receipts = [json.loads(data) for name, (_, data) in entries.items() if name.endswith(MANIFEST_SUFFIX)]
         assert receipts == [manifest], "Bundled helper manifest missing or inconsistent"
+        verify_helper(archive_helper(entries[ARCHIVE_PATH][1]), 0o755, manifest)
     result = {"file": package.name, "bytes": package.stat().st_size,
               "sha256": hashlib.sha256(package.read_bytes()).hexdigest(), "helper": manifest}
     print(json.dumps(result))
