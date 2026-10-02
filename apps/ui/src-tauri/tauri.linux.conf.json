@@ -1,6 +1,31 @@
 {
   "bundle": {
-    "targets": ["appimage", "deb", "rpm"],
-    "resources": ["resources/naive/**/*", "resources/awg/**/*"]
+    "targets": [
+      "appimage",
+      "deb",
+      "rpm"
+    ],
+    "resources": [
+      "resources/naive/**/*",
+      "resources/awg/**/*",
+      "resources/helper/linux/nimbo-svc.manifest.json"
+    ],
+    "linux": {
+      "appimage": {
+        "files": {
+          "usr/bin/nimbo-svc": "resources/helper/linux/nimbo-svc"
+        }
+      },
+      "deb": {
+        "files": {
+          "/usr/bin/nimbo-svc": "resources/helper/linux/nimbo-svc"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/bin/nimbo-svc": "resources/helper/linux/nimbo-svc"
+        }
+      }
+    }
   }
 }

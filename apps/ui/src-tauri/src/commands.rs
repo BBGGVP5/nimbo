@@ -1512,7 +1512,7 @@ pub fn helper_status(app: AppHandle) -> crate::helper::HelperStatus {
     crate::helper::status(&app)
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 #[tauri::command]
 pub fn helper_status() -> serde_json::Value {
     serde_json::json!({
@@ -1531,7 +1531,7 @@ pub fn install_helper(app: AppHandle) -> Result<crate::helper::HelperStatus, Str
     Ok(crate::helper::status(&app))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 #[tauri::command]
 pub fn install_helper() -> Result<(), String> {
     Err("Хелпер доступен только на Windows.".into())
@@ -1544,10 +1544,38 @@ pub fn uninstall_helper(app: AppHandle) -> Result<crate::helper::HelperStatus, S
     Ok(crate::helper::status(&app))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 #[tauri::command]
 pub fn uninstall_helper() -> Result<(), String> {
     Err("Хелпер доступен только на Windows.".into())
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub fn helper_status(app: AppHandle) -> serde_json::Value {
+    crate::helper_linux::helper_status(&app)
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub async fn install_helper(app: AppHandle) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::helper_linux::ensure_service(&app)?;
+        Ok(crate::helper_linux::helper_status(&app))
+    })
+    .await
+    .map_err(|e| format!("Не удалось установить службу TUN: {e}"))?
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub async fn uninstall_helper(app: AppHandle) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::helper_linux::uninstall_service(&app)?;
+        Ok(crate::helper_linux::helper_status(&app))
+    })
+    .await
+    .map_err(|e| format!("Не удалось удалить службу TUN: {e}"))?
 }
 
 #[tauri::command]
@@ -2743,7 +2771,7 @@ pub async fn set_connection_mode(
         if !status.installed {
             return Err(format!("Новый режим не применён: {}", status.message));
         }
-        if !is_running_as_admin() {
+        if tun_requires_local_elevation() && !is_running_as_admin() {
             return Err(
                 "Новый режим не применён: для TUN перезапусти Nimbo от имени администратора."
                     .into(),
@@ -5062,16 +5090,11 @@ pub(crate) async fn connect_server_inner(
     match snap.connection_mode {
         ConnectionMode::SystemProxy => connect_system_proxy(&app, &state, server, &snap).await?,
         ConnectionMode::Tun => {
-            let status = ensure_tun_dependencies(&app).await.map_err(|e| {
-                format!(
-                    "TUN не установлен: {e}. Установи TUN в настройках и перезапусти Nimbo от имени администратора."
-                )
-            })?;
+            let status = ensure_tun_dependencies(&app)
+                .await
+                .map_err(|e| format!("Не удалось подготовить TUN: {e}"))?;
             if !status.installed {
-                return Err(format!(
-                    "{} Установи TUN в настройках и перезапусти Nimbo от имени администратора.",
-                    status.message
-                ));
+                return Err(status.message);
             }
             if tun_requires_local_elevation() && !is_running_as_admin() {
                 return Err(elevation_required_message());
@@ -5079,16 +5102,11 @@ pub(crate) async fn connect_server_inner(
             connect_tun(&app, &state, server, &snap, status).await?;
         }
         ConnectionMode::Both => {
-            let status = ensure_tun_dependencies(&app).await.map_err(|e| {
-                format!(
-                    "TUN не установлен: {e}. Установи TUN в настройках и перезапусти Nimbo от имени администратора."
-                )
-            })?;
+            let status = ensure_tun_dependencies(&app)
+                .await
+                .map_err(|e| format!("Не удалось подготовить TUN: {e}"))?;
             if !status.installed {
-                return Err(format!(
-                    "{} Установи TUN в настройках и перезапусти Nimbo от имени администратора.",
-                    status.message
-                ));
+                return Err(status.message);
             }
             if tun_requires_local_elevation() && !is_running_as_admin() {
                 return Err(elevation_required_message());
@@ -6528,7 +6546,7 @@ async fn connect_tun(
             .unwrap_or(false)
             || !linux_helper_core_matches_pin()
         {
-            if let Err(error) = crate::helper_linux::install_core(&xray_path) {
+            if let Err(error) = crate::helper_linux::install_core(app, &xray_path) {
                 stop_child(&mut naive);
                 return Err(error);
             }
@@ -8642,6 +8660,13 @@ fn flush_dns_cache() -> Result<(), String> {
 }
 
 pub(crate) async fn ensure_tun_dependencies(app: &AppHandle) -> Result<TunInstallStatus, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let handle = app.clone();
+        tauri::async_runtime::spawn_blocking(move || crate::helper_linux::ensure_service(&handle))
+            .await
+            .map_err(|e| format!("Не удалось подготовить службу TUN: {e}"))??;
+    }
     let before = tun_status(app)?;
     if before.installed {
         return Ok(before);
@@ -8707,6 +8732,34 @@ pub(crate) fn install_tun_dependencies_for_installer() -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn tun_status(app: &AppHandle) -> Result<TunInstallStatus, String> {
+    let helper = crate::helper_linux::helper_status(app);
+    let installed = helper["installed"].as_bool().unwrap_or(false)
+        && helper["running"].as_bool().unwrap_or(false);
+    let can_install = helper["exe_present"].as_bool().unwrap_or(false);
+    Ok(TunInstallStatus {
+        installed,
+        can_install,
+        needs_admin_restart: false,
+        tun2socks_path: None,
+        wintun_path: None,
+        missing: if installed {
+            vec![]
+        } else {
+            vec!["nimbo-helper.service".into()]
+        },
+        message: if installed {
+            "Служба TUN готова.".into()
+        } else if can_install {
+            "Настройте службу TUN: система запросит подтверждение установки.".into()
+        } else {
+            "Компонент TUN отсутствует. Переустановите пакет Nimbo.".into()
+        },
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
 fn tun_status(app: &AppHandle) -> Result<TunInstallStatus, String> {
     let tun2socks_path = find_existing_path(tun2socks_candidate_paths(app)?);
     let wintun_path = find_existing_path(wintun_candidate_paths(app)?);

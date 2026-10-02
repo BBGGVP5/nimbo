@@ -61,3 +61,6 @@ local.properties
 *.hprof
 __pycache__/
 *.pyc
+
+# Linux helper files are verified build outputs, staged per target.
+/apps/ui/src-tauri/resources/helper/

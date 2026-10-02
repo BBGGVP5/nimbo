@@ -16,19 +16,20 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use nimbo_ipc::{
-    decode_command, encode_response, framing, Command as IpcCommand, ErrorCode, Response,
-    TunRequest, TunState, PROTOCOL_VERSION, UNIX_ALLOWED_UID_PATH, UNIX_SOCKET_PATH,
+    decode_command, encode_command, encode_response, framing, Command as IpcCommand, ErrorCode,
+    Response, TunRequest, TunState, PROTOCOL_VERSION, UNIX_ALLOWED_UID_PATH, UNIX_SOCKET_PATH,
 };
 use tracing::{info, warn};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const SERVICE_UNIT: &str = "nimbo-helper.service";
+const SERVICE_BINARY: &str = "/usr/local/lib/nimbo/nimbo-svc";
 const UNIT_PATH: &str = "/etc/systemd/system/nimbo-helper.service";
 
 /// Сколько ждём появления интерфейса после запуска ядра. Ядро поднимает TUN
@@ -78,7 +79,10 @@ fn init_tracing() {
 /// повышать права не умеет и не должен.
 fn install_service(allowed_uid: Option<&str>) -> Result<()> {
     require_root()?;
-    let exe = std::env::current_exe().context("не удалось определить путь хелпера")?;
+    // Copy the running executable inode, so AppImage mounts and user-owned
+    // installation directories are not permanent root service dependencies.
+    persist_service_binary(Path::new("/proc/self/exe"), Path::new(SERVICE_BINARY))?;
+    let exe = Path::new(SERVICE_BINARY);
 
     if let Some(uid) = allowed_uid {
         let uid: u32 = uid.parse().context("uid владельца должен быть числом")?;
@@ -105,20 +109,77 @@ fn install_service(allowed_uid: Option<&str>) -> Result<()> {
     fs::write(UNIT_PATH, unit).context("не удалось записать юнит systemd")?;
 
     systemctl(&["daemon-reload"])?;
-    systemctl(&["enable", "--now", SERVICE_UNIT])?;
+    shutdown_running_service()?;
+    systemctl(&["enable", SERVICE_UNIT])?;
+    systemctl(&["restart", SERVICE_UNIT])?;
     info!("nimbo helper installed");
     Ok(())
 }
 
+fn persist_service_binary(source: &Path, target: &Path) -> Result<()> {
+    use std::io;
+    let mut input = fs::File::open(source).context("не удалось открыть выполняемый хелпер")?;
+    let directory = target.parent().context("нет каталога службы")?;
+    fs::create_dir_all(directory).context("не удалось создать каталог службы")?;
+    let metadata = fs::symlink_metadata(directory)?;
+    if !metadata.is_dir()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.permissions().mode() & 0o022 != 0
+    {
+        return Err(anyhow!("каталог службы должен принадлежать владельцу установки и быть недоступен другим на запись"));
+    }
+    let temporary = directory.join(format!(".nimbo-svc-{}.new", std::process::id()));
+    let mut created = false;
+    let result = (|| -> Result<()> {
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        created = true;
+        io::copy(&mut input, &mut output)?;
+        output.set_permissions(fs::Permissions::from_mode(0o755))?;
+        output.sync_all()?;
+        fs::rename(&temporary, target)?;
+        Ok(())
+    })();
+    // Only remove a temporary file created by this process, never an existing
+    // path after create_new failed.
+    if result.is_err() && created {
+        let _ = fs::remove_file(&temporary);
+    }
+    result.context("не удалось сохранить постоянный хелпер")
+}
+
 fn uninstall_service() -> Result<()> {
     require_root()?;
+    let _ = shutdown_running_service();
     // Ошибки на остановке не фатальны: юнита может уже не быть.
     let _ = systemctl(&["disable", "--now", SERVICE_UNIT]);
     let _ = fs::remove_file(UNIT_PATH);
+    let _ = fs::remove_file(SERVICE_BINARY);
     let _ = fs::remove_file(UNIX_ALLOWED_UID_PATH);
     let _ = systemctl(&["daemon-reload"]);
     info!("nimbo helper removed");
     Ok(())
+}
+
+fn shutdown_running_service() -> Result<()> {
+    if !Path::new(UNIX_SOCKET_PATH).exists() {
+        return Ok(());
+    }
+    let stream =
+        UnixStream::connect(UNIX_SOCKET_PATH).context("не удалось остановить прежнюю службу")?;
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+    framing::write_frame(
+        &mut BufWriter::new(&stream),
+        &encode_command(&IpcCommand::Shutdown)?,
+    )?;
+    let frame = framing::read_frame(&mut BufReader::new(&stream))?;
+    match nimbo_ipc::decode_response(&frame)? {
+        Response::Ok => Ok(()),
+        _ => Err(anyhow!("прежняя служба не подтвердила очистку туннеля")),
+    }
 }
 
 fn systemctl(args: &[&str]) -> Result<()> {
@@ -236,7 +297,7 @@ fn serve() -> Result<()> {
         }
     }
 
-    tunnel.down();
+    tunnel.down_all();
     let _ = fs::remove_file(socket);
     Ok(())
 }
@@ -255,25 +316,44 @@ fn handle_client(stream: UnixStream, tunnel: &Tunnel, shutdown: &AtomicBool) -> 
         return Ok(());
     }
 
+    static NEXT_CLIENT: AtomicU64 = AtomicU64::new(1);
+    handle_authorized_client(
+        stream,
+        tunnel,
+        shutdown,
+        NEXT_CLIENT.fetch_add(1, Ordering::Relaxed),
+    )
+}
+
+struct ClientLease<'a> {
+    tunnel: &'a Tunnel,
+    id: u64,
+}
+impl Drop for ClientLease<'_> {
+    fn drop(&mut self) {
+        self.tunnel.down_for_client(self.id);
+    }
+}
+
+fn handle_authorized_client(
+    stream: UnixStream,
+    tunnel: &Tunnel,
+    shutdown: &AtomicBool,
+    client: u64,
+) -> Result<()> {
+    let _lease = ClientLease { tunnel, id: client };
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = BufWriter::new(stream);
 
     loop {
         let frame = match framing::read_frame(&mut reader) {
             Ok(frame) => frame,
-            // Клиент отключился — гасим туннель, чтобы упавший GUI не оставил
-            // систему с маршрутами в никуда.
-            Err(_) => {
-                if tunnel.is_up() {
-                    info!("client disconnected, tearing tunnel down");
-                    tunnel.down();
-                }
-                return Ok(());
-            }
+            // The lease tears down only the tunnel owned by this connection.
+            Err(_) => return Ok(()),
         };
 
         let response = match decode_command(&frame) {
-            Ok(command) => dispatch(command, tunnel, shutdown),
+            Ok(command) => dispatch(command, tunnel, shutdown, client),
             Err(error) => Response::Error {
                 code: ErrorCode::InvalidPayload,
                 message: error.to_string(),
@@ -285,13 +365,13 @@ fn handle_client(stream: UnixStream, tunnel: &Tunnel, shutdown: &AtomicBool) -> 
     }
 }
 
-fn dispatch(command: IpcCommand, tunnel: &Tunnel, shutdown: &AtomicBool) -> Response {
+fn dispatch(command: IpcCommand, tunnel: &Tunnel, shutdown: &AtomicBool, client: u64) -> Response {
     match command {
         IpcCommand::Ping => Response::Pong {
             service_version: VERSION.to_string(),
             protocol: PROTOCOL_VERSION,
         },
-        IpcCommand::TunUp(request) => match tunnel.up(request) {
+        IpcCommand::TunUp(request) => match tunnel.up_for_client(client, request) {
             Ok(state) => Response::TunState(state),
             Err(error) => Response::Error {
                 code: ErrorCode::TunFailed,
@@ -299,7 +379,7 @@ fn dispatch(command: IpcCommand, tunnel: &Tunnel, shutdown: &AtomicBool) -> Resp
             },
         },
         IpcCommand::TunDown => {
-            tunnel.down();
+            tunnel.down_for_client(client);
             Response::TunState(tunnel.state())
         }
         IpcCommand::GetStatus => Response::TunState(tunnel.state()),
@@ -309,7 +389,7 @@ fn dispatch(command: IpcCommand, tunnel: &Tunnel, shutdown: &AtomicBool) -> Resp
         },
         IpcCommand::Shutdown => {
             shutdown.store(true, Ordering::SeqCst);
-            tunnel.down();
+            tunnel.down_all();
             Response::Ok
         }
         _ => Response::Error {
@@ -355,6 +435,7 @@ fn peer_uid(stream: &UnixStream) -> Result<u32> {
 #[derive(Default)]
 struct Tunnel {
     inner: Mutex<Option<Running>>,
+    owner: Mutex<Option<u64>>,
 }
 
 struct Running {
@@ -383,11 +464,35 @@ impl Running {
 }
 
 impl Tunnel {
-    fn is_up(&self) -> bool {
-        self.inner
+    fn up_for_client(&self, client: u64, request: TunRequest) -> Result<TunState> {
+        // Serialize ownership transfer with disconnect/explicit stop, including
+        // startup. An old lease cannot stop a newer session after replacement.
+        let mut owner = self
+            .owner
             .lock()
-            .map(|guard| guard.is_some())
-            .unwrap_or(false)
+            .map_err(|_| anyhow!("ошибка владельца туннеля"))?;
+        *owner = None;
+        let state = self.up(request)?;
+        *owner = Some(client);
+        Ok(state)
+    }
+
+    fn down_for_client(&self, client: u64) {
+        let Ok(mut owner) = self.owner.lock() else {
+            return;
+        };
+        if *owner == Some(client) {
+            self.down();
+            *owner = None;
+        }
+    }
+
+    fn down_all(&self) {
+        let Ok(mut owner) = self.owner.lock() else {
+            return;
+        };
+        self.down();
+        *owner = None;
     }
 
     fn state(&self) -> TunState {
@@ -829,5 +934,119 @@ mod awg_route_tests {
             assert!(bypass_from_lookup("192.0.2.1", &lookup).is_err());
         }
         assert!(bypass_from_lookup("::1", &serde_json::json!([{"dev":"eth0"}])).is_err());
+    }
+}
+
+#[cfg(test)]
+mod helper_lifecycle_tests {
+    use super::*;
+    use std::sync::atomic::AtomicU64;
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            let root = std::env::temp_dir().join(format!(
+                "nimbo-helper-tests-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).unwrap();
+            fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+            Self(root)
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn persistent_helper_is_atomic_executable_and_independent_of_source() {
+        let fixture = Fixture::new();
+        let source = fixture.0.join("mounted-helper");
+        let target = fixture.0.join("service/nimbo-svc");
+        fs::write(&source, b"new helper").unwrap();
+        persist_service_binary(&source, &target).unwrap();
+        assert_eq!(
+            fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        fs::remove_file(&source).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"new helper");
+        assert!(persist_service_binary(&source, &target).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"new helper");
+    }
+
+    #[test]
+    fn failed_install_preserves_preexisting_staging_and_previous_helper() {
+        let fixture = Fixture::new();
+        let source = fixture.0.join("source");
+        let target = fixture.0.join("nimbo-svc");
+        let staging = fixture
+            .0
+            .join(format!(".nimbo-svc-{}.new", std::process::id()));
+        fs::write(&source, b"new").unwrap();
+        fs::write(&target, b"old").unwrap();
+        fs::write(&staging, b"existing staging").unwrap();
+        assert!(persist_service_binary(&source, &target).is_err());
+        assert_eq!(fs::read(target).unwrap(), b"old");
+        assert_eq!(fs::read(staging).unwrap(), b"existing staging");
+    }
+
+    #[test]
+    fn writable_service_directory_is_rejected() {
+        let fixture = Fixture::new();
+        let source = fixture.0.join("source");
+        fs::write(&source, b"helper").unwrap();
+        fs::set_permissions(&fixture.0, fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(persist_service_binary(&source, &fixture.0.join("nimbo-svc")).is_err());
+    }
+
+    #[test]
+    fn transient_status_and_non_owner_stop_preserve_the_owner() {
+        let tunnel = Arc::new(Tunnel::default());
+        *tunnel.owner.lock().unwrap() = Some(11);
+        let (client, server) = UnixStream::pair().unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let backend = Arc::clone(&tunnel);
+        let worker = std::thread::spawn(move || {
+            handle_authorized_client(server, &backend, &AtomicBool::new(false), 22).unwrap()
+        });
+        for command in [IpcCommand::GetStatus, IpcCommand::TunDown, IpcCommand::Ping] {
+            let payload = nimbo_ipc::encode_command(&command).unwrap();
+            framing::write_frame(&mut BufWriter::new(&client), &payload).unwrap();
+            let frame = framing::read_frame(&mut BufReader::new(&client)).unwrap();
+            assert!(!matches!(
+                nimbo_ipc::decode_response(&frame).unwrap(),
+                Response::Error { .. }
+            ));
+        }
+        drop(client);
+        worker.join().unwrap();
+        assert_eq!(*tunnel.owner.lock().unwrap(), Some(11));
+    }
+
+    #[test]
+    fn owner_disconnect_releases_its_lease_but_old_owner_cannot_release_new_one() {
+        let tunnel = Arc::new(Tunnel::default());
+        *tunnel.owner.lock().unwrap() = Some(11);
+        {
+            let _old = ClientLease {
+                tunnel: &tunnel,
+                id: 10,
+            };
+        }
+        assert_eq!(*tunnel.owner.lock().unwrap(), Some(11));
+        let (client, server) = UnixStream::pair().unwrap();
+        let backend = Arc::clone(&tunnel);
+        let worker = std::thread::spawn(move || {
+            handle_authorized_client(server, &backend, &AtomicBool::new(false), 11).unwrap()
+        });
+        drop(client);
+        worker.join().unwrap();
+        assert_eq!(*tunnel.owner.lock().unwrap(), None);
     }
 }

@@ -14,6 +14,11 @@ on:
         required: false
         default: false
         type: boolean
+      platform:
+        description: "Платформы для сборки артефактов"
+        default: all
+        type: choice
+        options: [all, windows, linux]
 
 env:
   NIMBO_AWG_CORE_DIR: ${{ github.workspace }}/tools/native/awg-core
@@ -23,6 +28,7 @@ permissions:
 
 jobs:
   windows:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'linux'
     name: Windows x64 / x86 / ARM64
     runs-on: windows-latest
 
@@ -103,6 +109,7 @@ jobs:
           if-no-files-found: error
 
   linux:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
     name: Linux ${{ matrix.asset_arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -111,8 +118,10 @@ jobs:
         include:
           - runner: ubuntu-22.04
             asset_arch: x64
+            target: x86_64-unknown-linux-gnu
           - runner: ubuntu-22.04-arm
             asset_arch: arm64
+            target: aarch64-unknown-linux-gnu
 
     steps:
       - name: Получить исходники
@@ -123,7 +132,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential file patchelf pkg-config rpm xdg-utils \
+            build-essential file patchelf pkg-config rpm xdg-utils squashfs-tools policykit-1 \
             libwebkit2gtk-4.1-dev libssl-dev \
             libayatana-appindicator3-dev librsvg2-dev
 
@@ -168,6 +177,14 @@ jobs:
           npm ci
           npm run build:linux
 
+      - name: Проверить helper во всех Linux-пакетах
+        run: |
+          python tools/release/test_linux_payload.py
+          python tools/release/check_linux_payload.py --target '${{ matrix.target }}' --report 'release-normalized/helper-verification-${{ matrix.asset_arch }}.json'
+
+      - name: Проверить установку и постоянный путь службы на временном runner
+        run: python tools/release/test-linux-helper-install.py --target '${{ matrix.target }}'
+
       - name: Собрать фирменный Linux-установщик
         if: matrix.asset_arch == 'x64'
         shell: bash
@@ -208,7 +225,7 @@ jobs:
     name: Прикрепить файлы к GitHub Release
     needs: [windows, linux]
     # Публикация только по явному запросу; сборка тега не публикует неполный релиз.
-    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && inputs.platform == 'all'
     runs-on: ubuntu-latest
 
     steps:

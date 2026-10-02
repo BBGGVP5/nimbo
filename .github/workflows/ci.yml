@@ -65,6 +65,14 @@ jobs:
           npm ci
           npm run build
 
+      - name: Подготовить проверенный Linux helper
+        if: runner.os == 'Linux'
+        run: node apps/ui/scripts/build-linux.mjs --prepare-only
+
+      - name: Проверить парсеры Linux-пакетов
+        if: runner.os == 'Linux'
+        run: python3 tools/release/test_linux_payload.py
+
       - name: Запустить Rust-тесты
         run: cargo test --workspace --all-targets --exclude nimbo-installer
 

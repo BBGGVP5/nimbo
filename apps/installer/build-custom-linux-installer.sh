@@ -128,6 +128,8 @@ for target_triple in "${targets[@]}"; do
   echo "Building Linux helper for $target_triple..."
   (cd "$repo_root" && cargo build --locked -p nimbo-svc --release --target "$target_triple")
 
+  node "$ui_dir/scripts/build-linux.mjs" --prepare-only --target "$target_triple"
+
   echo "Building Linux app payload for $target_triple..."
   (cd "$repo_root" && cargo build --locked -p nimbo-ui --release --features custom-protocol --target "$target_triple")
 
@@ -141,6 +143,10 @@ for target_triple in "${targets[@]}"; do
   payload_app="$payload_dir/nimbo-ui"
   if [[ "$built_app" != "$payload_app" ]]; then
     cp -f "$built_app" "$payload_app"
+  fi
+  built_helper="$cargo_target_dir/$target_triple/release/nimbo-svc"
+  if [[ "$built_helper" != "$payload_dir/nimbo-svc" ]]; then
+    cp -f "$built_helper" "$payload_dir/nimbo-svc"
   fi
 done
 
