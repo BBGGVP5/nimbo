@@ -156,14 +156,14 @@ pub async fn inspect(binary: &VerifiedBinary, profile: &FullProfile) -> Result<I
 
 enum SessionOwner {
     Proxy(OwnedChild),
-    #[cfg(target_os = "linux")]
+    #[cfg(any(windows, target_os = "linux"))]
     Tun(crate::helper::Lease),
 }
 impl SessionOwner {
     fn running(&mut self) -> bool {
         match self {
             Self::Proxy(c) => c.running(),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Tun(c) => c.running(),
         }
     }
@@ -173,7 +173,7 @@ impl SessionOwner {
                 c.terminate();
                 Ok(())
             }
-            #[cfg(target_os = "linux")]
+            #[cfg(any(windows, target_os = "linux"))]
             Self::Tun(c) => c.stop(),
         }
     }
@@ -189,7 +189,7 @@ pub struct Session {
     pub session_id: String,
 }
 impl Session {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(windows, target_os = "linux"))]
     pub async fn start_tun(
         binary: &VerifiedBinary,
         profile: &FullProfile,
@@ -311,7 +311,7 @@ impl Session {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn tun_request(
     binary: &VerifiedBinary,
     profile: &FullProfile,

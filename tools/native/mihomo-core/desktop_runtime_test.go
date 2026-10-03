@@ -153,3 +153,10 @@ func TestDesktopProviderPathsCannotEscapeServiceHome(t *testing.T) {
 		}
 	}
 }
+
+func TestDesktopWindowsAdapterIsExclusive(t *testing.T) {
+	options := desktopTunProjection(LC.Tun{}, true)
+	if !options.NimboWindowsExclusive {
+		t.Fatal("desktop may not adopt an existing Wintun adapter")
+	}
+}

@@ -9,6 +9,7 @@ on:
       - 'scripts/ci/build-mihomo-desktop.py'
       - 'scripts/ci/test-mihomo-desktop-netns.py'
       - 'scripts/ci/test-mihomo-helper-netns.py'
+      - 'scripts/ci/test-mihomo-windows-tun.py'
       - 'scripts/ci/stage-mihomo-desktop.py'
       - 'apps/service/**'
       - 'crates/ipc/**'
@@ -55,15 +56,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: mihomo-helper-${{ matrix.artifact }}
-      - name: Stage native source and identity for Linux root helper
-        if: runner.os == 'Linux'
+      - name: Stage native source and identity for protected native helper
         run: python3 scripts/ci/stage-mihomo-desktop.py --source 'native-desktop/${{ matrix.artifact }}'
       - name: Verify IPC and service adapter contracts
         env:
           CARGO_BUILD_JOBS: 2
         run: cargo test --locked -p nimbo-ipc -p nimbo-mihomo -p nimbo-svc
-      - name: Build actual Linux broker
-        if: runner.os == 'Linux'
+      - name: Build actual native broker
         run: cargo build --locked -p nimbo-svc
       - name: Actual authenticated helper and Rust session in isolated namespaces
         if: runner.os == 'Linux'
@@ -72,6 +71,16 @@ jobs:
           driver=$(find target/debug/deps -maxdepth 1 -type f -executable -name 'helper_tun-*' | head -1)
           test -n "$driver"
           sudo env NIMBO_DISPOSABLE_NETNS=1 python3 scripts/ci/test-mihomo-helper-netns.py --binary 'native-desktop/${{ matrix.artifact }}/nimbo-mihomo' --helper target/debug/nimbo-svc --rust-test "$driver"
+      - name: Actual Windows authenticated broker and native TCP UDP DNS cleanup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          NIMBO_DISPOSABLE_WINDOWS: '1'
+        run: |
+          $driver = Get-ChildItem target/debug/deps/windows_tun-*.exe | Select-Object -First 1
+          if (!$driver) { throw 'Windows native acceptance driver missing' }
+          python scripts/ci/test-mihomo-windows-tun.py --native 'native-desktop/${{ matrix.artifact }}' --helper target/debug/nimbo-svc.exe --rust-test $driver.FullName
+          if ($LASTEXITCODE) { throw 'Windows native TUN acceptance failed' }
       - name: Actual proxy provider refresh and cancelled startup
         if: runner.os == 'Linux'
         shell: bash

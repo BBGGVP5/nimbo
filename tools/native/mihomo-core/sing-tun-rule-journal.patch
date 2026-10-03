@@ -1,28 +1,25 @@
 --- a/tun.go
 +++ b/tun.go
-@@ -72,6 +72,10 @@
- )
+@@ -73,4 +73,10 @@
  
  type Options struct {
++	// Trusted desktop service only: do not attach to an existing adapter.
++	NimboWindowsExclusive bool
 +	// Nimbo Linux ownership metadata, not packet filtering (fwmark mask is 0).
 +	NimboRuleMark                         uint32
 +	NimboRecordRules                      func([]byte) error
 +	NimboClearRules                       func() error
  	Name                                  string
  	Inet4Address                          []netip.Prefix
- 	Inet6Address                          []netip.Prefix
 --- a/tun_linux.go
 +++ b/tun_linux.go
-@@ -1,6 +1,7 @@
- package tun
+@@ -2,4 +2,5 @@
  
  import (
 +	"encoding/json"
  	"errors"
  	"fmt"
- 	"math/rand"
-@@ -933,7 +934,27 @@
- }
+@@ -934,5 +935,25 @@
  
  func (t *NativeTun) setRules() error {
 -	for i, rule := range t.rules() {
@@ -49,9 +46,7 @@
 +	for i, rule := range rules {
  		err := netlink.RuleAdd(rule)
  		if err != nil {
- 			return E.Cause(err, "add rule ", i, "/", len(t.rules()))
-@@ -963,6 +984,12 @@
- }
+@@ -964,4 +985,10 @@
  
  func (t *NativeTun) unsetRules() error {
 +	if t.options.NimboRuleMark != 0 {
@@ -62,4 +57,55 @@
 +	}
  	if t.options.FileDescriptor > 0 {
  		return nil
+--- a/tun_windows.go
++++ b/tun_windows.go
+@@ -45,5 +45,5 @@
+ 	adapter, err := wintun.CreateAdapter(options.Name, TunnelType, generateGUIDByDeviceName(options.Name))
+ 	if err != nil {
+-		if !errors.Is(err, os.ErrExist) {
++		if options.NimboWindowsExclusive || !errors.Is(err, os.ErrExist) {
+ 			return nil, err
+ 		}
+@@ -58,16 +58,29 @@
+ 		options: options,
  	}
++	constructed := false
++	sessionStarted := false
++	defer func() {
++		if !constructed {
++			if nativeTun.fwpmSession != 0 {
++				_ = winsys.FwpmEngineClose0(nativeTun.fwpmSession)
++			}
++			if sessionStarted {
++				nativeTun.session.End()
++			}
++			adapter.Close()
++		}
++	}()
+ 	session, err := adapter.StartSession(0x800000)
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	sessionStarted = true
+ 	nativeTun.session = session
+ 	nativeTun.readWait = session.ReadWaitEvent()
+ 	err = nativeTun.configure()
+ 	if err != nil {
+-		session.End()
+-		adapter.Close()
+ 		return nil, err
+ 	}
++	constructed = true
+ 	return nativeTun, nil
+ }
+@@ -136,7 +149,7 @@
+ 				err = luid.AddRoute(routeRange, gateway6, 0)
+ 			}
+-		}
+-		if err != nil {
+-			return err
++			if err != nil {
++				return err
++			}
+ 		}
+ 		err = windnsapi.FlushResolverCache()

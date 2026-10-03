@@ -142,7 +142,7 @@ def stage_rule_dependency(original, destination, patch_file, allowed):
 
 
 def stage_singtun(original, destination, patch_file):
-    return stage_rule_dependency(original, destination, patch_file, {'tun.go', 'tun_linux.go'})
+    return stage_rule_dependency(original, destination, patch_file, {'tun.go', 'tun_linux.go', 'tun_windows.go'})
 
 
 def stage_netlink(original, destination, patch_file):

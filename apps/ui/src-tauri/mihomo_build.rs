@@ -23,7 +23,7 @@ pub fn prepare() {
         "nimbo-mihomo"
     });
     let manifest = dir.join("build-manifest.json");
-    let provenance = if platform == "windows-x64" {
+    let provenance = if platform == "windows-x64" && !dir.join("adapter-source").is_dir() {
         Path::new("resources/mihomo").to_path_buf()
     } else {
         dir.clone()

@@ -358,3 +358,6 @@ mod tests {
         assert_eq!(decoded, payload);
     }
 }
+
+#[cfg(windows)]
+pub mod windows;

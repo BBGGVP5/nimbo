@@ -1,9 +1,10 @@
 --- a/listener/config/tun.go
 +++ b/listener/config/tun.go
-@@ -10,6 +10,11 @@
+@@ -10,6 +10,12 @@
  )
  
  type Tun struct {
++	NimboWindowsExclusive bool `yaml:"-" json:"-"`
 +	// Trusted library callbacks only; never sourced from a subscription.
 +	NimboRuleMark    uint32             `yaml:"-" json:"-"`
 +	NimboRecordRules func([]byte) error `yaml:"-" json:"-"`
@@ -14,10 +15,11 @@
  	Stack               C.TUNStack `yaml:"stack" json:"stack"`
 --- a/listener/sing_tun/server.go
 +++ b/listener/sing_tun/server.go
-@@ -385,6 +385,9 @@
+@@ -385,6 +385,10 @@
  	}
  
  	tunOptions := tun.Options{
++		NimboWindowsExclusive: options.NimboWindowsExclusive,
 +		NimboRuleMark:                         options.NimboRuleMark,
 +		NimboRecordRules:                      options.NimboRecordRules,
 +		NimboClearRules:                       options.NimboClearRules,

@@ -1,3 +1,48 @@
+# Windows protected native TUN checkpoint — 2026-10-03
+
+Windows x64 source now integrates native TUN with a separate LocalSystem broker,
+not the legacy NULL-DACL process-kill pipe. The new pipe is local-only, grants
+interactive clients specific data rights without FILE_CREATE_PIPE_INSTANCE, and
+validates the impersonated SID/session after each request. Administrative/system
+clients may use session zero. The client verifies the OS-provided pipe server PID
+against SCM and the protected fixed installed service image before transmitting a
+profile. The GUI itself is never elevated.
+
+The service installs under the Program Files Known Folder, refuses reparses,
+non-administrative ownership/write grants, and verifies the compiled native SHA
+before each launch. Private per-session homes contain provider/cache material.
+The child is assigned a kill-on-close Job before sending its startup frame; native
+TUN cannot begin before this frame. Cancelling startup drops the real pipe, EOF
+ends only that connection's lease, and normal stop joins native cleanup. Forced
+termination is an error and retains a failed in-memory owner; no broad adapter,
+DNS, route or WFP deletion is used. Windows hard-crash recovery is NOT claimed.
+
+A trusted, non-YAML option disables upstream adoption of an existing Wintun
+adapter. Constructor rollback closes the WFP dynamic session, Wintun session and
+adapter, including errors before readiness. DNS changes are on the newly owned
+adapter only; physical adapters are not rewritten by the application broker.
+
+Local checks: Windows IPC 9, Mihomo 33, service 4, desktop 130 unit tests pass;
+scoped Clippy, Rust formatting, frontend tests/build pass. The real cancellation
+unit test observes closure of a test pipe; the Job test observes death of only its
+owned child. These checks do not constitute live adapter/DNS acceptance.
+The live fixture is guarded by BOTH NIMBO_DISPOSABLE_WINDOWS=1 and
+GITHUB_ACTIONS=true, and deliberately refuses the user's PC. It exercises a real
+Rust session against the installed SCM broker, synthetic routed TCP4/6, UDP,
+DNS hijack, selector REJECT/restore, repeated stop/EOF and physical DNS/route
+snapshots. Its GitHub result remains a separate acceptance gate until confirmed.
+
+Windows x86/ARM64 have no pinned native Mihomo artifact and remain unavailable.
+Both mode and persistent firewall Kill Switch remain unavailable. Actual sleep,
+Wi-Fi/Ethernet roaming and whole-machine power loss still require hardware tests.
+
+References for the platform boundary:
+- https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights
+- https://learn.microsoft.com/en-us/windows/win32/ipc/impersonating-a-named-pipe-client
+- https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects
+
+The following checkpoints are historical evidence, not current release claims.
+
 # Desktop native TUN checkpoint — 2026-10-02
 
 Source-built pinned Linux/amd64 binary exercised in fresh WSL Linux network +

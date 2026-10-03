@@ -35,7 +35,7 @@ export function CorePreferenceSetting() {
         : 'Applies on the next manual connection. Auto uses the profile format; an explicit choice requires a compatible profile. The current connection and its recovery keep the previous choice.'}
     </div>
     <div className="settings-row-description" id="desktop-core-availability">
-      {ru ? 'Mihomo: полные YAML-профили. Linux TUN требует подготовленного помощника; Windows использует System Proxy.' : 'Mihomo: full YAML profiles. Linux TUN requires the prepared helper; Windows uses System Proxy.'}{' '}
+      {ru ? 'Mihomo: полные YAML-профили. TUN на Windows и Linux требует подготовленного помощника; Windows также поддерживает System Proxy.' : 'Mihomo: full YAML profiles. TUN on Windows and Linux requires the prepared helper; Windows also supports System Proxy.'}{' '}
       {native && data && (awgAvailable
         ? ru ? 'AWG: доступен проверенный адаптер; подключение также использует Xray.' : 'AWG: verified adapter available; connections also use Xray.'
         : ru ? 'AWG: проверенный адаптер отсутствует или платформа не поддерживается.' : 'AWG: verified adapter missing or platform unsupported.')}

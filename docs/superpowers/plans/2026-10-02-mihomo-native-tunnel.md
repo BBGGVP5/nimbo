@@ -132,3 +132,12 @@ GUI/installer Linux check --tests passes; Windows GUI 130 pass/4 opt-in skip,
 portable frontend 85 pass/build. Production package CI remains a separate gate.
 Windows TUN/SID authorization, external KS, native SIGKILL/power-loss journal and
 physical iPhone/device acceptance are deliberately not checked off by this slice.
+
+## Windows source checkpoint — 3 October 2026
+
+The separate protected Windows pipe, SCM/SID admission, pinned Program Files
+installation and GUI-owned native lease are implemented. Legacy broad-pipe network
+commands stay denied. Native constructor exclusivity/rollback is patched and
+source-verified. Local tests pass; disposable Windows adapter/DNS acceptance is
+pending in the new workflow. See 2026-10-03-windows-mihomo-tun.md. Hardware roaming,
+Windows hard crash, Both and persistent Kill Switch are not completed.

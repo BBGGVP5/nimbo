@@ -309,3 +309,22 @@ ordinary shutdown, native/helper/both-process crashes, a partial installed WAL
 subset, foreign-rule retention and refusal of live-owner, wrong-identity,
 symlink, non-private, oversized and unknown-mark state. This does not verify
 physical-machine power loss, Windows TUN ownership or real-provider availability.
+
+## Windows protected broker (API1, 3 October 2026)
+
+The Windows x64 desktop host delegates `MihomoPreflight`, `MihomoUp`,
+`MihomoStatus`, `MihomoDown` through the separate local-only
+`\\.\pipe\Nimbo.Mihomo.Tun.v1` endpoint. Its specific interactive client rights
+exclude `FILE_CREATE_PIPE_INSTANCE`. The service identifies the pipe token's
+SID/session after each complete frame and always reverts before privileged work;
+per-connection owner IDs authorize down. The client checks the kernel server PID
+against SCM and the fixed protected installed service image before sending YAML.
+No command installs an image, changes paths/environment, or executes client files.
+
+Only a source-frozen artifact with `windowsTunOwnership:
+exclusive-adapter-rollback-v1` is eligible. SHA mismatches, unsafe ACL/reparses or
+an old proxy-only artifact keep availability false. Native startup is framed only
+after Job attachment; EOF/cancel closes the lease. Forced kill is not successful
+cleanup. An existing adapter is not adopted, and no foreign routes/DNS/interfaces
+are deleted. Live disposable-VM results, hardware roaming/sleep and Windows
+hard-crash recovery remain separate readiness evidence, not implied by API1.

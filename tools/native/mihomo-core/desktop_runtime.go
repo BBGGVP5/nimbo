@@ -115,6 +115,7 @@ func desktopRuntimePolicy(d *inspection) error {
 func desktopTunProjection(source LC.Tun, ipv6 bool) LC.Tun {
 	o := androidTunProjection(source, 0, ipv6)
 	o.Device = desktopTunName
+	o.NimboWindowsExclusive = true
 	o.Stack = C.TunSystem
 	o.AutoRoute = true
 	o.AutoDetectInterface = true

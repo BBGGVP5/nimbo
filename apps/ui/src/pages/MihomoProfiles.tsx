@@ -105,7 +105,7 @@ export function MihomoProfiles() {
       <p>{text('Полные профили · группы и правила', 'Full profiles · groups and rules')}</p>
     </header>
     <div className="mihomo-notice">
-      {text('Linux: TUN через проверенный системный помощник. Windows: System Proxy. Both и Kill Switch пока недоступны. Настройки подключения не меняются автоматически.', 'Linux: TUN through the verified system helper. Windows: System Proxy. Both and Kill Switch are unavailable. Connection settings are never changed automatically.')}
+      {text('Windows и Linux: TUN через проверенный системный помощник. Windows также поддерживает System Proxy. Both и Kill Switch пока недоступны. Настройки подключения не меняются автоматически.', 'Windows and Linux: TUN through the verified system helper. Windows also supports System Proxy. Both and Kill Switch are unavailable. Connection settings are never changed automatically.')}
       {!native && <p>{text('Для импорта и подключения откройте desktop-приложение.', 'Open the desktop app to import and connect.')}</p>}
       {native && blocked && <p role="status">{mihomoErrorMessage(blocked, ru)}</p>}
     </div>

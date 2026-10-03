@@ -1,3 +1,17 @@
+## Windows x64 managed native TUN (3 October 2026)
+
+Source integration now includes a separate authenticated LocalSystem broker,
+protected Program Files installation, exact compiled binary identity and owned
+named-pipe leases. The legacy broad process-kill pipe has no new network commands.
+The GUI uses the native TUN controller without YAML-to-Xray conversion. The native
+Windows-only exclusive adapter option is not a subscription setting; constructor
+errors roll back Wintun/WFP resources and every route-add error is checked.
+
+Local unit/source-build checks pass. Real adapter, TCP4/6, UDP, DNS, selector and
+joined teardown acceptance runs only in the explicitly disposable Windows GitHub
+VM; its result is a separate pending gate. Windows x86/ARM64 native Mihomo, Both,
+persistent Kill Switch and hard-crash recovery are not claimed. See VERIFICATION.md.
+
 # Nimbo embedded core adapter (wire API 1)
 
 This is executable Go source using **actual Mihomo v1.19.31**, not a YAML-to-server

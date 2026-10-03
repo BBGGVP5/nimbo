@@ -12,6 +12,7 @@ use tracing::{error, info, warn};
 
 mod elevation;
 mod kill;
+mod mihomo_pipe;
 mod pipe;
 
 pub const SERVICE_NAME: &str = "NimboHelper";
@@ -260,12 +261,22 @@ fn service_entrypoint() -> Result<()> {
 }
 
 fn run_pipe_loop(shutdown: Arc<AtomicBool>) -> Result<()> {
-    pipe::serve(shutdown)
+    let tun_shutdown = shutdown.clone();
+    let tun = std::thread::spawn(move || {
+        if let Err(error) = mihomo_pipe::serve(tun_shutdown) {
+            warn!(%error,"native TUN broker unavailable");
+        }
+    });
+    let result = pipe::serve(shutdown.clone());
+    shutdown.store(true, Ordering::SeqCst);
+    let _ = tun.join();
+    result
 }
 
 // ─── Service install / uninstall ────────────────────────────────────────────
 
 fn install_service() -> Result<()> {
+    let install = crate::mihomo_windows::InstallPlan::prepare().map_err(|e| anyhow!(e))?;
     use windows_service::service::{
         ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceType,
     };
@@ -277,7 +288,28 @@ fn install_service() -> Result<()> {
     )
     .context("open SCM (CONNECT|CREATE_SERVICE) — нужны права администратора")?;
 
-    let exe = std::env::current_exe().context("locate nimbo-svc executable path")?;
+    if let Ok(existing) = manager.open_service(
+        SERVICE_NAME,
+        ServiceAccess::STOP | ServiceAccess::QUERY_STATUS,
+    ) {
+        if existing
+            .query_status()
+            .is_ok_and(|s| s.current_state != windows_service::service::ServiceState::Stopped)
+        {
+            pipe::occupy_accept_briefly_for_stop();
+            existing
+                .stop()
+                .context("stop helper before protected upgrade")?;
+            wait_until_stopped(&existing);
+            if !existing
+                .query_status()
+                .is_ok_and(|s| s.current_state == windows_service::service::ServiceState::Stopped)
+            {
+                return Err(anyhow!("helper did not stop"));
+            }
+        }
+    }
+    let exe = install.apply().map_err(|e| anyhow!(e))?;
 
     let info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
@@ -412,7 +444,8 @@ fn uninstall_service() -> Result<()> {
 
 fn wait_until_stopped(service: &windows_service::service::Service) {
     use windows_service::service::ServiceState;
-    for _ in 0..50 {
+    // Native TUN teardown can take up to 30 seconds; do not race it during upgrades.
+    for _ in 0..400 {
         match service.query_status() {
             Ok(status) if status.current_state == ServiceState::Stopped => return,
             Ok(_) => std::thread::sleep(Duration::from_millis(100)),

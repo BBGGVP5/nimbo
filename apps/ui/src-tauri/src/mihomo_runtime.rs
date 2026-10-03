@@ -97,10 +97,10 @@ pub fn get_core_availability(app: AppHandle) -> Vec<CoreAvailability> {
     let tun = crate::commands::get_tun_status(app.clone())
         .is_ok_and(|status| status.installed && !status.needs_admin_restart);
     let mihomo = binary(&app).is_ok();
-    #[cfg(target_os = "linux")]
+    #[cfg(any(windows, target_os = "linux"))]
     let mihomo_tun =
         nimbo_mihomo::helper::available(option_env!("NIMBO_MIHOMO_SHA256").unwrap_or(""));
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     let mihomo_tun = false;
     vec![
         CoreAvailability {
@@ -131,7 +131,7 @@ pub fn get_core_availability(app: AppHandle) -> Vec<CoreAvailability> {
             tun_available: mihomo && mihomo_tun,
             reason: if !mihomo {
                 Some("CORE_UNAVAILABLE".into())
-            } else if cfg!(target_os = "linux") {
+            } else if cfg!(any(windows, target_os = "linux")) {
                 (!mihomo_tun).then(|| "MIHOMO_HELPER_REQUIRED".into())
             } else {
                 Some("MANAGED_PROXY_ONLY_TUN_DNS_KS_UNAVAILABLE".into())
@@ -334,7 +334,7 @@ fn session_controller(
     })
 }
 pub fn check_network_mode(mode: ConnectionMode, kill_switch: bool) -> Result<(), String> {
-    if cfg!(target_os = "linux") && mode == ConnectionMode::Tun {
+    if cfg!(any(windows, target_os = "linux")) && mode == ConnectionMode::Tun {
         return if kill_switch {
             Err("MIHOMO_KILL_SWITCH_UNAVAILABLE".into())
         } else {
@@ -424,13 +424,24 @@ pub async fn prepare_mihomo_tun(app: AppHandle, state: State<'_, AppState>) -> R
         }
         Ok(())
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        tokio::task::spawn_blocking(move || crate::helper::install(&app))
+            .await
+            .map_err(|_| "HELPER_INSTALL_FAILED")?
+            .map_err(|_| "HELPER_INSTALL_FAILED")?;
+        if !nimbo_mihomo::helper::available(option_env!("NIMBO_MIHOMO_SHA256").unwrap_or("")) {
+            return Err("MIHOMO_HELPER_REQUIRED".into());
+        }
+        Ok(())
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = app;
         Err("MIHOMO_TUN_UNAVAILABLE".into())
     }
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(windows, target_os = "linux"))]
 async fn connect_tun_inner(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -506,7 +517,7 @@ pub(crate) async fn connect_profile_inner(
 ) -> Result<RuntimeStatus, String> {
     let profile = preflight_profile(&snapshot, &profile_id)?;
     let bin = binary(&app)?;
-    #[cfg(target_os = "linux")]
+    #[cfg(any(windows, target_os = "linux"))]
     if snapshot.connection_mode == ConnectionMode::Tun {
         return connect_tun_inner(app, state, profile, bin, snapshot, ticket).await;
     }
@@ -727,7 +738,7 @@ mod tests {
         for mode in [ConnectionMode::Tun, ConnectionMode::Both] {
             snapshot.connection_mode = mode;
             let preflight = preflight_profile(&snapshot, &id);
-            if cfg!(target_os = "linux") && mode == ConnectionMode::Tun {
+            if cfg!(any(windows, target_os = "linux")) && mode == ConnectionMode::Tun {
                 // Source/mode admission is pure: actual protected helper
                 // readiness is checked separately before old-session teardown.
                 assert_eq!(
@@ -809,7 +820,7 @@ mod tests {
     }
     #[test]
     fn host_network_modes_fail_closed_before_runtime_start() {
-        if cfg!(target_os = "linux") {
+        if cfg!(any(windows, target_os = "linux")) {
             assert!(check_network_mode(ConnectionMode::Tun, false).is_ok());
         } else {
             assert_eq!(

@@ -116,7 +116,7 @@ def main():
         manifest=dict(builderSHA256=digest(Path(__file__)),acceptanceSHA256=digest(Path(__file__).with_name('test-mihomo-desktop-netns.py')),apiVersion=1,coreVersion=pins['version'],coreCommit=pins['commit'],toolchain=version,target=args.target,sha256=digest(binary),
                       goModSHA256=digest(NATIVE/'go.mod'),goSumSHA256=digest(NATIVE/'go.sum'),pinsSHA256=digest(NATIVE/'pins.json'),effectiveModSHA256=digest(modfile),
                       lifecyclePatchSHA256=digest(patches[0]),realityPatchSHA256=digest(patches[1]),ruleJournalPatchSHA256=digest(patches[2]),singTunJournalPatchSHA256=digest(NATIVE/'sing-tun-rule-journal.patch'),netlinkIdentityPatchSHA256=digest(NATIVE/'netlink-rule-identity.patch'),sourceLicenseManifestSHA256=digest(notice_manifest),sourceFiles=frozen,
-                      nativeTunCompiled=True,desktopAdmission='privileged native entry only; service/UI acceptance required')
+                      windowsTunOwnership='exclusive-adapter-rollback-v1' if args.target=='windows/amd64' else None,nativeTunCompiled=True,desktopAdmission='privileged native entry only; service/UI acceptance required')
         (output/'build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
         print('Verified source-built '+args.target+' Mihomo: '+manifest['sha256'])
 

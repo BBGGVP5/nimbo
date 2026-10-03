@@ -43,7 +43,7 @@ export function mihomoErrorMessage(error: unknown, ru: boolean): string {
  const code = coreErrorCode(error);
  const messages: Record<string, [string, string]> = {
   UNSUPPORTED_DESKTOP_CONFIG: ['Настройки профиля конфликтуют с управляемыми интерфейсом, маршрутами или DNS. Профиль не изменён.', 'Profile settings conflict with the managed interface, routes or DNS. The profile was not changed.'],
-  MIHOMO_TUN_UNAVAILABLE: ['Этот сетевой режим Mihomo недоступен в текущей сборке. На Linux нужен подготовленный TUN-помощник; на Windows доступен System Proxy.', 'This Mihomo network mode is unavailable. Linux requires the prepared TUN helper; Windows supports System Proxy.'],
+  MIHOMO_TUN_UNAVAILABLE: ['Этот сетевой режим Mihomo недоступен в текущей сборке. На Linux и Windows нужен подготовленный TUN-помощник.', 'This Mihomo network mode is unavailable. Linux and Windows require the prepared TUN helper.'],
   MIHOMO_HELPER_REQUIRED: ['Подготовьте системный помощник Mihomo TUN. Повышаются права только установки, не всего приложения.', 'Prepare the Mihomo TUN system helper. Only installation is elevated, never the GUI.'],
   HELPER_INSTALL_FAILED: ['Установка помощника отменена или не завершена.', 'Helper installation was cancelled or failed.'],
   TUN_IN_USE: ['Туннель уже занят другим сеансом. Сначала отключите его.', 'Another session owns the tunnel. Disconnect it first.'],
