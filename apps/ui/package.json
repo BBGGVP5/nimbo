@@ -11,6 +11,7 @@
     "test:home": "node --test tests/home.test.mjs",
     "test:awg": "node --test tests/awg.test.mjs",
     "test:performance": "node --test tests/visiblePolling.test.mjs",
+    "test:settings": "tsc --noEmit -p tests/browser/tsconfig.settings-polish.json && node tests/browser/settings-polish.mjs",
     "build:installer": "tauri build --bundles nsis",
     "build:installer:local": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/windows/build-local-installer.ps1",
     "build:installer:current": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/windows/build-local-installer.ps1 -Targets current",

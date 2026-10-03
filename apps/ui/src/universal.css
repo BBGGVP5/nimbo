@@ -116,6 +116,9 @@ body[data-ui-style="signal"] .signal-profile-copy { flex: 1; min-width: 0; }
 body[data-ui-style="signal"] .signal-profile-name { display: block; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; white-space: normal; }
 body[data-ui-style="signal"] .signal-sub-meta { color: var(--color-text-dim); font-size: 11px; }
 body[data-ui-style="signal"] .signal-sub-logo { width: 38px; height: 38px; flex-shrink: 0; border-radius: 12px; }
+/* Provider artwork already has its own shape: no second frame or center crop. */
+body[data-ui-style="signal"] .universal-subscription .signal-sub-logo:has(img) { background:transparent; border:0; box-shadow:none; }
+body[data-ui-style="signal"] .signal-sub-logo img { object-fit:contain; border-radius:0; }
 body[data-ui-style="signal"] .signal-collapse-btn { width: 24px; height: 24px; min-width: 24px; padding: 4px; border: 0; transform: rotate(90deg); background: transparent; }
 body[data-ui-style="signal"] .signal-collapse-btn.is-collapsed { transform: none; }
 .universal-subscription-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 14px 0; color: var(--color-text-dim); font-size: 11px; }

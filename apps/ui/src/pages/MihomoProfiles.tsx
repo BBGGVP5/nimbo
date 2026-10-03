@@ -102,7 +102,8 @@ export function MihomoProfiles() {
     <header className="mihomo-page__header">
       <a className="settings-action" href="#/settings?section=connection">← {text('Настройки подключения', 'Connection settings')}</a>
       <h1>Mihomo</h1>
-      <p>{text('Полные профили · группы и правила', 'Full profiles · groups and rules')}</p>
+      <p>{text('Дополнительно · полные YAML-профили', 'Advanced · complete YAML profiles')}</p>
+      <p>{text('Обычную ссылку подписки добавляйте в «Профили». Этот раздел нужен для готового полного YAML, чтобы сохранить его группы, providers и правила.', 'Add ordinary subscription links in Profiles. This section is for complete YAML configurations whose groups, providers and rules must be preserved.')}</p>
     </header>
     <div className="mihomo-notice">
       {text('Windows и Linux: TUN через проверенный системный помощник. Windows поддерживает System Proxy и Both, а с новым помощником — внешний Kill Switch для TUN/Both. Защита сохраняется при сбое и закрытии приложения. Правила записываются для загрузки Windows; после перезапуска нужен явный сброс перед новым подключением. Настройки подключения не меняются автоматически.', 'Windows and Linux: TUN through the verified system helper. Windows supports System Proxy and Both; the updated helper provides external Kill Switch for TUN/Both. Protection survives failure and app exit. Windows boot protection is registered; after a restart, explicitly reset before reconnecting. Connection settings are never changed automatically.')}

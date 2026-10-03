@@ -188,7 +188,7 @@ test('real settings section exposes methods, active-route limitation, presets, c
     ...latency, useMessages:()=>m, useEffect:()=>{}, useState:initial=>{
       const index=cursor++; if (!(index in hooks)) hooks[index]=initial;
       return [hooks[index],value=>hooks[index]=value];
-    }, Section:'Section',SettingsCard:'Card',SettingsChoiceRow:'Choice',SettingsInputRow:'Input',
+    }, Section:'Section',SettingsCard:'Card',SettingsChoiceRow:'Choice',SettingsInputRow:'Input',CorePreferenceSetting:'CorePreference',
     GlobeIcon:'Globe',SignalIcon:'Signal',SlidersIcon:'Sliders',InfoIcon:'Info',
   });
   const render=()=>{cursor=0; return LatencySection({preferences,onChange:async patch=>changes.push(patch)});};
@@ -208,7 +208,10 @@ test('real settings section exposes methods, active-route limitation, presets, c
   rows.find(r=>r.type==='Input' && r.props.inputMode==='decimal').props.onChange('0.5');rows=nodes(render());
   rows.find(r=>r.type==='Input' && r.props.inputMode==='decimal').props.onCommit();
   assert.equal(changes.at(-1).latency_timeout_ms,500);
-  const preset=rows.find(r=>r.props?.description==='latencyActiveRouteOnly');
+  assert.ok(rows.some(r=>r.type==='CorePreference' && r.props.context==='latency'));
+  assert.ok(rows.some(r=>r.type==='details' && r.props.className==='latency-routing-help'));
+  assert.ok(rows.some(r=>r.type==='p' && r.props.children==='latencyActiveRouteOnly'));
+  const preset=rows.find(r=>r.type==='Choice' && r.props?.label==='testUrl');
   assert.ok(preset);
   await preset.props.onChange(latency.LATENCY_URL_PRESETS[1].value);
   assert.equal(changes.at(-1).latency_test_url,latency.LATENCY_URL_PRESETS[1].value);
