@@ -3,6 +3,7 @@ package com.danila.nimbo.ui.screens
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -49,7 +50,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** The ordinary Profiles destination, not a separate YAML/settings dashboard. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun MihomoProxiesScreen(onAddSubscription: () -> Unit) {
     val context = LocalContext.current
@@ -141,6 +142,7 @@ internal fun MihomoProxiesScreen(onAddSubscription: () -> Unit) {
                 else MihomoPingResult(-1, if (error.code == "DELAY_FAILED") MihomoPingFailure.GET_FAILED else MihomoPingFailure.UNAVAILABLE)
             }
         } else NimboNodePing.measureMihomo(context, currentRow.profile.rawConfig.orEmpty(), name, target, timeout)
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
         withContext(Dispatchers.IO) {
             MihomoPingCache.write(context, currentRow.profile.url, target, name, fingerprint,
                 result.delayMs.takeIf { it >= 0 })
@@ -149,13 +151,13 @@ internal fun MihomoProxiesScreen(onAddSubscription: () -> Unit) {
         else { failures[name] = result.reason ?: MihomoPingFailure.UNAVAILABLE; delays.remove(name) }
     }
     fun measureOnly(name: String) {
+        if (measurement != null && measuringName == name) { measurement?.cancel(); return }
         val currentRow = row ?: return
         if (measurement != null || ui.busy || name !in declaredProxies) return
         val target = pingUrl.trim()
         if (!ActiveProxyPing.validUrl(target)) { notice = invalidPingUrlMessage; return }
         val timeout = pingPreferences.pingTimeout.coerceIn(1, 10) * 1000
         measuredCount = 0; measurementTotal = 1; notice = null
-        failures.remove(name)
         measurement = scope.launch {
             measuringName = name
             try {
@@ -183,8 +185,6 @@ internal fun MihomoProxiesScreen(onAddSubscription: () -> Unit) {
         val timeout = pingPreferences.pingTimeout.coerceIn(1, 10) * 1000
         measurementTotal = currentGroup.members.count { it in declaredProxies }
         measuredCount = 0
-        failures.clear()
-        unmeasurable.clear()
         notice = null
         measurement = scope.launch {
             try {
@@ -312,7 +312,8 @@ internal fun MihomoProxiesScreen(onAddSubscription: () -> Unit) {
             val type = subgroup?.type ?: proxy?.get("type")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString ?: if (member == "DIRECT") "Direct" else "Proxy"
             val latency = delays[member]
             val selected = group?.selected == member
-            Surface(onClick = {
+            var menuExpanded by remember(member) { mutableStateOf(false) }
+            val selectMember: () -> Unit = {
                 if (group?.selectable == true && row != null) scope.launch { ui.perform {
                     // Choosing a proxy is also an explicit choice of its subscription.
                     // Otherwise Home can retain a stale Xray node and reject Connect.
@@ -326,14 +327,27 @@ internal fun MihomoProxiesScreen(onAddSubscription: () -> Unit) {
                     choicesVersion++
                 } }
                 else if (subgroup != null) groupName = subgroup.name
-            }, enabled = !ui.busy, shape = RoundedCornerShape(18.dp), color = if (selected) colors.accent.copy(alpha = .22f) else colors.surface,
+            }
+            Surface(shape = RoundedCornerShape(18.dp), color = if (selected) colors.accent.copy(alpha = .22f) else colors.surface,
                 border = BorderStroke(if (selected) 2.5.dp else 1.dp, if (selected) colors.accent else colors.textSecondary.copy(alpha = .16f)),
                 modifier = Modifier.height(132.dp).testTag("mihomo-proxy-$member")
+                    .combinedClickable(enabled = !ui.busy, onClick = selectMember,
+                        onLongClick = { menuExpanded = true }, onLongClickLabel = t("Действия с сервером", "Server actions"))
                     .semantics { this.selected = selected }) {
                 Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(verticalAlignment = Alignment.Top) {
-                        Text(member, Modifier.weight(1f), color = colors.textPrimary, style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Box(Modifier.weight(1f)) {
+                            Text(member, color = colors.textPrimary, style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            DropdownMenu(menuExpanded, { menuExpanded = false }, containerColor = colors.panelFill,
+                                shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, colors.panelBorder)) {
+                                if (member in declaredProxies) DropdownMenuItem(
+                                    text = { Text(if (measuringName == member) t("Остановить пинг", "Stop ping") else t("Пинг сервера", "Ping server")) },
+                                    enabled = !ui.busy && (measurement == null || measuringName == member),
+                                    leadingIcon = { Icon(if (measuringName == member) Icons.Default.Stop else Icons.Default.Speed, null) },
+                                    onClick = { menuExpanded = false; measureOnly(member) })
+                            }
+                        }
                         if (selected) Surface(shape = androidx.compose.foundation.shape.CircleShape, color = colors.accent) {
                             Icon(Icons.Default.Check, t("Выбран", "Selected"), Modifier.padding(3.dp).size(18.dp),
                                 tint = com.danila.nimbo.ui.components.contrastingLabel(colors.accent))
@@ -359,13 +373,8 @@ internal fun MihomoProxiesScreen(onAddSubscription: () -> Unit) {
                             }
                         }
                         Spacer(Modifier.weight(1f))
-                        if (member in declaredProxies) IconButton(onClick = { measureOnly(member) },
-                            enabled = measurement == null && !ui.busy,
-                            modifier = Modifier.size(36.dp).testTag("mihomo-ping-one-$member")) {
-                            if (measuringName == member) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.accent)
-                            else Icon(Icons.Default.Speed, t("Проверить пинг этого сервера", "Check this server's latency"),
-                                Modifier.size(18.dp), tint = colors.accent)
-                        }
+                        if (measuringName == member) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.accent)
+
                     }
                 }
             }

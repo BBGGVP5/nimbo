@@ -572,12 +572,13 @@ private fun loadRoutingValue(key: String, default: String): String =
 private fun applyRoutingChange(key: String, value: String) {
     val defaults = NSUserDefaults.standardUserDefaults
     when (key) {
-        "bypassLocal", "sniffing" -> defaults.setBool(value == "true", RoutingDefaultsPrefix + key)
+        "bypassLocal", "sniffing", "adBlocking" -> defaults.setBool(value == "true", RoutingDefaultsPrefix + key)
         else -> defaults.setObject(value, RoutingDefaultsPrefix + key)
     }
     iosUiState.value = iosUiState.value.copy(
         routingBypassLocal = loadRoutingFlag("bypassLocal", true),
         routingSniffing = loadRoutingFlag("sniffing", true),
+        adBlockingEnabled = loadRoutingFlag("adBlocking", false),
         routingDns = loadRoutingValue("dns", "cloudflare")
     )
     // Пересобрать конфигурацию должен Swift: у него доступ к профилю и туннелю.
@@ -680,6 +681,28 @@ fun NimboUpdateIosMetrics(
 
 
 private val iosUiState = mutableStateOf(NimboUiState())
+
+fun NimboUpdateIosTrafficTelemetry(telemetryJson: String?, sessionAvailable: Boolean, activeAdBlockingEnabled: Boolean?) {
+    val snapshot = NimboTelemetryDecoder.decode(telemetryJson)
+    iosUiState.value = iosUiState.value.copy(
+        routeTraffic = snapshot?.routeTraffic,
+        tcpConnections = snapshot?.tcpConnections,
+        udpConnections = snapshot?.udpConnections,
+        sessionAvailable = sessionAvailable,
+        activeAdBlockingEnabled = activeAdBlockingEnabled
+    )
+}
+
+fun NimboClearIosTrafficTelemetry() {
+    iosUiState.value = iosUiState.value.copy(routeTraffic = null, tcpConnections = null,
+        udpConnections = null, sessionAvailable = null, activeAdBlockingEnabled = null)
+}
+
+fun NimboResetIosMetrics() {
+    NimboClearIosTrafficTelemetry()
+    iosUiState.value = iosUiState.value.copy(uploadSpeed = 0, downloadSpeed = 0,
+        uploadTotal = 0, downloadTotal = 0, speedSamples = emptyList(), connectionDuration = "")
+}
 private val iosJson = Json { ignoreUnknownKeys = true }
 
 fun NimboUpdateIosUiState(
@@ -734,6 +757,7 @@ fun NimboUpdateIosUiState(
         sessions = iosSessions.value,
         routingBypassLocal = loadRoutingFlag("bypassLocal", true),
         routingSniffing = loadRoutingFlag("sniffing", true),
+        adBlockingEnabled = loadRoutingFlag("adBlocking", false),
         routingDns = loadRoutingValue("dns", "cloudflare"),
         pingOnLaunch = appearanceFlag("pingOnLaunch", true),
         pingAfterRefresh = appearanceFlag("pingAfterRefresh", true),
@@ -771,8 +795,6 @@ private val iosPendingPingIds = mutableStateOf<Set<String>>(emptySet())
 /** Start only the requested rows; a completed row must not spin until the batch ends. */
 fun NimboBeginIosPings(serverIds: List<String>) {
     iosPendingPingIds.value = serverIds.toSet()
-    iosPings.value = iosPings.value - iosPendingPingIds.value
-    NSUserDefaults.standardUserDefaults.setObject(iosJson.encodeToString(iosPings.value), PingResultsKey)
     NimboUpdateIosPings(emptyList(), emptyList(), serverIds.isNotEmpty())
 }
 
@@ -864,6 +886,7 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onImportFile = { postIosAction(ImportFileAction) },
                 onScanQr = { postIosAction(ScanQrAction) },
                 onSetRouting = { key, value -> applyRoutingChange(key, value) },
+                onSetAdBlocking = { enabled -> applyRoutingChange("adBlocking", enabled.toString()) },
                 onSetAppearance = { key, value -> applyAppearanceChange(key, value) },
                 onSetPing = { key, value -> applyPingChange(key, value) },
                 onSaveModule = { id, name, text -> saveModule(id, name, text) },

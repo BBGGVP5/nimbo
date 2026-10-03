@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -27,6 +28,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.window.Dialog
 import kotlin.math.roundToInt
 
@@ -104,11 +107,6 @@ private fun GeneralPage(state: NimboUiState, actions: NimboUiActions) {
         AppearanceToggle("Виброотклик", state.appearance.haptics) { actions.onSetAppearance("haptics", it.toString()) }
     }
     SettingsSection("Соединение") {
-        SettingsRow(NimboIconName.CONNECTION, "Проверка БС",
-            "Доступность контрольных сервисов через текущую сеть", showDivider = true,
-            onClick = actions.onOpenDiagnostics)
-        SettingsRow(NimboIconName.ROUTE, "Маршрутизация", "Обход локальных сетей, DNS и определение доменов",
-            showDivider = true, onClick = { actions.onOpenScreen(NimboScreen.ROUTING.wireName) })
         SettingsRow(NimboIconName.CONNECTION, "Системные настройки VPN", "Профиль Nimbo в настройках iOS",
             onClick = actions.onOpenSystemSettings)
     }
@@ -124,9 +122,6 @@ private fun GeneralPage(state: NimboUiState, actions: NimboUiActions) {
         AppearanceToggle("Память", state.showMemoryWidget, info = "Сколько занимает приложение") {
             actions.onSetAppearance("showMemoryWidget", it.toString())
         }
-        SettingsDivider()
-        SettingsRow(NimboIconName.STATS, "История подключений", "Трафик и завершённые сессии",
-            onClick = { actions.onOpenScreen(NimboScreen.STATS.wireName) })
     }
 }
 
@@ -341,7 +336,8 @@ private fun SystemPage(state: NimboUiState, actions: NimboUiActions) {
 @Composable
 internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        BasicText(title, style = NimboSectionTitleStyle)
+        BasicText(title, Modifier.padding(start = 16.dp, top = 4.dp),
+            style = NimboBodyStyle.copy(color = NimboPalette.TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium))
         NimboSurface(Modifier.fillMaxWidth(), cornerRadius = 18.dp,
             padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) { Column { content() } }
     }
@@ -382,7 +378,7 @@ private fun SystemValue(label: String, value: String) {
 
 @Composable
 internal fun NimboSettingsBack(title: String, onClick: () -> Unit) {
-    NimboSettingsAction("‹ $title", modifier = Modifier.nimboControlSurface(RoundedCornerShape(12.dp)), onClick = onClick)
+    NimboSettingsAction("‹ $title", onClick = onClick)
 }
 
 @Composable
@@ -397,7 +393,10 @@ internal fun NimboSettingsAction(title: String, modifier: Modifier = Modifier, e
 @Composable
 internal fun NimboSettingsInfo(title: String, message: String) {
     var open by remember { mutableStateOf(false) }
-    NimboIconButton(NimboIconName.INFO, Modifier.size(44.dp).semantics { contentDescription = "Информация: $title" }) { open = true }
+    Box(Modifier.size(44.dp).clip(CircleShape).clickable(role = Role.Button) { open = true }
+        .semantics { contentDescription = "Информация: $title" }, contentAlignment = Alignment.Center) {
+        NimboIcon(NimboIconName.INFO, tint = NimboPalette.TextSecondary, modifier = Modifier.size(20.dp))
+    }
     if (open) NimboSettingsDialog(title, onDismiss = { open = false }) {
         SelectionContainer { BasicText(message, style = NimboBodyStyle.copy(color = NimboPalette.Text)) }
     }

@@ -68,6 +68,10 @@ func (p *mobileProtector) Protect(int64) bool {
 // Host fixture installs a real native GLOBAL proxy graph and the actual mobile
 // handlers, but never forges StartAndroid/TUN readiness on a non-Android host.
 func mobileFixture(t *testing.T) (*mobileSession, *mobileProtector) {
+	return mobileFixtureSource(t, mobileConfig)
+}
+
+func mobileFixtureSource(t *testing.T, source string) (*mobileSession, *mobileProtector) {
 	t.Helper()
 	stopTest(t)
 	p := &mobileProtector{}
@@ -75,7 +79,7 @@ func mobileFixture(t *testing.T) (*mobileSession, *mobileProtector) {
 	SetSocketProtector(p)
 	ctx, cancel := context.WithCancel(context.Background())
 	m := newMobileSession(ctx, cancel)
-	d, err := inspect(mobileConfig)
+	d, err := inspect(source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +95,7 @@ func mobileFixture(t *testing.T) (*mobileSession, *mobileProtector) {
 	m.installDNS(d)
 	singleton.mu.Lock()
 	singleton.state = "running"
-	singleton.session = &session{ctx: ctx, cancel: cancel, mobile: m}
+	singleton.session = &session{ctx: ctx, cancel: cancel, mobile: m, cfg: cfg, doc: d}
 	singleton.mu.Unlock()
 	t.Cleanup(func() {
 		m.close()

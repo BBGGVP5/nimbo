@@ -1,3 +1,17 @@
+## Windows x64 managed native TUN (3 October 2026)
+
+Source integration now includes a separate authenticated LocalSystem broker,
+protected Program Files installation, exact compiled binary identity and owned
+named-pipe leases. The legacy broad process-kill pipe has no new network commands.
+The GUI uses the native TUN controller without YAML-to-Xray conversion. The native
+Windows-only exclusive adapter option is not a subscription setting; constructor
+errors roll back Wintun/WFP resources and every route-add error is checked.
+
+Local unit/source-build checks pass. Real adapter, TCP4/6, UDP, DNS, selector and
+joined teardown acceptance runs only in the explicitly disposable Windows GitHub
+VM; its result is a separate pending gate. Windows x86/ARM64 native Mihomo, Both,
+persistent Kill Switch and hard-crash recovery are not claimed. See VERIFICATION.md.
+
 # Nimbo embedded core adapter (wire API 1)
 
 This is executable Go source using **actual Mihomo v1.19.31**, not a YAML-to-server
@@ -20,7 +34,22 @@ Optional `cmd/cbridge` contains versioned C entry/free symbols; CGO/linking requ
 a platform compiler and is a separate build gate. Do not add another Go runtime
 beside an existing Go archive to use this wrapper.
 
-## Desktop implemented semantics and explicit limits
+## Privileged desktop TUN native path (2026-10-02)
+
+A separate trusted `StartDesktopTun` / framed `serve-tun` path now uses the real
+Mihomo sing-tun system stack on Windows/Linux. It does not convert YAML to Xray
+or pretend a TCP proxy is a VPN. Native rules/resolver/providers and hot selection
+remain upstream; interface/routes/DNS have one privileged lifetime. See the
+ownership contract and remaining service/UI/crash-recovery gates in [API.md](API.md).
+The legacy `desktop-proxy` path below is intentionally unchanged and narrower.
+
+Portable source verification/build:
+`python scripts/ci/build-mihomo-desktop.py --target linux/amd64 --output /absolute/scratch/output`
+(or linux/arm64 / windows/amd64). Includes source hashes and upstream notices.
+No root GUI and no new command on the Windows helper's existing broad pipe.
+Only guarded disposable namespaces exercise native host-network mutation.
+
+## Desktop-proxy implemented semantics and explicit limits
 
 * Inspect returns exact original UTF-8, SHA-256 and complete declared proxy/group/
   provider mappings. Unknown keys remain in original/graph; strict issues prevent
@@ -137,3 +166,34 @@ inventory remain release/legal review gates, not waived by passing unit tests.
 
 See [ANDROID-MILESTONE.md](ANDROID-MILESTONE.md) and the trusted Android section of [API.md](API.md). StartAndroid + with_gvisor owns a CLOEXEC duplicate and session-scoped IPv4 TCP/UDP/DNS tasks. Generic Android Invoke start is rejected. Android rule mode now supports only native IP-CIDR/SRC-IP-CIDR, port, network, managed RULE-SET and explicit final MATCH rules; unsupported rule classes are rejected and unmatched traffic drops. This is not full Mihomo mobile support; keep the product gate. Bootstrap DNS and provider HTTP are protected direct; application DNS follows the session's selected native rule graph over TCP without implicit direct fallback. Desktop behavior above remains separate.
 
+
+
+## Linux native crash-rule recovery (3 October 2026)
+
+The root desktop owner writes a bounded, mode-0600 `/run/nimbo-mihomo-tun-rules.json`
+plan before the first kernel rule addition. It records boot ID, network namespace,
+PID/start time, exact selectors/actions and a random per-session fwmark with zero
+mask. The zero mask is metadata only, not an additional packet filter. The pinned
+sing-tun ownership patch routes cleanup through this exact plan; ordinary mobile
+and Windows construction leave those trusted callbacks unset. Callbacks are
+excluded from subscription YAML/JSON. The pinned netlink readback patch retains
+rule action and mark presence, so foreign action changes are not normalized away.
+
+`nimbo-mihomo recover-tun` is a fixed Linux-root CLI, not an Invoke operation or a
+client-selected path. It requires the exclusive ownership lock, same boot/netns,
+a dead journal process identity and a retired TUN. It only deletes exact marked
+planned rules; unknown marked rules and invalid/unsafe journals fail closed.
+Foreign routes, interfaces and same-priority rules are not deleted. A retained or
+unsafe WAL also reserves network ownership across helper restart, preventing
+legacy Xray/AWG from taking over unknown state; a failed down keeps its lease. Both normal
+close and abnormal-child broker cleanup verify rule retirement before deleting
+and fsyncing the journal. A later native start can replay a dead owner's WAL after
+both native and helper SIGKILL. Old unjournaled stale state is deliberately not
+adopted; broad migration cleanup is unsafe.
+
+Local opt-in tests ran in fresh network AND mount namespaces with private `/run`
+and installation roots. They exercised TCP4/6, UDP, UDP/TCP DNS, hot selection,
+ordinary shutdown, native/helper/both-process crashes, a partial installed WAL
+subset, foreign-rule retention and refusal of live-owner, wrong-identity,
+symlink, non-private, oversized and unknown-mark state. This does not verify
+physical-machine power loss, Windows TUN ownership or real-provider availability.

@@ -284,6 +284,8 @@ export interface AppPreferences {
   show_speed_chart: boolean;
   show_memory_usage: boolean;
   connection_kill_switch: boolean;
+  /** Local ad-domain overlay, applied on the next connection. */
+  ad_blocking_enabled: boolean;
   /** MTU TUN-интерфейса; 0 — значение по умолчанию. */
   tunnel_mtu: number;
   /** DNS внутри туннеля через запятую; пусто — встроенная пара. */
@@ -497,7 +499,20 @@ export interface RoutingProfileList {
   active: string;
 }
 
+export interface RouteTraffic {
+  proxy_upload: number;
+  proxy_download: number;
+  direct_upload: number;
+  direct_download: number;
+}
+
 export interface TrafficStats {
+  /** Absent on older native binaries; false means no measured session totals. */
+  session_available?: boolean;
+  route_traffic?: RouteTraffic | null;
+  /** Currently active core-tracked connections; unsupported cores return null. */
+  tcp_connections?: number | null;
+  udp_connections?: number | null;
   session_upload: number;
   session_download: number;
   upload_speed: number;
@@ -653,6 +668,7 @@ export const defaultAppPreferences: AppPreferences = {
   show_speed_chart: true,
   show_memory_usage: false,
   connection_kill_switch: false,
+  ad_blocking_enabled: false,
   tunnel_mtu: 0,
   tunnel_dns: "",
   tunnel_sniffing: true,
@@ -777,6 +793,7 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     show_speed_chart: value?.show_speed_chart !== false,
     show_memory_usage: Boolean(value?.show_memory_usage),
     connection_kill_switch: Boolean(value?.connection_kill_switch),
+    ad_blocking_enabled: value?.ad_blocking_enabled === true,
     tunnel_mtu: Number.isFinite(Number(value?.tunnel_mtu)) ? Number(value?.tunnel_mtu) : 0,
     tunnel_dns: typeof value?.tunnel_dns === "string" ? value.tunnel_dns : "",
     tunnel_sniffing: value?.tunnel_sniffing !== false,
@@ -1222,6 +1239,10 @@ function browserTrafficStats(): TrafficStats {
   return {
     session_upload: session.upload,
     session_download: session.download,
+    session_available: false,
+    route_traffic: null,
+    tcp_connections: null,
+    udp_connections: null,
     upload_speed: 0,
     download_speed: 0,
     speed_available: false,

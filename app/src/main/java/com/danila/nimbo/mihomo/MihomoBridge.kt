@@ -63,17 +63,21 @@ object MihomoBridge {
             it["sourceSHA256"]?.asString != MihomoProtocol.sourceHash(yaml)) throw MihomoException("SOURCE_MISMATCH")
     }
 
-    fun startAndroid(yaml: String, dataDir: String, fd: Long, requestId: String, ipv6: Boolean, physicalDns: List<String> = emptyList()): JsonObject {
-        val fields = JsonObject().apply {
+    internal fun androidStartFields(dataDir: String, ipv6: Boolean, physicalDns: List<String>, adBlocking: Boolean = false): JsonObject =
+        JsonObject().apply {
             add("options", JsonObject().apply {
                 addProperty("networkOwner", "android-vpn")
                 addProperty("dataDir", dataDir)
                 addProperty("startupTimeoutMs", 20000)
                 addProperty("androidIPv6", ipv6)
+                // Old native binaries reject unknown fields; default-off remains compatible.
+                if (adBlocking) addProperty("adBlocking", true)
                 add("androidSystemDNS", com.google.gson.JsonArray().apply { physicalDns.forEach { add(it) } })
             })
         }
-        val request = MihomoProtocol.request("start", yaml, fields = fields, requestId = requestId)
+    fun startAndroid(yaml: String, dataDir: String, fd: Long, requestId: String, ipv6: Boolean, physicalDns: List<String> = emptyList(), adBlocking: Boolean = false): JsonObject {
+        val request = MihomoProtocol.request("start", yaml,
+            fields = androidStartFields(dataDir, ipv6, physicalDns, adBlocking), requestId = requestId)
         return decode(invokeNative("nimboMihomoStartAndroid", arrayOf(String::class.java, java.lang.Long.TYPE),
             request.toString(), fd), requestId).data
     }

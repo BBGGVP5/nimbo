@@ -4,6 +4,9 @@ import Foundation
 struct LiveActivityPolicyTests {
     static func main() {
         for phase in [NimboLivePhase.connecting, .connected, .recovering, .disconnecting, .idle] {
+            precondition(NimboLiveActivityPolicy.shouldEnd(phase: phase, enabled: false, authorized: true))
+            precondition(NimboLiveActivityPolicy.shouldEnd(phase: phase, enabled: true, authorized: false))
+            precondition(NimboLiveActivityPolicy.shouldEnd(phase: phase, enabled: true, authorized: true) == !phase.isOngoing)
             for english in [false, true] {
                 precondition((phase.compactText(english: english)?.count ?? 0) <= 7)
                 precondition(phase.compactText(english: english, stale: true) == "?")
@@ -18,6 +21,8 @@ struct LiveActivityPolicyTests {
             precondition(!NimboLiveActivityPolicy.shouldStart(phase: .connected, enabled: denial != 0,
                 authorized: denial != 1, foreground: denial != 2, dismissed: denial == 3))
         }
+        precondition(NimboLivePhase.connected.title(english: false).contains("NIMBO"))
+        precondition(NimboLivePhase.connected.title(english: true).contains("NIMBO"))
         precondition(NimboLiveActivityPolicy.staleInterval <= 90)
         print("Live Activity policy: PASS (states, localization, icon-only, permission, foreground, dismissal)")
     }

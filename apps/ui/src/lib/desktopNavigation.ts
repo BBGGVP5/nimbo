@@ -20,6 +20,5 @@ export const desktopNavItems: DesktopNavItem[] = [
   { to: '/tunnel-logs', key: 'tunnelLogs', icon: 'logs', end: true, compactHide: true },
   { to: '/notifications', key: 'notifications', icon: 'bell', end: true, compactHide: true },
   { to: '/sync', key: 'sync', icon: 'sync', end: true, group: true, compactHide: true },
-  { to: '/mihomo', key: 'mihomo', icon: 'core', end: true, compactHide: true },
   { to: '/settings', key: 'settings', icon: 'settings', end: true, group: true, compactHide: false },
 ];

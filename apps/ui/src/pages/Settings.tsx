@@ -1,5 +1,7 @@
 import { AppearanceThemePreview } from "../components/AppearanceThemePreview";
+import { OnDemandSetting } from "../components/OnDemandSetting";
 import { CorePreferenceSetting } from "../components/CorePreferenceSetting";
+import { useCoreStore } from "../coreStore";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useState } from "react";
@@ -130,6 +132,10 @@ export function Settings() {
       notifyError(String(e));
     }
   };
+
+  useEffect(() => {
+    if (isTauriRuntime()) void useCoreStore.getState().refresh();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -421,25 +427,29 @@ export function Settings() {
 function SettingsOverview({ preferences, version, onSelect }: { preferences: AppPreferences; version: string; onSelect: (section: SettingsSection) => void }) {
   const m = useMessages();
   const ru = m.common.locale.startsWith("ru");
+  const core = useCoreStore(s => s.data?.preferred_core ?? null);
+  const coreLabel = core === "auto" ? ru ? "Авто" : "Auto" : core === "xray" ? "Xray" : core === "mihomo" ? "Mihomo" : core === "awg" ? "AWG" : ru ? "Выбор ядра" : "Core selection";
   const row = (id: SettingsSection, detail?: string) => {
     const item = sectionItems.find(item => item.id === id)!;
     return <button type="button" className="parity-setting-link" key={id} onClick={() => onSelect(id)}><span className="parity-setting-icon">{item.icon}</span><span><strong>{m.settings[item.labelKey]}</strong>{detail && <small>{detail}</small>}</span><span aria-hidden="true">›</span></button>;
   };
   const link = (to: string, title: string, icon: ReactNode, detail?: string) => <Link className="parity-setting-link" to={to}><span className="parity-setting-icon">{icon}</span><span><strong>{title}</strong>{detail && <small>{detail}</small>}</span><span aria-hidden="true">›</span></Link>;
   return <div className="parity-settings-overview">
-    <div><section className="parity-settings-group"><h2>{m.settings.connection}</h2><div className="parity-settings-list">
+    <section className="parity-settings-group"><h2>{m.settings.connection}</h2><div className="parity-settings-list">
       {row("latency", preferences.latency_protocol === "nimbo" ? "Nimbo Ping" : ({ tcp_connect: "TCP Connect", http_get: "HTTP GET", http_head: "HTTP HEAD", icmp: "ICMP" }[preferences.latency_protocol] ?? preferences.latency_protocol))}
       {link("/routing", m.app.routing, <RouteIcon />, ru ? "Правила и модули" : "Rules and modules")}
-      {row("tunnel", "DNS · TLS · MTU")}{row("connection", ru ? "Режим, прокси и Kill Switch" : "Mode, proxy and Kill Switch")}{row("lan")}
-    </div></section><section className="parity-settings-group"><h2>{m.settings.subscriptions}</h2><div className="parity-settings-list">
-      {row("subscriptions", ru ? "Обновление и импорт" : "Refresh and import")}{row("servers")}{link("/sync", m.app.sync, <RefreshIcon />)}{row("backup")}
-    </div></section></div>
-    <div><section className="parity-settings-group"><h2>{ru ? "Приложение" : "Application"}</h2><div className="parity-settings-list">
-      {row("appearance", ru ? "Тема и цвет" : "Theme and colour")}{row("updates", `v${version}`)}{row("general")}
-      {link("/apps", m.app.apps, <ConnectionsIcon />)}{link("/notifications", m.app.notifications, <InfoIcon />)}
+      {row("tunnel", "DNS · TLS · MTU")}{row("connection", `${ru ? "Ядро" : "Core"}: ${coreLabel} · TUN · Kill Switch`)}{row("lan", ru ? "Доступ к локальной сети" : "Local network access")}
+    </div></section>
+    <section className="parity-settings-group"><h2>{ru ? "Приложение" : "Application"}</h2><div className="parity-settings-list">
+      {row("appearance", ru ? "Тема и цвет" : "Theme and colour")}{row("general", ru ? "Язык и запуск" : "Language and startup")}
+      {link("/notifications", m.app.notifications, <InfoIcon />, ru ? "События и сообщения" : "Events and messages")}
+      {row("updates", `v${version}`)}{row("about", `Nimbo · ${version}`)}
+    </div></section>
+    <section className="parity-settings-group"><h2>{m.settings.subscriptions}</h2><div className="parity-settings-list">
+      {row("subscriptions", ru ? "Обновление и импорт" : "Refresh and import")}{row("servers", ru ? "Сортировка и отображение" : "Sorting and display")}{link("/sync", m.app.sync, <RefreshIcon />, ru ? "Обмен между устройствами" : "Device sync")}{row("backup", ru ? "Экспорт и восстановление" : "Export and restore")}
     </div></section><section className="parity-settings-group"><h2>{ru ? "Диагностика" : "Diagnostics"}</h2><div className="parity-settings-list">
-      {link("/connections", m.app.connections, <ConnectionsIcon />)}{link("/statistics", m.app.statistics, <StatsBarsIcon />)}{link("/tunnel-logs", m.app.tunnelLogs, <LogsIcon />)}{row("about", `Nimbo · ${version}`)}
-    </div></section></div>
+      {link("/connections", m.app.connections, <ConnectionsIcon />, ru ? "Активные соединения" : "Active connections")}{link("/statistics", m.app.statistics, <StatsBarsIcon />, ru ? "Трафик и скорость" : "Traffic and speed")}{link("/tunnel-logs", m.app.tunnelLogs, <LogsIcon />, ru ? "Журнал ядра" : "Core log")}{link("/apps", m.app.apps, <ConnectionsIcon />, ru ? "Правила для приложений" : "Application rules")}
+    </div></section>
   </div>;
 }
 
@@ -635,6 +645,7 @@ function ConnectionSection({
         />
         <ResetKillSwitchRow />
       </SettingsCard>
+      <SettingsCard><OnDemandSetting /></SettingsCard>
       <SettingsCard>
         <ValueRow label="HTTP proxy" value={httpProxy} copyValue={httpProxy} mono icon={<PlugIcon />} />
         <ValueRow label="SOCKS5 proxy" value={socksProxy} copyValue={socksProxy} mono icon={<PlugIcon />} />
@@ -1045,6 +1056,7 @@ function LatencySection({
 
   return (
     <Section title={m.settings.latency}>
+      <SettingsCard><CorePreferenceSetting context="latency" /></SettingsCard>
       <SettingsCard>
         <fieldset className="parity-radio-list"><legend>{m.settings.protocol}</legend>
           {[
@@ -1058,7 +1070,6 @@ function LatencySection({
         {["nimbo", "http_get", "http_head"].includes(preferences.latency_protocol) && (<>
           <SettingsChoiceRow
             label={m.settings.testUrl}
-            description={m.settings.latencyActiveRouteOnly}
             value={customUrl ? "custom" : preferences.latency_test_url}
             options={[...LATENCY_URL_PRESETS, { value: "custom", label: m.settings.latencyCustomUrl }]}
             onChange={async value => {
@@ -1067,6 +1078,10 @@ function LatencySection({
             }}
             icon={<GlobeIcon />}
           />
+          <details className="latency-routing-help">
+            <summary>{m.common.locale.startsWith("ru") ? "Подробнее о проверке" : "How the probe works"}</summary>
+            <p>{m.settings.latencyActiveRouteOnly}</p>
+          </details>
           {customUrl && <SettingsInputRow
             label={m.settings.testUrl}
             value={testUrlDraft}
@@ -1729,7 +1744,7 @@ function SettingsChoiceRow<T extends string>({
   icon?: ReactNode;
 }) {
   return (
-    <div className="settings-row">
+    <div className="settings-row settings-choice-row">
       <div className="settings-row-label-container">
         {icon && <span className="settings-row-icon">{icon}</span>}
         <div className="min-w-0">

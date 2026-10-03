@@ -14,6 +14,7 @@ import { startVisiblePolling } from "../lib/visiblePolling";
 import { expireLabels, useMessages } from "../lib/i18n";
 import { serverDisplayLabel, useServerUiOverrides } from "../lib/serverUiOverrides";
 import type { Messages } from "../lib/i18n";
+import { ServerContextMenu } from "../components/ServerContextMenu";
 import { pingServersProgressively } from "../lib/ping";
 import { useCachedSubscriptionLogo } from "../lib/subscriptionLogo";
 import { useAppStore } from "../store";
@@ -506,13 +507,12 @@ export function Home() {
   };
 
   const onPingServers = async (entries: ServerEntry[] = baseEntries) => {
-    if (pingAbort.current) { pingAbort.current.abort(); return; }
+    if (pingAbort.current) { pingAbort.current.abort(); setPinging(false); setPingingServerIds(new Set()); return; }
     if (!entries.length) return;
     const controller = new AbortController();
     pingAbort.current = controller;
     const serverIds = entries.map(({ server }) => server.id);
     setPinging(true);
-    serverIds.forEach(id => setServerPing(id, null));
     setPingingServerIds(new Set(serverIds));
     try {
       await pingServersProgressively(serverIds, (result) => {
@@ -531,25 +531,8 @@ export function Home() {
   };
 
   const onPingServer = async (serverId: string) => {
-    setPingingServerIds((current) => {
-      const next = new Set(current);
-      next.add(serverId);
-      return next;
-    });
-    try {
-      setServerPing(serverId, null);
-      const result = await api.pingServer(serverId);
-      if (result.error) notifyError(result.error);
-      setServerPing(result.server_id, result.latency_ms ?? null);
-    } catch (e) {
-      notifyError(String(e));
-    } finally {
-      setPingingServerIds((current) => {
-        const next = new Set(current);
-        next.delete(serverId);
-        return next;
-      });
-    }
+    const target = baseEntries.find(({ server }) => server.id === serverId);
+    if (target) await onPingServers([target]);
   };
 
   const onToggleConnection = async () => {
@@ -795,6 +778,7 @@ export function Home() {
               onShowFavOnly={setShowFavOnly}
               onPickServer={(server) => void onToggleServer(server.id)}
               pinging={pinging}
+              onPingServer={id => void onPingServer(id)}
               onPing={() => void onPingServers(sub.servers.map(server => ({ server, sub })))}
               onSwitchSubscription={(url) => void onSwitchSubscription(url)}
               hiddenCount={hiddenServerCount}
@@ -1152,6 +1136,7 @@ function CompactServerSheet({
             activeId={panelProps.activeId}
             pingByServer={panelProps.pingByServer}
             pingingServerIds={panelProps.pingingServerIds as Set<string>}
+            onPingServer={id => void panelProps.onPingServer(id)}
             favorites={panelProps.favorites as Set<string>}
             onToggleFavorite={panelProps.onToggleFavorite}
             sortMode={panelProps.sortMode}
@@ -1466,7 +1451,10 @@ function ServerSidePanel({
             const isFav = favorites.has(server.id);
 
             return (
-              <div
+              <ServerContextMenu label={labels.profiles.serverMenu} actions={[
+                  { label: pingingServerIds.has(server.id) ? (labels.common.locale.startsWith("ru") ? "Остановить пинг" : "Stop ping") : labels.profiles.testLatency, onClick: () => void onPingServer(server.id) },
+                  { label: isFav ? labels.home.removeFromFavorites : labels.home.addToFavorites, onClick: () => onToggleFavorite(server.id) },
+                ]}
                 key={server.id}
                 className={[
                   "server-side-entry group relative flex items-center rounded-lg transition-all",
@@ -1507,7 +1495,7 @@ function ServerSidePanel({
                     />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="server-side-name text-[14px] font-semibold text-white">{label}</div>
+                    <div className="server-side-name text-[14px] font-semibold text-white" data-server-menu-anchor>{label}</div>
                     {description && (
                       <div className="server-side-description text-[12px] text-[var(--color-text-faint)]">
                         {description}
@@ -1532,22 +1520,9 @@ function ServerSidePanel({
                   >
                     <StarIcon filled={isFav} />
                   </button>
-                  <button
-                    onClick={() => void onPingServer(server.id)}
-                    title={pinging ? labels.common.cancel : labels.home.pingServers}
-                    aria-label={labels.home.pingServers}
-                    disabled={pingingServerIds.has(server.id)}
-                    className={[
-                      "server-side-action-button grid h-7 w-7 shrink-0 place-items-center rounded-md transition-all",
-                      pingingServerIds.has(server.id)
-                        ? "server-side-action-pinned text-[var(--color-accent-bright)] opacity-100"
-                        : "text-[var(--color-text-faint)] opacity-0 group-hover:opacity-70 hover:bg-[var(--color-glass-bg-strong)] hover:text-white",
-                    ].join(" ")}
-                  >
-                    <PingIcon spinning={pingingServerIds.has(server.id)} />
-                  </button>
+
                 </div>
-              </div>
+              </ServerContextMenu>
             );
           })
         )}

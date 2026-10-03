@@ -27,6 +27,12 @@ def main():
     for symbol in ['CGoFree', 'NimboMihomoFreeV1']:
         getattr(library, symbol).argtypes = [ctypes.c_void_p]
         getattr(library, symbol).restype = None
+    library.NimboMihomoStartIOSPacketFlowV1.argtypes = [ctypes.c_char_p]
+    library.NimboMihomoStartIOSPacketFlowV1.restype = ctypes.c_void_p
+    library.NimboMihomoWriteIOSPacketV1.argtypes = [ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+    library.NimboMihomoWriteIOSPacketV1.restype = ctypes.c_int
+    library.NimboMihomoReadIOSPacketV1.argtypes = [ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+    library.NimboMihomoReadIOSPacketV1.restype = ctypes.c_int
     library.NimboMihomoStartIOSV1.argtypes = [ctypes.c_char_p, ctypes.c_int64]
     library.NimboMihomoStartIOSV1.restype = ctypes.c_void_p
     callback_type = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int64, ctypes.c_void_p)
@@ -57,6 +63,13 @@ def main():
     assert not response(library.NimboMihomoCancelV1(b'{"apiVersion":1,"operation":"start"}'))['success']
     assert response(library.NimboMihomoCancelV1(b'{"apiVersion":1,"requestId":"cancel","operation":"cancel","targetRequestId":"never-start"}'))['success']
 
+    packet_gate = response(library.NimboMihomoStartIOSPacketFlowV1(b'{"requestId":"packet-ios"}'))
+    assert not packet_gate['success'] and packet_gate['error']['code'] == 'PLATFORM_UNAVAILABLE'
+    assert packet_gate['requestId'] == 'packet-ios'
+    output = ctypes.create_string_buffer(1500)
+    assert library.NimboMihomoWriteIOSPacketV1(0, None, 20) == -2
+    assert library.NimboMihomoReadIOSPacketV1(0, output, 1500, 50) == -1
+    assert library.NimboMihomoReadIOSPacketV1(0, output, 10, 50) == -2
     calls = []
     token = ctypes.c_int(37)
     @callback_type
@@ -104,7 +117,7 @@ def main():
         server.server_close()
         thread.join(timeout=5)
         assert response(library.NimboMihomoSetSocketProtectorV1(callback_type(), None))['success']
-    print('Merged API3 + Mihomo V1: source identity, lifecycle, cancel, free and denied socket callback passed; iOS TUN unavailable')
+    print('Merged API3 + Mihomo V1: source identity, lifecycle, cancel, free and denied socket callback passed; host cannot open an iOS packet tunnel')
 
 
 if __name__ == '__main__':

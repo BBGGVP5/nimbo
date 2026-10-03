@@ -11,6 +11,25 @@ permissions:
   contents: read
 
 jobs:
+  ios_session_contracts:
+    name: iOS session policy (macOS)
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute production Swift admission, ping cache and path ownership policies
+        run: python3 scripts/ci/test-ios-packet-flow.py --swift
+      - name: Verify generation-safe provider and existing native ping contracts
+        run: |
+          python3 scripts/ci/test-ios-mihomo-source.py
+          python3 iosApp/Tests/test_ping_contracts.py --swift
+          python3 iosApp/Tests/test_on_demand_contracts.py --swift
+          python3 iosApp/Tests/test_traffic_statistics_contracts.py --swift
+          python3 scripts/ci/test_gomobile_memory_limits.py
+
   verify:
     name: Проверка (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -56,6 +75,7 @@ jobs:
         working-directory: apps/ui
         run: |
           npm ci
+          npm test
           npm run build
 
       - name: Собрать frontend установщика
@@ -64,8 +84,27 @@ jobs:
           npm ci
           npm run build
 
+      - name: Set up pinned Go for Linux Mihomo/helper source build
+        if: runner.os == 'Linux'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: tools/native/mihomo-core/go.sum
+
+      - name: Подготовить проверенный Linux helper
+        if: runner.os == 'Linux'
+        run: node apps/ui/scripts/build-linux.mjs --prepare-only
+
+      - name: Проверить парсеры Linux-пакетов
+        if: runner.os == 'Linux'
+        run: python3 tools/release/test_linux_payload.py
+
       - name: Запустить Rust-тесты
         run: cargo test --workspace --all-targets --exclude nimbo-installer
+
+      - name: Проверить изолированный Xray ping на настоящем CLI
+        if: runner.os == 'Linux'
+        run: python3 tools/release/run-native-ping-tests.py
 
       - name: Проверить форматирование Rust
         run: cargo fmt --all -- --check

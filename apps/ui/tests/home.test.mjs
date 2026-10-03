@@ -85,6 +85,7 @@ function fixture({ style = 'classic', state = 'connected', stored = {}, memory }
     "../lib/homeMonitor": monitor,
     "../lib/latency": latency,
     "../components/Universal": stub("Dialog"),
+    "../components/ServerContextMenu": stub("ServerContextMenu"),
     "../components/ConnectionStateIcon": stub("ConnectionStateIcon"),
     "../components/OperationPhrase": stub("OperationPhrase"),
     react,

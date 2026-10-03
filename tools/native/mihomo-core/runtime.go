@@ -1,5 +1,6 @@
 // Package mihomocore embeds the pinned Mihomo core behind a versioned JSON facade.
-// It never changes the host system proxy, routes, DNS configuration or firewall.
+// Host network mutation is restricted to the trusted privileged desktop TUN entry.
+// Plain Invoke and the desktop-proxy owner never change routes/DNS/firewall.
 package mihomocore
 
 import (
@@ -42,9 +43,13 @@ const coreVersion = "v1.19.31"
 const coreCommit = "ab405bad5beeeac8b003bb01f60f134f6df54471"
 
 type startOptions struct {
+	AdBlocking        bool     `json:"adBlocking,omitempty"`
+	DesktopIPv6       bool     `json:"desktopIPv6,omitempty"`
 	DataDir           string   `json:"dataDir"`
 	NetworkOwner      string   `json:"networkOwner"`
 	AndroidSystemDNS  []string `json:"androidSystemDNS,omitempty"`
+	PacketIPv6        bool     `json:"packetIPv6,omitempty"`
+	PacketSystemDNS   []string `json:"packetSystemDNS,omitempty"`
 	AndroidIPv6       bool     `json:"androidIPv6,omitempty"`
 	MixedAddress      string   `json:"mixedAddress"`
 	ControllerAddress string   `json:"controllerAddress"`
@@ -65,6 +70,8 @@ type request struct {
 	ExpectedStatus     string       `json:"expectedStatus,omitempty"`
 	TargetRequestID    string       `json:"targetRequestId,omitempty"`
 	responseGeneration uint64
+	desktopOwner       bool   // trusted privileged entry; never decoded from JSON
+	packetOwner        bool   // trusted packet-flow entry; never decoded from JSON
 	borrowedFD         *int64 // trusted local entry only; never decoded from JSON
 }
 type response struct {
@@ -88,6 +95,7 @@ type runtimeStatus struct {
 }
 
 type capabilitySet struct {
+	DesktopTun   bool `json:"desktopTun"`
 	DesktopProxy bool `json:"desktopProxy"`
 	AndroidVPN   bool `json:"androidVpn"`
 	IOSVPN       bool `json:"iosVpn"`
@@ -105,6 +113,7 @@ type capabilitySet struct {
 	Counters     bool `json:"counters"`
 }
 type session struct {
+	trafficBase        trafficBaseline
 	cfg                *config.Config
 	doc                *inspection
 	mixed              io.Closer
@@ -119,12 +128,14 @@ type session struct {
 	oldLogLevel        log.LogLevel
 	oldDNS             dnsState
 	oldAndroidGlobals  androidGlobalState
+	desktopCleanupErr  error
 	ctx                context.Context
 	cancel             context.CancelFunc
 	watchDone          chan struct{}
 	closeProvidersOnce sync.Once
 	cacheOpened        bool
 	mobile             *mobileSession
+	packet             ownedPacketFlow
 	tun                io.Closer
 }
 type manager struct {
@@ -146,16 +157,18 @@ type manager struct {
 var singleton = manager{state: "stopped"}
 
 func capabilities() capabilitySet {
+	mobileFeatures := androidTunCompiled || (packetFlowCompiled && runtime.GOOS == "ios")
 	return capabilitySet{
 		DesktopProxy: true,
+		DesktopTun:   desktopTunCompiled,
 		AndroidVPN:   androidTunCompiled,
-		IOSVPN:       false,
-		RuleRouting:  androidTunCompiled,
+		IOSVPN:       packetFlowCompiled && runtime.GOOS == "ios",
+		RuleRouting:  mobileFeatures,
 		IPv4:         true,
-		IPv6:         androidTunCompiled, // The Android Builder and Mihomo TUN share an explicit dual-stack opt-in.
+		IPv6:         mobileFeatures, // The Android Builder and Mihomo TUN share an explicit dual-stack opt-in.
 		TCP:          true,
-		UDP:          androidTunCompiled,
-		DNS:          androidTunCompiled,
+		UDP:          mobileFeatures,
+		DNS:          mobileFeatures,
 		Providers:    true,
 		ProviderAuto: true,
 		GroupSelect:  true,
@@ -171,7 +184,15 @@ func Invoke(input string) (output string) {
 	return invoke(input, nil)
 }
 
-func invoke(input string, borrowedFD *int64) (output string) {
+func invoke(input string, borrowedFD *int64) string {
+	return invokeOwned(input, borrowedFD, false)
+}
+
+func invokeOwned(input string, borrowedFD *int64, packetOwner bool) string {
+	return invokeOwners(input, borrowedFD, packetOwner, false)
+}
+
+func invokeOwners(input string, borrowedFD *int64, packetOwner, desktopOwner bool) (output string) {
 	r := request{}
 	resp := response{APIVersion: 1}
 	singleton.mu.Lock()
@@ -211,6 +232,16 @@ func invoke(input string, borrowedFD *int64) (output string) {
 	}
 	resp.RequestID = r.RequestID
 	r.borrowedFD = borrowedFD
+	r.packetOwner = packetOwner
+	r.desktopOwner = desktopOwner
+	if desktopOwner && (r.Operation != "start" || packetOwner || borrowedFD != nil) {
+		resp.Error = problem("INVALID_REQUEST", "operation", "desktop TUN entry accepts only start")
+		return
+	}
+	if packetOwner && (r.Operation != "start" || borrowedFD != nil) {
+		resp.Error = problem("INVALID_REQUEST", "operation", "packet-flow entry accepts only start")
+		return
+	}
 	if borrowedFD != nil && r.Operation != "start" {
 		resp.Error = problem("INVALID_REQUEST", "operation", "StartAndroid accepts only start")
 		return
@@ -237,7 +268,7 @@ func invoke(input string, borrowedFD *int64) (output string) {
 func (m *manager) statusLocked() runtimeStatus {
 	s := m.info
 	s.State = m.state
-	if m.state == "running" && m.session != nil && m.session.mobile != nil && m.session.ctx.Err() != nil {
+	if m.state == "running" && m.session != nil && (m.session.mobile != nil || m.session.packet != nil || m.session.doc.desktop) && m.session.ctx.Err() != nil {
 		s.State = "failed"
 		s.TunReady = false
 	}
@@ -252,6 +283,29 @@ func (m *manager) checkGeneration(r request) error {
 	}
 	return nil
 }
+
+// m.op serializes probes, but cancel/stop bypass it via m.mu. Also consume a
+// cancellation arriving before dispatch, so no cancelled request dials a node.
+func (m *manager) beginSessionProbe(s *session, r request) (context.Context, func(), error) {
+	ctx, cancel := context.WithTimeout(s.ctx, time.Duration(r.TimeoutMs)*time.Millisecond)
+	m.mu.Lock()
+	if expiry, ok := m.cancelledStarts[r.RequestID]; ok && time.Now().Before(expiry) {
+		delete(m.cancelledStarts, r.RequestID)
+		m.mu.Unlock()
+		cancel()
+		return nil, nil, problem("PROBE_CANCELLED", "requestId", "check cancelled before dispatch")
+	}
+	m.probeRequestID, m.probeCancel = r.RequestID, cancel
+	m.mu.Unlock()
+	return ctx, func() {
+		cancel()
+		m.mu.Lock()
+		m.probeRequestID = ""
+		m.probeCancel = nil
+		m.mu.Unlock()
+	}, nil
+}
+
 func (m *manager) dispatch(r *request) (any, error) {
 	m.mu.Lock()
 	r.responseGeneration = m.generation
@@ -263,6 +317,23 @@ func (m *manager) dispatch(r *request) (any, error) {
 		s := m.statusLocked()
 		m.mu.Unlock()
 		return s, nil
+	}
+	if r.Operation == "telemetry" {
+		s := m.session
+		if r.Generation == nil || m.state != "running" || s == nil || s.ctx.Err() != nil {
+			m.mu.Unlock()
+			return nil, problem("NOT_RUNNING", "", "generation-bound live session required")
+		}
+		m.mu.Unlock()
+		// Pure atomic reads do not queue behind health probes/provider refreshes.
+		result := readTelemetry(s)
+		m.mu.Lock()
+		current := m.session == s && m.state == "running" && m.generation == *r.Generation
+		m.mu.Unlock()
+		if !current {
+			return nil, problem("STALE_GENERATION", "generation", "session changed during telemetry read")
+		}
+		return result, nil
 	}
 	if r.Operation == "cancel" {
 		if r.TargetRequestID == "" || len(r.TargetRequestID) > 256 {
@@ -310,6 +381,29 @@ func (m *manager) dispatch(r *request) (any, error) {
 	}
 	if r.Operation == "inspect" {
 		return inspect(r.YAML)
+	}
+	if r.Operation == "preflightDesktopTun" {
+		d, err := inspect(r.YAML)
+		if err != nil {
+			return nil, err
+		}
+		if err := desktopRuntimePolicy(d); err != nil {
+			return nil, err
+		}
+		return map[string]any{"valid": true, "sourceSHA256": d.SourceSHA256, "scope": "privileged-desktop-tun", "compiled": desktopTunCompiled}, nil
+	}
+	if r.Operation == "preflightIOSPacketFlow" {
+		d, err := inspect(r.YAML)
+		if err != nil {
+			return nil, err
+		}
+		if err := packetRuntimePolicy(d); err != nil {
+			return nil, err
+		}
+		if err := androidRuntimePolicy(d); err != nil {
+			return nil, err
+		}
+		return map[string]any{"valid": true, "sourceSHA256": d.SourceSHA256, "scope": "ios-public-packet-flow", "compiled": packetFlowCompiled}, nil
 	}
 	if r.Operation == "preflightAndroid" {
 		// Pure source admission, safe alongside a live runtime. Do not call
@@ -398,6 +492,13 @@ func (m *manager) dispatch(r *request) (any, error) {
 		}
 	}()
 	switch r.Operation {
+	case "networkChanged":
+		if s.packet == nil {
+			return nil, problem("INVALID_REQUEST", "operation", "packet-flow session required")
+		}
+		statistic.DefaultManager.Range(func(c statistic.Tracker) bool { _ = c.Close(); return true })
+		resolver.ResetConnection()
+		return map[string]any{"reset": true}, nil
 	case "snapshot":
 		return snapshot(s)
 	case "select":
@@ -408,12 +509,20 @@ func (m *manager) dispatch(r *request) (any, error) {
 		if p.Type() != C.Selector {
 			return nil, problem("NOT_SELECTABLE", "group", "only native select groups accept a manual selection")
 		}
-		selector, ok := p.Adapter().(outboundgroup.SelectAble)
+		selector, ok := p.Adapter().(interface {
+			outboundgroup.SelectAble
+			Now() string
+		})
 		if !ok {
 			return nil, problem("NOT_SELECTABLE", "group", "native group does not support selection")
 		}
+		previous := selector.Now()
+		connections := selectedGroupConnections(s, r.Group)
 		if err := selector.Set(r.Name); err != nil {
 			return nil, problem("INVALID_SELECTION", "name", err.Error())
+		}
+		if previous != r.Name {
+			closeGroupConnections(connections)
 		}
 		if s.cfg.Profile.StoreSelected {
 			cachefile.Cache().SetSelected(r.Group, r.Name)
@@ -440,7 +549,10 @@ func (m *manager) dispatch(r *request) (any, error) {
 		if group.Type() != C.Selector {
 			return nil, problem("NOT_SELECTABLE", "group", "one-shot auto selection requires a manual select group")
 		}
-		selectable, ok := group.Adapter().(outboundgroup.SelectAble)
+		selectable, ok := group.Adapter().(interface {
+			outboundgroup.SelectAble
+			Now() string
+		})
 		if !ok {
 			return nil, problem("NOT_SELECTABLE", "group", "group does not support selection")
 		}
@@ -494,8 +606,13 @@ func (m *manager) dispatch(r *request) (any, error) {
 				return nil, problem("NOT_RUNNING", "", "runtime stopped before selection could commit")
 			}
 		}
+		previous := selectable.Now()
+		connections := selectedGroupConnections(s, r.Group)
 		if err := selectable.Set(best.Name()); err != nil {
 			return nil, problem("INVALID_SELECTION", "group", "healthy proxy disappeared before selection")
+		}
+		if previous != best.Name() {
+			closeGroupConnections(connections)
 		}
 		return map[string]any{"selected": best.Name(), "delayMs": delay, "probed": probed, "oneShot": true}, nil
 	case "refreshProvider":
@@ -546,19 +663,17 @@ func (m *manager) dispatch(r *request) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		ctx, cancel := context.WithTimeout(s.ctx, time.Duration(r.TimeoutMs)*time.Millisecond)
-		defer cancel()
+		ctx, finishProbe, err := m.beginSessionProbe(s, *r)
+		if err != nil {
+			return nil, err
+		}
+		defer finishProbe()
 		if r.Operation == "nimboDelay" {
 			// Match standalone Nimbo Ping: a real GET through one named outbound.
 			// A group can silently select another node, so reject it here.
-			declared := false
-			for _, mapping := range s.doc.DeclaredGraph.Proxies {
-				if str(mapping, "name") == r.Name {
-					declared = true
-					break
-				}
-			}
-			if !declared {
+			// Provider-derived concrete nodes are also native outbounds. Test
+			// the real adapter, not only the source's static proxy declarations.
+			if _, group := p.Adapter().(interface{ Proxies() []C.Proxy }); group {
 				return nil, problem("PROBE_REQUIRES_SESSION", "name", "select a concrete node")
 			}
 			if s.mobile != nil {
@@ -694,16 +809,40 @@ func (m *manager) start(r request) (result any, err error) {
 	if runtime.GOOS == "android" && r.borrowedFD == nil {
 		return nil, problem("PLATFORM_UNAVAILABLE", "operation", "Android start requires trusted StartAndroid entry")
 	}
+	desktop := r.desktopOwner && o.NetworkOwner == "desktop-tun" && desktopTunCompiled
+	if r.desktopOwner && !desktop {
+		return nil, problem("PLATFORM_UNAVAILABLE", "options.networkOwner", "trusted desktop entry requires desktop-tun")
+	}
+	if desktop {
+		if os.Getenv("SKIP_SAFE_PATH_CHECK") != "" || os.Getenv("SAFE_PATHS") != "" {
+			return nil, problem("UNSAFE_DESKTOP_ENVIRONMENT", "", "privileged owner must not inherit unsafe native path overrides")
+		}
+		if err = desktopPrivilegeCheck(); err != nil {
+			return nil, err
+		}
+		if o.ControllerAddress == "" {
+			return nil, problem("INVALID_REQUEST", "options.controllerAddress", "authenticated loopback controller required")
+		}
+		if !o.DesktopIPv6 {
+			return nil, problem("DESKTOP_IPV6_REQUIRED", "options.desktopIPv6", "dual-stack capture is required; IPv6 must not bypass the tunnel")
+		}
+	}
 	android := o.NetworkOwner == "android-vpn" && r.borrowedFD != nil
-	if !android && o.NetworkOwner != "desktop-proxy" {
+	packet := r.packetOwner && o.NetworkOwner == "ios-packet-flow" && packetFlowCompiled
+	if r.packetOwner && !packet {
+		return nil, problem("INVALID_REQUEST", "options.networkOwner", "packet flow requires ios-packet-flow ownership")
+	}
+	if !android && !packet && !desktop && o.NetworkOwner != "desktop-proxy" {
 		return nil, problem("PLATFORM_UNAVAILABLE", "options.networkOwner", "exclusive mobile FD/TUN lifecycle not wired; never falls back to TCP")
 	}
 	if r.borrowedFD != nil && !android {
 		return nil, problem("INVALID_REQUEST", "options.networkOwner", "StartAndroid requires android-vpn")
 	}
-	if android {
-		if err = androidPlatformCheck(*r.borrowedFD); err != nil {
-			return nil, err
+	if android || packet {
+		if android {
+			if err = androidPlatformCheck(*r.borrowedFD); err != nil {
+				return nil, err
+			}
 		}
 		if o.MixedAddress != "" || o.ControllerAddress != "" || o.Secret != "" {
 			return nil, problem("INVALID_REQUEST", "options", "mobile has no mixed/controller listener")
@@ -724,7 +863,7 @@ func (m *manager) start(r request) (result any, err error) {
 	if o.StartupTimeoutMs < 1 || o.StartupTimeoutMs > 25000 {
 		return nil, problem("INVALID_REQUEST", "options.startupTimeoutMs", "expected 1..25000")
 	}
-	if !android {
+	if !android && !packet && (!desktop || o.MixedAddress != "") {
 		if err = loopbackAddress(o.MixedAddress); err != nil {
 			return nil, err
 		}
@@ -741,11 +880,21 @@ func (m *manager) start(r request) (result any, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if android {
+	if android || packet {
+		if packet {
+			if err = packetRuntimePolicy(d); err != nil {
+				return nil, err
+			}
+		}
 		if err = androidRuntimePolicy(d); err != nil {
 			return nil, err
 		}
-		d.android = true
+		d.android = true // shared source-preserving mobile ownership policy
+	} else if desktop {
+		if err = desktopRuntimePolicy(d); err != nil {
+			return nil, err
+		}
+		d.desktop = true
 	} else if len(d.StrictIssues) > 0 {
 		return nil, &d.StrictIssues[0]
 	}
@@ -753,8 +902,11 @@ func (m *manager) start(r request) (result any, err error) {
 	startupTimer := time.AfterFunc(time.Duration(o.StartupTimeoutMs)*time.Millisecond, cancel)
 	defer startupTimer.Stop()
 	s := &session{doc: d, home: filepath.Clean(o.DataDir), oldHome: C.Path.HomeDir(), oldIPv6: resolver.DisableIPv6, oldMode: tunnel.Mode(), oldProcess: tunnel.FindProcessMode(), oldStoreSelected: profile.StoreSelected.Load(), oldLogLevel: log.Level(), oldDNS: saveDNS(), ctx: ctx, cancel: cancel}
+	s.trafficBase = captureTrafficBaseline()
 	if android {
 		s.mobile = newMobileSession(ctx, cancel)
+		s.oldAndroidGlobals = captureAndroidGlobals()
+	} else if packet || desktop {
 		s.oldAndroidGlobals = captureAndroidGlobals()
 	}
 	m.mu.Lock()
@@ -776,6 +928,10 @@ func (m *manager) start(r request) (result any, err error) {
 	defer func() {
 		if !committed {
 			s.cleanup()
+			if s.desktopCleanupErr != nil {
+				result = nil
+				err = problem("TUN_CLEANUP_FAILED", "", s.desktopCleanupErr.Error())
+			}
 			m.mu.Lock()
 			m.session = nil
 			m.cancel = nil
@@ -793,7 +949,13 @@ func (m *manager) start(r request) (result any, err error) {
 		return nil, problem("CACHE_OPEN", "options.dataDir", err.Error())
 	}
 	s.cacheOpened = true
-	if android {
+	if packet {
+		s.cfg, err = nativeParsePacket(d, o.PacketIPv6, o.PacketSystemDNS)
+		m.lastDiagnosticConfig = d.finalConfig
+	} else if desktop {
+		s.cfg, err = nativeParseVPN(d, o.DesktopIPv6, true)
+		m.lastDiagnosticConfig = d.finalConfig
+	} else if android {
 		s.cfg, err = nativeParseAndroid(d, o.AndroidIPv6, o.AndroidSystemDNS)
 		m.lastDiagnosticConfig = d.finalConfig
 	} else {
@@ -803,6 +965,9 @@ func (m *manager) start(r request) (result any, err error) {
 		return nil, err
 	}
 	log.SetLevel(s.cfg.General.LogLevel)
+	if err = applyAdBlocking(s.cfg, o.AdBlocking); err != nil {
+		return nil, err
+	}
 	if err = rebindProviders(s.cfg, d, s.home); err != nil {
 		return nil, err
 	}
@@ -818,7 +983,7 @@ func (m *manager) start(r request) (result any, err error) {
 		s.mobile.cfg = s.cfg
 		// The native Mihomo DNS resolver/enhancer is installed below. The legacy
 		// mobile resolver remains only as a lifecycle lock for bridge mutations.
-	} else {
+	} else if !packet && !desktop {
 		applyInternalDNS(s.cfg)
 	}
 	for _, p := range s.cfg.Providers {
@@ -851,24 +1016,49 @@ func (m *manager) start(r request) (result any, err error) {
 		}
 	}
 	tunnel.OnSuspend()
+	if routes, ok := any(statistic.DefaultManager).(interface{ SetDirectNames([]string) }); ok {
+		names := []string{}
+		for name, proxy := range s.cfg.Proxies {
+			if proxy.Type() == C.Direct {
+				names = append(names, name)
+			}
+		}
+		routes.SetDirectNames(names)
+	}
 	tunnel.UpdateProxies(s.cfg.Proxies, s.cfg.Providers)
 	tunnel.UpdateRules(s.cfg.Rules, s.cfg.SubRules, s.cfg.RuleProviders)
 	tunnel.SetMode(s.cfg.General.Mode)
-	if android {
+	if android || desktop {
 		tunnel.SetFindProcessMode(s.cfg.General.FindProcessMode)
 	} else {
 		tunnel.SetFindProcessMode(process.FindProcessOff)
 	}
 	resolver.DisableIPv6 = !s.cfg.General.IPv6
-	if android {
+	if android || packet || desktop {
 		if err = applyUpstreamAndroidComponents(s.cfg); err != nil {
 			return nil, problem("MIHOMO_INITIALIZATION_FAILED", "", err.Error())
 		}
 	}
-	if s.mobile != nil {
+	if packet {
+		s.packet, err = startPacketRuntime(s)
+		if err != nil {
+			return nil, problem("TUN_START_FAILED", "packetFlow", err.Error())
+		}
+		s.tun = s.packet
+	} else if s.mobile != nil {
 		s.tun, err = startAndroidTun(*r.borrowedFD, s.cfg)
 		if err != nil {
 			return nil, problem("TUN_START_FAILED", "borrowedFD", err.Error())
+		}
+	} else if desktop {
+		s.tun, err = startDesktopTun(s.cfg)
+		if err != nil {
+			return nil, problem("TUN_START_FAILED", "", err.Error())
+		}
+		if o.MixedAddress != "" {
+			if err = s.listenMixed(o.MixedAddress); err != nil {
+				return nil, problem("LISTEN_FAILED", "options.mixedAddress", err.Error())
+			}
 		}
 	} else if err = s.listenMixed(o.MixedAddress); err != nil {
 		return nil, problem("LISTEN_FAILED", "options.mixedAddress", err.Error())
@@ -916,7 +1106,10 @@ func (s *session) cleanup() {
 		}
 	}
 	if s.tun != nil {
-		_ = s.tun.Close()
+		closeErr := s.tun.Close()
+		if s.doc != nil && s.doc.desktop {
+			s.desktopCleanupErr = closeErr
+		}
 		s.tun = nil
 	}
 	if s.mobile != nil {
@@ -947,7 +1140,7 @@ func (s *session) cleanup() {
 	log.SetLevel(s.oldLogLevel)
 	resolver.DisableIPv6 = s.oldIPv6
 	s.oldDNS.restore()
-	if s.doc != nil && s.doc.android {
+	if s.doc != nil && (s.doc.android || s.doc.desktop) {
 		s.oldAndroidGlobals.restore()
 	}
 	C.SetHomeDir(s.oldHome)
@@ -994,6 +1187,9 @@ func (m *manager) stop() (any, error) {
 	m.startRequestID = ""
 	result := m.statusLocked()
 	m.mu.Unlock()
+	if s != nil && s.desktopCleanupErr != nil {
+		return nil, problem("TUN_CLEANUP_FAILED", "", s.desktopCleanupErr.Error())
+	}
 	return result, nil
 }
 func snapshot(s *session) (map[string]any, error) {
@@ -1108,10 +1304,8 @@ func applyUpstreamAndroidComponents(cfg *config.Config) error {
 // outgoing socket before connect. No FD ownership is inferred from an integer.
 type SocketProtector interface{ Protect(fd int64) bool }
 
-// StartIOS is an explicit gate, not a fake successful TUN attach. A future bridge
-// must dup(borrowedFD), set nonblocking, pass ONLY the duplicate to sing-tun,
-// disable host auto-route/redirect/interface discovery, and acknowledge readiness
-// after native listener success. It must share the existing LibXray Go runtime.
+// StartIOS preserves the deprecated FD ABI gate. New callers must use
+// StartIOSPacketFlow: public NEPacketTunnelFlow, no borrowed utun FD scan.
 func StartIOS(requestJSON string, borrowedFD int64) string {
 	code := "PLATFORM_UNAVAILABLE"
 	message := "exclusive iOS TUN FD bridge is not implemented"

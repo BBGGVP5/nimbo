@@ -25,7 +25,7 @@ enum NimboTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "Главная"
         case .profiles: "Профили"
-        case .stats: "Активность"
+        case .stats: "Статистика"
         case .routing: "Маршруты"
         case .settings: "Настройки"
         case .modules: "Модули"

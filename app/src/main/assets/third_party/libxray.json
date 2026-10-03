@@ -9,13 +9,13 @@
   "archiveUrl": "https://codeload.github.com/XTLS/libXray/tar.gz/3c694b23290f9849fe52284a345ebd4343bc90cd",
   "archiveSha256": "0b9162518c1eb2aadca13f39e63e9c5f7c904c4843ad6bc8f8251f2d1f99c185",
   "archiveSize": 106042,
-  "aarSha256": "822653121099b6d6582b385035c09aa97975de5ad88b5d9599ea6e2b2db2b326",
+  "aarSha256": "2ef692f11f209797dafd0dfb9330b6b04268405c738ca7710b428ecf0504f13f",
   "goVersion": "1.27.1",
   "xrayCore": "v1.260327.1-0.20260930074004-b26a91de4f32",
   "bundled": {
     "armeabi-v7a": {
       "file": "libgojni.so",
-      "sha256": "2ba716f58190e1c67ca14701007cbc760f43dc2c206f4e555fb2acbdb5589784",
+      "sha256": "11d68a1a7156de87a54e6a778b624ce9dac983415f30f5ac6b40652e41236b38",
       "loadSegments": [
         {
           "offset": 0,
@@ -23,25 +23,25 @@
           "alignment": 16384
         },
         {
-          "offset": 27773980,
-          "vaddr": 27790364,
+          "offset": 27968248,
+          "vaddr": 27984632,
           "alignment": 16384
         },
         {
-          "offset": 61227088,
-          "vaddr": 61259856,
+          "offset": 61459888,
+          "vaddr": 61492656,
           "alignment": 16384
         },
         {
-          "offset": 67196064,
-          "vaddr": 67245216,
+          "offset": 67433184,
+          "vaddr": 67482336,
           "alignment": 16384
         }
       ]
     },
     "arm64-v8a": {
       "file": "libgojni.so",
-      "sha256": "2f424d18e8234071bb669346d5aacdeb6b6050991ebf91cba54d12897f625aad",
+      "sha256": "c84e1c291258ee850c62b7eaa31451df261a848a84cf9dc5348c955a9f73e3be",
       "loadSegments": [
         {
           "offset": 0,
@@ -49,25 +49,25 @@
           "alignment": 16384
         },
         {
-          "offset": 35078352,
-          "vaddr": 35094736,
+          "offset": 35283728,
+          "vaddr": 35300112,
           "alignment": 16384
         },
         {
-          "offset": 62000416,
-          "vaddr": 62033184,
+          "offset": 62237984,
+          "vaddr": 62270752,
           "alignment": 16384
         },
         {
-          "offset": 70327040,
-          "vaddr": 70376192,
+          "offset": 70570624,
+          "vaddr": 70619776,
           "alignment": 16384
         }
       ]
     },
     "x86": {
       "file": "libgojni.so",
-      "sha256": "6b6fec4142aa8e95edb86f5572a3b30c8b40b02e38fb750f38e8ca139af22d9b",
+      "sha256": "f9a1bfae605ab1d4d7dbd78e46b4067a2641085c64b7934c47182312bc2d9421",
       "loadSegments": [
         {
           "offset": 0,
@@ -75,25 +75,25 @@
           "alignment": 16384
         },
         {
-          "offset": 28674816,
-          "vaddr": 28691200,
+          "offset": 28870480,
+          "vaddr": 28886864,
           "alignment": 16384
         },
         {
-          "offset": 61360608,
-          "vaddr": 61393376,
+          "offset": 61594304,
+          "vaddr": 61627072,
           "alignment": 16384
         },
         {
-          "offset": 67337120,
-          "vaddr": 67386272,
+          "offset": 67575136,
+          "vaddr": 67624288,
           "alignment": 16384
         }
       ]
     },
     "x86_64": {
       "file": "libgojni.so",
-      "sha256": "95b50042fa4277e52fa1d74b1bd7e12a40dcb398b6f4e6aafbbe64ef2157e6f0",
+      "sha256": "3d5d96b8165a714cff372b70ad8cf22324a9a9764dedb42ebbe72b75c88e434e",
       "loadSegments": [
         {
           "offset": 0,
@@ -101,18 +101,18 @@
           "alignment": 16384
         },
         {
-          "offset": 35940288,
-          "vaddr": 35956672,
+          "offset": 36145216,
+          "vaddr": 36161600,
           "alignment": 16384
         },
         {
-          "offset": 67600704,
-          "vaddr": 67633472,
+          "offset": 67841760,
+          "vaddr": 67874528,
           "alignment": 16384
         },
         {
-          "offset": 75928320,
-          "vaddr": 75977472,
+          "offset": 76175376,
+          "vaddr": 76224528,
           "alignment": 16384
         }
       ]
@@ -124,5 +124,11 @@
     "no_tailscale",
     "no_zerotier",
     "no_easytier"
-  ]
+  ],
+  "runtimeMemoryPolicy": {
+    "kind": "soft-Go-runtime-budget",
+    "androidDefaultMiB": 96,
+    "iosDefaultMiB": 30,
+    "forcedGcTimer": false
+  }
 }

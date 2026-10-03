@@ -15,7 +15,7 @@ DESTINATION="${ROOT_DIR}/iosApp/Vendor/LibXray.xcframework"
 ARCHIVE="${CACHE_DIR}/libxray-source.tar.gz"
 
 [[ "$(uname -s)" == Darwin ]] || { echo 'Apple archives require macOS and Xcode' >&2; exit 20; }
-export GOFLAGS='-tags=no_tailscale,no_zerotier,no_easytier'
+export GOFLAGS='-tags=with_gvisor,no_tailscale,no_zerotier,no_easytier'
 export GOTOOLCHAIN=local GOWORK=off GOSUMDB=sum.golang.org
 [[ "$(go env GOVERSION)" == "${GO_VERSION}" ]] || { echo "Use ${GO_VERSION}" >&2; exit 20; }
 [[ -f "${AWG_DIR}/go.mod" ]] || { echo 'Shared AWG sources are missing' >&2; exit 20; }
@@ -30,6 +30,7 @@ trap 'rm -rf "${WORK_DIR}"' EXIT
 tar -xzf "${ARCHIVE}" -C "${WORK_DIR}"
 SOURCE_DIR="${WORK_DIR}/libXray-${LIBXRAY_COMMIT}"
 cp "${BRIDGE_DIR}/"*.go "${SOURCE_DIR}/cgo_bridge/"
+cp "${ROOT_DIR}/tools/native/libxray-memory/memory_ios.go" "${SOURCE_DIR}/memory/memory_ios.go"
 cp "${BRIDGE_DIR}/go.mod" "${BRIDGE_DIR}/go.sum" "${SOURCE_DIR}/"
 cd "${SOURCE_DIR}"
 go mod edit "-replace=nimbo/awgcore=${AWG_DIR}"
@@ -73,12 +74,12 @@ build_slice() {
     CC="$(xcrun --sdk "${sdk}" --find clang)" \
     CXX="$(xcrun --sdk "${sdk}" --find clang++)" \
     CGO_CFLAGS="${flags}" CGO_CXXFLAGS="${flags}" CGO_LDFLAGS="${flags}" \
-    go build -mod=readonly -tags=ios,no_tailscale,no_zerotier,no_easytier -trimpath -buildvcs=false \
+    go build -mod=readonly -tags=ios,with_gvisor,no_tailscale,no_zerotier,no_easytier -trimpath -buildvcs=false \
       -ldflags='-s -w -buildid=' -buildmode=c-archive -o "${out}/libXray.a" ./cgo_bridge
   cp "${out}/libXray.h" "${out}/Headers/"
   cp build/template/module.modulemap "${out}/Headers/"
   nm -gU "${out}/libXray.a" > "${out}/symbols.txt"
-  for symbol in CGoInvoke CGoFree NimboAWGStart NimboAWGStop NimboAWGStats NimboDiagnosticRun NimboDiagnosticCancel NimboMihomoInvokeV1 NimboMihomoCancelV1 NimboMihomoSetSocketProtectorV1 NimboMihomoStartIOSV1 NimboMihomoFreeV1; do
+  for symbol in CGoInvoke CGoFree NimboAWGStart NimboAWGStop NimboAWGStats NimboDiagnosticRun NimboDiagnosticCancel NimboMihomoInvokeV1 NimboMihomoCancelV1 NimboMihomoSetSocketProtectorV1 NimboMihomoStartIOSV1 NimboMihomoFreeV1 NimboMihomoStartIOSPacketFlowV1 NimboMihomoWriteIOSPacketV1 NimboMihomoReadIOSPacketV1; do
     grep -q " _${symbol}$" "${out}/symbols.txt" || { echo "Missing ${symbol} in ${sdk}/${apple_arch} archive" >&2; exit 21; }
     grep -q "${symbol}(" "${out}/Headers/libXray.h" || { echo "Missing ${symbol} in generated C header" >&2; exit 21; }
   done
@@ -89,8 +90,11 @@ build_slice() {
     -swift-version 5 -application-extension -emit-library \
     -module-name NimboAWGLinkCheck -I "${out}/Headers" \
     "${ROOT_DIR}/iosApp/Shared/NimboAWGConfiguration.swift" \
+    "${ROOT_DIR}/iosApp/Shared/NimboMihomoSessionPolicy.swift" \
+    "${ROOT_DIR}/iosApp/Shared/NimboAdBlocking.swift" \
     "${ROOT_DIR}/iosApp/PacketTunnel/AmneziaWGBridge.swift" \
-    "${out}/libXray.a" -lresolv -framework Security -framework CoreFoundation \
+    "${ROOT_DIR}/iosApp/PacketTunnel/MihomoPacketBridge.swift" \
+    "${out}/libXray.a" -lresolv -framework Security -framework CoreFoundation -framework Network -framework NetworkExtension \
     -o "${out}/NimboAWGLinkCheck.dylib"
 }
 build_slice iphoneos arm64 arm64 arm64-apple-ios16.0
@@ -112,10 +116,12 @@ ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
   echo "awg_version=${AWG_VERSION}"
   echo "go_version=${GO_VERSION}"
   echo 'go_runtime_archives_per_slice=1'
+  echo 'runtime_memory_policy=soft-budget-no-forced-gc-timer'
+  shasum -a 256 "${ROOT_DIR}/tools/native/libxray-memory/memory_ios.go"
   echo 'native_api3_awg_contract_test=passed'
   echo 'native_mihomo_v1_contract_test=passed'
   echo 'mihomo_version=v1.19.31'
-  echo 'mihomo_ios_tun=unavailable'
+  echo 'mihomo_ios_tun=public-packet-flow-source-linked-device-unverified'
   echo 'swift_awg_link_check=iphoneos-arm64,iphonesimulator-arm64,iphonesimulator-x86_64'
   shasum -a 256 "${BRIDGE_DIR}/"*.go "${BRIDGE_DIR}/go.mod" "${BRIDGE_DIR}/go.sum"
   find "${AWG_DIR}" -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) -print | LC_ALL=C sort | while IFS= read -r file; do
@@ -124,4 +130,4 @@ ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
 } > "${ROOT_DIR}/iosApp/Vendor/libxray-build-info.txt"
 cp "${WORK_DIR}/mihomo-dependencies/mihomo-source-verification.json" \
   "${ROOT_DIR}/iosApp/Vendor/mihomo-source-verification.json"
-echo "Prepared single-runtime LibXray 26.9.30 / AWG ${AWG_VERSION} / Mihomo V1 bridge; iOS Mihomo TUN remains unavailable"
+echo "Prepared single-runtime LibXray 26.9.30 / AWG ${AWG_VERSION} / Mihomo V1 bridge; iOS Mihomo public packet-flow linked; device acceptance remains required"

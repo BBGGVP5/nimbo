@@ -66,7 +66,7 @@ export function SignalProfileCard({ labels: m, sub, serverCount, onRefresh, onPi
     <div className="universal-subscription-summary"><span><HomeMetaIcon kind="traffic" />{sub.info ? total ? `${formatBytes(Math.max(0,total-used))} / ${formatBytes(total)}` : "∞" : "—"}</span><span><HomeMetaIcon kind="calendar" />{sub.info ? formatSubscriptionTerm(sub.info, expireLabels(m)) : "—"}</span></div>
     {total ? <div className="signal-quota" aria-label={m.profiles.traffic}><i style={{width: `${Math.min(100, used / total * 100)}%`}}/></div> : null}
     <footer className="universal-subscription-footer">
-      <button type="button" className="signal-btn signal-btn--sm signal-btn--ghost" onClick={onPing} disabled={pinging} title={m.profiles.testLatency} aria-label={m.profiles.testLatency}><PingIcon/>{m.signal.columnPing}</button>
+      <button type="button" className="signal-btn signal-btn--sm signal-btn--ghost" onClick={onPing} title={pinging ? m.common.cancel : m.profiles.testLatency} aria-label={pinging ? m.common.cancel : m.profiles.testLatency}><PingIcon/>{pinging ? m.common.cancel : m.signal.columnPing}</button>
       <button type="button" className="signal-btn signal-btn--sm signal-btn--ghost" onClick={onRefresh} disabled={refreshing} title={m.home.refreshSubscription} aria-label={m.home.refreshSubscription}><RefreshIcon/>{m.common.refresh}</button>
       <span>{updatedLabel}</span>
     </footer>

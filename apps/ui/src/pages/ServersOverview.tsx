@@ -1,10 +1,10 @@
+import { ServerContextMenu } from "../components/ServerContextMenu";
+import { usePingActions } from "../lib/usePingActions";
 import { LatencyDisplay } from "../components/LatencyDisplay";
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { notifyError } from "../lib/notify";
 import { useAppStore } from "../store";
 import {
-  api,
   formatBytes,
   protocolLabel,
   serverListDescription,
@@ -22,7 +22,8 @@ export function ServersOverview() {
   const setActive = useAppStore((s) => s.setActiveServer);
   const setServerPing = useAppStore((s) => s.setServerPing);
   const refresh = useAppStore((s) => s.refreshSubscription);
-  const [pingingServerIds, setPingingServerIds] = useState<Set<string>>(() => new Set());
+  const serverPing = usePingActions();
+  const pingingServerIds = serverPing.pending;
   const serverCount = subs.reduce((sum, sub) => sum + sub.servers.length, 0);
 
   const onSelect = async (server: Server) => {
@@ -34,25 +35,8 @@ export function ServersOverview() {
   };
 
   const onPingServer = async (serverId: string) => {
-    setPingingServerIds((current) => {
-      const next = new Set(current);
-      next.add(serverId);
-      return next;
-    });
-    try {
-      setServerPing(serverId, null);
-      const result = await api.pingServer(serverId);
-      if (result.error) notifyError(result.error);
-      setServerPing(result.server_id, result.latency_ms ?? null);
-    } catch (e) {
-      notifyError(String(e));
-    } finally {
-      setPingingServerIds((current) => {
-        const next = new Set(current);
-        next.delete(serverId);
-        return next;
-      });
-    }
+    try { await serverPing.toggle([serverId], result => setServerPing(result.server_id, result.latency_ms ?? null)); }
+    catch (error) { notifyError(String(error)); }
   };
 
   return (
@@ -203,7 +187,11 @@ function ServerLine({
   const description = serverListDescription(server, servers);
 
   return (
-    <div
+    <ServerContextMenu label={m.profiles.serverMenu} actions={[
+      { label: pinging ? (m.common.locale.startsWith("ru") ? "Остановить пинг" : "Stop ping") : m.profiles.testLatency, onClick: onPing },
+    ]}
+      aria-pressed={active}
+      style={active ? { outline: "2px solid var(--color-accent)", outlineOffset: -2, borderRadius: 12 } : undefined}
       role="button"
       tabIndex={0}
       onClick={onSelect}
@@ -224,7 +212,7 @@ function ServerLine({
       </div>
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="truncate text-lg font-black text-white">{server.name}</div>
+          <div className="truncate text-lg font-black text-white" data-server-menu-anchor>{server.name}</div>
           <PingBadge ping={latency} loading={pinging} />
         </div>
         {description && (
@@ -239,23 +227,8 @@ function ServerLine({
           </span>
         </div>
       </div>
-      <button
-        type="button"
-        title={m.home.pingServers}
-        aria-label={m.home.pingServers}
-        onClick={(event) => {
-          event.stopPropagation();
-          void onPing();
-        }}
-        disabled={pinging}
-        className={[
-          "grid h-8 w-8 place-items-center rounded-lg bg-[var(--color-glass-bg)] text-[var(--color-text-faint)] transition-all hover:bg-[var(--color-glass-bg-strong)] hover:text-white",
-          pinging ? "text-[var(--color-accent-bright)] opacity-70" : "",
-        ].join(" ")}
-      >
-        <SignalIcon pulse={pinging} />
-      </button>
-    </div>
+
+    </ServerContextMenu>
   );
 }
 
@@ -275,26 +248,6 @@ function PingBadge({ ping, loading = false }: { ping?: number; loading?: boolean
   );
 }
 
-function SignalIcon({ pulse = false }: { pulse?: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={["h-4 w-4", pulse ? "animate-pulse" : ""].join(" ")}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M4 20v-2" />
-      <path d="M8 20v-5" />
-      <path d="M12 20v-8" />
-      <path d="M16 20v-11" />
-      <path d="M20 20V5" />
-    </svg>
-  );
-}
 
 function IconButton({
   icon,

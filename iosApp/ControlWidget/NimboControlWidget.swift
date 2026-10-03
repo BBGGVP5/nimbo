@@ -32,11 +32,11 @@ struct NimboControlWidget: ControlWidget {
                 }
             }
         }
-        .displayName("Nimbo VPN")
+        .displayName("NIMBO")
         .description("Включение и отключение туннеля")
     }
 
-    static let kind = "com.nimbo.control.vpn"
+    nonisolated static let kind = "com.nimbo.control.vpn"
 }
 
 /// Состояние туннеля для элемента управления.

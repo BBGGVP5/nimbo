@@ -74,6 +74,23 @@ object VpnManager {
     // Скорость (байт/сек) - текущая
     val uploadSpeed = mutableStateOf(0L)
     val downloadSpeed = mutableStateOf(0L)
+    val liveSpeedAvailable = mutableStateOf(false)
+
+    val trafficMeasurementScope = mutableStateOf(TrafficMeasurementScope.UNAVAILABLE)
+    val nativeTrafficTelemetry = mutableStateOf<NativeTrafficTelemetry?>(null)
+    val activeAdBlockingEnabled = mutableStateOf<Boolean?>(null)
+
+    fun clearLiveTelemetry() {
+        clearLiveSpeeds()
+        nativeTrafficTelemetry.value = null
+        activeAdBlockingEnabled.value = null
+    }
+
+    fun clearLiveSpeeds() {
+        liveSpeedAvailable.value = false
+        uploadSpeed.value = 0L
+        downloadSpeed.value = 0L
+    }
 
     private val selectedServerValue = mutableStateOf<Server?>(null)
     var selectedServer: Server?
@@ -94,6 +111,9 @@ object VpnManager {
 
     // Сброс статистики
     fun resetStats() {
+        clearLiveSpeeds()
+        nativeTrafficTelemetry.value = null
+        trafficMeasurementScope.value = TrafficMeasurementScope.UNAVAILABLE
         connectedSeconds.value = 0
         totalBytesUploaded.value = 0L
         totalBytesDownloaded.value = 0L
@@ -107,6 +127,7 @@ object VpnManager {
     // Обновление скорости + постоянный учёт трафика
     fun updateSpeeds(uploadedDelta: Long, downloadedDelta: Long, timeDelta: Long) {
         if (timeDelta > 0) {
+            liveSpeedAvailable.value = true
             uploadSpeed.value = uploadedDelta / timeDelta
             downloadSpeed.value = downloadedDelta / timeDelta
             totalBytesUploaded.value += uploadedDelta

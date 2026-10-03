@@ -39,11 +39,11 @@ object ReleaseNotesText {
 
     /** A release without this tagged platform must not display another platform's notes. */
     fun forPlatform(body: String, platform: String): String {
-        val marker = Regex("<!--\\s*nimbo:${Regex.escape(platform)}:start\\s*-->(.*?)<!--\\s*nimbo:${Regex.escape(platform)}:end\\s*-->",
-            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val marker = Regex("<!--\\s*nimbo:${Regex.escape(platform)}:start\\s*-->([\\s\\S]*?)<!--\\s*nimbo:${Regex.escape(platform)}:end\\s*-->",
+            RegexOption.IGNORE_CASE)
         val selected = marker.find(body)?.groupValues?.get(1)
         val hasPlatformSections = Regex("<!--\\s*nimbo:[a-z]+:start\\s*-->", RegexOption.IGNORE_CASE).containsMatchIn(body)
         if (selected == null && hasPlatformSections) return ""
-        return withoutPlatformHeading((selected ?: body).replace(Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL), ""))
+        return withoutPlatformHeading((selected ?: body).replace(Regex("<!--[\\s\\S]*?-->"), ""))
     }
 }

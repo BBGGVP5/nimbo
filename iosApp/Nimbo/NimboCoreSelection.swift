@@ -18,7 +18,7 @@ enum NimboCorePreference: String, CaseIterable {
         }
     }
 
-    var isAvailable: Bool { self != .mihomo }
+    var isAvailable: Bool { true }
 
     /// Only an absent legacy value defaults to Auto. Corrupt/future IDs fail closed.
     static func decode(_ value: Any?) throws -> Self {
@@ -41,7 +41,6 @@ enum NimboCoreAdmission {
         let selected = try NimboCorePreference.decode(preference)
         guard selected.isAvailable else { throw NimboCoreSelectionError.unavailable }
         let profile = try classify(data, declaredEngine: declaredEngine)
-        guard profile != .mihomo else { throw NimboCoreSelectionError.unavailable }
         guard selected == .auto || selected.rawValue == profile.rawValue else {
             throw NimboCoreSelectionError.incompatible
         }
@@ -117,9 +116,9 @@ enum NimboCoreSelectionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unknownPreference:
-            return "Неизвестное ядро VPN. Выберите Auto, Xray или AWG в настройках (IOS_CORE_UNKNOWN)."
+            return "Неизвестное ядро VPN. Выберите Auto, Xray, AWG или Mihomo в настройках (IOS_CORE_UNKNOWN)."
         case .unavailable:
-            return "Mihomo недоступно для VPN на iOS. Полная конфигурация не преобразуется в Xray (IOS_CORE_UNAVAILABLE)."
+            return "Связанный пакетный runtime Mihomo недоступен. Полная конфигурация не преобразуется в Xray (IOS_CORE_UNAVAILABLE)."
         case .incompatible:
             return "Выбранное ядро VPN несовместимо с профилем. Выберите Auto или совместимый профиль (IOS_CORE_INCOMPATIBLE)."
         case .unsupportedProfile:

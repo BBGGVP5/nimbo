@@ -9,6 +9,7 @@ struct NimboRoutingOptions: Equatable {
     var bypassLocalNetworks: Bool
     var sniffingEnabled: Bool
     var dnsPreset: String
+    var adBlockingEnabled: Bool
 
     static let `default` = NimboRoutingOptions(
         bypassLocalNetworks: true,
@@ -33,14 +34,16 @@ struct NimboRoutingOptions: Equatable {
         [
             "bypassLocal": bypassLocalNetworks,
             "sniffing": sniffingEnabled,
-            "dns": dnsPreset
+            "dns": dnsPreset,
+            "adBlocking": adBlockingEnabled
         ]
     }
 
-    init(bypassLocalNetworks: Bool, sniffingEnabled: Bool, dnsPreset: String) {
+    init(bypassLocalNetworks: Bool, sniffingEnabled: Bool, dnsPreset: String, adBlockingEnabled: Bool = false) {
         self.bypassLocalNetworks = bypassLocalNetworks
         self.sniffingEnabled = sniffingEnabled
         self.dnsPreset = dnsPreset
+        self.adBlockingEnabled = adBlockingEnabled
     }
 
     /// Разбор того, что приложение положило в `providerConfiguration`.
@@ -51,6 +54,7 @@ struct NimboRoutingOptions: Equatable {
         self.bypassLocalNetworks = stored["bypassLocal"] as? Bool ?? NimboRoutingOptions.default.bypassLocalNetworks
         self.sniffingEnabled = stored["sniffing"] as? Bool ?? NimboRoutingOptions.default.sniffingEnabled
         self.dnsPreset = stored["dns"] as? String ?? NimboRoutingOptions.default.dnsPreset
+        self.adBlockingEnabled = stored["adBlocking"] as? Bool ?? false
     }
 }
 
@@ -62,16 +66,19 @@ enum NimboRoutingSettings {
     private static let prefix = "com.nimbo.routing."
 
     static var current: NimboRoutingOptions {
-        let defaults = UserDefaults.standard
+        load(defaults: .standard)
+    }
+
+    static func load(defaults: UserDefaults) -> NimboRoutingOptions {
         return NimboRoutingOptions(
-            bypassLocalNetworks: flag("bypassLocal", default: true),
-            sniffingEnabled: flag("sniffing", default: true),
-            dnsPreset: defaults.string(forKey: prefix + "dns") ?? "cloudflare"
+            bypassLocalNetworks: flag("bypassLocal", default: true, defaults: defaults),
+            sniffingEnabled: flag("sniffing", default: true, defaults: defaults),
+            dnsPreset: defaults.string(forKey: prefix + "dns") ?? "cloudflare",
+            adBlockingEnabled: flag("adBlocking", default: false, defaults: defaults)
         )
     }
 
-    private static func flag(_ key: String, default fallback: Bool) -> Bool {
-        let defaults = UserDefaults.standard
+    private static func flag(_ key: String, default fallback: Bool, defaults: UserDefaults) -> Bool {
         guard defaults.object(forKey: prefix + key) != nil else { return fallback }
         return defaults.bool(forKey: prefix + key)
     }

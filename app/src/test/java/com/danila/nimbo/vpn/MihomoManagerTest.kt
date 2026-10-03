@@ -14,6 +14,49 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MihomoManagerTest {
+    @Test fun adBlockingOffDoesNotInspectOrRestrictProviderMode() {
+        mihomoRequireAdBlockingRuleMode(false) { error("Off must not require mode inspection") }
+    }
+
+    @Test fun adBlockingAcceptsInspectedExplicitOrDefaultRuleModeWithoutChangingTheGraph() {
+        // Go reports actual/default mode as rule in both cases.
+        val inspection = JsonParser.parseString("""{"declaredGraph":{"mode":"rule"}}""").asJsonObject
+        val original = inspection.toString()
+        mihomoRequireAdBlockingRuleMode(true) { inspection }
+        assertEquals(original, inspection.toString())
+    }
+
+    @Test fun adBlockingRejectsGlobalDirectAndUnverifiableModeWithSafeReadableFailure() {
+        listOf(
+            """{"declaredGraph":{"mode":"global"}}""",
+            """{"declaredGraph":{"mode":"direct"}}""",
+            """{"declaredGraph":{}}""", "{}",
+            """{"declaredGraph":{"mode":true}}""",
+            """{"declaredGraph":[]} """
+        ).forEach { json ->
+            try {
+                mihomoRequireAdBlockingRuleMode(true) { JsonParser.parseString(json).asJsonObject }
+                fail("Must reject non-rule or unverifiable mode: $json")
+            } catch (error: MihomoException) {
+                assertEquals("AD_BLOCKING_REQUIRES_RULE_MODE", error.code)
+                val failure = mihomoAdBlockingModeFailure(error, true)!!
+                assertEquals("Mihomo ad blocking requires rule mode.", failure.reason)
+                assertTrue(failure.nextStep.contains("mode: rule"))
+                assertTrue(failure.nextStep.contains("turn off Ad blocking"))
+                assertEquals(error.code, failure.technical)
+            }
+        }
+    }
+
+    @Test fun ruleModeFailureIsLocalizedAndDoesNotExposeUnrelatedNativeErrors() {
+        val error = MihomoException("AD_BLOCKING_REQUIRES_RULE_MODE")
+        val failure = mihomoAdBlockingModeFailure(error, false)!!
+        assertEquals("Для блокировки рекламы в Mihomo нужен режим rule.", failure.reason)
+        assertTrue(failure.nextStep.contains("mode: rule"))
+        assertNull(mihomoAdBlockingModeFailure(IllegalStateException("secret@private.example"), true))
+        assertNull(mihomoAdBlockingModeFailure(MihomoException("INVALID_REQUEST"), true))
+    }
+
     @Test fun startupBudgetNeverOutlivesTheConnectionCycle() {
         assertEquals(0L, mihomoStartupBudgetMs(-1))
         assertEquals(0L, mihomoStartupBudgetMs(0))

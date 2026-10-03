@@ -85,6 +85,14 @@ data class NimboUiState(
     /** Накоплено за текущую сессию подключения. */
     val uploadTotal: Long = 0,
     val downloadTotal: Long = 0,
+    /** Cumulative core route bytes; null means this core cannot report them. */
+    val routeTraffic: NimboRouteTraffic? = null,
+    val tcpConnections: Int? = null,
+    val udpConnections: Int? = null,
+    val sessionAvailable: Boolean? = null,
+    /** Saved preference applies at the next connection. */
+    val adBlockingEnabled: Boolean = false,
+    val activeAdBlockingEnabled: Boolean? = null,
     val speedSamples: List<NimboSpeedSample> = emptyList(),
     /** Память процесса приложения, МБ. */
     val memoryMb: Int = 0,
@@ -208,6 +216,7 @@ data class NimboServerUi(
 }
 
 data class NimboUiActions(
+    val onSetAdBlocking: (Boolean) -> Unit = {},
     val onToggleVpn: () -> Unit = {},
     val onAddProfile: () -> Unit = {},
     val onRefreshProfile: () -> Unit = {},

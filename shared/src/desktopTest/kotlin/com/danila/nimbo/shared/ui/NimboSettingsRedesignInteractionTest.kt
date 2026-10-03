@@ -87,8 +87,8 @@ class NimboSettingsRedesignInteractionTest {
             onOpenSync = { record("onOpenSync") }
         )
         private var frameTime = 0L
-        fun scene(screen: NimboScreen = NimboScreen.SETTINGS, height: Int = 480) = ImageComposeScene(320, height) {
-            NimboAppShell(screen, state.value, actions, showBottomBar = false)
+        fun scene(screen: NimboScreen = NimboScreen.SETTINGS, height: Int = 480, showBottomBar: Boolean = false) = ImageComposeScene(320, height) {
+            NimboAppShell(screen, state.value, actions, showBottomBar = showBottomBar)
         }
         fun ImageComposeScene.settle() {
             // Monotonic time also settles focus-driven scrolling after a selector opens.
@@ -325,15 +325,20 @@ class NimboSettingsRedesignInteractionTest {
         }
     }
 
-    @Test fun connectionHistoryOpensOnlyStatsWithoutChangingPreferencesOrVpn() = with(Fixture()) {
-        scene().use { scene ->
+    @Test fun generalDoesNotDuplicateNavigationAndActivityStillOpensFromBottomBar() = with(Fixture()) {
+        scene(showBottomBar = true).use { scene ->
             scene.settle(); scene.clickText("Общие")
             val before = state.value
             assertEquals(emptyList(), calls, "Opening General must not start an operation")
-            scene.clickText("История подключений")
-            assertEquals(listOf(call("onOpenScreen", NimboScreen.STATS.wireName)), calls,
-                "History must emit exactly one stats route and no other bridge callback")
-            assertEquals(before, state.value, "Opening history must not change settings or VPN state")
+            for (removed in listOf("История подключений", "Маршрутизация", "Проверка БС")) {
+                assertFalse(removed in scene.texts(), "$removed must not be duplicated inside General")
+            }
+            assertEquals(1, scene.texts().count { it == "Статистика" }, "Statistics belongs only to the bottom bar")
+            scene.snapshot("general-dedup-bottom-navigation")
+            scene.clickText("Статистика")
+            assertTrue("Трафик и история подключений" in scene.texts(), "Bottom-bar Statistics must open the real stats screen")
+            assertEquals(emptyList(), calls, "Primary tab navigation is local and must not invoke VPN/preference bridge callbacks")
+            assertEquals(before, state.value, "Opening Activity must not change settings or VPN state")
         }
     }
 

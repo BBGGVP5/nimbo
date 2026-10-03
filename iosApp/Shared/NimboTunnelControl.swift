@@ -22,15 +22,12 @@ enum NimboTunnelControl {
         }
     }
 
-    static func setEnabled(_ enabled: Bool) async throws {
+    @MainActor static func setEnabled(_ enabled: Bool) async throws {
         guard let manager = try await manager() else { throw ControlError.needsSetup }
         if !enabled {
             // Explicit stop must also disable legacy on-demand rules.
             if manager.isOnDemandEnabled {
-                manager.isOnDemandEnabled = false
-                manager.onDemandRules = []
-                try await manager.saveToPreferences()
-                try await manager.loadFromPreferences()
+                try await NimboOnDemandRules.persist(NimboOnDemandSettings(), on: manager)
             }
             manager.connection.stopVPNTunnel()
             return
@@ -48,6 +45,17 @@ enum NimboTunnelControl {
             manager.isEnabled = true
             try await manager.saveToPreferences()
             try await manager.loadFromPreferences()
+        }
+        // Re-arm only on an explicit widget/shortcut connect, with the same
+        // admitted staged profile. A stop leaves saved settings intact.
+        try NimboCoreAdmission.validate(
+            preference: proto.providerConfiguration?[NimboCorePreference.providerKey], data: data,
+            declaredEngine: proto.providerConfiguration?[NimboCorePreference.profileEngineKey])
+        try await NimboOnDemandRules.persist(NimboOnDemandRules.stagedSettings(in: proto), on: manager)
+        switch manager.connection.status {
+        case .connected, .connecting, .reasserting: return
+        case .disconnecting: throw ControlError.busy
+        default: break
         }
         try manager.connection.startVPNTunnel()
     }

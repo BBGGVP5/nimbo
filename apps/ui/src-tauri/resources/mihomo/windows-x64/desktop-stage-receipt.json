@@ -1,7 +1,7 @@
 {
   "sourceRoot": "C:\\Users\\Danila\\AndroidStudioProjects\\Nimbo\\tools\\native\\mihomo-core",
   "target": "windows/amd64",
-  "binarySHA256": "5195dce5c76fe3cc39975b72d4815b7d1b2730e6aaf4002b72811781de6f3255",
+  "binarySHA256": "166f6550522e6ebfd4c946ced6d55e371dda888303f209e428597e23e1e2b46d",
   "buildSourceFiles": [
     {
       "path": "android_runtime_test.go",
@@ -29,7 +29,7 @@
     },
     {
       "path": "cmd/nimbo-mihomo/main.go",
-      "sha256": "5a2cfebc49acfe276c201b0cc8937363cd4a956af35862b49bb796a86a9d6ba9"
+      "sha256": "49dfa531d6a20130ac2238f75cee93274becd9224095392d9b9609baa3cb7bd2"
     },
     {
       "path": "dns.go",
@@ -148,6 +148,14 @@
       "sha256": "519caa0615af1ebff0666fdfcecdca75f6454594478cdaf8a2fc4f27dc952834"
     },
     {
+      "path": "runtime_memory_test.go",
+      "sha256": "35062ac1f0aea062419602373fce1e3f11285039c2bd507a015ae4f863f32399"
+    },
+    {
+      "path": "runtime_memory.go",
+      "sha256": "97b170e3e2510b621878aaa54bade7c8c6d132163dea10827294568f78bf3179"
+    },
+    {
       "path": "runtime_test.go",
       "sha256": "205d073cb7fbb577b9d9ebdc2a6a877b71e44b912b9bddc84ba94927afc72d71"
     },
@@ -176,6 +184,6 @@
       "sha256": "47855203e05fa2ef6821d9f0e6d182a85e494aa361b7b82b7b585e026f788248"
     }
   ],
-  "sourceLicenseManifestSHA256": "697da3f41e768d57cdf0c28a9eb2af544bd0c8962969a33f31c7eb845a821270",
+  "sourceLicenseManifestSHA256": "75462e20d81e54a36e12e768d9420090a86cd550cf8b941c81a361cab5e0e85a",
   "releaseGate": "Corresponding-source/license review remains mandatory; no deployment performed"
 }

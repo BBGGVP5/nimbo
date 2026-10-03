@@ -537,12 +537,12 @@ private fun MemoryLimitCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Снять ограничение",
+                        text = "Автоматический бюджет",
                         style = MaterialTheme.typography.titleSmall,
                         color = nebulaColors.textPrimary
                     )
                     Text(
-                        text = "Для мощных устройств. Больше памяти повышает стабильность под нагрузкой.",
+                        text = "Мягкий бюджет общего Go-ядра; не лимит всей памяти приложения.",
                         style = MaterialTheme.typography.bodySmall,
                         color = nebulaColors.textSecondary
                     )
@@ -561,9 +561,9 @@ private fun MemoryLimitCard(
             Spacer(Modifier.height(10.dp))
             Text(
                 text = if (memoryLimitDisabled) {
-                    "Лимит памяти: без ограничений"
+                    "Бюджет ядра: автоматически · 96 MiB"
                 } else {
-                    "Лимит памяти: ${memoryLimitMb} MB"
+                    "Бюджет ядра: ${memoryLimitMb} MiB"
                 },
                 style = MaterialTheme.typography.labelLarge,
                 color = nebulaColors.textPrimary
@@ -571,9 +571,9 @@ private fun MemoryLimitCard(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = if (memoryLimitDisabled) {
-                    "Режим для мощных устройств и максимальной стабильности."
+                    "Go освобождает неиспользуемую память без постоянного принудительного GC."
                 } else {
-                    "Ниже лимит — ниже расход памяти, выше лимит — стабильнее при высокой нагрузке."
+                    "Это мягкий бюджет: живые соединения не прерываются при превышении."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = nebulaColors.textSecondary

@@ -35,11 +35,7 @@ enum CoreSelectionTests {
         ]
         for (data, declared, engine) in cases {
             for selected in NimboCorePreference.allCases {
-                if selected == .mihomo || engine == .mihomo {
-                    try rejected(.unavailable) {
-                        try NimboCoreAdmission.validate(preference: selected.rawValue, data: data, declaredEngine: declared)
-                    }
-                } else if selected == .auto || selected.rawValue == engine.rawValue {
+                if selected == .auto || selected.rawValue == engine.rawValue {
                     let result = try NimboCoreAdmission.validate(preference: selected.rawValue, data: data, declaredEngine: declared)
                     precondition(result == engine)
                 } else {
@@ -80,9 +76,9 @@ enum CoreSelectionTests {
         for data in [Data(#"{"coreId":"mihomo","outbounds":[]}"#.utf8),
                      Data(#"{"proxies":[],"outbounds":[]}"#.utf8),
                      Data(#"{"originalYAML":"proxies: []","outbounds":[]}"#.utf8)] {
-            try rejected(.unavailable) { try NimboCoreAdmission.validate(preference: "xray", data: data) }
+            try rejected(.incompatible) { try NimboCoreAdmission.validate(preference: "xray", data: data) }
         }
-        try rejected(.unavailable) {
+        try rejected(.incompatible) {
             try NimboCoreAdmission.validate(preference: "xray", data: xray, declaredEngine: "mihomo")
         }
         try rejected(.incompatible) {

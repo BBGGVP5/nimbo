@@ -18,10 +18,8 @@ enum NimboTunnelMetrics {
 
     /// Счётчики туннеля.
     ///
-    /// Сначала пробуем найти интерфейс по адресу, который выдаёт туннель, но
-    /// адрес меняется вместе с настройками, и раньше в этом случае скорость
-    /// навсегда оставалась нулевой. Поэтому есть запасной путь: самый
-    /// нагруженный utun.
+    /// Берём только интерфейс с адресом Nimbo. Чужой utun нельзя выдавать
+    /// за трафик этого VPN; при неизвестном интерфейсе данных нет.
     static func tunnelCounters(address: String = tunnelAddress) -> Counters? {
         var storage: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&storage) == 0, let first = storage else { return nil }
@@ -31,9 +29,7 @@ enum NimboTunnelMetrics {
            let byAddress = counters(forInterface: name, in: first) {
             return byAddress
         }
-        return NimboInterfaceCounters.busiestTunnel().map {
-            Counters(received: $0.received, sent: $0.sent)
-        }
+        return nil
     }
 
     /// Память процесса приложения — запасное значение, когда расширение
@@ -114,9 +110,12 @@ final class NimboMetricsAccumulator {
     private(set) var downloadSamples: [UInt64] = []
     private(set) var memoryMb: Int = 0
     private(set) var memorySamples: [Int] = []
+    private(set) var sessionAvailable = false
 
     private var previous: NimboTunnelMetrics.Counters?
     private var previousAt: Date?
+    private enum CounterSource: Equatable { case provider, interface }
+    private var counterSource: CounterSource?
 
     /// Столько же точек держит график на Android.
     private let sampleLimit = 60
@@ -131,14 +130,17 @@ final class NimboMetricsAccumulator {
         memorySamples = []
         previous = nil
         previousAt = nil
+        counterSource = nil
+        sessionAvailable = false
     }
 
     /// Показания расширения, если оно ответило.
     ///
     /// Приложение считает то же самое запасным путём, но у расширения числа
     /// точные: оно знает своё имя интерфейса и свою память.
-    func tick(reported: (received: UInt64, sent: UInt64, memoryMb: Int)?, now: Date = Date()) {
+    func tick(reported: NimboTunnelReport?, now: Date = Date()) {
         if let reported {
+            prepareSource(.provider)
             applyCounters(
                 received: reported.received,
                 sent: reported.sent,
@@ -152,6 +154,7 @@ final class NimboMetricsAccumulator {
 
     func tick(now: Date = Date()) {
         guard let counters = NimboTunnelMetrics.tunnelCounters() else {
+            sessionAvailable = false
             memoryMb = NimboTunnelMetrics.memoryFootprintMb()
             appendMemory(memoryMb)
             previous = nil
@@ -161,6 +164,7 @@ final class NimboMetricsAccumulator {
             downloadSpeed = 0
             return
         }
+        prepareSource(.interface)
         applyCounters(
             received: counters.received,
             sent: counters.sent,
@@ -169,11 +173,23 @@ final class NimboMetricsAccumulator {
         )
     }
 
+    private func prepareSource(_ source: CounterSource) {
+        guard counterSource != source else { return }
+        counterSource = source
+        // Packet-pump and OS counters have different origins. Never turn the
+        // difference between sources into a speed spike or additional traffic.
+        previous = nil
+        previousAt = nil
+        uploadSpeed = 0
+        downloadSpeed = 0
+    }
+
     /// Общий расчёт: разница счётчиков за прошедшее время.
     ///
     /// Источник счётчиков разный — расширение или собственный опрос
     /// интерфейса, — а арифметика одна, и разводить её на две копии нельзя.
     private func applyCounters(received: UInt64, sent: UInt64, memoryMb value: Int, now: Date) {
+        sessionAvailable = true
         memoryMb = value
         appendMemory(value)
 

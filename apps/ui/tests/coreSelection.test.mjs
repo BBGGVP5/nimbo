@@ -22,6 +22,56 @@ async function moduleWithMocks(path, mocks) {
 
 const helpers = await moduleWithMocks('../src/lib/coreProfiles.ts', {});
 
+test('Mihomo workspace breadcrumb does not fall back to Home', async () => {
+  const Link = ({ to, children }) => createElement('a', { href: to }, children);
+  const { WorkspaceBar } = await moduleWithMocks('../src/components/WorkspaceBar.tsx', {
+    useState, Link, NavLink: Link, useLocation: () => ({ pathname: '/mihomo' }),
+    _jsx: jsxRuntime.jsx, _jsxs: jsxRuntime.jsxs, _Fragment: jsxRuntime.Fragment,
+    useMessages: () => ({ common: { locale: 'en' }, app: { home: 'Home', notifications: 'Notifications' } }),
+    useAppStore: selector => selector({ subscriptions: [] }), HomeMetaIcon: () => null, notifyError: () => {},
+  });
+  const html = renderToStaticMarkup(createElement(WorkspaceBar));
+  assert.match(html, /<strong>Mihomo profiles<\/strong>/);
+  assert.doesNotMatch(html, /<strong>Home<\/strong>/);
+});
+
+test('full-profile URL validation and errors never disclose a subscription token', () => {
+  assert.equal(helpers.validateCoreSourceUrl(' https://example.test/profile?token=private '), 'https://example.test/profile?token=private');
+  for (const value of ['file:///secret', 'ftp://example.test/profile', 'https://user:private@example.test/',
+    'https://example.test/#private', 'https://example.test/a b', 'https://example.test/\nprivate', 'https://example.test/' + 'x'.repeat(8192)]) {
+    assert.throws(() => helpers.validateCoreSourceUrl(value), /INVALID_SOURCE_URL/);
+  }
+  for (const code of ['SOURCE_FETCH_FAILED', 'SOURCE_FETCH_TIMEOUT', 'SOURCE_HTTP_ERROR', 'SOURCE_REDIRECT_BLOCKED', 'SOURCE_INVALID_UTF8', 'SOURCE_NOT_PROFILE']) {
+    const result = helpers.mihomoErrorMessage(`${code}: https://example.test/?token=private`, true);
+    assert.ok(!result.includes('private') && !result.includes('example.test'));
+    assert.ok(!result.includes('CORE_OPERATION_FAILED'), 'known download failure has a dedicated message');
+  }
+});
+
+test('URL import invokes only the native bounded importer and does not change network mode', async () => {
+  const calls = [];
+  const { coreApi } = await moduleWithMocks('../src/lib/coreApi.ts', {
+    isTauriRuntime: () => true,
+    tauriInvoke: async (...args) => { calls.push(args); return { inspection_error: null }; },
+  });
+  await coreApi.importUrl('My profile', 'https://example.test/profile');
+  assert.deepEqual(calls, [['import_mihomo_profile_url', { name: 'My profile', url: 'https://example.test/profile' }]]);
+});
+
+test('Mihomo ad-blocking mode rejection explains rule mode without exposing native error details', () => {
+  const code = 'AD_BLOCKING_REQUIRES_RULE_MODE';
+  const error = `${code}: https://example.test/profile?token=private`;
+  assert.equal(helpers.coreErrorCode(error), code);
+  for (const ru of [false, true]) {
+    const message = helpers.mihomoErrorMessage(error, ru);
+    assert.match(message, /Mihomo/);
+    assert.match(message, /rule/);
+    assert.match(message, ru ? /выключите блокировку рекламы/ : /turn off ad blocking/);
+    assert.ok(!message.includes('private') && !message.includes('example.test'));
+    assert.ok(!message.includes('CORE_OPERATION_FAILED'));
+  }
+});
+
 test('saving a preference while connected preserves the active session and never disconnects', async () => {
   let selected = 'auto';
   let fail = false;
@@ -105,6 +155,9 @@ test('full-profile page uses native categories and blocks connect for TUN/Both/K
   assert.match(html, /<button>Connect<\/button>/);
   assert.match(html, /type="file"/);
   assert.match(html, /Complete original YAML/);
+  assert.match(html, /Complete YAML URL/);
+  assert.match(html, /One-time download, up to 20 seconds/);
+  assert.match(html, /autocomplete="off"/i);
   assert.match(html, /Manual \/ 日本/);
   assert.match(html, /URLTest/);
   assert.match(html, /Subscription Feed/);
@@ -115,12 +168,41 @@ test('full-profile page uses native categories and blocks connect for TUN/Both/K
     mode=value;
     html=renderToStaticMarkup(createElement(MihomoProfiles));
     assert.match(html, /<button disabled=""[^>]*>Connect<\/button>/);
-    assert.match(html, /Choose System Proxy only/);
+    assert.match(html, /This Mihomo network mode is unavailable/);
   }
   mode='system_proxy';ks=true;
   html=renderToStaticMarkup(createElement(MihomoProfiles));
   assert.match(html, /<button disabled=""[^>]*>Connect<\/button>/);
-  assert.match(html, /Turn it off yourself/);
+  assert.match(html, /requires Windows, the prepared helper and TUN or Both/);
+  state.runtime.profile_id = 'p';
+  html = renderToStaticMarkup(createElement(MihomoProfiles));
+  assert.match(html, /data-active="true"/);
+  assert.match(html, /Disconnect/);
+});
+
+test('full-profile page polls sequentially and does not start a live request after disposal', async () => {
+  let task, cleanup, stopped = 0, finishRefresh, snapshots = 0;
+  const state = {
+    data: { profiles: [] }, availability: [], runtime: { running: true }, busy: null, error: null,
+    refresh: () => new Promise(resolve => { finishRefresh = resolve; }),
+    live: async () => { snapshots++; },
+  };
+  const store = () => state;
+  store.getState = () => state;
+  const { MihomoProfiles } = await moduleWithMocks('../src/pages/MihomoProfiles.tsx', {
+    useEffect: effect => { cleanup = effect(); }, useState,
+    _jsx: jsxRuntime.jsx, _jsxs: jsxRuntime.jsxs, _Fragment: jsxRuntime.Fragment,
+    ...helpers, coreApi: {}, api: {}, isTauriRuntime: () => true,
+    useMessages: () => ({ common: { locale: 'en' } }), useCoreStore: store,
+    useAppStore: selector => selector({ status: { connection_mode: 'system_proxy' }, preferences: { connection_kill_switch: false } }),
+    startVisiblePolling: (callback, interval) => { task = callback; assert.equal(interval, 10000); return () => { stopped++; }; },
+    document: { visibilityState: 'visible' },
+  });
+  renderToStaticMarkup(createElement(MihomoProfiles));
+  const pending = task();
+  cleanup(); finishRefresh(); await pending;
+  assert.equal(stopped, 1);
+  assert.equal(snapshots, 0);
 });
 
 test('native selection is acknowledged and a stale session response is discarded', async () => {
@@ -186,4 +268,95 @@ test('manual server switching lets Rust reject a mismatch without frontend teard
   await switchServer('new');
   assert.equal(disconnects, 0);
   assert.equal(resets, 1);
+});
+
+
+test('on-demand validation preserves exact network names and rejects invalid input', async () => {
+  const helpers = await moduleWithMocks('../src/lib/onDemand.ts', { invoke: async () => {}, isTauriRuntime: () => true });
+  const enabled = { ...helpers.defaultOnDemand, enabled: true };
+  assert.deepEqual(helpers.validatedOnDemand(enabled, ' Home \nHome\nhome\nCafe:Guest').trusted_ssids, ['Home', 'home', 'Cafe:Guest']);
+  assert.throws(() => helpers.validatedOnDemand(enabled, 'я'.repeat(17)), /INVALID_SSID/);
+  assert.throws(() => helpers.validatedOnDemand(enabled, 'bad\u0000name'), /INVALID_SSID/);
+  assert.throws(() => helpers.validatedOnDemand(enabled, Array.from({ length: 33 }, (_, i) => `WiFi${i}`).join('\n')), /TOO_MANY_SSIDS/);
+  assert.throws(() => helpers.validatedOnDemand({ ...enabled, wifi: false, cellular: false }, ''), /NO_TRANSPORT/);
+  assert.equal(helpers.validatedOnDemand({ ...enabled, wifi: false, cellular: false, ethernet: true }, '').ethernet, true);
+  assert.doesNotMatch(helpers.onDemandError('unexpected SSID=private-home', true), /private-home/);
+});
+
+test('on-demand uses explicit native saves and has no browser persistence fallback', async () => {
+  const calls = [];
+  const mocks = { invoke: async (...args) => { calls.push(args); return {}; }, isTauriRuntime: () => true };
+  const { onDemandApi, defaultOnDemand } = await moduleWithMocks('../src/lib/onDemand.ts', mocks);
+  await onDemandApi.get();
+  await onDemandApi.save(defaultOnDemand);
+  assert.deepEqual(calls, [['get_on_demand'], ['set_on_demand', { settings: defaultOnDemand }]]);
+  const browser = await moduleWithMocks('../src/lib/onDemand.ts', { ...mocks, isTauriRuntime: () => false });
+  await assert.rejects(browser.onDemandApi.save(defaultOnDemand), /NATIVE_UNAVAILABLE/);
+  assert.equal(calls.length, 2);
+});
+
+
+test('a pending live server switch cannot launch a second row action', async () => {
+  const parsed = ts.createSourceFile('store.ts', read('../src/store.ts'), ts.ScriptTarget.Latest, true);
+  let action;
+  function visit(node) {
+    if (ts.isPropertyAssignment(node) && node.name.getText(parsed) === 'setActiveServer') action = node.initializer.getText(parsed);
+    ts.forEachChild(node, visit);
+  }
+  visit(parsed);
+  const output = ts.transpileModule(`export default ${action}`, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText.replace('export default ', 'return ');
+  let release; let starts = 0;
+  const state = { status: {state:'connected'}, activeServerId:'old', switchingServerId:null,
+    connectServer: async () => { starts++; await new Promise(resolve => { release=resolve; }); },
+    resetTrafficSession: () => {},
+  };
+  const switchServer = new Function('get','set','api',output)(()=>state,patch=>Object.assign(state,patch),{});
+  const first = switchServer('new');
+  assert.equal(state.switchingServerId,'new');
+  await assert.rejects(switchServer('third'), /Дождитесь/);
+  assert.equal(starts,1);
+  release(); await first;
+  assert.equal(state.switchingServerId,null);
+});
+
+ test('native Linux TUN admission requires verified helper, never proxy fallback',()=>{
+   const cap={core:'mihomo',binary_verified:true,system_proxy_available:false,tun_available:true,selector_available:true};
+   assert.equal(helpers.mihomoBlockReason(cap,'mihomo','tun',false),null);
+   assert.equal(helpers.mihomoBlockReason(cap,'auto','tun',true),'MIHOMO_KILL_SWITCH_UNAVAILABLE');
+   assert.equal(helpers.mihomoBlockReason(cap,'xray','tun',false),'UNSUPPORTED_CORE');
+   assert.equal(helpers.mihomoBlockReason(cap,'mihomo','both',false),'MIHOMO_TUN_UNAVAILABLE');
+   assert.equal(helpers.mihomoBlockReason({...cap,tun_available:false,reason:'MIHOMO_HELPER_REQUIRED'},'mihomo','tun',false),'MIHOMO_HELPER_REQUIRED');
+   assert.equal(helpers.mihomoBlockReason(cap,'mihomo','system_proxy',false),'SYSTEM_PROXY_PLATFORM_UNAVAILABLE');
+ });
+
+
+test('Linux helper setup is explicit and disabled during an active connection', async () => {
+  const state={data:{profiles:[]},availability:[{core:'mihomo',binary_verified:true,tun_available:false,reason:'MIHOMO_HELPER_REQUIRED'}],runtime:{running:false},busy:null,error:null};
+  const {MihomoProfiles}=await moduleWithMocks('../src/pages/MihomoProfiles.tsx',{
+    useEffect,useState,_jsx:jsxRuntime.jsx,_jsxs:jsxRuntime.jsxs,_Fragment:jsxRuntime.Fragment,
+    ...helpers,coreApi:{},api:{},isTauriRuntime:()=>true,
+    useMessages:()=>({common:{locale:'en'}}),useCoreStore:()=>state,
+    useAppStore:selector=>selector({status:{connection_mode:'tun'},preferences:{connection_kill_switch:false}}),
+  });
+  let html=renderToStaticMarkup(createElement(MihomoProfiles));
+  assert.match(html,/<button>Prepare Mihomo TUN<\/button>/);
+  assert.match(html,/System authorization is required/);
+  state.runtime.running=true;
+  html=renderToStaticMarkup(createElement(MihomoProfiles));
+  assert.match(html,/<button disabled="">Prepare Mihomo TUN<\/button>/);
+  state.runtime.running=false;state.busy='prepare-tun';
+  html=renderToStaticMarkup(createElement(MihomoProfiles));
+  assert.match(html,/<button disabled="">Preparing…<\/button>/);
+  state.availability[0].tun_available=true;state.availability[0].reason=null;
+  html=renderToStaticMarkup(createElement(MihomoProfiles));
+  assert.doesNotMatch(html,/Prepare Mihomo TUN/);
+});
+
+test('Windows Both and KS require explicit authenticated helper capabilities',()=>{
+ const cap={binary_verified:true,tun_available:true,system_proxy_available:true,both_available:true,kill_switch_available:true};
+ assert.equal(helpers.mihomoBlockReason(cap,'mihomo','both',true),null);
+ assert.equal(helpers.mihomoBlockReason(cap,'mihomo','tun',true),null);
+ assert.equal(helpers.mihomoBlockReason({...cap,both_available:false},'mihomo','both',false),'MIHOMO_TUN_UNAVAILABLE');
+ assert.equal(helpers.mihomoBlockReason({...cap,kill_switch_available:false},'mihomo','both',true),'MIHOMO_KILL_SWITCH_UNAVAILABLE');
+ assert.equal(helpers.mihomoBlockReason(cap,'mihomo','system_proxy',true),'MIHOMO_KILL_SWITCH_UNAVAILABLE');
 });

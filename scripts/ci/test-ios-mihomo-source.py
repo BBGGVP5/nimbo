@@ -14,6 +14,43 @@ spec.loader.exec_module(prepare)
 
 
 class MergedMihomoSourceTests(unittest.TestCase):
+
+    def test_desktop_build_freezes_and_applies_traffic_counter_patch(self):
+        build = (ROOT/'scripts/ci/build-mihomo-desktop.py').read_text()
+        self.assertEqual(build.count("'mihomo-traffic-counters.patch'"), 2)
+        merged = (ROOT/'scripts/ci/prepare-mihomo-merged.py').read_text()
+        self.assertIn("'tunnel/statistic/manager.go'", merged)
+        self.assertIn("'tunnel/statistic/tracker.go'", merged)
+
+    def test_owned_rule_callbacks_are_not_subscription_fields(self):
+        native = ROOT/'tools/native/mihomo-core'
+        patch = (native/'mihomo-rule-journal.patch').read_text()
+        for field in ('NimboRuleMark', 'NimboRecordRules', 'NimboClearRules'):
+            line = next(line for line in patch.splitlines() if line.startswith('+') and field in line)
+            self.assertIn('yaml:"-" json:"-"', line)
+        tun = (native/'sing-tun-rule-journal.patch').read_text()
+        self.assertLess(tun.index('NimboRecordRules(plan)'), tun.index('for i, rule := range rules'))
+        self.assertIn('rule.Mark, rule.MarkSet, rule.Mask = t.options.NimboRuleMark, true, 0', tun)
+        self.assertIn('return t.options.NimboClearRules()', tun)
+        identity = (native/'netlink-rule-identity.patch').read_text()
+        self.assertIn('+\t\trule.Type = msg.Type', identity)
+        self.assertIn('+\t\t\t\trule.MarkSet = true', identity)
+        build = (ROOT/'scripts/ci/prepare-mihomo-merged.py').read_text()
+        for module in ('github.com/metacubex/sing-tun', 'github.com/sagernet/netlink'):
+            self.assertIn("'-replace="+module+"='", build)
+
+    def test_rule_dependency_patch_scope_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); source=root/'source'; source.mkdir()
+            (source/'owned.go').write_text('package rules\nfunc before() {}\n')
+            patch=root/'owned.patch'
+            patch.write_text('--- a/owned.go\n+++ b/owned.go\n@@ -1,2 +1,2 @@\n package rules\n-func before() {}\n+func after() {}\n')
+            changed=prepare.stage_rule_dependency(source,root/'valid',patch,{'owned.go'})
+            self.assertEqual(set(changed),{'owned.go'})
+            self.assertEqual((source/'owned.go').read_text(),'package rules\nfunc before() {}\n')
+            with self.assertRaisesRegex(RuntimeError,'Unexpected rule dependency patch scope'):
+                prepare.stage_rule_dependency(source,root/'invalid',patch,{'not-owned.go'})
+
     def test_patch_is_not_skipped_inside_parent_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
             parent = Path(directory)
@@ -81,7 +118,19 @@ class MergedMihomoSourceTests(unittest.TestCase):
         for target in ['adapter/provider/healthcheck.go', 'adapter/provider/provider.go',
                        'adapter/outboundgroup/groupbase.go']:
             self.assertIn('diff --git a/' + target + ' b/' + target, source)
-        self.assertEqual(source.count('diff --git '), 4)
+        expected = {
+            'adapter/provider/healthcheck.go', 'adapter/provider/provider.go',
+            'adapter/outboundgroup/groupbase.go', 'listener/sing_tun/server.go',
+            'component/dialer/dialer.go', 'component/dialer/socket_hook.go',
+        }
+        headers = [line for line in source.splitlines() if line.startswith('diff --git ')]
+        self.assertEqual(len(headers), len(expected))
+        self.assertEqual(set(headers), {'diff --git a/' + name + ' b/' + name for name in expected})
+        self.assertIn('socketHookToListenConfig(lc, rAddrPort)', source)
+        self.assertIn('if remote.IsValid()', source)
+        self.assertIn('address = remote.String()', source)
+        self.assertNotIn('DefaultSocketHook =', source)  # no live global hook replacement
+
         reality_patch = (ROOT / 'tools/native/mihomo-core/mihomo-reality-client-version.patch').read_text()
         self.assertEqual(reality_patch.count('diff --git '), 1)
         self.assertIn('diff --git a/component/tls/reality.go b/component/tls/reality.go', reality_patch)

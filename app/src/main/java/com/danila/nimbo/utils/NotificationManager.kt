@@ -355,9 +355,10 @@ object NotificationManager {
                 statusOverride != null -> VpnPillState.ATTENTION
                 else -> VpnPillState.CONNECTED
             }
-            builder.setRequestPromotedOngoing(prefs.vpnLiveUpdateEnabled)
-                .setShortCriticalText(if (prefs.vpnLiveUpdateEnabled)
-                    vpnPillText(state, connectionTimeSeconds, isEn) else null)
+            val presentation = vpnNotificationPresentation(
+                prefs.vpnLiveUpdateEnabled, state, connectionTimeSeconds, isEn)
+            builder.setRequestPromotedOngoing(presentation.promoted)
+                .setShortCriticalText(presentation.shortCriticalText)
         }
         return builder.build()
     }

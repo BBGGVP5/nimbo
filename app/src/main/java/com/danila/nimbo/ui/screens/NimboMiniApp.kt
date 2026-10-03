@@ -6,6 +6,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import com.danila.nimbo.ui.components.contrastingLabel
 
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.selection.selectableGroup
 
 import com.danila.nimbo.ui.components.NimboToolMetric
 
@@ -23,6 +24,9 @@ import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import com.danila.nimbo.ui.components.LocalFloatingNavHeight
 import androidx.compose.ui.layout.onSizeChanged
 import android.Manifest
@@ -384,6 +388,8 @@ import com.danila.nimbo.ui.components.nimboControlBorderColor
 import com.danila.nimbo.ui.components.nimboControlBorderWidth
 import com.danila.nimbo.ui.components.nimboControlContainer
 import com.danila.nimbo.ui.components.nimboControlShape
+import com.danila.nimbo.ui.components.NimboChoiceOption
+import com.danila.nimbo.ui.components.NimboExpandingChoiceCard
 import com.danila.nimbo.ui.theme.BackgroundPaletteMode
 import com.danila.nimbo.ui.theme.BackgroundStyleMode
 import com.danila.nimbo.ui.theme.DEFAULT_COLOR_THEME_INDEX
@@ -828,7 +834,7 @@ fun NimboMiniApp(
         val activeServer = VpnManager.connectedServer.value
         val isDifferentServer = activeServer == null || !server.matchesSelection(activeServer)
         val displayName = serverUiTitle(preferencesManager, server)
-        if (vpnActive && preferencesManager.allowServerSwitchWhileConnected && isDifferentServer) {
+        if (com.danila.nimbo.utils.ServerSwitchPolicy.shouldSwitch(vpnActive, preferencesManager.allowServerSwitchWhileConnected, isDifferentServer)) {
             mainViewModel.showTopNotification(loc("Переключение на $displayName…", "Switching to $displayName…"))
             onConnect(server)
         }
@@ -938,7 +944,6 @@ fun NimboMiniApp(
     val onUpdatesClickRemembered = remember { { navigateTo(MiniDestination.Updates) } }
     val onLogsClickRemembered = remember { { navigateTo(MiniDestination.Logs) } }
     val onRoutingClickRemembered = remember { { navigateTo(MiniDestination.Routing) } }
-    val onConnectionsClickRemembered = remember { { navigateTo(MiniDestination.Connections) } }
     val onStatsClickRemembered = remember { { navigateTo(MiniDestination.Statistics) } }
     val onWhitelistClickRemembered = remember { { navigateTo(MiniDestination.WhitelistCheck) } }
     val onCrossSyncClickRemembered = remember { { navigateTo(MiniDestination.CrossPlatformSync) } }
@@ -1041,7 +1046,6 @@ fun NimboMiniApp(
                     onUpdatesClick = onUpdatesClickRemembered,
                     onLogsClick = onLogsClickRemembered,
                     onRoutingClick = onRoutingClickRemembered,
-                    onConnectionsClick = onConnectionsClickRemembered,
                     onStatsClick = onStatsClickRemembered,
                     onWhitelistClick = onWhitelistClickRemembered,
                     onCrossSyncClick = onCrossSyncClickRemembered,
@@ -3873,7 +3877,7 @@ private fun SubscriptionActionsRow(updated: Long, pinging: Boolean, refreshing: 
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(t("Обновлено: ", "Updated: ") + formatLastUpdateTime(updated), Modifier.weight(1f),
             style = MaterialTheme.typography.labelSmall, color = LocalNebulaColors.current.textSecondary)
-        com.danila.nimbo.ui.components.NimboIconAction(Icons.Default.SignalCellularAlt, pingLabel, pinging, onPing)
+        com.danila.nimbo.ui.components.NimboIconAction(Icons.Default.SignalCellularAlt, if (pinging) t("Остановить пинг", "Stop ping") else pingLabel, pinging, onPing, allowCancel = true)
         com.danila.nimbo.ui.components.NimboIconAction(Icons.Default.Refresh, t("Обновить подписку", "Refresh subscription"), refreshing, onRefresh)
     }
 }
@@ -3956,15 +3960,14 @@ private fun WindowsProfileServerLine(
     var hideConfirmOpen by remember { mutableStateOf(false) }
     com.danila.nimbo.ui.components.NimboServerRow(
         title = cleanServerName(displayName), subtitle = serverSubtitle(server), selected = selected,
-        flag = extractFlagEmoji(server.name), onSelect = onClick, onPing = onPing,
+        flag = extractFlagEmoji(server.name), onSelect = onClick, onOpenMenu = { menuExpanded = true },
         ping = { WindowsPingPill(server.ping ?: -1, isPinging, pingDisplayMode) },
         menu = {
-            Box {
-                IconButton({ menuExpanded = true }, Modifier.size(48.dp)) {
-                    Icon(Icons.Default.MoreVert, t("Действия с сервером", "Server actions"), tint = colors.textSecondary)
-                }
                 DropdownMenu(menuExpanded, { menuExpanded = false }, containerColor = colors.panelFill,
                     shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, colors.panelBorder)) {
+                    DropdownMenuItem(text = { Text(if (isPinging) t("Остановить пинг", "Stop ping") else t("Пинг сервера", "Ping server")) },
+                        leadingIcon = { Icon(if (isPinging) Icons.Default.Stop else Icons.Default.Speed, null) },
+                        onClick = { menuExpanded = false; onPing() })
                     DropdownMenuItem(text = { Text(if (isFavorite) t("Убрать из избранного", "Remove favorite") else t("В избранное", "Add favorite")) },
                         leadingIcon = { Icon(if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder, null) },
                         onClick = { menuExpanded = false; onToggleFavorite() })
@@ -3974,7 +3977,6 @@ private fun WindowsProfileServerLine(
                         leadingIcon = { Icon(Icons.Default.Delete, null, tint = colors.statusError) },
                         onClick = { menuExpanded = false; hideConfirmOpen = true })
                 }
-            }
         })
     if (showDivider) HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 12.dp))
     if (renameOpen) NimboRenameServerDialog(displayName, { renameOpen = false }) { name -> onRename(name); renameOpen = false }
@@ -4646,7 +4648,6 @@ private fun NimboSettingsScreen(
     onUpdatesClick: () -> Unit,
     onLogsClick: () -> Unit,
     onRoutingClick: () -> Unit,
-    onConnectionsClick: () -> Unit,
     onStatsClick: () -> Unit,
     onWhitelistClick: () -> Unit,
     onCrossSyncClick: () -> Unit,
@@ -4709,6 +4710,8 @@ private fun NimboSettingsScreen(
             style = MaterialTheme.typography.bodySmall, color = LocalNebulaColors.current.textSecondary,
             modifier = Modifier.padding(top = 6.dp, bottom = 24.dp))
         SettingsGroupLabel(t("ПОДКЛЮЧЕНИЕ", "CONNECTION"))
+        AdBlockingSettingsCard(preferencesManager)
+        Spacer(Modifier.height(12.dp))
         SettingsCompactCard {
             SettingsRow(Icons.Default.Dns, t("Ядро VPN", "VPN core"),
                 com.danila.nimbo.vpn.VpnCoreChoice.fromId(preferencesManager.vpnCoreState.value)?.let {
@@ -4731,14 +4734,12 @@ private fun NimboSettingsScreen(
         Spacer(Modifier.height(20.dp))
         SettingsGroupLabel(t("ПРОФИЛИ", "PROFILES"))
         SettingsCompactCard {
-            SettingsRow(Icons.Default.Layers, t("Мои подписки", "My subscriptions"), null, onOpenSubscription)
             SettingsRow(Icons.Default.Refresh, t("Обновление подписок", "Subscription updates"), null, { section = 5 })
             SettingsRow(Icons.Default.Dns, t("Настройки серверов", "Server settings"), null, { section = 6 }, false)
         }
         Spacer(Modifier.height(20.dp))
         SettingsGroupLabel(t("ДИАГНОСТИКА", "DIAGNOSTICS"))
         SettingsCompactCard {
-            SettingsRow(Icons.AutoMirrored.Filled.ShowChart, t("Активность", "Activity"), t("Соединения и сетевой экран", "Connections and network shield"), onConnectionsClick)
             SettingsRow(Icons.Default.BarChart, t("Статистика", "Statistics"), null, onStatsClick)
             SettingsRow(Icons.Default.NetworkCheck, t("Проверка сети", "Network check"), null, onWhitelistClick)
             SettingsRow(Icons.AutoMirrored.Filled.Article, t("Журнал", "Logs"), null, onLogsClick)
@@ -4917,14 +4918,14 @@ private fun ColumnScope.GeneralSettingsSection(
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = t("Снять ограничение по памяти", "Remove memory limit"),
+                            text = t("Автоматический бюджет памяти", "Automatic memory budget"),
                             style = MaterialTheme.typography.bodyLarge,
                             color = nebulaColors.textPrimary,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            text = t("Для мощных устройств. Больше памяти повышает стабильность под нагрузкой.", "For powerful devices. More memory increases stability under load."),
+                            text = t("Мягкий бюджет общего Go-ядра; не лимит всей памяти приложения.", "Soft budget for the shared Go runtime, not total app memory."),
                             style = MaterialTheme.typography.bodyMedium,
                             color = nebulaColors.textSecondary
                         )
@@ -4950,9 +4951,9 @@ private fun ColumnScope.GeneralSettingsSection(
             Spacer(Modifier.height(14.dp))
             Text(
                 text = if (memoryLimitDisabled) {
-                    t("Лимит памяти: без ограничений", "Memory limit: unlimited")
+                    t("Бюджет ядра: автоматически · 96 MiB", "Core budget: automatic · 96 MiB")
                 } else {
-                    t("Лимит памяти: ${memoryLimitMb} MB", "Memory limit: ${memoryLimitMb} MB")
+                    t("Бюджет ядра: ${memoryLimitMb} MiB", "Core budget: ${memoryLimitMb} MiB")
                 },
                 style = MaterialTheme.typography.bodyLarge,
                 color = nebulaColors.textPrimary,
@@ -4961,9 +4962,9 @@ private fun ColumnScope.GeneralSettingsSection(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = if (memoryLimitDisabled) {
-                    t("Режим для мощных устройств и максимальной стабильности.", "Mode for powerful devices and maximum stability.")
+                    t("Go освобождает неиспользуемую память без постоянного принудительного GC.", "Go reclaims unused memory without repeated forced GC.")
                 } else {
-                    t("Ниже лимит — ниже расход памяти, выше лимит — стабильнее при высокой нагрузке.", "Lower limit — lower memory consumption, higher limit — more stable under high load.")
+                    t("Это мягкий бюджет: живые соединения не прерываются при превышении.", "A soft budget: live connections are not stopped if it is exceeded.")
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = nebulaColors.textSecondary
@@ -5691,22 +5692,7 @@ private fun ColumnScope.StatisticsSettingsSection(
 
     Spacer(Modifier.height(16.dp))
 
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        StatSpeedCard(
-            modifier = Modifier.weight(1f),
-            label = t("ОТПРАВЛЕНО", "SENT"),
-            icon = Icons.Default.ArrowUpward,
-            speed = uploadSpeed,
-            total = sessionUp
-        )
-        StatSpeedCard(
-            modifier = Modifier.weight(1f),
-            label = t("ПОЛУЧЕНО", "RECEIVED"),
-            icon = Icons.Default.ArrowDownward,
-            speed = downloadSpeed,
-            total = sessionDown
-        )
-    }
+    TrafficDashboard()
 
     // ── График скорости за последнюю минуту ────────────────────────────────
     val speedSamples = TrafficHistory.speedSamples
@@ -5862,6 +5848,10 @@ private fun ColumnScope.StatisticsSettingsSection(
 
     Spacer(Modifier.height(16.dp))
     StatGroupCard(title = t("ЗА ВСЁ ВРЕМЯ", "ALL TIME")) {
+        Text(t("История может содержать счётчики ядра, UID или всего устройства.",
+            "History may include core, app UID or device-wide counters."),
+            color = nebulaColors.textSecondary, style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(vertical = 8.dp))
         StatLine(t("Отправлено", "Sent"), formatBytesPrecise(allUp))
         StatLine(t("Получено", "Received"), formatBytesPrecise(allDown))
         StatLine(t("Суммарно", "Total"), formatBytesPrecise(allUp + allDown), emphasize = true, showDivider = false)
@@ -5891,8 +5881,8 @@ private fun ColumnScope.StatisticsSettingsSection(
                 java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(java.util.Date(sessionStart))
             } else "—"
         )
-        StatLine(t("TX пакеты", "TX packets"), txPackets.toString())
-        StatLine(t("RX пакеты", "RX packets"), rxPackets.toString(), showDivider = false)
+        StatLine(t("TX пакеты Android", "Android TX packets"), txPackets.toString())
+        StatLine(t("RX пакеты Android", "Android RX packets"), rxPackets.toString(), showDivider = false)
     }
 
     Spacer(Modifier.height(20.dp))
@@ -8228,28 +8218,16 @@ private fun AdvancedConnectionSettingsCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LogRetentionOptionGrid(labels: List<String>, values: List<Int>, selectedValue: Int, onSelect: (Int) -> Unit) {
-    val colors = LocalNebulaColors.current
-    var open by remember { mutableStateOf(false) }
     val selected = selectedValue.takeIf { it in values } ?: 24
-    Box(Modifier.fillMaxWidth()) {
-        Surface(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            color = colors.controlFill, shape = RoundedCornerShape(12.dp)) {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(labels.getOrElse(values.indexOf(selected)) { "—" }, Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium, color = colors.textPrimary)
-                Icon(Icons.Default.KeyboardArrowDown, t("Выбрать срок хранения", "Choose retention period"), tint = colors.textSecondary)
-            }
-        }
-        DropdownMenu(open, { open = false }, containerColor = colors.panelFill, shape = RoundedCornerShape(12.dp)) {
-            labels.zip(values).forEach { (label, value) ->
-                DropdownMenuItem(text = { Text(label) }, leadingIcon = {
-                    RadioButton(value == selected, onClick = null)
-                }, onClick = { onSelect(value); open = false })
-            }
-        }
-    }
+    NimboExpandingChoiceCard(
+        options = labels.zip(values).map { (label, value) -> NimboChoiceOption(value, label) },
+        selectedValue = selected,
+        onSelect = onSelect,
+        testTag = "log-retention"
+    )
 }
 
 @Composable
@@ -10904,15 +10882,16 @@ private fun PingDisplayOption(display: PingDisplay, selected: Boolean, onClick: 
         PingDisplay.BOTH -> t("Числа и полоски", "Numbers and bars")
         PingDisplay.DOTS -> t("Точки", "Dots")
     }
-    Surface(onClick = onClick, modifier = modifier.heightIn(min = 67.dp).semantics {
+    Surface(onClick = onClick, modifier = modifier.heightIn(min = 48.dp).semantics {
         this.selected = selected; role = Role.RadioButton
     }, color = if (selected) colors.accent.copy(alpha = 0.13f) else colors.panelFill,
         border = BorderStroke(1.dp, if (selected) colors.accent else colors.panelBorder),
         shape = RoundedCornerShape(12.dp)) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(title, color = colors.textPrimary, style = MaterialTheme.typography.labelMedium,
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, Modifier.weight(1f), color = colors.textPrimary, style = MaterialTheme.typography.labelMedium,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
             PingValueContent(87, display.id, colors.accent)
         }
     }
@@ -14549,10 +14528,10 @@ private fun SubscriptionSettingsDialog(
             Pair(t("1 час", "1 hour"), 1), Pair(t("2 часа", "2 hours"), 2),
             Pair(t("6 часов", "6 hours"), 6), Pair(t("12 часов", "12 hours"), 12),
             Pair(t("24 часа", "24 hours"), 24), Pair(t("По умолчанию", "Default"), null))
-        NimboToolActions(minCellDp = 100f) {
+        NimboToolActions(minCellDp = 72f) {
             intervals.forEach { (label, hours) ->
-                NetworkSettingsChoice(label, selectedIntervalHours == hours,
-                    { selectedIntervalHours = hours }, Modifier.weight(1f))
+                com.danila.nimbo.ui.components.NetworkSettingsCompactChoice(label, selectedIntervalHours == hours,
+                    { selectedIntervalHours = hours })
             }
         }
         Text(t("URL подписки", "Subscription URL"), style = MaterialTheme.typography.titleSmall)

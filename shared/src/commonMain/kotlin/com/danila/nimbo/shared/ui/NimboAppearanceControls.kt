@@ -21,6 +21,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import kotlin.math.roundToInt
 
 @Composable
@@ -76,13 +78,20 @@ internal fun NimboAppearanceDetails(state: NimboUiState, actions: NimboUiActions
 }
 
 @Composable
-internal fun AppearanceToggle(title: String, checked: Boolean, info: String? = null, onChange: (Boolean) -> Unit) {
+internal fun AppearanceToggle(title: String, checked: Boolean, info: String? = null, subtitle: String? = null, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f).heightIn(min = 52.dp)
             .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
             .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            BasicText(title, Modifier.weight(1f), style = NimboBodyStyle.copy(color = NimboPalette.Text))
+            if (subtitle.isNullOrBlank()) {
+                BasicText(title, Modifier.weight(1f), style = NimboBodyStyle.copy(color = NimboPalette.Text))
+            } else {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    BasicText(title, style = NimboBodyStyle.copy(color = NimboPalette.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium))
+                    BasicText(subtitle, style = NimboBodyStyle.copy(fontSize = 12.sp))
+                }
+            }
             // One named accessibility/keyboard target for the entire setting, not an anonymous switch.
             Box(Modifier.focusProperties { canFocus = false }.clearAndSetSemantics { }) {
                 NimboToggle(checked = checked, onChange = onChange)

@@ -12,8 +12,8 @@ import {
 import { type Messages } from "../../lib/i18n";
 import { SignalProfileCard } from "./SignalProfileCard";
 import { serverDisplayLabel, type ServerUiOverrides } from "../../lib/serverUiOverrides";
-import { ActionMenu } from "../../components/Universal";
-import { DotsIcon, StarIcon } from "../home/SignalServerRail";
+import { ServerContextMenu } from "../../components/ServerContextMenu";
+import { StarIcon } from "../home/SignalServerRail";
 
 export interface SignalProfilesProps {
   labels: Messages;
@@ -21,6 +21,7 @@ export interface SignalProfilesProps {
   activeId: string | null;
   connectingId: string | null;
   pingByServer: Record<string, number | undefined>;
+  pingingServerIds?: Set<string>;
   favorites: Set<string>;
   onPickServer: (sub: Subscription, server: Server) => void;
   onToggleFavorite: (id: string) => void;
@@ -50,6 +51,7 @@ export function SignalProfiles({
   activeId,
   connectingId,
   pingByServer,
+  pingingServerIds,
   favorites,
   onPickServer,
   onToggleFavorite,
@@ -128,16 +130,19 @@ export function SignalProfiles({
               {rows.filter(row => row.sub.url === sub.url).map(({ server }) => {
                 const active = server.id === activeId;
                 const connecting = server.id === connectingId;
-                return <div key={server.id} className={`parity-server-row${active ? " is-active" : ""}`}>
+                return <ServerContextMenu key={server.id} className={`parity-server-row${active ? " is-active" : ""}`} label={m.profiles.serverMenu} actions={[
+                  { label: pingingServerIds?.has(server.id) ? (m.common.locale.startsWith("ru") ? "Остановить пинг" : "Stop ping") : m.profiles.testLatency, onClick: () => onPingServer(server.id) },
+                  { label: m.profiles.renameServer, onClick: () => onRenameServer(server.id) },
+                  { label: m.profiles.deleteServer, onClick: () => onHideServer(server.id), danger: true },
+                ]}>
                   <button className="parity-server-select" type="button" onClick={() => onPickServer(sub, server)} aria-pressed={active} disabled={connecting}>
                     <span className="parity-server-flag"><CountryFlag serverName={server.name} fallback={<span aria-hidden="true">◎</span>}/></span>
-                    <span className="parity-server-copy"><strong>{serverDisplayLabel(server, serverOverrides)}</strong><small>{protocolLabel(server.protocol)} · {transportLabel(server.protocol) || "JSON"}</small></span>
-                    <span className="parity-server-latency">{connecting ? m.home.connecting : <LatencyDisplay value={pingByServer[server.id]} />}</span>
+                    <span className="parity-server-copy"><strong data-server-menu-anchor>{serverDisplayLabel(server, serverOverrides)}</strong><small>{protocolLabel(server.protocol)} · {transportLabel(server.protocol) || "JSON"}</small></span>
+                    <span className="parity-server-latency">{connecting ? m.home.connecting : <LatencyDisplay value={pingByServer[server.id]} loading={pingingServerIds?.has(server.id)} />}</span>
                     {active && <span aria-label={m.signal.active}>✓</span>}
                   </button>
                   <button type="button" className={`signal-star${favorites.has(server.id) ? " is-on" : ""}`} onClick={() => onToggleFavorite(server.id)} aria-label={m.profiles.favorite} aria-pressed={favorites.has(server.id)}><StarIcon filled={favorites.has(server.id)}/></button>
-                  <SignalRowMenu labels={m} onPing={() => onPingServer(server.id)} onRename={() => onRenameServer(server.id)} onHide={() => onHideServer(server.id)}/>
-                </div>;
+                </ServerContextMenu>;
               })}
             </div>
           </SignalProfileCard>
@@ -147,23 +152,4 @@ export function SignalProfiles({
 
     </div>
   );
-}
-
-/** Меню строки сервера: пинг, переименование и скрытие — как в старом списке. */
-function SignalRowMenu({
-  labels: m,
-  onPing,
-  onRename,
-  onHide,
-}: {
-  labels: Messages;
-  onPing: () => void;
-  onRename: () => void;
-  onHide: () => void;
-}) {
-  return <ActionMenu label={m.profiles.serverMenu} actions={[
-    { label: m.profiles.testLatency, onClick: onPing },
-    { label: m.profiles.renameServer, onClick: onRename },
-    { label: m.profiles.deleteServer, onClick: onHide, danger: true },
-  ]}><DotsIcon/></ActionMenu>;
 }
