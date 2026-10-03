@@ -568,17 +568,7 @@ impl MihomoOwner {
         }
         // Wintun device lifetime owns its routes. Never release protection while
         // the managed device (including an uncertain dead child's device) exists.
-        let mut luid: windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH =
-            unsafe { std::mem::zeroed() };
-        let code = unsafe {
-            windows_sys::Win32::NetworkManagement::IpHelper::ConvertInterfaceAliasToLuid(
-                nimbo_ipc::windows::wide(std::ffi::OsStr::new("nimbo-mh0")).as_ptr(),
-                &mut luid,
-            )
-        };
-        if code != windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND
-            && code != windows_sys::Win32::Foundation::ERROR_NOT_FOUND
-        {
+        if !crate::mihomo_firewall::adapter_retired()? {
             return Err("TUN_CLEANUP_FAILED".into());
         }
         crate::mihomo_firewall::release(sid)?;

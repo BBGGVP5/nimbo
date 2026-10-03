@@ -179,6 +179,33 @@ fn load() -> Result<Option<Journal>, String> {
         _ => Err(FAILURE.into()),
     }
 }
+/// Positive enumeration, not an ambiguous alias-to-LUID error code. All TCP/IP
+/// interfaces (including hidden virtual adapters) must lack the exact owner alias.
+pub fn adapter_retired() -> Result<bool, String> {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        FreeMibTable, GetIfTable2, MIB_IF_TABLE2,
+    };
+    let mut table: *mut MIB_IF_TABLE2 = ptr::null_mut();
+    checked(unsafe { GetIfTable2(&mut table) })?;
+    if table.is_null() {
+        return Err(FAILURE.into());
+    }
+    let rows = unsafe {
+        std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize)
+    };
+    let retired = rows.iter().all(|row| {
+        let n = row
+            .Alias
+            .iter()
+            .position(|c| *c == 0)
+            .unwrap_or(row.Alias.len());
+        !String::from_utf16_lossy(&row.Alias[..n]).eq_ignore_ascii_case("nimbo-mh0")
+    });
+    unsafe {
+        FreeMibTable(table.cast());
+    }
+    Ok(retired)
+}
 pub fn available() -> bool {
     Engine::open().is_ok()
 }
