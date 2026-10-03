@@ -49,7 +49,7 @@ Copy-Item -LiteralPath (Join-Path $repo 'tools/native/libxray-memory/memory_ios.
 
 $inputs = @((Join-Path $repo 'tools/native/libxray-memory'),$bridge,$appleBridge,(Join-Path $repo 'tools/native/awg-core'),$mihomo) | ForEach-Object {
     Get-ChildItem -LiteralPath $_ -Recurse -File | Where-Object {
-        $_.FullName -notmatch '[\\/]\.build[\\/]' -and ($_.Extension -eq '.go' -or $_.Name -in @('go.mod','go.sum','pins.json','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch'))
+        $_.FullName -notmatch '[\\/]\.build[\\/]' -and ($_.Extension -eq '.go' -or $_.Name -in @('go.mod','go.sum','pins.json','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','mihomo-rule-journal.patch','sing-tun-rule-journal.patch','netlink-rule-identity.patch'))
     }
 } | ForEach-Object { [ordered]@{ path=$_.FullName; sha256=(Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant() } }
 $inputs | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stage 'inputs.json') -Encoding utf8

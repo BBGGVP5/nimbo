@@ -101,7 +101,7 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None):
     owner = None
     request = dict(yaml=source, source_sha256=hashlib.sha256(source.encode()).hexdigest(), binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest())
     try:
-        for ending in ('explicit', 'eof', 'service-crash'):
+        for ending in ('explicit', 'eof', 'native-crash', 'service-crash', 'both-crash'):
             service = subprocess.Popen([str(helper)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             wait(lambda: Path(SOCKET).exists(), 'broker failed to listen')
             with connect() as status:
@@ -183,6 +183,42 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None):
                 traffic()
                 assert call(owner, 'mihomo_down')['type'] == 'ok'
                 assert not call(owner, 'mihomo_status')['running']
+            elif ending in ('native-crash','both-crash'):
+                # Native child can be spawned by any service connection thread.
+                children=set()
+                for task in Path('/proc/'+str(service.pid)+'/task').iterdir():
+                    children.update((task/'children').read_text().split())
+                native=[int(pid) for pid in children if Path('/proc/'+pid+'/comm').read_text().strip()=='nimbo-mihomo']
+                assert len(native)==1, 'cannot identify sole owned native child'
+                if ending=='both-crash':
+                    # Stop the native child before killing the helper so EOF
+                    # cannot turn this into an ordinary graceful-close test.
+                    os.kill(native[0],19)
+                    service.kill();service.wait(timeout=5)
+                os.kill(native[0],9)
+                wait(no_device,'killed native child retained device')
+                assert Path('/run/nimbo-mihomo-tun-rules.json').exists(), 'hard crash did not retain WAL'
+                assert fixture.snapshot_network()!=before, 'hard crash did not leave owned rules'
+                if ending=='native-crash':
+                    assert not call(owner,'mihomo_status')['running']
+                    fixture.verify_restored(before)
+                    recovered=call(owner,'mihomo_up',**request)
+                    assert recovered['type']=='mihomo_ready',recovered
+                    traffic()
+                    assert call(owner,'mihomo_down')['type']=='ok'
+                else:
+                    # Both processes died: next native owner replays its WAL.
+                    owner.close();owner=None
+                    Path(SOCKET).unlink()
+                    service=subprocess.Popen([str(helper)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                    wait(lambda:Path(SOCKET).exists(),'broker failed to restart after both crashes')
+                    owner=connect()
+                    blocked=call(owner,'tun_up',config='',interface='fixture-never-created',bypass_ips=[],dns=[],kill_switch=False)
+                    assert blocked['type']=='error' and blocked['message']=='TUN_IN_USE', 'legacy engine stole retained native WAL state'
+                    recovered=call(owner,'mihomo_up',**request)
+                    assert recovered['type']=='mihomo_ready',recovered
+                    traffic()
+                    assert call(owner,'mihomo_down')['type']=='ok'
             elif ending == 'service-crash':
                 service.kill()
                 service.wait(timeout=5)

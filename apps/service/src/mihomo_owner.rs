@@ -12,6 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 const CORE: &str = "/usr/local/lib/nimbo/nimbo-mihomo";
+const JOURNAL: &str = "/run/nimbo-mihomo-tun-rules.json";
 const HOME: &str = "/run/nimbo/mihomo";
 const MAX_REPLY: u64 = 12 * 1024 * 1024;
 pub fn expected_hash() -> &'static str {
@@ -28,6 +29,9 @@ fn validate_request(r: &MihomoTunRequest, expected: &str) -> Result<(), String> 
         return Err("SOURCE_DIGEST_MISMATCH".into());
     }
     Ok(())
+}
+fn journal_reserved(path: &Path) -> bool {
+    !matches!(fs::symlink_metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
 }
 fn protected(path: &Path, directory: bool) -> bool {
     fs::symlink_metadata(path).is_ok_and(|m| {
@@ -122,26 +126,56 @@ fn wait_reply(
         }
     }
 }
+fn recover_rules() -> Result<(), String> {
+    // Fixed root entry in the same rehashed protected binary; no IPC arguments.
+    let mut child = spawn("recover-tun")?;
+    drop(child.stdin.take());
+    let rx = match read_reply(&mut child) {
+        Ok(rx) => rx,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let reply = rx
+                    .recv_timeout(Duration::from_millis(250))
+                    .ok()
+                    .and_then(Result::ok);
+                return if status.success()
+                    && reply.is_some_and(|r| r["apiVersion"] == 1 && r["success"] == true)
+                {
+                    Ok(())
+                } else {
+                    Err("TUN_CLEANUP_FAILED".into())
+                };
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+            Err(_) => break,
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    Err("TUN_CLEANUP_FAILED".into())
+}
 fn join(child: &mut Child) -> Result<(), String> {
     drop(child.stdin.take());
     let deadline = Instant::now() + Duration::from_secs(30);
     while Instant::now() < deadline {
         match child.try_wait() {
-            Ok(Some(s)) => {
-                return if s.success() {
-                    Ok(())
-                } else {
-                    Err("TUN_CLEANUP_FAILED".into())
-                }
-            }
+            Ok(Some(s)) => return if s.success() { Ok(()) } else { recover_rules() },
             Ok(None) => std::thread::sleep(Duration::from_millis(10)),
             Err(_) => return Err("CORE_WAIT_FAILED".into()),
         }
     }
-    // Forced kill is not reported as successful network cleanup.
+    // A forced kill is not cleanup. Only verified journal recovery may succeed.
     let _ = child.kill();
     let _ = child.wait();
-    Err("TUN_CLEANUP_FAILED".into())
+    recover_rules()
 }
 pub fn install(source: &Path) -> Result<(), String> {
     if unsafe { libc::geteuid() } != 0 {
@@ -195,10 +229,21 @@ struct Running {
     client: u64,
     child: Child,
     home: PathBuf,
+    joined: bool,
+}
+impl Running {
+    fn stop(&mut self) -> Result<(), String> {
+        if self.joined {
+            return Ok(());
+        }
+        let result = join(&mut self.child);
+        self.joined = result.is_ok();
+        result
+    }
 }
 impl Drop for Running {
     fn drop(&mut self) {
-        let _ = join(&mut self.child);
+        let _ = self.stop();
         let _ = fs::remove_dir_all(&self.home);
     }
 }
@@ -236,12 +281,24 @@ impl MihomoOwner {
         true
     }
     pub fn has_lease(&self) -> bool {
-        self.inner.lock().map_or(true, |g| g.is_some())
+        // A helper restart loses its in-memory lease, not native WAL ownership.
+        // Do not let legacy Xray/AWG take over retained or unsafe native state.
+        self.inner.lock().map_or(true, |g| g.is_some()) || journal_reserved(Path::new(JOURNAL))
     }
     pub fn running(&self) -> bool {
         self.inner.lock().is_ok_and(|mut g| {
-            g.as_mut()
-                .is_some_and(|r| matches!(r.child.try_wait(), Ok(None)))
+            let Some(running) = g.as_mut() else {
+                return false;
+            };
+            if matches!(running.child.try_wait(), Ok(None)) {
+                return true;
+            }
+            // A dead child is never connected. Retain the lease on recovery
+            // failure so another engine cannot take over unknown network state.
+            if running.stop().is_ok() {
+                drop(g.take());
+            }
+            false
         })
     }
     pub fn preflight(&self, r: &MihomoTunRequest, alive: &dyn Fn() -> bool) -> Result<(), String> {
@@ -312,6 +369,7 @@ impl MihomoOwner {
             client,
             child,
             home,
+            joined: false,
         };
         let secret = format!(
             "{}{}",
@@ -360,10 +418,11 @@ impl MihomoOwner {
     }
     pub fn down(&self, client: u64) -> Result<(), String> {
         let mut guard = self.inner.lock().map_err(|_| "BUSY")?;
-        if guard.as_ref().is_some_and(|r| r.client == client) {
-            let mut running = guard.take().unwrap();
-            let result = join(&mut running.child);
-            drop(running);
+        if let Some(running) = guard.as_mut().filter(|r| r.client == client) {
+            let result = running.stop();
+            if result.is_ok() {
+                drop(guard.take());
+            }
             return result;
         }
         Ok(())
@@ -397,6 +456,21 @@ mod tests {
             validate_request(&r, &"a".repeat(64)).unwrap_err(),
             "SOURCE_DIGEST_MISMATCH"
         );
+    }
+    #[test]
+    fn any_retained_journal_reserves_network_ownership() {
+        let directory =
+            std::env::temp_dir().join(format!("nimbo-journal-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        let file = directory.join("journal");
+        assert!(!journal_reserved(&file));
+        fs::write(&file, b"invalid json").unwrap();
+        assert!(journal_reserved(&file));
+        fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink(directory.join("missing"), &file).unwrap();
+        assert!(journal_reserved(&file));
+        fs::remove_file(file).unwrap();
+        fs::remove_dir(directory).unwrap();
     }
     #[test]
     fn native_details_are_never_exposed() {

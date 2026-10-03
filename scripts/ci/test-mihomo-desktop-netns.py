@@ -127,6 +127,8 @@ def inside(binary, parent, extra=None):
     # /run/netns is private to this mount namespace. No host named namespace.
     ip('link', 'set', 'lo', 'up')
     subprocess.check_call(['mount', '--make-rprivate', '/'])
+    # Ownership lock/WAL must be private too, not merely named namespaces.
+    subprocess.check_call(['mount', '-t', 'tmpfs', '-o', 'mode=0755', 'tmpfs', '/run'])
     with tempfile.TemporaryDirectory(prefix='nimbo-tun-fixture-') as temp:
         namespace_root = Path('/run/netns'); namespace_root.mkdir(exist_ok=True)
         subprocess.check_call(['mount', '-t', 'tmpfs', 'tmpfs', str(namespace_root)])
@@ -189,7 +191,7 @@ tun: {{enable: true, stack: system, auto-route: true, auto-detect-interface: tru
                     failed.stdin.close()
                     if failed.poll() is None:
                         failed.terminate();failed.wait(timeout=10)
-            for ending in ('eof', 'sigterm', 'controller'):
+            for ending in ('eof', 'sigterm', 'controller', 'sigkill'):
                 process = subprocess.Popen([str(binary), 'serve-tun'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
                 try:
                     payload = json.dumps(dict(apiVersion=1,operation='start',requestId='fixture-'+ending,yaml=source,options=dict(dataDir=str(Path(temp)/ending),networkOwner='desktop-tun',desktopIPv6=True,controllerAddress='127.0.0.1:0',secret=SECRET))).encode()
@@ -239,14 +241,57 @@ tun: {{enable: true, stack: system, auto-route: true, auto-detect-interface: tru
                     resumed.request('GET','/fixture')
                     assert resumed.getresponse().read()==b'native-tun-fixture', 'selection failed to resume new traffic'
                     resumed.close()
-                    if ending == 'eof':
+                    # Foreign same-priority rule must survive every cleanup path.
+                    ip('rule', 'add', 'pref', str(RULE+2), 'from', '192.0.2.123/32', 'lookup', 'main')
+                    expected = {k:list(v) for k,v in before.items()}
+                    expected['v4rules'] = [r for r in snapshot_network()['v4rules'] if r.get('src') == '192.0.2.123'] + before['v4rules']
+                    expected['v4rules'].sort(key=lambda r:r['priority'])
+                    if ending == 'sigkill':
+                        active = subprocess.run([str(binary),'recover-tun'],capture_output=True,timeout=5)
+                        assert active.returncode != 0, 'recovery adopted active native owner'
+                        process.kill(); process.wait(timeout=5)
+                        assert snapshot_network() != expected, 'fixture did not expose stale native rules'
+                        journal=Path('/run/nimbo-mihomo-tun-rules.json')
+                        original=journal.read_bytes(); record=json.loads(original)
+                        assert record['mark'] != 0 and len(record['rules']) > 1
+                        stale=snapshot_network()
+                        def refuses():
+                            result=subprocess.run([str(binary),'recover-tun'],capture_output=True,timeout=5)
+                            assert result.returncode!=0, 'unsafe journal was accepted'
+                            assert snapshot_network()==stale, 'unsafe recovery mutated network'
+                        for field,value in [('version',2),('namespace','net:[foreign]'),('boot','foreign'),('mark',0)]:
+                            altered=dict(record,**{field:value});journal.write_text(json.dumps(altered));refuses();journal.write_bytes(original)
+                        # Live PID identity is checked independently of the lock.
+                        start=Path('/proc/self/stat').read_text().rsplit(')',1)[1].split()[19]
+                        journal.write_text(json.dumps(dict(record,pid=os.getpid(),start=start)))
+                        refuses();journal.write_bytes(original)
+                        journal.chmod(0o644);refuses();journal.chmod(0o600)
+                        journal.write_bytes(b'x'*(65536+1));refuses();journal.write_bytes(original)
+                        saved=journal.with_suffix('.fixture')
+                        journal.rename(saved);journal.symlink_to(saved);refuses();journal.unlink();saved.rename(journal)
+                        # A rule with the marker but absent from the WAL is not
+                        # adopted, even when it shares the reserved priority.
+                        tag=hex(record['mark'])+'/0'
+                        ip('rule','add','pref',str(RULE+2),'from','192.0.2.124/32','fwmark',tag,'lookup','main')
+                        stale=snapshot_network();refuses()
+                        ip('rule','del','pref',str(RULE+2),'from','192.0.2.124/32','fwmark',tag,'lookup','main')
+                        # Recover a partial installed subset of the write-ahead
+                        # plan too (same window as death during RuleAdd).
+                        first=record['rules'][0]
+                        ip('-4' if first['Family']==2 else '-6','rule','del','pref',str(first['Priority']),'fwmark',tag)
+                        recovered = subprocess.run([str(binary),'recover-tun'],capture_output=True,timeout=5)
+                        assert recovered.returncode == 0, 'native hard-crash recovery failed'
+                    elif ending == 'eof':
                         process.stdin.close()
                     elif ending == 'sigterm':
                         process.send_signal(signal.SIGTERM)
                     else:
                         assert request(controller,'stop',generation)['success']
-                    assert process.wait(timeout=10)==0, 'native cleanup did not join'
+                    assert process.wait(timeout=10)==( -signal.SIGKILL if ending == 'sigkill' else 0), 'native cleanup did not join'
+                    verify_restored(expected)
+                    ip('rule', 'del', 'pref', str(RULE+2), 'from', '192.0.2.123/32', 'lookup', 'main')
                     verify_restored(before)
+                    assert not Path('/run/nimbo-mihomo-tun-rules.json').exists(), 'completed cleanup retained WAL'
                     print('PASS native TCPv4/TCPv6/UDP/DNS-UDP/DNS-TCP/hot-selection/stale-generation/cleanup '+ending,flush=True)
                 finally:
                     if process.poll() is None:

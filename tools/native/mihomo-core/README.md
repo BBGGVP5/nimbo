@@ -152,3 +152,34 @@ inventory remain release/legal review gates, not waived by passing unit tests.
 
 See [ANDROID-MILESTONE.md](ANDROID-MILESTONE.md) and the trusted Android section of [API.md](API.md). StartAndroid + with_gvisor owns a CLOEXEC duplicate and session-scoped IPv4 TCP/UDP/DNS tasks. Generic Android Invoke start is rejected. Android rule mode now supports only native IP-CIDR/SRC-IP-CIDR, port, network, managed RULE-SET and explicit final MATCH rules; unsupported rule classes are rejected and unmatched traffic drops. This is not full Mihomo mobile support; keep the product gate. Bootstrap DNS and provider HTTP are protected direct; application DNS follows the session's selected native rule graph over TCP without implicit direct fallback. Desktop behavior above remains separate.
 
+
+
+## Linux native crash-rule recovery (3 October 2026)
+
+The root desktop owner writes a bounded, mode-0600 `/run/nimbo-mihomo-tun-rules.json`
+plan before the first kernel rule addition. It records boot ID, network namespace,
+PID/start time, exact selectors/actions and a random per-session fwmark with zero
+mask. The zero mask is metadata only, not an additional packet filter. The pinned
+sing-tun ownership patch routes cleanup through this exact plan; ordinary mobile
+and Windows construction leave those trusted callbacks unset. Callbacks are
+excluded from subscription YAML/JSON. The pinned netlink readback patch retains
+rule action and mark presence, so foreign action changes are not normalized away.
+
+`nimbo-mihomo recover-tun` is a fixed Linux-root CLI, not an Invoke operation or a
+client-selected path. It requires the exclusive ownership lock, same boot/netns,
+a dead journal process identity and a retired TUN. It only deletes exact marked
+planned rules; unknown marked rules and invalid/unsafe journals fail closed.
+Foreign routes, interfaces and same-priority rules are not deleted. A retained or
+unsafe WAL also reserves network ownership across helper restart, preventing
+legacy Xray/AWG from taking over unknown state; a failed down keeps its lease. Both normal
+close and abnormal-child broker cleanup verify rule retirement before deleting
+and fsyncing the journal. A later native start can replay a dead owner's WAL after
+both native and helper SIGKILL. Old unjournaled stale state is deliberately not
+adopted; broad migration cleanup is unsafe.
+
+Local opt-in tests ran in fresh network AND mount namespaces with private `/run`
+and installation roots. They exercised TCP4/6, UDP, UDP/TCP DNS, hot selection,
+ordinary shutdown, native/helper/both-process crashes, a partial installed WAL
+subset, foreign-rule retention and refusal of live-owner, wrong-identity,
+symlink, non-private, oversized and unknown-mark state. This does not verify
+physical-machine power loss, Windows TUN ownership or real-provider availability.

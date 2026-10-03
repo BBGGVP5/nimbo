@@ -154,7 +154,7 @@ func startDesktopTun(cfg *config.Config) (io.Closer, error) {
 		_ = guard.Close()
 		return nil, err
 	}
-	listener, err := mihomoTun.New(desktopTunProjection(cfg.General.Tun, cfg.General.IPv6), tunnel.Tunnel)
+	listener, err := mihomoTun.New(configureDesktopRuleJournal(desktopTunProjection(cfg.General.Tun, cfg.General.IPv6), guard), tunnel.Tunnel)
 	if err != nil {
 		_ = guard.Close()
 		return nil, err

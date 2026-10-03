@@ -2,7 +2,15 @@
 
 Это инвентаризация подтверждённых возможностей, а не заявление «все протоколы работают везде».
 
-## Текущий checkpoint: iOS lifecycle и финальные desktop CI-контракты
+## Текущий checkpoint: desktop Linux crash recovery
+
+- Устранена воспроизведённая ошибка native очистки: чужое правило с тем же приоритетом больше не удаляется при обычном отключении Mihomo.
+- До первого `RuleAdd` сохраняется защищённый write-ahead journal полного плана. При SIGKILL ядра helper восстанавливает только точные правила этой сессии. После смерти обоих процессов следующий владелец восстанавливается по журналу; чужие маршруты и интерфейсы не удаляются. Сохранённый/некорректный журнал блокирует захват сетевых настроек legacy Xray/AWG после перезапуска helper.
+- В реальном kernel namespace прошли TCPv4/v6, UDP, UDP/TCP DNS, переключение групп, обычное закрытие, native/helper/both-process crash, частично установленный план и сохранность чужого правила. Неверный boot/netns/live PID, symlink, публичный/слишком большой журнал и неизвестное помеченное правило отклоняются без сетевых изменений.
+- Linux Rust IPC/runtime/service: 7 + 34 + 10 тестов; scoped Clippy без предупреждений. Последние source contracts iOS: 8 merged-source, 11 packet-flow и 18 ping. Это не заменяет проверку на реальном iPhone и не открывает Windows privileged TUN.
+- Для предыдущего `2c14eec`: project CI и Android/shared успешны; обе Linux package jobs успешны. Полная IPA [37097102136](https://github.com/BBGGVP5/nimbo/actions/runs/37097102136) и все пять desktop-пакетов [37097104268](https://github.com/BBGGVP5/nimbo/actions/runs/37097104268) успешны. Это проверенный предыдущий checkpoint, до новой правки crash recovery.
+
+### Предыдущий checkpoint: iOS lifecycle и финальные desktop CI-контракты
 
 - В исходниках iOS исправлен возврат физического пути Mihomo: пропадание интерфейса, его возвращение и смена IPv4/IPv6 capabilities сбрасывают старые native сокеты/DNS-пулы. Повторный одинаковый tick ничего не пересоздаёт. Первое наблюдение до запуска не вызывает reset, ограничения Интернета не используются как условие подключения.
 - Готовность C bridge теперь сверяет API, request ID, native generation, точный SHA исходника, pinned core version/commit и реальный `ios-packet-flow/tunReady`. Обычные команды и отмена привязаны к захваченному поколению; старый binder не отменяет пробу нового. UTF-8/BOM/CRLF проходят без `String(data:encoding:)`, который мог поглощать BOM при preflight/start.

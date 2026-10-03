@@ -1,11 +1,12 @@
-param([Parameter(Mandatory=$true)][string]$Go)
+param([Parameter(Mandatory=$true)][string]$Go, [string]$ModFile)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../tools/native/mihomo-core'))
 Push-Location $root
 try {
-  $rows=& $Go list -mod=readonly -m -f '{{if not .Main}}{{.Path}}|{{.Version}}|{{if .Replace}}{{.Replace.Path}}|{{.Replace.Version}}|{{.Replace.Dir}}{{else}}||{{.Dir}}{{end}}{{end}}' all
+  $modArgs=@('-mod=readonly'); if($ModFile){$modArgs+="-modfile=$ModFile"}
+  $rows=& $Go list @modArgs -m -f '{{if not .Main}}{{.Path}}|{{.Version}}|{{if .Replace}}{{.Replace.Path}}|{{.Replace.Version}}|{{.Replace.Dir}}{{else}}||{{.Dir}}{{end}}{{end}}' all
   if($LASTEXITCODE){throw 'Module manifest resolution failed'}
-  $reached=@(& $Go list -mod=readonly -deps -f '{{if .Module}}{{.Module.Path}}{{end}}' ./cmd/nimbo-mihomo | Sort-Object -Unique)
+  $reached=@(& $Go list @modArgs -deps -f '{{if .Module}}{{.Module.Path}}{{end}}' ./cmd/nimbo-mihomo | Sort-Object -Unique)
   if($LASTEXITCODE){throw 'Reachable module resolution failed'}
   $modules=@()
   foreach($row in $rows){

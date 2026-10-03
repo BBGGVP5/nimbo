@@ -45,29 +45,33 @@ def main():
     spec = importlib.util.spec_from_file_location('mihomo_stage',Path(__file__).with_name('prepare-mihomo-merged.py'))
     stage = importlib.util.module_from_spec(spec); spec.loader.exec_module(stage)
     source_paths = sorted([*NATIVE.glob('*.go'), *NATIVE.glob('cmd/**/*.go'),
-                           *(NATIVE/name for name in ('API.md','README.md','VERIFICATION.md','go.mod','go.sum','pins.json','protobuf-directive.patch','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch'))])
+                           *(NATIVE/name for name in ('API.md','README.md','VERIFICATION.md','go.mod','go.sum','pins.json','protobuf-directive.patch','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','mihomo-rule-journal.patch','sing-tun-rule-journal.patch','netlink-rule-identity.patch'))])
     frozen = [{'path': p.relative_to(NATIVE).as_posix(), 'sha256': digest(p)} for p in source_paths]
     with tempfile.TemporaryDirectory(prefix='nimbo-desktop-source-') as temporary:
         temp = Path(temporary)
         metadata = []
-        for pin in (pins, pins['protobuf']):
+        for pin in (pins, pins['protobuf'], pins['singTun'], pins['netlink']):
             value = json.loads(go('mod','download','-json',pin['module']+'@'+pin['version']))
             if value.get('Sum') != pin['sum'] or value.get('GoModSum') != pin['goModSum']:
                 raise RuntimeError('source checksum mismatch')
             if value.get('Origin') and value['Origin'].get('Hash') != pin['commit']:
                 raise RuntimeError('source commit mismatch')
             stage.verify_download(value, pin)
-            if pin is pins and digest(Path(value['Zip'])) != pins['sourceZipSHA256']:
+            if pin.get('sourceZipSHA256') and digest(Path(value['Zip'])) != pin['sourceZipSHA256']:
                 raise RuntimeError('source ZIP digest mismatch')
             metadata.append(value)
         stage.stage_protobuf(Path(metadata[1]['Dir']),temp/'protobuf',pins['protobuf'])
-        patches = [NATIVE/name for name in ('mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch')]
+        patches = [NATIVE/name for name in ('mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','mihomo-rule-journal.patch')]
         stage.stage_mihomo(Path(metadata[0]['Dir']),temp/'mihomo',patches)
+        stage.stage_singtun(Path(metadata[2]['Dir']),temp/'sing-tun',NATIVE/'sing-tun-rule-journal.patch')
+        stage.stage_netlink(Path(metadata[3]['Dir']),temp/'netlink',NATIVE/'netlink-rule-identity.patch')
         modfile = temp/'desktop.mod'
         shutil.copyfile(NATIVE/'go.mod',modfile); shutil.copyfile(NATIVE/'go.sum',temp/'desktop.sum')
         go('mod','edit','-modfile='+str(modfile),
            '-replace=github.com/metacubex/mihomo='+str(temp/'mihomo'),
-           '-replace=google.golang.org/protobuf='+str(temp/'protobuf'))
+           '-replace=google.golang.org/protobuf='+str(temp/'protobuf'),
+           '-replace=github.com/metacubex/sing-tun='+str(temp/'sing-tun'),
+           '-replace=github.com/sagernet/netlink='+str(temp/'netlink'))
         flags = ['-tags='+TAGS, '-modfile='+str(modfile), '-mod=readonly']
         go('test',*flags,'-count=1','-timeout=180s','./...',capture=False)
         go('vet',*flags,'./...',capture=False)
@@ -111,7 +115,7 @@ def main():
         notice_manifest.write_text(json.dumps(inventory,indent=2)+'\n',encoding='utf-8')
         manifest=dict(builderSHA256=digest(Path(__file__)),acceptanceSHA256=digest(Path(__file__).with_name('test-mihomo-desktop-netns.py')),apiVersion=1,coreVersion=pins['version'],coreCommit=pins['commit'],toolchain=version,target=args.target,sha256=digest(binary),
                       goModSHA256=digest(NATIVE/'go.mod'),goSumSHA256=digest(NATIVE/'go.sum'),pinsSHA256=digest(NATIVE/'pins.json'),effectiveModSHA256=digest(modfile),
-                      lifecyclePatchSHA256=digest(patches[0]),realityPatchSHA256=digest(patches[1]),sourceLicenseManifestSHA256=digest(notice_manifest),sourceFiles=frozen,
+                      lifecyclePatchSHA256=digest(patches[0]),realityPatchSHA256=digest(patches[1]),ruleJournalPatchSHA256=digest(patches[2]),singTunJournalPatchSHA256=digest(NATIVE/'sing-tun-rule-journal.patch'),netlinkIdentityPatchSHA256=digest(NATIVE/'netlink-rule-identity.patch'),sourceLicenseManifestSHA256=digest(notice_manifest),sourceFiles=frozen,
                       nativeTunCompiled=True,desktopAdmission='privileged native entry only; service/UI acceptance required')
         (output/'build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
         print('Verified source-built '+args.target+' Mihomo: '+manifest['sha256'])

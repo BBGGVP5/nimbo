@@ -1,0 +1,18 @@
+--- a/rule_linux.go
++++ b/rule_linux.go
+@@ -220,6 +220,7 @@
+ 
+ 		rule := NewRule()
+ 		rule.Family = int(msg.Family)
++		rule.Type = msg.Type
+ 		rule.Invert = msg.Flags&FibRuleInvert > 0
+ 		rule.Tos = uint(msg.Tos)
+ 
+@@ -241,6 +242,7 @@
+ 				rule.Dst = netip.PrefixFrom(addr, int(msg.Dst_len))
+ 			case nl.FRA_FWMARK:
+ 				rule.Mark = native.Uint32(attrs[j].Value[0:4])
++				rule.MarkSet = true
+ 			case nl.FRA_FWMASK:
+ 				rule.Mask = int(native.Uint32(attrs[j].Value[0:4]))
+ 			case nl.FRA_TUN_ID:

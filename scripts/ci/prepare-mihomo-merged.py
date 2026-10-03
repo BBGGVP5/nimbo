@@ -116,13 +116,49 @@ def stage_mihomo(original, destination, patch_files):
     changed = {name for name in original_files if digest(original_files[name]) != digest(patched[name])}
     allowed = {'adapter/provider/healthcheck.go', 'adapter/provider/provider.go',
                'adapter/outboundgroup/groupbase.go', 'listener/sing_tun/server.go', 'tunnel/tunnel.go',
-               'listener/sing_tun/server_android.go', 'component/tls/reality.go'}
+               'listener/sing_tun/server_android.go', 'component/tls/reality.go', 'listener/config/tun.go'}
     if changed != allowed:
         raise RuntimeError('Unexpected pinned Mihomo patch scope: ' + ', '.join(sorted(changed)))
     reality = (destination / 'component/tls/reality.go').read_text(encoding='utf-8')
     if 'binary.BigEndian.PutUint32(hello.SessionId[4:], uint32(ntp.Now().Unix()))' not in reality or 'hello.SessionId[0] = 26' not in reality:
         raise RuntimeError('Pinned Mihomo REALITY client-version patch is missing')
     return {name: digest(patched[name]) for name in sorted(changed)}
+
+
+def stage_rule_dependency(original, destination, patch_file, allowed):
+    if destination.exists():
+        raise RuntimeError('Rule dependency staging directory must be fresh')
+    before = source_files(original)
+    shutil.copytree(original, destination)
+    make_staged_tree_writable(destination)
+    apply_pinned_patch(destination, patch_file)
+    after = source_files(destination)
+    if before.keys() != after.keys():
+        raise RuntimeError('Rule dependency patch changed the source file set')
+    changed = {name for name in before if digest(before[name]) != digest(after[name])}
+    if changed != allowed:
+        raise RuntimeError('Unexpected rule dependency patch scope')
+    return {name: digest(after[name]) for name in sorted(changed)}
+
+
+def stage_singtun(original, destination, patch_file):
+    return stage_rule_dependency(original, destination, patch_file, {'tun.go', 'tun_linux.go'})
+
+
+def stage_netlink(original, destination, patch_file):
+    return stage_rule_dependency(original, destination, patch_file, {'rule_linux.go'})
+
+
+def download_pin(go, pin):
+    value = json.loads(go('mod', 'download', '-json', pin['module']+'@'+pin['version']))
+    if value.get('Sum') != pin['sum'] or value.get('GoModSum') != pin['goModSum']:
+        raise RuntimeError('Module checksum pin mismatch: '+pin['module'])
+    if value.get('Origin', {}).get('Hash') and value['Origin']['Hash'] != pin['commit']:
+        raise RuntimeError('Module origin mismatch')
+    if pin.get('sourceZipSHA256') and digest(value['Zip']) != pin['sourceZipSHA256']:
+        raise RuntimeError('Module ZIP digest mismatch')
+    verify_download(value, pin)
+    return value
 
 
 def main():
@@ -138,13 +174,24 @@ def main():
         if args.source_dir is None or args.dependency_dir is None:
             parser.error('--stage-only needs --source-dir and --dependency-dir')
         original, dependencies, native = (p.resolve() for p in (args.source_dir, args.dependency_dir, args.native_dir))
-        patches = [native / name for name in ('mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch')]
+        patches = [native / name for name in ('mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch', 'mihomo-rule-journal.patch')]
         if any(not patch.is_file() for patch in patches):
             raise RuntimeError('Pinned Mihomo source patch missing')
         dependencies.mkdir(parents=True, exist_ok=True)
         staged = dependencies / 'mihomo'
         changed = stage_mihomo(original, staged, patches)
-        print(json.dumps({'staged': str(staged), 'patchSHA256': {patch.name: digest(patch) for patch in patches}, 'changedSources': changed}, indent=2))
+        pins = json.loads((native/'pins.json').read_text(encoding='utf-8-sig'))
+        environment = os.environ.copy()
+        environment.update(GOTOOLCHAIN='local', GOWORK='off', GOENV='off', GOPROXY='https://proxy.golang.org', GOSUMDB='sum.golang.org', GOPRIVATE='', GONOPROXY='', GONOSUMDB='', GOINSECURE='')
+        def pinned_go(*argv):
+            return subprocess.check_output([args.go, *argv], cwd=native, env=environment, text=True)
+        if pinned_go('env','GOVERSION').strip() != pins['toolchain']:
+            raise RuntimeError('Pinned Go toolchain required')
+        meta = download_pin(pinned_go, pins['singTun'])
+        stage_singtun(Path(meta['Dir']), dependencies/'sing-tun', native/'sing-tun-rule-journal.patch')
+        meta = download_pin(pinned_go, pins['netlink'])
+        stage_netlink(Path(meta['Dir']), dependencies/'netlink', native/'netlink-rule-identity.patch')
+        print(json.dumps({'staged': str(staged), 'patchSHA256': {patch.name: digest(patch) for patch in [*patches, native/'sing-tun-rule-journal.patch', native/'netlink-rule-identity.patch']}, 'changedSources': changed}, indent=2))
         return
     if args.source_dir is None or args.dependency_dir is None:
         parser.error('--source-dir and --dependency-dir are required')
@@ -165,7 +212,7 @@ def main():
     pin_root.mkdir(exist_ok=True)
     (pin_root / 'go.mod').write_text('module nimbo/sourcepins\n\ngo 1.27.1\n', encoding='utf-8')
     verified = []
-    for pin in (pins, pins['protobuf']):
+    for pin in (pins, pins['protobuf'], pins['singTun'], pins['netlink']):
         metadata = json.loads(go('mod', 'download', '-json', pin['module'] + '@' + pin['version'], cwd=pin_root))
         if metadata.get('Sum') != pin['sum'] or metadata.get('GoModSum') != pin['goModSum']:
             raise RuntimeError('Module checksum pin mismatch: ' + pin['module'])
@@ -178,12 +225,16 @@ def main():
         verified.append(metadata)
     protobuf = dependencies / 'protobuf'
     stage_protobuf(Path(verified[1]['Dir']), protobuf, pins['protobuf'])
-    mihomo_patches = [native / name for name in ('mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch')]
+    mihomo_patches = [native / name for name in ('mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch', 'mihomo-rule-journal.patch')]
     if any(not patch.is_file() for patch in mihomo_patches):
         raise RuntimeError('Pinned Mihomo source patch missing')
     mihomo_source = dependencies / 'mihomo'
     patched_sources = stage_mihomo(Path(verified[0]['Dir']), mihomo_source, mihomo_patches)
-    go('mod', 'edit', '-replace=nimbo/mihomocore=' + native.as_posix(),
+    sing_tun = dependencies / 'sing-tun'
+    sing_tun_sources = stage_singtun(Path(verified[2]['Dir']), sing_tun, native / 'sing-tun-rule-journal.patch')
+    netlink = dependencies / 'netlink'
+    netlink_sources = stage_netlink(Path(verified[3]['Dir']), netlink, native / 'netlink-rule-identity.patch')
+    go('mod', 'edit', '-replace=github.com/sagernet/netlink=' + netlink.as_posix(), '-replace=github.com/metacubex/sing-tun=' + sing_tun.as_posix(), '-replace=nimbo/mihomocore=' + native.as_posix(),
        '-replace=google.golang.org/protobuf=' + protobuf.as_posix(),
        '-replace=github.com/metacubex/mihomo=' + mihomo_source.as_posix())
     # The child module's replace is ignored by Go. Prove the effective root graph.
@@ -193,6 +244,10 @@ def main():
         raise RuntimeError('Root module replacement missing')
     if replacements.get('github.com/metacubex/mihomo') != mihomo_source.as_posix():
         raise RuntimeError('Patched Mihomo source replacement missing from effective root graph')
+    if replacements.get('github.com/metacubex/sing-tun') != sing_tun.as_posix():
+        raise RuntimeError('Owned sing-tun replacement missing from root graph')
+    if replacements.get('github.com/sagernet/netlink') != netlink.as_posix():
+        raise RuntimeError('Exact netlink rule identity replacement missing')
     requirements = {r['Path']: r['Version'] for r in graph['Require']}
     for module, version in {
         'github.com/xtls/xray-core': 'v1.260327.1-0.20260930074004-b26a91de4f32',
@@ -207,8 +262,12 @@ def main():
                 'mihomoLifecyclePatchSHA256': digest(mihomo_patches[0]),
                 'mihomoPatchSHA256': {patch.name: digest(patch) for patch in mihomo_patches},
                 'mihomoPatchedSources': patched_sources,
+                'singTunPatchSHA256': digest(native / 'sing-tun-rule-journal.patch'),
+                'singTunPatchedSources': sing_tun_sources,
+                'netlinkPatchSHA256': digest(native / 'netlink-rule-identity.patch'),
+                'netlinkPatchedSources': netlink_sources,
                 'nativeSources': {p.name: digest(p) for p in sorted(list(native.glob('*.go')) +
-                                  [native / name for name in ['go.mod', 'go.sum', 'pins.json', 'protobuf-directive.patch', 'mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch']])}}
+                                  [native / name for name in ['go.mod', 'go.sum', 'pins.json', 'protobuf-directive.patch', 'mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch', 'mihomo-rule-journal.patch', 'sing-tun-rule-journal.patch', 'netlink-rule-identity.patch']])}}
     (dependencies / 'mihomo-source-verification.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
     print('Verified Mihomo source, protobuf directive-only patch and merged ROOT replacements')
 

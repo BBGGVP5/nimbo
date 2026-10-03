@@ -14,6 +14,36 @@ spec.loader.exec_module(prepare)
 
 
 class MergedMihomoSourceTests(unittest.TestCase):
+
+    def test_owned_rule_callbacks_are_not_subscription_fields(self):
+        native = ROOT/'tools/native/mihomo-core'
+        patch = (native/'mihomo-rule-journal.patch').read_text()
+        for field in ('NimboRuleMark', 'NimboRecordRules', 'NimboClearRules'):
+            line = next(line for line in patch.splitlines() if line.startswith('+') and field in line)
+            self.assertIn('yaml:"-" json:"-"', line)
+        tun = (native/'sing-tun-rule-journal.patch').read_text()
+        self.assertLess(tun.index('NimboRecordRules(plan)'), tun.index('for i, rule := range rules'))
+        self.assertIn('rule.Mark, rule.MarkSet, rule.Mask = t.options.NimboRuleMark, true, 0', tun)
+        self.assertIn('return t.options.NimboClearRules()', tun)
+        identity = (native/'netlink-rule-identity.patch').read_text()
+        self.assertIn('+\t\trule.Type = msg.Type', identity)
+        self.assertIn('+\t\t\t\trule.MarkSet = true', identity)
+        build = (ROOT/'scripts/ci/prepare-mihomo-merged.py').read_text()
+        for module in ('github.com/metacubex/sing-tun', 'github.com/sagernet/netlink'):
+            self.assertIn("'-replace="+module+"='", build)
+
+    def test_rule_dependency_patch_scope_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); source=root/'source'; source.mkdir()
+            (source/'owned.go').write_text('package rules\nfunc before() {}\n')
+            patch=root/'owned.patch'
+            patch.write_text('--- a/owned.go\n+++ b/owned.go\n@@ -1,2 +1,2 @@\n package rules\n-func before() {}\n+func after() {}\n')
+            changed=prepare.stage_rule_dependency(source,root/'valid',patch,{'owned.go'})
+            self.assertEqual(set(changed),{'owned.go'})
+            self.assertEqual((source/'owned.go').read_text(),'package rules\nfunc before() {}\n')
+            with self.assertRaisesRegex(RuntimeError,'Unexpected rule dependency patch scope'):
+                prepare.stage_rule_dependency(source,root/'invalid',patch,{'not-owned.go'})
+
     def test_patch_is_not_skipped_inside_parent_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
             parent = Path(directory)

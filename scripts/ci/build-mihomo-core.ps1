@@ -58,21 +58,21 @@ try {
   $stage=Join-Path $root ('.build/mihomo-patched-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $stage -Force | Out-Null
   $stagedModule=Join-Path $stage 'dependencies'
-  $patchManifest=& $Python (Join-Path $PSScriptRoot 'prepare-mihomo-merged.py') --stage-only --source-dir $mihomoSource --dependency-dir $stagedModule --native-dir $root
+  $patchManifest=& $Python (Join-Path $PSScriptRoot 'prepare-mihomo-merged.py') --stage-only --source-dir $mihomoSource --dependency-dir $stagedModule --native-dir $root --go $go
   if ($LASTEXITCODE) { throw 'Could not stage the pinned Mihomo lifecycle patch.' }
   $patchManifest | Set-Content -LiteralPath (Join-Path $stage 'mihomo-patch-manifest.json') -Encoding utf8
   $modfile=Join-Path $stage 'mihomo-core.mod'
   Copy-Item -LiteralPath (Join-Path $root 'go.mod') -Destination $modfile
   Copy-Item -LiteralPath (Join-Path $root 'go.sum') -Destination ([IO.Path]::ChangeExtension($modfile,'.sum'))
   $stagedMihomo=(Join-Path $stagedModule 'mihomo').Replace('\','/')
-  & $go mod edit "-modfile=$modfile" "-replace=github.com/metacubex/mihomo=$stagedMihomo"
+  & $go mod edit "-modfile=$modfile" "-replace=github.com/metacubex/mihomo=$stagedMihomo" "-replace=github.com/metacubex/sing-tun=$((Join-Path $stagedModule 'sing-tun').Replace('\','/'))" "-replace=github.com/sagernet/netlink=$((Join-Path $stagedModule 'netlink').Replace('\','/'))"
   if ($LASTEXITCODE) { throw 'Could not set the verified Mihomo lifecycle source replacement.' }
   $sourcePaths=@((Get-ChildItem -LiteralPath $root -Filter '*.go' -File).FullName)+@((Get-ChildItem -LiteralPath (Join-Path $root 'cmd') -Filter '*.go' -Recurse -File).FullName)
-  foreach($p in @('API.md','README.md','VERIFICATION.md','go.mod','go.sum','pins.json','protobuf-directive.patch','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','testdata/inspect-source.yaml','testdata/inspect-wire-v1.json')) {if(Test-Path -LiteralPath (Join-Path $root $p)){$sourcePaths+=Join-Path $root $p}}
+  foreach($p in @('API.md','README.md','VERIFICATION.md','go.mod','go.sum','pins.json','protobuf-directive.patch','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','mihomo-rule-journal.patch','sing-tun-rule-journal.patch','netlink-rule-identity.patch','testdata/inspect-source.yaml','testdata/inspect-wire-v1.json')) {if(Test-Path -LiteralPath (Join-Path $root $p)){$sourcePaths+=Join-Path $root $p}}
   $sourceFiles=@($sourcePaths | Sort-Object -Unique | ForEach-Object {[ordered]@{path=([IO.Path]::GetRelativePath($root,$_)).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()}})
   & $go test '-tags=no_tailscale,no_zerotier,no_easytier' "-modfile=$modfile" -mod=readonly -count=1 -timeout=180s ./... 2>&1 | Tee-Object '.build/tests.log'
   if ($LASTEXITCODE) { throw 'Native tests failed' }
-  & (Join-Path $PSScriptRoot 'collect-mihomo-source-manifest.ps1') -Go $go
+  & (Join-Path $PSScriptRoot 'collect-mihomo-source-manifest.ps1') -Go $go -ModFile $modfile
   & $go build '-tags=no_tailscale,no_zerotier,no_easytier' "-modfile=$modfile" -mod=readonly -trimpath -buildvcs=false -o .build/bin/nimbo-mihomo.exe ./cmd/nimbo-mihomo
   if ($LASTEXITCODE) { throw 'Source build failed' }
   foreach($s in $sourceFiles){if((Get-FileHash -LiteralPath (Join-Path $root $s.path)).Hash.ToLowerInvariant() -ne $s.sha256){throw "Source changed during build: $($s.path); no manifest published"}}

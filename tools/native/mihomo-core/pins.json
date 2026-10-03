@@ -17,5 +17,21 @@
     "patchedGoModSHA256": "544713ba08b85f02f15b3547673ef11824e2135c2ce30f518322b425289a1cb9"
   },
   "binary": ".build/bin/nimbo-mihomo.exe",
-  "binaryManifest": ".build/bin/build-manifest.json"
+  "binaryManifest": ".build/bin/build-manifest.json",
+  "singTun": {
+    "module": "github.com/metacubex/sing-tun",
+    "version": "v0.4.24",
+    "commit": "b50ae28a1409c7bce8e96e6c6966cf57d8ace754",
+    "sum": "h1:2H/RhlwQxUgc1K8h46giwV5uTUovx+DhQGpVPlUB4Yo=",
+    "goModSum": "h1:YLk0jq8ITecb0LlNKAXC+NTkYTYmvihQxFAR495LN8c=",
+    "sourceZipSHA256": "37f80ed92b3b130e4f71bc065991fe08e824cbaacf2015a72f8c7bf8c65a8654"
+  },
+  "netlink": {
+    "module": "github.com/sagernet/netlink",
+    "version": "v0.0.0-20240612041022-b9a21c07ac6a",
+    "commit": "b9a21c07ac6a3a58371a162d0ca44f8008ac1acc",
+    "sum": "h1:ObwtHN2VpqE0ZNjr6sGeT00J8uU7JF4cNUdb44/Duis=",
+    "goModSum": "h1:xLnfdiJbSp8rNqYEdIW/6eDO4mVoogml14Bh2hSiFpM=",
+    "sourceZipSHA256": "895c0dbc63c8f45e072cb5af2da65755d6a0221a8958fb82822cc4135e035af5"
+  }
 }

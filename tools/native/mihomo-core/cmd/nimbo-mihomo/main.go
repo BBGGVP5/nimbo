@@ -17,6 +17,14 @@ import (
 func main() { os.Exit(run()) }
 func run() int {
 	logrus.SetOutput(os.Stderr)
+	if len(os.Args) == 2 && os.Args[1] == "recover-tun" {
+		if core.RecoverDesktopTun() != nil {
+			fmt.Println(`{"apiVersion":1,"success":false,"error":{"code":"TUN_CLEANUP_FAILED"}}`)
+			return 1
+		}
+		fmt.Println(`{"apiVersion":1,"success":true}`)
+		return 0
+	}
 	if len(os.Args) == 2 && os.Args[1] == "serve-tun" {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
