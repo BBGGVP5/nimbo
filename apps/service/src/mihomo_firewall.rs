@@ -338,6 +338,14 @@ pub fn release(sid: &str) -> Result<(), String> {
     })?;
     fs::remove_file(path()?).map_err(|_| FAILURE.into())
 }
+/// Explicit elevated uninstallation ends this product's own policy, even after
+/// a helper crash. Never exposed on IPC; no foreign/global firewall operations.
+pub(crate) fn release_for_uninstall() -> Result<(), String> {
+    if let Some(journal) = load()? {
+        release(&journal.sid)?;
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;

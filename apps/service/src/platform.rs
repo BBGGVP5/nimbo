@@ -420,6 +420,7 @@ fn uninstall_service() -> Result<()> {
     ) {
         Ok(svc) => svc,
         Err(err) if is_not_found(&err) => {
+            crate::mihomo_firewall::release_for_uninstall().map_err(|e| anyhow!(e))?;
             println!("nimbo-svc was not installed");
             return Ok(());
         }
@@ -437,6 +438,13 @@ fn uninstall_service() -> Result<()> {
         }
     }
 
+    if !service
+        .query_status()
+        .is_ok_and(|s| s.current_state == ServiceState::Stopped)
+    {
+        return Err(anyhow!("helper did not stop; owned protection retained"));
+    }
+    crate::mihomo_firewall::release_for_uninstall().map_err(|e| anyhow!(e))?;
     service.delete().context("delete service")?;
     println!("nimbo-svc uninstalled");
     Ok(())

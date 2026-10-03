@@ -187,11 +187,13 @@ rules: ["MATCH,FixtureChoice"]
             subprocess.run([str(driver), '--ignored', '--test-threads=1', '--nocapture'], env=environment, check=True, timeout=240)
             assert fixture.tcp_count >= 6 and fixture.udp_count >= 2 and fixture.dns_count >= 1, 'native fixture traffic absent'
         finally:
+            reset = None
             if installed:
-                subprocess.run([str(driver), '--ignored', '--test-threads=1', 'windows_fixture_emergency_reset'], env=environment, check=True, timeout=20)
+                reset = subprocess.run([str(driver), '--ignored', '--test-threads=1', 'windows_fixture_emergency_reset'], env=environment, check=False, timeout=20)
             print(f'Public fixture counters: tcp={fixture.tcp_count}, associations={fixture.associations}, udp={fixture.udp_count}, dns={fixture.dns_count}', flush=True)
             fixture.close()
             subprocess.run([str(staged), '--uninstall'], check=True, timeout=45)
+            assert reset is None or reset.returncode == 0, 'explicit owner reset failed (uninstall cleanup does not count as successful acceptance)'
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline and ps("@(Get-NetAdapter | Where-Object Name -eq 'nimbo-mh0').Count") != '0':
                 time.sleep(.2)
