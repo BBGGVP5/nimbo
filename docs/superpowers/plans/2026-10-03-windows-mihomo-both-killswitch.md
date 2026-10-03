@@ -1,6 +1,6 @@
 # Windows Mihomo Both and external Kill Switch Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make Windows x64 Both and external session Kill Switch genuinely usable through the protected helper.
 
@@ -21,33 +21,35 @@ Execution: required superpowers execution skills are unavailable in this environ
 - `crates/mihomo/tests/windows_tun.rs`, `scripts/ci/test-mihomo-windows-tun.py`: live Both + bypass + native-crash denial + reset/restore in disposable VM only.
 
 ### Task 1: Backward-compatible request and capability
-- [ ] Add failing protocol test: deserialize old request without kill_switch and assert false; roundtrip true; unknown executable still denied.
+- [x] Add failing protocol test: deserialize old request without kill_switch and assert false; roundtrip true; unknown executable still denied.
 ```rust
 let old = serde_json::json!({"yaml":"x", "source_sha256":"a", "binary_sha256":"b", "mixed":true});
 assert!(!serde_json::from_value::<MihomoTunRequest>(old).unwrap().kill_switch);
 ```
-- [ ] Run `cargo test --locked -p nimbo-ipc`: missing field must fail compilation first, then pass after adding `#[serde(default)] pub kill_switch: bool` and default-false availability field. Keep existing start_tun callers working by delegating to `start_tun_options(binary, profile, mixed, false)`.
-- [ ] Linux rejects kill_switch before mutation; do not advertise Windows capabilities there.
+- [x] Run `cargo test --locked -p nimbo-ipc`: missing field must fail compilation first, then pass after adding `#[serde(default)] pub kill_switch: bool` and default-false availability field. Keep existing start_tun callers working by delegating to `start_tun_options(binary, profile, mixed, false)`.
+- [x] Linux rejects kill_switch before mutation; do not advertise Windows capabilities there.
 
 ### Task 2: External WFP ownership
-- [ ] Test unique UUID-derived filter keys, journal owner mismatch, and absence of dynamic/global policy writes with `cargo test --locked -p nimbo-svc` (non-mutating host tests only).
-- [ ] Add `Firewall::arm(sid: &str, core: &Path)`, `allow_tun()`, `release(sid: &str)` and `pending()` using a SY/BA-only atomic journal written before WFP commit. Sublayer and every filter key derive from its random UUID; recovery deletes only those keys in one transaction. Require journal SID match. Invalid/private journal fails closed.
-- [ ] Use ALE_AUTH_CONNECT_V4/V6: high-weight soft permits for fixed protected core AppID, loopback and narrowly scoped DHCP; low-weight hard block. Add exact native interface LUID permit only after readiness; permit neither all local subnet nor GUI nor resolver DNS. Do not clear action right on permits, preserving other firewall vetoes.
-- [ ] WFP session is static, not dynamic: closing the service handle must not remove protection. Successful explicit stop releases filters after joined native cleanup. Native failure/EOF after failure retains journal/blocking and failed TUN owner. Same authenticated SID reset is allowed only with no live native core.
+- [x] Test unique UUID-derived filter keys, journal owner mismatch, and absence of dynamic/global policy writes with `cargo test --locked -p nimbo-svc` (non-mutating host tests only).
+- [x] Add `Firewall::arm(sid: &str, core: &Path)`, `allow_tun()`, `release(sid: &str)` and `pending()` using a SY/BA-only atomic journal written before WFP commit. Sublayer and every filter key derive from its random UUID; recovery deletes only those keys in one transaction. Require journal SID match. Invalid/private journal fails closed.
+- [x] Use ALE_AUTH_CONNECT_V4/V6: high-weight soft permits for fixed protected core AppID, loopback and narrowly scoped DHCP; low-weight hard block. Add exact native interface LUID permit only after readiness; permit neither all local subnet nor GUI nor resolver DNS. Do not clear action right on permits, preserving other firewall vetoes.
+- [x] WFP session is static, not dynamic: closing the service handle must not remove protection. Successful explicit stop releases filters after joined native cleanup. Native failure/EOF after failure retains journal/blocking and failed TUN owner. Same authenticated SID reset is allowed only with no live native core.
 
 ### Task 3: Both runtime and authoritative capability
-- [ ] Add frontend regression assertions:
+- [x] Add frontend regression assertions:
 ```javascript
 assert.equal(mihomoBlockReason({...cap, both_available:true, kill_switch_available:true}, 'mihomo', 'both', true), null);
 assert.equal(mihomoBlockReason({...cap, both_available:false}, 'mihomo', 'both', false), 'MIHOMO_TUN_UNAVAILABLE');
 ```
-- [ ] Start Both through `Session::start_tun_options(..., true, kill_switch)`, validate actual mixed endpoint, write durable proxy snapshot/port before apply. Restore only if still owned on cancellation/error. Store runtime proxy only after state commit; no WinHTTP writes.
-- [ ] Expose capability from the authenticated helper, not cfg!(windows) alone: old helper has false KS field. Active KS changes require explicit disconnect/reconnect instead of pretending to apply live.
-- [ ] Scoped reset uses protected pipe first and avoids legacy global-policy cleanup when no legacy owned snapshot exists.
-- [ ] Run `cargo test --locked -p nimbo-ipc -p nimbo-mihomo -p nimbo-svc`, desktop Rust tests, `npm test` and frontend production build; fmt and scoped Clippy.
+- [x] Start Both through `Session::start_tun_options(..., true, kill_switch)`, validate actual mixed endpoint, write durable proxy snapshot/port before apply. Restore only if still owned on cancellation/error. Store runtime proxy only after state commit; no WinHTTP writes.
+- [x] Expose capability from the authenticated helper, not cfg!(windows) alone: old helper has false KS field. Active KS changes require explicit disconnect/reconnect instead of pretending to apply live.
+- [x] Scoped reset uses protected pipe first and avoids legacy global-policy cleanup when no legacy owned snapshot exists.
+- [x] Run `cargo test --locked -p nimbo-ipc -p nimbo-mihomo -p nimbo-svc`, desktop Rust tests, `npm test` and frontend production build; fmt and scoped Clippy.
 
 ### Task 4: Real hosted acceptance, publication and mirror
-- [ ] Extend disposable Rust driver: mixed SOCKS/HTTP traffic alongside native TCP4/6/UDP/DNS; bind a socket to physical interface to prove bypass is denied; terminate only the fixed native child; verify no plaintext bypass after death; authenticated reset restores physical traffic and removes exact filters. Existing no-KS cycles remain.
+- [x] Extend disposable Rust driver: mixed SOCKS/HTTP traffic alongside native TCP4/6/UDP/DNS; bind a socket to physical interface to prove bypass is denied; terminate only the fixed native child; verify no plaintext bypass after death; authenticated reset restores physical traffic and removes exact filters. Existing no-KS cycles remain.
 - [ ] Use an interface-bound TCP-only control to the already resolved GitHub IPv4 endpoint (443); send no HTTP or credentials. A local self-address is WFP loopback and cannot prove physical denial. Baseline must pass before arming, denial must follow, and restoration must pass; no skipped baseline failures. Snapshot firewall policy/user proxy before/after.
 - [ ] Push only intentional files to current branch, launch native hosted CI and Windows installers with publish=false. Read actual outcomes; failed assertions are not skipped/relabelled.
 - [ ] Update readiness and plan with exact successful/pending gates, mirror only verified baseline/identical source files to primary workspace. Host ACL remains untouched and hardware/nonadmin/BFE-restart gates remain accurately documented.
+
+Checkpoint: 130 desktop tests, 86 frontend tests/build, Windows and Linux scoped suites and Clippy passed without host networking/service/ACL mutations. Adapter absence uses positive GetIfTable2 enumeration, not alias-error inference. New native/helper crash and physical UDP fixtures compile; hosted live results remain pending. Microsoft WFP object-management/filter-arbitration and ALE conditions documentation was checked. One follow-up test compilation mistake was immediately fixed at 841f78b; it is not a successful validation run.
