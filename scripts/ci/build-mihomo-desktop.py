@@ -45,7 +45,7 @@ def main():
     spec = importlib.util.spec_from_file_location('mihomo_stage',Path(__file__).with_name('prepare-mihomo-merged.py'))
     stage = importlib.util.module_from_spec(spec); spec.loader.exec_module(stage)
     source_paths = sorted([*NATIVE.glob('*.go'), *NATIVE.glob('cmd/**/*.go'),
-                           *(NATIVE/name for name in ('API.md','README.md','VERIFICATION.md','go.mod','go.sum','pins.json','protobuf-directive.patch','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','mihomo-rule-journal.patch','sing-tun-rule-journal.patch','netlink-rule-identity.patch'))])
+                           *(NATIVE/name for name in ('API.md','README.md','VERIFICATION.md','go.mod','go.sum','pins.json','protobuf-directive.patch','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','mihomo-rule-journal.patch','mihomo-traffic-counters.patch','sing-tun-rule-journal.patch','netlink-rule-identity.patch'))])
     frozen = [{'path': p.relative_to(NATIVE).as_posix(), 'sha256': digest(p)} for p in source_paths]
     with tempfile.TemporaryDirectory(prefix='nimbo-desktop-source-') as temporary:
         temp = Path(temporary)
@@ -61,7 +61,7 @@ def main():
                 raise RuntimeError('source ZIP digest mismatch')
             metadata.append(value)
         stage.stage_protobuf(Path(metadata[1]['Dir']),temp/'protobuf',pins['protobuf'])
-        patches = [NATIVE/name for name in ('mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','mihomo-rule-journal.patch')]
+        patches = [NATIVE/name for name in ('mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','mihomo-rule-journal.patch','mihomo-traffic-counters.patch')]
         stage.stage_mihomo(Path(metadata[0]['Dir']),temp/'mihomo',patches)
         stage.stage_singtun(Path(metadata[2]['Dir']),temp/'sing-tun',NATIVE/'sing-tun-rule-journal.patch')
         stage.stage_netlink(Path(metadata[3]['Dir']),temp/'netlink',NATIVE/'netlink-rule-identity.patch')

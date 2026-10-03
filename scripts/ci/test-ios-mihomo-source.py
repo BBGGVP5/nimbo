@@ -15,6 +15,13 @@ spec.loader.exec_module(prepare)
 
 class MergedMihomoSourceTests(unittest.TestCase):
 
+    def test_desktop_build_freezes_and_applies_traffic_counter_patch(self):
+        build = (ROOT/'scripts/ci/build-mihomo-desktop.py').read_text()
+        self.assertEqual(build.count("'mihomo-traffic-counters.patch'"), 2)
+        merged = (ROOT/'scripts/ci/prepare-mihomo-merged.py').read_text()
+        self.assertIn("'tunnel/statistic/manager.go'", merged)
+        self.assertIn("'tunnel/statistic/tracker.go'", merged)
+
     def test_owned_rule_callbacks_are_not_subscription_fields(self):
         native = ROOT/'tools/native/mihomo-core'
         patch = (native/'mihomo-rule-journal.patch').read_text()

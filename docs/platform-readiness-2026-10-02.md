@@ -12,6 +12,8 @@ Local verification: Rust policy/controller/IPC/UI/service tests, strict Clippy, 
 
 Build-tool repair: a pinned but undownloaded Go tool returned an empty `.Dir`, previously interpreted as the working directory. Staging now downloads only the version selected by the locked graph, requires explicit matching module metadata/absolute directory, and rejects missing sources. Four isolated build-tool tests pass. Module-cache source, pin checks and production libraries are not weakened or silently overwritten.
 
+Native follow-up: the merged Android AAR completed all four ABI builds, additive Java API, compiled source/toolchain/lean-tag and 16 KiB ELF checks. SHA256 `2ef692f11f209797dafd0dfb9330b6b04268405c738ca7710b428ecf0504f13f`; verified previous AAR was backed up before clone/primary promotion. Exact release digest and per-ABI metadata were regenerated from verified bytes. Android compilation and focused tests passed against this new library; device filtering and final APK signing remain unverified. Initial Linux CI correctly rejected the omitted counter patch in the portable builder. That builder now freezes/applies the same patch; nine source regressions and portable native host tests pass, with cross-build/renewed CI tracked separately. Pin and changed-file-set checks were not weakened.
+
 ## Installer and desktop layout polish — 3 October 2026
 
 Installer `dfb3d39` groups success content in a bounded centered block: separate selectable wrapping path, adjacent desktop actions and narrow stacked fallback. Install, update, retained-data uninstall and removed-data uninstall are covered; reduced-motion now leaves the success check visible. No native install/permission/service behavior changed.

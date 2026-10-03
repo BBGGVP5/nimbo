@@ -9,13 +9,13 @@
   "archiveUrl": "https://codeload.github.com/XTLS/libXray/tar.gz/3c694b23290f9849fe52284a345ebd4343bc90cd",
   "archiveSha256": "0b9162518c1eb2aadca13f39e63e9c5f7c904c4843ad6bc8f8251f2d1f99c185",
   "archiveSize": 106042,
-  "aarSha256": "384bc90bfe26ba50a9791bb9dfd3ecbd8ca660fe5398912458b6130795db4a4a",
+  "aarSha256": "2ef692f11f209797dafd0dfb9330b6b04268405c738ca7710b428ecf0504f13f",
   "goVersion": "1.27.1",
   "xrayCore": "v1.260327.1-0.20260930074004-b26a91de4f32",
   "bundled": {
     "armeabi-v7a": {
       "file": "libgojni.so",
-      "sha256": "886052b4e8abc90620ddc814062b23fe82a5c4ef4b6c7aa8d727f5be61b378e5",
+      "sha256": "11d68a1a7156de87a54e6a778b624ce9dac983415f30f5ac6b40652e41236b38",
       "loadSegments": [
         {
           "offset": 0,
@@ -23,25 +23,25 @@
           "alignment": 16384
         },
         {
-          "offset": 27776940,
-          "vaddr": 27793324,
+          "offset": 27968248,
+          "vaddr": 27984632,
           "alignment": 16384
         },
         {
-          "offset": 61232560,
-          "vaddr": 61265328,
+          "offset": 61459888,
+          "vaddr": 61492656,
           "alignment": 16384
         },
         {
-          "offset": 67201536,
-          "vaddr": 67250688,
+          "offset": 67433184,
+          "vaddr": 67482336,
           "alignment": 16384
         }
       ]
     },
     "arm64-v8a": {
       "file": "libgojni.so",
-      "sha256": "a6a903e79b7c4b9338f83440194482dece06a7ca252d5c187e38fe62ea3e738d",
+      "sha256": "c84e1c291258ee850c62b7eaa31451df261a848a84cf9dc5348c955a9f73e3be",
       "loadSegments": [
         {
           "offset": 0,
@@ -49,25 +49,25 @@
           "alignment": 16384
         },
         {
-          "offset": 35081760,
-          "vaddr": 35098144,
+          "offset": 35283728,
+          "vaddr": 35300112,
           "alignment": 16384
         },
         {
-          "offset": 62005728,
-          "vaddr": 62038496,
+          "offset": 62237984,
+          "vaddr": 62270752,
           "alignment": 16384
         },
         {
-          "offset": 70332368,
-          "vaddr": 70381520,
+          "offset": 70570624,
+          "vaddr": 70619776,
           "alignment": 16384
         }
       ]
     },
     "x86": {
       "file": "libgojni.so",
-      "sha256": "42cac59ddc07d9375fd60bfb524352eab327ca53f17a517b4f173be77511cc12",
+      "sha256": "f9a1bfae605ab1d4d7dbd78e46b4067a2641085c64b7934c47182312bc2d9421",
       "loadSegments": [
         {
           "offset": 0,
@@ -75,25 +75,25 @@
           "alignment": 16384
         },
         {
-          "offset": 28678160,
-          "vaddr": 28694544,
+          "offset": 28870480,
+          "vaddr": 28886864,
           "alignment": 16384
         },
         {
-          "offset": 61366496,
-          "vaddr": 61399264,
+          "offset": 61594304,
+          "vaddr": 61627072,
           "alignment": 16384
         },
         {
-          "offset": 67343024,
-          "vaddr": 67392176,
+          "offset": 67575136,
+          "vaddr": 67624288,
           "alignment": 16384
         }
       ]
     },
     "x86_64": {
       "file": "libgojni.so",
-      "sha256": "b3a70f194d0453a923e1cafe4bec031e3c5c318f9e44466d335b1745174f03f2",
+      "sha256": "3d5d96b8165a714cff372b70ad8cf22324a9a9764dedb42ebbe72b75c88e434e",
       "loadSegments": [
         {
           "offset": 0,
@@ -101,18 +101,18 @@
           "alignment": 16384
         },
         {
-          "offset": 35943680,
-          "vaddr": 35960064,
+          "offset": 36145216,
+          "vaddr": 36161600,
           "alignment": 16384
         },
         {
-          "offset": 67606016,
-          "vaddr": 67638784,
+          "offset": 67841760,
+          "vaddr": 67874528,
           "alignment": 16384
         },
         {
-          "offset": 75933632,
-          "vaddr": 75982784,
+          "offset": 76175376,
+          "vaddr": 76224528,
           "alignment": 16384
         }
       ]
