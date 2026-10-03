@@ -65,3 +65,14 @@ workers. These frontend checks do not prove device-level filtering or native
 telemetry generation/lifecycle behavior. No blocked-request count is displayed.
 
 Mobile follow-up: transfer cards stay adjacent at 360px as well; browser geometry asserts equal top/height at every viewport and no horizontal overflow. Production build and 26 cases passed again after the change.
+
+Settings-placement follow-up (2026-10-03): ad blocking appears only in Settings → Routing,
+not Statistics, on Android, shared/iOS and desktop. The visible description is two
+short sentences; limitations remain in an opt-in info dialog/disclosure. The switch
+still saves for the next connection without reconnecting. `npm test` 102/102,
+production build and browser suite 44/44 passed; 42 screenshots cover Statistics
+and compact Routing settings in three styles/two themes/360–1100 widths, plus
+Russian at 360px. Android debug Kotlin/common metadata compiled; 21 shared render/
+interaction tests passed, with 24 Routing renders in four styles/two themes/three
+widths. Seven cross-platform/iOS source contracts passed. Mocked renders and source
+checks are not device or packaged IPA/APK validation.

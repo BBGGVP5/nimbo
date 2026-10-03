@@ -47,7 +47,7 @@ try {
     assert.equal(await page.getByTestId('download-speed').innerText(), '1.50 MB/s');
     assert.equal(await page.getByTestId('tcp-count').innerText(), '24');
     assert.equal(await page.locator('.traffic-ring').getAttribute('data-state'), 'measured');
-    assert.equal(await page.getByRole('switch', { name: 'Ad blocking' }).getAttribute('aria-checked'), 'false');
+    assert.equal(await page.getByRole('switch', { name: 'Ad blocking' }).count(), 0, 'statistics must not contain settings');
     assert(await page.getByText('Previous connection', { exact: true }).isVisible());
     assert.equal(await page.locator('.statistics-chart [data-series]').count(), 2);
     const layout = await page.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth,
@@ -69,6 +69,23 @@ try {
     assert.deepEqual(errors, []); assert.deepEqual(await page.evaluate(() => window.__unexpectedTrafficCalls), []);
     cases++; await page.close();
   }
+  for (const viewport of [{ width: 1100, height: 800 }, { width: 800, height: 760 }, { width: 360, height: 760 }]) for (const theme of ['dark', 'light']) for (const style of ['signal', 'material_you', 'dotted']) {
+    const { page, errors } = await fixture(viewport);
+    await open(page, `page=routing&theme=${theme}&style=${style}`);
+    const toggle = page.getByRole('switch', { name: 'Ad blocking' });
+    assert.equal(await toggle.count(), 1, 'routing must contain one ad setting');
+    assert.equal(await toggle.getAttribute('aria-checked'), 'false');
+    assert(await page.getByText('Filters ad domains. Does not remove all ads.', { exact: true }).isVisible());
+    assert(!(await page.locator('.ad-blocking-control details').evaluate(e => e.open)));
+    assert(await page.locator('.ad-blocking-control').evaluate(e => e.getBoundingClientRect().height < 230), 'collapsed setting is too tall');
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${style}/${theme}/${viewport.width}: routing overflow`);
+    await page.screenshot({ path: resolve(artifacts, `routing-${style}-${theme}-${viewport.width}.png`), fullPage: true });
+    await page.getByText('Details', { exact: true }).click();
+    assert(await page.getByText('Mihomo requires rule mode while this option is on; global and direct are unavailable.', { exact: true }).isVisible());
+    assert.deepEqual(await page.evaluate(() => window.__trafficCalls), ['get_preferences']);
+    assert.deepEqual(await page.evaluate(() => window.__unexpectedTrafficCalls), []); assert.deepEqual(errors, []);
+    cases++; await page.close();
+  }
   for (const scenario of ['unavailable', 'legacy', 'xray', 'idle', 'offline']) {
     const { page, errors } = await fixture({ width: 360, height: 760 });
     await open(page, `scenario=${scenario}`);
@@ -83,7 +100,7 @@ try {
     assert.deepEqual(errors, []); cases++; await page.close();
   }
   const { page, errors } = await fixture();
-  await open(page);
+  await open(page, 'page=routing');
   const toggle = page.getByRole('switch', { name: 'Ad blocking' });
   await toggle.focus(); await page.keyboard.press('Space');
   await page.waitForFunction(() => document.querySelector('[role=switch]').getAttribute('aria-checked') === 'true');
@@ -99,13 +116,16 @@ try {
   await page.reload(); await toggle.waitFor(); assert.equal(await toggle.getAttribute('aria-checked'), 'false');
   await page.evaluate(() => { window.__dropAdPreference = true; });
   await toggle.click(); await page.getByRole('alert').waitFor(); assert.equal(await toggle.getAttribute('aria-checked'), 'false');
+  await open(page); assert.equal(await toggle.count(), 0);
   await open(page, 'page=routing'); await toggle.waitFor();
   await toggle.click(); await page.waitForFunction(() => document.querySelector('[role=switch]').getAttribute('aria-checked') === 'true');
   assert.deepEqual(await page.evaluate(() => window.__unexpectedTrafficCalls), []); assert.deepEqual(errors, []);
   cases++; await page.close();
   const russian = await fixture({ width: 360, height: 760 });
-  await open(russian.page, 'language=ru');
+  await open(russian.page, 'page=routing&language=ru');
   assert(await russian.page.getByRole('switch', { name: 'Блокировка рекламы' }).isVisible());
+  assert(await russian.page.getByText('Фильтрует рекламные домены. Не убирает всю рекламу.', { exact: true }).isVisible());
+  await russian.page.screenshot({ path: resolve(artifacts, 'routing-russian-360.png'), fullPage: true });
   assert(await russian.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   assert.deepEqual(russian.errors, []); cases++; await russian.page.close();
   const reset = await fixture();

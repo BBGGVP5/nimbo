@@ -55,7 +55,6 @@ internal fun NimboStatsScreen(state: NimboUiState, actions: NimboUiActions) {
         }
         item("routes") { RouteTrafficCard(state) }
         item("protocols") { ActiveProtocolCards(state) }
-        item("ad-blocking") { AdBlockingCard(state, actions) }
         item("server") {
             NimboSurface(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -1,4 +1,3 @@
-import { AdBlockingControl } from "../../components/AdBlockingControl";
 import { formatBytes, type TrafficStats } from "../../lib/api";
 import { useMessages } from "../../lib/i18n";
 import { trafficDashboardValues, type StatsRange } from "../../lib/statisticsPresentation";
@@ -54,6 +53,5 @@ export function TrafficDashboard({ stats, range, connected, speedAvailable }: {
         <p className="traffic-measurement-note">{t("Соединения, отслеживаемые ядром. Не число пакетов; при отсутствии данных показано «—».", "Connections tracked by the core. These are not packet counts; missing data is shown as “—”.")}</p>
       </section>
     </div>
-    <AdBlockingControl />
   </div>;
 }

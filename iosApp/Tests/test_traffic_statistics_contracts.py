@@ -13,6 +13,19 @@ def read(path):
     return (ROOT / path).read_text(encoding="utf-8-sig")
 
 class TrafficStatisticsContracts(unittest.TestCase):
+    def test_ad_blocking_is_only_in_routing_settings_on_every_platform(self):
+        for path in [
+            "app/src/main/java/com/danila/nimbo/ui/screens/TrafficDashboard.kt",
+            "shared/src/commonMain/kotlin/com/danila/nimbo/shared/ui/NimboStatsScreen.kt",
+            "shared/src/commonMain/kotlin/com/danila/nimbo/shared/ui/NimboTrafficDashboard.kt",
+            "apps/ui/src/pages/stats/TrafficDashboard.tsx"]:
+            self.assertNotIn("AdBlocking", read(path), path)
+        for path, call in [
+            ("app/src/main/java/com/danila/nimbo/ui/screens/RoutingScreen.kt", "AdBlockingSettingsCard(preferencesManager)"),
+            ("shared/src/commonMain/kotlin/com/danila/nimbo/shared/ui/NimboRoutingScreen.kt", "AdBlockingSettingsCard(state, actions)"),
+            ("apps/ui/src/pages/Routing.tsx", "<AdBlockingControl />")]:
+            self.assertEqual(read(path).count(call), 1, path)
+
     def test_offline_suffix_lists_match_and_are_bounded(self):
         swift = read("iosApp/Shared/NimboAdBlocking.swift").split("static func applying", 1)[0]
         kotlin = read("shared/src/commonMain/kotlin/com/danila/nimbo/shared/routing/NimboAdBlocking.kt").split("fun xrayRule", 1)[0]

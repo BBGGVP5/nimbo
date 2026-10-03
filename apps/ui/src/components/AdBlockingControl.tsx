@@ -33,13 +33,12 @@ export function AdBlockingControl() {
     <div className="ad-blocking-heading">
       <span className="ad-blocking-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z"/><path d="m8 12 3 3 5-6"/></svg></span>
       <div><h2 id={`${id}-title`}>{t("Блокировка рекламы", "Ad blocking")}</h2><p className="ad-blocking-state" role="status">{saving ? t("Сохранение…", "Saving…") : enabled ? t("Включена для следующего подключения", "On for the next connection") : t("Выключена для следующего подключения", "Off for the next connection")}</p></div>
-      <button type="button" className="ad-blocking-switch" role="switch" aria-checked={enabled} aria-label={t("Блокировка рекламы", "Ad blocking")} aria-describedby={`${id}-hint ${id}-description`} disabled={saving} onClick={() => void toggle()}><span /></button>
+      <button type="button" className="ad-blocking-switch" role="switch" aria-checked={enabled} aria-label={t("Блокировка рекламы", "Ad blocking")} aria-describedby={`${id}-description`} disabled={saving} onClick={() => void toggle()}><span /></button>
     </div>
-    <p id={`${id}-hint`} className="ad-blocking-hint">{t("Применится при следующем подключении. Текущая сессия продолжит работать со своими настройками.", "Applies on the next connection. The current session keeps its existing settings.")}</p>
-    <p id={`${id}-description`}>{t("Блокирует известные рекламные и трекинговые домены в трафике, проходящем через Nimbo. Правила провайдера и ваши правила сохраняются, в том числе при выключении этой опции.", "Blocks known advertising and tracking domains in traffic handled by Nimbo. Provider and custom rules are preserved, including when this option is off.")}</p>
-    <details><summary>{t("Что может остаться", "What can still get through")}</summary>
-      <p>{t("Для профилей Mihomo нужен режим rule. При включённой блокировке рекламы подключение в режимах global и direct недоступно.", "Mihomo profiles require rule mode. While ad blocking is on, connections in global and direct modes are rejected.")}</p>
-      <p>{t("Фильтрация доменов не убирает всю рекламу: объявления внутри приложений и видео, трафик в обход Nimbo и собственный зашифрованный DNS приложения могут остаться.", "Domain filtering does not remove all ads. In-app and video ads, traffic bypassing Nimbo, and an app’s own encrypted DNS may still get through.")}</p>
+    <p id={`${id}-description`}>{t("Фильтрует рекламные домены. Не убирает всю рекламу.", "Filters ad domains. Does not remove all ads.")}</p>
+    <details><summary>{t("Подробнее", "Details")}</summary>
+      <p>{t("Mihomo требует режим rule. При включённой опции global и direct недоступны.", "Mihomo requires rule mode while this option is on; global and direct are unavailable.")}</p>
+      <p>{t("Встроенная реклама, обход Nimbo и собственный зашифрованный DNS приложений могут остаться. Правила подписки и ваши правила сохраняются и при выключенной опции.", "In-app/video ads, bypass traffic and encrypted DNS may remain. Provider and custom rules are preserved, even when this option is off.")}</p>
     </details>
     {error && <p className="ad-blocking-error" role="alert">{error}</p>}
   </section>;

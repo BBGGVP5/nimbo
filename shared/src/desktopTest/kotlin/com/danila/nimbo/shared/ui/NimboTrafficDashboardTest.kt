@@ -54,6 +54,7 @@ class NimboTrafficDashboardTest {
                             val nodes = scene.semanticsOwners.flatMap { it.getAllSemanticsNodes(mergingEnabled = true) }
                             val texts = nodes.flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty() }.map { it.text }
                             assertTrue("Статистика" in texts)
+                            assertFalse("Блокировка рекламы" in texts, "statistics must not duplicate settings")
                             assertTrue("Текущая сессия" in texts)
                             val routeDescriptions = nodes.flatMap { it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
                             val expected = when (mode) { "measured" -> "25% VPN"; "zero" -> "0 Б"; else -> "Нет данных" }
@@ -70,7 +71,7 @@ class NimboTrafficDashboardTest {
         val choices = mutableListOf<Boolean>()
         var connections = 0
         ImageComposeScene(360, 700) {
-            AdBlockingCard(NimboUiState(), NimboUiActions(onSetAdBlocking = { choices += it }, onToggleVpn = { connections++ }))
+            AdBlockingSettingsCard(NimboUiState(), NimboUiActions(onSetAdBlocking = { choices += it }, onToggleVpn = { connections++ }))
         }.use { scene ->
             scene.render(0).close(); scene.render(1_000_000_000L).close()
             val nodes = scene.semanticsOwners.flatMap { it.getAllSemanticsNodes(mergingEnabled = true) }
@@ -79,6 +80,52 @@ class NimboTrafficDashboardTest {
             assertTrue(switch.config.getOrNull(SemanticsActions.OnClick)?.action?.invoke() == true)
             assertEquals(listOf(true), choices)
             assertEquals(0, connections)
+        }
+    }
+
+    @Test fun routingContainsOneCompactAdSettingInEveryStyleAndSize() {
+        val output = File("build/reports/ad-blocking-settings").apply { mkdirs() }
+        for (width in listOf(360, 800, 1100)) for (theme in listOf("dark", "light")) for (style in listOf("glass", "material", "dotted", "signal")) {
+            ImageComposeScene(width, 1000) {
+                NimboAppShell(NimboScreen.ROUTING, NimboUiState(
+                    appearance = NimboAppearance(themeMode = theme), elementStyle = style
+                ), NimboUiActions(), showBottomBar = false)
+            }.use { scene ->
+                scene.render(0).close()
+                scene.render(1_000_000_000L).use { image ->
+                    File(output, "$width-$theme-$style.png").writeBytes(image.encodeToData()!!.use { it.bytes })
+                }
+                val nodes = scene.semanticsOwners.flatMap { it.getAllSemanticsNodes(mergingEnabled = true) }
+                val switches = nodes.filter { it.config.getOrNull(SemanticsProperties.Role) == Role.Switch &&
+                    it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { text -> text.text == "Блокировка рекламы" } }
+                assertEquals(1, switches.size, "routing must expose one named ad switch")
+                assertEquals(androidx.compose.ui.state.ToggleableState.Off, switches.single().config.getOrNull(SemanticsProperties.ToggleableState))
+                val description = nodes.first { it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { text ->
+                    text.text == "Фильтрует рекламные домены. Не убирает всю рекламу." } }
+                assertTrue(description.boundsInRoot.left >= 0 && description.boundsInRoot.right <= width)
+                assertTrue(description.boundsInRoot.height < 60, "description must stay compact")
+                assertFalse(nodes.any { it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { text -> text.text.contains("зашифрованный DNS") } },
+                    "detailed caveats belong in the info dialog")
+            }
+        }
+    }
+
+    @Test fun settingDoesNotMistakeSavedPreferenceForActiveSessionState() {
+        for ((state, expected) in listOf(
+            NimboUiState() to "Со следующего подключения",
+            NimboUiState(vpnState = "connected", adBlockingEnabled = true, activeAdBlockingEnabled = false) to "Изменится при следующем подключении",
+            NimboUiState(vpnState = "connected", adBlockingEnabled = true, activeAdBlockingEnabled = true) to "Текущее подключение: включено",
+            NimboUiState(vpnState = "connected", activeAdBlockingEnabled = false) to "Текущее подключение: выключено",
+            NimboUiState(vpnState = "connected", adBlockingEnabled = true) to "Со следующего подключения · текущая сессия неизвестна"
+        )) {
+            ImageComposeScene(360, 700) {
+                NimboAppShell(NimboScreen.ROUTING, state, NimboUiActions(), showBottomBar = false)
+            }.use { scene ->
+                scene.render(0).close(); scene.render(1_000_000_000L).close()
+                val texts = scene.semanticsOwners.flatMap { it.getAllSemanticsNodes(mergingEnabled = true) }
+                    .flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty() }.map { it.text }
+                assertTrue(expected in texts)
+            }
         }
     }
 }

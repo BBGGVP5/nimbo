@@ -1,12 +1,11 @@
-.ad-blocking-control { padding:24px; border:1px solid var(--color-border); border-radius:var(--ui-radius-xl,18px); background:var(--color-surface); min-width:0; }
+.ad-blocking-control { padding:18px; border:1px solid var(--color-border); border-radius:var(--ui-radius-xl,18px); background:var(--color-surface); min-width:0; }
 .ad-blocking-heading { display:flex; align-items:center; gap:14px; }
 .ad-blocking-heading > div { flex:1; min-width:0; }
 .ad-blocking-control h2 { margin:0; font-size:16px; font-weight:600; }
 .ad-blocking-icon { display:grid; place-items:center; width:42px; height:42px; border-radius:12px; background:var(--color-card); flex-shrink:0; }
 .ad-blocking-icon svg { width:24px; height:24px; }
-.ad-blocking-control p { margin:12px 0 0; font-size:12px; line-height:1.65; color:var(--color-text-dim); overflow-wrap:anywhere; }
+.ad-blocking-control p { margin:8px 0 0; font-size:12px; line-height:1.5; color:var(--color-text-dim); overflow-wrap:anywhere; }
 .ad-blocking-control .ad-blocking-state { margin:4px 0 0; font-size:11px; }
-.ad-blocking-control .ad-blocking-hint { color:var(--color-text); }
 .ad-blocking-control .ad-blocking-switch { display:flex; align-items:center; width:48px; height:44px; padding:10px 3px; flex-shrink:0; border:0; background:transparent; position:relative; cursor:pointer; box-shadow:none; }
 .ad-blocking-switch::before { content:""; position:absolute; inset:9px 0; border-radius:20px; background:var(--color-border-strong); border:1px solid var(--color-border); }
 .ad-blocking-switch span { position:relative; width:20px; height:20px; border-radius:50%; background:var(--color-text-dim); transition:transform .18s ease; }
@@ -14,9 +13,9 @@
 .ad-blocking-switch[aria-checked="true"] span { transform:translateX(22px); background:var(--color-surface); }
 .ad-blocking-switch:disabled { opacity:.55; cursor:wait; }
 .ad-blocking-switch:focus-visible { outline:2px solid var(--color-accent); outline-offset:3px; border-radius:20px; }
-.ad-blocking-control details { margin-top:12px; font-size:12px; color:var(--color-text-dim); }
+.ad-blocking-control details { margin-top:8px; font-size:12px; color:var(--color-text-dim); }
 .ad-blocking-control summary { cursor:pointer; width:fit-content; padding:6px 0; color:var(--color-text); }
 .ad-blocking-control .ad-blocking-error { color:var(--color-status-error); }
 .routing-page > .ad-blocking-control { margin-bottom:20px; }
-@media (max-width:640px) { .ad-blocking-control { padding:18px; } .ad-blocking-heading { gap:10px; } }
+@media (max-width:640px) { .ad-blocking-control { padding:14px; } .ad-blocking-heading { gap:10px; } }
 @media (prefers-reduced-motion:reduce) { .ad-blocking-switch span { transition:none; } }

@@ -5692,7 +5692,7 @@ private fun ColumnScope.StatisticsSettingsSection(
 
     Spacer(Modifier.height(16.dp))
 
-    TrafficDashboard(preferencesManager)
+    TrafficDashboard()
 
     // ── График скорости за последнюю минуту ────────────────────────────────
     val speedSamples = TrafficHistory.speedSamples

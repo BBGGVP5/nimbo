@@ -129,10 +129,12 @@ test('dashboard renders measured/empty/unavailable rings and nullable protocol c
   const { TrafficDashboard } = await moduleWithMocks('../src/pages/stats/TrafficDashboard.tsx', {
     _jsx: jsx.jsx, _jsxs: jsx.jsxs, _Fragment: jsx.Fragment,
     useMessages: () => ({ common: { locale: 'en' }, statistics: { uploaded: 'Uploaded', received: 'Downloaded' } }),
-    trafficDashboardValues: data.trafficDashboardValues, formatBytes, AdBlockingControl: () => null,
+    trafficDashboardValues: data.trafficDashboardValues, formatBytes,
+    AdBlockingControl: () => createElement('div', null, 'ad-settings-sentinel'),
   });
   const render = (stats, range = 'session') => renderToStaticMarkup(createElement(TrafficDashboard, { stats, range, connected: true, speedAvailable: true }));
   assert.match(render(stats), /data-state="measured"/);
+  assert.doesNotMatch(render(stats), /ad-settings-sentinel/);
   assert.match(render(stats), /Proxied 100%/);
   assert.match(render(stats), /data-testid="udp-count">0</);
   const unavailable = render({ ...stats, session_available: false });
@@ -152,7 +154,14 @@ test('ad control is an accessible persisted switch with next-connection and doma
   });
   const html = renderToStaticMarkup(createElement(AdBlockingControl));
   assert.match(html, /role="switch" aria-checked="false"/);
-  for (const text of ['next connection', 'Provider and custom rules are preserved', 'does not remove all ads', 'encrypted DNS']) assert(html.includes(text));
+  for (const text of ['next connection', 'Provider and custom rules are preserved', 'Does not remove all ads', 'encrypted DNS']) assert(html.includes(text));
+  assert.match(html, /aria-describedby="[^"]+-description"/);
+  assert.doesNotMatch(html, /ad-blocking-hint/);
+  assert(html.includes('Filters ad domains. Does not remove all ads.'));
+  // Caveats remain available on demand, not as a paragraph filling the settings page.
+  assert(!html.includes('<details open'));
+  const visible = html.replace(/<details>.*?<\/details>/, '').replace(/<[^>]*>/g, '');
+  assert(visible.length < 150, `verbose ad setting: ${visible}`);
   assert.doesNotMatch(html, /requests blocked|ads blocked/i);
   assert.match(html, /<details>.*Mihomo.*rule.*global.*direct.*<\/details>/);
   locale = 'ru';

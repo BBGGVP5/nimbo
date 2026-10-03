@@ -20,7 +20,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.danila.nimbo.ui.i18n.t
 import com.danila.nimbo.ui.theme.LocalNebulaColors
-import com.danila.nimbo.utils.PreferencesManager
 import com.danila.nimbo.vpn.TrafficMeasurementScope
 import com.danila.nimbo.vpn.VpnManager
 import com.danila.nimbo.vpn.VpnState
@@ -34,7 +33,7 @@ internal fun trafficBytes(bytes: Double): String = when {
 }
 
 @Composable
-internal fun ColumnScope.TrafficDashboard(preferences: PreferencesManager) {
+internal fun ColumnScope.TrafficDashboard() {
     val colors = LocalNebulaColors.current
     val connected = VpnManager.state.value == VpnState.CONNECTED
     val telemetry = VpnManager.nativeTrafficTelemetry.value.takeIf { connected }
@@ -93,8 +92,6 @@ internal fun ColumnScope.TrafficDashboard(preferences: PreferencesManager) {
         ProtocolCard("TCP", telemetry?.tcpConnections, Modifier.weight(1f))
         ProtocolCard("UDP", telemetry?.udpConnections, Modifier.weight(1f))
     }
-    Spacer(Modifier.height(16.dp))
-    AdBlockingSettingsCard(preferences)
 }
 
 @Composable

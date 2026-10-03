@@ -19,6 +19,7 @@ internal fun NimboRoutingScreen(state: NimboUiState, actions: NimboUiActions) {
         NimboPageHeading("Маршрутизация") {
             NimboSettingsInfo("Маршрутизация", "Изменения применяются при следующем подключении. На iOS доступны правила по доменам и адресам; выбор приложений ограничен системой.")
         }
+        AdBlockingSettingsCard(state, actions)
         SettingsSection("Правила") {
             RoutingDestination("Профили", state.routingProfiles.firstOrNull { it.id == state.routingProfileId }
                 ?.let { "${it.name} · ${it.ruleCount} правил" } ?: "Не выбран") {

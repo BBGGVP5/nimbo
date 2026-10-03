@@ -144,21 +144,3 @@ private fun ActiveProtocolCard(protocol: String, count: String) {
         }
     }
 }
-
-@Composable
-internal fun AdBlockingCard(state: NimboUiState, actions: NimboUiActions) {
-    NimboSurface(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppearanceToggle("Блокировка рекламы", state.adBlockingEnabled, onChange = actions.onSetAdBlocking)
-            val status = when {
-                state.vpnState != "connected" -> "Применится при следующем подключении."
-                state.activeAdBlockingEnabled == null -> "Состояние текущей сессии недоступно. Применится при следующем подключении."
-                state.activeAdBlockingEnabled != state.adBlockingEnabled -> "Изменение сохранено. Применится при следующем подключении."
-                state.activeAdBlockingEnabled -> "Включена в текущей сессии."
-                else -> "Выключена в текущей сессии."
-            }
-            BasicText(status, style = NimboBodyStyle.copy(color = NimboPalette.Text, fontSize = 12.sp))
-            BasicText("Блокирует известные рекламные и отслеживающие домены в трафике Nimbo. В Mihomo требуется режим правил (rule). Для фильтрации ядро определяет домены соединений. Не убирает всю рекламу в приложениях и видео, трафик в обход Nimbo и запросы через собственный зашифрованный DNS приложений. Скрытое имя домена может помешать фильтрации. Правила провайдера могут блокировать домены и при выключенной опции.", style = NimboBodyStyle.copy(fontSize = 12.sp))
-        }
-    }
-}
