@@ -181,10 +181,10 @@ fn physical_dns_socket() -> std::io::Result<socket2::Socket> {
         .parse::<std::net::SocketAddr>()
         .unwrap();
     socket.connect(&target.into())?;
-    Ok(socket)
+    socket
         .set_read_timeout(Some(Duration::from_secs(3)))
         .unwrap();
-    socket
+    Ok(socket)
 }
 fn physical_dns(socket: &socket2::Socket) -> std::io::Result<()> {
     let query=b"\x47\x53\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07fixture\x07invalid\x00\x00\x01\x00\x01";
