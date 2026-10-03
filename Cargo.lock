@@ -2120,10 +2120,12 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "socket2",
  "tokio",
  "url",
  "uuid",
  "windows-sys 0.59.0",
+ "winreg",
 ]
 
 [[package]]

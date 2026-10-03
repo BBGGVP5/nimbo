@@ -74,6 +74,8 @@ pub struct CoreAvailability {
     inspect_available: bool,
     system_proxy_available: bool,
     tun_available: bool,
+    both_available: bool,
+    kill_switch_available: bool,
     reason: Option<String>,
 }
 #[tauri::command]
@@ -97,11 +99,17 @@ pub fn get_core_availability(app: AppHandle) -> Vec<CoreAvailability> {
     let tun = crate::commands::get_tun_status(app.clone())
         .is_ok_and(|status| status.installed && !status.needs_admin_restart);
     let mihomo = binary(&app).is_ok();
-    #[cfg(any(windows, target_os = "linux"))]
-    let mihomo_tun =
-        nimbo_mihomo::helper::available(option_env!("NIMBO_MIHOMO_SHA256").unwrap_or(""));
+    #[cfg(windows)]
+    let (mihomo_tun, mihomo_both, mihomo_ks) =
+        nimbo_mihomo::helper::capabilities(option_env!("NIMBO_MIHOMO_SHA256").unwrap_or(""));
+    #[cfg(target_os = "linux")]
+    let (mihomo_tun, mihomo_both, mihomo_ks) = (
+        nimbo_mihomo::helper::available(option_env!("NIMBO_MIHOMO_SHA256").unwrap_or("")),
+        false,
+        false,
+    );
     #[cfg(not(any(windows, target_os = "linux")))]
-    let mihomo_tun = false;
+    let (mihomo_tun, mihomo_both, mihomo_ks) = (false, false, false);
     vec![
         CoreAvailability {
             core: CoreKind::Xray,
@@ -111,6 +119,8 @@ pub fn get_core_availability(app: AppHandle) -> Vec<CoreAvailability> {
             inspect_available: false,
             system_proxy_available: xray && cfg!(windows),
             tun_available: xray && tun,
+            both_available: xray && tun && cfg!(windows),
+            kill_switch_available: xray && tun && cfg!(windows),
             reason: (!xray).then(|| "PINNED_CORE_NOT_INSTALLED".into()),
         },
         CoreAvailability {
@@ -120,6 +130,8 @@ pub fn get_core_availability(app: AppHandle) -> Vec<CoreAvailability> {
             inspect_available: false,
             system_proxy_available: awg && xray && cfg!(windows),
             tun_available: awg && xray && tun,
+            both_available: awg && xray && tun && cfg!(windows),
+            kill_switch_available: awg && xray && tun && cfg!(windows),
             reason: (!(awg && xray)).then(|| "AWG_REQUIRES_VERIFIED_ADAPTER_AND_XRAY".into()),
         },
         CoreAvailability {
@@ -129,6 +141,8 @@ pub fn get_core_availability(app: AppHandle) -> Vec<CoreAvailability> {
             inspect_available: mihomo,
             system_proxy_available: mihomo && cfg!(windows),
             tun_available: mihomo && mihomo_tun,
+            both_available: mihomo && mihomo_both,
+            kill_switch_available: mihomo && mihomo_ks,
             reason: if !mihomo {
                 Some("CORE_UNAVAILABLE".into())
             } else if cfg!(any(windows, target_os = "linux")) {
@@ -334,7 +348,10 @@ fn session_controller(
     })
 }
 pub fn check_network_mode(mode: ConnectionMode, kill_switch: bool) -> Result<(), String> {
-    if cfg!(any(windows, target_os = "linux")) && mode == ConnectionMode::Tun {
+    if cfg!(windows) && mode.uses_tun() {
+        return Ok(());
+    }
+    if cfg!(target_os = "linux") && mode == ConnectionMode::Tun {
         return if kill_switch {
             Err("MIHOMO_KILL_SWITCH_UNAVAILABLE".into())
         } else {
@@ -454,26 +471,63 @@ async fn connect_tun_inner(
     await_current(
         ticket,
         &CONNECTION_INTENT,
-        nimbo_mihomo::helper::preflight(nimbo_mihomo::process::tun_request(&bin, &profile, false)?),
+        nimbo_mihomo::helper::preflight({
+            let mut request = nimbo_mihomo::process::tun_request(
+                &bin,
+                &profile,
+                snapshot.connection_mode == ConnectionMode::Both,
+            )?;
+            request.kill_switch = snapshot.preferences.connection_kill_switch;
+            request
+        }),
     )
     .await?;
     crate::commands::stop_runtime(&state)?;
     state.transaction(|s| {
         s.connected = false;
         s.connected_at = None;
+        s.pending_mihomo_kill_switch = snapshot.preferences.connection_kill_switch;
         Ok(())
     })?;
     let session = await_current(
         ticket,
         &CONNECTION_INTENT,
-        Session::start_tun(&bin, &profile, false),
+        Session::start_tun_options(
+            &bin,
+            &profile,
+            snapshot.connection_mode == ConnectionMode::Both,
+            snapshot.preferences.connection_kill_switch,
+        ),
     )
     .await?;
-    state.transaction(|s| {
+    let proxy = if snapshot.connection_mode == ConnectionMode::Both {
+        let port = nimbo_mihomo::wire::loopback_address(&session.info.mixed_address)?.port();
+        let saved = Some(crate::mihomo_proxy::snapshot()?);
+        state.transaction(|s| {
+            if CONNECTION_INTENT.load(Ordering::SeqCst) != ticket {
+                return Err("CONNECTION_CANCELLED".into());
+            }
+            s.pending_system_proxy_snapshot = saved.clone();
+            s.pending_mihomo_proxy_port = Some(port);
+            Ok(())
+        })?;
+        if let Err(e) = crate::mihomo_proxy::apply(port) {
+            if crate::mihomo_proxy::owns(port).unwrap_or(false) {
+                let _ = crate::mihomo_proxy::restore(saved);
+            }
+            return Err(e);
+        }
+        saved
+    } else {
+        None
+    };
+    if let Err(error) = state.transaction(|s| {
         if CONNECTION_INTENT.load(Ordering::SeqCst) != ticket {
             return Err("CONNECTION_CANCELLED".into());
         }
-        if s.connection_mode != ConnectionMode::Tun || s.preferences.connection_kill_switch {
+        if s.connection_mode != snapshot.connection_mode
+            || s.preferences.connection_kill_switch != snapshot.preferences.connection_kill_switch
+        {
             return Err("CONNECTION_CANCELLED".into());
         }
         if s.core_profiles
@@ -498,8 +552,16 @@ async fn connect_tun_inner(
             snapshot.core_profiles.preferred_core,
         ));
         Ok(())
-    })?;
+    }) {
+        if let Some(port) = state.snapshot().pending_mihomo_proxy_port {
+            if crate::mihomo_proxy::owns(port).unwrap_or(false) {
+                let _ = crate::mihomo_proxy::restore(proxy);
+            }
+        }
+        return Err(error);
+    }
     state.runtime(|r| {
+        r.system_proxy_snapshot = proxy;
         r.mihomo = Some(session);
     });
     let _ = crate::tray::refresh_tray_menu(&app);
@@ -518,7 +580,7 @@ pub(crate) async fn connect_profile_inner(
     let profile = preflight_profile(&snapshot, &profile_id)?;
     let bin = binary(&app)?;
     #[cfg(any(windows, target_os = "linux"))]
-    if snapshot.connection_mode == ConnectionMode::Tun {
+    if snapshot.connection_mode.uses_tun() {
         return connect_tun_inner(app, state, profile, bin, snapshot, ticket).await;
     }
     // Reject unsupported YAML features before disrupting the current runtime.
@@ -738,7 +800,9 @@ mod tests {
         for mode in [ConnectionMode::Tun, ConnectionMode::Both] {
             snapshot.connection_mode = mode;
             let preflight = preflight_profile(&snapshot, &id);
-            if cfg!(any(windows, target_os = "linux")) && mode == ConnectionMode::Tun {
+            if (cfg!(windows) && mode.uses_tun())
+                || (cfg!(target_os = "linux") && mode == ConnectionMode::Tun)
+            {
                 // Source/mode admission is pure: actual protected helper
                 // readiness is checked separately before old-session teardown.
                 assert_eq!(
@@ -828,10 +892,22 @@ mod tests {
                 "MIHOMO_TUN_UNAVAILABLE"
             );
         }
-        assert_eq!(
-            check_network_mode(ConnectionMode::Both, false).unwrap_err(),
-            "MIHOMO_TUN_UNAVAILABLE"
-        );
+        if cfg!(windows) {
+            assert!(check_network_mode(ConnectionMode::Both, false).is_ok());
+            assert!(check_network_mode(ConnectionMode::Both, true).is_ok());
+            assert!(check_network_mode(ConnectionMode::Tun, true).is_ok());
+        } else {
+            assert_eq!(
+                check_network_mode(ConnectionMode::Both, false).unwrap_err(),
+                "MIHOMO_TUN_UNAVAILABLE"
+            );
+            if cfg!(target_os = "linux") {
+                assert_eq!(
+                    check_network_mode(ConnectionMode::Tun, true).unwrap_err(),
+                    "MIHOMO_KILL_SWITCH_UNAVAILABLE"
+                );
+            }
+        }
         assert_eq!(
             check_network_mode(ConnectionMode::SystemProxy, true).unwrap_err(),
             "MIHOMO_KILL_SWITCH_UNAVAILABLE"

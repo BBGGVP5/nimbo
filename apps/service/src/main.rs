@@ -15,6 +15,8 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 #[cfg(windows)]
+mod mihomo_firewall;
+#[cfg(windows)]
 mod mihomo_windows;
 #[cfg(windows)]
 mod platform;

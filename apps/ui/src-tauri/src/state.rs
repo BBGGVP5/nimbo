@@ -25,6 +25,9 @@ pub struct PersistedState {
     pub session_core_preference: Option<nimbo_mihomo::selection::CorePreference>,
     #[serde(default)]
     pub pending_mihomo_proxy_port: Option<u16>,
+    /// A requested external policy may remain after native/helper failure.
+    #[serde(default)]
+    pub pending_mihomo_kill_switch: bool,
     #[serde(default)]
     pub subscriptions: Vec<Subscription>,
     #[serde(default)]

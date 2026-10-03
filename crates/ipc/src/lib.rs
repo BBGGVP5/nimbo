@@ -39,6 +39,8 @@ pub enum Command {
     MihomoUp(MihomoTunRequest),
     MihomoDown,
     MihomoStatus,
+    /// Release only the authenticated owner's retained native WFP policy.
+    MihomoResetKillSwitch,
 
     /// Положить ядро в каталог хелпера. Вызывается из повышенного процесса
     /// (pkexec), поэтому источник выбирает пользователь осознанно.
@@ -83,6 +85,10 @@ pub enum Response {
         binary_sha256: String,
         available: bool,
         running: bool,
+        #[serde(default)]
+        both_available: bool,
+        #[serde(default)]
+        kill_switch_available: bool,
     },
     Ok,
     Error {
@@ -109,6 +115,8 @@ pub struct MihomoTunRequest {
     pub binary_sha256: String,
     #[serde(default)]
     pub mixed: bool,
+    #[serde(default)]
+    pub kill_switch: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MihomoReady {
@@ -256,12 +264,25 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
+    fn old_mihomo_requests_do_not_enable_kill_switch() {
+        let old =
+            serde_json::json!({"yaml":"x", "source_sha256":"a", "binary_sha256":"b", "mixed":true});
+        let mut request: MihomoTunRequest = serde_json::from_value(old).unwrap();
+        assert!(!request.kill_switch);
+        request.kill_switch = true;
+        let back: MihomoTunRequest =
+            serde_json::from_slice(&serde_json::to_vec(&request).unwrap()).unwrap();
+        assert!(back.kill_switch && back.mixed);
+    }
+
+    #[test]
     fn mihomo_commands_preserve_source_and_deny_paths() {
         let request = MihomoTunRequest {
             yaml: "# exact\r\n".into(),
             source_sha256: "a".repeat(64),
             binary_sha256: "b".repeat(64),
             mixed: false,
+            kill_switch: false,
         };
         let back =
             decode_command(&encode_command(&Command::MihomoUp(request.clone())).unwrap()).unwrap();

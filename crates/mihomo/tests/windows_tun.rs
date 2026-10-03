@@ -107,3 +107,147 @@ async fn actual_windows_broker_session_tcp_udp_dns_selection_and_cleanup() {
         } // EOF/lease drop must join the same native cleanup.
     }
 }
+
+// Compile the actual GUI proxy implementation, not a test-only registry writer.
+#[path = "../../../apps/ui/src-tauri/src/mihomo_proxy.rs"]
+mod owned_proxy;
+mod state {
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct SystemProxySnapshot {
+        pub proxy_enable: Option<u32>,
+        pub proxy_server: Option<String>,
+        pub proxy_override: Option<String>,
+    }
+}
+
+fn physical_probe() -> std::io::Result<()> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    use std::os::windows::io::AsRawSocket;
+    use windows_sys::Win32::Networking::WinSock::*;
+    let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
+    let index = std::env::var("NIMBO_TEST_PHYSICAL_INDEX")
+        .unwrap()
+        .parse::<u32>()
+        .unwrap()
+        .to_be();
+    if unsafe {
+        setsockopt(
+            socket.as_raw_socket() as _,
+            IPPROTO_IP,
+            IP_UNICAST_IF,
+            (&index as *const u32).cast(),
+            4,
+        )
+    } != 0
+    {
+        return Err(std::io::Error::from_raw_os_error(unsafe {
+            WSAGetLastError()
+        }));
+    }
+    let target = std::env::var("NIMBO_TEST_BYPASS_TARGET")
+        .unwrap()
+        .parse::<std::net::SocketAddr>()
+        .unwrap();
+    socket.connect_timeout(&target.into(), Duration::from_secs(3))
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "WFP/network mutations: explicitly disposable GitHub VM only"]
+async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_death() {
+    assert_eq!(
+        std::env::var("NIMBO_DISPOSABLE_WINDOWS").as_deref(),
+        Ok("1")
+    );
+    assert_eq!(std::env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
+    let path = std::env::var_os("NIMBO_TEST_MIHOMO_BINARY").unwrap();
+    let hash = std::env::var("NIMBO_TEST_MIHOMO_SHA256").unwrap();
+    let binary = VerifiedBinary::verify(std::path::Path::new(&path), &hash).unwrap();
+    let source =
+        std::fs::read_to_string(std::env::var_os("NIMBO_TEST_TUN_SOURCE").unwrap()).unwrap();
+    let profile =
+        FullProfile::new("Public WFP fixture".into(), ProfileKind::MihomoYaml, source).unwrap();
+    assert_eq!(
+        nimbo_mihomo::helper::capabilities(&hash),
+        (true, true, true)
+    );
+    physical_probe().expect("physical baseline is required, never skip a denied-bypass test");
+    for crash in [false, true] {
+        let mut session = Session::start_tun_options(&binary, &profile, true, true)
+            .await
+            .unwrap();
+        assert!(session.info.tun_ready && session.is_running());
+        let mixed = nimbo_mihomo::wire::loopback_address(&session.info.mixed_address).unwrap();
+        assert!(tcp("198.18.0.10:18080").ends_with(b"nimbo-windows-tun"));
+        assert!(tcp("[2001:db8::10]:18080").ends_with(b"nimbo-windows-tun"));
+        // Apply/restore the actual GUI's per-user proxy and ownership check.
+        let saved_proxy = owned_proxy::snapshot().unwrap();
+        owned_proxy::apply(mixed.port()).unwrap();
+        assert!(owned_proxy::owns(mixed.port()).unwrap());
+        assert_eq!(owned_proxy::snapshot().unwrap().proxy_enable, Some(1));
+        // Real mixed listener, not a cosmetic Both flag.
+        let client = reqwest::Client::builder()
+            .proxy(reqwest::Proxy::all(format!("http://{mixed}")).unwrap())
+            .timeout(Duration::from_secs(4))
+            .build()
+            .unwrap();
+        let body = client
+            .get("http://198.18.0.10:18080/fixture")
+            .send()
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"nimbo-windows-tun");
+        assert!(
+            physical_probe().is_err(),
+            "plaintext bypass was permitted while KS armed"
+        );
+        if crash {
+            let core = nimbo_ipc::windows::root().unwrap().join("nimbo-mihomo.exe");
+            let script=format!("$p=@(Get-CimInstance Win32_Process | Where-Object ExecutablePath -eq '{}'); if($p.Count -ne 1){{throw 'fixed native child missing'}}; Stop-Process -Id $p[0].ProcessId -Force",core.display().to_string().replace('\'',"''"));
+            let output = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "native-only crash injection failed"
+            );
+            let deadline = std::time::Instant::now() + Duration::from_secs(8);
+            while session.is_running() && std::time::Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            assert!(!session.is_running());
+            assert!(
+                physical_probe().is_err(),
+                "core death removed external protection"
+            );
+            assert!(
+                session.stop().await.is_err(),
+                "abnormal native exit reported successful cleanup"
+            );
+            // Protection must survive the loss of its native process and pipe lease.
+            assert!(
+                physical_probe().is_err(),
+                "failed stop removed external protection"
+            );
+            nimbo_mihomo::helper::reset_kill_switch().await.unwrap();
+        } else {
+            session.stop().await.unwrap();
+        }
+        owned_proxy::restore(Some(saved_proxy.clone())).unwrap();
+        assert_eq!(owned_proxy::snapshot().unwrap(), saved_proxy);
+        physical_probe().expect("explicit release did not restore physical traffic");
+    }
+}
+
+#[tokio::test]
+#[ignore = "explicit disposable recovery only, never normal test execution"]
+async fn windows_fixture_emergency_reset() {
+    assert_eq!(
+        std::env::var("NIMBO_DISPOSABLE_WINDOWS").as_deref(),
+        Ok("1")
+    );
+    assert_eq!(std::env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
+    nimbo_mihomo::helper::reset_kill_switch().await.unwrap();
+}

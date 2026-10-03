@@ -148,6 +148,12 @@ def main():
     assert ps("@(Get-NetAdapter | Where-Object Name -eq 'nimbo-mh0').Count") == '0'
     assert ps("@(Get-Service NimboHelper -ErrorAction SilentlyContinue).Count") == '0', 'never replace an existing service'
     before = snapshot()
+    # A remote TCP-only control proves actual physical bypass. No HTTP/token is
+    # sent; local self-address traffic would be WFP loopback and is not evidence.
+    target = socket.gethostbyname('github.com') + ':443'
+    physical_index = ps("Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric | Select-Object -First 1 -ExpandProperty InterfaceIndex")
+    proxy_before = ps(r"$k=Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'; [ordered]@{ProxyEnable=$k.ProxyEnable;ProxyServer=$k.ProxyServer;ProxyOverride=$k.ProxyOverride} | ConvertTo-Json -Compress")
+    firewall_before = ps("Get-NetFirewallProfile | Sort-Object Name | Select-Object Name,Enabled,DefaultOutboundAction | ConvertTo-Json -Compress")
     fixture = Fixture()
     with tempfile.TemporaryDirectory(prefix='nimbo-windows-acceptance-') as temporary:
         directory = Path(temporary)
@@ -169,13 +175,17 @@ proxy-groups:
   - {{name: FixtureChoice, type: select, proxies: [FixtureSocks, REJECT]}}
 rules: ["MATCH,FixtureChoice"]
 ''', encoding='utf-8', newline='\n')
+        environment = os.environ.copy()
+        installed = False
         try:
             subprocess.run([str(staged), '--install'], check=True, timeout=45)
-            environment = os.environ.copy()
-            environment.update(NIMBO_TEST_MIHOMO_BINARY=str(binary), NIMBO_TEST_MIHOMO_SHA256=manifest['sha256'], NIMBO_TEST_TUN_SOURCE=str(source))
-            subprocess.run([str(driver), '--ignored', '--test-threads=1', '--nocapture'], env=environment, check=True, timeout=180)
+            installed = True
+            environment.update(NIMBO_TEST_MIHOMO_BINARY=str(binary), NIMBO_TEST_MIHOMO_SHA256=manifest['sha256'], NIMBO_TEST_TUN_SOURCE=str(source), NIMBO_TEST_PHYSICAL_INDEX=physical_index, NIMBO_TEST_BYPASS_TARGET=target)
+            subprocess.run([str(driver), '--ignored', '--test-threads=1', '--nocapture'], env=environment, check=True, timeout=240)
             assert fixture.tcp_count >= 6 and fixture.udp_count >= 2 and fixture.dns_count >= 1, 'native fixture traffic absent'
         finally:
+            if installed:
+                subprocess.run([str(driver), '--ignored', '--test-threads=1', 'windows_fixture_emergency_reset'], env=environment, check=True, timeout=20)
             print(f'Public fixture counters: tcp={fixture.tcp_count}, associations={fixture.associations}, udp={fixture.udp_count}, dns={fixture.dns_count}', flush=True)
             fixture.close()
             subprocess.run([str(staged), '--uninstall'], check=True, timeout=45)
@@ -183,8 +193,11 @@ rules: ["MATCH,FixtureChoice"]
             while time.monotonic() < deadline and ps("@(Get-NetAdapter | Where-Object Name -eq 'nimbo-mh0').Count") != '0':
                 time.sleep(.2)
             assert ps("@(Get-NetAdapter | Where-Object Name -eq 'nimbo-mh0').Count") == '0', 'native adapter retained'
+            assert ps(r"$k=Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'; [ordered]@{ProxyEnable=$k.ProxyEnable;ProxyServer=$k.ProxyServer;ProxyOverride=$k.ProxyOverride} | ConvertTo-Json -Compress") == proxy_before, 'user proxy not restored'
+            assert ps("Get-NetFirewallProfile | Sort-Object Name | Select-Object Name,Enabled,DefaultOutboundAction | ConvertTo-Json -Compress") == firewall_before, 'global firewall profile policy changed'
+            assert not (Path(os.environ['ProgramFiles']) / 'NimboNativeTun/kill-switch/owner.json').exists(), 'retained WFP journal after explicit reset'
             assert snapshot() == before, 'physical DNS/routes were not restored'
-    print('PASS: authenticated SCM broker; native TCP4/6 UDP DNS selection; repeated stop/EOF; physical DNS/routes unchanged')
+    print('PASS: authenticated SCM broker; native TCP4/6 UDP DNS; Both mixed/proxy snapshot; physical KS denial + native crash/reset; global firewall and physical DNS/routes unchanged')
 
 
 if __name__ == '__main__':

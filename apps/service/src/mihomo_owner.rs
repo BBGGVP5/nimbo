@@ -19,6 +19,9 @@ pub fn expected_hash() -> &'static str {
     option_env!("NIMBO_SERVICE_MIHOMO_SHA256").unwrap_or("")
 }
 fn validate_request(r: &MihomoTunRequest, expected: &str) -> Result<(), String> {
+    if r.kill_switch {
+        return Err("MIHOMO_KILL_SWITCH_UNAVAILABLE".into());
+    }
     if expected.len() != 64 || r.binary_sha256 != expected {
         return Err("CORE_HASH_MISMATCH".into());
     }

@@ -159,7 +159,7 @@ test('full-profile page uses native categories and blocks connect for TUN/Both/K
   mode='system_proxy';ks=true;
   html=renderToStaticMarkup(createElement(MihomoProfiles));
   assert.match(html, /<button disabled=""[^>]*>Connect<\/button>/);
-  assert.match(html, /Turn it off yourself/);
+  assert.match(html, /requires Windows, the prepared helper and TUN or Both/);
   state.runtime.profile_id = 'p';
   html = renderToStaticMarkup(createElement(MihomoProfiles));
   assert.match(html, /data-active="true"/);
@@ -336,4 +336,13 @@ test('Linux helper setup is explicit and disabled during an active connection', 
   state.availability[0].tun_available=true;state.availability[0].reason=null;
   html=renderToStaticMarkup(createElement(MihomoProfiles));
   assert.doesNotMatch(html,/Prepare Mihomo TUN/);
+});
+
+test('Windows Both and KS require explicit authenticated helper capabilities',()=>{
+ const cap={binary_verified:true,tun_available:true,system_proxy_available:true,both_available:true,kill_switch_available:true};
+ assert.equal(helpers.mihomoBlockReason(cap,'mihomo','both',true),null);
+ assert.equal(helpers.mihomoBlockReason(cap,'mihomo','tun',true),null);
+ assert.equal(helpers.mihomoBlockReason({...cap,both_available:false},'mihomo','both',false),'MIHOMO_TUN_UNAVAILABLE');
+ assert.equal(helpers.mihomoBlockReason({...cap,kill_switch_available:false},'mihomo','both',true),'MIHOMO_KILL_SWITCH_UNAVAILABLE');
+ assert.equal(helpers.mihomoBlockReason(cap,'mihomo','system_proxy',true),'MIHOMO_KILL_SWITCH_UNAVAILABLE');
 });

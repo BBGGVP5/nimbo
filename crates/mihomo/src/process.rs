@@ -195,10 +195,21 @@ impl Session {
         profile: &FullProfile,
         mixed: bool,
     ) -> Result<Self, String> {
+        Self::start_tun_options(binary, profile, mixed, false).await
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
+    pub async fn start_tun_options(
+        binary: &VerifiedBinary,
+        profile: &FullProfile,
+        mixed: bool,
+        kill_switch: bool,
+    ) -> Result<Self, String> {
         profile.verify().map_err(String::from)?;
         binary.reverify()?;
-        let (lease, ready) =
-            crate::helper::Lease::start(tun_request(binary, profile, mixed)?).await?;
+        let mut request = tun_request(binary, profile, mixed)?;
+        request.kill_switch = kill_switch;
+        let (lease, ready) = crate::helper::Lease::start(request).await?;
         let info: RuntimeInfo =
             serde_json::from_value(ready.info).map_err(|_| "INVALID_NATIVE_READINESS")?;
         info.validate_tun(&profile.source_digest, mixed)?;
@@ -330,5 +341,6 @@ pub fn tun_request(
         source_sha256: profile.source_digest.clone(),
         binary_sha256: hash,
         mixed,
+        kill_switch: false,
     })
 }

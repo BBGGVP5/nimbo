@@ -62,6 +62,7 @@ async fn client(
         if identity.as_ref().is_some_and(|p| p != &peer) {
             break;
         }
+        let sid = peer.sid.clone();
         identity.get_or_insert(peer);
         let command = match nimbo_ipc::decode_command(&payload) {
             Ok(c) => c,
@@ -74,6 +75,8 @@ async fn client(
                     binary_sha256: crate::mihomo_windows::expected_hash().into(),
                     available: o.available(),
                     running: o.running(),
+                    both_available: o.available(),
+                    kill_switch_available: o.available() && crate::mihomo_firewall::available(),
                 })
                 .await
                 {
@@ -100,11 +103,20 @@ async fn client(
                 let o = owner.clone();
                 let stop = shutdown.clone();
                 let handle = pipe.as_raw_handle() as isize;
-                let result =
-                    tokio::task::spawn_blocking(move || o.up(id, &r, &|| raw_alive(handle, &stop)))
-                        .await;
+                let result = tokio::task::spawn_blocking(move || {
+                    o.up(id, &sid, &r, &|| raw_alive(handle, &stop))
+                })
+                .await;
                 match result {
                     Ok(Ok(r)) => Response::MihomoReady(r),
+                    Ok(Err(e)) => error(e),
+                    Err(_) => break,
+                }
+            }
+            Command::MihomoResetKillSwitch => {
+                let o = owner.clone();
+                match tokio::task::spawn_blocking(move || o.reset_kill_switch(&sid)).await {
+                    Ok(Ok(())) => Response::Ok,
                     Ok(Err(e)) => error(e),
                     Err(_) => break,
                 }

@@ -15,7 +15,7 @@ export function CorePreferenceSetting() {
   const xrayAvailable = availability.find(item => item.core === 'xray')?.selector_available === true;
   const mihomo=availability.find(item => item.core === 'mihomo');
   const mihomoAvailable=mihomo?.selector_available===true;
-  const mihomoLabel=mihomo?.tun_available ? 'Mihomo · TUN' : mihomo?.system_proxy_available ? 'Mihomo · System Proxy' : 'Mihomo';
+  const mihomoLabel=mihomo?.both_available ? 'Mihomo · TUN / Both' : mihomo?.tun_available ? 'Mihomo · TUN' : mihomo?.system_proxy_available ? 'Mihomo · System Proxy' : 'Mihomo';
   const label = ru ? 'Ядро' : 'Core';
   return <div className="settings-row settings-row-block core-preference-setting">
     <div className="core-preference-setting__header">
@@ -35,7 +35,7 @@ export function CorePreferenceSetting() {
         : 'Applies on the next manual connection. Auto uses the profile format; an explicit choice requires a compatible profile. The current connection and its recovery keep the previous choice.'}
     </div>
     <div className="settings-row-description" id="desktop-core-availability">
-      {ru ? 'Mihomo: полные YAML-профили. TUN на Windows и Linux требует подготовленного помощника; Windows также поддерживает System Proxy.' : 'Mihomo: full YAML profiles. TUN on Windows and Linux requires the prepared helper; Windows also supports System Proxy.'}{' '}
+      {ru ? 'Mihomo: полные YAML-профили. TUN на Windows и Linux требует подготовленного помощника; Windows поддерживает System Proxy, Both и внешний Kill Switch для TUN/Both. После сбоя защита снимается кнопкой «Сбросить Kill Switch».' : 'Mihomo: full YAML profiles. TUN on Windows and Linux requires the prepared helper; Windows supports System Proxy, Both and external Kill Switch for TUN/Both. After a failure, use Reset Kill Switch.'}{' '}
       {native && data && (awgAvailable
         ? ru ? 'AWG: доступен проверенный адаптер; подключение также использует Xray.' : 'AWG: verified adapter available; connections also use Xray.'
         : ru ? 'AWG: проверенный адаптер отсутствует или платформа не поддерживается.' : 'AWG: verified adapter missing or platform unsupported.')}

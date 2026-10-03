@@ -395,6 +395,8 @@ fn dispatch(
             },
         },
         IpcCommand::MihomoStatus => Response::MihomoAvailability {
+            both_available: false,
+            kill_switch_available: false,
             binary_sha256: crate::mihomo_owner::expected_hash().to_owned(),
             available: tunnel.mihomo.available(),
             running: tunnel.mihomo.running(),

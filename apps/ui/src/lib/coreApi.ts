@@ -2,7 +2,7 @@ import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { isTauriRuntime } from './api';
 export type CoreKind = 'xray' | 'awg' | 'mihomo';
 export type CorePreference = 'auto' | CoreKind;
-export interface CoreAvailability { core: CoreKind; selector_available: boolean; binary_verified: boolean; inspect_available: boolean; system_proxy_available: boolean; tun_available: boolean; reason: string | null }
+export interface CoreAvailability { core: CoreKind; selector_available: boolean; binary_verified: boolean; inspect_available: boolean; system_proxy_available: boolean; tun_available: boolean; both_available?: boolean; kill_switch_available?: boolean; reason: string | null }
 export interface CoreProfile { id: string; name: string; kind: 'mihomo_yaml'|'xray_json'|'awg_ini'; source_digest: string; revision: number; selections: Record<string,string>; inspection: null | { api: number; sourceDigest: string; nativeValidated: boolean; graph: Record<string,unknown>; issues: {code:string;path:string}[] } }
 export interface CoreProfilesState { preferred_core: CorePreference; active_profile_id: string|null; profiles: CoreProfile[] }
 export interface CoreRuntime { running: boolean; profile_id: string|null; session_id: string|null; native_generation: number|null; mixed_address: string|null; network_owner: 'desktop-proxy'|'desktop-tun'|'none' }

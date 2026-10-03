@@ -65,19 +65,52 @@ async fn call(
     .await
     .map_err(|_| "HELPER_TIMEOUT")?
 }
-pub fn available(expected: &str) -> bool {
+pub fn capabilities(expected: &str) -> (bool, bool, bool) {
     if expected.len() != 64 {
-        return false;
+        return (false, false, false);
     }
     let expected = expected.to_owned();
-    std::thread::spawn(move||{
-        let Ok(runtime)=tokio::runtime::Builder::new_current_thread().enable_all().build() else{return false;};
+    std::thread::spawn(move || {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            return (false, false, false);
+        };
         runtime.block_on(async {
-            let Ok(mut pipe)=connect().await else{return false;};
-            matches!(call(&mut pipe,Command::MihomoStatus,Duration::from_secs(3)).await,
-                Ok(Response::MihomoAvailability{binary_sha256,available:true,..}) if binary_sha256==expected)
+            let Ok(mut pipe) = connect().await else {
+                return (false, false, false);
+            };
+            match call(&mut pipe, Command::MihomoStatus, Duration::from_secs(3)).await {
+                Ok(Response::MihomoAvailability {
+                    binary_sha256,
+                    available: true,
+                    both_available,
+                    kill_switch_available,
+                    ..
+                }) if binary_sha256 == expected => (true, both_available, kill_switch_available),
+                _ => (false, false, false),
+            }
         })
-    }).join().unwrap_or(false)
+    })
+    .join()
+    .unwrap_or((false, false, false))
+}
+pub fn available(expected: &str) -> bool {
+    capabilities(expected).0
+}
+pub async fn reset_kill_switch() -> Result<(), String> {
+    let mut pipe = connect().await?;
+    match call(
+        &mut pipe,
+        Command::MihomoResetKillSwitch,
+        Duration::from_secs(5),
+    )
+    .await?
+    {
+        Response::Ok => Ok(()),
+        _ => Err("INVALID_HELPER_RESPONSE".into()),
+    }
 }
 pub async fn preflight(request: MihomoTunRequest) -> Result<(), String> {
     let mut pipe = connect().await?;

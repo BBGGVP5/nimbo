@@ -288,7 +288,7 @@ impl InstallPlan {
     }
 }
 
-fn replace_private(target: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn replace_private(target: &Path, bytes: &[u8]) -> Result<(), String> {
     if fs::symlink_metadata(target).is_ok() && !protected(target) {
         return Err("UNSAFE_SERVICE_DIRECTORY".into());
     }
@@ -344,13 +344,19 @@ struct Running {
     child: NativeChild,
     home: PathBuf,
     joined: bool,
+    firewall: Option<crate::mihomo_firewall::Firewall>,
 }
 impl Running {
     fn stop(&mut self) -> Result<(), String> {
         if self.joined {
             return Ok(());
         }
-        let result = join(&mut self.child);
+        let result = join(&mut self.child).and_then(|_| {
+            if let Some(firewall) = &self.firewall {
+                firewall.release()?;
+            }
+            Ok(())
+        });
         self.joined = result.is_ok();
         result
     }
@@ -407,6 +413,12 @@ impl MihomoOwner {
     }
     pub fn preflight(&self, r: &MihomoTunRequest, alive: &dyn Fn() -> bool) -> Result<(), String> {
         validate_request(r, expected_hash())?;
+        if crate::mihomo_firewall::pending() && self.inner.lock().map_err(|_| "BUSY")?.is_none() {
+            return Err("KILL_SWITCH_RESET_REQUIRED".into());
+        }
+        if r.kill_switch && !crate::mihomo_firewall::available() {
+            return Err("KILL_SWITCH_FAILED".into());
+        }
         let _validation = self.validation.try_lock().map_err(|_| "BUSY")?;
         let mut child = spawn("validate-tun")?;
         let result = (|| {
@@ -436,6 +448,7 @@ impl MihomoOwner {
     pub fn up(
         &self,
         client: u64,
+        sid: &str,
         r: &MihomoTunRequest,
         alive: &dyn Fn() -> bool,
     ) -> Result<MihomoReady, String> {
@@ -443,6 +456,9 @@ impl MihomoOwner {
         let mut guard = self.inner.lock().map_err(|_| "BUSY")?;
         if guard.is_some() {
             return Err("TUN_IN_USE".into());
+        }
+        if crate::mihomo_firewall::pending() {
+            return Err("KILL_SWITCH_RESET_REQUIRED".into());
         }
         let root = root()?.join("sessions");
         private_directory(&root)?;
@@ -460,8 +476,12 @@ impl MihomoOwner {
             child,
             home,
             joined: false,
+            firewall: None,
         };
         let result = (|| -> Result<MihomoReady, String> {
+            if r.kill_switch {
+                running.firewall = Some(crate::mihomo_firewall::Firewall::arm(sid, &core()?)?);
+            }
             let secret = format!(
                 "{}{}",
                 uuid::Uuid::new_v4().simple(),
@@ -499,6 +519,9 @@ impl MihomoOwner {
                 .as_u64()
                 .filter(|g| *g > 0)
                 .ok_or("INVALID_NATIVE_READINESS")?;
+            if let Some(firewall) = &running.firewall {
+                firewall.allow_tun()?;
+            }
             let ready = MihomoReady {
                 info: info.clone(),
                 generation,
@@ -535,6 +558,36 @@ impl MihomoOwner {
             Ok(())
         }
     }
+    pub fn reset_kill_switch(&self, sid: &str) -> Result<(), String> {
+        let mut guard = self.inner.lock().map_err(|_| "BUSY")?;
+        if guard
+            .as_mut()
+            .is_some_and(|r| matches!(r.child.try_wait(), Ok(None)))
+        {
+            return Err("DISCONNECT_BEFORE_CORE_CHANGE".into());
+        }
+        // Wintun device lifetime owns its routes. Never release protection while
+        // the managed device (including an uncertain dead child's device) exists.
+        let mut luid: windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH =
+            unsafe { std::mem::zeroed() };
+        let code = unsafe {
+            windows_sys::Win32::NetworkManagement::IpHelper::ConvertInterfaceAliasToLuid(
+                nimbo_ipc::windows::wide(std::ffi::OsStr::new("nimbo-mh0")).as_ptr(),
+                &mut luid,
+            )
+        };
+        if code != windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND
+            && code != windows_sys::Win32::Foundation::ERROR_NOT_FOUND
+        {
+            return Err("TUN_CLEANUP_FAILED".into());
+        }
+        crate::mihomo_firewall::release(sid)?;
+        if let Some(r) = guard.as_mut() {
+            r.joined = true;
+        }
+        drop(guard.take());
+        Ok(())
+    }
     pub fn down_all(&self) {
         if let Ok(mut guard) = self.inner.lock() {
             drop(guard.take());
@@ -551,6 +604,7 @@ mod tests {
             source_sha256: format!("{:x}", Sha256::digest(b"# exact\r\n")),
             binary_sha256: "a".repeat(64),
             mixed: false,
+            kill_switch: false,
         };
         assert!(validate_request(&r, &"a".repeat(64)).is_ok());
         r.binary_sha256 = "b".repeat(64);

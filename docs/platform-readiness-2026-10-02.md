@@ -1,3 +1,13 @@
+## Windows Both / external Kill Switch follow-up (3 October)
+
+Implementation now adds Windows x64 Both through the same authenticated TUN lease and verified mixed listener, with the existing per-user proxy snapshot/journal. External Kill Switch uses a private, SID-owned WFP sublayer; core/loopback/narrow DHCP and exact native TUN LUID permits, physical egress otherwise denied. No global firewall policy/WinHTTP reset. Static WFP filters survive native/helper failure, but not BFE restart or reboot. Abnormal cleanup retains protection; explicit owner-only Reset Kill Switch requires a retired native adapter.
+
+Backward-compatible helper capability fields keep Both/KS unavailable with old helpers. Linux/macOS do not acquire these Windows-only capabilities. Changing active KS/mode requires an explicit disconnect instead of a false live toggle. Unsafe host ancestor ACLs remain unmodified.
+
+Local: protocol backward compatibility, broker/client non-mutating tests and scoped Clippy pass; frontend 86 tests and production build pass. Extended disposable acceptance now includes actual Both listener + real GUI proxy snapshot implementation, interface-bound remote TCP control (no HTTP or credentials), denial during KS, native-only crash, retained protection, explicit reset and physical restoration. **This extended hosted acceptance and updated installers are not yet confirmed.** Previous successful Windows TUN run does not prove the new Kill Switch.
+
+---
+
 # Состояние платформ Nimbo — 3 октября 2026
 
 Это инвентаризация подтверждённых возможностей, а не заявление «все протоколы работают везде».

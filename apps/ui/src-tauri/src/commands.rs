@@ -764,8 +764,10 @@ pub async fn set_preferences(
     mut preferences: AppPreferences,
 ) -> Result<AppPreferences, String> {
     let _operation = CONNECTION_OPERATION.lock().await;
-    if preferences.connection_kill_switch && state.runtime(|r| r.mihomo.is_some()) {
-        return Err("MIHOMO_KILL_SWITCH_UNAVAILABLE".into());
+    if preferences.connection_kill_switch != state.snapshot().preferences.connection_kill_switch
+        && state.runtime(|r| r.mihomo.is_some())
+    {
+        return Err("DISCONNECT_BEFORE_CORE_CHANGE".into());
     }
     preferences.accent_color = normalize_accent_color(&preferences.accent_color);
     preferences.ui_style = normalize_ui_style(&preferences.ui_style);
@@ -827,6 +829,7 @@ pub fn export_app_backup(state: State<'_, AppState>) -> Result<String, String> {
     snapshot.connected = false;
     snapshot.connected_at = None;
     snapshot.pending_system_proxy_snapshot = None;
+    snapshot.pending_mihomo_kill_switch = false;
     snapshot.on_demand = crate::on_demand::Config::default();
     snapshot.pending_mihomo_proxy_port = None;
     snapshot.pending_tun_snapshot = None;
@@ -863,6 +866,7 @@ pub async fn import_app_backup(
     imported.connected = false;
     imported.connected_at = None;
     imported.pending_system_proxy_snapshot = None;
+    imported.pending_mihomo_kill_switch = false;
     imported.pending_mihomo_proxy_port = None;
     imported.pending_tun_snapshot = None;
     for profile in &imported.core_profiles.profiles {
@@ -2769,7 +2773,7 @@ pub async fn set_connection_mode(
     }
 
     if snapshot.core_profiles.active_profile_id.is_some() {
-        return Err("MIHOMO_TUN_UNAVAILABLE".into());
+        return Err("DISCONNECT_BEFORE_CORE_CHANGE".into());
     }
     let server_id = snapshot
         .active_server_id
@@ -8353,6 +8357,7 @@ fn recent_xray_log_suffix() -> String {
 
 pub(crate) fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
     let pending = state.snapshot();
+    let had_mihomo = state.runtime(|r| r.mihomo.is_some());
     let (tun_snapshot, proxy_snapshot, mihomo_result) = state.runtime(|runtime| {
         let mihomo_result = if let Some(mut session) = runtime.mihomo.take() {
             session.stop_now()
@@ -8428,6 +8433,9 @@ pub(crate) fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
             s.pending_tun_snapshot = None;
             s.pending_system_proxy_snapshot = None;
             s.pending_mihomo_proxy_port = None;
+            if had_mihomo {
+                s.pending_mihomo_kill_switch = false;
+            }
             if matches!(
                 s.preferences.latency_protocol.as_str(),
                 "http_get" | "http_head"
@@ -11181,7 +11189,17 @@ fn clear_windows_kill_switch(_previous: Option<Vec<(String, String)>>) {}
 /// интернета нет — а выключить их изнутри приложения было нечем: единственным
 /// выходом оставалась консоль администратора.
 #[tauri::command]
-pub fn reset_kill_switch(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn reset_kill_switch(state: State<'_, AppState>) -> Result<(), String> {
+    let _operation = CONNECTION_OPERATION.lock().await;
+    #[cfg(windows)]
+    if state.snapshot().pending_mihomo_kill_switch
+        || nimbo_mihomo::helper::capabilities(option_env!("NIMBO_MIHOMO_SHA256").unwrap_or("")).2
+    {
+        nimbo_mihomo::helper::reset_kill_switch().await?;
+        state
+            .mutate(|s| s.pending_mihomo_kill_switch = false)
+            .map_err(|_| "STATE_WRITE_FAILED")?;
+    }
     // Политика, которая была до включения, лежит в снимке незавершённого
     // туннеля — том самом, что остаётся после падения. По нему и возвращаем
     // исходное поведение брандмауэра, а не «как по умолчанию».
@@ -11190,7 +11208,9 @@ pub fn reset_kill_switch(state: State<'_, AppState>) -> Result<(), String> {
         .pending_tun_snapshot
         .map(|snapshot| snapshot.firewall_policy)
         .filter(|policy| !policy.is_empty());
-    clear_windows_kill_switch(previous);
+    if previous.is_some() {
+        clear_windows_kill_switch(previous);
+    }
     state
         .mutate(|value| {
             if let Some(snapshot) = value.pending_tun_snapshot.as_mut() {
