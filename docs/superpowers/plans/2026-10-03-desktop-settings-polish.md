@@ -26,8 +26,12 @@
 **Files:** Modify `apps/ui/src/universal.css`.
 - [x] Apply `body[data-ui-style="signal"] .signal-sub-logo:has(img) { background:transparent; border:0; }` with its image using `object-fit:contain`; do not invert or repaint the provider icon. Include rectangular artwork in the isolated browser fixture.
 - [x] Run `npm run build`, `npm test`, browser checks at wide/narrow dimensions in dark/light themes and inspect screenshots. Keep unavailable cores disabled; verify preference writes go through the native API once and do not connect.
-- [ ] Commit intentional source/test/plan files, mirror verified owned files, push the existing feature branch and include changes in the next non-published Windows build.
+- [x] Commit intentional source/test/plan files, mirror verified owned files, push the existing feature branch and include changes in the next non-published Windows build.
 
 ## Local execution evidence
 
 Production build, all 89 Node tests, TypeScript fixture validation and 18 browser cases passed (Signal/Material You/Dotted, dark/light, 1100/800/360px). Original update ordering and narrow description/choice row failed new assertions. Full-width controls, native capability-gated core preference save/readback, retained compatibility text, and uncropped provider artwork inspected. No connect/install/repair IPC accepted by the fixture.
+
+## Delivery checkpoint
+
+Source commits `dfb3d39` / `8ee2145` pushed to the existing feature branch; 20 intentional files SHA256-mirrored into the primary workspace. Windows rebuild [37131921013](https://github.com/BBGGVP5/nimbo/actions/runs/37131921013) dispatched at `8ee2145` with `publish=false`; dispatch is not completed artifact availability. No main merge or public release.
