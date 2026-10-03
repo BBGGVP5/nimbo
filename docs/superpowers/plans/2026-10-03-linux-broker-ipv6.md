@@ -50,7 +50,7 @@ for address in ["203.0.113.10:18080", "[fdfe:dcba:9901::10]:18080"] {
 ## Task 3: Delivery and readiness
 - [x] Check Windows installer run `37111046901` (product `923b851`, publish=false), including rollback/embedded-core checks and artifacts.
 - [x] Mirror only baseline/receipt-matching intentional source files into the primary workspace; preserve unrelated frozen sources and notices.
-- [ ] Update readiness and existing PR with verified outcomes. Keep remaining physical-device/provider/IPv6-bypass and reboot-persistent KS limitations explicit.
+- [x] Update readiness and existing PR with verified outcomes. Keep remaining physical-device/provider/IPv6-bypass and reboot-persistent KS limitations explicit.
 
 Task 1 checkpoint: 7c8a04f pushed; three pure tests first failed for the absent function, then passed. Native run 37113077401 is capturing actual broker socket calls; the IPv6 failure remains unresolved until evidence and corrected acceptance. Windows installer run 37111046901 SUCCESS, three local installers hash-recorded; native support stays x64-only.
 
@@ -94,3 +94,5 @@ Files: `scripts/ci/test-mihomo-desktop-netns.py` (fixture-only deterministic lin
 - [x] Run pure tests, syntax and diff check; push and require original per-family RX/REJECT, traced/untraced Rust/broker/provider/crash/exact-restore gates on both Linux architectures. Do not claim a product IPv6 fix if only the fixture was corrected.
 
 Verified Task 6 checkpoint: 63bc144 / 37115765634 completed **SUCCESS on Windows x64, Linux amd64 and Linux ARM64**, including the untraced IPv6 Rust/broker gate previously failing, all original crash/foreign-rule/exact-restore/provider gates and the new pre-core cold NDP control. No product Linux source or policy changed. Six pure tests first failed for absent helpers then passed; syntax/fmt/diff checks pass. Project 37115768222 and Android/shared 37115768199 SUCCESS. Fresh Windows installers 37114600859 (product 79d9fb4, reset fix included) still building, publish=false.
+
+Delivery checkpoint: fresh installer run 37114600859 SUCCESS, rollback/embedded-core checks SUCCESS; artifact 11270799644 has all three architectures and includes product reset fix 840201f (head 79d9fb4, later changes diagnostic/readiness only). All downloaded and SHA256 recorded; x64 ee08c62795971fafe118b323345828c3c102a40d277ac3f5c134e5da21780cdb. Source/readiness mirrored and existing PR updated/read back; no main merge or public release. Physical hardware/provider/iPhone/BFE-reboot limitations remain separate gates.
