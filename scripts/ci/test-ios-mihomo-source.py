@@ -111,7 +111,19 @@ class MergedMihomoSourceTests(unittest.TestCase):
         for target in ['adapter/provider/healthcheck.go', 'adapter/provider/provider.go',
                        'adapter/outboundgroup/groupbase.go']:
             self.assertIn('diff --git a/' + target + ' b/' + target, source)
-        self.assertEqual(source.count('diff --git '), 4)
+        expected = {
+            'adapter/provider/healthcheck.go', 'adapter/provider/provider.go',
+            'adapter/outboundgroup/groupbase.go', 'listener/sing_tun/server.go',
+            'component/dialer/dialer.go', 'component/dialer/socket_hook.go',
+        }
+        headers = [line for line in source.splitlines() if line.startswith('diff --git ')]
+        self.assertEqual(len(headers), len(expected))
+        self.assertEqual(set(headers), {'diff --git a/' + name + ' b/' + name for name in expected})
+        self.assertIn('socketHookToListenConfig(lc, rAddrPort)', source)
+        self.assertIn('if remote.IsValid()', source)
+        self.assertIn('address = remote.String()', source)
+        self.assertNotIn('DefaultSocketHook =', source)  # no live global hook replacement
+
         reality_patch = (ROOT / 'tools/native/mihomo-core/mihomo-reality-client-version.patch').read_text()
         self.assertEqual(reality_patch.count('diff --git '), 1)
         self.assertIn('diff --git a/component/tls/reality.go b/component/tls/reality.go', reality_patch)
