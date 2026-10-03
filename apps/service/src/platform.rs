@@ -24,10 +24,16 @@ const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
 
 pub fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    let mode = parse_mode(&args);
+    if matches!(mode, Mode::CheckInstallDirectory) {
+        // Read-only means no ProgramData log creation/rotation either.
+        return crate::mihomo_windows::InstallPlan::check_directory()
+            .map(|_| ())
+            .map_err(|e| anyhow!(e));
+    }
     init_tracing(&args);
     info!(version = VERSION, "nimbo-svc starting");
 
-    let mode = parse_mode(&args);
     let _runtime_guard = match mode {
         Mode::RunForeground | Mode::Service => match acquire_runtime_guard()? {
             Some(guard) => Some(guard),

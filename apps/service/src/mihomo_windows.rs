@@ -8,7 +8,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{mpsc, Mutex},
+    sync::{mpsc, Mutex, MutexGuard, TryLockError},
     time::{Duration, Instant},
 };
 const MAX_REPLY: u64 = 12 * 1024 * 1024;
@@ -377,6 +377,19 @@ impl Drop for Running {
         let _ = fs::remove_dir_all(&self.home);
     }
 }
+fn lock_for_reset<T>(owner: &Mutex<T>, timeout: Duration) -> Result<MutexGuard<'_, T>, String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match owner.try_lock() {
+            Ok(guard) => return Ok(guard),
+            Err(TryLockError::Poisoned(_)) => return Err("BUSY".into()),
+            Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10))
+            }
+            Err(TryLockError::WouldBlock) => return Err("BUSY".into()),
+        }
+    }
+}
 fn idle_down_result(active: bool, pending: bool) -> Result<(), String> {
     if active {
         Err("LEASE_NOT_OWNED".into())
@@ -588,7 +601,9 @@ impl MihomoOwner {
         }
     }
     pub fn reset_kill_switch(&self, sid: &str) -> Result<(), String> {
-        let mut guard = self.inner.try_lock().map_err(|_| "BUSY")?;
+        // The final EOF cleanup can still own the mutex when Reset arrives.
+        // Wait for bounded positive serialization, not a false transient BUSY.
+        let mut guard = lock_for_reset(&self.inner, Duration::from_secs(2))?;
         if guard
             .as_mut()
             .is_some_and(|r| matches!(r.child.try_wait(), Ok(None)))
@@ -614,6 +629,38 @@ impl MihomoOwner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reset_lock_waits_for_owned_cleanup_but_remains_bounded() {
+        let owner = Mutex::new(());
+        let (tx, rx) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let _guard = owner.lock().unwrap();
+                tx.send(()).unwrap();
+                std::thread::sleep(Duration::from_millis(60));
+            });
+            rx.recv().unwrap();
+            drop(lock_for_reset(&owner, Duration::from_secs(1)).unwrap());
+        });
+        let guard = owner.lock().unwrap();
+        assert_eq!(
+            lock_for_reset(&owner, Duration::from_millis(20)).unwrap_err(),
+            "BUSY"
+        );
+        drop(guard);
+    }
+    #[test]
+    fn reset_lock_never_adopts_a_poisoned_owner() {
+        let owner = Mutex::new(());
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = owner.lock().unwrap();
+            panic!("fixture poison");
+        });
+        assert_eq!(
+            lock_for_reset(&owner, Duration::from_secs(1)).unwrap_err(),
+            "BUSY"
+        );
+    }
     #[test]
     fn missing_lease_does_not_report_retained_protection_as_clean_disconnect() {
         assert!(idle_down_result(false, false).is_ok());

@@ -158,6 +158,8 @@ pub struct Lease {
     stop: Option<tokio::sync::oneshot::Sender<bool>>,
     result: std::sync::mpsc::Receiver<Result<(), String>>,
     running: Arc<AtomicBool>,
+    abandoned: bool,
+    kill_switch: bool,
 }
 impl Lease {
     pub async fn start(
@@ -212,6 +214,8 @@ impl Lease {
                 stop: Some(stop),
                 result,
                 running,
+                abandoned: false,
+                kill_switch,
             },
             ready,
         ))
@@ -221,13 +225,26 @@ impl Lease {
     }
     pub fn abandon(&mut self) {
         // Dropping the sender closes the owning pipe, but never sends Down.
-        drop(self.stop.take());
+        let Some(stop) = self.stop.take() else {
+            return;
+        };
+        self.abandoned = true;
+        drop(stop);
         self.running.store(false, Ordering::SeqCst);
         let _ = self.result.recv_timeout(Duration::from_secs(3));
     }
     pub fn stop(&mut self) -> Result<(), String> {
         let Some(stop) = self.stop.take() else {
-            return Ok(());
+            return if self.abandoned {
+                Err(if self.kill_switch {
+                    "KILL_SWITCH_RESET_REQUIRED"
+                } else {
+                    "CORE_EXITED"
+                }
+                .into())
+            } else {
+                Ok(())
+            };
         };
         let _ = stop.send(true);
         self.result
@@ -269,6 +286,37 @@ mod tests {
         );
     }
     #[test]
+    fn repeated_explicit_disconnect_is_idempotent() {
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        let (result_tx, result) = std::sync::mpsc::channel();
+        result_tx.send(Ok(())).unwrap();
+        let mut lease = Lease {
+            stop: Some(tx),
+            result,
+            running: Arc::new(AtomicBool::new(true)),
+            abandoned: false,
+            kill_switch: true,
+        };
+        lease.stop().unwrap();
+        assert_eq!(rx.try_recv(), Ok(true));
+        lease.stop().unwrap();
+    }
+    #[test]
+    fn abandoned_lease_cannot_later_claim_a_clean_disconnect() {
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let (result_tx, result) = std::sync::mpsc::channel();
+        result_tx.send(Ok(())).unwrap();
+        let mut lease = Lease {
+            stop: Some(tx),
+            result,
+            running: Arc::new(AtomicBool::new(true)),
+            abandoned: false,
+            kill_switch: true,
+        };
+        lease.abandon();
+        assert_eq!(lease.stop().unwrap_err(), "KILL_SWITCH_RESET_REQUIRED");
+    }
+    #[test]
     fn dropping_a_lease_is_not_an_explicit_disconnect() {
         let (tx, mut rx) = tokio::sync::oneshot::channel();
         let (result_tx, result) = std::sync::mpsc::channel();
@@ -277,6 +325,8 @@ mod tests {
             stop: Some(tx),
             result,
             running: Arc::new(AtomicBool::new(true)),
+            abandoned: false,
+            kill_switch: true,
         });
         assert_eq!(
             rx.try_recv(),
