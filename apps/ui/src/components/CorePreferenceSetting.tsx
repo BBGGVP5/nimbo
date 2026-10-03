@@ -13,7 +13,9 @@ export function CorePreferenceSetting() {
   const awg = availability.find(item => item.core === 'awg');
   const awgAvailable = awg?.selector_available === true;
   const xrayAvailable = availability.find(item => item.core === 'xray')?.selector_available === true;
-  const mihomoAvailable = availability.find(item => item.core === 'mihomo')?.system_proxy_available === true;
+  const mihomo=availability.find(item => item.core === 'mihomo');
+  const mihomoAvailable=mihomo?.selector_available===true;
+  const mihomoLabel=mihomo?.tun_available ? 'Mihomo · TUN' : mihomo?.system_proxy_available ? 'Mihomo · System Proxy' : 'Mihomo';
   const label = ru ? 'Ядро' : 'Core';
   return <div className="settings-row settings-row-block core-preference-setting">
     <div className="core-preference-setting__header">
@@ -24,7 +26,7 @@ export function CorePreferenceSetting() {
       <option value="auto">{ru ? 'Авто (по умолчанию)' : 'Auto (default)'}</option>
       <option value="xray" disabled={!xrayAvailable}>{xrayAvailable ? 'Xray' : ru ? 'Xray — недоступно' : 'Xray — unavailable'}</option>
       <option value="awg" disabled={!awgAvailable}>{awgAvailable ? 'AWG' : ru ? 'AWG — недоступно' : 'AWG — unavailable'}</option>
-      <option value="mihomo" disabled={!mihomoAvailable}>{mihomoAvailable ? 'Mihomo · System Proxy' : ru ? 'Mihomo — недоступно' : 'Mihomo — unavailable'}</option>
+      <option value="mihomo" disabled={!mihomoAvailable}>{mihomoAvailable ? mihomoLabel : ru ? 'Mihomo — недоступно' : 'Mihomo — unavailable'}</option>
     </select>
     </div>
     <div className="settings-row-description" id="desktop-core-help">
@@ -33,7 +35,7 @@ export function CorePreferenceSetting() {
         : 'Applies on the next manual connection. Auto uses the profile format; an explicit choice requires a compatible profile. The current connection and its recovery keep the previous choice.'}
     </div>
     <div className="settings-row-description" id="desktop-core-availability">
-      {ru ? 'Mihomo: полные YAML-профили, только System Proxy, без TUN и Kill Switch.' : 'Mihomo: full YAML profiles, System Proxy only, without TUN or Kill Switch.'}{' '}
+      {ru ? 'Mihomo: полные YAML-профили. Linux TUN требует подготовленного помощника; Windows использует System Proxy.' : 'Mihomo: full YAML profiles. Linux TUN requires the prepared helper; Windows uses System Proxy.'}{' '}
       {native && data && (awgAvailable
         ? ru ? 'AWG: доступен проверенный адаптер; подключение также использует Xray.' : 'AWG: verified adapter available; connections also use Xray.'
         : ru ? 'AWG: проверенный адаптер отсутствует или платформа не поддерживается.' : 'AWG: verified adapter missing or platform unsupported.')}

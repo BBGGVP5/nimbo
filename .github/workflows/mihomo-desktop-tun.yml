@@ -8,6 +8,11 @@ on:
       - 'tools/native/mihomo-core/**'
       - 'scripts/ci/build-mihomo-desktop.py'
       - 'scripts/ci/test-mihomo-desktop-netns.py'
+      - 'scripts/ci/test-mihomo-helper-netns.py'
+      - 'scripts/ci/stage-mihomo-desktop.py'
+      - 'apps/service/**'
+      - 'crates/ipc/**'
+      - 'crates/mihomo/**'
       - 'scripts/ci/prepare-mihomo-merged.py'
       - '.github/workflows/mihomo-desktop-tun.yml'
 
@@ -46,6 +51,34 @@ jobs:
       - name: Actual TCP UDP DNS IPv6 selection and cleanup in isolated namespace
         if: runner.os == 'Linux'
         run: sudo env NIMBO_DISPOSABLE_NETNS=1 python3 scripts/ci/test-mihomo-desktop-netns.py --binary 'native-desktop/${{ matrix.artifact }}/nimbo-mihomo'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mihomo-helper-${{ matrix.artifact }}
+      - name: Stage native source and identity for Linux root helper
+        if: runner.os == 'Linux'
+        run: python3 scripts/ci/stage-mihomo-desktop.py --source 'native-desktop/${{ matrix.artifact }}'
+      - name: Verify IPC and service adapter contracts
+        env:
+          CARGO_BUILD_JOBS: 2
+        run: cargo test --locked -p nimbo-ipc -p nimbo-mihomo -p nimbo-svc
+      - name: Build actual Linux broker
+        if: runner.os == 'Linux'
+        run: cargo build --locked -p nimbo-svc
+      - name: Actual authenticated helper and Rust session in isolated namespaces
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          driver=$(find target/debug/deps -maxdepth 1 -type f -executable -name 'helper_tun-*' | head -1)
+          test -n "$driver"
+          sudo env NIMBO_DISPOSABLE_NETNS=1 python3 scripts/ci/test-mihomo-helper-netns.py --binary 'native-desktop/${{ matrix.artifact }}/nimbo-mihomo' --helper target/debug/nimbo-svc --rust-test "$driver"
+      - name: Actual proxy provider refresh and cancelled startup
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          export NIMBO_TEST_MIHOMO_BINARY="$PWD/native-desktop/${{ matrix.artifact }}/nimbo-mihomo"
+          export NIMBO_TEST_MIHOMO_SHA256=$(python3 -c "import json;print(json.load(open('native-desktop/${{ matrix.artifact }}/build-manifest.json'))['sha256'])")
+          cargo test --locked -p nimbo-mihomo --test native_loopback -- --ignored --test-threads=1
       - name: Keep source fingerprints and internal native artifacts (not a public release)
         uses: actions/upload-artifact@v4
         with:

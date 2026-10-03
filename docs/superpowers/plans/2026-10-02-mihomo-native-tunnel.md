@@ -91,3 +91,44 @@ filtering out route differences. Service hard-crash recovery remains explicit wo
 Partial controller-start failure after TUN construction now has an actual namespace
 rollback fixture. It caught asynchronous interface retirement; the owner lock stays
 held until bounded device deletion and cleanup errors propagate to API/CLI failure.
+
+## Authenticated desktop helper integration slice
+
+Files: crates/ipc/src/lib.rs; apps/service/src/mihomo_owner.rs, build.rs and
+platform_linux.rs; crates/mihomo/src/helper.rs, process.rs, wire.rs;
+apps/ui/src-tauri/src/mihomo_runtime.rs, mihomo_build.rs; portable staging and
+release workflow. Windows privileged commands stay denied until SID/pipe and
+protected installation receive their own runtime tests, not an ACL shortcut.
+
+- [x] Test framed source/binary identity commands and owner-specific cleanup;
+  malformed source or wrong binary identity must not replace an active owner.
+  `cargo test -p nimbo-ipc -p nimbo-mihomo -p nimbo-svc` must pass.
+- [x] Native `validate-tun` performs pure preflightDesktopTun, never start.
+  `nimbo-mihomo validate-tun < fixture.yaml` returns the original source SHA.
+- [x] Root helper uses only a build-pinned installed inode and a root-private
+  per-session home. No client executable/data path, inherited proxy/path override
+  or native diagnostic message is trusted. Preflight precedes ownership transfer.
+- [x] GUI retains an authenticated Unix connection as a lease; native stdin stays
+  retained by the service. EOF closes stdin and joins native cleanup before owner
+  release. Other clients and old leases cannot stop a newer owner.
+- [x] Session runtime validates desktop-tun, tunReady, native generation, exact
+  source and loopback controller. Live group/ping APIs use the same controller.
+  Connect chooses TUN or proxy explicitly and keeps proxy recovery journal intact.
+- [x] Stage source-built Linux native/helper and fingerprint resources together;
+  missing/mismatched helper means unavailable, not silent Xray/TCP fallback.
+- [x] Exercise real helper IPC in a disposable network+mount namespace: bad UID,
+  source/hash preflight, ownership, client EOF, stale client and native traffic.
+  No host installation, routes, DNS or GUI elevation. Native SIGKILL journal
+  recovery, Windows adapter/DNS acceptance and external firewall remain gates.
+
+
+### Broker evidence — 3 October
+
+Linux isolated real helper/Rust Session acceptance passed: root UID admission,
+wrong source/binary/client-path rejection before teardown, TCP4/TCP6/UDP/DNS,
+live REJECT/readback, client EOF, old-client/new-owner isolation, service SIGKILL,
+provider-start cancellation and exact route/rule restoration. No host installation.
+GUI/installer Linux check --tests passes; Windows GUI 130 pass/4 opt-in skip,
+portable frontend 85 pass/build. Production package CI remains a separate gate.
+Windows TUN/SID authorization, external KS, native SIGKILL/power-loss journal and
+physical iPhone/device acceptance are deliberately not checked off by this slice.

@@ -154,7 +154,7 @@ test('full-profile page uses native categories and blocks connect for TUN/Both/K
     mode=value;
     html=renderToStaticMarkup(createElement(MihomoProfiles));
     assert.match(html, /<button disabled=""[^>]*>Connect<\/button>/);
-    assert.match(html, /Choose System Proxy only/);
+    assert.match(html, /This Mihomo network mode is unavailable/);
   }
   mode='system_proxy';ks=true;
   html=renderToStaticMarkup(createElement(MihomoProfiles));
@@ -303,4 +303,37 @@ test('a pending live server switch cannot launch a second row action', async () 
   assert.equal(starts,1);
   release(); await first;
   assert.equal(state.switchingServerId,null);
+});
+
+ test('native Linux TUN admission requires verified helper, never proxy fallback',()=>{
+   const cap={core:'mihomo',binary_verified:true,system_proxy_available:false,tun_available:true,selector_available:true};
+   assert.equal(helpers.mihomoBlockReason(cap,'mihomo','tun',false),null);
+   assert.equal(helpers.mihomoBlockReason(cap,'auto','tun',true),'MIHOMO_KILL_SWITCH_UNAVAILABLE');
+   assert.equal(helpers.mihomoBlockReason(cap,'xray','tun',false),'UNSUPPORTED_CORE');
+   assert.equal(helpers.mihomoBlockReason(cap,'mihomo','both',false),'MIHOMO_TUN_UNAVAILABLE');
+   assert.equal(helpers.mihomoBlockReason({...cap,tun_available:false,reason:'MIHOMO_HELPER_REQUIRED'},'mihomo','tun',false),'MIHOMO_HELPER_REQUIRED');
+   assert.equal(helpers.mihomoBlockReason(cap,'mihomo','system_proxy',false),'SYSTEM_PROXY_PLATFORM_UNAVAILABLE');
+ });
+
+
+test('Linux helper setup is explicit and disabled during an active connection', async () => {
+  const state={data:{profiles:[]},availability:[{core:'mihomo',binary_verified:true,tun_available:false,reason:'MIHOMO_HELPER_REQUIRED'}],runtime:{running:false},busy:null,error:null};
+  const {MihomoProfiles}=await moduleWithMocks('../src/pages/MihomoProfiles.tsx',{
+    useEffect,useState,_jsx:jsxRuntime.jsx,_jsxs:jsxRuntime.jsxs,_Fragment:jsxRuntime.Fragment,
+    ...helpers,coreApi:{},api:{},isTauriRuntime:()=>true,
+    useMessages:()=>({common:{locale:'en'}}),useCoreStore:()=>state,
+    useAppStore:selector=>selector({status:{connection_mode:'tun'},preferences:{connection_kill_switch:false}}),
+  });
+  let html=renderToStaticMarkup(createElement(MihomoProfiles));
+  assert.match(html,/<button>Prepare Mihomo TUN<\/button>/);
+  assert.match(html,/System authorization is required/);
+  state.runtime.running=true;
+  html=renderToStaticMarkup(createElement(MihomoProfiles));
+  assert.match(html,/<button disabled="">Prepare Mihomo TUN<\/button>/);
+  state.runtime.running=false;state.busy='prepare-tun';
+  html=renderToStaticMarkup(createElement(MihomoProfiles));
+  assert.match(html,/<button disabled="">Preparing…<\/button>/);
+  state.availability[0].tun_available=true;state.availability[0].reason=null;
+  html=renderToStaticMarkup(createElement(MihomoProfiles));
+  assert.doesNotMatch(html,/Prepare Mihomo TUN/);
 });

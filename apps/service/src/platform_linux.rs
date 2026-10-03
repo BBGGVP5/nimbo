@@ -54,6 +54,10 @@ pub fn run() -> Result<()> {
     match args.get(1).map(String::as_str) {
         Some("--install-service") => install_service(args.get(2).map(String::as_str)),
         Some("--uninstall-service") => uninstall_service(),
+        Some("--install-mihomo") => match args.get(2) {
+            Some(source) => crate::mihomo_owner::install(Path::new(source)).map_err(|e| anyhow!(e)),
+            None => Err(anyhow!("CORE_UNAVAILABLE")),
+        },
         Some("--install-core") => match args.get(2) {
             Some(source) => install_core(Path::new(source)),
             None => Err(anyhow!("не указан путь к ядру")),
@@ -279,11 +283,11 @@ fn serve() -> Result<()> {
     let tunnel = Arc::new(Tunnel::default());
     let shutdown = Arc::new(AtomicBool::new(false));
 
-    for stream in listener.incoming() {
-        if shutdown.load(Ordering::SeqCst) {
-            break;
-        }
-        match stream {
+    listener
+        .set_nonblocking(true)
+        .context("helper accept mode")?;
+    while !shutdown.load(Ordering::SeqCst) {
+        match listener.accept().map(|(stream, _)| stream) {
             Ok(stream) => {
                 let tunnel = Arc::clone(&tunnel);
                 let shutdown = Arc::clone(&shutdown);
@@ -292,6 +296,9 @@ fn serve() -> Result<()> {
                         warn!(%error, "client session failed");
                     }
                 });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(25));
             }
             Err(error) => warn!(%error, "accept failed"),
         }
@@ -332,6 +339,7 @@ struct ClientLease<'a> {
 impl Drop for ClientLease<'_> {
     fn drop(&mut self) {
         self.tunnel.down_for_client(self.id);
+        let _ = self.tunnel.mihomo.down(self.id);
     }
 }
 
@@ -353,10 +361,12 @@ fn handle_authorized_client(
         };
 
         let response = match decode_command(&frame) {
-            Ok(command) => dispatch(command, tunnel, shutdown, client),
-            Err(error) => Response::Error {
+            Ok(command) => dispatch(command, tunnel, shutdown, client, &|| {
+                client_alive(reader.get_ref())
+            }),
+            Err(_) => Response::Error {
                 code: ErrorCode::InvalidPayload,
-                message: error.to_string(),
+                message: "INVALID_PAYLOAD".into(),
             },
         };
 
@@ -365,7 +375,13 @@ fn handle_authorized_client(
     }
 }
 
-fn dispatch(command: IpcCommand, tunnel: &Tunnel, shutdown: &AtomicBool, client: u64) -> Response {
+fn dispatch(
+    command: IpcCommand,
+    tunnel: &Tunnel,
+    shutdown: &AtomicBool,
+    client: u64,
+    alive: &dyn Fn() -> bool,
+) -> Response {
     match command {
         IpcCommand::Ping => Response::Pong {
             service_version: VERSION.to_string(),
@@ -378,6 +394,32 @@ fn dispatch(command: IpcCommand, tunnel: &Tunnel, shutdown: &AtomicBool, client:
                 message: error.to_string(),
             },
         },
+        IpcCommand::MihomoStatus => Response::MihomoAvailability {
+            binary_sha256: crate::mihomo_owner::expected_hash().to_owned(),
+            available: tunnel.mihomo.available(),
+            running: tunnel.mihomo.running(),
+        },
+        IpcCommand::MihomoPreflight(request) => broker_result(
+            tunnel
+                .mihomo
+                .preflight(&request, alive)
+                .map(|_| Response::Ok),
+        ),
+        IpcCommand::MihomoUp(request) => {
+            let Ok(_network) = tunnel.network.lock() else {
+                return broker_result(Err("BUSY".into()));
+            };
+            if tunnel.state().up {
+                return broker_result(Err("TUN_IN_USE".into()));
+            }
+            broker_result(
+                tunnel
+                    .mihomo
+                    .up(client, &request, alive)
+                    .map(Response::MihomoReady),
+            )
+        }
+        IpcCommand::MihomoDown => broker_result(tunnel.mihomo.down(client).map(|_| Response::Ok)),
         IpcCommand::TunDown => {
             tunnel.down_for_client(client);
             Response::TunState(tunnel.state())
@@ -397,6 +439,26 @@ fn dispatch(command: IpcCommand, tunnel: &Tunnel, shutdown: &AtomicBool, client:
             message: "Команда не поддерживается linux-хелпером.".into(),
         },
     }
+}
+
+fn broker_result(result: Result<Response, String>) -> Response {
+    result.unwrap_or_else(|code| Response::Error {
+        code: ErrorCode::CoreFailed,
+        message: code,
+    })
+}
+fn client_alive(stream: &UnixStream) -> bool {
+    use std::os::fd::AsRawFd;
+    let mut byte = 0u8;
+    let n = unsafe {
+        libc::recv(
+            stream.as_raw_fd(),
+            (&mut byte as *mut u8).cast(),
+            1,
+            libc::MSG_PEEK | libc::MSG_DONTWAIT,
+        )
+    };
+    n > 0 || (n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock)
 }
 
 /// uid клиента через SO_PEERCRED. Стандартный `peer_cred` пока nightly,
@@ -434,6 +496,8 @@ fn peer_uid(stream: &UnixStream) -> Result<u32> {
 
 #[derive(Default)]
 struct Tunnel {
+    mihomo: crate::mihomo_owner::MihomoOwner,
+    network: Mutex<()>,
     inner: Mutex<Option<Running>>,
     owner: Mutex<Option<u64>>,
 }
@@ -465,6 +529,10 @@ impl Running {
 
 impl Tunnel {
     fn up_for_client(&self, client: u64, request: TunRequest) -> Result<TunState> {
+        let _network = self.network.lock().map_err(|_| anyhow!("BUSY"))?;
+        if self.mihomo.has_lease() {
+            return Err(anyhow!("TUN_IN_USE"));
+        }
         // Serialize ownership transfer with disconnect/explicit stop, including
         // startup. An old lease cannot stop a newer session after replacement.
         let mut owner = self
@@ -488,6 +556,10 @@ impl Tunnel {
     }
 
     fn down_all(&self) {
+        let Ok(_network) = self.network.lock() else {
+            return;
+        };
+        self.mihomo.down_all();
         let Ok(mut owner) = self.owner.lock() else {
             return;
         };

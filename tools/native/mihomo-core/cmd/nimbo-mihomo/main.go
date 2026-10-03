@@ -23,8 +23,8 @@ func run() int {
 		defer signal.Stop(signals)
 		return runTun(os.Stdin, os.Stdout, signals, core.StartDesktopTun, core.Invoke)
 	}
-	if len(os.Args) != 2 || (os.Args[1] != "inspect" && os.Args[1] != "serve") {
-		fmt.Fprintln(os.Stderr, "usage: nimbo-mihomo inspect|serve (stdin to EOF) | serve-tun (framed privileged startup + stdin lease)")
+	if len(os.Args) != 2 || (os.Args[1] != "inspect" && os.Args[1] != "validate-tun" && os.Args[1] != "serve") {
+		fmt.Fprintln(os.Stderr, "usage: nimbo-mihomo inspect|validate-tun|serve (stdin to EOF) | serve-tun (framed privileged startup + stdin lease)")
 		return 2
 	}
 	b, err := io.ReadAll(io.LimitReader(os.Stdin, (8<<20)+1))
@@ -33,12 +33,16 @@ func run() int {
 		return 1
 	}
 	var request string
-	if os.Args[1] == "inspect" {
+	if os.Args[1] == "inspect" || os.Args[1] == "validate-tun" {
 		if !utf8.Valid(b) {
 			fmt.Fprintln(os.Stderr, "invalid UTF-8 YAML")
 			return 1
 		}
-		msg, _ := json.Marshal(map[string]any{"apiVersion": 1, "requestId": "cli-inspect", "operation": "inspect", "yaml": string(b)})
+		operation := "inspect"
+		if os.Args[1] == "validate-tun" {
+			operation = "preflightDesktopTun"
+		}
+		msg, _ := json.Marshal(map[string]any{"apiVersion": 1, "requestId": "cli-inspect", "operation": operation, "yaml": string(b)})
 		request = string(msg)
 	} else {
 		var header struct {
@@ -59,7 +63,7 @@ func run() int {
 	if !reply.Success {
 		return 1
 	}
-	if os.Args[1] == "inspect" {
+	if os.Args[1] == "inspect" || os.Args[1] == "validate-tun" {
 		return 0
 	}
 	signals := make(chan os.Signal, 1)

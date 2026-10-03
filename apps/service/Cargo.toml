@@ -19,6 +19,12 @@ anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 dirs.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+
+[build-dependencies]
+sha2.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # geteuid для проверки root; всё остальное делается через ip/systemctl.

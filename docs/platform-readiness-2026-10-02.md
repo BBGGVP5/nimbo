@@ -1,6 +1,21 @@
-# Состояние платформ Nimbo — 2 октября 2026
+# Состояние платформ Nimbo — 3 октября 2026
 
 Это инвентаризация подтверждённых возможностей, а не заявление «все протоколы работают везде».
+
+## Текущий checkpoint: GUI → Linux broker → настоящий Mihomo TUN
+
+- Linux x64/ARM64: приложение выбирает native TUN явно, помощник принимает исходный YAML и его SHA256 по авторизованному Unix-соединению. Команды не принимают путь к исполняемому файлу или домашнему каталогу. Ядро устанавливается отдельно, только после системного подтверждения; SHA ядра и полные source/notices закреплены при сборке помощника и GUI.
+- Перед остановкой рабочего соединения выполняется чистый native preflight. Готовность подтверждается настоящим интерфейсом, native generation, хешем исходника и защищённым loopback-контроллером; не подменяется флагом или TCP-проверкой. Выбор группы/пинг используют тот же контроллер.
+- Потеря GUI-соединения и падение **помощника** закрывают stdin native-процесса и снимают его TUN. Отказ очистки возвращается ошибкой и не разрешает запуск замены. Завершившийся или чужой lease не может погасить новый сеанс. Исправлен зависавший Shutdown, который ранее ждал следующего accept.
+- Локально в свежих network+mount namespaces прошли реальные TCP4/TCP6/UDP/DNS, select → REJECT без DIRECT fallback → возврат, ручная остановка, GUI EOF, SIGKILL помощника, отмена во время реальной загрузки provider, отказ неправильному UID/исходнику/ядру/пути и защита нового владельца от старого клиента. Отдельно прошёл настоящий Rust Session::start_tun → трафик → stop. `/run` и `/usr/local/lib` заменены private tmpfs только внутри теста; установка и сеть основного компьютера не менялись.
+- Статус помощника не перечитывает всё ядро на каждом polling: кэш разрешён только для root-защищённого inode с неизменными размером/mtime/ctime. Запуск повторно хеширует файл. Синтетическая подмена установленного ядра в private namespace проверяет отказ и инвалидирование кэша.
+- Linux ELF передаётся в stored ZIP, чтобы linuxdeploy не переписал закреплённые байты. Provenance находится в отдельном каталоге архитектуры и не перезаписывает Windows manifests. Custom installer и его проверка включают Linux core/archive, frozen source и все notices.
+- **Ещё не полный desktop:** Windows Mihomo остаётся System Proxy. Windows TUN/DNS/SID-авторизация помощника, Linux System Proxy, Both, внешний Kill Switch и восстановление после SIGKILL **самого native-ядра**/сбоя питания остаются открытыми. Не путать падение помощника (проверено: native получает EOF) с native SIGKILL (журнал ещё необходим).
+- Последний подтверждённый полный iOS IPA: [37036642211](https://github.com/BBGGVP5/nimbo/actions/runs/37036642211), `4bdec2d`, SUCCESS. Подтверждённые desktop packages: [37036636821](https://github.com/BBGGVP5/nimbo/actions/runs/37036636821), тот же коммит, SUCCESS для пяти целей. Native Go CI: [37036616000](https://github.com/BBGGVP5/nimbo/actions/runs/37036616000), SUCCESS для Linux x64/ARM64 и Windows x64. Это предыдущие артефакты, без нового broker-пути.
+- **iOS не объявлен полностью проверенным:** merged core/SwiftUI/NetworkExtension успешно собраны, но остаются подписанный туннель на iPhone, фон/смена сети/сон, DNS/IPv6/UDP, memory pressure и provider/transport matrix. Новые сборки запускаются отдельно от публикации; main не слит, PR78 draft.
+- Этот slice: 85 frontend теста, TypeScript/Vite, 34 Linux Mihomo +7 IPC +9 helper unit cases, четыре настоящие native proxy/provider/cancel fixtures и isolated Rust TUN fixture. Windows GUI: 130 passed, 4 opt-in tests skipped; IPC/Mihomo: 7+32 passed. Linux GUI/installer cargo check --tests и scoped Clippy -D warnings проходят; они не подменяют проверку пакетов или устройства.
+
+Ниже — исторические checkpoints. Старые строки «не реализовано», «строится» и числа тестов относятся к соответствующему коммиту, не к текущему состоянию.
 
 ## Последний checkpoint: настоящее native TUN на desktop
 

@@ -120,7 +120,7 @@ def verify_restored(before):
     assert after == before, 'namespace routes/rules were not restored exactly: '+json.dumps({'before':before,'after':after},sort_keys=True)
 
 
-def inside(binary, parent):
+def inside(binary, parent, extra=None):
     assert os.geteuid() == 0
     assert os.readlink('/proc/self/ns/net') != parent, 'refuse host network namespace'
     assert [row['ifname'] for row in json.loads(ip('-j', 'link', 'show', capture=True))] == ['lo'], 'namespace must be fresh'
@@ -253,6 +253,8 @@ tun: {{enable: true, stack: system, auto-route: true, auto-detect-interface: tru
                         process.stdin.close()
                         try: process.wait(timeout=10)
                         except subprocess.TimeoutExpired: process.kill();process.wait()
+            if extra is not None:
+                extra(source, before)
         finally:
             if fixture is not None:
                 fixture.terminate(); fixture.wait(timeout=5)

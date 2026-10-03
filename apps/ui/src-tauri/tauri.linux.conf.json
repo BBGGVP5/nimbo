@@ -9,7 +9,11 @@
       "resources/naive/**/*",
       "resources/awg/**/*",
       "resources/helper/linux/nimbo-svc.manifest.json",
-      "resources/helper/linux/nimbo-svc.zip"
+      "resources/helper/linux/nimbo-svc.zip",
+      "resources/mihomo/linux-*/nimbo-mihomo.zip",
+      "resources/mihomo/linux-*/build-manifest.json",
+      "resources/mihomo/linux-*/adapter-source/**/*",
+      "resources/mihomo/linux-*/notices/**/*"
     ],
     "linux": {
       "deb": {

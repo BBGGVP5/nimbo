@@ -414,6 +414,7 @@ pub fn run() {
             on_demand::set_on_demand,
             commands::resume_saved_connection,
             mihomo_runtime::get_core_availability,
+            mihomo_runtime::prepare_mihomo_tun,
             mihomo_runtime::get_core_profiles,
             mihomo_runtime::import_mihomo_profile,
             mihomo_runtime::import_mihomo_profile_url,

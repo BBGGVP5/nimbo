@@ -8353,10 +8353,12 @@ fn recent_xray_log_suffix() -> String {
 
 pub(crate) fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
     let pending = state.snapshot();
-    let (tun_snapshot, proxy_snapshot) = state.runtime(|runtime| {
-        if let Some(mut session) = runtime.mihomo.take() {
-            session.stop_now();
-        }
+    let (tun_snapshot, proxy_snapshot, mihomo_result) = state.runtime(|runtime| {
+        let mihomo_result = if let Some(mut session) = runtime.mihomo.take() {
+            session.stop_now()
+        } else {
+            Ok(())
+        };
         runtime.ping_route = None;
         runtime.traffic_samples.clear();
         // Сессия хелпера закрывается первой: он сам погасит ядро и вернёт
@@ -8382,6 +8384,7 @@ pub(crate) fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
         (
             runtime.tun_snapshot.take(),
             runtime.system_proxy_snapshot.take(),
+            mihomo_result,
         )
     });
     let proxy_owned = pending
@@ -8409,6 +8412,17 @@ pub(crate) fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
     };
     tun_result?;
     proxy_result?;
+    if let Err(error) = mihomo_result {
+        // A removed/dead owner is not a protected VPN. Do not leave the UI
+        // connected and do not admit a replacement after failed cleanup.
+        state
+            .mutate(|s| {
+                s.connected = false;
+                s.connected_at = None;
+            })
+            .map_err(|_| "STATE_WRITE_FAILED")?;
+        return Err(error);
+    }
     state
         .mutate(|s| {
             s.pending_tun_snapshot = None;

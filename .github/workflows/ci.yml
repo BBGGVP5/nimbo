@@ -65,6 +65,13 @@ jobs:
           npm ci
           npm run build
 
+      - name: Set up pinned Go for Linux Mihomo/helper source build
+        if: runner.os == 'Linux'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: tools/native/mihomo-core/go.sum
+
       - name: Подготовить проверенный Linux helper
         if: runner.os == 'Linux'
         run: node apps/ui/scripts/build-linux.mjs --prepare-only

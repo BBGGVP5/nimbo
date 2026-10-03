@@ -36,27 +36,56 @@ fn json(root: &Path, relative: &str) -> Value {
 pub fn prepare(target: &str) {
     println!("cargo:rerun-if-changed=mihomo_bundle.rs");
     let mut generated = String::from("const MIHOMO_FILES: &[(&str, &[u8], &str)] = &[\n");
-    if target == "x86_64-pc-windows-msvc" {
+    let platform = match target {
+        "x86_64-pc-windows-msvc" => Some("windows-x64"),
+        "x86_64-unknown-linux-gnu" => Some("linux-x64"),
+        "aarch64-unknown-linux-gnu" => Some("linux-arm64"),
+        _ => None,
+    };
+    if let Some(platform) = platform {
         let root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/src-tauri/resources/mihomo");
-        let manifest = json(&root, "windows-x64/build-manifest.json");
+        let manifest = json(&root, &format!("{platform}/build-manifest.json"));
         assert_eq!(manifest["apiVersion"], 1);
         assert_eq!(manifest["coreVersion"], "v1.19.31");
         assert_eq!(
             manifest["coreCommit"],
             "ab405bad5beeeac8b003bb01f60f134f6df54471"
         );
-        assert_eq!(manifest["target"], "windows/amd64");
+        assert_eq!(
+            manifest["target"],
+            match platform {
+                "linux-x64" => "linux/amd64",
+                "linux-arm64" => "linux/arm64",
+                _ => "windows/amd64",
+            }
+        );
+        let prefix = if platform == "windows-x64" {
+            String::new()
+        } else {
+            format!("{platform}/")
+        };
         let mut files = BTreeMap::<String, Option<String>>::new();
-        files.insert("windows-x64/build-manifest.json".into(), None);
+        files.insert(format!("{platform}/build-manifest.json"), None);
         for (name, field) in [
-            ("nimbo-mihomo.exe", "sha256"),
+            (
+                if platform == "windows-x64" {
+                    "nimbo-mihomo.exe"
+                } else {
+                    "nimbo-mihomo.zip"
+                },
+                if platform == "windows-x64" {
+                    "sha256"
+                } else {
+                    "archiveSHA256"
+                },
+            ),
             ("go.mod", "goModSHA256"),
             ("go.sum", "goSumSHA256"),
             ("pins.json", "pinsSHA256"),
         ] {
             files.insert(
-                format!("windows-x64/{name}"),
+                format!("{platform}/{name}"),
                 Some(manifest[field].as_str().unwrap().into()),
             );
         }
@@ -66,12 +95,15 @@ pub fn prepare(target: &str) {
         assert!(!sources.is_empty());
         for source in sources {
             files.insert(
-                format!("adapter-source/{}", source["path"].as_str().unwrap()),
+                format!(
+                    "{prefix}adapter-source/{}",
+                    source["path"].as_str().unwrap()
+                ),
                 Some(source["sha256"].as_str().unwrap().into()),
             );
         }
         files.insert(
-            "notices/source-license-manifest.json".into(),
+            format!("{prefix}notices/source-license-manifest.json"),
             Some(
                 manifest["sourceLicenseManifestSHA256"]
                     .as_str()
@@ -79,7 +111,10 @@ pub fn prepare(target: &str) {
                     .into(),
             ),
         );
-        let inventory = json(&root, "notices/source-license-manifest.json");
+        let inventory = json(
+            &root,
+            &format!("{prefix}notices/source-license-manifest.json"),
+        );
         for field in ["goModSHA256", "goSumSHA256", "pinsSHA256"] {
             assert_eq!(
                 inventory[field], manifest[field],
@@ -92,21 +127,24 @@ pub fn prepare(target: &str) {
                     .as_str()
                     .unwrap()
                     .strip_prefix("licenses/")
+                    .or_else(|| notice["path"].as_str().unwrap().strip_prefix("notices/"))
                     .expect("unexpected notice root");
                 files.insert(
-                    format!("notices/{path}"),
+                    format!("{prefix}notices/{path}"),
                     Some(notice["sha256"].as_str().unwrap().into()),
                 );
             }
         }
-        for name in [
-            "Mihomo-LICENSE",
-            "Mihomo-README.md",
-            "Protobuf-LICENSE",
-            "Protobuf-PATENTS",
-            "protobuf-directive.patch",
-        ] {
-            files.insert(format!("notices/{name}"), None);
+        if platform == "windows-x64" {
+            for name in [
+                "Mihomo-LICENSE",
+                "Mihomo-README.md",
+                "Protobuf-LICENSE",
+                "Protobuf-PATENTS",
+                "protobuf-directive.patch",
+            ] {
+                files.insert(format!("notices/{name}"), None);
+            }
         }
         for (relative, expected) in files {
             let path = checked_path(&root, &relative);

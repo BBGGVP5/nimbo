@@ -96,8 +96,33 @@ pub struct RuntimeInfo {
     pub core_version: String,
     pub core_commit: String,
     pub api_version: u32,
+    #[serde(default)]
+    pub tun_ready: bool,
 }
 impl RuntimeInfo {
+    pub fn validate_tun(&self, digest: &str, mixed: bool) -> Result<(), String> {
+        if self.state != "running"
+            || self.network_owner != "desktop-tun"
+            || !self.tun_ready
+            || self.source_sha256 != digest
+            || self.core_version != CORE_VERSION
+            || self.core_commit != CORE_COMMIT
+            || self.api_version != 1
+        {
+            return Err("INVALID_NATIVE_READINESS".into());
+        }
+        loopback_address(&self.controller_address)?;
+        if mixed {
+            loopback_address(&self.mixed_address)?;
+        } else if !self.mixed_address.is_empty() {
+            return Err("INVALID_NATIVE_READINESS".into());
+        }
+        if self.controller_address == self.mixed_address {
+            return Err("INVALID_NATIVE_READINESS".into());
+        }
+        Ok(())
+    }
+
     pub fn validate(&self, digest: &str) -> Result<(), String> {
         if self.state != "running"
             || self.network_owner != "desktop-proxy"
@@ -233,6 +258,20 @@ pub fn fresh_secret() -> String {
 mod tests {
     use super::*;
     use crate::source_digest;
+    #[test]
+    fn tun_readiness_is_an_explicit_owner_with_native_device_not_a_proxy_flag() {
+        let mut value = json!({"state":"running","networkOwner":"desktop-tun","tunReady":true,"sourceSHA256":"source","coreVersion":CORE_VERSION,"coreCommit":CORE_COMMIT,"apiVersion":1,"controllerAddress":"127.0.0.1:9999","mixedAddress":""});
+        let info: RuntimeInfo = serde_json::from_value(value.clone()).unwrap();
+        assert!(info.validate_tun("source", false).is_ok());
+        assert!(info.validate("source").is_err());
+        assert!(info.validate_tun("different", false).is_err());
+        assert!(info.validate_tun("source", true).is_err());
+        value["tunReady"] = json!(false);
+        assert!(serde_json::from_value::<RuntimeInfo>(value)
+            .unwrap()
+            .validate_tun("source", false)
+            .is_err());
+    }
     #[test]
     fn readiness_refuses_lan_ipv6_zero_port_and_digest_substitution() {
         for bad in [

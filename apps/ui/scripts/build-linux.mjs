@@ -75,6 +75,10 @@ export function buildLinux(args) {
     target = /^host: (.+)$/m.exec(host.stdout)?.[1];
   }
   if (!machines[target]) throw new Error('Choose a supported x64 or ARM64 Linux target');
+  const nativeTarget = target === 'x86_64-unknown-linux-gnu' ? 'linux/amd64' : 'linux/arm64';
+  const nativeDir = resolve(root, 'target/native-mihomo', target);
+  run('python3', ['scripts/ci/build-mihomo-desktop.py', '--target', nativeTarget, '--output', nativeDir], root);
+  run('python3', ['scripts/ci/stage-mihomo-desktop.py', '--source', nativeDir], root);
   run('cargo', ['build', '--locked', '-p', 'nimbo-svc', '--release', '--target', target], root);
   const targetDir = resolve(root, process.env.CARGO_TARGET_DIR || 'target');
   const source = resolve(targetDir, target, 'release/nimbo-svc');

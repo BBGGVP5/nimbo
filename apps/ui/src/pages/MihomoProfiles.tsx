@@ -102,15 +102,21 @@ export function MihomoProfiles() {
     <header className="mihomo-page__header">
       <a className="settings-action" href="#/settings?section=connection">← {text('Настройки подключения', 'Connection settings')}</a>
       <h1>Mihomo</h1>
-      <p>{text('Полные профили · System Proxy', 'Full profiles · System Proxy')}</p>
+      <p>{text('Полные профили · группы и правила', 'Full profiles · groups and rules')}</p>
     </header>
     <div className="mihomo-notice">
-      {text('Только System Proxy на Windows. TUN, Both и Kill Switch пока не поддерживаются. Настройки подключения не меняются автоматически.', 'Windows System Proxy only. TUN, Both and Kill Switch are not supported yet. Connection settings are never changed automatically.')}
+      {text('Linux: TUN через проверенный системный помощник. Windows: System Proxy. Both и Kill Switch пока недоступны. Настройки подключения не меняются автоматически.', 'Linux: TUN through the verified system helper. Windows: System Proxy. Both and Kill Switch are unavailable. Connection settings are never changed automatically.')}
       {!native && <p>{text('Для импорта и подключения откройте desktop-приложение.', 'Open the desktop app to import and connect.')}</p>}
       {native && blocked && <p role="status">{mihomoErrorMessage(blocked, ru)}</p>}
     </div>
     {(localError || core.error) && <p className="mihomo-error" role="alert">{mihomoErrorMessage(localError || core.error, ru)}</p>}
     {message && <p role="status">{message}</p>}
+    {native && capability?.binary_verified && capability.reason === 'MIHOMO_HELPER_REQUIRED' && <div className="mihomo-actions">
+      <button disabled={busy || running} onClick={() => void core.mutate('prepare-tun', () => coreApi.prepareTun())}>
+        {core.busy === 'prepare-tun' ? text('Подготовка…', 'Preparing…') : text('Подготовить Mihomo TUN', 'Prepare Mihomo TUN')}
+      </button>
+      <small>{text('Потребуется системное подтверждение', 'System authorization is required')}</small>
+    </div>}
 
     <section className="mihomo-panel" aria-labelledby="mihomo-import-heading" aria-busy={busy}>
       <h2 id="mihomo-import-heading">{text('Импорт полного YAML', 'Import complete YAML')}</h2>

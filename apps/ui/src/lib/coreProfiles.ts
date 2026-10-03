@@ -27,8 +27,9 @@ export function coreSession(runtime:CoreRuntime|null):CoreSession|null {
 export function sameCoreSession(a:CoreSession|null,b:CoreSession|null){return !!a&&!!b&&a.profileId===b.profileId&&a.sessionId===b.sessionId;}
 export function mihomoBlockReason(availability:CoreAvailability|undefined,preference:CorePreference|null|undefined,mode:string,killSwitch:boolean) {
  if(!availability?.binary_verified)return availability?.reason||'CORE_UNAVAILABLE';
- if(!availability.system_proxy_available)return availability.reason||'SYSTEM_PROXY_PLATFORM_UNAVAILABLE';
- if(mode!=='system_proxy')return 'MIHOMO_TUN_UNAVAILABLE';
+ if(mode==='tun'){if(!availability.tun_available)return availability.reason||'MIHOMO_TUN_UNAVAILABLE';}
+ else if(mode==='system_proxy'){if(!availability.system_proxy_available)return availability.reason||'SYSTEM_PROXY_PLATFORM_UNAVAILABLE';}
+ else return 'MIHOMO_TUN_UNAVAILABLE';
  if(killSwitch)return 'MIHOMO_KILL_SWITCH_UNAVAILABLE';
  if(preference&&preference!=='auto'&&preference!=='mihomo')return 'UNSUPPORTED_CORE';
  return null;
@@ -36,12 +37,17 @@ export function mihomoBlockReason(availability:CoreAvailability|undefined,prefer
 export function groupCanSelect(group:CoreGroup){return group.type?.toLowerCase()==='selector';}
 export function validDelayUrl(value:string){try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)&&!u.username&&!u.password;}catch{return false;}}
 /** Backend/source errors can contain secrets. Render only known codes, never raw source or native exception text. */
-export function coreErrorCode(error:unknown){const match=String(error).match(/\b(NATIVE_CORE_API_UNAVAILABLE|CORE_UNAVAILABLE|CORE_HASH_MISMATCH|CORE_MISMATCH|UNSUPPORTED_CORE|DISCONNECT_BEFORE_CORE_CHANGE|MIHOMO_TUN_UNAVAILABLE|MIHOMO_KILL_SWITCH_UNAVAILABLE|STALE_REVISION|STALE_GENERATION|CONNECTION_CANCELLED|UNSUPPORTED_FIELD|PROFILE_ACTIVE|PROFILE_NOT_FOUND|EMPTY_SOURCE|SOURCE_TOO_LARGE|FULL_PROFILE_URL_USE_FIELD|INVALID_SOURCE_URL|SOURCE_FETCH_FAILED|SOURCE_FETCH_TIMEOUT|SOURCE_HTTP_ERROR|SOURCE_REDIRECT_BLOCKED|SOURCE_INVALID_UTF8|SOURCE_NOT_PROFILE|SYSTEM_PROXY_PLATFORM_UNAVAILABLE|INVALID_YAML|INVALID_CONFIG|INVALID_GRAPH|INVALID_SELECTION|NOT_SELECTABLE|NOT_REFRESHABLE|PROVIDER_REFRESH|DELAY_FAILED|CORE_EXITED|NOT_RUNNING|BUSY|RUNTIME_NOT_RUNNING|READBACK_MISMATCH)\b/);return match?.[0]||'CORE_OPERATION_FAILED';}
+export function coreErrorCode(error:unknown){const match=String(error).match(/\b(UNSUPPORTED_DESKTOP_CONFIG|MIHOMO_HELPER_REQUIRED|HELPER_INSTALL_FAILED|TUN_IN_USE|SOURCE_DIGEST_MISMATCH|TUN_CLEANUP_FAILED|NATIVE_CORE_API_UNAVAILABLE|CORE_UNAVAILABLE|CORE_HASH_MISMATCH|CORE_MISMATCH|UNSUPPORTED_CORE|DISCONNECT_BEFORE_CORE_CHANGE|MIHOMO_TUN_UNAVAILABLE|MIHOMO_KILL_SWITCH_UNAVAILABLE|STALE_REVISION|STALE_GENERATION|CONNECTION_CANCELLED|UNSUPPORTED_FIELD|PROFILE_ACTIVE|PROFILE_NOT_FOUND|EMPTY_SOURCE|SOURCE_TOO_LARGE|FULL_PROFILE_URL_USE_FIELD|INVALID_SOURCE_URL|SOURCE_FETCH_FAILED|SOURCE_FETCH_TIMEOUT|SOURCE_HTTP_ERROR|SOURCE_REDIRECT_BLOCKED|SOURCE_INVALID_UTF8|SOURCE_NOT_PROFILE|SYSTEM_PROXY_PLATFORM_UNAVAILABLE|INVALID_YAML|INVALID_CONFIG|INVALID_GRAPH|INVALID_SELECTION|NOT_SELECTABLE|NOT_REFRESHABLE|PROVIDER_REFRESH|DELAY_FAILED|CORE_EXITED|NOT_RUNNING|BUSY|RUNTIME_NOT_RUNNING|READBACK_MISMATCH)\b/);return match?.[0]||'CORE_OPERATION_FAILED';}
 
 export function mihomoErrorMessage(error: unknown, ru: boolean): string {
  const code = coreErrorCode(error);
  const messages: Record<string, [string, string]> = {
-  MIHOMO_TUN_UNAVAILABLE: ['Выберите только System Proxy в настройках подключения. Mihomo TUN и Both пока недоступны.', 'Choose System Proxy only in Connection settings. Mihomo TUN and Both are not available.'],
+  UNSUPPORTED_DESKTOP_CONFIG: ['Настройки профиля конфликтуют с управляемыми интерфейсом, маршрутами или DNS. Профиль не изменён.', 'Profile settings conflict with the managed interface, routes or DNS. The profile was not changed.'],
+  MIHOMO_TUN_UNAVAILABLE: ['Этот сетевой режим Mihomo недоступен в текущей сборке. На Linux нужен подготовленный TUN-помощник; на Windows доступен System Proxy.', 'This Mihomo network mode is unavailable. Linux requires the prepared TUN helper; Windows supports System Proxy.'],
+  MIHOMO_HELPER_REQUIRED: ['Подготовьте системный помощник Mihomo TUN. Повышаются права только установки, не всего приложения.', 'Prepare the Mihomo TUN system helper. Only installation is elevated, never the GUI.'],
+  HELPER_INSTALL_FAILED: ['Установка помощника отменена или не завершена.', 'Helper installation was cancelled or failed.'],
+  TUN_IN_USE: ['Туннель уже занят другим сеансом. Сначала отключите его.', 'Another session owns the tunnel. Disconnect it first.'],
+  TUN_CLEANUP_FAILED: ['Не удалось подтвердить очистку туннеля. Новый сеанс не запущен.', 'Tunnel cleanup was not confirmed. A new session was not started.'],
   MIHOMO_KILL_SWITCH_UNAVAILABLE: ['Mihomo пока не поддерживает Kill Switch. Отключите его самостоятельно в настройках, если хотите продолжить.', 'Mihomo does not support Kill Switch yet. Turn it off yourself in Connection settings if you want to continue.'],
   CORE_UNAVAILABLE: ['Проверенный Mihomo runtime отсутствует в этой сборке.', 'This build does not contain an available verified Mihomo runtime.'],
   NATIVE_CORE_API_UNAVAILABLE: ['Управление ядром доступно только в desktop-приложении.', 'Core management is available only in the desktop app.'],

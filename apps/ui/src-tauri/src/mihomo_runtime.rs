@@ -1,5 +1,5 @@
 //! Desktop ownership adapter for the shared native wire API.
-//! TUN/Both/KS are rejected here, not translated to an Xray pretend-Mihomo path.
+//! Linux TUN is delegated to a pinned root broker; no GUI elevation or Xray conversion.
 use crate::commands::{CONNECTION_INTENT, CONNECTION_OPERATION};
 use crate::state::{AppState, ConnectionMode, PersistedState};
 use nimbo_mihomo::{
@@ -40,10 +40,31 @@ fn binary(app: &AppHandle) -> Result<VerifiedBinary, String> {
             .join("resources")
             .join(relative),
     );
-    paths
+    if let Some(binary) = paths
         .into_iter()
         .find_map(|p| VerifiedBinary::verify(&p, expected).ok())
-        .ok_or("CORE_UNAVAILABLE".into())
+    {
+        return Ok(binary);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let resource = app.path().resource_dir().map_err(|_| "CORE_UNAVAILABLE")?;
+        let cache = app
+            .path()
+            .app_cache_dir()
+            .map_err(|_| "CORE_UNAVAILABLE")?
+            .join("verified-mihomo")
+            .join(expected);
+        for root in [resource.join("resources/mihomo"), resource.join("mihomo")] {
+            let archive = root.join(platform).join("nimbo-mihomo.zip");
+            if let Ok(path) = crate::helper_linux::materialize_mihomo(&archive, &cache, expected) {
+                if let Ok(binary) = VerifiedBinary::verify(&path, expected) {
+                    return Ok(binary);
+                }
+            }
+        }
+    }
+    Err("CORE_UNAVAILABLE".into())
 }
 #[derive(Serialize)]
 pub struct CoreAvailability {
@@ -76,6 +97,11 @@ pub fn get_core_availability(app: AppHandle) -> Vec<CoreAvailability> {
     let tun = crate::commands::get_tun_status(app.clone())
         .is_ok_and(|status| status.installed && !status.needs_admin_restart);
     let mihomo = binary(&app).is_ok();
+    #[cfg(target_os = "linux")]
+    let mihomo_tun =
+        nimbo_mihomo::helper::available(option_env!("NIMBO_MIHOMO_SHA256").unwrap_or(""));
+    #[cfg(not(target_os = "linux"))]
+    let mihomo_tun = false;
     vec![
         CoreAvailability {
             core: CoreKind::Xray,
@@ -98,21 +124,18 @@ pub fn get_core_availability(app: AppHandle) -> Vec<CoreAvailability> {
         },
         CoreAvailability {
             core: CoreKind::Mihomo,
-            selector_available: mihomo && cfg!(windows),
+            selector_available: mihomo && cfg!(any(windows, target_os = "linux")),
             binary_verified: mihomo,
             inspect_available: mihomo,
             system_proxy_available: mihomo && cfg!(windows),
-            tun_available: false,
-            reason: Some(
-                if !mihomo {
-                    "CORE_UNAVAILABLE"
-                } else if !cfg!(windows) {
-                    "SYSTEM_PROXY_PLATFORM_UNAVAILABLE"
-                } else {
-                    "MANAGED_PROXY_ONLY_TUN_DNS_KS_UNAVAILABLE"
-                }
-                .into(),
-            ),
+            tun_available: mihomo && mihomo_tun,
+            reason: if !mihomo {
+                Some("CORE_UNAVAILABLE".into())
+            } else if cfg!(target_os = "linux") {
+                (!mihomo_tun).then(|| "MIHOMO_HELPER_REQUIRED".into())
+            } else {
+                Some("MANAGED_PROXY_ONLY_TUN_DNS_KS_UNAVAILABLE".into())
+            },
         },
     ]
 }
@@ -271,7 +294,7 @@ pub struct RuntimeStatus {
     pub session_id: Option<String>,
     pub native_generation: Option<u64>,
     pub mixed_address: Option<String>,
-    pub network_owner: &'static str,
+    pub network_owner: String,
 }
 #[tauri::command]
 pub fn get_mihomo_status(state: State<'_, AppState>) -> RuntimeStatus {
@@ -282,7 +305,7 @@ pub fn get_mihomo_status(state: State<'_, AppState>) -> RuntimeStatus {
             session_id: Some(m.session_id.clone()),
             native_generation: Some(m.controller().generation()),
             mixed_address: Some(m.info.mixed_address.clone()),
-            network_owner: "desktop-proxy",
+            network_owner: m.info.network_owner.clone(),
         },
         None => RuntimeStatus {
             running: false,
@@ -290,7 +313,7 @@ pub fn get_mihomo_status(state: State<'_, AppState>) -> RuntimeStatus {
             session_id: None,
             native_generation: None,
             mixed_address: None,
-            network_owner: "none",
+            network_owner: "none".into(),
         },
     })
 }
@@ -311,6 +334,13 @@ fn session_controller(
     })
 }
 pub fn check_network_mode(mode: ConnectionMode, kill_switch: bool) -> Result<(), String> {
+    if cfg!(target_os = "linux") && mode == ConnectionMode::Tun {
+        return if kill_switch {
+            Err("MIHOMO_KILL_SWITCH_UNAVAILABLE".into())
+        } else {
+            Ok(())
+        };
+    }
     nimbo_mihomo::selection::ensure_mihomo_network(
         mode == ConnectionMode::SystemProxy,
         kill_switch,
@@ -375,6 +405,96 @@ pub async fn connect_mihomo_profile(
     Ok(result)
 }
 
+#[tauri::command]
+pub async fn prepare_mihomo_tun(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let _lock = CONNECTION_OPERATION.lock().await;
+    if state.snapshot().connected {
+        return Err("DISCONNECT_BEFORE_CORE_CHANGE".into());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let binary = binary(&app)?;
+        tokio::task::spawn_blocking(move || {
+            crate::helper_linux::install_mihomo(&app, binary.path())
+        })
+        .await
+        .map_err(|_| "HELPER_INSTALL_FAILED")??;
+        if !nimbo_mihomo::helper::available(option_env!("NIMBO_MIHOMO_SHA256").unwrap_or("")) {
+            return Err("MIHOMO_HELPER_REQUIRED".into());
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = app;
+        Err("MIHOMO_TUN_UNAVAILABLE".into())
+    }
+}
+#[cfg(target_os = "linux")]
+async fn connect_tun_inner(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    profile: FullProfile,
+    bin: VerifiedBinary,
+    snapshot: PersistedState,
+    ticket: u64,
+) -> Result<RuntimeStatus, String> {
+    // Root/source admission completes before touching a still-working session.
+    await_current(
+        ticket,
+        &CONNECTION_INTENT,
+        nimbo_mihomo::helper::preflight(nimbo_mihomo::process::tun_request(&bin, &profile, false)?),
+    )
+    .await?;
+    crate::commands::stop_runtime(&state)?;
+    state.transaction(|s| {
+        s.connected = false;
+        s.connected_at = None;
+        Ok(())
+    })?;
+    let session = await_current(
+        ticket,
+        &CONNECTION_INTENT,
+        Session::start_tun(&bin, &profile, false),
+    )
+    .await?;
+    state.transaction(|s| {
+        if CONNECTION_INTENT.load(Ordering::SeqCst) != ticket {
+            return Err("CONNECTION_CANCELLED".into());
+        }
+        if s.connection_mode != ConnectionMode::Tun || s.preferences.connection_kill_switch {
+            return Err("CONNECTION_CANCELLED".into());
+        }
+        if s.core_profiles
+            .profile(&profile.id)
+            .map_err(String::from)?
+            .source_digest
+            != profile.source_digest
+        {
+            return Err("STALE_REVISION".into());
+        }
+        s.connected = true;
+        s.connected_at = Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+        );
+        s.active_server_id = None;
+        s.auto_subscription_url = None;
+        s.core_profiles.active_profile_id = Some(profile.id.clone());
+        s.session_core_preference = Some(nimbo_mihomo::selection::CorePreference::from(
+            snapshot.core_profiles.preferred_core,
+        ));
+        Ok(())
+    })?;
+    state.runtime(|r| {
+        r.mihomo = Some(session);
+    });
+    let _ = crate::tray::refresh_tray_menu(&app);
+    Ok(get_mihomo_status(state))
+}
+
 /// Caller owns CONNECTION_OPERATION. Lifecycle restoration supplies its durable
 /// session snapshot; manual connections supply the pending preference snapshot.
 pub(crate) async fn connect_profile_inner(
@@ -386,6 +506,10 @@ pub(crate) async fn connect_profile_inner(
 ) -> Result<RuntimeStatus, String> {
     let profile = preflight_profile(&snapshot, &profile_id)?;
     let bin = binary(&app)?;
+    #[cfg(target_os = "linux")]
+    if snapshot.connection_mode == ConnectionMode::Tun {
+        return connect_tun_inner(app, state, profile, bin, snapshot, ticket).await;
+    }
     // Reject unsupported YAML features before disrupting the current runtime.
     let inspection = await_current(
         ticket,
@@ -675,10 +799,14 @@ mod tests {
     }
     #[test]
     fn host_network_modes_fail_closed_before_runtime_start() {
-        assert_eq!(
-            check_network_mode(ConnectionMode::Tun, false).unwrap_err(),
-            "MIHOMO_TUN_UNAVAILABLE"
-        );
+        if cfg!(target_os = "linux") {
+            assert!(check_network_mode(ConnectionMode::Tun, false).is_ok());
+        } else {
+            assert_eq!(
+                check_network_mode(ConnectionMode::Tun, false).unwrap_err(),
+                "MIHOMO_TUN_UNAVAILABLE"
+            );
+        }
         assert_eq!(
             check_network_mode(ConnectionMode::Both, false).unwrap_err(),
             "MIHOMO_TUN_UNAVAILABLE"

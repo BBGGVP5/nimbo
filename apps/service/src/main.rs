@@ -18,6 +18,8 @@
 mod platform;
 
 #[cfg(target_os = "linux")]
+mod mihomo_owner;
+#[cfg(target_os = "linux")]
 mod platform_linux;
 
 #[cfg(windows)]

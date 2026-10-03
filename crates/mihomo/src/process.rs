@@ -154,8 +154,32 @@ pub async fn inspect(binary: &VerifiedBinary, profile: &FullProfile) -> Result<I
     wire::decode_inspection(Envelope::decode(&bytes, None)?, profile)
 }
 
+enum SessionOwner {
+    Proxy(OwnedChild),
+    #[cfg(target_os = "linux")]
+    Tun(crate::helper::Lease),
+}
+impl SessionOwner {
+    fn running(&mut self) -> bool {
+        match self {
+            Self::Proxy(c) => c.running(),
+            #[cfg(target_os = "linux")]
+            Self::Tun(c) => c.running(),
+        }
+    }
+    fn terminate(&mut self) -> Result<(), String> {
+        match self {
+            Self::Proxy(c) => {
+                c.terminate();
+                Ok(())
+            }
+            #[cfg(target_os = "linux")]
+            Self::Tun(c) => c.stop(),
+        }
+    }
+}
 pub struct Session {
-    child: OwnedChild,
+    child: SessionOwner,
     controller: Controller,
     pub info: RuntimeInfo,
     pub profile_id: String,
@@ -165,6 +189,42 @@ pub struct Session {
     pub session_id: String,
 }
 impl Session {
+    #[cfg(target_os = "linux")]
+    pub async fn start_tun(
+        binary: &VerifiedBinary,
+        profile: &FullProfile,
+        mixed: bool,
+    ) -> Result<Self, String> {
+        profile.verify().map_err(String::from)?;
+        binary.reverify()?;
+        let (lease, ready) =
+            crate::helper::Lease::start(tun_request(binary, profile, mixed)?).await?;
+        let info: RuntimeInfo =
+            serde_json::from_value(ready.info).map_err(|_| "INVALID_NATIVE_READINESS")?;
+        info.validate_tun(&profile.source_digest, mixed)?;
+        let controller = Controller::new(&info.controller_address, ready.secret, ready.generation)?;
+        let session = Self {
+            child: SessionOwner::Tun(lease),
+            controller,
+            info,
+            profile_id: profile.id.clone(),
+            source_digest: profile.source_digest.clone(),
+            session_id: uuid::Uuid::new_v4().to_string(),
+        };
+        let actual: RuntimeInfo = serde_json::from_value(session.controller.status().await?)
+            .map_err(|_| "INVALID_NATIVE_READINESS")?;
+        actual.validate_tun(&profile.source_digest, mixed)?;
+        if actual.controller_address != session.info.controller_address
+            || actual.mixed_address != session.info.mixed_address
+        {
+            return Err("INVALID_NATIVE_READINESS".into());
+        }
+        for (group, name) in &profile.selections {
+            session.controller.select(group, name).await?;
+        }
+        Ok(session)
+    }
+
     pub async fn start(
         binary: &VerifiedBinary,
         profile: &FullProfile,
@@ -203,7 +263,7 @@ impl Session {
         }
         let controller = Controller::new(&info.controller_address, secret, envelope.generation)?;
         let session = Self {
-            child,
+            child: SessionOwner::Proxy(child),
             controller,
             info,
             profile_id: profile.id.clone(),
@@ -237,7 +297,8 @@ impl Session {
     }
     pub async fn stop(&mut self) -> Result<(), String> {
         let result = tokio::time::timeout(Duration::from_secs(3), self.controller.stop()).await;
-        self.child.terminate();
+        let closed = self.child.terminate();
+        closed?;
         match result {
             Ok(Ok(())) => Ok(()),
             _ => Err("CORE_STOP_FORCED".into()),
@@ -245,7 +306,29 @@ impl Session {
     }
     /// For synchronous app exit or generic legacy teardown. Only this owned
     /// process is terminated; parent manages its separate system-proxy snapshot.
-    pub fn stop_now(&mut self) {
-        self.child.terminate();
+    pub fn stop_now(&mut self) -> Result<(), String> {
+        self.child.terminate()
     }
+}
+
+#[cfg(target_os = "linux")]
+pub fn tun_request(
+    binary: &VerifiedBinary,
+    profile: &FullProfile,
+    mixed: bool,
+) -> Result<nimbo_ipc::MihomoTunRequest, String> {
+    profile.verify().map_err(String::from)?;
+    if profile.kind != ProfileKind::MihomoYaml {
+        return Err("UNSUPPORTED_CORE".into());
+    }
+    let hash = binary.identity()["sha256"]
+        .as_str()
+        .ok_or("CORE_UNAVAILABLE")?
+        .to_owned();
+    Ok(nimbo_ipc::MihomoTunRequest {
+        yaml: profile.original_text.clone(),
+        source_sha256: profile.source_digest.clone(),
+        binary_sha256: hash,
+        mixed,
+    })
 }

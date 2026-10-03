@@ -125,6 +125,21 @@ pub fn install_core(app: &AppHandle, source: &std::path::Path) -> Result<(), Str
     Ok(())
 }
 
+pub fn install_mihomo(app: &AppHandle, source: &Path) -> Result<(), String> {
+    ensure_service(app)?;
+    let result = std::process::Command::new("pkexec")
+        .arg(helper_binary(app)?)
+        .arg("--install-mihomo")
+        .arg(source)
+        .status()
+        .map_err(|_| "HELPER_INSTALL_FAILED")?;
+    if result.success() {
+        Ok(())
+    } else {
+        Err("HELPER_INSTALL_FAILED".into())
+    }
+}
+
 const INSTALLED_HELPER: &str = "/usr/local/lib/nimbo/nimbo-svc";
 const SERVICE_UNIT: &str = "/etc/systemd/system/nimbo-helper.service";
 
@@ -151,7 +166,7 @@ fn expected_digest() -> &'static str {
     option_env!("NIMBO_LINUX_HELPER_SHA256").unwrap_or("")
 }
 
-fn helper_binary(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn helper_binary(app: &AppHandle) -> Result<PathBuf, String> {
     let mut candidates = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(directory) = exe.parent() {
@@ -183,12 +198,27 @@ fn helper_binary(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn materialize_helper(archive: &Path, directory: &Path, digest: &str) -> Result<PathBuf, String> {
+    materialize_archive(archive, directory, digest, "nimbo-svc")
+}
+pub(crate) fn materialize_mihomo(
+    archive: &Path,
+    directory: &Path,
+    digest: &str,
+) -> Result<PathBuf, String> {
+    materialize_archive(archive, directory, digest, "nimbo-mihomo")
+}
+fn materialize_archive(
+    archive: &Path,
+    directory: &Path,
+    digest: &str,
+    member: &str,
+) -> Result<PathBuf, String> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     static EXTRACT: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = EXTRACT
         .lock()
         .map_err(|_| "Не удалось подготовить компонент TUN")?;
-    let target = directory.join("nimbo-svc");
+    let target = directory.join(member);
     if verified(&target, digest) {
         return Ok(target);
     }
@@ -203,7 +233,7 @@ fn materialize_helper(archive: &Path, directory: &Path, digest: &str) -> Result<
             return Err("Некорректный состав архива TUN".into());
         }
         let mut bytes = Vec::new();
-        zip.by_name("nimbo-svc")
+        zip.by_name(member)
             .map_err(|_| "Компонент TUN отсутствует в архиве")?
             .take(64 * 1024 * 1024 + 1)
             .read_to_end(&mut bytes)
@@ -222,7 +252,7 @@ fn materialize_helper(archive: &Path, directory: &Path, digest: &str) -> Result<
         {
             return Err("Небезопасный каталог компонента TUN".into());
         }
-        let temporary = directory.join(format!(".nimbo-svc-{}.new", std::process::id()));
+        let temporary = directory.join(format!(".{member}-{}.new", std::process::id()));
         let mut output = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)

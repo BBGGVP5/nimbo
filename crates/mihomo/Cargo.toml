@@ -7,6 +7,7 @@ license = "Proprietary"
 description = "Source-preserving profiles and supervised Nimbo native Mihomo adapter"
 
 [dependencies]
+nimbo-ipc = { path = "../ipc" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"

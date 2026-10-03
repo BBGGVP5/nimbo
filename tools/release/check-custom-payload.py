@@ -6,6 +6,7 @@ import mmap
 from pathlib import Path
 import struct
 import sys
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGETS = {
@@ -65,6 +66,31 @@ def main():
                 for notice in module["notices"]:
                     relative = notice["path"].removeprefix("licenses/")
                     mihomo_files.append(root / "notices" / relative)
+        elif platform.startswith("linux"):
+            root = ROOT / "apps/ui/src-tauri/resources/mihomo" / platform
+            metadata = json.loads((root / "build-manifest.json").read_text())
+            archive = root / "nimbo-mihomo.zip"
+            assert hashlib.sha256(archive.read_bytes()).hexdigest() == metadata["archiveSHA256"]
+            with zipfile.ZipFile(archive) as bundle:
+                assert bundle.namelist() == ["nimbo-mihomo"]
+                helper = bundle.read("nimbo-mihomo")
+            assert hashlib.sha256(helper).hexdigest() == metadata["sha256"]
+            assert machine(helper, False) == expected_machine
+            mihomo_files.append(archive)
+            for entry in metadata["sourceFiles"]:
+                path = root / "adapter-source" / entry["path"]
+                assert hashlib.sha256(path.read_bytes()).hexdigest() == entry["sha256"]
+                mihomo_files.append(path)
+            mihomo_files.extend(root / name for name in ("build-manifest.json", "go.mod", "go.sum", "pins.json"))
+            inventory_path = root / "notices/source-license-manifest.json"
+            assert hashlib.sha256(inventory_path.read_bytes()).hexdigest() == metadata["sourceLicenseManifestSHA256"]
+            mihomo_files.append(inventory_path)
+            for module in json.loads(inventory_path.read_text())["modules"]:
+                assert not module["reachedByCLI"] or module["notices"]
+                for notice in module["notices"]:
+                    path = root / notice["path"]
+                    assert hashlib.sha256(path.read_bytes()).hexdigest() == notice["sha256"]
+                    mihomo_files.append(path)
         for name in ("nimbo-ui", "nimbo-svc"):
             parts.append((name, (ROOT / f"target/{target}/release/{name}{suffix}").read_bytes()))
         with installer.open("rb") as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as compiled:
