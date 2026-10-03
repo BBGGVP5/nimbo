@@ -312,7 +312,14 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None, t
         fixture.verify_restored(before)
         print('PASS protected core modification invalidates status cache and start admission', flush=True)
     except BaseException:
-        print('synthetic IPv6 TCP headers: '+json.dumps(list(packets.rows)), flush=True)
+        print('synthetic IPv6 TCP/ND headers: '+json.dumps(list(packets.rows)), flush=True)
+        for label, args in [
+            ('peer IPv6 neighbors', ['ip', '-n', 'nimbo-fixture', '-j', '-6', 'neigh', 'show']),
+            ('peer IPv6 return route', ['ip', '-n', 'nimbo-fixture', '-6', 'route', 'get', 'fdfe:dcba:9900::1', 'from', fixture.TARGET6]),
+            ('peer IPv6 TCP state', ['ip', 'netns', 'exec', 'nimbo-fixture', 'ss', '-6', '-n', '-t', '-a', '-i']),
+        ]:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=3)
+            print('synthetic '+label+': '+(result.stdout+result.stderr)[-16384:], flush=True)
         for _, path in traces:
             print('synthetic native socket trace '+path.name+':\n'+trace_tail(path), flush=True)
         try:

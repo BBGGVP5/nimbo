@@ -24,6 +24,16 @@ class NativeDiagnosticsTests(unittest.TestCase):
         self.assertNotIn('private-body', str(row))
         self.assertIsNone(broker.fixture.ipv6_tcp_header(b'x' * 60, 'phys0'))
 
+    def test_neighbor_evidence_retains_headers_only(self):
+        import socket, struct
+        payload = bytes([135, 0]) + b'\x00' * 6 + socket.inet_pton(socket.AF_INET6, 'fdfe:dcba:9900::1') + b'private-option'
+        packet = struct.pack('!IHBB', 6 << 28, len(payload), 58, 255) + socket.inet_pton(socket.AF_INET6, 'fdfe:dcba:9900::2') + socket.inet_pton(socket.AF_INET6, 'ff02::1:ff00:1') + payload
+        row = broker.fixture.ipv6_neighbor_header(packet, 'phys0')
+        self.assertEqual(row['icmpType'], 135)
+        self.assertEqual(row['target'], 'fdfe:dcba:9900::1')
+        self.assertNotIn('private-option', str(row))
+        self.assertIsNone(broker.fixture.ipv6_neighbor_header(packet[:50], 'phys0'))
+
     def test_trace_is_bounded_and_keeps_latest_error(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'socket.trace'

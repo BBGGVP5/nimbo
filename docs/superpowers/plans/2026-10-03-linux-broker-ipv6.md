@@ -29,11 +29,11 @@ with tempfile.TemporaryDirectory() as directory:
 ```
 - [x] Run `python -m unittest discover -s scripts/ci -p test_mihomo_netns_diagnostics.py`; expect a missing trace-tail helper failure first.
 - [x] Implement `trace_tail(path)` using a 16384-byte seek-from-end read with UTF-8 replacement. Add `--trace-native` and attach `strace -f -qq -s 96 -e trace=connect,bind,setsockopt,getsockname,getpeername -o <private-temp-file> -p <helper-pid>` only after existing root/fresh-netns/private-mount checks. Wait for TracerPid to confirm attachment. Keep tracing processes joined in finally, dump bounded traces and `ip -j -6 addr/neigh` on failure, re-raise the original exception.
-- [ ] Require strace in hosted Linux CI; pass `--trace-native`. Run pure unittest and Python syntax checks, inspect diff, commit only these files and push. Read real ARM64 logs; no retry wrapper around failed traffic.
+- [x] Require strace in hosted Linux CI; pass `--trace-native`. Run pure unittest and Python syntax checks, inspect diff, commit only these files and push. Read real ARM64 logs; no retry wrapper around failed traffic.
 
 ## Task 2: Evidence-led correction and regression
 - [ ] Record failing socket errno/source/interface and whether the peer received the HTTP request in this plan before changing runtime behavior. Trace evidence must distinguish route/dial failure from fixture handler failure.
-- [ ] For the Rust isolated session, loop over both literal targets:
+- [x] For the Rust isolated session, loop over both literal targets:
 ```rust
 for address in ["203.0.113.10:18080", "[fdfe:dcba:9901::10]:18080"] {
     let mut tcp = std::net::TcpStream::connect_timeout(&address.parse().unwrap(), Duration::from_secs(5)).unwrap();
@@ -49,7 +49,7 @@ for address in ["203.0.113.10:18080", "[fdfe:dcba:9901::10]:18080"] {
 
 ## Task 3: Delivery and readiness
 - [x] Check Windows installer run `37111046901` (product `923b851`, publish=false), including rollback/embedded-core checks and artifacts.
-- [ ] Mirror only baseline/receipt-matching intentional source files into the primary workspace; preserve unrelated frozen sources and notices.
+- [x] Mirror only baseline/receipt-matching intentional source files into the primary workspace; preserve unrelated frozen sources and notices.
 - [ ] Update readiness and existing PR with verified outcomes. Keep remaining physical-device/provider/IPv6-bypass and reboot-persistent KS limitations explicit.
 
 Task 1 checkpoint: 7c8a04f pushed; three pure tests first failed for the absent function, then passed. Native run 37113077401 is capturing actual broker socket calls; the IPv6 failure remains unresolved until evidence and corrected acceptance. Windows installer run 37111046901 SUCCESS, three local installers hash-recorded; native support stays x64-only.
@@ -68,8 +68,16 @@ Task 1 checkpoint: 7c8a04f pushed; three pure tests first failed for the absent 
 
 Evidence at 166f6a1 / 37113670171: traced ARM64 broker cycles pass; untraced actual Rust TCP6 receives EOF with no fixture body after 5 seconds. Traced core egress binds phys0 successfully and uses physical fdfe:dcba:9900::1, so disabling DNS/IPv6 or changing core source binding is unsupported. The existing kernel plan places both explicit-source /1 goto-main rules before the TUN-source lookup; an application bound to the TUN IPv6 address may therefore change path after a route-cache update. This is a hypothesis, not yet the root-cause claim.
 
-- [ ] Add a bounded 256-entry IPv6 TCP header-only AF_PACKET ring to the synthetic namespace fixture; filter literal fixture/TUN addresses, retain seq/ack/flags/length/interface only, never packet payloads. Guard construction with root/explicit opt-in/different-parent-netns/private-run checks. Dump ring on original failure and join the collector in finally.
-- [ ] Print actual Rust socket local addresses and fixture `ip -6 route get <TARGET6> from fdfe:dcba:5288::1 iif lo` before broker traffic. Use captured Tun-to-physical packet/routing evidence to decide whether the owned-source rule order needs correction.
+- [x] Add a bounded 256-entry IPv6 TCP header-only AF_PACKET ring to the synthetic namespace fixture; filter literal fixture/TUN addresses, retain seq/ack/flags/length/interface only, never packet payloads. Guard construction with root/explicit opt-in/different-parent-netns/private-run checks. Dump ring on original failure and join the collector in finally.
+- [x] Print actual Rust socket local addresses and fixture `ip -6 route get <TARGET6> from fdfe:dcba:5288::1 iif lo` before broker traffic. Use captured Tun-to-physical packet/routing evidence to decide whether the owned-source rule order needs correction.
 - [ ] Do not alter runtime policy or increase traffic deadlines until that evidence identifies the path. Any rule correction must stay within existing owner priorities/WAL and preserve normal core physical egress/foreign rules/cleanup gates.
 
 Task 4 evidence at 79d9fb4 / 37114332615: the traced Rust TCP6 succeeded, but the next Python broker cycle's second TCP6 timed out. The recorded inbound TUN handshake and GET reached the stack, and the first request's physical HTTP response returned correctly. The final physical IPv6 connect remained EINPROGRESS with no observed SYN-ACK. The bound-TUN-source route resolves through phys0, but this alone does not prove it is the failing socket (the native egress is bound to phys0). Capture outgoing headers too: AF_PACKET ETH_P_ALL instead of ETH_P_IPV6, still SOCK_DGRAM/network headers and the existing pure address/protocol filter; retain neither link payloads nor HTTP content. Do not change policy ordering on this incomplete evidence.
+
+### Task 5: Verify the physical peer before changing routing
+
+At 5a17224 / 37114754380 all traced broker cycles passed, but an untraced replacement session timed out. Outgoing headers show five physical SYNs sourced from **fdfe:dcba:9900::1 on phys0**, with no physical SYN-ACK. This refutes the proposed TUN-source-binding explanation for that failure. Observe bounded NS/NA headers (type/code/target only) and peer IPv6 neighbor/listener/route state in the synthetic namespace to distinguish physical NDP loss from a dead fixture listener.
+
+- [x] Add failing pure `test_neighbor_evidence_retains_headers_only` with a synthetic ICMPv6 NS plus private option sentinel. Expect missing `ipv6_neighbor_header`; assert output contains only target/type, not option bytes, and truncated headers are rejected.
+- [ ] Implement `ipv6_neighbor_header(packet, interface)` for valid literal fixture-prefix ICMPv6 135/136 only, at least 64 bytes, preserve no options; combine it with the existing TCP header parser in the bounded 256-row ring. On the original exception, read `ip -n nimbo-fixture -j -6 neigh show`, `ip -n nimbo-fixture -6 route get fdfe:dcba:9900::1 from fdfe:dcba:9901::10`, and `ip netns exec nimbo-fixture ss -6 -n -t -a -i`, truncate each to 16384 chars. No public addresses, packet payloads, product logger change or retries.
+- [ ] Run pure tests/syntax/diff check and original mandatory traced/untraced ARM64 gates; record packet/peer evidence before any runtime correction.

@@ -140,6 +140,17 @@ def ipv6_tcp_header(packet, interface):
                 seq=seq, ack=ack, flags=packet[53], payloadBytes=len(packet)-40-tcp_length)
 
 
+def ipv6_neighbor_header(packet, interface):
+    if len(packet) < 64 or packet[0] >> 4 != 6 or packet[6] != 58 or packet[40] not in (135, 136):
+        return None
+    src, dst, target = (socket.inet_ntop(socket.AF_INET6, packet[a:b])
+                        for a, b in ((8, 24), (24, 40), (48, 64)))
+    if not target.startswith(('fdfe:dcba:9900:', 'fdfe:dcba:5288:')):
+        return None
+    return dict(interface=interface, src=src, dst=dst, icmpType=packet[40],
+                icmpCode=packet[41], target=target)
+
+
 class IPv6Evidence:
     """Header-only observation of synthetic traffic, never product packet capture."""
     def __init__(self, parent):
@@ -159,7 +170,7 @@ class IPv6Evidence:
         while not self.closed.is_set():
             try:
                 packet, address = self.socket.recvfrom(65536)
-                row = ipv6_tcp_header(packet, address[0])
+                row = ipv6_tcp_header(packet, address[0]) or ipv6_neighbor_header(packet, address[0])
                 if row is not None:
                     self.rows.append(dict(time=round(time.monotonic(), 6), direction=address[2], **row))
             except socket.timeout:

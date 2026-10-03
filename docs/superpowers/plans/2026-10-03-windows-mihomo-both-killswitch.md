@@ -75,13 +75,15 @@ Evidence: 7c8a04f Windows job 111174599479 passed Both/KS native/helper crash re
 
 Files: `apps/service/src/mihomo_firewall.rs` (read-only bounded positive retirement), existing pure service tests in that file, existing hosted Windows driver unchanged.
 
-- [ ] Add injected-check tests: transient false then true succeeds, persistent false fails, enumeration error returns unchanged immediately.
+- [x] Add injected-check tests: transient false then true succeeds, persistent false fails, enumeration error returns unchanged immediately.
 ```rust
 let mut checks = 0;
 await_adapter_retired(|| { checks += 1; Ok(checks == 2) }, Duration::from_millis(50)).unwrap();
 assert_eq!(checks, 2);
 assert_eq!(await_adapter_retired(|| Ok(false), Duration::ZERO), Err("TUN_CLEANUP_FAILED".into()));
 ```
-- [ ] Implement the no-journal reset branch as `await_adapter_retired(adapter_retired, Duration::from_secs(2))`: poll positive GetIfTable2 absence at 10 ms; return existing error on deadline. No enumeration-error fallback, object removal or WFP release before absence. Native-alive/SID/device-identity checks stay unchanged. This is not an extension of traffic/startup deadlines.
-- [ ] Run service unit tests, scoped fmt/Clippy and existing unmodified Windows live reset/crash gates. Require actual success, including emergency reset, before marking the reset issue resolved.
+- [x] Implement the no-journal reset branch as `await_adapter_retired(adapter_retired, Duration::from_secs(2))`: poll positive GetIfTable2 absence at 10 ms; return existing error on deadline. No enumeration-error fallback, object removal or WFP release before absence. Native-alive/SID/device-identity checks stay unchanged. This is not an extension of traffic/startup deadlines.
+- [x] Run service unit tests, scoped fmt/Clippy and existing unmodified Windows live reset/crash gates. Require actual success, including emergency reset, before marking the reset issue resolved.
 - [ ] Record latest installers SUCCESS (all three architectures; only x64 native TUN), mirror receipt-matching source and update PR accurately.
+
+Task 6 validation: implementation `840201f` passed ten local service tests and scoped fmt/Clippy. Windows hosted runs 37113979722 / 111177092902 and 37114332615 / 111178083637 both passed the unchanged emergency-reset, normal TCP4/6/UDP/DNS and Both/KS/crash/restoration gates. Latest installer build 37114600859 at 79d9fb4 is running, publish=false; the earlier downloaded 923b851 installers do not include this follow-up. Linux ARM64 TCP6 remains unresolved and keeps the overall native workflow red.
