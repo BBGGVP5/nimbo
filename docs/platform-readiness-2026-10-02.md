@@ -1,3 +1,19 @@
+# Follow-up acceptance findings — 3 October 2026
+
+The first Windows live VM fixture at `1691d89` successfully installed/authenticated
+SCM, started the actual adapter and passed TCP4/TCP6, but UDP timed out. Teardown
+retired the adapter and preserved physical DNS/routes. A no-TUN loopback regression
+then reproduced a concrete cause: upstream's packet socket hook received a wildcard
+local bind instead of the actual UDP relay peer and incorrectly bound loopback UDP
+to physical egress. The pinned dialer patch now retains the remote peer without
+changing the public hook ABI; local regression, native suite/vet and source build
+pass. Fresh live Windows acceptance is still required before calling it successful.
+The same run's Linux x64 native/broker suite passed; ARM64 failed after the separate
+Rust session test on a subsequent TCP request, including a repeated attempt. Added
+isolated-only phase/status/kernel diagnostics; do not hide this as a passing build.
+Project CI and Android/shared at `1691d89` are confirmed SUCCESS. Windows packages
+for that earlier revision were started, but do not contain the packet-peer fix.
+
 # Состояние платформ Nimbo — 3 октября 2026
 
 Это инвентаризация подтверждённых возможностей, а не заявление «все протоколы работают везде».

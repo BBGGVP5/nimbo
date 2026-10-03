@@ -116,7 +116,8 @@ def stage_mihomo(original, destination, patch_files):
     changed = {name for name in original_files if digest(original_files[name]) != digest(patched[name])}
     allowed = {'adapter/provider/healthcheck.go', 'adapter/provider/provider.go',
                'adapter/outboundgroup/groupbase.go', 'listener/sing_tun/server.go', 'tunnel/tunnel.go',
-               'listener/sing_tun/server_android.go', 'component/tls/reality.go', 'listener/config/tun.go'}
+               'listener/sing_tun/server_android.go', 'component/tls/reality.go', 'listener/config/tun.go',
+               'component/dialer/dialer.go', 'component/dialer/socket_hook.go'}
     if changed != allowed:
         raise RuntimeError('Unexpected pinned Mihomo patch scope: ' + ', '.join(sorted(changed)))
     reality = (destination / 'component/tls/reality.go').read_text(encoding='utf-8')

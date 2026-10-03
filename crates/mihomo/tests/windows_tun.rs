@@ -50,8 +50,11 @@ async fn actual_windows_broker_session_tcp_udp_dns_selection_and_cleanup() {
         assert!(session.info.tun_ready && session.is_running());
         assert!(session.info.mixed_address.is_empty());
         assert_eq!(session.info.network_owner, "desktop-tun");
+        println!("cycle={cycle}: native TCP4");
         assert!(tcp("198.18.0.10:18080").ends_with(b"nimbo-windows-tun"));
+        println!("cycle={cycle}: native TCP6");
         assert!(tcp("[2001:db8::10]:18080").ends_with(b"nimbo-windows-tun"));
+        println!("cycle={cycle}: native UDP");
         let udp = UdpSocket::bind("0.0.0.0:0").unwrap();
         udp.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
         udp.send_to(b"native-udp", "198.18.0.10:18081").unwrap();
@@ -59,6 +62,7 @@ async fn actual_windows_broker_session_tcp_udp_dns_selection_and_cleanup() {
         let (n, _) = udp.recv_from(&mut data).unwrap();
         assert_eq!(&data[..n], b"native-udp");
         // UDP DNS sent to a fake external resolver must be hijacked by native DNS.
+        println!("cycle={cycle}: native DNS hijack");
         let query=b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07fixture\x07invalid\x00\x00\x01\x00\x01";
         udp.send_to(query, "198.18.0.10:53").unwrap();
         let (n, _) = udp.recv_from(&mut data).unwrap();

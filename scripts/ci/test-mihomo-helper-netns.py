@@ -63,6 +63,7 @@ def no_device():
 
 def traffic():
     for host in (fixture.TARGET, fixture.TARGET6):
+        print('broker traffic: TCP4' if host == fixture.TARGET else 'broker traffic: TCP6', flush=True)
         client = http.client.HTTPConnection(host, 18080, timeout=5)
         try:
             client.request('GET', '/fixture')
@@ -127,7 +128,12 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None):
             assert ready['type'] == 'mihomo_ready', ready
             assert ready['info']['tunReady'] and ready['info']['networkOwner'] == 'desktop-tun'
             assert ready['info']['sourceSHA256'] == request['source_sha256']
-            traffic()
+            try:
+                traffic()
+            except Exception:
+                print('broker readiness on traffic failure: '+json.dumps(controller(ready, 'status')), flush=True)
+                print('isolated kernel state on failure: '+json.dumps(fixture.snapshot_network()), flush=True)
+                raise
             # A transient client must neither own nor stop this connection's TUN.
             with connect() as other:
                 assert call(other, 'mihomo_down')['type'] == 'ok'

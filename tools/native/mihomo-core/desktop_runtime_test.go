@@ -1,6 +1,7 @@
 package mihomocore
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -8,10 +9,12 @@ import (
 	"github.com/metacubex/mihomo/component/dialer"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"net"
 	"net/netip"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestDesktopTunCannotBeForgedByJSON(t *testing.T) {
@@ -158,5 +161,64 @@ func TestDesktopWindowsAdapterIsExclusive(t *testing.T) {
 	options := desktopTunProjection(LC.Tun{}, true)
 	if !options.NimboWindowsExclusive {
 		t.Fatal("desktop may not adopt an existing Wintun adapter")
+	}
+}
+
+// Only local sockets: the actual packet dialer must protect the peer, not infer
+// its physical egress from the unspecified local bind address.
+func TestDesktopPacketHookRetainsLoopbackPeer(t *testing.T) {
+	stopTest(t)
+	peer, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Close()
+	singleton.op.Lock()
+	defer singleton.op.Unlock()
+	singleton.mu.Lock()
+	oldState, oldSession := singleton.state, singleton.session
+	singleton.state = "running"
+	singleton.session = &session{ctx: context.Background(), doc: &inspection{desktop: true}}
+	singleton.mu.Unlock()
+	defer func() {
+		singleton.mu.Lock()
+		singleton.state, singleton.session = oldState, oldSession
+		singleton.mu.Unlock()
+	}()
+	previous := dialer.DefaultInterfaceFinder.Load()
+	finder := &desktopTestFinder{name: "<invalid>"}
+	dialer.DefaultInterfaceFinder.Store(finder)
+	defer dialer.DefaultInterfaceFinder.Store(previous)
+	remote := netip.MustParseAddrPort(peer.LocalAddr().String())
+	packet, err := dialer.ListenPacket(context.Background(), "udp4", "", remote)
+	if err != nil {
+		t.Fatalf("loopback packet peer incorrectly bound to physical interface: %v", err)
+	}
+	defer packet.Close()
+	if finder.calls != 0 {
+		t.Fatal("loopback packet used physical finder")
+	}
+	if _, err = packet.WriteTo([]byte("peer-retained"), peer.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	_ = peer.SetReadDeadline(time.Now().Add(2 * time.Second))
+	b := make([]byte, 64)
+	n, sender, err := peer.ReadFrom(b)
+	if err != nil || string(b[:n]) != "peer-retained" {
+		t.Fatalf("peer did not receive datagram: %v", err)
+	}
+	if _, err = peer.WriteTo(b[:n], sender); err != nil {
+		t.Fatal(err)
+	}
+	_ = packet.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, _, err = packet.ReadFrom(b)
+	if err != nil || string(b[:n]) != "peer-retained" {
+		t.Fatalf("packet reply did not return: %v", err)
+	}
+	// A non-loopback packet must still fail closed without a physical owner.
+	unowned, err := dialer.ListenPacket(context.Background(), "udp4", "", netip.MustParseAddrPort("203.0.113.10:443"))
+	if err == nil {
+		unowned.Close()
+		t.Fatal("unowned physical packet peer admitted")
 	}
 }
