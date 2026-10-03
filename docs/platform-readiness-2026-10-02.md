@@ -1,10 +1,24 @@
-## 2026-10-03 follow-up: Windows crash-retained adapter recovery
+## Confirmed Windows Both / external session Kill Switch — 3 October 2026
+
+Implementation `923b851`, CI artifact-selection follow-ups `929e1b7` / `81a343a`. **Actual Windows x64 acceptance succeeded twice**, including the exact current Cargo driver at [37111227445, Windows job 111169375227](https://github.com/BBGGVP5/nimbo/actions/runs/37111227445/job/111169375227); [preceding Windows job](https://github.com/BBGGVP5/nimbo/actions/runs/37110959354/job/111168616188) also succeeded. These workflows are NOT overall green: Linux ARM64 failed broker TCP6 traffic after the Rust session in both runs. That failure remains visible and unresolved; Linux amd64 succeeded. Do not infer universal platform/provider acceptance.
+
+Windows fixture passed normal Both, forced native-only death and helper-only death/restart: actual TUN TCP4/TCP6, mixed listener plus real per-user GUI proxy snapshot/ownership/restore, UDP relay and DNS hijack, denied physical TCP and existing/new UDP DNS, retained external blocking, authenticated exact-adapter reset, and restored physical traffic. Counters: TCP15, UDP associations6, UDP6, DNS5. Native adapter and WFP journal retired; physical routes/DNS, global firewall profiles and per-user proxy matched baseline. Static WFP protection still does **not** survive BFE restart/reboot.
+
+[Windows x64/x86/ARM64 installers](https://github.com/BBGGVP5/nimbo/actions/runs/37111046901) are building with `publish=false`, using the same product implementation `923b851`; later commits change only CI driver selection. Do not call installers finished before the artifact/build result. Mihomo TUN/Both/KS remain x64-only; installers for other architectures do not establish native support. [Project CI](https://github.com/BBGGVP5/nimbo/actions/runs/37110962172) and [Android/shared CI](https://github.com/BBGGVP5/nimbo/actions/runs/37110962173) succeeded at `923b851`.
+
+Local IPC11/Mihomo34/service8 and scoped Clippy/fmt pass; Linux IPC8/Mihomo34/service10 pass. Existing desktop130/frontend86/build remain successful, with project CI passing this implementation. **27 intentional source/CI/doc files** are mirrored and byte-verified in the primary workspace; unrelated changes and frozen source/notices remain preserved. No developer-host networking, service or ACL mutation. Ordinary nonadmin GUI on physical hardware, roaming/sleep, physical IPv6 bypass, reboot-persistent protection, Windows ARM64/x86 Mihomo and real signed iPhone remain open gates. Host custom writable C:\ ancestry remains safely rejected without modification.
+
+Recovery uses the protected SID-owned journal's native PID/creation time and exact interface GUID/LUID/Wintun device instance. Same-SID reset verifies native death and revalidates the device before checked [SetupAPI DIF_REMOVE](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/dif-remove), then positively verifies interface absence. It does not remove by alias, delete drivers/global routes, or treat restart-required deletion as successful cleanup. Older journals without ownership proof cannot delete retained adapters. [SetupDiCallClassInstaller requirements](https://learn.microsoft.com/en-us/windows/win32/api/setupapi/nf-setupapi-setupdicallclassinstaller).
+
+### Earlier failed recovery checkpoint (historical)
+
+### Follow-up implementation before hosted validation (historical)
 
 Hosted native run 37109598821 at dccf85e passed Linux amd64/arm64, but Windows failed exact reset after injected native death (`TUN_CLEANUP_FAILED`); normal Both fixture traffic and denial had already passed. It is **not** a passing Windows acceptance run. Fixture counters: six TCP, two UDP, two DNS. Project CI 37109602055 and Android/shared CI 37109602189 succeeded.
 
 The follow-up adds protected journal ownership of the native PID/creation time and exact interface GUID/LUID/Wintun device instance, captured before permitting traffic. Explicit same-SID reset checks native death and revalidates the exact device before checked SetupAPI retirement and positive interface absence. It never removes by alias alone, deletes drivers or changes foreign routes. Reboot/restart-required removal remains failure with blocking retained. Older journals without device proof cannot delete retained adapters. Eight local service tests (including foreign/replaced identity and live/reused PID rejection), 34 Mihomo and 11 IPC tests plus scoped Clippy passed without host network mutation; live hosted acceptance is pending.
 
-## Windows Both / external Kill Switch follow-up (3 October)
+### Earlier Both / external Kill Switch checkpoint at dccf85e (historical)
 
 Implementation now adds Windows x64 Both through the same authenticated TUN lease and verified mixed listener, with the existing per-user proxy snapshot/journal. External Kill Switch uses a private, SID-owned WFP sublayer; core/loopback/narrow DHCP and exact native TUN LUID permits, physical egress otherwise denied. No global firewall policy/WinHTTP reset. Static WFP filters survive native/helper failure, but not BFE restart or reboot. Abnormal cleanup retains protection; explicit owner-only Reset Kill Switch requires a retired native adapter.
 

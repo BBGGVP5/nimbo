@@ -48,9 +48,9 @@ assert.equal(mihomoBlockReason({...cap, both_available:false}, 'mihomo', 'both',
 
 ### Task 4: Real hosted acceptance, publication and mirror
 - [x] Extend disposable Rust driver: mixed SOCKS/HTTP traffic alongside native TCP4/6/UDP/DNS; bind a socket to physical interface to prove bypass is denied; terminate only the fixed native child; verify no plaintext bypass after death; authenticated reset restores physical traffic and removes exact filters. Existing no-KS cycles remain.
-- [ ] Use an interface-bound TCP-only control to the already resolved GitHub IPv4 endpoint (443); send no HTTP or credentials. A local self-address is WFP loopback and cannot prove physical denial. Baseline must pass before arming, denial must follow, and restoration must pass; no skipped baseline failures. Snapshot firewall policy/user proxy before/after.
-- [ ] Push only intentional files to current branch, launch native hosted CI and Windows installers with publish=false. Read actual outcomes; failed assertions are not skipped/relabelled.
-- [ ] Update readiness and plan with exact successful/pending gates, mirror only verified baseline/identical source files to primary workspace. Host ACL remains untouched and hardware/nonadmin/BFE-restart gates remain accurately documented.
+- [x] Use an interface-bound TCP-only control to the already resolved GitHub IPv4 endpoint (443); send no HTTP or credentials. A local self-address is WFP loopback and cannot prove physical denial. Baseline must pass before arming, denial must follow, and restoration must pass; no skipped baseline failures. Snapshot firewall policy/user proxy before/after.
+- [x] Push only intentional files to current branch, launch native hosted CI and Windows installers with publish=false. Read actual outcomes; failed assertions are not skipped/relabelled.
+- [x] Update readiness and plan with exact successful/pending gates, mirror only verified baseline/identical source files to primary workspace. Host ACL remains untouched and hardware/nonadmin/BFE-restart gates remain accurately documented.
 
 Checkpoint: 130 desktop tests, 86 frontend tests/build, Windows and Linux scoped suites and Clippy passed without host networking/service/ACL mutations. Adapter absence uses positive GetIfTable2 enumeration, not alias-error inference. New native/helper crash and physical UDP fixtures compile; hosted live results remain pending. Microsoft WFP object-management/filter-arbitration and ALE conditions documentation was checked. One follow-up test compilation mistake was immediately fixed at 841f78b; it is not a successful validation run.
 
@@ -65,4 +65,6 @@ assert!(!owned.matches(&replacement));
 ```
 - [x] Explicit same-SID reset may remove only the persisted device instance after rechecking GUID/LUID/Wintun hardware ID and native death; use checked SetupAPI DIF_REMOVE, then positive interface enumeration. Missing ownership remains a failure. Do not remove by alias or delete drivers/global routes.
 - [x] Add fixture progress per failure case and ensure disposable uninstall executes even if emergency reset times out. Original test/reset failure remains failure.
-- [ ] Run scoped Rust tests/Clippy/fmt; push and require live Windows acceptance success before updating readiness. Mirror only receipt-matching primary files.
+- [x] Run scoped Rust tests/Clippy/fmt; push and require live Windows acceptance success before updating readiness. Mirror only receipt-matching primary files.
+
+Verified checkpoint: 923b851 and exact-driver 929e1b7 Windows hosted tests passed all three normal/native-crash/helper-crash cases and physical restoration (TCP15/UDP6/DNS5). Installers 37111046901 remain building, publish=false. Both runs still have a real unresolved Linux ARM64 broker TCP6 failure; not an overall green workflow. 81a343a selects exact Linux Cargo artifact too, with a new hosted run pending. 27 intentional files mirror to primary; host networking/ACL untouched. Hardware, physical IPv6 bypass and BFE/reboot-persistent protection remain open.
