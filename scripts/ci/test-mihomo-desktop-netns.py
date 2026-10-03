@@ -146,7 +146,9 @@ class IPv6Evidence:
         assert os.geteuid() == 0 and os.environ.get('NIMBO_DISPOSABLE_NETNS') == '1'
         assert parent and os.readlink('/proc/self/ns/net') != parent
         assert os.stat('/run').st_dev != os.stat('/').st_dev
-        self.socket = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(0x86dd))
+        # ETH_P_ALL is required for outgoing skbs too; the pure parser below
+        # discards every non-IPv6/TCP/non-fixture packet without retaining bytes.
+        self.socket = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(0x0003))
         self.socket.settimeout(.1)
         self.rows = deque(maxlen=256)
         self.closed = threading.Event()
