@@ -85,7 +85,10 @@ jobs:
           # Select only the artifact for this exact Cargo invocation, never a
           # stale hashed executable restored by the build cache.
           $artifacts = @(cargo test --locked -p nimbo-mihomo --test windows_tun --no-run --message-format=json)
-          if ($LASTEXITCODE) { throw 'Windows acceptance driver compilation failed' }
+          if ($LASTEXITCODE) {
+            $artifacts | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.reason -eq 'compiler-message' } | ForEach-Object { Write-Host $_.message.rendered }
+            throw 'Windows acceptance driver compilation failed'
+          }
           $driver = @($artifacts | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.target.name -eq 'windows_tun' -and $_.executable })
           if ($driver.Count -ne 1) { throw 'Windows native acceptance driver missing or ambiguous' }
           python scripts/ci/test-mihomo-windows-tun.py --native 'native-desktop/${{ matrix.artifact }}' --helper target/debug/nimbo-svc.exe --rust-test $driver[0].executable

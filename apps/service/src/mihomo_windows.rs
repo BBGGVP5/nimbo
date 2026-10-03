@@ -377,6 +377,15 @@ impl Drop for Running {
         let _ = fs::remove_dir_all(&self.home);
     }
 }
+fn idle_down_result(active: bool, pending: bool) -> Result<(), String> {
+    if active {
+        Err("LEASE_NOT_OWNED".into())
+    } else if pending {
+        Err("KILL_SWITCH_RESET_REQUIRED".into())
+    } else {
+        Ok(())
+    }
+}
 impl MihomoOwner {
     pub fn available(&self) -> bool {
         let Ok(core) = core() else {
@@ -566,11 +575,8 @@ impl MihomoOwner {
             }
             return result;
         }
-        if guard.is_some() {
-            Err("LEASE_NOT_OWNED".into())
-        } else {
-            Ok(())
-        }
+        // An absent lease cannot prove that retained protection was released.
+        idle_down_result(guard.is_some(), crate::mihomo_firewall::pending())
     }
     /// Pipe loss or OS/service shutdown is not the user's Disconnect action.
     pub fn abandon(&self, client: u64) {
@@ -608,6 +614,15 @@ impl MihomoOwner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn missing_lease_does_not_report_retained_protection_as_clean_disconnect() {
+        assert!(idle_down_result(false, false).is_ok());
+        assert_eq!(
+            idle_down_result(false, true).unwrap_err(),
+            "KILL_SWITCH_RESET_REQUIRED"
+        );
+        assert_eq!(idle_down_result(true, true).unwrap_err(), "LEASE_NOT_OWNED");
+    }
     #[test]
     fn source_and_binary_identity_are_before_spawn() {
         let mut r = MihomoTunRequest {

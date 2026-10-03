@@ -89,6 +89,9 @@ pub enum Response {
         both_available: bool,
         #[serde(default)]
         kill_switch_available: bool,
+        /// Old helpers must not be advertised as reboot-persistent protection.
+        #[serde(default)]
+        reboot_kill_switch_available: bool,
     },
     Ok,
     Error {
@@ -262,6 +265,18 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, IpcError> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn old_helper_status_never_claims_reboot_protection() {
+        let legacy = r#"{"type":"mihomo_availability","binary_sha256":"a","available":true,"running":false,"both_available":true,"kill_switch_available":true}"#;
+        assert!(matches!(
+            serde_json::from_str::<Response>(legacy).unwrap(),
+            Response::MihomoAvailability {
+                reboot_kill_switch_available: false,
+                ..
+            }
+        ));
+    }
 
     #[test]
     fn old_mihomo_requests_do_not_enable_kill_switch() {

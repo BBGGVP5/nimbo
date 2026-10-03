@@ -77,6 +77,8 @@ async fn client(
                     running: o.running(),
                     both_available: o.available(),
                     kill_switch_available: o.available() && crate::mihomo_firewall::available(),
+                    reboot_kill_switch_available: o.available()
+                        && crate::mihomo_firewall::available(),
                 })
                 .await
                 {

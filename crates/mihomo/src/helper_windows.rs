@@ -82,19 +82,44 @@ pub fn capabilities(expected: &str) -> (bool, bool, bool) {
                 return (false, false, false);
             };
             match call(&mut pipe, Command::MihomoStatus, Duration::from_secs(3)).await {
-                Ok(Response::MihomoAvailability {
-                    binary_sha256,
-                    available: true,
-                    both_available,
-                    kill_switch_available,
-                    ..
-                }) if binary_sha256 == expected => (true, both_available, kill_switch_available),
+                Ok(response) => verified_capabilities(&response, &expected),
                 _ => (false, false, false),
             }
         })
     })
     .join()
     .unwrap_or((false, false, false))
+}
+fn verified_capabilities(response: &Response, expected: &str) -> (bool, bool, bool) {
+    match response {
+        Response::MihomoAvailability {
+            binary_sha256,
+            available: true,
+            both_available,
+            kill_switch_available,
+            reboot_kill_switch_available,
+            ..
+        } if binary_sha256 == expected => (
+            true,
+            *both_available,
+            *kill_switch_available && *reboot_kill_switch_available,
+        ),
+        _ => (false, false, false),
+    }
+}
+async fn verify_policy(
+    pipe: &mut NamedPipeClient,
+    request: &MihomoTunRequest,
+) -> Result<(), String> {
+    if !request.kill_switch {
+        return Ok(());
+    }
+    let response = call(pipe, Command::MihomoStatus, Duration::from_secs(3)).await?;
+    if verified_capabilities(&response, &request.binary_sha256).2 {
+        Ok(())
+    } else {
+        Err("MIHOMO_KILL_SWITCH_UNAVAILABLE".into())
+    }
 }
 pub fn available(expected: &str) -> bool {
     capabilities(expected).0
@@ -114,6 +139,7 @@ pub async fn reset_kill_switch() -> Result<(), String> {
 }
 pub async fn preflight(request: MihomoTunRequest) -> Result<(), String> {
     let mut pipe = connect().await?;
+    verify_policy(&mut pipe, &request).await?;
     if matches!(
         call(
             &mut pipe,
@@ -142,6 +168,7 @@ impl Lease {
         let (tx, result) = std::sync::mpsc::sync_channel(1);
         let running = Arc::new(AtomicBool::new(false));
         let live = running.clone();
+        let kill_switch = request.kill_switch;
         // The owning pipe is created inside this dedicated reactor, not moved
         // from another runtime. Cancellation drops its last handle immediately.
         std::thread::spawn(move || {
@@ -153,7 +180,7 @@ impl Lease {
                 runtime.block_on(async{
                     let mut pipe=tokio::select!{r=connect()=>r?,_=&mut cancel=>return Err("CONNECTION_CANCELLED".into())};
                     let response=tokio::select!{
-                        r=call(&mut pipe,Command::MihomoUp(request),Duration::from_secs(35))=>r,
+                        r=async{verify_policy(&mut pipe,&request).await?;call(&mut pipe,Command::MihomoUp(request),Duration::from_secs(35)).await}=>r,
                         _=&mut cancel=>return Err("CONNECTION_CANCELLED".into()),
                     };
                     let ready=match response{Ok(Response::MihomoReady(r))=>r,Ok(_)=>{let e="INVALID_HELPER_RESPONSE".to_string();let _=startup.send(Err(e.clone()));return Err(e);},Err(e)=>{let _=startup.send(Err(e.clone()));return Err(e);}};
@@ -166,7 +193,7 @@ impl Lease {
                         }
                         match call(&mut pipe, Command::MihomoStatus, Duration::from_secs(2)).await {
                             Ok(Response::MihomoAvailability {running:true,..})=>{},
-                            Ok(Response::MihomoAvailability {running:false,..})=>{live.store(false,Ordering::SeqCst);break;},
+                            Ok(Response::MihomoAvailability {running:false,..})=>{live.store(false,Ordering::SeqCst);return Err(if kill_switch {"KILL_SWITCH_RESET_REQUIRED"} else {"CORE_EXITED"}.into());},
                             Err(e)=>return Err(e),
                             _=>return Err("INVALID_HELPER_RESPONSE".into()),
                         }
@@ -217,6 +244,30 @@ impl Drop for Lease {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn older_helper_is_not_reboot_safe_even_when_static_kill_switch_is_available() {
+        let legacy = r#"{"type":"mihomo_availability","binary_sha256":"expected","available":true,"running":false,"both_available":true,"kill_switch_available":true}"#;
+        let mut response: Response = serde_json::from_str(legacy).unwrap();
+        assert_eq!(
+            verified_capabilities(&response, "expected"),
+            (true, true, false)
+        );
+        if let Response::MihomoAvailability {
+            reboot_kill_switch_available,
+            ..
+        } = &mut response
+        {
+            *reboot_kill_switch_available = true;
+        }
+        assert_eq!(
+            verified_capabilities(&response, "expected"),
+            (true, true, true)
+        );
+        assert_eq!(
+            verified_capabilities(&response, "different"),
+            (false, false, false)
+        );
+    }
     #[test]
     fn dropping_a_lease_is_not_an_explicit_disconnect() {
         let (tx, mut rx) = tokio::sync::oneshot::channel();

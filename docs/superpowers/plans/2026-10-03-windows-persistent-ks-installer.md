@@ -39,7 +39,9 @@ References: https://learn.microsoft.com/en-us/windows/win32/fwp/basic-operation 
 ## Execution checkpoint
 
 - Implemented Tasks 1–2, read-only helper install-directory preflight, static installer errors and full-resolution taskbar icon.
-- Unit tests: IPC11 / Mihomo35 / helper12 / installer16 PASS. Scoped Rust Clippy and fmt PASS. Desktop frontend86 and both production frontend builds PASS.
+- Unit tests: IPC12 / Mihomo36 / helper13 / installer16 PASS. Scoped Rust Clippy and fmt PASS. Desktop frontend86 and both production frontend builds PASS.
 - Observed red policy test before implementation and red layout at 780x520; fixed layout, 55 production-asset browser cases PASS and dark/light screenshots visually inspected. Rust staged-payload pre-implementation red run was blocked by absent native packaging fixtures; only the post-implementation verification is claimed.
 - Test-only AWG payload plus module-cache LICENSE bytes were temporarily staged, then original workspace bytes were restored exactly. No product helper/TUN/service commands run locally.
 - Hosted acceptance/release, source mirror and PR checkpoint remain pending. Actual cold reboot/pre-BFE traffic remains a separate hardware/VM gate.
+
+- Hosted first Windows attempt failed driver compilation (standalone WFP API needs Win32_System_Rpc, hidden by workspace feature unification); reproduced/fixed locally and CI now prints rendered JSON diagnostics. New helper capability defaults false for old services; availability and actual KS start both enforce it. Abnormal dead-owner stop cannot clear the pending marker by returning false success.
