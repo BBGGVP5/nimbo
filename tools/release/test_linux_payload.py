@@ -1,10 +1,16 @@
 import hashlib
 import io
+import importlib.util
+from pathlib import Path
 import tarfile
 import unittest
 import zipfile
 
 from check_linux_payload import archive_helper, cpio_entries, tar_entries, verify_helper
+
+spec = importlib.util.spec_from_file_location("helper_install", Path(__file__).with_name("test-linux-helper-install.py"))
+helper_install = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(helper_install)
 
 
 def elf(machine):
@@ -25,6 +31,14 @@ def cpio_entry(name, data, mode=0o100755):
 
 
 class LinuxPayloadTests(unittest.TestCase):
+    def test_install_smoke_uses_exact_compiled_ipc_version(self):
+        self.assertEqual(helper_install.ipc_protocol_version(), 3)
+        self.assertEqual(helper_install.ipc_protocol_version("pub const PROTOCOL_VERSION: u32 = 7;\n"), 7)
+        for invalid in ("", "pub const PROTOCOL_VERSION: u32 = 0;\n",
+                        "pub const PROTOCOL_VERSION: u32 = 3;\npub const PROTOCOL_VERSION: u32 = 4;\n"):
+            with self.assertRaises(AssertionError):
+                helper_install.ipc_protocol_version(invalid)
+
     def test_archive_exact_bytes_and_inventory(self):
         for names in (["nimbo-svc"], ["../nimbo-svc"], ["nimbo-svc", "extra"]):
             stream = io.BytesIO()

@@ -2,7 +2,17 @@
 
 Это инвентаризация подтверждённых возможностей, а не заявление «все протоколы работают везде».
 
-## Текущий checkpoint: GUI → Linux broker → настоящий Mihomo TUN
+## Текущий checkpoint: iOS lifecycle и финальные desktop CI-контракты
+
+- В исходниках iOS исправлен возврат физического пути Mihomo: пропадание интерфейса, его возвращение и смена IPv4/IPv6 capabilities сбрасывают старые native сокеты/DNS-пулы. Повторный одинаковый tick ничего не пересоздаёт. Первое наблюдение до запуска не вызывает reset, ограничения Интернета не используются как условие подключения.
+- Готовность C bridge теперь сверяет API, request ID, native generation, точный SHA исходника, pinned core version/commit и реальный `ios-packet-flow/tunReady`. Обычные команды и отмена привязаны к захваченному поколению; старый binder не отменяет пробу нового. UTF-8/BOM/CRLF проходят без `String(data:encoding:)`, который мог поглощать BOM при preflight/start.
+- Watchdog Xray при неудачном перезапуске снимает умерший сеанс вместо сохранения «подключён». Отложенный wake проверяет lifecycle generation и выбранный двигатель. Fail/stop освобождают retained JSON/FD/assets и observers; healthy Mihomo wake сбрасывает старые pools без переустановки NE routes. Измеренная RSS/энергия этим не заявляется.
+- Локально прошли 11 packet-flow source contracts, 6 merged-source, 18 ping, 6 profile, 4 on-demand и 6 Linux payload cases. Linux GUI: **130 passed / 4 opt-in ignored**, включая исправленный admission-тест. Swift runtime policy добавлен в отдельный macOS CI и в три настоящие Swift/C archive link checks; полный новый IPA остаётся отдельной проверкой.
+- [Native/helper CI 37095806192](https://github.com/BBGGVP5/nimbo/actions/runs/37095806192), `b80753f`: SUCCESS на Linux x64/ARM64 и Windows x64. На обеих Linux архитектурах прошёл actual helper → Rust Session → TCP/UDP/DNS/IPv6 и teardown в private namespaces. Android/shared CI того же коммита также SUCCESS.
+- Общий Linux CI выявил устаревший тест, который всё ещё запрещал уже реализованный TUN. Linux пакеты были собраны/проверены по SHA, но installation smoke остановился на ожидании IPC v2 вместо compiled v3. Оба ожидания исправлены; installation smoke теперь читает точную версию из IPC source. До повторного успешного CI **новая упаковка не считается завершённой**.
+- Windows TUN/SID/DNS, Linux System Proxy/Both/KS, native-ядро SIGKILL/power-loss journal, real iPhone sleep/path/pressure и provider/transport matrix остаются открытыми. Эти изменения не делают все платформы полностью готовыми и не влияют на main/ключ подписи.
+
+## Предыдущий checkpoint: GUI → Linux broker → настоящий Mihomo TUN
 
 - Linux x64/ARM64: приложение выбирает native TUN явно, помощник принимает исходный YAML и его SHA256 по авторизованному Unix-соединению. Команды не принимают путь к исполняемому файлу или домашнему каталогу. Ядро устанавливается отдельно, только после системного подтверждения; SHA ядра и полные source/notices закреплены при сборке помощника и GUI.
 - Перед остановкой рабочего соединения выполняется чистый native preflight. Готовность подтверждается настоящим интерфейсом, native generation, хешем исходника и защищённым loopback-контроллером; не подменяется флагом или TCP-проверкой. Выбор группы/пинг используют тот же контроллер.

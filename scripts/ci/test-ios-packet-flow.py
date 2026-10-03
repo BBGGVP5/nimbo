@@ -5,6 +5,7 @@ Native packet fixtures run in Go; Apple archive/Swift links and device acceptanc
 are separate gates. This file never pretends source checks execute a VPN.
 """
 import argparse
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -18,6 +19,39 @@ def source(name):
 
 
 class PacketFlowContracts(unittest.TestCase):
+    def test_session_identity_and_path_return_are_production_policies(self):
+        policy = source("iosApp/Shared/NimboMihomoSessionPolicy.swift")
+        bridge = source("iosApp/PacketTunnel/MihomoPacketBridge.swift")
+        self.assertIn("hasBound && current != next", policy)
+        self.assertIn("pathState.update", bridge)
+        self.assertIn("NimboMihomoSessionPolicy.readyIdentity", bridge)
+        self.assertIn("SHA256.hash(data: source)", bridge)
+        self.assertIn("NimboMihomoSessionPolicy.matchesEnvelope", bridge)
+        self.assertIn("NimboMihomoSessionPolicy.isRunning", bridge)
+        self.assertIn("NimboMihomoSessionPolicy.exactUTF8(source)", bridge)
+        self.assertIn("NimboMihomoSessionPolicy.exactUTF8(source)", source("iosApp/Nimbo/NimboMihomoControl.swift"))
+        self.assertNotIn("self.index != 0 && self.index != next", bridge)
+        native = source("tools/native/mihomo-core/runtime.go")
+        for name in ["coreVersion", "coreCommit"]:
+            self.assertEqual(re.search('static let '+name+' = "([^"]+)"', policy).group(1),
+                             re.search('const '+name+' = "([^"]+)"', native).group(1))
+        link = source("scripts/ci/build-libxray-awg-apple.sh")
+        self.assertIn("NimboMihomoSessionPolicy.swift", link)
+
+    def test_failed_recovery_cleans_up_and_wake_is_generation_bound(self):
+        provider = source("iosApp/PacketTunnel/PacketTunnelProvider.swift")
+        failure = provider.split("private func failActiveTunnel", 1)[1].split("private func", 1)[0]
+        for fragment in ["lifecycleGeneration &+= 1", "cancelPings()", "stopWatchdog()", "stopPathMonitor()",
+                         "mihomo.stop()", "clearRetainedStartupState()", "cancelTunnelWithError(error)"]:
+            self.assertIn(fragment, failure)
+        wake = provider.split("override func wake()", 1)[1].split("private func handlePing", 1)[0]
+        self.assertIn("generation == self.lifecycleGeneration", wake)
+        self.assertIn('mihomo.command("networkChanged")', wake)
+        self.assertIn("self.failActiveTunnel", wake)
+        watchdog = provider.split("private func startWatchdog()", 1)[1].split("private func stopWatchdog()", 1)[0]
+        self.assertIn("else {", watchdog)
+        self.assertIn("self.failActiveTunnel(PacketTunnelError.coreStoppedUnexpectedly)", watchdog)
+
     def test_actual_native_dispatch_not_legacy_fixture_matcher(self):
         code = source("tools/native/mihomo-core/packet_runtime.go")
         for fragment in ["sing.NewListenerHandler", "Tunnel: tunnel.Tunnel", "singTun.ListenerHandler", 'tun.NewStack("gvisor"', "s.ctx", "DnsAddrPorts: dns"]:
@@ -118,6 +152,12 @@ if __name__ == "__main__":
     if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():
         raise SystemExit(1)
     if args.swift:
+        with tempfile.TemporaryDirectory(prefix="nimbo-mihomo-session-policy-") as directory:
+            output = str(Path(directory) / "session-tests")
+            subprocess.run(["swiftc", str(ROOT / "iosApp/Shared/NimboMihomoSessionPolicy.swift"),
+                str(ROOT / "iosApp/Tests/MihomoSessionPolicyTests.swift"), "-o", output], check=True)
+            subprocess.run([output], check=True)
+
         with tempfile.TemporaryDirectory(prefix="nimbo-core-selection-") as directory:
             output = str(Path(directory) / "core-tests")
             subprocess.run(["swiftc", str(ROOT / "iosApp/Shared/NimboAWGConfiguration.swift"),

@@ -726,10 +726,20 @@ mod tests {
         snapshot.active_server_id = Some("existing-xray".into());
         for mode in [ConnectionMode::Tun, ConnectionMode::Both] {
             snapshot.connection_mode = mode;
-            assert!(preflight_profile(&snapshot, &id)
-                .err()
-                .unwrap()
-                .contains("MIHOMO_TUN_UNAVAILABLE"));
+            let preflight = preflight_profile(&snapshot, &id);
+            if cfg!(target_os = "linux") && mode == ConnectionMode::Tun {
+                // Source/mode admission is pure: actual protected helper
+                // readiness is checked separately before old-session teardown.
+                assert_eq!(
+                    preflight.unwrap().original_text.as_bytes(),
+                    source.as_bytes()
+                );
+            } else {
+                assert!(preflight
+                    .err()
+                    .expect("mode unexpectedly admitted")
+                    .contains("MIHOMO_TUN_UNAVAILABLE"));
+            }
         }
         snapshot.connection_mode = ConnectionMode::SystemProxy;
         snapshot.preferences.connection_kill_switch = true;

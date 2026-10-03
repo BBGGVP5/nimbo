@@ -11,6 +11,23 @@ permissions:
   contents: read
 
 jobs:
+  ios_session_contracts:
+    name: iOS session policy (macOS)
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute production Swift admission, ping cache and path ownership policies
+        run: python3 scripts/ci/test-ios-packet-flow.py --swift
+      - name: Verify generation-safe provider and existing native ping contracts
+        run: |
+          python3 scripts/ci/test-ios-mihomo-source.py
+          python3 iosApp/Tests/test_ping_contracts.py --swift
+          python3 iosApp/Tests/test_on_demand_contracts.py --swift
+
   verify:
     name: Проверка (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

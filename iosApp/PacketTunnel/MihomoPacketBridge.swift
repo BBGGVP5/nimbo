@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CryptoKit
 import LibXray
 import Network
 import NetworkExtension
@@ -25,8 +26,9 @@ final class MihomoPhysicalBinding {
     private var index: UInt32 = 0
     private var name = ""
     private var stopped = false
+    private var pathState = NimboMihomoSessionPolicy.PhysicalPathState()
 
-    init(onChange: @escaping () -> Void) {
+    init(onChange: @escaping (MihomoPhysicalBinding) -> Void) {
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
             // No Internet reachability gate. A restricted cellular path still
@@ -37,11 +39,14 @@ final class MihomoPhysicalBinding {
             }
             let candidate = physical.first(where: { path.usesInterfaceType($0.type) }) ?? physical.first
             let next = candidate.map { if_nametoindex($0.name) } ?? 0
+            let physicalPath: NimboMihomoSessionPolicy.PhysicalBinding? = next == 0 ? nil : .init(
+                index: next, name: candidate?.name ?? "", supportsIPv4: path.supportsIPv4,
+                supportsIPv6: path.supportsIPv6)
             self.lock.lock()
-            let changed = !self.stopped && self.index != 0 && self.index != next
+            let changed = !self.stopped && self.pathState.update(physicalPath)
             if !self.stopped { self.index = next; self.name = candidate?.name ?? "" }
             self.lock.unlock()
-            if changed { onChange() }
+            if changed { onChange(self) }
         }
         monitor.start(queue: queue)
     }
@@ -92,12 +97,20 @@ final class MihomoPacketBridge {
     var onFailure: (() -> Void)?
 
     var isRunning: Bool {
-        guard currentGeneration != nil, let status = try? command("status") else { return false }
-        let data = status["data"] as? [String: Any]
-        return data?["state"] as? String == "running" && data?["tunReady"] as? Bool == true
+        guard let identity = currentIdentity, let status = try? command("status"),
+              currentIdentity == identity else { return false }
+        return NimboMihomoSessionPolicy.isRunning(status, identity: identity)
     }
     var isConfigured: Bool { currentGeneration != nil }
     private var currentGeneration: UInt64? { lock.lock(); defer { lock.unlock() }; return generation }
+    private var currentIdentity: NimboMihomoSessionPolicy.Identity? {
+        lock.lock(); defer { lock.unlock() }
+        guard let generation, let sourceSHA256 else { return nil }
+        return .init(generation: generation, sourceSHA256: sourceSHA256)
+    }
+    private var currentBinding: MihomoPhysicalBinding? {
+        lock.lock(); defer { lock.unlock() }; return binding
+    }
     var counters: (received: UInt64, sent: UInt64) {
         lock.lock(); defer { lock.unlock() }; return (received, sent)
     }
@@ -105,15 +118,20 @@ final class MihomoPacketBridge {
     /// Start binding before route installation so the physical path is observed
     /// before NE's utun can become the default route. No DNS/HTTP availability test.
     func prepareBinding(onChange: @escaping () -> Void) -> MihomoPhysicalBinding {
-        let candidate = MihomoPhysicalBinding(onChange: onChange)
+        let candidate = MihomoPhysicalBinding { [weak self] binding in
+            // Bypass the lifecycle queue's blocking probe. A callback belonging
+            // to a retired physical binder cannot cancel a newer session's probe.
+            self?.cancelLiveProbe(ifBoundTo: binding)
+            onChange()
+        }
         // Provider owns this object from here, including cancellation cleanup.
-        binding = candidate
+        lock.lock(); binding = candidate; lock.unlock()
         return candidate
     }
 
     func start(source: Data, directory: URL, flow: NEPacketTunnelFlow, selections: [String: String]) throws {
-        guard currentGeneration == nil, let binding, binding.isReady,
-              let text = String(data: source, encoding: .utf8), source.count <= 4 * 1_024 * 1_024 else {
+        guard currentGeneration == nil, let binding = currentBinding, binding.isReady,
+              let text = NimboMihomoSessionPolicy.exactUTF8(source) else {
             throw MihomoPacketError.configuration
         }
         let context = Unmanaged.passUnretained(binding).toOpaque()
@@ -131,11 +149,12 @@ final class MihomoPacketBridge {
                     "packetIPv6": true, "startupTimeoutMs": 20_000]]
             let json = String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self)
             let reply = try json.withCString { try decode(NimboMihomoStartIOSPacketFlowV1(UnsafeMutablePointer(mutating: $0))) }
-            guard let nativeGeneration = reply["generation"] as? UInt64,
-                  let status = reply["data"] as? [String: Any], status["tunReady"] as? Bool == true else {
+            let expectedSource = SHA256.hash(data: source).map { String(format: "%02x", $0) }.joined()
+            guard let identity = NimboMihomoSessionPolicy.readyIdentity(reply, requestID: requestID, sourceSHA256: expectedSource) else {
                 throw MihomoPacketError.packetFlow
             }
-            lock.lock(); generation = nativeGeneration; sourceSHA256 = status["sourceSHA256"] as? String; self.flow = flow; received = 0; sent = 0; lock.unlock()
+            let nativeGeneration = identity.generation
+            lock.lock(); generation = nativeGeneration; sourceSHA256 = identity.sourceSHA256; self.flow = flow; received = 0; sent = 0; lock.unlock()
             for (group, member) in selections.sorted(by: { $0.key < $1.key }) {
                 _ = try command("select", fields: ["group": group, "name": member])
             }
@@ -156,9 +175,15 @@ final class MihomoPacketBridge {
         }
         var request = fields
         request["apiVersion"] = 1; request["requestId"] = requestID; request["operation"] = operation
-        if let generation = currentGeneration { request["generation"] = generation }
+        let identity = currentIdentity
+        if let identity { request["generation"] = identity.generation }
         let json = String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self)
-        return try json.withCString { try decode(NimboMihomoInvokeV1(UnsafeMutablePointer(mutating: $0))) }
+        let reply = try json.withCString { try decode(NimboMihomoInvokeV1(UnsafeMutablePointer(mutating: $0))) }
+        guard NimboMihomoSessionPolicy.matchesEnvelope(reply, requestID: requestID, identity: identity),
+              identity == nil || currentIdentity == identity else {
+            throw MihomoPacketError.native("STALE_GENERATION")
+        }
+        return reply
     }
 
     /// Cancellation must not queue behind the operation it interrupts. Bind it
@@ -168,11 +193,17 @@ final class MihomoPacketBridge {
         lock.lock()
         guard let ticket = generation, sourceSHA256 == sourceHash else { lock.unlock(); return false }
         lock.unlock()
-        let request: [String: Any] = ["apiVersion": 1, "requestId": UUID().uuidString,
-            "operation": "cancel", "generation": ticket, "targetRequestId": requestID]
+        return cancelNativeProbe(requestID, identity: .init(generation: ticket, sourceSHA256: sourceHash))
+    }
+
+    private func cancelNativeProbe(_ targetID: String, identity: NimboMihomoSessionPolicy.Identity) -> Bool {
+        let requestID = UUID().uuidString
+        let request: [String: Any] = ["apiVersion": 1, "requestId": requestID,
+            "operation": "cancel", "generation": identity.generation, "targetRequestId": targetID]
         guard let data = try? JSONSerialization.data(withJSONObject: request) else { return false }
         let json = String(decoding: data, as: UTF8.self)
-        return (try? json.withCString { try decode(NimboMihomoInvokeV1(UnsafeMutablePointer(mutating: $0))) }) != nil
+        guard let reply = try? json.withCString({ try decode(NimboMihomoInvokeV1(UnsafeMutablePointer(mutating: $0))) }) else { return false }
+        return NimboMihomoSessionPolicy.matchesEnvelope(reply, requestID: requestID, identity: identity)
     }
 
     /// Safe outside lifecycleQueue: stop cancels startup and a live delay before
@@ -184,6 +215,21 @@ final class MihomoPacketBridge {
         }
     }
 
+    func cancelLiveProbe(ifBoundTo candidate: MihomoPhysicalBinding? = nil) {
+        lock.lock()
+        guard candidate == nil || binding === candidate else { lock.unlock(); return }
+        let probe = pendingProbeID; let source = sourceSHA256; let ticket = generation
+        lock.unlock()
+        if let probe, let source, let ticket {
+            _ = cancelNativeProbe(probe, identity: .init(generation: ticket, sourceSHA256: source))
+        }
+    }
+
+    private func retireBinding() {
+        lock.lock(); let old = binding; binding = nil; lock.unlock()
+        old?.close()
+    }
+
     func stop() {
         lock.lock(); generation = nil; sourceSHA256 = nil; flow = nil; lock.unlock()
         // Native stop cancels a blocking output read before joining this worker.
@@ -192,9 +238,9 @@ final class MihomoPacketBridge {
         if protectorInstalled {
             if (try? decode(NimboMihomoSetSocketProtectorV1(nil, nil))) != nil {
                 protectorInstalled = false
-                binding?.close(); binding = nil
+                retireBinding()
             } // Retain context if unregister failed; never free a live callback.
-        } else { binding?.close(); binding = nil }
+        } else { retireBinding() }
     }
 
     private func readInput() {

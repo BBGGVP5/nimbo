@@ -90,6 +90,7 @@ build_slice() {
     -swift-version 5 -application-extension -emit-library \
     -module-name NimboAWGLinkCheck -I "${out}/Headers" \
     "${ROOT_DIR}/iosApp/Shared/NimboAWGConfiguration.swift" \
+    "${ROOT_DIR}/iosApp/Shared/NimboMihomoSessionPolicy.swift" \
     "${ROOT_DIR}/iosApp/PacketTunnel/AmneziaWGBridge.swift" \
     "${ROOT_DIR}/iosApp/PacketTunnel/MihomoPacketBridge.swift" \
     "${out}/libXray.a" -lresolv -framework Security -framework CoreFoundation -framework Network -framework NetworkExtension \

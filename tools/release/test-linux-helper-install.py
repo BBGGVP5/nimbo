@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import struct
@@ -16,6 +17,16 @@ INSTALLED = Path("/usr/local/lib/nimbo/nimbo-svc")
 UNIT = Path("/etc/systemd/system/nimbo-helper.service")
 SOCKET = Path("/run/nimbo/helper.sock")
 UID_FILE = Path("/etc/nimbo/helper.uid")
+
+
+def ipc_protocol_version(source=None):
+    # This test must agree with the exact source compiled into both clients.
+    # Do not accept any positive protocol, which could mask a stale helper.
+    if source is None:
+        source = (ROOT / "crates/ipc/src/lib.rs").read_text(encoding="utf-8")
+    versions = re.findall(r"^pub const PROTOCOL_VERSION: u32 = ([1-9][0-9]*);$", source, re.MULTILINE)
+    assert len(versions) == 1, "Missing or ambiguous IPC source version"
+    return int(versions[0])
 
 
 def run(*args):
@@ -48,7 +59,7 @@ def check_ready(manifest):
     while True:
         try:
             pong = request("ping")
-            assert pong["type"] == "pong" and pong["protocol"] == 2
+            assert pong["type"] == "pong" and pong["protocol"] == ipc_protocol_version()
             assert pong["service_version"] == manifest["version"]
             break
         except (OSError, RuntimeError):

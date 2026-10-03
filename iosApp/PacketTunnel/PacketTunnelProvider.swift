@@ -54,6 +54,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             self.lifecycleGeneration &+= 1
             self.cancelPings()
+            self.clearRetainedStartupState()
             let generation = self.lifecycleGeneration
             self.starting = true
 
@@ -83,7 +84,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         self.mihomo.stop()
                         self.starting = false
                         self.started = false
-                        self.outboundCount = 0
+                        self.clearRetainedStartupState()
                         completionHandler(Self.transportableError(error))
                     }
                 }
@@ -116,7 +117,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             self.mihomo.stop()
             self.starting = false
             self.started = false
-            self.outboundCount = 0
+            self.clearRetainedStartupState()
 
             Task {
                 await NimboDiagnostics.shared.record(
@@ -253,9 +254,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 if self.mihomo.isRunning { self.watchdogMisses = 0; return }
                 self.watchdogMisses += 1
                 if self.watchdogMisses >= 3 {
-                    self.mihomo.stop(); self.started = false
-                    self.stopWatchdog(); self.stopPathMonitor()
-                    self.cancelTunnelWithError(MihomoPacketError.packetFlow)
+                    self.failActiveTunnel(MihomoPacketError.packetFlow)
                 }
                 return
             }
@@ -269,11 +268,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             guard self.watchdogMisses >= 3 else { return }
             self.stopWatchdog()
             if self.awg.isConfigured {
-                try? self.core.stop()
-                self.awg.close()
-                self.stopPathMonitor()
-                self.started = false
-                self.cancelTunnelWithError(NimboAWGError.runtimeFailure)
+                self.failActiveTunnel(NimboAWGError.runtimeFailure)
                 return
             }
             Task {
@@ -289,6 +284,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             if self.restartCore() {
                 self.watchdogMisses = 0
                 self.startWatchdog()
+            } else {
+                self.failActiveTunnel(PacketTunnelError.coreStoppedUnexpectedly)
             }
         }
         timer.resume()
@@ -361,6 +358,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func sleep(completionHandler: @escaping () -> Void) {
+        mihomo.cancelLiveProbe()
         lifecycleQueue.async {
             self.invalidatePingSamples()
             if self.awg.isConfigured { self.awg.suspend() }
@@ -369,6 +367,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func wake() {
+        mihomo.cancelLiveProbe()
         lifecycleQueue.async { [weak self] in
             guard let self, self.started else { return }
             if self.awg.isConfigured {
@@ -376,19 +375,28 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 return
             }
             if self.mihomo.isConfigured {
-                if !self.mihomo.isRunning { self.cancelTunnelWithError(MihomoPacketError.packetFlow) }
+                guard self.mihomo.isRunning else {
+                    self.failActiveTunnel(MihomoPacketError.packetFlow); return
+                }
+                // A sleep/wake without interface-index change still retires
+                // stale pools. No system routes or Internet probes are needed.
+                do { _ = try self.mihomo.command("networkChanged") }
+                catch { self.failActiveTunnel(MihomoPacketError.packetFlow) }
                 return
             }
             guard (try? self.core.isRunning()) != true else { return }
             // Сразу после пробуждения ядро может не ответить, оставаясь живым.
             // Рвать из-за этого рабочее соединение нельзя, поэтому спрашиваем
             // ещё раз чуть погодя.
+            let generation = self.lifecycleGeneration
             self.lifecycleQueue.asyncAfter(deadline: .now() + 3) {
-                guard self.started, (try? self.core.isRunning()) != true else { return }
+                guard generation == self.lifecycleGeneration, self.started, !self.starting,
+                      !self.mihomo.isConfigured, !self.awg.isConfigured,
+                      (try? self.core.isRunning()) != true else { return }
                 // Рвать туннель — крайняя мера: сначала пробуем поднять ядро
                 // на том же конфиге, ради этого пробуждение и существует.
                 if self.restartCore() { return }
-                self.cancelTunnelWithError(PacketTunnelError.coreStoppedUnexpectedly)
+                self.failActiveTunnel(PacketTunnelError.coreStoppedUnexpectedly)
             }
         }
     }
@@ -437,6 +445,33 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         pingTasks.removeAll()
     }
 
+    private func clearRetainedStartupState() {
+        lastCoreConfiguration = nil
+        lastTunnelDescriptor = nil
+        lastAssetDirectory = nil
+        tunnelInterfaceName = nil
+        outboundCount = 0
+        coreRestarts = 0
+        networkWasSatisfied = true
+    }
+
+    /// Lifecycle queue only. Cancel ownership first so a queued wake/pump callback
+    /// cannot act on a new session. Release source/FD references after core join.
+    private func failActiveTunnel(_ error: Error) {
+        lifecycleGeneration &+= 1
+        mihomo.cancelPendingStart()
+        cancelPings()
+        stopWatchdog()
+        stopPathMonitor()
+        try? core.stop()
+        awg.close()
+        mihomo.stop()
+        starting = false
+        started = false
+        clearRetainedStartupState()
+        cancelTunnelWithError(error)
+    }
+
     /// Поднимает ядро на последнем подготовленном конфиге.
     ///
     /// iOS выгружает и будит расширение постоянно, и ядро переживает это не
@@ -477,12 +512,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         } catch {
             // Close both cores on failure; iOS can create a new provider via
             // the existing on-demand policy, with a fresh TUN descriptor.
-            try? core.stop()
-            awg.close()
-            stopWatchdog()
-            stopPathMonitor()
-            started = false
-            cancelTunnelWithError(NimboAWGError.runtimeFailure)
+            failActiveTunnel(NimboAWGError.runtimeFailure)
         }
     }
 
@@ -600,9 +630,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     guard let self else { return }
                     self.lifecycleQueue.async {
                         guard self.lifecycleGeneration == generation else { return }
-                        self.mihomo.stop(); self.started = false
-                        self.stopWatchdog(); self.stopPathMonitor()
-                        self.cancelTunnelWithError(MihomoPacketError.packetFlow)
+                        self.failActiveTunnel(MihomoPacketError.packetFlow)
                     }
                 }
                 let binding = self.mihomo.prepareBinding { [weak self] in
@@ -612,7 +640,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         self.invalidatePingSamples()
                         // Close stale native sockets/DNS pools; fresh packets use
                         // the binder's new physical interface, not the old utun.
-                        _ = try? self.mihomo.command("networkChanged")
+                        do { _ = try self.mihomo.command("networkChanged") }
+                        catch { self.failActiveTunnel(MihomoPacketError.packetFlow) }
                     }
                 }
                 continuation.resume(returning: binding)

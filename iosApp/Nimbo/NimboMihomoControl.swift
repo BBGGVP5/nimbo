@@ -76,7 +76,7 @@ enum NimboMihomoControl {
     }
 
     private static func native(_ operation: String, source: Data) throws -> [String: Any] {
-        guard let text = String(data: source, encoding: .utf8) else { throw NimboFullConfigurationError.invalidEncoding }
+        guard let text = NimboMihomoSessionPolicy.exactUTF8(source) else { throw NimboFullConfigurationError.invalidEncoding }
         let requestID = UUID().uuidString
         let json = String(decoding: try JSONSerialization.data(withJSONObject: ["apiVersion": 1,
             "requestId": requestID, "operation": operation, "yaml": text]), as: UTF8.self)
