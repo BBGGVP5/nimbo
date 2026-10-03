@@ -61,6 +61,41 @@ def no_device():
     return all(row['ifname'] != fixture.INTERFACE for row in json.loads(fixture.ip('-j', 'link', 'show', capture=True)))
 
 
+def trace_tail(path):
+    try:
+        with path.open('rb') as stream:
+            stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, stream.tell() - 16384))
+            return stream.read(16384).decode('utf-8', errors='replace')
+    except OSError:
+        return 'trace unavailable'
+
+
+def trace_native(service, path, parent):
+    # This is fixture-only instrumentation, not a product logging switch. The
+    # target is the helper we just spawned, after private namespace admission.
+    assert os.environ.get('NIMBO_DISPOSABLE_NETNS') == '1' and os.geteuid() == 0
+    assert parent and os.readlink('/proc/self/ns/net') != parent
+    assert os.stat('/run').st_dev != os.stat('/').st_dev
+    trace = subprocess.Popen(['strace', '-f', '-qq', '-s', '96', '-e',
+                              'trace=connect,bind,setsockopt,getsockname,getpeername',
+                              '-o', str(path), '-p', str(service.pid)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        def attached():
+            assert trace.poll() is None, 'native syscall tracer exited before attachment'
+            status = Path('/proc/'+str(service.pid)+'/status').read_text()
+            return any(line.startswith('TracerPid:') and int(line.split()[1]) == trace.pid
+                       for line in status.splitlines())
+        wait(attached, 'native syscall tracer failed to attach', timeout=5)
+    except BaseException:
+        if trace.poll() is None:
+            trace.terminate()
+        trace.wait(timeout=5)
+        raise
+    return trace
+
+
 def traffic():
     for host in (fixture.TARGET, fixture.TARGET6):
         print('broker traffic: TCP4' if host == fixture.TARGET else 'broker traffic: TCP6', flush=True)
@@ -93,18 +128,31 @@ def controller(ready, operation, **fields):
         client.close()
 
 
-def broker_checks(helper, binary, source, before, rust_test=None, parent=None):
+def broker_checks(helper, binary, source, before, rust_test=None, parent=None, trace_enabled=False):
     # All directories below the installation/runtime roots are on private tmpfs.
     assert os.stat('/usr/local/lib').st_dev != os.stat('/usr/local').st_dev
     assert os.stat('/run').st_dev != os.stat('/').st_dev
     subprocess.check_call([str(helper), '--install-mihomo', str(binary)])
     service = None
     owner = None
+    trace_directory = tempfile.TemporaryDirectory(prefix='nimbo-broker-sockets-')
+    traces = []
+    def start_service():
+        process = subprocess.Popen([str(helper)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            wait(lambda: Path(SOCKET).exists(), 'broker failed to listen')
+            if trace_enabled:
+                path = Path(trace_directory.name) / ('native-'+str(len(traces))+'.trace')
+                traces.append((trace_native(process, path, parent), path))
+        except BaseException:
+            process.terminate(); process.wait(timeout=10)
+            raise
+        return process
     request = dict(yaml=source, source_sha256=hashlib.sha256(source.encode()).hexdigest(), binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest())
     try:
         for ending in ('explicit', 'eof', 'native-crash', 'service-crash', 'both-crash'):
-            service = subprocess.Popen([str(helper)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            wait(lambda: Path(SOCKET).exists(), 'broker failed to listen')
+            print('broker lifecycle: '+ending, flush=True)
+            service = start_service()
             with connect() as status:
                 assert call(status, 'ping')['protocol'] == 3
                 available = call(status, 'mihomo_status')
@@ -216,8 +264,7 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None):
                     # Both processes died: next native owner replays its WAL.
                     owner.close();owner=None
                     Path(SOCKET).unlink()
-                    service=subprocess.Popen([str(helper)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-                    wait(lambda:Path(SOCKET).exists(),'broker failed to restart after both crashes')
+                    service=start_service()
                     owner=connect()
                     blocked=call(owner,'tun_up',config='',interface='fixture-never-created',bypass_ips=[],dns=[],kill_switch=False)
                     assert blocked['type']=='error' and blocked['message']=='TUN_IN_USE', 'legacy engine stole retained native WAL state'
@@ -243,8 +290,7 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None):
             print('PASS broker source/hash admission, lease isolation, real TCPv4/TCPv6/UDP/DNS, hot selection and '+ending+' cleanup', flush=True)
         # Root-protected inode modification invalidates cached availability;
         # a subsequent start still rehashes the pinned bytes before execution.
-        service = subprocess.Popen([str(helper)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        wait(lambda: Path(SOCKET).exists(), 'broker failed to restart')
+        service = start_service()
         with connect() as status:
             assert call(status, 'mihomo_status')['available']
             with Path('/usr/local/lib/nimbo/nimbo-mihomo').open('r+b') as installed:
@@ -257,12 +303,27 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None):
         service.wait(timeout=5); service=None
         fixture.verify_restored(before)
         print('PASS protected core modification invalidates status cache and start admission', flush=True)
+    except BaseException:
+        for _, path in traces:
+            print('synthetic native socket trace '+path.name+':\n'+trace_tail(path), flush=True)
+        try:
+            for label, args in [('addresses', ('-j', '-6', 'addr', 'show')),
+                                ('neighbors', ('-j', '-6', 'neigh', 'show'))]:
+                print('isolated IPv6 '+label+': '+fixture.ip(*args, capture=True), flush=True)
+        except Exception as error:
+            print('isolated IPv6 evidence unavailable: '+type(error).__name__, flush=True)
+        raise
     finally:
         if owner is not None:
             owner.close()
         if service is not None and service.poll() is None:
             service.terminate()
             service.wait(timeout=10)
+        for process, _ in traces:
+            if process.poll() is None:
+                process.terminate()
+            process.wait(timeout=5)
+        trace_directory.cleanup()
 
 
 def main():
@@ -270,6 +331,7 @@ def main():
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--helper', type=Path, required=True)
     parser.add_argument('--rust-test', type=Path)
+    parser.add_argument('--trace-native', action='store_true', help='synthetic private-namespace socket syscall evidence only')
     parser.add_argument('--inside', action='store_true')
     parser.add_argument('--parent-netns')
     args = parser.parse_args()
@@ -277,7 +339,7 @@ def main():
         parser.error('explicit root Linux NIMBO_DISPOSABLE_NETNS=1 fixture opt-in required')
     binary, helper = args.binary.resolve(strict=True), args.helper.resolve(strict=True)
     if not args.inside:
-        subprocess.check_call(['unshare', '--net', '--mount', '--', sys.executable, str(Path(__file__).resolve()), '--inside', '--parent-netns', os.readlink('/proc/self/ns/net'), '--binary', str(binary), '--helper', str(helper), *(['--rust-test', str(args.rust_test.resolve(strict=True))] if args.rust_test else [])])
+        subprocess.check_call(['unshare', '--net', '--mount', '--', sys.executable, str(Path(__file__).resolve()), '--inside', '--parent-netns', os.readlink('/proc/self/ns/net'), '--binary', str(binary), '--helper', str(helper), *(['--rust-test', str(args.rust_test.resolve(strict=True))] if args.rust_test else []), *(['--trace-native'] if args.trace_native else [])])
         return
     assert args.parent_netns and os.readlink('/proc/self/ns/net') != args.parent_netns
     assert [r['ifname'] for r in json.loads(fixture.ip('-j', 'link', 'show', capture=True))] == ['lo'], 'refuse non-fresh namespace'
@@ -285,7 +347,7 @@ def main():
     for path in ('/run', '/usr/local/lib'):
         assert Path(path).is_dir()
         subprocess.check_call(['mount', '-t', 'tmpfs', '-o', 'mode=0755', 'tmpfs', path])
-    fixture.inside(binary, args.parent_netns, lambda source, before: broker_checks(helper, binary, source, before, args.rust_test, args.parent_netns))
+    fixture.inside(binary, args.parent_netns, lambda source, before: broker_checks(helper, binary, source, before, args.rust_test, args.parent_netns, args.trace_native))
 
 
 if __name__ == '__main__':
