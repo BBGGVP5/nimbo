@@ -5,9 +5,9 @@ body,body[data-ui-style],body[data-ui-style][data-theme="dark"],body[data-ui-sty
   --primary:#e8e8e8; --on-primary:#202020; font-family:"Segoe UI Variable Text","Segoe UI",sans-serif;
 }
 body[data-ui-style][data-theme="light"] { --bg:#f5f4f1; --bg-deep:#f5f4f1; --bg-tilt:#fff; --surface:#fff; --surface-elev:#efefec; --tile:#efefec; --line:#dededb; --line-strong:#b9b9b5; --text:#202020; --muted:#676767; --faint:#676767; --primary:#202020; --on-primary:#fff; }
-body .installer-shell { display:grid; grid-template-columns:260px minmax(0,1fr); background:var(--bg) !important; box-shadow:none; overflow:auto; }
+body .installer-shell { display:grid; grid-template-columns:260px minmax(0,1fr); background:var(--bg) !important; box-shadow:none; overflow:hidden; }
 .installer-caption { display:none; }
-body .side-rail { padding:32px 24px; background:var(--surface) !important; border-right:1px solid var(--line); align-items:stretch; gap:24px; overflow:auto; }
+body .side-rail { display:flex; padding:32px 24px; background:var(--surface) !important; border-right:1px solid var(--line); align-items:stretch; gap:24px; overflow:auto; }
 body .brand { gap:12px; justify-content:flex-start; }
 body .brand-logo { width:44px; height:44px; filter:none; }
 body[data-theme="light"] .brand-logo { filter:invert(1); }
@@ -27,7 +27,7 @@ body .rail-center { display:flex; flex-direction:column; align-items:stretch; ju
 .installer-step-list .is-running .installer-step-index { border-color:var(--primary); color:var(--text); }
 .installer-step-list .is-failed .installer-step-index { border-color:var(--red); color:var(--red); }
 .installer-current-detail { font-size:11px; color:var(--muted); margin:24px 0 0; line-height:1.6; overflow-wrap:anywhere; }
-body .install-panel { min-width:0; min-height:0; overflow:auto; display:flex; flex-direction:column; align-items:stretch; padding:48px clamp(20px,4vw,64px) 28px; gap:24px; background:var(--bg) !important; }
+body .install-panel { min-width:0; min-height:0; overflow:auto; display:flex; flex-direction:column; align-items:stretch; padding:24px clamp(20px,3vw,40px) 20px; gap:14px; background:var(--bg) !important; }
 body .hero { margin:0; }
 body .hero-title { color:var(--text); font-size:clamp(24px,3vw,34px); letter-spacing:-.04em; line-height:1.2; background:none; -webkit-text-fill-color:currentColor; }
 body .hero p { max-width:580px; font-size:13px; line-height:1.7; color:var(--muted); }
@@ -72,3 +72,50 @@ body .window-close { position:fixed; top:8px; right:8px; width:44px; height:44px
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none !important; transition:none !important; } }
 
 body[data-ui-style] :is(.ghost-button,.primary-button) { border-radius:12px !important; }
+
+/* One spacing authority: legacy theme rules must not add a second set of margins. */
+body[data-ui-style] .install-panel > :is(.path-row,.option-row,.detail-card) { margin:0; flex-shrink:0; }
+body[data-ui-style] .hero { padding-right:28px; flex-shrink:0; }
+body[data-ui-style] .hero-title { margin:6px 0; }
+body[data-ui-style] .hero p { line-height:1.45; }
+body[data-ui-style] .path-row { padding:12px; gap:8px; }
+body[data-ui-style] .path-row-field { padding:4px 4px 4px 12px; align-items:center; gap:12px; min-height:44px; background:var(--surface-elev) !important; }
+body[data-ui-style] .path-input { appearance:none; min-width:0; flex:1; height:34px; padding:0; border:0; background:transparent; box-shadow:none; font-family:inherit; font-size:13px; line-height:normal; user-select:text; }
+body[data-ui-style] .path-input:focus-visible { outline:none; }
+body[data-ui-style] .path-row-field:focus-within { outline:2px solid var(--text); outline-offset:2px; }
+body[data-ui-style] .folder-button { flex:none; min-height:34px; height:auto; padding:7px 14px; border-radius:10px; }
+body[data-ui-style] .option-row { grid-template-columns:repeat(3,minmax(0,1fr)); padding:0; border:0; background:transparent; }
+body[data-ui-style] .toggle { min-height:46px; padding:8px 10px; gap:8px; border-radius:12px; }
+body[data-ui-style] .toggle-text { font-size:12px; white-space:normal; line-height:1.25; overflow:visible; }
+body[data-ui-style] .toggle input { display:block; position:absolute; width:1px; height:1px; opacity:0; }
+body[data-ui-style] .toggle:has(input:focus-visible) { outline:2px solid var(--text); outline-offset:2px; }
+body[data-ui-style] .detail-card { padding:12px; gap:10px; background:var(--surface); box-shadow:none; }
+body[data-ui-style] .option-row-single { grid-template-columns:minmax(0,1fr); }
+body[data-ui-style] .detail-lines { grid-template-columns:repeat(2,minmax(0,1fr)); }
+body[data-ui-style] .detail-line { padding:6px 4px; border:0; border-radius:8px; }
+body[data-ui-style] .detail-line + .detail-line { border:0; border-radius:8px; }
+body[data-ui-style] .detail-line-text { min-width:0; }
+body[data-ui-style] .detail-line-text small { line-height:1.35; }
+body[data-ui-style] .actions { margin-top:auto; padding-top:0; flex-shrink:0; }
+body[data-ui-style] .actions :is(.primary-button,.ghost-button) { min-height:42px; padding:10px 16px; }
+body[data-ui-style] .error-box { flex-shrink:0; padding:12px; }
+@media (max-height:600px) and (min-width:768px) {
+  body[data-ui-style] .install-panel { padding:20px 20px 14px; gap:10px; }
+  body[data-ui-style] .hero-meta { font-size:10px; }
+  body[data-ui-style] .hero-title { font-size:25px; }
+  body[data-ui-style] .detail-card { padding:10px; gap:6px; }
+  body[data-ui-style] .detail-line { padding:4px; }
+  body[data-ui-style] .detail-line-text small { display:none; }
+  body[data-ui-style] .side-rail { padding:20px; gap:12px; }
+  body[data-ui-style] .rail-center { margin-top:12px; }
+  .installer-step-list { gap:8px; }
+  .installer-step-count { margin:8px 0 12px; }
+  .installer-current-detail { margin-top:12px; }
+}
+@media(max-width:767px) {
+  body[data-ui-style] .installer-shell { overflow:auto; }
+  body[data-ui-style] .option-row { grid-template-columns:1fr; }
+  body[data-ui-style] .path-row-label { align-items:flex-start; flex-wrap:wrap; }
+  body[data-ui-style] .path-row-helper { margin-left:0; }
+  body[data-ui-style] .install-panel { overflow:visible; }
+}

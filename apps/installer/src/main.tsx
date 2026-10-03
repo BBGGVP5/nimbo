@@ -632,14 +632,16 @@ function InstallApp() {
               </span>
             </div>
             <div className="path-row-field">
-              <textarea
+              <input
+                className="path-input"
+                type="text"
                 value={installDir}
                 disabled={phase === "installing"}
                 onChange={(event) => setInstallDir(event.target.value.replace(/[\r\n]+/g, ""))}
                 aria-label="Папка установки"
                 spellCheck={false}
-                rows={1}
-                wrap="off"
+                autoComplete="off"
+                title={installDir}
               />
               <button
                 className="folder-button"
@@ -882,13 +884,15 @@ function UninstallApp() {
               </span>
             </div>
             <div className="path-row-field">
-              <textarea
+              <input
+                className="path-input"
+                type="text"
                 value={probe?.install_dir ?? ""}
                 disabled
                 aria-label="Папка установки"
                 spellCheck={false}
-                rows={1}
-                wrap="off"
+                autoComplete="off"
+                title={probe?.install_dir ?? ""}
               />
             </div>
           </div>

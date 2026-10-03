@@ -129,7 +129,7 @@ pub async fn preflight(request: MihomoTunRequest) -> Result<(), String> {
     }
 }
 pub struct Lease {
-    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    stop: Option<tokio::sync::oneshot::Sender<bool>>,
     result: std::sync::mpsc::Receiver<Result<(), String>>,
     running: Arc<AtomicBool>,
 }
@@ -161,7 +161,7 @@ impl Lease {
                     if startup.send(Ok(ready)).is_err(){return Err("CONNECTION_CANCELLED".into());}
                     loop{
                         tokio::select!{
-                            _=&mut cancel=>break,
+                            r=&mut cancel=>{if r != Ok(true) {return Ok(());} break;},
                             _=tokio::time::sleep(Duration::from_secs(1))=>{}
                         }
                         match call(&mut pipe, Command::MihomoStatus, Duration::from_secs(2)).await {
@@ -192,11 +192,17 @@ impl Lease {
     pub fn running(&mut self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
+    pub fn abandon(&mut self) {
+        // Dropping the sender closes the owning pipe, but never sends Down.
+        drop(self.stop.take());
+        self.running.store(false, Ordering::SeqCst);
+        let _ = self.result.recv_timeout(Duration::from_secs(3));
+    }
     pub fn stop(&mut self) -> Result<(), String> {
         let Some(stop) = self.stop.take() else {
             return Ok(());
         };
-        let _ = stop.send(());
+        let _ = stop.send(true);
         self.result
             .recv_timeout(Duration::from_secs(38))
             .map_err(|_| "TUN_CLEANUP_FAILED")?
@@ -204,13 +210,28 @@ impl Lease {
 }
 impl Drop for Lease {
     fn drop(&mut self) {
-        let _ = self.stop();
+        self.abandon();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dropping_a_lease_is_not_an_explicit_disconnect() {
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        let (result_tx, result) = std::sync::mpsc::channel();
+        result_tx.send(Ok(())).unwrap();
+        drop(Lease {
+            stop: Some(tx),
+            result,
+            running: Arc::new(AtomicBool::new(true)),
+        });
+        assert_eq!(
+            rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        );
+    }
     #[tokio::test]
     async fn kernel_pid_rejects_a_substitute_pipe_server() {
         use tokio::net::windows::named_pipe::{ClientOptions, ServerOptions};

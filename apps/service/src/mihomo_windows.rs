@@ -218,17 +218,10 @@ pub struct InstallPlan {
     image: Vec<u8>,
 }
 impl InstallPlan {
-    pub fn prepare() -> Result<Self, String> {
-        let source = std::env::current_exe().map_err(|_| "INSTALL_FAILED")?;
-        // Keep legacy-only architectures on their existing installation path.
-        // They never expose native TUN operations or a verified native anchor.
+    /// Read-only preflight: never adopt, repair or change a foreign ACL.
+    pub fn check_directory() -> Result<PathBuf, String> {
         if expected_hash().is_empty() {
-            return Ok(Self {
-                source,
-                destination: None,
-                native: None,
-                image: Vec::new(),
-            });
+            return root();
         }
         let destination = root()?;
         if !protected_chain(destination.parent().ok_or("UNSAFE_SERVICE_DIRECTORY")?)
@@ -243,6 +236,21 @@ impl InstallPlan {
                 return Err("UNSAFE_SERVICE_DIRECTORY".into());
             }
         }
+        Ok(destination)
+    }
+    pub fn prepare() -> Result<Self, String> {
+        let source = std::env::current_exe().map_err(|_| "INSTALL_FAILED")?;
+        // Keep legacy-only architectures on their existing installation path.
+        // They never expose native TUN operations or a verified native anchor.
+        if expected_hash().is_empty() {
+            return Ok(Self {
+                source,
+                destination: None,
+                native: None,
+                image: Vec::new(),
+            });
+        }
+        let destination = Self::check_directory()?;
         let base = source.parent().ok_or("INSTALL_FAILED")?;
         let platform = option_env!("NIMBO_SERVICE_MIHOMO_PLATFORM").unwrap_or("");
         let candidates = [
@@ -347,13 +355,15 @@ struct Running {
     firewall: Option<crate::mihomo_firewall::Firewall>,
 }
 impl Running {
-    fn stop(&mut self) -> Result<(), String> {
+    fn stop(&mut self, explicit: bool) -> Result<(), String> {
         if self.joined {
             return Ok(());
         }
         let result = join(&mut self.child).and_then(|_| {
             if let Some(firewall) = &self.firewall {
-                firewall.release()?;
+                if explicit {
+                    firewall.release()?;
+                }
             }
             Ok(())
         });
@@ -363,7 +373,7 @@ impl Running {
 }
 impl Drop for Running {
     fn drop(&mut self) {
-        let _ = self.stop();
+        let _ = self.stop(false);
         let _ = fs::remove_dir_all(&self.home);
     }
 }
@@ -405,7 +415,7 @@ impl MihomoOwner {
             }
             // A dead child is never connected. Retain the lease on recovery
             // failure so another engine cannot take over unknown network state.
-            if running.stop().is_ok() {
+            if running.stop(false).is_ok() {
                 drop(g.take());
             }
             false
@@ -540,7 +550,7 @@ impl MihomoOwner {
             }
             Err(error) => {
                 // An uncertain partial start must reserve the owner as well.
-                if running.stop().is_err() {
+                if running.stop(false).is_err() {
                     *guard = Some(running);
                 }
                 Err(error)
@@ -550,7 +560,7 @@ impl MihomoOwner {
     pub fn down(&self, client: u64) -> Result<(), String> {
         let mut guard = self.inner.lock().map_err(|_| "BUSY")?;
         if let Some(running) = guard.as_mut().filter(|r| r.client == client) {
-            let result = running.stop();
+            let result = running.stop(true);
             if result.is_ok() {
                 drop(guard.take());
             }
@@ -560,6 +570,15 @@ impl MihomoOwner {
             Err("LEASE_NOT_OWNED".into())
         } else {
             Ok(())
+        }
+    }
+    /// Pipe loss or OS/service shutdown is not the user's Disconnect action.
+    pub fn abandon(&self, client: u64) {
+        if let Ok(mut guard) = self.inner.lock() {
+            if let Some(running) = guard.as_mut().filter(|r| r.client == client) {
+                let _ = running.stop(false);
+                drop(guard.take());
+            }
         }
     }
     pub fn reset_kill_switch(&self, sid: &str) -> Result<(), String> {

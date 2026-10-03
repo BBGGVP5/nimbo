@@ -276,9 +276,9 @@ pub fn refresh_tray_menu(app: &AppHandle) -> tauri::Result<()> {
             snapshot.preferences.language.resolved(),
         )))?;
     }
-    // Also update the window taskbar icon so the indicator shows there too
+    // The taskbar needs the full-resolution application icon, NOT the tiny tray raster.
     if let Some(window) = app.get_webview_window("main") {
-        if let Ok(icon) = get_tray_icon(connected) {
+        if let Ok(icon) = Image::from_bytes(include_bytes!("../icons/icon.png")) {
             let _ = window.set_icon(icon);
         }
     }

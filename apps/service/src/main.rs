@@ -29,8 +29,12 @@ mod mihomo_owner;
 mod platform_linux;
 
 #[cfg(windows)]
-fn main() -> anyhow::Result<()> {
-    platform::run()
+fn main() {
+    if let Err(error) = platform::run() {
+        tracing::error!(error = %error, "helper operation failed");
+        eprintln!("{error:#}");
+        std::process::exit(platform::failure_exit_code(&error));
+    }
 }
 
 #[cfg(target_os = "linux")]

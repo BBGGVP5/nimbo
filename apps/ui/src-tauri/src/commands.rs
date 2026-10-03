@@ -8480,6 +8480,16 @@ pub fn cleanup_runtime_for_exit(app: &AppHandle) {
     cancel_pings();
     CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst);
     let state = app.state::<AppState>();
+    #[cfg(windows)]
+    if state.snapshot().pending_mihomo_kill_switch {
+        // Leave the private WFP journal/pending marker armed through shutdown.
+        // Taking this owner first keeps generic teardown from sending MihomoDown.
+        state.runtime(|runtime| {
+            if let Some(mut session) = runtime.mihomo.take() {
+                session.abandon_now();
+            }
+        });
+    }
     if let Err(error) = stop_runtime(&state) {
         tracing::warn!(?error, "failed to clean runtime during app exit");
     }

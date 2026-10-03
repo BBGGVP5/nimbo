@@ -36,10 +36,13 @@ pub fn run() -> Result<()> {
                 return Ok(());
             }
         },
-        Mode::Install | Mode::Uninstall | Mode::PreInstall => None,
+        Mode::Install | Mode::Uninstall | Mode::PreInstall | Mode::CheckInstallDirectory => None,
     };
 
     match mode {
+        Mode::CheckInstallDirectory => crate::mihomo_windows::InstallPlan::check_directory()
+            .map(|_| ())
+            .map_err(|e| anyhow!(e)),
         Mode::Install => maybe_elevate_then("--install", install_service),
         Mode::Uninstall => maybe_elevate_then("--uninstall", uninstall_service),
         Mode::PreInstall => maybe_elevate_then("--pre-install", pre_install_stop),
@@ -67,6 +70,7 @@ enum Mode {
     Install,
     Uninstall,
     PreInstall,
+    CheckInstallDirectory,
     RunForeground,
     Service,
 }
@@ -74,6 +78,7 @@ enum Mode {
 fn parse_mode(args: &[String]) -> Mode {
     for arg in args.iter().skip(1) {
         match arg.as_str() {
+            "--check-install-directory" => return Mode::CheckInstallDirectory,
             "--install" | "install" => return Mode::Install,
             "--uninstall" | "uninstall" => return Mode::Uninstall,
             "--pre-install" | "pre-install" => return Mode::PreInstall,
@@ -516,4 +521,47 @@ fn is_not_found(err: &windows_service::Error) -> bool {
         return io_err.raw_os_error() == Some(1060);
     }
     false
+}
+
+/// Preserve specific causes through the ShellExecute/UAC boundary; the installer
+/// can explain static codes without reading unrelated logs or suppressing errors.
+pub fn failure_exit_code(error: &anyhow::Error) -> i32 {
+    let message = format!("{error:#}");
+    for (reason, code) in [
+        ("UNSAFE_SERVICE_DIRECTORY", 21),
+        ("CORE_UNAVAILABLE", 22),
+        ("CORE_HASH_MISMATCH", 23),
+    ] {
+        if message.contains(reason) || message.contains(&format!("exited with code {code}")) {
+            return code;
+        }
+    }
+    if message.contains("UAC отменён") {
+        1223
+    } else {
+        1
+    }
+}
+#[cfg(test)]
+mod install_error_tests {
+    #[test]
+    fn install_causes_survive_elevation() {
+        for (cause, code) in [
+            ("UNSAFE_SERVICE_DIRECTORY", 21),
+            ("CORE_UNAVAILABLE", 22),
+            ("CORE_HASH_MISMATCH", 23),
+        ] {
+            assert_eq!(super::failure_exit_code(&anyhow::anyhow!(cause)), code);
+            assert_eq!(
+                super::failure_exit_code(&anyhow::anyhow!(
+                    "elevated --install exited with code {code}"
+                )),
+                code
+            );
+        }
+        assert_eq!(
+            super::failure_exit_code(&anyhow::anyhow!("SCM unavailable")),
+            1
+        );
+    }
 }

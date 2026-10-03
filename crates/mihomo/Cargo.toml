@@ -26,3 +26,4 @@ socket2 = "0.6"
 
 [target.'cfg(windows)'.dev-dependencies]
 winreg = "0.55"
+windows-sys = { version = "0.59", features = ["Win32_NetworkManagement_WindowsFilteringPlatform"] }

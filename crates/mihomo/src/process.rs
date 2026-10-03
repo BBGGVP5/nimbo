@@ -315,6 +315,14 @@ impl Session {
             _ => Err("CORE_STOP_FORCED".into()),
         }
     }
+    /// Windows app/OS exit must retain external protection, unlike Disconnect.
+    #[cfg(windows)]
+    pub fn abandon_now(&mut self) {
+        match &mut self.child {
+            SessionOwner::Tun(lease) => lease.abandon(),
+            SessionOwner::Proxy(child) => child.terminate(),
+        }
+    }
     /// For synchronous app exit or generic legacy teardown. Only this owned
     /// process is terminated; parent manages its separate system-proxy snapshot.
     pub fn stop_now(&mut self) -> Result<(), String> {

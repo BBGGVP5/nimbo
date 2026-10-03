@@ -45,7 +45,7 @@ export function mihomoErrorMessage(error: unknown, ru: boolean): string {
  const messages: Record<string, [string, string]> = {
   KILL_SWITCH_FAILED: ['Не удалось подтвердить защиту Kill Switch. Подключение не запущено; проверьте системный помощник.', 'Kill Switch protection could not be verified. Connection was not started; check the system helper.'],
   KILL_SWITCH_NOT_OWNED: ['Защита принадлежит другому пользователю Windows. Снять её может владелец сеанса.', 'Protection belongs to another Windows user. Its session owner must release it.'],
-  KILL_SWITCH_RESET_REQUIRED: ['После сбоя сохранён Kill Switch. Нажмите «Сбросить Kill Switch» перед новым подключением.', 'Kill Switch was retained after a failure. Use Reset Kill Switch before reconnecting.'],
+  KILL_SWITCH_RESET_REQUIRED: ['После сбоя, закрытия приложения или перезагрузки сохранён Kill Switch. Нажмите «Сбросить Kill Switch» перед новым подключением.', 'Kill Switch was retained after failure, app exit or a reboot. Use Reset Kill Switch before reconnecting.'],
   UNSUPPORTED_DESKTOP_CONFIG: ['Настройки профиля конфликтуют с управляемыми интерфейсом, маршрутами или DNS. Профиль не изменён.', 'Profile settings conflict with the managed interface, routes or DNS. The profile was not changed.'],
   MIHOMO_TUN_UNAVAILABLE: ['Этот сетевой режим Mihomo недоступен в текущей сборке. На Linux и Windows нужен подготовленный TUN-помощник.', 'This Mihomo network mode is unavailable. Linux and Windows require the prepared TUN helper.'],
   MIHOMO_HELPER_REQUIRED: ['Подготовьте системный помощник Mihomo TUN. Повышаются права только установки, не всего приложения.', 'Prepare the Mihomo TUN system helper. Only installation is elevated, never the GUI.'],

@@ -149,7 +149,7 @@ async fn client(
         }
     }
     // Dropped GUI or a cancelled start ends exactly this lease, not another SID's.
-    let _ = tokio::task::spawn_blocking(move || owner.down(id)).await;
+    let _ = tokio::task::spawn_blocking(move || owner.abandon(id)).await;
 }
 fn raw_alive(handle: isize, shutdown: &AtomicBool) -> bool {
     !shutdown.load(Ordering::SeqCst)

@@ -208,6 +208,83 @@ fn native_udp_dns() {
     let (n, _) = udp.recv_from(&mut b).unwrap();
     assert_eq!(&b[n - 4..n], &[192, 0, 2, 123]);
 }
+fn assert_registered_reboot_policy() {
+    use windows_sys::{core::GUID, Win32::NetworkManagement::WindowsFilteringPlatform::*};
+    let journal: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            nimbo_ipc::windows::root()
+                .unwrap()
+                .join("kill-switch/owner.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(journal["version"], 2);
+    let id = uuid::Uuid::parse_str(journal["sublayer"].as_str().unwrap()).unwrap();
+    let key = GUID::from_u128(id.as_u128());
+    unsafe {
+        let mut engine = std::ptr::null_mut();
+        assert_eq!(
+            FwpmEngineOpen0(
+                std::ptr::null(),
+                10,
+                std::ptr::null(),
+                std::ptr::null(),
+                &mut engine
+            ),
+            0
+        );
+        let mut provider = std::ptr::null_mut();
+        assert_eq!(FwpmProviderGetByKey0(engine, &key, &mut provider), 0);
+        assert_eq!(
+            (*provider).flags & FWPM_PROVIDER_FLAG_PERSISTENT,
+            FWPM_PROVIDER_FLAG_PERSISTENT
+        );
+        assert!(
+            (*provider).serviceName.is_null(),
+            "helper disable must not disable protection"
+        );
+        FwpmFreeMemory0((&mut provider as *mut *mut FWPM_PROVIDER0).cast());
+        let mut layer = std::ptr::null_mut();
+        assert_eq!(FwpmSubLayerGetByKey0(engine, &key, &mut layer), 0);
+        assert_eq!(
+            (*layer).flags & FWPM_SUBLAYER_FLAG_PERSISTENT,
+            FWPM_SUBLAYER_FLAG_PERSISTENT
+        );
+        FwpmFreeMemory0((&mut layer as *mut *mut FWPM_SUBLAYER0).cast());
+        for family in 0..2u8 {
+            for role in 0..7u8 {
+                let mut bytes = *id.as_bytes();
+                bytes[0] ^= 0x80;
+                bytes[14] ^= family;
+                bytes[15] ^= role;
+                let k = GUID::from_u128(u128::from_be_bytes(bytes));
+                let mut f = std::ptr::null_mut();
+                assert_eq!(
+                    FwpmFilterGetByKey0(engine, &k, &mut f),
+                    0,
+                    "persistent/boot filter absent"
+                );
+                let flags = match role {
+                    0 | 2 | 3 => FWPM_FILTER_FLAG_PERSISTENT,
+                    5 | 6 => FWPM_FILTER_FLAG_BOOTTIME,
+                    _ => 0,
+                };
+                assert_eq!(
+                    (*f).flags & (FWPM_FILTER_FLAG_BOOTTIME | FWPM_FILTER_FLAG_PERSISTENT),
+                    flags
+                );
+                assert_eq!(
+                    (*f).flags & FWPM_FILTER_FLAG_DISABLED,
+                    0,
+                    "saved block must remain enabled"
+                );
+                FwpmFreeMemory0((&mut f as *mut *mut FWPM_FILTER0).cast());
+            }
+        }
+        FwpmEngineClose0(engine);
+    }
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "WFP/network mutations: explicitly disposable GitHub VM only"]
 async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_death() {
@@ -228,7 +305,7 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
         (true, true, true)
     );
     physical_probe().expect("physical baseline is required, never skip a denied-bypass test");
-    for failure in 0..3 {
+    for failure in 0..5 {
         eprintln!("Both/WFP case {failure}: baseline then owned start");
         let dns = physical_dns_socket().expect("physical DNS socket baseline");
         physical_dns(&dns).expect("physical DNS baseline must pass");
@@ -236,6 +313,7 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
             .await
             .unwrap();
         assert!(session.info.tun_ready && session.is_running());
+        assert_registered_reboot_policy();
         let mixed = nimbo_mihomo::wire::loopback_address(&session.info.mixed_address).unwrap();
         assert!(tcp("198.18.0.10:18080").ends_with(b"nimbo-windows-tun"));
         assert!(tcp("[2001:db8::10]:18080").ends_with(b"nimbo-windows-tun"));
@@ -278,17 +356,24 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
             let core = nimbo_ipc::windows::root().unwrap().join("nimbo-mihomo.exe");
             let script = if failure == 1 {
                 format!("$p=@(Get-CimInstance Win32_Process | Where-Object ExecutablePath -eq '{}'); if($p.Count -ne 1){{throw 'fixed native child missing'}}; Stop-Process -Id $p[0].ProcessId -Force",core.display().to_string().replace('\'',"''"))
+            } else if failure == 3 {
+                "Stop-Service NimboHelper -ErrorAction Stop".into()
             } else {
                 "$s=Get-CimInstance Win32_Service -Filter \"Name='NimboHelper'\"; if(!$s.ProcessId){throw 'SCM helper missing'}; Stop-Process -Id $s.ProcessId -Force".into()
             };
-            let output = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "native-only crash injection failed"
-            );
+            if failure == 4 {
+                // Same path as GUI/Windows exit, without an explicit Disconnect.
+                session.abandon_now();
+            } else {
+                let output = std::process::Command::new("powershell")
+                    .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "owned crash/service-stop injection failed"
+                );
+            }
             let deadline = std::time::Instant::now() + Duration::from_secs(8);
             while session.is_running() && std::time::Instant::now() < deadline {
                 tokio::time::sleep(Duration::from_millis(50)).await;
@@ -313,7 +398,7 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
                     .is_err(),
                 "failure removed physical UDP protection"
             );
-            if failure == 2 {
+            if matches!(failure, 2 | 3) {
                 let status=std::process::Command::new("powershell").args(["-NoProfile","-NonInteractive","-Command","if((Get-Service NimboHelper).Status -ne 'Running'){Start-Service NimboHelper}"]).output().unwrap();
                 assert!(status.status.success(), "SCM helper restart failed");
                 let deadline = std::time::Instant::now() + Duration::from_secs(15);
@@ -328,6 +413,7 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
                     "helper restart silently cleared protection"
                 );
             }
+            assert_registered_reboot_policy();
             eprintln!("Both/WFP case {failure}: protection retained, explicit reset");
             nimbo_mihomo::helper::reset_kill_switch().await.unwrap();
         } else {

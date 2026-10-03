@@ -470,6 +470,9 @@ fn install_blocking_windows(
         6,
         "Отключаем Nimbo и останавливаем хелпер",
     );
+    // Check native trust BEFORE stopping the existing app/service or replacing
+    // anything. A failed preflight leaves the user's installation untouched.
+    preflight_embedded_helper()?;
     prepare_windows_upgrade(&install_dir)?;
     ensure_install_dir_writable(&install_dir)?;
     emit(&app, "prepare", "done", 12, "Окружение готово");
@@ -499,8 +502,9 @@ fn install_blocking_windows(
         replace_payload(&tun_dir.join("geoip.dat"), GEOIP_BYTES)?;
         replace_payload(&tun_dir.join("geosite.dat"), GEOSITE_BYTES)?;
     }
-    run_status(&install_dir.join(APP_EXE), &["--install-tun"])
-        .map_err(|e| format!("TUN-компоненты не установились: {e}"))?;
+    // Already embedded/copied: never execute the GUI's x64-only downloader.
+    verify_staged_dependency(&tun_dir.join("tun2socks.exe"), TUN2SOCKS_BYTES)?;
+    verify_staged_dependency(&tun_dir.join("wintun.dll"), WINTUN_BYTES)?;
     cleanup_old_tun_binaries(&tun_dir);
     emit(&app, "tun", "done", 56, "TUN готов");
 
@@ -1227,6 +1231,58 @@ fn make_executable(_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn preflight_embedded_helper() -> Result<(), String> {
+    use std::io::Write;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "Не удалось подготовить проверку службы")?
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "nimbo-helper-check-{}-{nonce}.exe",
+        std::process::id()
+    ));
+    let mut file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&path)
+        .map_err(|e| format!("Не удалось подготовить проверку службы: {e}"))?;
+    let result = (|| {
+        file.write_all(HELPER_BYTES)
+            .and_then(|_| file.sync_all())
+            .map_err(|e| format!("Не удалось подготовить проверку службы: {e}"))?;
+        drop(file);
+        // No elevation/network/service/ACL mutations in this CLI mode.
+        run_status(&path, &["--check-install-directory"])
+    })();
+    let _ = fs::remove_file(&path);
+    result
+}
+fn helper_failure_message(code: i32) -> Option<&'static str> {
+    match code {
+        21 => Some("Невозможно безопасно установить системную службу: на диске или в родительской папке Program Files есть права записи у обычного пользователя. Исправьте права Windows с администратором и повторите установку. Проверка безопасности не отключена; прежняя установка сохранена."),
+        22 => Some("Ядро Mihomo отсутствует или не соответствует этой сборке. Скачайте полный установщик заново."),
+        23 => Some("Контрольная сумма ядра Mihomo не совпадает. Скачайте полный установщик заново."),
+        1223 => Some("Установка системной службы отменена в запросе прав администратора."),
+        _ => None,
+    }
+}
+
+fn verify_staged_dependency(path: &Path, embedded: &[u8]) -> Result<(), String> {
+    let bytes =
+        fs::read(path).map_err(|e| format!("Не удалось проверить {}: {e}", path.display()))?;
+    if embedded.is_empty()
+        || bytes.len() != embedded.len()
+        || Sha256::digest(&bytes) != Sha256::digest(embedded)
+    {
+        return Err(format!(
+            "Проверка TUN-компонента {} не пройдена: файл повреждён",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
 fn run_status(exe: &Path, args: &[&str]) -> Result<(), String> {
     let status = hidden_command(exe)
         .args(args)
@@ -1235,6 +1291,9 @@ fn run_status(exe: &Path, args: &[&str]) -> Result<(), String> {
     if status.success() {
         Ok(())
     } else {
+        if let Some(message) = status.code().and_then(helper_failure_message) {
+            return Err(message.into());
+        }
         Err(format!(
             "{} завершился с кодом {:?}",
             exe.display(),
@@ -1832,6 +1891,26 @@ mod awg_install_tests {
         }
     }
 
+    #[test]
+    fn helper_error_is_actionable_without_exposing_unrelated_logs() {
+        assert!(helper_failure_message(21).unwrap().contains("права записи"));
+        assert!(helper_failure_message(22)
+            .unwrap()
+            .contains("полный установщик"));
+        assert!(helper_failure_message(1223).unwrap().contains("отменена"));
+        assert!(helper_failure_message(1).is_none());
+    }
+    #[test]
+    fn staged_dependency_is_verified_offline_and_rejects_corruption() {
+        let fixture = Fixture::new();
+        let path = fixture.0.join("wintun.dll");
+        assert!(verify_staged_dependency(&path, b"embedded driver").is_err());
+        fs::write(&path, b"embedded driver").unwrap();
+        verify_staged_dependency(&path, b"embedded driver").unwrap();
+        fs::write(&path, b"changed driver!").unwrap();
+        assert!(verify_staged_dependency(&path, b"embedded driver").is_err());
+        assert!(verify_staged_dependency(&path, b"").is_err());
+    }
     #[test]
     fn embedded_awg_installs_exact_bytes_in_runtime_resource_layout() {
         let fixture = Fixture::new();

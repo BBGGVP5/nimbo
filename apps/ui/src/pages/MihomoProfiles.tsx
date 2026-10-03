@@ -105,7 +105,7 @@ export function MihomoProfiles() {
       <p>{text('Полные профили · группы и правила', 'Full profiles · groups and rules')}</p>
     </header>
     <div className="mihomo-notice">
-      {text('Windows и Linux: TUN через проверенный системный помощник. Windows поддерживает System Proxy и Both, а с новым помощником — внешний Kill Switch для TUN/Both. Защита сохраняется при сбое ядра до явного сброса; не действует после перезапуска BFE или Windows. Настройки подключения не меняются автоматически.', 'Windows and Linux: TUN through the verified system helper. Windows supports System Proxy and Both; the updated helper provides external Kill Switch for TUN/Both. Protection survives a core failure until explicit reset, not a BFE/Windows restart. Connection settings are never changed automatically.')}
+      {text('Windows и Linux: TUN через проверенный системный помощник. Windows поддерживает System Proxy и Both, а с новым помощником — внешний Kill Switch для TUN/Both. Защита сохраняется при сбое и закрытии приложения. Правила записываются для загрузки Windows; после перезапуска нужен явный сброс перед новым подключением. Настройки подключения не меняются автоматически.', 'Windows and Linux: TUN through the verified system helper. Windows supports System Proxy and Both; the updated helper provides external Kill Switch for TUN/Both. Protection survives failure and app exit. Windows boot protection is registered; after a restart, explicitly reset before reconnecting. Connection settings are never changed automatically.')}
       {!native && <p>{text('Для импорта и подключения откройте desktop-приложение.', 'Open the desktop app to import and connect.')}</p>}
       {native && blocked && <p role="status">{mihomoErrorMessage(blocked, ru)}</p>}
     </div>

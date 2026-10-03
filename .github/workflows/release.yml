@@ -95,6 +95,12 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File apps/installer/build-custom-installer.ps1 -All
 
+      - name: Проверить разметку установщика без установки на runner
+        working-directory: apps/installer
+        run: |
+          npx playwright install chromium
+          npm run test:layout
+
       - name: Проверить откат файлов установщика
         run: cargo test --locked -p nimbo-installer --bin nimbo-installer
 

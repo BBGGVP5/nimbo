@@ -1,5 +1,5 @@
-//! External session Kill Switch. Static WFP objects outlive the native child and
-//! the helper handle. They end only on verified explicit release or BFE restart.
+//! External persistent Kill Switch. Boot-time and persistent WFP blocks outlive
+//! Windows/BFE restart. Ephemeral app and TUN permits never survive BFE restart.
 //! No global Windows Firewall policy, registry or foreign-filter operations.
 use nimbo_ipc::windows::{private_directory, protected, protected_chain, root, wide, Descriptor};
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,14 @@ use windows_sys::{
 };
 const FAILURE: &str = "KILL_SWITCH_FAILED";
 const OWNER: &str = "KILL_SWITCH_NOT_OWNED";
-const ROLES: u8 = 5; // block, core, loopback, DHCP, exact TUN LUID; two IP families
+const ROLES: u8 = 7; // runtime block/core/loopback/DHCP/TUN; boot block/loopback
+fn filter_flags(role: u8) -> u32 {
+    match role {
+        0 | 2 | 3 => FWPM_FILTER_FLAG_PERSISTENT,
+        5 | 6 => FWPM_FILTER_FLAG_BOOTTIME,
+        _ => 0, // Never persist a process/path or recycled TUN LUID permit.
+    }
+}
 fn checked(code: u32) -> Result<(), String> {
     if code == 0 {
         Ok(())
@@ -53,7 +60,7 @@ struct Journal {
 }
 impl Journal {
     fn authorize(&self, sid: &str) -> Result<(), String> {
-        if self.version != 1 || self.sid != sid {
+        if !matches!(self.version, 1 | 2) || self.sid != sid {
             Err(OWNER.into())
         } else {
             Ok(())
@@ -98,20 +105,24 @@ impl Engine {
         conditions: &mut [FWPM_FILTER_CONDITION0],
     ) -> Result<(), String> {
         let mut f: FWPM_FILTER0 = unsafe { std::mem::zeroed() };
-        let mut name = wide(OsStr::new("Nimbo Mihomo session Kill Switch"));
+        let mut name = wide(OsStr::new("Nimbo Mihomo persistent Kill Switch"));
+        let mut provider = j.layer_key();
+        f.providerKey = &mut provider;
+        f.flags = filter_flags(role);
         let sd = Descriptor::new("D:P(A;;GA;;;SY)(A;;GA;;;BA)")?;
         f.filterKey = j.key(family, role);
         f.displayData.name = name.as_mut_ptr();
-        f.layerKey = if family == 0 {
-            FWPM_LAYER_ALE_AUTH_CONNECT_V4
-        } else {
-            FWPM_LAYER_ALE_AUTH_CONNECT_V6
+        f.layerKey = match (role >= 5, family) {
+            (true, 0) => FWPM_LAYER_OUTBOUND_TRANSPORT_V4,
+            (true, _) => FWPM_LAYER_OUTBOUND_TRANSPORT_V6,
+            (false, 0) => FWPM_LAYER_ALE_AUTH_CONNECT_V4,
+            (false, _) => FWPM_LAYER_ALE_AUTH_CONNECT_V6,
         };
         f.subLayerKey = j.layer_key();
         f.weight.r#type = FWP_UINT8;
-        f.weight.Anonymous.uint8 = if role == 0 { 0 } else { 15 };
+        f.weight.Anonymous.uint8 = if matches!(role, 0 | 5) { 0 } else { 15 };
         // Permits are soft; never CLEAR_ACTION_RIGHT to bypass another firewall.
-        f.action.r#type = if role == 0 {
+        f.action.r#type = if matches!(role, 0 | 5) {
             FWP_ACTION_BLOCK
         } else {
             FWP_ACTION_PERMIT
@@ -231,7 +242,7 @@ impl Firewall {
         }
         let engine = Engine::open()?;
         let journal = Journal {
-            version: 1,
+            version: 2,
             sid: sid.into(),
             sublayer: Uuid::new_v4(),
             native: Some(crate::mihomo_adapter::NativeProcess::capture(child)?),
@@ -245,10 +256,23 @@ impl Firewall {
             &serde_json::to_vec(&journal).map_err(|_| FAILURE)?,
         )?;
         let result = engine.transaction(|| {
+            let mut provider: FWPM_PROVIDER0 = unsafe { std::mem::zeroed() };
+            let mut provider_key = journal.layer_key();
+            let mut provider_name = wide(OsStr::new("Nimbo Mihomo persistent Kill Switch"));
+            let sd = Descriptor::new("D:P(A;;GA;;;SY)(A;;GA;;;BA)")?;
+            provider.providerKey = provider_key;
+            provider.displayData.name = provider_name.as_mut_ptr();
+            provider.flags = FWPM_PROVIDER_FLAG_PERSISTENT;
+            // No serviceName: a missing/disabled helper must NEVER disable policy.
+            checked(unsafe {
+                FwpmProviderAdd0(engine.0, &provider, sd.attributes().lpSecurityDescriptor)
+            })?;
             let mut s: FWPM_SUBLAYER0 = unsafe { std::mem::zeroed() };
             let mut name = wide(OsStr::new("Nimbo Mihomo external Kill Switch"));
             let sd = Descriptor::new("D:P(A;;GA;;;SY)(A;;GA;;;BA)")?;
             s.subLayerKey = journal.layer_key();
+            s.flags = FWPM_SUBLAYER_FLAG_PERSISTENT;
+            s.providerKey = &mut provider_key;
             s.displayData.name = name.as_mut_ptr();
             s.weight = 0xfffe;
             checked(unsafe {
@@ -275,6 +299,10 @@ impl Firewall {
                 loopback.matchType = FWP_MATCH_FLAGS_ALL_SET;
                 loopback.conditionValue.Anonymous.uint32 = FWP_CONDITION_FLAG_IS_LOOPBACK;
                 engine.add(&journal, family, 2, &mut [loopback])?;
+                // Separate boot-time objects: flags cannot be combined. BFE's
+                // atomic boot/runtime handoff does not depend on our service.
+                engine.add(&journal, family, 5, &mut [])?;
+                engine.add(&journal, family, 6, &mut [loopback])?;
                 let mut protocol = condition(FWPM_CONDITION_IP_PROTOCOL, FWP_UINT8);
                 protocol.conditionValue.Anonymous.uint8 = 17;
                 engine.add(
@@ -379,7 +407,7 @@ pub fn release(sid: &str) -> Result<(), String> {
     let e = Engine::open()?;
     e.transaction(|| {
         for family in 0..2 {
-            for role in 0..ROLES {
+            for role in 0..if j.version == 1 { 5 } else { ROLES } {
                 let code = unsafe { FwpmFilterDeleteByKey0(e.0, &j.key(family, role)) };
                 if code != FWP_E_FILTER_NOT_FOUND as u32 {
                     checked(code)?;
@@ -389,6 +417,12 @@ pub fn release(sid: &str) -> Result<(), String> {
         let code = unsafe { FwpmSubLayerDeleteByKey0(e.0, &j.layer_key()) };
         if code != FWP_E_SUBLAYER_NOT_FOUND as u32 {
             checked(code)?;
+        }
+        if j.version == 2 {
+            let code = unsafe { FwpmProviderDeleteByKey0(e.0, &j.layer_key()) };
+            if code != FWP_E_PROVIDER_NOT_FOUND as u32 {
+                checked(code)?;
+            }
         }
         Ok(())
     })?;
@@ -405,6 +439,16 @@ pub(crate) fn release_for_uninstall() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reboot_policy_does_not_persist_process_or_recycled_luid_permits() {
+        assert_eq!(filter_flags(0), FWPM_FILTER_FLAG_PERSISTENT);
+        assert_eq!(filter_flags(1), 0);
+        assert_eq!(filter_flags(2), FWPM_FILTER_FLAG_PERSISTENT);
+        assert_eq!(filter_flags(3), FWPM_FILTER_FLAG_PERSISTENT);
+        assert_eq!(filter_flags(4), 0);
+        assert_eq!(filter_flags(5), FWPM_FILTER_FLAG_BOOTTIME);
+        assert_eq!(filter_flags(6), FWPM_FILTER_FLAG_BOOTTIME);
+    }
     #[test]
     fn reset_waits_for_positive_retirement_without_removing_an_adapter() {
         let mut checks = 0;
@@ -446,6 +490,9 @@ mod tests {
             native: None,
             device: None,
         };
+        assert!(j.authorize("S-1-5-21-42").is_ok());
+        let mut j = j;
+        j.version = 2;
         assert!(j.authorize("S-1-5-21-42").is_ok());
         assert_eq!(j.authorize("S-1-5-21-43").unwrap_err(), OWNER);
         assert!(serde_json::from_str::<Journal>(r#"{"version":1,"sid":"a","sublayer":"00000000-0000-0000-0000-000000000000","executable":"foreign"}"#).is_err());

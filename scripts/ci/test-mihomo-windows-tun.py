@@ -206,7 +206,7 @@ rules: ["MATCH,FixtureChoice"]
             assert ps("Get-NetFirewallProfile | Sort-Object Name | Select-Object Name,Enabled,DefaultOutboundAction | ConvertTo-Json -Compress") == firewall_before, 'global firewall profile policy changed'
             assert not (Path(os.environ['ProgramFiles']) / 'NimboNativeTun/kill-switch/owner.json').exists(), 'retained WFP journal after explicit reset'
             assert snapshot() == before, 'physical DNS/routes were not restored'
-    print('PASS: authenticated SCM broker; native TCP4/6 UDP DNS; Both mixed/proxy snapshot; physical KS denial + native/helper crash/reset; global firewall and physical DNS/routes unchanged')
+    print('PASS: authenticated SCM broker; native TCP4/6 UDP DNS; Both mixed/proxy snapshot; physical KS denial + native/helper crash, friendly SCM stop, GUI lease abandon and registered persistent/boot policy/reset; global firewall and physical DNS/routes unchanged')
 
 
 if __name__ == '__main__':
