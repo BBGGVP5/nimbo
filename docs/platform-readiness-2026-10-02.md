@@ -1,29 +1,22 @@
-# Follow-up acceptance findings — 3 October 2026
-
-The first Windows live VM fixture at `1691d89` successfully installed/authenticated
-SCM, started the actual adapter and passed TCP4/TCP6, but UDP timed out. Teardown
-retired the adapter and preserved physical DNS/routes. A no-TUN loopback regression
-then reproduced a concrete cause: upstream's packet socket hook received a wildcard
-local bind instead of the actual UDP relay peer and incorrectly bound loopback UDP
-to physical egress. The pinned dialer patch now retains the remote peer without
-changing the public hook ABI; local regression, native suite/vet and source build
-pass. Fresh live Windows acceptance is still required before calling it successful.
-The same run's Linux x64 native/broker suite passed; ARM64 failed after the separate
-Rust session test on a subsequent TCP request, including a repeated attempt. Added
-isolated-only phase/status/kernel diagnostics; do not hide this as a passing build.
-Project CI and Android/shared at `1691d89` are confirmed SUCCESS. Windows packages
-for that earlier revision were started, but do not contain the packet-peer fix.
-
 # Состояние платформ Nimbo — 3 октября 2026
 
 Это инвентаризация подтверждённых возможностей, а не заявление «все протоколы работают везде».
 
 ## Текущий checkpoint: Windows x64 native Mihomo TUN
 
+**Native acceptance подтверждён:** [37105907646](https://github.com/BBGGVP5/nimbo/actions/runs/37105907646), исходники native `c3b0f93`: Windows x64, Linux x64 и Linux ARM64 — SUCCESS.
+
+- На одноразовой Windows VM настоящий GUI-совместимый Rust Session → SCM broker → исходное native ядро прошёл TCP4/TCP6, UDP, DNS hijack, REJECT без обхода, восстановление выбора, два цикла подключения/отключения, stop и Drop/EOF. Счётчики синтетического сервера: TCP 6, UDP association 2, UDP 2, DNS 2. Физические DNS/маршруты сохранились, адаптер удалён.
+- В packet socket hook сохраняется реальный адрес UDP peer вместо локального `:0`. Локальный regression воспроизводил старую ошибку и проходит после pinned source patch. Публичный ABI и immutable установка hook не изменены; неизвестный физический egress по-прежнему отклоняется.
+- [Project CI](https://github.com/BBGGVP5/nimbo/actions/runs/37106001988) и [Android/shared contracts](https://github.com/BBGGVP5/nimbo/actions/runs/37106001771) на `0e9eb15` — SUCCESS. Этот дополнительный коммит меняет только source test: точные шесть reviewed файлов вместо прежнего счётчика четырёх.
+- [Windows x64/x86/ARM64 installer rebuild](https://github.com/BBGGVP5/nimbo/actions/runs/37105908442) содержит исправленное ядро; сборка ещё идёт, `publish=false`. x86/ARM64 installers не означают поддержку Mihomo TUN на этих архитектурах.
+- На ПК разработчика не устанавливалась служба и не менялись сетевые параметры/ACL. Native Windows hard-crash, обычный непривилегированный GUI на реальном ПК, roaming/sleep, внешние Kill Switch/Both и physical hardware/provider matrix всё ещё требуют отдельной проверки.
+
+
 - Реализованы отдельный LocalSystem broker, защищённая установка исходного ядра, проверка SHA, SCM PID, SID/session и владение туннелем конкретным соединением. Старый pipe по-прежнему не принимает сетевые команды.
 - GUI использует полноценный `Session::start_tun` с native контроллером групп/серверов, прежним исходным YAML и подтверждением поколения. Отмена закрывает настоящий pipe; stop/EOF ожидают очистку. При принудительном завершении нет ложного сообщения об успешной очистке.
 - Wintun не принимает существующий адаптер как свой. Исправлен откат незавершённого конструктора, включая dynamic WFP/DNS-фильтры. Права, DLL/ядро, каталог и окружение не берутся из клиентского IPC.
-- Windows локально: IPC 10 + Mihomo 34 + service 4 + desktop 130 тестов; scoped Clippy и frontend build проходят. Linux IPC/runtime/service 7 + 34 + 10 остаются успешными. Live Windows-проверка вынесена в одноразовую GitHub VM; локально намеренно заблокирована. До её результата не считать adapter/DNS runtime подтверждённым. На текущем ПК read-only проверка обнаружила нестандартный FullControl пользовательского SID на корне C:\; строгая проверка цепочки установки его не допускает. Права не изменялись.
+- Windows локально: IPC 10 + Mihomo 34 + service 4 + desktop 130 тестов; scoped Clippy и frontend build проходят. Linux IPC/runtime/service 7 + 34 + 10 остаются успешными. Live Windows-проверка вынесена в одноразовую GitHub VM; локально намеренно заблокирована. Её успешный adapter/DNS результат указан выше; обычный пользователь/реальные устройства остаются отдельной проверкой. На текущем ПК read-only проверка обнаружила нестандартный FullControl пользовательского SID на корне C:\; строгая проверка цепочки установки его не допускает. Права не изменялись.
 - Windows ARM64/x86 Mihomo, Both и постоянный Kill Switch не объявлены готовыми. Windows hard-crash recovery, roaming/sleep и реальные телефоны остаются отдельными воротами готовности.
 - Предыдущий `1efff7c` теперь полностью подтверждён CI: [native](https://github.com/BBGGVP5/nimbo/actions/runs/37099508528), [project](https://github.com/BBGGVP5/nimbo/actions/runs/37099510687), [Android/shared](https://github.com/BBGGVP5/nimbo/actions/runs/37099510679), [IPA](https://github.com/BBGGVP5/nimbo/actions/runs/37099508930), [все desktop-пакеты](https://github.com/BBGGVP5/nimbo/actions/runs/37099510690). Эти артефакты ещё не содержат новой Windows TUN интеграции.
 
@@ -206,3 +199,24 @@ Windows/Linux https://github.com/BBGGVP5/nimbo/actions/runs/37027211807.
 These are artifact-only builds (publish=false); pending is not successful. Run
 37024926758 passed combined C ABI and Apple provider linking, then failed on the
 private UI property fixed in 62c2cec. No main merge or public release.
+
+<details><summary>Первый прогон Windows acceptance (исторический)</summary>
+
+### First acceptance findings — 3 October 2026
+
+The first Windows live VM fixture at `1691d89` successfully installed/authenticated
+SCM, started the actual adapter and passed TCP4/TCP6, but UDP timed out. Teardown
+retired the adapter and preserved physical DNS/routes. A no-TUN loopback regression
+then reproduced a concrete cause: upstream's packet socket hook received a wildcard
+local bind instead of the actual UDP relay peer and incorrectly bound loopback UDP
+to physical egress. The pinned dialer patch now retains the remote peer without
+changing the public hook ABI; local regression, native suite/vet and source build
+pass. Fresh live Windows acceptance is still required before calling it successful.
+The same run's Linux x64 native/broker suite passed; ARM64 failed after the separate
+Rust session test on a subsequent TCP request, including a repeated attempt. Added
+isolated-only phase/status/kernel diagnostics; do not hide this as a passing build.
+Project CI and Android/shared at `1691d89` are confirmed SUCCESS. Windows packages
+for that earlier revision were started, but do not contain the packet-peer fix.
+
+
+</details>
