@@ -99,6 +99,7 @@ def trace_native(service, path, parent):
 def traffic():
     for host in (fixture.TARGET, fixture.TARGET6):
         print('broker traffic: TCP4' if host == fixture.TARGET else 'broker traffic: TCP6', flush=True)
+        rx_before = fixture.tun_rx_bytes()
         client = http.client.HTTPConnection(host, 18080, timeout=5)
         try:
             client.request('GET', '/fixture')
@@ -106,6 +107,7 @@ def traffic():
             assert response.status == 200 and response.read() == b'native-tun-fixture'
         finally:
             client.close()
+        assert fixture.tun_rx_bytes() > rx_before, 'broker '+host+' request did not return through TUN'
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
         client.settimeout(5)
         client.sendto(b'broker', (fixture.TARGET, 15353))
@@ -194,16 +196,17 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None, t
                 assert call(other, 'mihomo_preflight', **dict(request, data_dir='/tmp/forbidden'))['message'] == 'INVALID_PAYLOAD'
             traffic()
             assert controller(ready, 'select', group='Pick', name='REJECT')['success']
-            rejected = http.client.HTTPConnection(fixture.TARGET, 18080, timeout=2)
-            reached = False
-            try:
-                rejected.request('GET', '/fixture')
-                reached = rejected.getresponse().read() == b'native-tun-fixture'
-            except (OSError, http.client.HTTPException):
-                pass
-            finally:
-                rejected.close()
-            assert not reached, 'selection silently bypassed through DIRECT'
+            for host in (fixture.TARGET, fixture.TARGET6):
+                rejected = http.client.HTTPConnection(host, 18080, timeout=2)
+                reached = False
+                try:
+                    rejected.request('GET', '/fixture')
+                    reached = rejected.getresponse().read() == b'native-tun-fixture'
+                except (OSError, http.client.HTTPException):
+                    pass
+                finally:
+                    rejected.close()
+                assert not reached, 'selection '+host+' silently bypassed through DIRECT'
             assert controller(ready, 'select', group='Pick', name='Fixture')['success']
             traffic()
             if ending == 'explicit':
@@ -323,6 +326,10 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None, t
             if process.poll() is None:
                 process.terminate()
             process.wait(timeout=5)
+        # Retain evidence even on success: tracing can change race timing. A
+        # passing traced run is not proof that the untraced runtime was repaired.
+        for _, path in traces:
+            print('synthetic native socket trace '+path.name+':\n'+trace_tail(path), flush=True)
         trace_directory.cleanup()
 
 

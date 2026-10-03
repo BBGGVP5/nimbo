@@ -18,7 +18,7 @@ Execution stays inline on the existing authorized branch; the named superpowers 
 - `docs/platform-readiness-2026-10-02.md`: accurate build/acceptance evidence, including failures and pending gates.
 
 ## Task 1: Capture failing socket identity and route evidence
-- [ ] Add pure trace-tail test before implementation:
+- [x] Add pure trace-tail test before implementation:
 ```python
 with tempfile.TemporaryDirectory() as directory:
     path = Path(directory) / 'socket.trace'
@@ -27,8 +27,8 @@ with tempfile.TemporaryDirectory() as directory:
     assert len(tail.encode()) <= 16384
     assert tail.endswith('connect-failed\n')
 ```
-- [ ] Run `python -m unittest discover -s scripts/ci -p test_mihomo_netns_diagnostics.py`; expect a missing trace-tail helper failure first.
-- [ ] Implement `trace_tail(path)` using a 16384-byte seek-from-end read with UTF-8 replacement. Add `--trace-native` and attach `strace -f -qq -s 96 -e trace=connect,bind,setsockopt,getsockname,getpeername -o <private-temp-file> -p <helper-pid>` only after existing root/fresh-netns/private-mount checks. Wait for TracerPid to confirm attachment. Keep tracing processes joined in finally, dump bounded traces and `ip -j -6 addr/neigh` on failure, re-raise the original exception.
+- [x] Run `python -m unittest discover -s scripts/ci -p test_mihomo_netns_diagnostics.py`; expect a missing trace-tail helper failure first.
+- [x] Implement `trace_tail(path)` using a 16384-byte seek-from-end read with UTF-8 replacement. Add `--trace-native` and attach `strace -f -qq -s 96 -e trace=connect,bind,setsockopt,getsockname,getpeername -o <private-temp-file> -p <helper-pid>` only after existing root/fresh-netns/private-mount checks. Wait for TracerPid to confirm attachment. Keep tracing processes joined in finally, dump bounded traces and `ip -j -6 addr/neigh` on failure, re-raise the original exception.
 - [ ] Require strace in hosted Linux CI; pass `--trace-native`. Run pure unittest and Python syntax checks, inspect diff, commit only these files and push. Read real ARM64 logs; no retry wrapper around failed traffic.
 
 ## Task 2: Evidence-led correction and regression
@@ -48,6 +48,18 @@ for address in ["203.0.113.10:18080", "[fdfe:dcba:9901::10]:18080"] {
 - [ ] Run scoped non-mutating Rust/Go tests, fmt and Clippy. Push and require full native traffic, hot selection, cancellation, crash and exact-restore gates on Linux ARM64/amd64 and Windows x64. A green build without these gates is not success.
 
 ## Task 3: Delivery and readiness
-- [ ] Check Windows installer run `37111046901` (product `923b851`, publish=false), including rollback/embedded-core checks and artifacts.
+- [x] Check Windows installer run `37111046901` (product `923b851`, publish=false), including rollback/embedded-core checks and artifacts.
 - [ ] Mirror only baseline/receipt-matching intentional source files into the primary workspace; preserve unrelated frozen sources and notices.
 - [ ] Update readiness and existing PR with verified outcomes. Keep remaining physical-device/provider/IPv6-bypass and reboot-persistent KS limitations explicit.
+
+Task 1 checkpoint: 7c8a04f pushed; three pure tests first failed for the absent function, then passed. Native run 37113077401 is capturing actual broker socket calls; the IPv6 failure remains unresolved until evidence and corrected acceptance. Windows installer run 37111046901 SUCCESS, three local installers hash-recorded; native support stays x64-only.
+
+## Second evidence checkpoint and stronger gate
+
+7c8a04f run 37113077401: Linux ARM64/amd64 completed all traced broker lifecycle and provider gates SUCCESS. This is **not a runtime fix**: no product source changed, the tracer alters scheduling, and first broker TCP6 still costs about 3.6 seconds. Keep the original untraced gate as a separate mandatory invocation. On Windows, both product feature tests passed, but the emergency-reset utility included by `--ignored` failed `TUN_CLEANUP_FAILED`; its later finally invocation succeeded. Preserve that failure and investigate cleanup timing rather than claim an overall green workflow.
+
+- [x] Extend isolated Rust session to TCP4 and TCP6, not TCP4 only; test remains ignored outside guarded fixtures.
+- [x] Require per-request TUN RX progress and REJECT denial for both literal address families in direct-native and broker fixtures. Aggregate RX from a preceding TCP4 request cannot establish IPv6 capture.
+- [x] Print bounded synthetic traces on success too, because tracer scheduling can hide the original error.
+- [x] Add mandatory untraced broker invocation after traced acceptance in `.github/workflows/mihomo-desktop-tun.yml`; no retries/skip/timeout increase.
+- [ ] Require these strengthened hosted gates to pass before interpreting any earlier green IPv6 traffic result as correct native capture.

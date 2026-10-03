@@ -120,6 +120,11 @@ def verify_restored(before):
     assert after == before, 'namespace routes/rules were not restored exactly: '+json.dumps({'before':before,'after':after},sort_keys=True)
 
 
+def tun_rx_bytes():
+    row = json.loads(ip('-j', '-s', 'link', 'show', 'dev', INTERFACE, capture=True))[0]
+    return row['stats64']['rx']['bytes']
+
+
 def inside(binary, parent, extra=None):
     assert os.geteuid() == 0
     assert os.readlink('/proc/self/ns/net') != parent, 'refuse host network namespace'
@@ -202,10 +207,12 @@ tun: {{enable: true, stack: system, auto-route: true, auto-detect-interface: tru
                     assert info['networkOwner'] == 'desktop-tun' and info['tunReady'] and info['mixedAddress'] == ''
                     for host in (TARGET, TARGET6):
                         print("checking TCPv6" if host == TARGET6 else "checking TCPv4", flush=True)
+                        rx_before = tun_rx_bytes()
                         client = http.client.HTTPConnection(host,18080,timeout=5)
                         client.request('GET','/fixture'); response = client.getresponse()
                         assert response.status == 200 and response.read() == b'native-tun-fixture'
                         client.close()
+                        assert tun_rx_bytes() > rx_before, 'native '+host+' request did not return through TUN'
                     with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as client:
                         client.settimeout(5); client.sendto(b'hello-tun',(TARGET,15353))
                         assert client.recv(2048) == b'udp:hello-tun'
@@ -222,17 +229,18 @@ tun: {{enable: true, stack: system, auto-route: true, auto-detect-interface: tru
                     assert links[0]['stats64']['rx']['bytes'] > 0, 'requests bypassed the native TUN'
                     selected = request(controller,'select',generation,group='Pick',name='REJECT')
                     assert selected['success'], 'native hot selection failed'
-                    rejected=http.client.HTTPConnection(TARGET,18080,timeout=3)
-                    reached=False
-                    try:
-                        rejected.request('GET','/fixture')
-                        response=rejected.getresponse()
-                        reached=response.read()==b'native-tun-fixture'
-                    except (OSError,http.client.HTTPException):
-                        pass
-                    finally:
-                        rejected.close()
-                    assert not reached, 'REJECT selection was silently bypassed by DIRECT'
+                    for host in (TARGET, TARGET6):
+                        rejected=http.client.HTTPConnection(host,18080,timeout=3)
+                        reached=False
+                        try:
+                            rejected.request('GET','/fixture')
+                            response=rejected.getresponse()
+                            reached=response.read()==b'native-tun-fixture'
+                        except (OSError,http.client.HTTPException):
+                            pass
+                        finally:
+                            rejected.close()
+                        assert not reached, 'REJECT '+host+' selection was silently bypassed by DIRECT'
                     stale=request(controller,'status',generation+1)
                     assert not stale['success'] and stale['error']['code']=='STALE_GENERATION'
                     # Switching back does not replace the TUN or native generation.

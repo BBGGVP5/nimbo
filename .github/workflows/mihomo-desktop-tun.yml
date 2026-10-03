@@ -74,6 +74,8 @@ jobs:
           driver=$(python3 -c 'import json,sys; a=[x["executable"] for x in map(json.loads,open(sys.argv[1])) if x.get("reason")=="compiler-artifact" and x.get("target",{}).get("name")=="helper_tun" and x.get("executable")]; assert len(a)==1; print(a[0])' "$RUNNER_TEMP/helper-artifacts.json")
           test -n "$driver"
           sudo env NIMBO_DISPOSABLE_NETNS=1 python3 scripts/ci/test-mihomo-helper-netns.py --binary 'native-desktop/${{ matrix.artifact }}/nimbo-mihomo' --helper target/debug/nimbo-svc --rust-test "$driver" --trace-native
+          # A tracer changes scheduling: the original untraced gate must pass too.
+          sudo env NIMBO_DISPOSABLE_NETNS=1 python3 scripts/ci/test-mihomo-helper-netns.py --binary 'native-desktop/${{ matrix.artifact }}/nimbo-mihomo' --helper target/debug/nimbo-svc --rust-test "$driver"
       - name: Actual Windows authenticated broker and native TCP UDP DNS cleanup
         if: runner.os == 'Windows'
         shell: pwsh

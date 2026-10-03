@@ -42,17 +42,17 @@ async fn actual_rust_session_owns_native_tun_and_joins_cleanup() {
     assert!(session.info.tun_ready);
     assert_eq!(session.info.source_sha256, profile.source_digest);
     assert!(session.info.mixed_address.is_empty());
-    let mut tcp = std::net::TcpStream::connect_timeout(
-        &"203.0.113.10:18080".parse().unwrap(),
-        Duration::from_secs(5),
-    )
-    .unwrap();
-    tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    tcp.write_all(b"GET /fixture HTTP/1.1\r\nHost: fixture\r\nConnection: close\r\n\r\n")
-        .unwrap();
-    let mut response = Vec::new();
-    tcp.read_to_end(&mut response).unwrap();
-    assert!(response.ends_with(b"native-tun-fixture"));
+    for address in ["203.0.113.10:18080", "[fdfe:dcba:9901::10]:18080"] {
+        let mut tcp =
+            std::net::TcpStream::connect_timeout(&address.parse().unwrap(), Duration::from_secs(5))
+                .unwrap();
+        tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        tcp.write_all(b"GET /fixture HTTP/1.1\r\nHost: fixture\r\nConnection: close\r\n\r\n")
+            .unwrap();
+        let mut response = Vec::new();
+        tcp.read_to_end(&mut response).unwrap();
+        assert!(response.ends_with(b"native-tun-fixture"), "{address}");
+    }
     session.stop().await.unwrap();
     assert!(!session.is_running());
 }
