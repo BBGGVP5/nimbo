@@ -99,9 +99,12 @@ class NimboTrafficDashboardTest {
                 val switches = nodes.filter { it.config.getOrNull(SemanticsProperties.Role) == Role.Switch &&
                     it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { text -> text.text == "Блокировка рекламы" } }
                 assertEquals(1, switches.size, "routing must expose one named ad switch")
+                val card = nodes.single { it.config.getOrNull(SemanticsProperties.TestTag) == "ad-blocking-settings" }
+                assertTrue(card.boundsInRoot.height <= 135, "ad filter should be a compact settings row")
                 assertEquals(androidx.compose.ui.state.ToggleableState.Off, switches.single().config.getOrNull(SemanticsProperties.ToggleableState))
-                val description = nodes.first { it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { text ->
-                    text.text == "Фильтрует рекламные домены. Не убирает всю рекламу." } }
+                // The merged Switch includes both labels and its full touch area; measure the actual subtitle text.
+                val description = scene.semanticsOwners.flatMap { it.getAllSemanticsNodes(mergingEnabled = false) }.first { it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { text ->
+                    text.text == "Рекламные домены · не вся реклама" } }
                 assertTrue(description.boundsInRoot.left >= 0 && description.boundsInRoot.right <= width)
                 assertTrue(description.boundsInRoot.height < 60, "description must stay compact")
                 assertFalse(nodes.any { it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { text -> text.text.contains("зашифрованный DNS") } },
@@ -126,6 +129,54 @@ class NimboTrafficDashboardTest {
                     .flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty() }.map { it.text }
                 assertTrue(expected in texts)
             }
+        }
+    }
+
+    @Test fun compactRoutingKeepsLargeTextAndInfoTargetsInsidePhone() {
+        val output = File("build/reports/ad-blocking-settings").apply { mkdirs() }
+        for (width in listOf(320, 360)) for (theme in listOf("dark", "light")) {
+            ImageComposeScene(width, 1000) {
+                NimboAppShell(NimboScreen.ROUTING, NimboUiState(
+                    appearance = NimboAppearance(themeMode = theme, textScale = 1.25f)
+                ), NimboUiActions(), showBottomBar = false)
+            }.use { scene ->
+                scene.render(0).close()
+                scene.render(1_000_000_000L).use { image ->
+                    File(output, "$width-$theme-text125.png").writeBytes(image.encodeToData()!!.use { it.bytes })
+                }
+                val nodes = scene.semanticsOwners.flatMap { it.getAllSemanticsNodes(mergingEnabled = true) }
+                val info = nodes.single { "Информация: Блокировка рекламы" in it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
+                assertTrue(info.boundsInRoot.width >= 44 && info.boundsInRoot.height >= 44, "smaller glyph must retain a full info target")
+                val heading = nodes.single { it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { text -> text.text == "Маршрутизация" } }
+                val headingInfo = nodes.single { "Информация: Маршрутизация" in it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
+                assertTrue(kotlin.math.abs(heading.boundsInRoot.center.y - headingInfo.boundsInRoot.center.y) <= 1f,
+                    "heading help must stay inline, allowing normal half-pixel rounding")
+                val card = nodes.single { it.config.getOrNull(SemanticsProperties.TestTag) == "ad-blocking-settings" }
+                assertTrue(card.boundsInRoot.height < 180 && card.boundsInRoot.right <= width)
+                assertTrue(nodes.any { it.config.getOrNull(SemanticsProperties.Role) == Role.Switch &&
+                    it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { text -> text.text == "Блокировка рекламы" } })
+            }
+        }
+    }
+
+    @Test fun infoOpensAndClosesWithoutSavingOrConnecting() {
+        val calls = mutableListOf<String>()
+        ImageComposeScene(360, 800) {
+            NimboAppShell(NimboScreen.ROUTING, NimboUiState(),
+                NimboUiActions(onSetAdBlocking = { calls += "save" }, onToggleVpn = { calls += "connect" }), showBottomBar = false)
+        }.use { scene ->
+            fun nodes() = scene.semanticsOwners.flatMap { it.getAllSemanticsNodes(mergingEnabled = true) }
+            scene.render(0).close(); scene.render(1_000_000_000L).close()
+            val info = nodes().single { "Информация: Блокировка рекламы" in it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
+            assertTrue(info.config[SemanticsActions.OnClick].action!!.invoke())
+            scene.render(2_000_000_000L).close()
+            assertTrue(nodes().any { it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { text -> text.text.contains("Mihomo требует режим rule") } })
+            val close = nodes().single { it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { text -> text.text == "Закрыть" } &&
+                it.config.getOrNull(SemanticsActions.OnClick) != null }
+            assertTrue(close.config[SemanticsActions.OnClick].action!!.invoke())
+            scene.render(3_000_000_000L).close()
+            assertFalse(nodes().any { it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { text -> text.text.contains("зашифрованный DNS") } })
+            assertEquals(emptyList(), calls)
         }
     }
 }

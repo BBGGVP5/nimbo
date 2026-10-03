@@ -154,10 +154,10 @@ test('ad control is an accessible persisted switch with next-connection and doma
   });
   const html = renderToStaticMarkup(createElement(AdBlockingControl));
   assert.match(html, /role="switch" aria-checked="false"/);
-  for (const text of ['next connection', 'Provider and custom rules are preserved', 'Does not remove all ads', 'encrypted DNS']) assert(html.includes(text));
+  for (const text of ['next connection', 'Provider and custom rules are preserved', 'not all ads', 'encrypted DNS']) assert(html.includes(text));
   assert.match(html, /aria-describedby="[^"]+-description"/);
   assert.doesNotMatch(html, /ad-blocking-hint/);
-  assert(html.includes('Filters ad domains. Does not remove all ads.'));
+  assert(html.includes('Ad domains · not all ads'));
   // Caveats remain available on demand, not as a paragraph filling the settings page.
   assert(!html.includes('<details open'));
   const visible = html.replace(/<details>.*?<\/details>/, '').replace(/<[^>]*>/g, '');

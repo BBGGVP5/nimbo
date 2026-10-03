@@ -76,3 +76,14 @@ Russian at 360px. Android debug Kotlin/common metadata compiled; 21 shared rende
 interaction tests passed, with 24 Routing renders in four styles/two themes/three
 widths. Seven cross-platform/iOS source contracts passed. Mocked renders and source
 checks are not device or packaged IPA/APK validation.
+
+Visual refinement: the description now sits under the setting name; saved/active
+state stays in the footer. Shared settings use quieter group captions, plain back
+actions and unboxed info glyphs with unchanged 44dp targets. The Routing heading
+keeps its help action inline even at 320px/text 125%. Desktop toolbar actions now
+share a 44px baseline, including Modules. Node 102/102, browser 44/44, Android/common
+compilation, 23 shared render/interaction tests and 7 traffic + 11 packet-flow source
+contracts pass. Four extra shared renders cover 320/360px in both themes at 125%
+text; opening/closing info causes no save or connection callback. The missing
+ad-policy Swift source in the Apple link-check input list is also included; actual
+Apple link/package verification still requires the hosted macOS build.

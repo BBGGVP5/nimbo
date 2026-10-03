@@ -75,7 +75,12 @@ try {
     const toggle = page.getByRole('switch', { name: 'Ad blocking' });
     assert.equal(await toggle.count(), 1, 'routing must contain one ad setting');
     assert.equal(await toggle.getAttribute('aria-checked'), 'false');
-    assert(await page.getByText('Filters ad domains. Does not remove all ads.', { exact: true }).isVisible());
+    const actions = await page.locator('.routing-header-actions').evaluate(e => [...e.children].map(child => ({
+      top: child.getBoundingClientRect().top, height: child.getBoundingClientRect().height,
+    })));
+    assert.equal(new Set(actions.map(e => e.top)).size, 1, 'toolbar actions must align');
+    assert(actions.every(e => e.height >= 44), 'toolbar actions need full-sized touch targets');
+    assert(await page.getByText('Ad domains · not all ads', { exact: true }).isVisible());
     assert(!(await page.locator('.ad-blocking-control details').evaluate(e => e.open)));
     assert(await page.locator('.ad-blocking-control').evaluate(e => e.getBoundingClientRect().height < 230), 'collapsed setting is too tall');
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${style}/${theme}/${viewport.width}: routing overflow`);
@@ -124,7 +129,7 @@ try {
   const russian = await fixture({ width: 360, height: 760 });
   await open(russian.page, 'page=routing&language=ru');
   assert(await russian.page.getByRole('switch', { name: 'Блокировка рекламы' }).isVisible());
-  assert(await russian.page.getByText('Фильтрует рекламные домены. Не убирает всю рекламу.', { exact: true }).isVisible());
+  assert(await russian.page.getByText('Рекламные домены · не вся реклама', { exact: true }).isVisible());
   await russian.page.screenshot({ path: resolve(artifacts, 'routing-russian-360.png'), fullPage: true });
   assert(await russian.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   assert.deepEqual(russian.errors, []); cases++; await russian.page.close();

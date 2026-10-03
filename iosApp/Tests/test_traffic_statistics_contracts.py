@@ -76,6 +76,7 @@ class TrafficStatisticsContracts(unittest.TestCase):
 
     def test_existing_apple_builder_runner_includes_overlay_dependency(self):
         self.assertIn('"iosApp/Shared/NimboAdBlocking.swift"', read("iosApp/Tests/test_ping_contracts.py"))
+        self.assertIn('"${ROOT_DIR}/iosApp/Shared/NimboAdBlocking.swift"', read("scripts/ci/build-libxray-awg-apple.sh"))
 
     def test_rule_mode_is_preflighted_and_domain_sniffing_is_runtime_only(self):
         controller = read("iosApp/Nimbo/VpnController.swift")

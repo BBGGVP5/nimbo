@@ -7,6 +7,7 @@ import { fillTemplate, useMessages, type Messages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
 import { BackButton } from "../components/BackButton";
 import { AdBlockingControl } from "../components/AdBlockingControl";
+import "./routing-polish.css";
 
 type RoutingEditorMode = "create" | "edit";
 

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
@@ -47,29 +48,26 @@ internal fun AdBlockingSettingsCard(preferences: PreferencesManager) {
     WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth()) {
             SettingsSwitch(Icons.Default.Block, t("Блокировка рекламы", "Ad blocking"),
-                t("Со следующего подключения", "Applies on next connection"),
+                t("Рекламные домены · не вся реклама", "Ad domains · not all ads"),
                 checked = enabled) {
                 enabled = it
                 preferences.adBlockingEnabled = it
             }
             val active = VpnManager.activeAdBlockingEnabled.value
-            if (VpnManager.state.value == VpnState.CONNECTED) Text(
-                text = when (active) {
-                    true -> t("Текущее подключение: включено", "Current connection: on")
-                    false -> t("Текущее подключение: выключено", "Current connection: off")
-                    null -> t("Текущее ядро: блокировка недоступна", "Current core: ad blocking unavailable")
-                }, color = colors.textSecondary, style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
-            )
             Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                Text(t("Фильтрует рекламные домены. Не убирает всю рекламу.",
-                    "Filters ad domains. Does not remove all ads."),
-                    color = colors.textSecondary, style = MaterialTheme.typography.bodySmall,
+                val status = when {
+                    VpnManager.state.value != VpnState.CONNECTED -> t("Со следующего подключения", "Applies on next connection")
+                    active == null -> t("Текущее ядро: блокировка недоступна", "Current core: ad blocking unavailable")
+                    active != enabled -> t("Изменится при следующем подключении", "Changes on next connection")
+                    active -> t("Текущее подключение: включено", "Current connection: on")
+                    else -> t("Текущее подключение: выключено", "Current connection: off")
+                }
+                Text(status, color = colors.textSecondary, style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f))
                 IconButton(onClick = { showInfo = true }) {
                     Icon(Icons.Default.Info, t("Подробнее о блокировке рекламы", "Ad blocking details"),
-                        tint = colors.textSecondary)
+                        modifier = Modifier.size(20.dp), tint = colors.textSecondary)
                 }
             }
         }
