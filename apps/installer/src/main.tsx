@@ -634,30 +634,33 @@ function InstallApp() {
         </section>
       ) : phase === "done" ? (
         <div className="done-screen no-window-drag">
-          <div className="done-art" aria-hidden="true">
-            <svg viewBox="0 0 64 64" width="56" height="56">
-              <path
-                d="M20 33 L29 42 L45 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="done-check"
-              />
-            </svg>
-          </div>
-          <h1>Nimbo установлен</h1>
-          <p>
-            Папка установки — <span className="done-path">{result?.install_dir || installDir}</span>.
-          </p>
-          <div className="actions done-actions">
-            <button className="ghost-button close-action-button" type="button" onClick={close}>
-              Закрыть
-            </button>
-            <button className="primary-button success" type="button" onClick={openInstalled}>
-              Открыть Nimbo
-            </button>
+          <div className="done-content">
+            <div className="done-art" aria-hidden="true">
+              <svg viewBox="0 0 64 64" width="56" height="56">
+                <path
+                  d="M20 33 L29 42 L45 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="done-check"
+                />
+              </svg>
+            </div>
+            <h1>Nimbo установлен</h1>
+            <div className="done-location">
+              <span>Папка установки</span>
+              <span className="done-path">{result?.install_dir || installDir}</span>
+            </div>
+            <div className="actions done-actions">
+              <button className="ghost-button close-action-button" type="button" onClick={close}>
+                Закрыть
+              </button>
+              <button className="primary-button success" type="button" onClick={openInstalled}>
+                Открыть Nimbo
+              </button>
+            </div>
           </div>
         </div>
       ) : (
@@ -892,34 +895,33 @@ function UninstallApp() {
 
       {phase === "done" ? (
         <div className="done-screen no-window-drag">
-          <div className="done-art" aria-hidden="true">
-            <svg viewBox="0 0 64 64" width="56" height="56">
-              <path
-                d="M20 33 L29 42 L45 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="done-check"
-              />
-            </svg>
-          </div>
-          <h1>Nimbo удалён</h1>
-          <p>
-            {result?.removed_user_data
+          <div className="done-content">
+            <div className="done-art" aria-hidden="true">
+              <svg viewBox="0 0 64 64" width="56" height="56">
+                <path
+                  d="M20 33 L29 42 L45 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="done-check"
+                />
+              </svg>
+            </div>
+            <h1>Nimbo удалён</h1>
+            <p>{result?.removed_user_data
               ? "Папка установки и пользовательские данные удалены."
-              : (
-                <>
-                  Подписки и настройки остались в{" "}
-                  <span className="done-path">{probe?.user_data_dir}</span>.
-                </>
-              )}
-          </p>
-          <div className="actions done-actions">
-            <button className="primary-button success" type="button" onClick={close}>
-              Закрыть
-            </button>
+              : "Подписки и настройки сохранены."}</p>
+            {!result?.removed_user_data && <div className="done-location">
+              <span>Папка пользовательских данных</span>
+              <span className="done-path">{probe?.user_data_dir}</span>
+            </div>}
+            <div className="actions done-actions">
+              <button className="primary-button success" type="button" onClick={close}>
+                Закрыть
+              </button>
+            </div>
           </div>
         </div>
       ) : (

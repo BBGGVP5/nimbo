@@ -98,6 +98,20 @@ body[data-ui-style] .detail-line-text { min-width:0; }
 body[data-ui-style] .detail-line-text small { line-height:1.35; }
 body[data-ui-style] .actions { margin-top:auto; padding-top:0; flex-shrink:0; }
 body[data-ui-style] .actions :is(.primary-button,.ghost-button) { min-height:42px; padding:10px 16px; }
+/* Completion has one compact composition, not the wizard's pinned footer. */
+body[data-ui-style] .done-screen { flex:1; width:100%; gap:0; padding:24px 0; }
+body[data-ui-style] .done-content { display:flex; flex-direction:column; align-items:center; width:min(100%,480px); min-width:0; gap:16px; }
+body[data-ui-style] .done-content .done-art { width:64px; height:64px; flex:none; }
+body[data-ui-style] .done-content .done-art svg { width:44px; height:44px; }
+body[data-ui-style] .done-content h1 { margin:0; font-size:clamp(24px,3vw,30px); line-height:1.2; letter-spacing:-.035em; }
+body[data-ui-style] .done-content p { margin:0; font-size:13px; line-height:1.5; color:var(--muted); }
+body[data-ui-style] .done-location { display:flex; flex-direction:column; gap:8px; width:100%; min-width:0; color:var(--muted); font-size:12px; }
+body[data-ui-style] .done-location .done-path { display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; font-family:inherit; font-size:13px; line-height:1.5; overflow-wrap:anywhere; white-space:normal; }
+body[data-ui-style] .done-screen .done-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; align-self:stretch; margin:8px 0 0; padding:0; gap:12px; }
+body[data-ui-style] .done-screen .done-actions > button { width:100%; min-width:0; height:auto; min-height:44px; }
+body[data-ui-style] .done-screen .done-actions > button:only-child { grid-column:1 / -1; width:min(100%,240px); justify-self:center; }
+@media(max-width:440px) { body[data-ui-style] .done-screen .done-actions { grid-template-columns:minmax(0,1fr); } }
+@media(prefers-reduced-motion:reduce) { body[data-ui-style] .done-check { stroke-dashoffset:0; } }
 body[data-ui-style] .error-box { flex-shrink:0; padding:12px; }
 .permission-recovery { display:flex; flex-direction:column; gap:16px; flex:1; min-width:0; }
 .permission-summary { padding:16px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }

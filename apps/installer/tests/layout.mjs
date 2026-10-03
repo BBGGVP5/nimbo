@@ -132,7 +132,65 @@ try {
     }
     cases++;await page.close();
   }
-  console.log(`PASS: ${cases} layout cases; no initial scrollbar/clipped actions; single-line path; error/narrow fallback`);
+  for (const viewport of [{width:1080,height:680},{width:900,height:600},{width:780,height:520},{width:360,height:520}]) {
+    for (const theme of ['dark','light']) for (const style of ['signal','material_you','dotted']) {
+      for (const mode of ['install','update','uninstall-retain','uninstall-remove']) {
+        const context=await browser.newContext({viewport,reducedMotion:'reduce',deviceScaleFactor:2});
+        const page=await context.newPage();
+        const errors=[];page.on('pageerror',error=>errors.push(error.message));
+        const path='C:\\Users\\Очень длинное имя пользователя\\AppData\\Local\\Programs\\' + 'Nimbo'.repeat(18);
+        await mockCompletion(page,{theme,style,mode,path});
+        await page.goto(`http://127.0.0.1:${server.address().port}/`);
+        const uninstall=mode.startsWith('uninstall');
+        if(mode==='uninstall-remove')await page.getByRole('checkbox').check();
+        await page.getByRole('button',{name:uninstall?'Удалить Nimbo':mode==='update'?'Установить обновление':'Установить',exact:true}).click();
+        await page.getByRole('heading',{name:uninstall?'Nimbo удалён':'Nimbo установлен',exact:true}).waitFor();
+        const metrics=await page.evaluate(()=>{
+          const bounds=selector=>{const r=document.querySelector(selector)?.getBoundingClientRect();return r?{top:r.top,bottom:r.bottom,height:r.height,left:r.left,right:r.right}:null;};
+          return {panel:bounds('.install-panel'),content:bounds('.done-content'),actions:bounds('.done-actions'),path:bounds('.done-path'),
+            heading:bounds('.done-screen h1'),message:bounds('.done-screen p'),buttons:[...document.querySelectorAll('.done-actions button')].map(b=>({top:b.getBoundingClientRect().top,bottom:b.getBoundingClientRect().bottom})),
+            overflow:[...document.querySelectorAll('.install-panel,.done-screen,.done-path')].some(p=>p.scrollWidth>p.clientWidth+1),
+            scroll:document.querySelector('.install-panel').scrollHeight>document.querySelector('.install-panel').clientHeight+1,
+            selectable:document.querySelector('.done-path')?getComputedStyle(document.querySelector('.done-path')).userSelect:null,
+            checkOffset:getComputedStyle(document.querySelector('.done-check')).strokeDashoffset};
+        });
+        const label=`completion/${mode}/${style}/${theme}/${viewport.width}`;
+        assert.equal(metrics.checkOffset,'0px',`reduced-motion hides success check: ${label}`);
+        assert(metrics.actions.top-(metrics.path??metrics.message??metrics.heading).bottom<=40,`detached completion actions: ${label} ${JSON.stringify(metrics)}`);
+        assert(metrics.content && (viewport.width<780 || metrics.content.height<420),`unbounded completion block: ${label}`);
+        assert(!metrics.overflow,`completion horizontal overflow: ${label}`);
+        if(viewport.width>=780) {
+          assert(!metrics.scroll,`completion scrollbar: ${label}`);
+          assert(Math.abs((metrics.content.top+metrics.content.bottom)-(metrics.panel.top+metrics.panel.bottom))<16,`completion not centered: ${label}`);
+          assert(metrics.buttons.every(b=>Math.abs(b.top-metrics.buttons[0].top)<1),`desktop actions stacked: ${label}`);
+          assert(metrics.actions.bottom<=viewport.height,`clipped completion actions: ${label}`);
+        }
+        if(mode!=='uninstall-remove') {
+          assert.equal(await page.locator('.done-path').innerText(),path,label);
+          assert.equal(metrics.selectable,'text',label);
+        } else {
+          assert.equal(await page.locator('.done-path').count(),0,'deleted data must not be shown as retained');
+          assert((await page.locator('.done-screen').innerText()).includes('пользовательские данные удалены'));
+        }
+        if(screenshots && viewport.width===1080 && style==='signal' && mode==='update')await page.screenshot({path:resolve(screenshots,`completion-${theme}@2x.png`)});
+        if(screenshots && viewport.width===360 && style==='signal' && theme==='dark' && mode==='install')await page.screenshot({path:resolve(screenshots,'completion-narrow.png'),fullPage:true});
+        const action=page.locator('.done-actions').getByRole('button',{name:uninstall?'Закрыть':'Открыть Nimbo',exact:true});
+        await action.scrollIntoViewIfNeeded();await action.click();
+        assert.deepEqual(await page.evaluate(()=>window.__completionCalls),uninstall?[['uninstall',mode==='uninstall-remove'],['close']]:[['install'],['open',path],['close']],label);
+        assert.deepEqual(errors,[],label);
+        cases++;await context.close();
+      }
+    }
+  }
+  if(screenshots) for(const theme of ['dark','light']) {
+    const page=await browser.newPage({viewport:{width:1080,height:680},deviceScaleFactor:2,reducedMotion:'reduce'});
+    await mockCompletion(page,{theme,style:'signal',mode:'update',path:'C:\\Users\\Danila\\AppData\\Local\\Programs\\Nimbo'});
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.getByRole('button',{name:'Установить обновление',exact:true}).click();
+    await page.getByRole('heading',{name:'Nimbo установлен',exact:true}).waitFor();
+    await page.screenshot({path:resolve(screenshots,`completion-normal-${theme}@2x.png`)});await page.close();
+  }
+  console.log(`PASS: ${cases} layout cases; wizard/recovery/completion; centered results, adjacent actions, selectable paths and narrow fallback`);
 } finally {await browser.close();await new Promise(done=>server.close(done));}
 
 async function mockRecovery(page,options) {
@@ -157,6 +215,26 @@ async function mockRecovery(page,options) {
           await new Promise(resolve=>{window.__completeRepair=()=>{repaired=true;resolve();};});
           return null;
         }
+        if(command.includes('|listen'))return ++next;
+        return null;
+      }};
+  },options);
+}
+
+async function mockCompletion(page,options) {
+  await page.addInitScript(({theme,style,mode,path})=>{
+    let next=0;window.__completionCalls=[];
+    window.__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener:()=>{}};
+    window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebview:{label:'main'}},transformCallback:()=>++next,
+      invoke:async(command,args)=>{
+        if(command==='get_installer_mode')return mode.startsWith('uninstall')?'uninstall':'install';
+        if(command==='read_app_theme')return {theme_mode:theme,ui_style:style};
+        if(command==='probe_installation')return {default_install_dir:'C:\\Apps\\Nimbo',product_version:'1.3.0-beta.1',product_arch:'Windows x64',platform:'windows',existing_install:mode==='update',helper_installed:true,helper_running:true};
+        if(command==='probe_uninstallation')return {install_dir:'C:\\Apps\\Nimbo',user_data_dir:path,user_data_present:true,platform:'windows',helper_installed:true};
+        if(command==='install_nimbo'){window.__completionCalls.push(['install']);return {install_dir:path,app_exe:path+'\\Nimbo.exe'};}
+        if(command==='uninstall_nimbo'){window.__completionCalls.push(['uninstall',args.options.remove_user_data]);return {install_dir:'C:\\Apps\\Nimbo',removed_user_data:args.options.remove_user_data};}
+        if(command==='open_nimbo')window.__completionCalls.push(['open',args.installDir]);
+        if(command==='plugin:window|close')window.__completionCalls.push(['close']);
         if(command.includes('|listen'))return ++next;
         return null;
       }};
