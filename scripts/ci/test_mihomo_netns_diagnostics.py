@@ -34,6 +34,15 @@ class NativeDiagnosticsTests(unittest.TestCase):
         self.assertNotIn('private-option', str(row))
         self.assertIsNone(broker.fixture.ipv6_neighbor_header(packet[:50], 'phys0'))
 
+    def test_physical_fixture_has_deterministic_link_local_without_dad(self):
+        from unittest.mock import patch
+        with patch.object(broker.fixture, 'ip') as command:
+            broker.fixture.configure_link_local()
+        self.assertEqual([call.args for call in command.call_args_list], [
+            ('-6', 'addr', 'add', 'fe80::1/64', 'dev', 'phys0', 'nodad'),
+            ('-n', 'nimbo-fixture', '-6', 'addr', 'add', 'fe80::2/64', 'dev', 'peer0', 'nodad'),
+        ])
+
     def test_trace_is_bounded_and_keeps_latest_error(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'socket.trace'

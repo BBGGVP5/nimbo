@@ -318,8 +318,12 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None, t
             ('peer IPv6 return route', ['ip', '-n', 'nimbo-fixture', '-6', 'route', 'get', 'fdfe:dcba:9900::1', 'from', fixture.TARGET6]),
             ('peer IPv6 TCP state', ['ip', 'netns', 'exec', 'nimbo-fixture', 'ss', '-6', '-n', '-t', '-a', '-i']),
         ]:
-            result = subprocess.run(args, capture_output=True, text=True, timeout=3)
-            print('synthetic '+label+': '+(result.stdout+result.stderr)[-16384:], flush=True)
+            try:
+                result = subprocess.run(args, capture_output=True, text=True, timeout=3)
+                print('synthetic '+label+': '+(result.stdout+result.stderr)[-16384:], flush=True)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                # Optional evidence must not replace the original traffic failure.
+                print('synthetic '+label+' unavailable: '+type(error).__name__, flush=True)
         for _, path in traces:
             print('synthetic native socket trace '+path.name+':\n'+trace_tail(path), flush=True)
         try:

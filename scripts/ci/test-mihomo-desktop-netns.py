@@ -33,6 +33,31 @@ def ip(*args, capture=False):
     return subprocess.check_output(['ip', *args], text=True) if capture else subprocess.check_call(['ip', *args], stdout=subprocess.DEVNULL)
 
 
+def configure_link_local():
+    # addrgenmode none prevents delayed DAD changes to the strict snapshot,
+    # but NDP still needs a usable link-local source when the replying socket
+    # is bound to the off-link loopback target. Keep real dynamic neighbors.
+    ip('-6', 'addr', 'add', 'fe80::1/64', 'dev', 'phys0', 'nodad')
+    ip('-n', 'nimbo-fixture', '-6', 'addr', 'add', 'fe80::2/64', 'dev', 'peer0', 'nodad')
+
+
+def verify_peer_ipv6_return_path():
+    for cold_return_path in (False, True):
+        if cold_return_path:
+            # Private synthetic peer only. Parent egress stays warm; the peer
+            # must resolve its own return neighbor without learning our MAC
+            # incidentally from a fresh outbound parent NS.
+            ip('-n', 'nimbo-fixture', '-6', 'neigh', 'flush', 'dev', 'peer0')
+        client = http.client.HTTPConnection(TARGET6, 18080, timeout=5)
+        try:
+            client.request('GET', '/fixture')
+            response = client.getresponse()
+            assert response.status == 200 and response.read() == b'native-tun-fixture', 'physical IPv6 peer is broken before native startup'
+        finally:
+            client.close()
+    print('PASS synthetic IPv6 cold return-path neighbor resolution before native startup', flush=True)
+
+
 def dns_query():
     return struct.pack('!HHHHHH', 0x5123, 0x100, 1, 0, 0, 0) + b'\x07fixture\x04test\x00' + struct.pack('!HH', 1, 1)
 
@@ -219,9 +244,11 @@ def inside(binary, parent, extra=None):
             peer_ip('-6', 'addr', 'add', 'fdfe:dcba:9900::2/64', 'dev', 'peer0', 'nodad')
             peer_ip('-6', 'addr', 'add', TARGET6+'/128', 'dev', 'lo', 'nodad')
             peer_ip('link', 'set', 'peer0', 'up')
+            configure_link_local()
             fixture = subprocess.Popen(['ip','netns','exec','nimbo-fixture',sys.executable,str(Path(__file__).resolve()),'--peer'], stdout=subprocess.PIPE)
             assert line(fixture).strip() == b'fixture-ready'
             time.sleep(.3)
+            verify_peer_ipv6_return_path()
             before = snapshot_network()
             source = f"""mode: rule
 ipv6: true
