@@ -87,3 +87,5 @@ assert_eq!(await_adapter_retired(|| Ok(false), Duration::ZERO), Err("TUN_CLEANUP
 - [ ] Record latest installers SUCCESS (all three architectures; only x64 native TUN), mirror receipt-matching source and update PR accurately.
 
 Task 6 validation: implementation `840201f` passed ten local service tests and scoped fmt/Clippy. Windows hosted runs 37113979722 / 111177092902 and 37114332615 / 111178083637 both passed the unchanged emergency-reset, normal TCP4/6/UDP/DNS and Both/KS/crash/restoration gates. Latest installer build 37114600859 at 79d9fb4 is running, publish=false; the earlier downloaded 923b851 installers do not include this follow-up. Linux ARM64 TCP6 remains unresolved and keeps the overall native workflow red.
+
+Latest validation: Windows job 111182169009 / 37115765634 at 63bc144 passed unchanged Both/KS/crash/emergency-reset acceptance again, with Linux amd64/ARM64 now also SUCCESS after fixture-only link-local/NDP repair. Project/Android source CI passed. Fresh installers 37114600859 remain building; do not deliver older 923b851 installers as containing the reset follow-up.
