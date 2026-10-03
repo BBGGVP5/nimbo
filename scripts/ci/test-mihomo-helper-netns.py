@@ -139,6 +139,7 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None, t
     owner = None
     trace_directory = tempfile.TemporaryDirectory(prefix='nimbo-broker-sockets-')
     traces = []
+    packets = fixture.IPv6Evidence(parent)
     def start_service():
         process = subprocess.Popen([str(helper)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
@@ -178,6 +179,10 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None, t
             assert ready['type'] == 'mihomo_ready', ready
             assert ready['info']['tunReady'] and ready['info']['networkOwner'] == 'desktop-tun'
             assert ready['info']['sourceSHA256'] == request['source_sha256']
+            route = subprocess.run(['ip', '-6', 'route', 'get', fixture.TARGET6,
+                                    'from', 'fdfe:dcba:5288::1', 'iif', 'lo'],
+                                   capture_output=True, text=True)
+            print('synthetic bound-source IPv6 route: '+route.stdout+route.stderr, flush=True)
             try:
                 traffic()
             except Exception:
@@ -307,6 +312,7 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None, t
         fixture.verify_restored(before)
         print('PASS protected core modification invalidates status cache and start admission', flush=True)
     except BaseException:
+        print('synthetic IPv6 TCP headers: '+json.dumps(list(packets.rows)), flush=True)
         for _, path in traces:
             print('synthetic native socket trace '+path.name+':\n'+trace_tail(path), flush=True)
         try:
@@ -317,6 +323,7 @@ def broker_checks(helper, binary, source, before, rust_test=None, parent=None, t
             print('isolated IPv6 evidence unavailable: '+type(error).__name__, flush=True)
         raise
     finally:
+        packets.close()
         if owner is not None:
             owner.close()
         if service is not None and service.poll() is None:

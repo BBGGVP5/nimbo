@@ -2,6 +2,8 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import socket
+import struct
 import unittest
 
 spec = importlib.util.spec_from_file_location('broker', Path(__file__).with_name('test-mihomo-helper-netns.py'))
@@ -10,6 +12,18 @@ spec.loader.exec_module(broker)
 
 
 class NativeDiagnosticsTests(unittest.TestCase):
+    def test_packet_evidence_never_contains_payload(self):
+        packet = bytearray(60)
+        packet[0] = 0x60; packet[6] = 6; packet[52] = 0x50; packet[53] = 0x18
+        packet[8:24] = socket.inet_pton(socket.AF_INET6, broker.fixture.TARGET6)
+        packet[24:40] = socket.inet_pton(socket.AF_INET6, 'fdfe:dcba:5288::1')
+        packet[40:52] = struct.pack('!HHII', 18080, 23456, 42, 100)
+        row = broker.fixture.ipv6_tcp_header(packet + b'private-body', 'phys0')
+        self.assertEqual(row['payloadBytes'], 12)
+        self.assertEqual(row['seq'], 42)
+        self.assertNotIn('private-body', str(row))
+        self.assertIsNone(broker.fixture.ipv6_tcp_header(b'x' * 60, 'phys0'))
+
     def test_trace_is_bounded_and_keeps_latest_error(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'socket.trace'

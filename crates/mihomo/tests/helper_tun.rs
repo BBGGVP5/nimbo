@@ -46,6 +46,10 @@ async fn actual_rust_session_owns_native_tun_and_joins_cleanup() {
         let mut tcp =
             std::net::TcpStream::connect_timeout(&address.parse().unwrap(), Duration::from_secs(5))
                 .unwrap();
+        eprintln!(
+            "namespace TCP {address}: local={}",
+            tcp.local_addr().unwrap()
+        );
         tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         tcp.write_all(b"GET /fixture HTTP/1.1\r\nHost: fixture\r\nConnection: close\r\n\r\n")
             .unwrap();

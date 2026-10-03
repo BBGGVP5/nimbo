@@ -63,3 +63,11 @@ Task 1 checkpoint: 7c8a04f pushed; three pure tests first failed for the absent 
 - [x] Print bounded synthetic traces on success too, because tracer scheduling can hide the original error.
 - [x] Add mandatory untraced broker invocation after traced acceptance in `.github/workflows/mihomo-desktop-tun.yml`; no retries/skip/timeout increase.
 - [ ] Require these strengthened hosted gates to pass before interpreting any earlier green IPv6 traffic result as correct native capture.
+
+### Task 4: Observe IPv6 data path without ptrace scheduling
+
+Evidence at 166f6a1 / 37113670171: traced ARM64 broker cycles pass; untraced actual Rust TCP6 receives EOF with no fixture body after 5 seconds. Traced core egress binds phys0 successfully and uses physical fdfe:dcba:9900::1, so disabling DNS/IPv6 or changing core source binding is unsupported. The existing kernel plan places both explicit-source /1 goto-main rules before the TUN-source lookup; an application bound to the TUN IPv6 address may therefore change path after a route-cache update. This is a hypothesis, not yet the root-cause claim.
+
+- [ ] Add a bounded 256-entry IPv6 TCP header-only AF_PACKET ring to the synthetic namespace fixture; filter literal fixture/TUN addresses, retain seq/ack/flags/length/interface only, never packet payloads. Guard construction with root/explicit opt-in/different-parent-netns/private-run checks. Dump ring on original failure and join the collector in finally.
+- [ ] Print actual Rust socket local addresses and fixture `ip -6 route get <TARGET6> from fdfe:dcba:5288::1 iif lo` before broker traffic. Use captured Tun-to-physical packet/routing evidence to decide whether the owned-source rule order needs correction.
+- [ ] Do not alter runtime policy or increase traffic deadlines until that evidence identifies the path. Any rule correction must stay within existing owner priorities/WAL and preserve normal core physical egress/foreign rules/cleanup gates.

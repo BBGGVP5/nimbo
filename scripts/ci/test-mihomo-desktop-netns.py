@@ -5,6 +5,7 @@ No Internet access, credentials, physical routes or host DNS changes. This is
 not a live provider/transport acceptance claim. Requires explicit opt-in.
 """
 import argparse
+from collections import deque
 import http.client
 import json
 import os
@@ -123,6 +124,52 @@ def verify_restored(before):
 def tun_rx_bytes():
     row = json.loads(ip('-j', '-s', 'link', 'show', 'dev', INTERFACE, capture=True))[0]
     return row['stats64']['rx']['bytes']
+
+
+def ipv6_tcp_header(packet, interface):
+    if len(packet) < 60 or packet[0] >> 4 != 6 or packet[6] != 6:
+        return None
+    src, dst = (socket.inet_ntop(socket.AF_INET6, packet[offset:offset+16]) for offset in (8, 24))
+    if TARGET6 not in (src, dst) and not any(a.startswith('fdfe:dcba:5288:') for a in (src, dst)):
+        return None
+    tcp_length = (packet[52] >> 4) * 4
+    if tcp_length < 20 or 40+tcp_length > len(packet):
+        return None
+    sport, dport, seq, ack = struct.unpack('!HHII', packet[40:52])
+    return dict(interface=interface, src=src, dst=dst, sport=sport, dport=dport,
+                seq=seq, ack=ack, flags=packet[53], payloadBytes=len(packet)-40-tcp_length)
+
+
+class IPv6Evidence:
+    """Header-only observation of synthetic traffic, never product packet capture."""
+    def __init__(self, parent):
+        assert os.geteuid() == 0 and os.environ.get('NIMBO_DISPOSABLE_NETNS') == '1'
+        assert parent and os.readlink('/proc/self/ns/net') != parent
+        assert os.stat('/run').st_dev != os.stat('/').st_dev
+        self.socket = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(0x86dd))
+        self.socket.settimeout(.1)
+        self.rows = deque(maxlen=256)
+        self.closed = threading.Event()
+        self.thread = threading.Thread(target=self.collect, daemon=True)
+        self.thread.start()
+
+    def collect(self):
+        while not self.closed.is_set():
+            try:
+                packet, address = self.socket.recvfrom(65536)
+                row = ipv6_tcp_header(packet, address[0])
+                if row is not None:
+                    self.rows.append(dict(time=round(time.monotonic(), 6), direction=address[2], **row))
+            except socket.timeout:
+                pass
+            except OSError:
+                if not self.closed.is_set():
+                    self.rows.append(dict(error='PACKET_OBSERVATION_FAILED'))
+                return
+
+    def close(self):
+        self.closed.set(); self.socket.close(); self.thread.join(timeout=2)
+        assert not self.thread.is_alive(), 'packet observer retained after fixture'
 
 
 def inside(binary, parent, extra=None):
