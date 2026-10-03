@@ -1,3 +1,9 @@
+## 2026-10-03 follow-up: Windows crash-retained adapter recovery
+
+Hosted native run 37109598821 at dccf85e passed Linux amd64/arm64, but Windows failed exact reset after injected native death (`TUN_CLEANUP_FAILED`); normal Both fixture traffic and denial had already passed. It is **not** a passing Windows acceptance run. Fixture counters: six TCP, two UDP, two DNS. Project CI 37109602055 and Android/shared CI 37109602189 succeeded.
+
+The follow-up adds protected journal ownership of the native PID/creation time and exact interface GUID/LUID/Wintun device instance, captured before permitting traffic. Explicit same-SID reset checks native death and revalidates the exact device before checked SetupAPI retirement and positive interface absence. It never removes by alias alone, deletes drivers or changes foreign routes. Reboot/restart-required removal remains failure with blocking retained. Older journals without device proof cannot delete retained adapters. Eight local service tests (including foreign/replaced identity and live/reused PID rejection), 34 Mihomo and 11 IPC tests plus scoped Clippy passed without host network mutation; live hosted acceptance is pending.
+
 ## Windows Both / external Kill Switch follow-up (3 October)
 
 Implementation now adds Windows x64 Both through the same authenticated TUN lease and verified mixed listener, with the existing per-user proxy snapshot/journal. External Kill Switch uses a private, SID-owned WFP sublayer; core/loopback/narrow DHCP and exact native TUN LUID permits, physical egress otherwise denied. No global firewall policy/WinHTTP reset. Static WFP filters survive native/helper failure, but not BFE restart or reboot. Abnormal cleanup retains protection; explicit owner-only Reset Kill Switch requires a retired native adapter.

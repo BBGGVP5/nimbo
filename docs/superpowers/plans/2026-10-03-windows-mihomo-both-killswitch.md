@@ -53,3 +53,16 @@ assert.equal(mihomoBlockReason({...cap, both_available:false}, 'mihomo', 'both',
 - [ ] Update readiness and plan with exact successful/pending gates, mirror only verified baseline/identical source files to primary workspace. Host ACL remains untouched and hardware/nonadmin/BFE-restart gates remain accurately documented.
 
 Checkpoint: 130 desktop tests, 86 frontend tests/build, Windows and Linux scoped suites and Clippy passed without host networking/service/ACL mutations. Adapter absence uses positive GetIfTable2 enumeration, not alias-error inference. New native/helper crash and physical UDP fixtures compile; hosted live results remain pending. Microsoft WFP object-management/filter-arbitration and ALE conditions documentation was checked. One follow-up test compilation mistake was immediately fixed at 841f78b; it is not a successful validation run.
+
+### Task 5: Exact crash-retained Wintun retirement
+
+Evidence: hosted dccf85e Windows test passed normal Both traffic/denial/stop, then failed authenticated reset after forced native death with TUN_CLEANUP_FAILED. Six TCP, two UDP and two DNS fixture exchanges were observed. Never bypass the retirement gate.
+
+- [x] Add non-mutating identity tests: changed GUID, LUID or device instance cannot match an owned adapter; foreign SID and unknown journal fields remain denied.
+- [x] Create `apps/service/src/mihomo_adapter.rs`: capture exact MIB interface GUID/LUID plus SetupAPI network-class Wintun hardware ID and device instance after native readiness. Persist identity in protected WFP journal before permitting TUN. Store native PID + creation time before first network mutation; reset verifies that exact process is no longer live, even after helper restart.
+```rust
+assert!(!owned.matches(&replacement));
+```
+- [x] Explicit same-SID reset may remove only the persisted device instance after rechecking GUID/LUID/Wintun hardware ID and native death; use checked SetupAPI DIF_REMOVE, then positive interface enumeration. Missing ownership remains a failure. Do not remove by alias or delete drivers/global routes.
+- [x] Add fixture progress per failure case and ensure disposable uninstall executes even if emergency reset times out. Original test/reset failure remains failure.
+- [ ] Run scoped Rust tests/Clippy/fmt; push and require live Windows acceptance success before updating readiness. Mirror only receipt-matching primary files.

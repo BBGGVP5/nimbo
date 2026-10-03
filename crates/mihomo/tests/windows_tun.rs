@@ -229,6 +229,7 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
     );
     physical_probe().expect("physical baseline is required, never skip a denied-bypass test");
     for failure in 0..3 {
+        eprintln!("Both/WFP case {failure}: baseline then owned start");
         let dns = physical_dns_socket().expect("physical DNS socket baseline");
         physical_dns(&dns).expect("physical DNS baseline must pass");
         let mut session = Session::start_tun_options(&binary, &profile, true, true)
@@ -327,6 +328,7 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
                     "helper restart silently cleared protection"
                 );
             }
+            eprintln!("Both/WFP case {failure}: protection retained, explicit reset");
             nimbo_mihomo::helper::reset_kill_switch().await.unwrap();
         } else {
             session.stop().await.unwrap();
@@ -337,6 +339,7 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
         physical_dns_socket()
             .and_then(|s| physical_dns(&s))
             .expect("explicit release did not restore UDP DNS");
+        eprintln!("Both/WFP case {failure}: physical TCP and UDP DNS restored");
     }
 }
 

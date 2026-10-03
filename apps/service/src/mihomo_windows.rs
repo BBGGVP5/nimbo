@@ -480,7 +480,11 @@ impl MihomoOwner {
         };
         let result = (|| -> Result<MihomoReady, String> {
             if r.kill_switch {
-                running.firewall = Some(crate::mihomo_firewall::Firewall::arm(sid, &core()?)?);
+                running.firewall = Some(crate::mihomo_firewall::Firewall::arm(
+                    sid,
+                    &core()?,
+                    &running.child,
+                )?);
             }
             let secret = format!(
                 "{}{}",
@@ -519,7 +523,7 @@ impl MihomoOwner {
                 .as_u64()
                 .filter(|g| *g > 0)
                 .ok_or("INVALID_NATIVE_READINESS")?;
-            if let Some(firewall) = &running.firewall {
+            if let Some(firewall) = &mut running.firewall {
                 firewall.allow_tun()?;
             }
             let ready = MihomoReady {
@@ -568,9 +572,7 @@ impl MihomoOwner {
         }
         // Wintun device lifetime owns its routes. Never release protection while
         // the managed device (including an uncertain dead child's device) exists.
-        if !crate::mihomo_firewall::adapter_retired()? {
-            return Err("TUN_CLEANUP_FAILED".into());
-        }
+        crate::mihomo_firewall::retire_owned_adapter(sid)?;
         crate::mihomo_firewall::release(sid)?;
         if let Some(r) = guard.as_mut() {
             r.joined = true;

@@ -45,6 +45,10 @@ struct Journal {
     version: u32,
     sid: String,
     sublayer: Uuid,
+    #[serde(default)]
+    native: Option<crate::mihomo_adapter::NativeProcess>,
+    #[serde(default)]
+    device: Option<crate::mihomo_adapter::Device>,
 }
 impl Journal {
     fn authorize(&self, sid: &str) -> Result<(), String> {
@@ -214,9 +218,12 @@ pub struct Firewall {
     journal: Journal,
 }
 impl Firewall {
-    pub fn arm(sid: &str, core: &Path) -> Result<Self, String> {
+    pub fn arm(sid: &str, core: &Path, child: &std::process::Child) -> Result<Self, String> {
         if pending() {
             return Err("KILL_SWITCH_RESET_REQUIRED".into());
+        }
+        if !adapter_retired()? {
+            return Err("TUN_IN_USE".into());
         }
         if !protected(core) || !protected_chain(core.parent().ok_or(FAILURE)?) {
             return Err(FAILURE.into());
@@ -226,6 +233,8 @@ impl Firewall {
             version: 1,
             sid: sid.into(),
             sublayer: Uuid::new_v4(),
+            native: Some(crate::mihomo_adapter::NativeProcess::capture(child)?),
+            device: None,
         };
         let p = path()?;
         private_directory(p.parent().ok_or(FAILURE)?)?;
@@ -295,12 +304,18 @@ impl Firewall {
         }
         Ok(Self { engine, journal })
     }
-    pub fn allow_tun(&self) -> Result<(), String> {
+    pub fn allow_tun(&mut self) -> Result<(), String> {
         let mut luid: NET_LUID_LH = unsafe { std::mem::zeroed() };
         checked(unsafe {
             ConvertInterfaceAliasToLuid(wide(OsStr::new("nimbo-mh0")).as_ptr(), &mut luid)
         })?;
         let mut value = unsafe { luid.Value };
+        self.journal.device = Some(crate::mihomo_adapter::capture(value)?);
+        // Exact kernel/device identity, never a client-supplied path or alias.
+        crate::mihomo_windows::replace_private(
+            &path()?,
+            &serde_json::to_vec(&self.journal).map_err(|_| FAILURE)?,
+        )?;
         self.engine.transaction(|| {
             for family in 0..2 {
                 let mut c = condition(FWPM_CONDITION_IP_LOCAL_INTERFACE, FWP_UINT64);
@@ -314,6 +329,32 @@ impl Firewall {
         release(&self.journal.sid)
     }
     // No Drop cleanup: abnormal native/helper exit intentionally retains filters.
+}
+/// Only explicit same-peer reset may retire a proven crash-retained adapter.
+/// Original native exit is still reported as failure, never clean disconnect.
+pub fn retire_owned_adapter(sid: &str) -> Result<(), String> {
+    let Some(j) = load()? else {
+        return if adapter_retired()? {
+            Ok(())
+        } else {
+            Err("TUN_CLEANUP_FAILED".into())
+        };
+    };
+    j.authorize(sid)?;
+    if let Some(native) = &j.native {
+        if !native.retired()? {
+            return Err("DISCONNECT_BEFORE_CORE_CHANGE".into());
+        }
+    } else if !adapter_retired()? {
+        return Err("TUN_CLEANUP_FAILED".into());
+    }
+    if let Some(device) = &j.device {
+        crate::mihomo_adapter::retire(device)?;
+    }
+    if !adapter_retired()? {
+        return Err("TUN_CLEANUP_FAILED".into());
+    }
+    Ok(())
 }
 pub fn release(sid: &str) -> Result<(), String> {
     let Some(j) = load()? else {
@@ -355,6 +396,8 @@ mod tests {
             version: 1,
             sid: "S-1-5-21-42".into(),
             sublayer: Uuid::new_v4(),
+            native: None,
+            device: None,
         };
         assert!(j.authorize("S-1-5-21-42").is_ok());
         assert_eq!(j.authorize("S-1-5-21-43").unwrap_err(), OWNER);
@@ -366,6 +409,8 @@ mod tests {
             version: 1,
             sid: "a".into(),
             sublayer: Uuid::new_v4(),
+            native: None,
+            device: None,
         };
         let mut keys = std::collections::HashSet::new();
         for f in 0..2 {
