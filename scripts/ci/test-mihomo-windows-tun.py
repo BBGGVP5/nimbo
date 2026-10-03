@@ -152,6 +152,9 @@ def main():
     # sent; local self-address traffic would be WFP loopback and is not evidence.
     target = socket.gethostbyname('github.com') + ':443'
     physical_index = ps("Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric | Select-Object -First 1 -ExpandProperty InterfaceIndex")
+    physical_dns = ps("(Get-DnsClientServerAddress -InterfaceIndex " + physical_index + " -AddressFamily IPv4).ServerAddresses | Select-Object -First 1") + ':53'
+    import ipaddress
+    assert not ipaddress.ip_address(physical_dns.rsplit(':', 1)[0]).is_loopback, 'DNS control must be physical, not loopback'
     proxy_before = ps(r"$k=Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'; [ordered]@{ProxyEnable=$k.ProxyEnable;ProxyServer=$k.ProxyServer;ProxyOverride=$k.ProxyOverride} | ConvertTo-Json -Compress")
     firewall_before = ps("Get-NetFirewallProfile | Sort-Object Name | Select-Object Name,Enabled,DefaultOutboundAction | ConvertTo-Json -Compress")
     fixture = Fixture()
@@ -180,7 +183,7 @@ rules: ["MATCH,FixtureChoice"]
         try:
             subprocess.run([str(staged), '--install'], check=True, timeout=45)
             installed = True
-            environment.update(NIMBO_TEST_MIHOMO_BINARY=str(binary), NIMBO_TEST_MIHOMO_SHA256=manifest['sha256'], NIMBO_TEST_TUN_SOURCE=str(source), NIMBO_TEST_PHYSICAL_INDEX=physical_index, NIMBO_TEST_BYPASS_TARGET=target)
+            environment.update(NIMBO_TEST_MIHOMO_BINARY=str(binary), NIMBO_TEST_MIHOMO_SHA256=manifest['sha256'], NIMBO_TEST_TUN_SOURCE=str(source), NIMBO_TEST_PHYSICAL_INDEX=physical_index, NIMBO_TEST_BYPASS_TARGET=target, NIMBO_TEST_PHYSICAL_DNS=physical_dns)
             subprocess.run([str(driver), '--ignored', '--test-threads=1', '--nocapture'], env=environment, check=True, timeout=240)
             assert fixture.tcp_count >= 6 and fixture.udp_count >= 2 and fixture.dns_count >= 1, 'native fixture traffic absent'
         finally:
@@ -197,7 +200,7 @@ rules: ["MATCH,FixtureChoice"]
             assert ps("Get-NetFirewallProfile | Sort-Object Name | Select-Object Name,Enabled,DefaultOutboundAction | ConvertTo-Json -Compress") == firewall_before, 'global firewall profile policy changed'
             assert not (Path(os.environ['ProgramFiles']) / 'NimboNativeTun/kill-switch/owner.json').exists(), 'retained WFP journal after explicit reset'
             assert snapshot() == before, 'physical DNS/routes were not restored'
-    print('PASS: authenticated SCM broker; native TCP4/6 UDP DNS; Both mixed/proxy snapshot; physical KS denial + native crash/reset; global firewall and physical DNS/routes unchanged')
+    print('PASS: authenticated SCM broker; native TCP4/6 UDP DNS; Both mixed/proxy snapshot; physical KS denial + native/helper crash/reset; global firewall and physical DNS/routes unchanged')
 
 
 if __name__ == '__main__':

@@ -559,7 +559,7 @@ impl MihomoOwner {
         }
     }
     pub fn reset_kill_switch(&self, sid: &str) -> Result<(), String> {
-        let mut guard = self.inner.lock().map_err(|_| "BUSY")?;
+        let mut guard = self.inner.try_lock().map_err(|_| "BUSY")?;
         if guard
             .as_mut()
             .is_some_and(|r| matches!(r.child.try_wait(), Ok(None)))
