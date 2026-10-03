@@ -8,6 +8,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     ptr,
+    time::{Duration, Instant},
 };
 use uuid::Uuid;
 use windows_sys::{
@@ -334,11 +335,10 @@ impl Firewall {
 /// Original native exit is still reported as failure, never clean disconnect.
 pub fn retire_owned_adapter(sid: &str) -> Result<(), String> {
     let Some(j) = load()? else {
-        return if adapter_retired()? {
-            Ok(())
-        } else {
-            Err("TUN_CLEANUP_FAILED".into())
-        };
+        // The child/lease may have joined just before Windows retires its final
+        // interface row. Observe bounded positive absence; without a journal we
+        // cannot adopt/delete any adapter, and errors never count as absence.
+        return await_adapter_retired(adapter_retired, Duration::from_secs(2));
     };
     j.authorize(sid)?;
     if let Some(native) = &j.native {
@@ -355,6 +355,21 @@ pub fn retire_owned_adapter(sid: &str) -> Result<(), String> {
         return Err("TUN_CLEANUP_FAILED".into());
     }
     Ok(())
+}
+fn await_adapter_retired(
+    mut retired: impl FnMut() -> Result<bool, String>,
+    timeout: Duration,
+) -> Result<(), String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if retired()? {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err("TUN_CLEANUP_FAILED".into());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 pub fn release(sid: &str) -> Result<(), String> {
     let Some(j) = load()? else {
@@ -390,6 +405,38 @@ pub(crate) fn release_for_uninstall() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reset_waits_for_positive_retirement_without_removing_an_adapter() {
+        let mut checks = 0;
+        await_adapter_retired(
+            || {
+                checks += 1;
+                Ok(checks == 2)
+            },
+            std::time::Duration::from_millis(50),
+        )
+        .unwrap();
+        assert_eq!(checks, 2);
+    }
+    #[test]
+    fn reset_never_accepts_persistent_or_unknown_retirement() {
+        assert_eq!(
+            await_adapter_retired(|| Ok(false), std::time::Duration::ZERO),
+            Err("TUN_CLEANUP_FAILED".into())
+        );
+        let mut checks = 0;
+        assert_eq!(
+            await_adapter_retired(
+                || {
+                    checks += 1;
+                    Err("ENUMERATION_FAILED".into())
+                },
+                std::time::Duration::from_secs(2),
+            ),
+            Err("ENUMERATION_FAILED".into())
+        );
+        assert_eq!(checks, 1);
+    }
     #[test]
     fn journal_owner_is_not_a_client_supplied_exception() {
         let j = Journal {

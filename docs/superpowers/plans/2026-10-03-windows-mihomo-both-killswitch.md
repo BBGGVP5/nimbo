@@ -68,3 +68,20 @@ assert!(!owned.matches(&replacement));
 - [x] Run scoped Rust tests/Clippy/fmt; push and require live Windows acceptance success before updating readiness. Mirror only receipt-matching primary files.
 
 Verified checkpoint: 923b851 and exact-driver 929e1b7 Windows hosted tests passed all three normal/native-crash/helper-crash cases and physical restoration (TCP15/UDP6/DNS5). Installers 37111046901 remain building, publish=false. Both runs still have a real unresolved Linux ARM64 broker TCP6 failure; not an overall green workflow. 81a343a selects exact Linux Cargo artifact too; hosted 37111545340 again passes Windows/Linux amd64 but still fails Linux ARM64 TCP6 (after explicit cleanup in this run). Exact artifact selection does not fix that network failure. Helper Windows x86/ARM64 cross-target checks also pass, without advertising native support. 27 intentional files mirror to primary; host networking/ACL untouched. Hardware, physical IPv6 bypass and BFE/reboot-persistent protection remain open.
+
+### Task 6: Conservative reset while asynchronous adapter retirement settles
+
+Evidence: 7c8a04f Windows job 111174599479 passed Both/KS native/helper crash resets and normal TUN cycles, then immediate emergency reset failed TUN_CLEANUP_FAILED; a separate finally reset a few milliseconds later passed. This supports, but does not prove, an asynchronous final interface-row retirement window. Do not drop the failing reset test or erase an unknown adapter.
+
+Files: `apps/service/src/mihomo_firewall.rs` (read-only bounded positive retirement), existing pure service tests in that file, existing hosted Windows driver unchanged.
+
+- [ ] Add injected-check tests: transient false then true succeeds, persistent false fails, enumeration error returns unchanged immediately.
+```rust
+let mut checks = 0;
+await_adapter_retired(|| { checks += 1; Ok(checks == 2) }, Duration::from_millis(50)).unwrap();
+assert_eq!(checks, 2);
+assert_eq!(await_adapter_retired(|| Ok(false), Duration::ZERO), Err("TUN_CLEANUP_FAILED".into()));
+```
+- [ ] Implement the no-journal reset branch as `await_adapter_retired(adapter_retired, Duration::from_secs(2))`: poll positive GetIfTable2 absence at 10 ms; return existing error on deadline. No enumeration-error fallback, object removal or WFP release before absence. Native-alive/SID/device-identity checks stay unchanged. This is not an extension of traffic/startup deadlines.
+- [ ] Run service unit tests, scoped fmt/Clippy and existing unmodified Windows live reset/crash gates. Require actual success, including emergency reset, before marking the reset issue resolved.
+- [ ] Record latest installers SUCCESS (all three architectures; only x64 native TUN), mirror receipt-matching source and update PR accurately.
