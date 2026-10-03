@@ -426,6 +426,26 @@ pub async fn install_nimbo(
 }
 
 #[tauri::command]
+pub async fn repair_install_permissions(consent: bool) -> Result<(), String> {
+    if !consent {
+        return Err("Для исправления прав требуется ваше подтверждение.".into());
+    }
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(|| {
+            embedded_helper_action("--repair-install-permissions")?;
+            preflight_embedded_helper()
+        })
+        .await
+        .map_err(|e| format!("Не удалось исправить права: {e}"))?
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Исправление прав службы доступно только в Windows.".into())
+    }
+}
+
+#[tauri::command]
 pub fn open_nimbo(install_dir: String) -> Result<(), String> {
     let exe = PathBuf::from(install_dir).join(APP_EXE);
     Command::new(exe)
@@ -468,7 +488,7 @@ fn install_blocking_windows(
         "prepare",
         "running",
         6,
-        "Отключаем Nimbo и останавливаем хелпер",
+        "Проверяем безопасность установки",
     );
     // Check native trust BEFORE stopping the existing app/service or replacing
     // anything. A failed preflight leaves the user's installation untouched.
@@ -1233,6 +1253,10 @@ fn make_executable(_path: &Path) -> Result<(), String> {
 
 #[cfg(windows)]
 fn preflight_embedded_helper() -> Result<(), String> {
+    embedded_helper_action("--check-install-directory")
+}
+#[cfg(windows)]
+fn embedded_helper_action(action: &str) -> Result<(), String> {
     use std::io::Write;
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1252,17 +1276,23 @@ fn preflight_embedded_helper() -> Result<(), String> {
             .and_then(|_| file.sync_all())
             .map_err(|e| format!("Не удалось подготовить проверку службы: {e}"))?;
         drop(file);
-        // No elevation/network/service/ACL mutations in this CLI mode.
-        run_status(&path, &["--check-install-directory"])
+        // Check is read-only. Repair is invoked only by a separate consent command.
+        run_status(&path, &[action])
     })();
     let _ = fs::remove_file(&path);
     result
 }
 fn helper_failure_message(code: i32) -> Option<&'static str> {
     match code {
-        21 => Some("Невозможно безопасно установить системную службу: на диске или в родительской папке Program Files есть права записи у обычного пользователя. Исправьте права Windows с администратором и повторите установку. Проверка безопасности не отключена; прежняя установка сохранена."),
+        21 => Some("Windows разрешает обычному пользователю изменять защищённые папки службы. Этот случай нельзя исправить автоматически без риска для других программ. Прежняя версия и подписки сохранены; удалять Nimbo не нужно. Администратору нужно проверить права системного диска и Program Files."),
         22 => Some("Ядро Mihomo отсутствует или не соответствует этой сборке. Скачайте полный установщик заново."),
         23 => Some("Контрольная сумма ядра Mihomo не совпадает. Скачайте полный установщик заново."),
+        24 => Some("NIMBO_PERMISSIONS_REPAIR_AVAILABLE"),
+        25 => Some("Проверка исправления прав не пройдена. Исходные права восстановлены; прежняя установка сохранена."),
+        26 => Some("Не удалось сохранить резервную копию прав. Права не изменены; прежняя установка сохранена."),
+        27 => Some("В запросе Windows выбран другой администратор. Войдите под учётной записью, запускающей установщик, или попросите администратора проверить права диска. Права не изменены."),
+        28 => Some("Не удалось проверить восстановление прав. Не повторяйте исправление; передайте администратору резервную копию Nimbo-permissions-backup-*.sddl из корня диска."),
+        29 => Some("Для исправления требуется подтверждение администратора в запросе Windows. Права не изменены."),
         1223 => Some("Установка системной службы отменена в запросе прав администратора."),
         _ => None,
     }
@@ -1893,7 +1923,19 @@ mod awg_install_tests {
 
     #[test]
     fn helper_error_is_actionable_without_exposing_unrelated_logs() {
-        assert!(helper_failure_message(21).unwrap().contains("права записи"));
+        assert!(helper_failure_message(21)
+            .unwrap()
+            .contains("удалять Nimbo не нужно"));
+        assert_eq!(
+            helper_failure_message(24),
+            Some("NIMBO_PERMISSIONS_REPAIR_AVAILABLE")
+        );
+        assert!(helper_failure_message(26)
+            .unwrap()
+            .contains("Права не изменены"));
+        assert!(helper_failure_message(27)
+            .unwrap()
+            .contains("другой администратор"));
         assert!(helper_failure_message(22)
             .unwrap()
             .contains("полный установщик"));

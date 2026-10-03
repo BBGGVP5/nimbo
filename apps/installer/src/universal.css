@@ -99,6 +99,17 @@ body[data-ui-style] .detail-line-text small { line-height:1.35; }
 body[data-ui-style] .actions { margin-top:auto; padding-top:0; flex-shrink:0; }
 body[data-ui-style] .actions :is(.primary-button,.ghost-button) { min-height:42px; padding:10px 16px; }
 body[data-ui-style] .error-box { flex-shrink:0; padding:12px; }
+.permission-recovery { display:flex; flex-direction:column; gap:16px; flex:1; min-width:0; }
+.permission-summary { padding:16px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+.permission-summary h2 { margin:0 0 6px; font-size:14px; font-weight:600; }
+.permission-summary h2:not(:first-child) { margin-top:16px; }
+.permission-summary p,.permission-status { margin:0; color:var(--muted); font-size:13px; line-height:1.5; }
+.permission-summary p + p { margin-top:12px; }
+.permission-summary code { font-size:12px; overflow-wrap:anywhere; }
+.permission-consent { display:flex; align-items:flex-start; gap:10px; font-size:13px; line-height:1.5; cursor:pointer; }
+.permission-consent input { appearance:auto; position:static; opacity:1; width:18px; height:18px; flex:none; margin:1px 0 0; accent-color:var(--primary); }
+body .permission-consent:has(input:disabled) { cursor:default; }
+@media(max-height:600px) { .permission-recovery { gap:12px; } .permission-summary { padding:12px; } }
 @media (max-height:600px) and (min-width:768px) {
   body[data-ui-style] .install-panel { padding:20px 20px 14px; gap:10px; }
   body[data-ui-style] .hero-meta { font-size:10px; }

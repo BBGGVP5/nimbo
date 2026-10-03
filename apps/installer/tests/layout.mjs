@@ -80,5 +80,85 @@ try {
   await page.locator('.primary-button').scrollIntoViewIfNeeded();
   assert(await page.locator('.primary-button').isVisible(),'narrow fallback lost action');
   cases++;await page.close();
+  for (const viewport of [{width:1080,height:680},{width:780,height:520},{width:360,height:520}]) {
+    for (const theme of ['dark','light']) {
+      for (const style of ['signal','material_you','dotted']) {
+        const context=await browser.newContext({viewport,reducedMotion:'reduce'});
+        const page=await context.newPage();
+        await mockRecovery(page,{theme,style});
+        await page.goto(`http://127.0.0.1:${server.address().port}/`);
+        await page.getByRole('button',{name:'Установить обновление',exact:true}).click();
+        await page.locator('.permission-recovery').waitFor();
+        const action=page.getByRole('button',{name:'Исправить и продолжить',exact:true});
+        assert(await action.isDisabled(),'recovery must require unchecked consent');
+        assert.deepEqual(await page.evaluate(()=>window.__testCalls),['install'],'no repair on panel mount');
+        assert(!await page.locator('body').innerText().then(t=>t.includes('NIMBO_PERMISSIONS_REPAIR_AVAILABLE')),'raw code exposed');
+        assert(await page.evaluate(()=>document.querySelector('.install-panel').scrollWidth<=document.querySelector('.install-panel').clientWidth+1),'recovery horizontal overflow');
+        if(viewport.width>=780) assert(await page.evaluate(()=>document.querySelector('.install-panel').scrollHeight<=document.querySelector('.install-panel').clientHeight+1),'recovery initial scrollbar');
+        if(screenshots && viewport.width===1080 && style==='signal')await page.screenshot({path:resolve(screenshots,`permissions-${theme}.png`)});
+        await page.getByRole('button',{name:'Не сейчас',exact:true}).click();
+        assert.deepEqual(await page.evaluate(()=>window.__testCalls),['install'],'cancel must not mutate permissions or retry install');
+        await page.getByRole('button',{name:'Установить обновление',exact:true}).click();
+        const checkbox=page.getByRole('checkbox',{name:'Разрешаю исправить это разрешение на корне диска.'});
+        await checkbox.focus();await page.keyboard.press('Space');
+        assert(await action.isEnabled(),'keyboard consent must enable recovery');
+        await action.click();
+        await page.getByRole('button',{name:'Исправляем…',exact:true}).waitFor();
+        assert(await page.getByRole('button',{name:'Не сейчас',exact:true}).isDisabled(),'cancel during repair must be disabled');
+        assert(await page.getByRole('button',{name:'Исправляем…',exact:true}).isDisabled(),'duplicate repair must be disabled');
+        assert.deepEqual(await page.evaluate(()=>window.__testCalls),['install','install','repair']);
+        await page.evaluate(()=>window.__completeRepair());
+        await page.getByRole('heading',{name:'Nimbo установлен',exact:true}).waitFor();
+        assert.deepEqual(await page.evaluate(()=>window.__testCalls),['install','install','repair','install'],'exactly one repair then install retry');
+        cases++;await context.close();
+      }
+    }
+  }
+  for (const failure of ['unsupported','uac']) {
+    const page=await browser.newPage({viewport:{width:1080,height:680}});
+    await mockRecovery(page,{theme:'dark',style:'signal',failure});
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.getByRole('button',{name:'Установить обновление',exact:true}).click();
+    if(failure==='unsupported') {
+      await page.locator('.error-box').waitFor();
+      assert.equal(await page.locator('.permission-recovery').count(),0,'unsafe unknown ACL must never offer recovery');
+    } else {
+      await page.getByRole('checkbox',{name:'Разрешаю исправить это разрешение на корне диска.'}).check();
+      await page.getByRole('button',{name:'Исправить и продолжить',exact:true}).click();
+      await page.getByRole('alert').waitFor();
+      assert((await page.getByRole('alert').innerText()).includes('отменена'));
+      assert(await page.getByRole('button',{name:'Исправить и продолжить',exact:true}).isEnabled(),'UAC cancellation must allow explicit retry');
+      assert.deepEqual(await page.evaluate(()=>window.__testCalls),['install','repair'],'UAC cancellation must not retry installation');
+    }
+    cases++;await page.close();
+  }
   console.log(`PASS: ${cases} layout cases; no initial scrollbar/clipped actions; single-line path; error/narrow fallback`);
 } finally {await browser.close();await new Promise(done=>server.close(done));}
+
+async function mockRecovery(page,options) {
+  await page.addInitScript(({theme,style,failure})=>{
+    let next=0,repaired=false;window.__testCalls=[];
+    window.__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener:()=>{}};
+    window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebview:{label:'main'}},transformCallback:()=>++next,
+      invoke:async(command,args)=>{
+        if(command==='get_installer_mode')return 'install';
+        if(command==='read_app_theme')return {theme_mode:theme,ui_style:style};
+        if(command==='probe_installation')return {default_install_dir:'C:\\Users\\User\\AppData\\Local\\Programs\\Nimbo',product_version:'1.3.0-beta.1',product_arch:'Windows x64',platform:'windows',existing_install:true,helper_installed:true,helper_running:true};
+        if(command==='install_nimbo') {
+          window.__testCalls.push('install');
+          if(failure==='unsupported')throw 'Этот случай нельзя исправить автоматически. Прежняя установка сохранена.';
+          if(!repaired)throw 'NIMBO_PERMISSIONS_REPAIR_AVAILABLE';
+          return {install_dir:'C:\\Apps\\Nimbo',app_exe:'C:\\Apps\\Nimbo\\Nimbo.exe'};
+        }
+        if(command==='repair_install_permissions') {
+          if(args.consent!==true)throw 'missing consent';
+          window.__testCalls.push('repair');
+          if(failure==='uac')throw 'Установка системной службы отменена в запросе прав администратора.';
+          await new Promise(resolve=>{window.__completeRepair=()=>{repaired=true;resolve();};});
+          return null;
+        }
+        if(command.includes('|listen'))return ++next;
+        return null;
+      }};
+  },options);
+}

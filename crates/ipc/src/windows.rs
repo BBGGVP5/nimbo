@@ -19,6 +19,7 @@ pub const TUN_PIPE: &str = r"\\.\pipe\Nimbo.Mihomo.Tun.v1";
 pub const CLIENT_ACCESS: u32 = 0x12019b;
 pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12019b;;;IU)";
 const PRIVATE_SDDL: &str = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
+pub mod permissions;
 pub fn wide(s: &OsStr) -> Vec<u16> {
     s.encode_wide().chain(Some(0)).collect()
 }
@@ -114,6 +115,9 @@ fn protected_result(path: &Path) -> Result<(), String> {
         return Err("UNSAFE_SERVICE_DIRECTORY".into());
     }
     let _descriptor = Descriptor(sd);
+    validate_acl(owner, dacl, path.parent().is_none())
+}
+fn validate_acl(owner: PSID, dacl: *const ACL, volume_root: bool) -> Result<(), String> {
     if !trusted_writer(&sid_string(owner)?) || dacl.is_null() {
         return Err("UNSAFE_SERVICE_DIRECTORY".into());
     }
@@ -132,7 +136,7 @@ fn protected_result(path: &Path) -> Result<(), String> {
             0 => {
                 let ace = unsafe { &*(raw as *const ACCESS_ALLOWED_ACE) };
                 let sid = (&ace.SidStart as *const u32).cast_mut().cast();
-                let rights = if path.parent().is_none() {
+                let rights = if volume_root {
                     WRITE_RIGHTS & !6
                 } else {
                     WRITE_RIGHTS
