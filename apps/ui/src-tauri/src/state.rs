@@ -274,6 +274,8 @@ pub struct AppPreferences {
     pub show_memory_usage: bool,
     #[serde(default)]
     pub connection_kill_switch: bool,
+    #[serde(default)]
+    pub ad_blocking_enabled: bool,
     /// MTU TUN-интерфейса; 0 — оставить значение по умолчанию.
     #[serde(default)]
     pub tunnel_mtu: u32,
@@ -452,6 +454,7 @@ impl Default for AppPreferences {
             show_speed_chart: true,
             show_memory_usage: false,
             connection_kill_switch: false,
+            ad_blocking_enabled: false,
             tunnel_mtu: 0,
             tunnel_dns: String::new(),
             tunnel_sniffing: true,
@@ -600,6 +603,7 @@ pub struct TrafficRuntimeSample {
 
 #[derive(Default)]
 pub struct RuntimeState {
+    pub ad_blocking_active: bool,
     pub mihomo: Option<nimbo_mihomo::process::Session>,
     pub(crate) ping_route: Option<crate::latency::PingRoute>,
     /// Живое соединение с привилегированным хелпером, пока поднят TUN.

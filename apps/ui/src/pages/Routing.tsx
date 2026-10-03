@@ -6,6 +6,7 @@ import { api, type RoutingProfile, type RoutingProfileSummary } from "../lib/api
 import { fillTemplate, useMessages, type Messages } from "../lib/i18n";
 import { notifyError, notifyInfo } from "../lib/notify";
 import { BackButton } from "../components/BackButton";
+import { AdBlockingControl } from "../components/AdBlockingControl";
 
 type RoutingEditorMode = "create" | "edit";
 
@@ -183,6 +184,7 @@ export function Routing() {
         </div>
       </div>
 
+      <AdBlockingControl />
       <div className="routing-list">
         {profiles.map((profile) => (
           <RoutingCard

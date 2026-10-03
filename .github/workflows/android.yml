@@ -34,6 +34,9 @@ jobs:
       - name: Проверить контракты экрана профилей iOS
         run: python3 iosApp/Tests/test_profile_screen_contracts.py
 
+      - name: Проверить контракты статистики и блокировки рекламы
+        run: python3 iosApp/Tests/test_traffic_statistics_contracts.py
+
       - name: Проверить раскладку синхронизации и отсутствие дублей навигации
         run: python3 scripts/ci/test-sync-settings-layout.py
 

@@ -58,6 +58,20 @@ test('URL import invokes only the native bounded importer and does not change ne
   assert.deepEqual(calls, [['import_mihomo_profile_url', { name: 'My profile', url: 'https://example.test/profile' }]]);
 });
 
+test('Mihomo ad-blocking mode rejection explains rule mode without exposing native error details', () => {
+  const code = 'AD_BLOCKING_REQUIRES_RULE_MODE';
+  const error = `${code}: https://example.test/profile?token=private`;
+  assert.equal(helpers.coreErrorCode(error), code);
+  for (const ru of [false, true]) {
+    const message = helpers.mihomoErrorMessage(error, ru);
+    assert.match(message, /Mihomo/);
+    assert.match(message, /rule/);
+    assert.match(message, ru ? /выключите блокировку рекламы/ : /turn off ad blocking/);
+    assert.ok(!message.includes('private') && !message.includes('example.test'));
+    assert.ok(!message.includes('CORE_OPERATION_FAILED'));
+  }
+});
+
 test('saving a preference while connected preserves the active session and never disconnects', async () => {
   let selected = 'auto';
   let fail = false;

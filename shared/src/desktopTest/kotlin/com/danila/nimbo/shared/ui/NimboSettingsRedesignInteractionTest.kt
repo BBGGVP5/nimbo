@@ -333,10 +333,10 @@ class NimboSettingsRedesignInteractionTest {
             for (removed in listOf("История подключений", "Маршрутизация", "Проверка БС")) {
                 assertFalse(removed in scene.texts(), "$removed must not be duplicated inside General")
             }
-            assertEquals(1, scene.texts().count { it == "Активность" }, "Activity belongs only to the bottom bar")
+            assertEquals(1, scene.texts().count { it == "Статистика" }, "Statistics belongs only to the bottom bar")
             scene.snapshot("general-dedup-bottom-navigation")
-            scene.clickText("Активность")
-            assertTrue("Трафик и история подключений" in scene.texts(), "Bottom-bar Activity must open the real stats screen")
+            scene.clickText("Статистика")
+            assertTrue("Трафик и история подключений" in scene.texts(), "Bottom-bar Statistics must open the real stats screen")
             assertEquals(emptyList(), calls, "Primary tab navigation is local and must not invoke VPN/preference bridge callbacks")
             assertEquals(before, state.value, "Opening Activity must not change settings or VPN state")
         }

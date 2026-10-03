@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -72,15 +73,22 @@ def stage_memory_bounded_modules(module_dirs: dict[str, Path], stage_dir: Path) 
 
 
 def _resolve_module(go: Path, source_dir: Path, module_path: str) -> Path:
+    # Lazy module loading can report an empty .Dir for a pinned tool not yet
+    # downloaded. Path("") is the working directory, never a module source.
+    # Download the version selected by this locked graph, not @latest.
     result = subprocess.run(
-        [str(go), "list", "-m", "-f", "{{.Dir}}", module_path],
+        [str(go), "mod", "download", "-json", module_path],
         cwd=source_dir,
         capture_output=True,
         text=True,
         check=True,
     )
-    module_dir = Path(result.stdout.strip())
-    if not module_dir.is_dir():
+    metadata = json.loads(result.stdout)
+    directory = metadata.get("Dir")
+    if metadata.get("Path") != module_path or not isinstance(directory, str) or not directory.strip():
+        raise RuntimeError(f"Go did not resolve source for pinned module {module_path}")
+    module_dir = Path(directory)
+    if not module_dir.is_absolute() or not module_dir.is_dir():
         raise RuntimeError(f"Go resolved a missing module directory for {module_path}: {module_dir}")
     return module_dir
 

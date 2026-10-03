@@ -43,6 +43,7 @@ const coreVersion = "v1.19.31"
 const coreCommit = "ab405bad5beeeac8b003bb01f60f134f6df54471"
 
 type startOptions struct {
+	AdBlocking        bool     `json:"adBlocking,omitempty"`
 	DesktopIPv6       bool     `json:"desktopIPv6,omitempty"`
 	DataDir           string   `json:"dataDir"`
 	NetworkOwner      string   `json:"networkOwner"`
@@ -112,6 +113,7 @@ type capabilitySet struct {
 	Counters     bool `json:"counters"`
 }
 type session struct {
+	trafficBase        trafficBaseline
 	cfg                *config.Config
 	doc                *inspection
 	mixed              io.Closer
@@ -315,6 +317,23 @@ func (m *manager) dispatch(r *request) (any, error) {
 		s := m.statusLocked()
 		m.mu.Unlock()
 		return s, nil
+	}
+	if r.Operation == "telemetry" {
+		s := m.session
+		if r.Generation == nil || m.state != "running" || s == nil || s.ctx.Err() != nil {
+			m.mu.Unlock()
+			return nil, problem("NOT_RUNNING", "", "generation-bound live session required")
+		}
+		m.mu.Unlock()
+		// Pure atomic reads do not queue behind health probes/provider refreshes.
+		result := readTelemetry(s)
+		m.mu.Lock()
+		current := m.session == s && m.state == "running" && m.generation == *r.Generation
+		m.mu.Unlock()
+		if !current {
+			return nil, problem("STALE_GENERATION", "generation", "session changed during telemetry read")
+		}
+		return result, nil
 	}
 	if r.Operation == "cancel" {
 		if r.TargetRequestID == "" || len(r.TargetRequestID) > 256 {
@@ -883,6 +902,7 @@ func (m *manager) start(r request) (result any, err error) {
 	startupTimer := time.AfterFunc(time.Duration(o.StartupTimeoutMs)*time.Millisecond, cancel)
 	defer startupTimer.Stop()
 	s := &session{doc: d, home: filepath.Clean(o.DataDir), oldHome: C.Path.HomeDir(), oldIPv6: resolver.DisableIPv6, oldMode: tunnel.Mode(), oldProcess: tunnel.FindProcessMode(), oldStoreSelected: profile.StoreSelected.Load(), oldLogLevel: log.Level(), oldDNS: saveDNS(), ctx: ctx, cancel: cancel}
+	s.trafficBase = captureTrafficBaseline()
 	if android {
 		s.mobile = newMobileSession(ctx, cancel)
 		s.oldAndroidGlobals = captureAndroidGlobals()
@@ -945,6 +965,9 @@ func (m *manager) start(r request) (result any, err error) {
 		return nil, err
 	}
 	log.SetLevel(s.cfg.General.LogLevel)
+	if err = applyAdBlocking(s.cfg, o.AdBlocking); err != nil {
+		return nil, err
+	}
 	if err = rebindProviders(s.cfg, d, s.home); err != nil {
 		return nil, err
 	}
@@ -993,6 +1016,15 @@ func (m *manager) start(r request) (result any, err error) {
 		}
 	}
 	tunnel.OnSuspend()
+	if routes, ok := any(statistic.DefaultManager).(interface{ SetDirectNames([]string) }); ok {
+		names := []string{}
+		for name, proxy := range s.cfg.Proxies {
+			if proxy.Type() == C.Direct {
+				names = append(names, name)
+			}
+		}
+		routes.SetDirectNames(names)
+	}
 	tunnel.UpdateProxies(s.cfg.Proxies, s.cfg.Providers)
 	tunnel.UpdateRules(s.cfg.Rules, s.cfg.SubRules, s.cfg.RuleProviders)
 	tunnel.SetMode(s.cfg.General.Mode)

@@ -32,7 +32,7 @@ internal fun NimboStatsScreen(state: NimboUiState, actions: NimboUiActions) {
         contentPadding = PaddingValues(top = LocalNimboContentTop.current, bottom = LocalNimboContentBottom.current),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item("heading") { NimboPageHeading("Активность", "Трафик и история подключений") }
+        item("heading") { NimboPageHeading("Статистика", "Трафик и история подключений") }
         item("summary") {
             NimboSurface(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -40,9 +40,8 @@ internal fun NimboStatsScreen(state: NimboUiState, actions: NimboUiActions) {
                     if (summary == null) {
                         BasicText("Здесь появится трафик VPN. История сохраняется после отключения.", style = NimboBodyStyle)
                     } else {
-                        MetricPair("↓ Скачано", formatTraffic(summary.download), "↑ Отдано", formatTraffic(summary.upload))
-                        if (connected) {
-                            MetricPair("↓ Приём", formatTraffic(state.downloadSpeed) + "/с", "↑ Передача", formatTraffic(state.uploadSpeed) + "/с")
+                        TrafficTotalCards(state, summary)
+                        if (connected && state.sessionAvailable != false) {
                             if (hasMeasuredHistory(state.speedSamples.size)) {
                                 SpeedChartCanvas(state.speedSamples, Modifier.fillMaxWidth().height(88.dp))
                                 BasicText("История скорости · приём и передача", style = NimboBodyStyle.copy(fontSize = 12.sp))
@@ -54,6 +53,9 @@ internal fun NimboStatsScreen(state: NimboUiState, actions: NimboUiActions) {
                 }
             }
         }
+        item("routes") { RouteTrafficCard(state) }
+        item("protocols") { ActiveProtocolCards(state) }
+        item("ad-blocking") { AdBlockingCard(state, actions) }
         item("server") {
             NimboSurface(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

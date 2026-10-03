@@ -47,6 +47,7 @@ final class VpnController: ObservableObject {
         if let full = try NimboConfigurationStore.shared.loadFullConfiguration() {
             let engine = try NimboCoreAdmission.validate(preference: preference, data: full.sourceData,
                                                    declaredEngine: full.coreId)
+            try NimboMihomoControl.validateAdBlocking(full, enabled: NimboRoutingSettings.current.adBlockingEnabled)
             try NimboMihomoControl.preflight(full.sourceData)
             return engine
         }
@@ -263,11 +264,13 @@ final class VpnController: ObservableObject {
         return result
     }
 
-    private func sendProviderCommand(_ command: String) async throws -> [String: Any] {
+    private func sendProviderCommand(_ command: String, fields: [String: Any] = [:]) async throws -> [String: Any] {
         guard let session = manager?.connection as? NETunnelProviderSession else {
             throw VpnControllerError.managerUnavailable
         }
-        let request = try JSONSerialization.data(withJSONObject: ["command": command])
+        var requestFields = fields
+        requestFields["command"] = command
+        let request = try JSONSerialization.data(withJSONObject: requestFields)
         let response: Data = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
             do {
                 try session.sendProviderMessage(request) { data in
@@ -288,14 +291,12 @@ final class VpnController: ObservableObject {
     ///
     /// Спрашиваем у самого расширения: приложение видит несколько utun и не
     /// может отличить наш от системного, а память расширения ему недоступна.
-    func tunnelMetrics() async -> (received: UInt64, sent: UInt64, memoryMb: Int)? {
+    func tunnelMetrics(includeTelemetry: Bool = false) async -> NimboTunnelReport? {
         guard case .connected = state else { return nil }
-        guard let response = try? await sendProviderCommand("metrics"),
-              response["ok"] as? Bool == true else { return nil }
-        let received = (response["received"] as? NSNumber)?.uint64Value ?? 0
-        let sent = (response["sent"] as? NSNumber)?.uint64Value ?? 0
-        let memory = (response["memoryMb"] as? NSNumber)?.intValue ?? 0
-        return (received, sent, memory)
+        let connectedAt = manager?.connection.connectedDate
+        guard let response = try? await sendProviderCommand("metrics", fields: ["includeTelemetry": includeTelemetry]),
+              case .connected = state, manager?.connection.connectedDate == connectedAt else { return nil }
+        return NimboTunnelReport.decode(response)
     }
 
     func connect(selectionOwner: UUID? = nil) async {

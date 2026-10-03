@@ -80,6 +80,7 @@ pub fn safe_code(code: &str) -> &str {
         | "DELAY_FAILED"
         | "LISTEN_FAILED"
         | "AMBIGUOUS_PROXY" => code,
+        "AD_BLOCKING_REQUIRES_RULE_MODE" => code,
         _ => "NATIVE_FAILED",
     }
 }
@@ -227,6 +228,20 @@ pub struct Snapshot {
     pub providers: std::collections::BTreeMap<String, Value>,
     #[serde(default, rename = "ruleProviders")]
     pub rule_providers: std::collections::BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrafficTelemetry {
+    pub upload: u64,
+    pub download: u64,
+    pub proxy_upload: u64,
+    pub proxy_download: u64,
+    pub direct_upload: u64,
+    pub direct_download: u64,
+    pub route_available: bool,
+    pub tcp_connections: u64,
+    pub udp_connections: u64,
 }
 pub fn request(operation: &str, generation: u64) -> Value {
     json!({"apiVersion":1,"requestId":uuid::Uuid::new_v4().to_string(),"operation":operation,"generation":generation})

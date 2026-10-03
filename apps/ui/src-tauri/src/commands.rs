@@ -630,6 +630,11 @@ fn count_rules(profile: &RoutingProfile) -> u32 {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TrafficStats {
+    pub session_available: bool,
+    pub route_traffic: Option<nimbo_xray_config::telemetry::RouteTraffic>,
+    pub tcp_connections: Option<u64>,
+    pub udp_connections: Option<u64>,
+    pub ad_blocking_active: bool,
     pub session_upload: u64,
     pub session_download: u64,
     pub upload_speed: f64,
@@ -4356,32 +4361,36 @@ pub async fn get_traffic_stats(
         totals.monthly_download = 0;
     }
 
-    let (session, upload_speed, download_speed, speed_available) = if snapshot.connected {
-        let xray_running = state.runtime(|runtime| runtime.xray.is_some());
-        if xray_running {
-            let xray_path = ensure_xray_binary(&app).await?;
-            let session = query_xray_session_traffic(xray_path, ProxyPorts::default()).await?;
-            let rate = state.runtime(|runtime| {
-                record_traffic_sample(
-                    &mut runtime.traffic_samples,
-                    std::time::Instant::now(),
-                    &session,
-                )
-            });
-            let (upload_speed, download_speed, speed_available) = rate
-                .map(|(upload, download)| (upload, download, true))
-                .unwrap_or((0.0, 0.0, false));
-            (session, upload_speed, download_speed, speed_available)
-        } else {
-            state.runtime(|runtime| runtime.traffic_samples.clear());
-            (SessionTraffic::default(), 0.0, 0.0, false)
-        }
+    let telemetry = if snapshot.connected {
+        query_runtime_telemetry(&app, &state).await?
     } else {
-        state.runtime(|runtime| runtime.traffic_samples.clear());
-        (SessionTraffic::default(), 0.0, 0.0, false)
+        None
     };
+    let session_available = telemetry.is_some();
+    let (session, route_traffic, tcp_connections, udp_connections) = telemetry.unwrap_or_default();
+    let rate = state.runtime(|runtime| {
+        if session_available {
+            record_traffic_sample(
+                &mut runtime.traffic_samples,
+                std::time::Instant::now(),
+                &session,
+            )
+        } else {
+            runtime.traffic_samples.clear();
+            None
+        }
+    });
+    let (upload_speed, download_speed, speed_available) = rate
+        .map(|(up, down)| (up, down, true))
+        .unwrap_or((0.0, 0.0, false));
+    let ad_blocking_active = snapshot.connected && state.runtime(|r| r.ad_blocking_active);
 
     Ok(TrafficStats {
+        session_available,
+        route_traffic,
+        tcp_connections,
+        udp_connections,
+        ad_blocking_active,
         session_upload: session.upload,
         session_download: session.download,
         upload_speed,
@@ -4652,19 +4661,82 @@ pub async fn get_session_traffic(
         return Ok(SessionTraffic::default());
     }
 
-    let xray_running = state.runtime(|runtime| runtime.xray.is_some());
-    if !xray_running {
-        return Ok(SessionTraffic::default());
-    }
-
-    let xray_path = ensure_xray_binary(&app).await?;
-    query_xray_session_traffic(xray_path, ProxyPorts::default()).await
+    Ok(query_runtime_telemetry(&app, &state)
+        .await?
+        .map(|t| t.0)
+        .unwrap_or_default())
 }
 
-async fn query_xray_session_traffic(
+type RuntimeTelemetry = (
+    SessionTraffic,
+    Option<nimbo_xray_config::telemetry::RouteTraffic>,
+    Option<u64>,
+    Option<u64>,
+);
+async fn query_runtime_telemetry(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+) -> Result<Option<RuntimeTelemetry>, String> {
+    let intent = CONNECTION_INTENT.load(Ordering::SeqCst);
+    let mihomo = state.runtime(|r| {
+        r.mihomo
+            .as_ref()
+            .map(|s| (s.controller(), s.session_id.clone()))
+    });
+    if let Some((controller, id)) = mihomo {
+        let t = controller.telemetry().await?;
+        if CONNECTION_INTENT.load(Ordering::SeqCst) != intent
+            || !state.runtime(|r| r.mihomo.as_ref().is_some_and(|s| s.session_id == id))
+        {
+            return Ok(None);
+        }
+        let routes = t
+            .route_available
+            .then_some(nimbo_xray_config::telemetry::RouteTraffic {
+                proxy_upload: t.proxy_upload,
+                proxy_download: t.proxy_download,
+                direct_upload: t.direct_upload,
+                direct_download: t.direct_download,
+            });
+        return Ok(Some((
+            SessionTraffic {
+                upload: t.upload,
+                download: t.download,
+            },
+            routes,
+            Some(t.tcp_connections),
+            Some(t.udp_connections),
+        )));
+    }
+    let running = state.runtime(|r| {
+        let running = r.xray.is_some();
+        #[cfg(target_os = "linux")]
+        let running = running || r.tun_session.is_some();
+        running
+    });
+    if !running {
+        return Ok(None);
+    }
+    let xray = ensure_xray_binary(app).await?;
+    let t = query_xray_telemetry(xray, ProxyPorts::default()).await?;
+    if CONNECTION_INTENT.load(Ordering::SeqCst) != intent {
+        return Ok(None);
+    }
+    Ok(Some((
+        SessionTraffic {
+            upload: t.upload,
+            download: t.download,
+        },
+        t.routes,
+        None,
+        None,
+    )))
+}
+
+async fn query_xray_telemetry(
     xray_path: PathBuf,
     ports: ProxyPorts,
-) -> Result<SessionTraffic, String> {
+) -> Result<nimbo_xray_config::telemetry::TrafficCounters, String> {
     tokio::task::spawn_blocking(move || {
         let _query_guard = XRAY_STATS_QUERY_LOCK
             .lock()
@@ -4694,7 +4766,7 @@ async fn query_xray_session_traffic(
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        Ok(parse_xray_stats_output(&stdout))
+        nimbo_xray_config::telemetry::parse_traffic_counters(&stdout).map_err(str::to_string)
     })
     .await
     .map_err(|e| format!("Не удалось дождаться статистики Xray: {e}"))?
@@ -4763,60 +4835,6 @@ fn join_command_output_reader(
         .join()
         .map_err(|_| format!("поток чтения {stream_name} аварийно завершился"))?
         .map_err(|e| format!("не удалось прочитать {stream_name}: {e}"))
-}
-
-fn parse_xray_stats_output(output: &str) -> SessionTraffic {
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(output) else {
-        return SessionTraffic::default();
-    };
-    let Some(stats) = json.get("stat").and_then(serde_json::Value::as_array) else {
-        return SessionTraffic::default();
-    };
-
-    let mut inbound = SessionTraffic::default();
-    let mut outbound_proxy = SessionTraffic::default();
-
-    for stat in stats {
-        let name = stat
-            .get("name")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        let value = stat.get("value").and_then(parse_stat_value).unwrap_or(0);
-        if name.starts_with("inbound>>>api>>>") {
-            continue;
-        }
-
-        if name.starts_with("inbound>>>") {
-            if name.ends_with(">>>traffic>>>uplink") {
-                inbound.upload = inbound.upload.saturating_add(value);
-            } else if name.ends_with(">>>traffic>>>downlink") {
-                inbound.download = inbound.download.saturating_add(value);
-            }
-        } else if name.starts_with("outbound>>>proxy>>>") {
-            if name.ends_with(">>>traffic>>>uplink") {
-                outbound_proxy.upload = outbound_proxy.upload.saturating_add(value);
-            } else if name.ends_with(">>>traffic>>>downlink") {
-                outbound_proxy.download = outbound_proxy.download.saturating_add(value);
-            }
-        }
-    }
-
-    if inbound.upload > 0 || inbound.download > 0 {
-        inbound
-    } else {
-        outbound_proxy
-    }
-}
-
-fn parse_stat_value(value: &serde_json::Value) -> Option<u64> {
-    value
-        .as_u64()
-        .or_else(|| value.as_i64().and_then(|v| u64::try_from(v).ok()))
-        .or_else(|| {
-            value
-                .as_str()
-                .and_then(|text| text.trim().parse::<u64>().ok())
-        })
 }
 
 fn build_fetch_options(state: &PersistedState) -> FetchOptions {
@@ -5175,17 +5193,12 @@ async fn disconnect_server_inner(
         .map_err(|e| format!("Не удалось отключить автоматический выбор: {e}"))?;
     let snapshot = state.snapshot();
     let final_session = if snapshot.connected {
-        let xray_running = state.runtime(|runtime| runtime.xray.is_some());
-        if xray_running {
-            match ensure_xray_binary(&app).await {
-                Ok(xray_path) => query_xray_session_traffic(xray_path, ProxyPorts::default())
-                    .await
-                    .unwrap_or_default(),
-                Err(_) => SessionTraffic::default(),
-            }
-        } else {
-            SessionTraffic::default()
-        }
+        query_runtime_telemetry(&app, &state)
+            .await
+            .ok()
+            .flatten()
+            .map(|t| t.0)
+            .unwrap_or_default()
     } else {
         SessionTraffic::default()
     };
@@ -6420,6 +6433,7 @@ async fn connect_system_proxy(
 
     state.runtime(|runtime| {
         runtime.ping_route = ping_route;
+        runtime.ad_blocking_active = snapshot.preferences.ad_blocking_enabled;
         runtime.xray = Some(child);
         runtime.naive = naive;
         runtime.awg = awg;
@@ -6598,6 +6612,7 @@ async fn connect_tun(
         };
         state.runtime(|runtime| {
             runtime.ping_route = ping_route;
+            runtime.ad_blocking_active = snapshot.preferences.ad_blocking_enabled;
             runtime.tun_session = Some(session);
             runtime.naive = naive.take();
             runtime.awg = awg;
@@ -6668,6 +6683,7 @@ async fn connect_tun(
 
         state.runtime(|runtime| {
             runtime.ping_route = ping_route;
+            runtime.ad_blocking_active = snapshot.preferences.ad_blocking_enabled;
             runtime.xray = Some(xray);
             runtime.naive = naive;
             runtime.awg = awg;
@@ -7009,6 +7025,8 @@ fn build_runtime_xray_config(
             .ok_or("Нет proxy outbound в конфигурации AWG")?;
         *proxy = serde_json::to_value(outbound).map_err(|_| "Не удалось настроить AWG outbound")?;
     }
+    nimbo_xray_config::ad_blocking::apply(&mut config, snapshot.preferences.ad_blocking_enabled)
+        .map_err(str::to_string)?;
     Ok(config)
 }
 
@@ -8366,6 +8384,7 @@ pub(crate) fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
         };
         runtime.ping_route = None;
         runtime.traffic_samples.clear();
+        runtime.ad_blocking_active = false;
         // Сессия хелпера закрывается первой: он сам погасит ядро и вернёт
         // маршруты, а Drop отправит TunDown даже если что-то пойдёт не так.
         #[cfg(target_os = "linux")]
@@ -10709,6 +10728,38 @@ mod tests {
                 .map(|domains| domains.iter().any(|domain| domain == "domain:example.org"))
                 .unwrap_or(false)
         }));
+    }
+
+    #[test]
+    fn ad_blocking_is_final_runtime_overlay_and_leaves_cached_template_unchanged() {
+        let server = test_server();
+        let mut snapshot = PersistedState::default();
+        snapshot.xray_templates.insert("local".into(), json!({
+            "routing":{"rules":[{"domain":["domain:provider.invalid"], "outboundTag":"direct"}]},
+            "outbounds":[{"tag":"direct","protocol":"freedom"},{"tag":"block","protocol":"blackhole"}]
+        }));
+        let stored = snapshot.xray_templates.clone();
+        assert!(!snapshot.preferences.ad_blocking_enabled);
+        let off = build_runtime_xray_config(&server, &snapshot, ProxyPorts::default()).unwrap();
+        snapshot.preferences.ad_blocking_enabled = true;
+        let on = build_runtime_xray_config(&server, &snapshot, ProxyPorts::default()).unwrap();
+        assert_eq!(snapshot.xray_templates, stored);
+        assert_eq!(
+            on["routing"]["rules"][0]["domain"][0],
+            "domain:doubleclick.net"
+        );
+        assert!(off["routing"]["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["domain"][0] != "domain:doubleclick.net"));
+        assert!(on["routing"]["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["domain"][0] == "domain:provider.invalid"));
+        let migrated: AppPreferences = serde_json::from_value(json!({})).unwrap();
+        assert!(!migrated.ad_blocking_enabled);
     }
 
     #[test]

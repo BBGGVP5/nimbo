@@ -112,6 +112,15 @@ impl Controller {
         )
         .map_err(|_| "INVALID_NATIVE_SNAPSHOT".into())
     }
+    pub async fn telemetry(&self) -> Result<crate::wire::TrafficTelemetry, String> {
+        let envelope = tokio::time::timeout(
+            Duration::from_secs(3),
+            self.invoke(request("telemetry", self.generation), true),
+        )
+        .await
+        .map_err(|_| "TRAFFIC_TIMEOUT")??;
+        serde_json::from_value(envelope.data).map_err(|_| "INVALID_NATIVE_TELEMETRY".into())
+    }
     pub async fn select(&self, group: &str, name: &str) -> Result<Snapshot, String> {
         check_name(group)?;
         check_name(name)?;

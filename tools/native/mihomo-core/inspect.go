@@ -26,6 +26,7 @@ func (e *issue) Error() string                  { return e.Code + ": " + e.Path 
 func problem(code, path, message string) *issue { return &issue{code, message, path} }
 
 type declaredGraph struct {
+	Mode      string                    `json:"mode"`
 	Proxies   []map[string]any          `json:"proxies"`
 	Groups    []map[string]any          `json:"groups"`
 	Providers map[string]map[string]any `json:"providers"`
@@ -116,6 +117,14 @@ func inspect(source string) (*inspection, error) {
 	normalizeSmartGroups(root)
 	sum := sha256.Sum256([]byte(source))
 	d := &inspection{OriginalYAML: source, SourceSHA256: hex.EncodeToString(sum[:]), DocumentKind: "yaml", RootKeys: make([]string, 0, len(root)), root: root, StrictIssues: []issue{}, DeclaredGraph: declaredGraph{Proxies: []map[string]any{}, Groups: []map[string]any{}, Providers: map[string]map[string]any{}}}
+	d.DeclaredGraph.Mode = "rule"
+	if mode, exists := root["mode"]; exists {
+		if text, ok := mode.(string); ok {
+			d.DeclaredGraph.Mode = strings.ToLower(text)
+		} else {
+			d.DeclaredGraph.Mode = "invalid"
+		}
+	}
 	for key := range root {
 		d.RootKeys = append(d.RootKeys, key)
 	}

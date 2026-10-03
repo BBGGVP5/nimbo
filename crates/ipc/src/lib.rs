@@ -120,6 +120,8 @@ pub struct MihomoTunRequest {
     pub mixed: bool,
     #[serde(default)]
     pub kill_switch: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ad_blocking: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MihomoReady {
@@ -283,6 +285,15 @@ mod tests {
         let old =
             serde_json::json!({"yaml":"x", "source_sha256":"a", "binary_sha256":"b", "mixed":true});
         let mut request: MihomoTunRequest = serde_json::from_value(old).unwrap();
+        assert!(!request.ad_blocking);
+        assert!(serde_json::to_value(&request)
+            .unwrap()
+            .get("ad_blocking")
+            .is_none());
+        request.ad_blocking = true;
+        let enabled: MihomoTunRequest =
+            serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
+        assert!(enabled.ad_blocking);
         assert!(!request.kill_switch);
         request.kill_switch = true;
         let back: MihomoTunRequest =
@@ -298,6 +309,7 @@ mod tests {
             binary_sha256: "b".repeat(64),
             mixed: false,
             kill_switch: false,
+            ad_blocking: false,
         };
         let back =
             decode_command(&encode_command(&Command::MihomoUp(request.clone())).unwrap()).unwrap();

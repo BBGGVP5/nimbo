@@ -24,6 +24,7 @@ SOURCES = [
     "iosApp/Shared/NimboHTTPProbe.swift",
     "iosApp/Shared/NimboSOCKSTunnel.swift",
     "iosApp/Shared/NimboRoutingOptions.swift",
+    "iosApp/Shared/NimboAdBlocking.swift",
     "iosApp/Nimbo/NimboICMPProbe.swift",
     "iosApp/Nimbo/NimboActiveRouteProbe.swift",
     "iosApp/Nimbo/NimboPingService.swift",

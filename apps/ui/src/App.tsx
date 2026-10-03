@@ -229,6 +229,12 @@ export default function App() {
         consecutiveFailures += 1;
         if (consecutiveFailures >= 2) {
           setTrafficMonitoringAvailable(false);
+          // Do not leave stale route/protocol values looking live after a
+          // failed native poll. Preserve saved totals, not session evidence.
+          const previous = useAppStore.getState().trafficStats;
+          if (previous) recordTrafficStats({ ...previous, session_available: false,
+            route_traffic: null, tcp_connections: null, udp_connections: null,
+            speed_available: false, upload_speed: 0, download_speed: 0 });
         }
       } finally {
         if (!cancelled && connected) {

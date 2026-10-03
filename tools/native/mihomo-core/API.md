@@ -11,8 +11,16 @@ Generation starts at zero and increments on successful start. Optional request
 Request: `{apiVersion:1,requestId,operation,yaml?,options?,generation?,group?,name?,
 url?,timeoutMs?,expectedStatus?,targetRequestId?}`. Unknown/duplicate request fields are errors.
 
+* `telemetry`: requires the active `generation`; read-only aggregate counters
+  `{upload,download,proxyUpload,proxyDownload,directUpload,directDownload,
+  routeAvailable,tcpConnections,udpConnections}`. Bytes are cumulative session
+  deltas, protocol counts are currently active core-tracked connections.
+  No destination, node identifiers or credentials are returned. The generation
+  is checked before and after the read; missing/stale sessions fail, not zero.
+  Older unpatched route managers return `routeAvailable:false`. This does not
+  reset counters or create a connection-history database/polling task.
 * `inspect`: exact UTF-8 source in `yaml`; no network, native construction or disk IO.
-  Returns `{originalYAML,sourceSHA256,documentKind,rootKeys,declaredGraph:{proxies:[],groups:[],providers:{}},
+  Returns `{originalYAML,sourceSHA256,documentKind,rootKeys,declaredGraph:{mode,proxies:[],groups:[],providers:{}},
   strictIssues:[{code,message,path}]}`. Graph entries retain declared YAML
   mappings and unknown fields, except `smart` groups are projected to stable
   `url-test` (`interval:600`, `lazy:true`, `tolerance:100`) with ML/telemetry
@@ -42,7 +50,13 @@ url?,timeoutMs?,expectedStatus?,targetRequestId?}`. Unknown/duplicate request fi
 * `start`: `yaml` and `options:{dataDir:absoluteAppOwnedPath,
   networkOwner:"desktop-proxy",mixedAddress:"127.0.0.1:0",
   controllerAddress:"127.0.0.1:0",secret:randomBearerAtLeast32Chars,
-  startupTimeoutMs?:20000}`. Deadline range 1..25000 ms.
+  startupTimeoutMs?:20000,adBlocking?:false}`. Deadline range 1..25000 ms.
+  `adBlocking:true` prepends the bounded local advertising-domain REJECT rules
+  and enables runtime HTTP/TLS/QUIC sniffing for missing protocols; source YAML,
+  DNS, existing exclusions and provider/custom rules remain intact. It requires
+  rule mode (`AD_BLOCKING_REQUIRES_RULE_MODE` otherwise), and does not claim to
+  block encrypted DNS/ECH, IP-only or direct OS-bypass traffic. Off is omitted
+  by callers for compatibility with older native bridges. No list download.
   Returns status only once listeners and providers are ready; rollback on error.
 * `status`: `{state,mixedAddress,controllerAddress,networkOwner,sourceSHA256,
   coreVersion:"v1.19.31",coreCommit,apiVersion:1}`. No secret/source disclosed.

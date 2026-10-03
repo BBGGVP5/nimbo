@@ -9,7 +9,11 @@ enum MihomoPacketError: LocalizedError {
     case native(String), physicalPath, packetFlow, configuration
     var errorDescription: String? {
         switch self {
-        case .native(let code): return "Mihomo: \(code)"
+        case .native(let code):
+            if code == "AD_BLOCKING_REQUIRES_RULE_MODE" {
+                return NimboAdBlockingError.requiresMihomoRuleMode.localizedDescription
+            }
+            return "Mihomo: \(code)"
         case .physicalPath: return "Нет физического сетевого интерфейса (IOS_MIHOMO_PHYSICAL_PATH)."
         case .packetFlow: return "Пакетный поток Mihomo остановлен (IOS_MIHOMO_PACKET_FLOW)."
         case .configuration: return "Некорректная полная конфигурация Mihomo (IOS_MIHOMO_CONFIG)."
@@ -129,7 +133,7 @@ final class MihomoPacketBridge {
         return candidate
     }
 
-    func start(source: Data, directory: URL, flow: NEPacketTunnelFlow, selections: [String: String]) throws {
+    func start(source: Data, directory: URL, flow: NEPacketTunnelFlow, selections: [String: String], adBlocking: Bool = false) throws {
         guard currentGeneration == nil, let binding = currentBinding, binding.isReady,
               let text = NimboMihomoSessionPolicy.exactUTF8(source) else {
             throw MihomoPacketError.configuration
@@ -144,9 +148,11 @@ final class MihomoPacketBridge {
             let requestID = UUID().uuidString
             lock.lock(); pendingStartID = requestID; lock.unlock()
             defer { lock.lock(); pendingStartID = nil; lock.unlock() }
+            var options: [String: Any] = ["dataDir": directory.path, "networkOwner": "ios-packet-flow",
+                "packetIPv6": true, "startupTimeoutMs": 20_000]
+            if adBlocking { options["adBlocking"] = true }
             let request: [String: Any] = ["apiVersion": 1, "requestId": requestID, "operation": "start",
-                "yaml": text, "options": ["dataDir": directory.path, "networkOwner": "ios-packet-flow",
-                    "packetIPv6": true, "startupTimeoutMs": 20_000]]
+                "yaml": text, "options": options]
             let json = String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self)
             let reply = try json.withCString { try decode(NimboMihomoStartIOSPacketFlowV1(UnsafeMutablePointer(mutating: $0))) }
             let expectedSource = SHA256.hash(data: source).map { String(format: "%02x", $0) }.joined()

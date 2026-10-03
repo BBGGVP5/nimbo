@@ -1,11 +1,27 @@
 import tempfile
 import unittest
+import json
+import subprocess
+from unittest.mock import patch
 from pathlib import Path
 
-from stage_gomobile_memory_limits import stage_memory_bounded_modules
+from stage_gomobile_memory_limits import stage_memory_bounded_modules, _resolve_module
 
 
 class GomobileMemoryLimitTests(unittest.TestCase):
+    @patch("stage_gomobile_memory_limits.subprocess.run")
+    def test_undownloaded_tool_cannot_resolve_to_working_directory(self, run):
+        run.return_value = subprocess.CompletedProcess([], 0, '{"Path":"golang.org/x/tools"}', "")
+        with self.assertRaisesRegex(RuntimeError, "did not resolve source"):
+            _resolve_module(Path("go"), Path.cwd(), "golang.org/x/tools")
+
+    @patch("stage_gomobile_memory_limits.subprocess.run")
+    def test_download_uses_locked_graph_and_explicit_directory(self, run):
+        with tempfile.TemporaryDirectory() as temp:
+            run.return_value = subprocess.CompletedProcess([], 0, json.dumps({"Path":"golang.org/x/tools", "Dir":temp}), "")
+            self.assertEqual(_resolve_module(Path("go"), Path.cwd(), "golang.org/x/tools"), Path(temp))
+            self.assertEqual(run.call_args.args[0], ["go", "mod", "download", "-json", "golang.org/x/tools"])
+
     def test_stages_parser_limit_and_serial_abi_loop(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

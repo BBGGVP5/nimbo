@@ -12,6 +12,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var lifecycleGeneration: UInt64 = 0
     private var starting = false
     private var started = false
+    private var activeAdBlockingEnabled: Bool?
     /// Сколько исходящих в текущей конфигурации.
     ///
     /// Сама конфигурация здесь не хранится: её JSON занимает сотни килобайт, а
@@ -168,21 +169,39 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     "outbounds": self.outboundCount
                 ]))
             case "metrics":
+                guard self.started else {
+                    completionHandler?(Self.responseData(["ok": false]))
+                    return
+                }
                 // Счётчики берём у своего интерфейса: приложение видит все utun
                 // и не может отличить наш от служебного.
                 if self.mihomo.isConfigured {
                     let counters = self.mihomo.counters
-                    completionHandler?(Self.responseData(["ok": true, "received": counters.received,
-                        "sent": counters.sent, "memoryMb": NimboInterfaceCounters.memoryFootprintMb()]))
+                    var response: [String: Any] = ["ok": true, "received": counters.received,
+                        "sent": counters.sent, "generation": self.lifecycleGeneration,
+                        "memoryMb": NimboInterfaceCounters.memoryFootprintMb()]
+                    // Optional, read-only and generation-checked. Old native bridges
+                    // and transient failures never interfere with the packet pump.
+                    if request?["includeTelemetry"] as? Bool == true,
+                       let reply = try? self.mihomo.command("telemetry"),
+                       let telemetry = NimboTrafficTelemetry.decode(reply["data"]) {
+                        response["telemetry"] = telemetry.providerValue
+                        response["activeAdBlockingEnabled"] = self.activeAdBlockingEnabled
+                    }
+                    completionHandler?(Self.responseData(response))
                     return
                 }
-                let counters = self.tunnelInterfaceName
-                    .flatMap { NimboInterfaceCounters.counters(interface: $0) }
-                    ?? NimboInterfaceCounters.busiestTunnel()
+                guard let counters = self.tunnelInterfaceName
+                    .flatMap({ NimboInterfaceCounters.counters(interface: $0) }) else {
+                    completionHandler?(Self.responseData(["ok": false]))
+                    return
+                }
                 completionHandler?(Self.responseData([
                     "ok": true,
-                    "received": counters?.received ?? 0,
-                    "sent": counters?.sent ?? 0,
+                    "received": counters.received,
+                    "sent": counters.sent,
+                    "generation": self.lifecycleGeneration,
+                    "activeAdBlockingEnabled": self.activeAdBlockingEnabled.map { $0 as Any } ?? NSNull(),
                     // Предел памяти система ставит расширению, поэтому важна
                     // именно его занятая память, а не приложения.
                     "memoryMb": NimboInterfaceCounters.memoryFootprintMb()
@@ -446,6 +465,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func clearRetainedStartupState() {
+        activeAdBlockingEnabled = nil
         lastCoreConfiguration = nil
         lastTunnelDescriptor = nil
         lastAssetDirectory = nil
@@ -677,8 +697,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                             try FileManager.default.copyItem(at: resource, to: destination)
                         }
                     }
-                    try self.mihomo.start(source: data, directory: directory, flow: self.packetFlow, selections: selections)
+                    try self.mihomo.start(source: data, directory: directory, flow: self.packetFlow, selections: selections,
+                                          adBlocking: options.adBlockingEnabled)
                     guard self.mihomo.isRunning else { throw MihomoPacketError.packetFlow }
+                    self.activeAdBlockingEnabled = options.adBlockingEnabled
                     self.outboundCount = 0; self.tunnelInterfaceName = nil
                     continuation.resume(returning: ())
                 } catch { self.mihomo.stop(); continuation.resume(throwing: error) }
@@ -751,6 +773,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     self.pingServerID = pingServerID
                     let coreVersion = try self.core.version()
                     self.outboundCount = configuration.outboundCount
+                    self.activeAdBlockingEnabled = options.adBlockingEnabled
                     continuation.resume(returning: CoreStartupResult(
                         outboundCount: configuration.outboundCount,
                         coreVersion: coreVersion

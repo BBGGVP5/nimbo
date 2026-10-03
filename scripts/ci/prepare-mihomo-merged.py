@@ -117,7 +117,8 @@ def stage_mihomo(original, destination, patch_files):
     allowed = {'adapter/provider/healthcheck.go', 'adapter/provider/provider.go',
                'adapter/outboundgroup/groupbase.go', 'listener/sing_tun/server.go', 'tunnel/tunnel.go',
                'listener/sing_tun/server_android.go', 'component/tls/reality.go', 'listener/config/tun.go',
-               'component/dialer/dialer.go', 'component/dialer/socket_hook.go'}
+               'component/dialer/dialer.go', 'component/dialer/socket_hook.go',
+               'tunnel/statistic/manager.go', 'tunnel/statistic/tracker.go'}
     if changed != allowed:
         raise RuntimeError('Unexpected pinned Mihomo patch scope: ' + ', '.join(sorted(changed)))
     reality = (destination / 'component/tls/reality.go').read_text(encoding='utf-8')
@@ -175,7 +176,7 @@ def main():
         if args.source_dir is None or args.dependency_dir is None:
             parser.error('--stage-only needs --source-dir and --dependency-dir')
         original, dependencies, native = (p.resolve() for p in (args.source_dir, args.dependency_dir, args.native_dir))
-        patches = [native / name for name in ('mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch', 'mihomo-rule-journal.patch')]
+        patches = [native / name for name in ('mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch', 'mihomo-rule-journal.patch', 'mihomo-traffic-counters.patch')]
         if any(not patch.is_file() for patch in patches):
             raise RuntimeError('Pinned Mihomo source patch missing')
         dependencies.mkdir(parents=True, exist_ok=True)
@@ -226,7 +227,7 @@ def main():
         verified.append(metadata)
     protobuf = dependencies / 'protobuf'
     stage_protobuf(Path(verified[1]['Dir']), protobuf, pins['protobuf'])
-    mihomo_patches = [native / name for name in ('mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch', 'mihomo-rule-journal.patch')]
+    mihomo_patches = [native / name for name in ('mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch', 'mihomo-rule-journal.patch', 'mihomo-traffic-counters.patch')]
     if any(not patch.is_file() for patch in mihomo_patches):
         raise RuntimeError('Pinned Mihomo source patch missing')
     mihomo_source = dependencies / 'mihomo'
@@ -268,7 +269,7 @@ def main():
                 'netlinkPatchSHA256': digest(native / 'netlink-rule-identity.patch'),
                 'netlinkPatchedSources': netlink_sources,
                 'nativeSources': {p.name: digest(p) for p in sorted(list(native.glob('*.go')) +
-                                  [native / name for name in ['go.mod', 'go.sum', 'pins.json', 'protobuf-directive.patch', 'mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch', 'mihomo-rule-journal.patch', 'sing-tun-rule-journal.patch', 'netlink-rule-identity.patch']])}}
+                                  [native / name for name in ['go.mod', 'go.sum', 'pins.json', 'protobuf-directive.patch', 'mihomo-session-lifecycle.patch', 'mihomo-reality-client-version.patch', 'mihomo-rule-journal.patch', 'mihomo-traffic-counters.patch', 'sing-tun-rule-journal.patch', 'netlink-rule-identity.patch']])}}
     (dependencies / 'mihomo-source-verification.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
     print('Verified Mihomo source, protobuf directive-only patch and merged ROOT replacements')
 

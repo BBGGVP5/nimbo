@@ -478,6 +478,7 @@ async fn connect_tun_inner(
                 snapshot.connection_mode == ConnectionMode::Both,
             )?;
             request.kill_switch = snapshot.preferences.connection_kill_switch;
+            request.ad_blocking = snapshot.preferences.ad_blocking_enabled;
             request
         }),
     )
@@ -492,11 +493,12 @@ async fn connect_tun_inner(
     let session = await_current(
         ticket,
         &CONNECTION_INTENT,
-        Session::start_tun_options(
+        Session::start_tun_policy(
             &bin,
             &profile,
             snapshot.connection_mode == ConnectionMode::Both,
             snapshot.preferences.connection_kill_switch,
+            snapshot.preferences.ad_blocking_enabled,
         ),
     )
     .await?;
@@ -562,6 +564,7 @@ async fn connect_tun_inner(
     }
     state.runtime(|r| {
         r.system_proxy_snapshot = proxy;
+        r.ad_blocking_active = snapshot.preferences.ad_blocking_enabled;
         r.mihomo = Some(session);
     });
     let _ = crate::tray::refresh_tray_menu(&app);
@@ -579,6 +582,18 @@ pub(crate) async fn connect_profile_inner(
 ) -> Result<RuntimeStatus, String> {
     let profile = preflight_profile(&snapshot, &profile_id)?;
     let bin = binary(&app)?;
+    if snapshot.preferences.ad_blocking_enabled {
+        let inspection = await_current(
+            ticket,
+            &CONNECTION_INTENT,
+            nimbo_mihomo::process::inspect(&bin, &profile),
+        )
+        .await?;
+        // Reject incompatible mode before stopping a still-working connection.
+        if inspection.graph.get("mode").and_then(Value::as_str) != Some("rule") {
+            return Err("AD_BLOCKING_REQUIRES_RULE_MODE".into());
+        }
+    }
     #[cfg(any(windows, target_os = "linux"))]
     if snapshot.connection_mode.uses_tun() {
         return connect_tun_inner(app, state, profile, bin, snapshot, ticket).await;
@@ -609,7 +624,12 @@ pub(crate) async fn connect_profile_inner(
     let session = await_current(
         ticket,
         &CONNECTION_INTENT,
-        Session::start(&bin, &profile, &data_dir),
+        Session::start_policy(
+            &bin,
+            &profile,
+            &data_dir,
+            snapshot.preferences.ad_blocking_enabled,
+        ),
     )
     .await?;
     if CONNECTION_INTENT.load(Ordering::SeqCst) != ticket {
@@ -678,6 +698,7 @@ pub(crate) async fn connect_profile_inner(
     }
     state.runtime(|r| {
         r.system_proxy_snapshot = proxy;
+        r.ad_blocking_active = snapshot.preferences.ad_blocking_enabled;
         r.mihomo = Some(session);
     });
     let _ = crate::tray::refresh_tray_menu(&app);

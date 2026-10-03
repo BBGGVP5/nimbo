@@ -205,9 +205,21 @@ impl Session {
         mixed: bool,
         kill_switch: bool,
     ) -> Result<Self, String> {
+        Self::start_tun_policy(binary, profile, mixed, kill_switch, false).await
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
+    pub async fn start_tun_policy(
+        binary: &VerifiedBinary,
+        profile: &FullProfile,
+        mixed: bool,
+        kill_switch: bool,
+        ad_blocking: bool,
+    ) -> Result<Self, String> {
         profile.verify().map_err(String::from)?;
         binary.reverify()?;
         let mut request = tun_request(binary, profile, mixed)?;
+        request.ad_blocking = ad_blocking;
         request.kill_switch = kill_switch;
         let (lease, ready) = crate::helper::Lease::start(request).await?;
         let info: RuntimeInfo =
@@ -241,6 +253,15 @@ impl Session {
         profile: &FullProfile,
         data_dir: &Path,
     ) -> Result<Self, String> {
+        Self::start_policy(binary, profile, data_dir, false).await
+    }
+
+    pub async fn start_policy(
+        binary: &VerifiedBinary,
+        profile: &FullProfile,
+        data_dir: &Path,
+        ad_blocking: bool,
+    ) -> Result<Self, String> {
         if profile.kind != ProfileKind::MihomoYaml {
             return Err("UNSUPPORTED_CORE".into());
         }
@@ -256,7 +277,10 @@ impl Session {
         }
         std::fs::create_dir_all(data_dir).map_err(|_| "INVALID_DATA_DIRECTORY")?;
         let secret = wire::fresh_secret();
-        let request = wire::start_request(profile, data_dir, &secret)?;
+        let mut request = wire::start_request(profile, data_dir, &secret)?;
+        if ad_blocking {
+            request["options"]["adBlocking"] = true.into();
+        }
         let id = request["requestId"].as_str().ok_or("INVALID_REQUEST")?;
         let mut child = OwnedChild::spawn(binary, "serve")?;
         let bytes = child
@@ -350,5 +374,6 @@ pub fn tun_request(
         binary_sha256: hash,
         mixed,
         kill_switch: false,
+        ad_blocking: false,
     })
 }

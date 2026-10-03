@@ -4710,6 +4710,8 @@ private fun NimboSettingsScreen(
             style = MaterialTheme.typography.bodySmall, color = LocalNebulaColors.current.textSecondary,
             modifier = Modifier.padding(top = 6.dp, bottom = 24.dp))
         SettingsGroupLabel(t("ПОДКЛЮЧЕНИЕ", "CONNECTION"))
+        AdBlockingSettingsCard(preferencesManager)
+        Spacer(Modifier.height(12.dp))
         SettingsCompactCard {
             SettingsRow(Icons.Default.Dns, t("Ядро VPN", "VPN core"),
                 com.danila.nimbo.vpn.VpnCoreChoice.fromId(preferencesManager.vpnCoreState.value)?.let {
@@ -5690,22 +5692,7 @@ private fun ColumnScope.StatisticsSettingsSection(
 
     Spacer(Modifier.height(16.dp))
 
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        StatSpeedCard(
-            modifier = Modifier.weight(1f),
-            label = t("ОТПРАВЛЕНО", "SENT"),
-            icon = Icons.Default.ArrowUpward,
-            speed = uploadSpeed,
-            total = sessionUp
-        )
-        StatSpeedCard(
-            modifier = Modifier.weight(1f),
-            label = t("ПОЛУЧЕНО", "RECEIVED"),
-            icon = Icons.Default.ArrowDownward,
-            speed = downloadSpeed,
-            total = sessionDown
-        )
-    }
+    TrafficDashboard(preferencesManager)
 
     // ── График скорости за последнюю минуту ────────────────────────────────
     val speedSamples = TrafficHistory.speedSamples
@@ -5861,6 +5848,10 @@ private fun ColumnScope.StatisticsSettingsSection(
 
     Spacer(Modifier.height(16.dp))
     StatGroupCard(title = t("ЗА ВСЁ ВРЕМЯ", "ALL TIME")) {
+        Text(t("История может содержать счётчики ядра, UID или всего устройства.",
+            "History may include core, app UID or device-wide counters."),
+            color = nebulaColors.textSecondary, style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(vertical = 8.dp))
         StatLine(t("Отправлено", "Sent"), formatBytesPrecise(allUp))
         StatLine(t("Получено", "Received"), formatBytesPrecise(allDown))
         StatLine(t("Суммарно", "Total"), formatBytesPrecise(allUp + allDown), emphasize = true, showDivider = false)
@@ -5890,8 +5881,8 @@ private fun ColumnScope.StatisticsSettingsSection(
                 java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(java.util.Date(sessionStart))
             } else "—"
         )
-        StatLine(t("TX пакеты", "TX packets"), txPackets.toString())
-        StatLine(t("RX пакеты", "RX packets"), rxPackets.toString(), showDivider = false)
+        StatLine(t("TX пакеты Android", "Android TX packets"), txPackets.toString())
+        StatLine(t("RX пакеты Android", "Android RX packets"), rxPackets.toString(), showDivider = false)
     }
 
     Spacer(Modifier.height(20.dp))

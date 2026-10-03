@@ -323,6 +323,11 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     val showConnectionTimeCardState = mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_CONNECTION_TIME_CARD, true))
     val autoRotationEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_AUTO_ROTATION_ENABLED, false))
 
+    /** Saved opt-in; effective runtime configuration is rebuilt on the next connection. */
+    var adBlockingEnabled: Boolean
+        get() = AdBlockingPreference.read(sharedPreferences)
+        set(value) = AdBlockingPreference.write(sharedPreferences, value)
+
     var isRoutingEnabled: Boolean
         get() = sharedPreferences.getBoolean(KEY_ROUTING_ENABLED, false)
         set(value) = sharedPreferences.edit().putBoolean(KEY_ROUTING_ENABLED, value).apply()

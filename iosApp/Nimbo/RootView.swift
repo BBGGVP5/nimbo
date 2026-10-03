@@ -50,6 +50,7 @@ struct RootView: View {
     @State private var showFileImporter = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var metricsRequestInFlight = false
+    @State private var metricsGeneration: UInt64 = 0
     private var shouldPollMetrics: Bool {
         scenePhase == .active && vpn.state == .connected
     }
@@ -144,6 +145,7 @@ struct RootView: View {
         vpnLayer
             .onChange(of: selectedTab) { tab in
                 IosComposeControllerKt.NimboSetIosScreen(wireName: tab.rawValue)
+                if tab != .stats { IosComposeControllerKt.NimboClearIosTrafficTelemetry() }
             }
             .onReceive(NotificationCenter.default.publisher(for: .nimboOpenScreen)) { notification in
                 guard let wireName = notification.object as? String,
@@ -481,11 +483,14 @@ struct RootView: View {
     /// Смена состояния туннеля: новая сессия обнуляет счётчики, завершённая —
     /// записывается в историю.
     private func handleVpnState(_ state: VpnController.State) {
+        metricsGeneration &+= 1
+        if state != .connected { IosComposeControllerKt.NimboClearIosTrafficTelemetry() }
         // `failed` несёт код и сообщение, поэтому сравнивать его через `==`
         // нельзя — только сопоставлением образца.
         switch state {
         case .connecting, .preparing:
             metrics.reset()
+            IosComposeControllerKt.NimboResetIosMetrics()
             sessionStartedAt = Date()
             trafficCheck?.cancel()
             trafficCheck = nil
@@ -674,6 +679,10 @@ struct RootView: View {
     /// следующем.
     private func restageConfiguration() async {
         do {
+            if let full = try NimboConfigurationStore.shared.loadFullConfiguration() {
+                try await vpn.stageConfiguration(data: full.sourceData)
+                return
+            }
             guard let profile = try NimboSubscriptionRepository.shared.loadProfile(),
                   let selected = profile.selectedServer else { return }
             try await vpn.stageConfiguration(
@@ -686,6 +695,9 @@ struct RootView: View {
                 code: "IOS_ROUTING_RESTAGE_FAILED",
                 message: NimboRedactor.redact(error.localizedDescription)
             )
+            if let policyError = error as? NimboAdBlockingError {
+                notify("error", policyError.localizedDescription)
+            }
         }
     }
 
@@ -838,10 +850,23 @@ struct RootView: View {
         defer { metricsRequestInFlight = false }
         // Показания спрашиваем у расширения: оно знает свой интерфейс и свою
         // занятую память, а приложение — ни того, ни другого.
-        let reported = await vpn.tunnelMetrics()
+        let ticket = metricsGeneration
+        let includeTelemetry = selectedTab == .stats
+        let reported = await vpn.tunnelMetrics(includeTelemetry: includeTelemetry)
         // IPC может завершиться после сворачивания или смены VPN-сессии.
-        guard !Task.isCancelled, shouldPollMetrics else { return }
+        guard !Task.isCancelled, shouldPollMetrics, metricsGeneration == ticket else { return }
         metrics.tick(reported: reported)
+        if includeTelemetry && selectedTab == .stats {
+            let telemetryJson = reported?.telemetry.flatMap { telemetry in
+                (try? JSONSerialization.data(withJSONObject: telemetry.providerValue))
+                    .flatMap { String(data: $0, encoding: .utf8) }
+            }
+            IosComposeControllerKt.NimboUpdateIosTrafficTelemetry(
+                telemetryJson: telemetryJson,
+                sessionAvailable: metrics.sessionAvailable,
+                activeAdBlockingEnabled: reported?.activeAdBlockingEnabled.map { KotlinBoolean(bool: $0) }
+            )
+        }
         let durationLabel: String? = vpn.manager?.connection.connectedDate.map { connectedAt in
             let elapsed = max(0, Int(Date().timeIntervalSince(connectedAt)))
             return String(format: "%02d:%02d:%02d", elapsed / 3600, (elapsed / 60) % 60, elapsed % 60)

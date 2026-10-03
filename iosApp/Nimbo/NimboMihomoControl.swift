@@ -40,6 +40,12 @@ enum NimboMihomoControl {
         return payload
     }
 
+    static func validateAdBlocking(_ full: NimboFullConfiguration, enabled: Bool) throws {
+        guard enabled else { return }
+        let graph = try inspection(full)["declaredGraph"] as? [String: Any]
+        try NimboAdBlocking.requireMihomoRuleMode(graph?["mode"] as? String, enabled: enabled)
+    }
+
     static func declaredGroups(_ full: NimboFullConfiguration) throws -> [Group] {
         let graph = try inspection(full)["declaredGraph"] as? [String: Any]
         return (graph?["groups"] as? [[String: Any]] ?? []).compactMap { group in

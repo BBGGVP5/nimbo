@@ -525,6 +525,9 @@ impl MihomoOwner {
             );
             let id = uuid::Uuid::new_v4().to_string();
             let mut options = json!({"dataDir":running.home,"networkOwner":"desktop-tun","desktopIPv6":true,"controllerAddress":"127.0.0.1:0","secret":secret});
+            if r.ad_blocking {
+                options["adBlocking"] = json!(true);
+            }
             if r.mixed {
                 options["mixedAddress"] = json!("127.0.0.1:0");
             }
@@ -678,6 +681,7 @@ mod tests {
             binary_sha256: "a".repeat(64),
             mixed: false,
             kill_switch: false,
+            ad_blocking: false,
         };
         assert!(validate_request(&r, &"a".repeat(64)).is_ok());
         r.binary_sha256 = "b".repeat(64);
