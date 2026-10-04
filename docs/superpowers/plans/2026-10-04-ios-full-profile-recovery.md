@@ -42,4 +42,6 @@ The executable regression exposed Foundation's NSString JSON parser consuming a 
 
 Local Rust checks passed 164 tests across IPC, Mihomo, subscriptions and the Windows helper (seven external/native cases remain explicitly ignored). cargo fmt passes. Strict Clippy identified one fetch-options default reassignment; use the equivalent struct initializer rather than disabling its lint. The Linux CI compile failure was a missing ad_blocking field in a test fixture. No host TUN/firewall/service changes were performed.
 
+A subsequent full Windows workspace run exposed a race in the loopback test server: accepted sockets inherited nonblocking mode and read() sometimes returned WouldBlock before the request arrived. Restore blocking mode only for that test-owned socket and bound both reads and writes. After the fix, all 319 workspace tests passed (11 explicitly ignored); the three subscription-format cases also passed independently with three test threads. Strict workspace Clippy passed without disabling warnings.
+
 Prior binaries for source 320981e built successfully: unsigned iOS run 37186792796 and Windows/Linux artifacts run 37186794539. Updated iOS artifacts are being built in run 37188974238; its final status belongs in the delivery receipt. A successful build does not replace signed physical-device Packet Tunnel testing.

@@ -24,8 +24,15 @@ fn serve(status: &str, mime: &str, body: &[u8]) -> (String, thread::JoinHandle<S
             assert!(Instant::now() < deadline, "loopback request did not arrive");
             thread::sleep(Duration::from_millis(5));
         };
+        // Accepted sockets inherit the listener's nonblocking mode on Windows.
+        // The request can arrive in later packets; a readiness race must not
+        // turn a valid loopback response into SOURCE_FETCH_FAILED.
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(3)))
             .unwrap();
         let mut request = Vec::new();
         let mut buffer = [0; 1024];
