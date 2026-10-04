@@ -450,6 +450,7 @@ mod tests {
             binary_sha256: "a".repeat(64),
             mixed: false,
             kill_switch: false,
+            ad_blocking: false,
         };
         assert!(validate_request(&r, &"a".repeat(64)).is_ok());
         r.binary_sha256 = "b".repeat(64);

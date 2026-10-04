@@ -424,12 +424,24 @@ fn is_elevated_cached() -> bool {
 }
 
 fn tray_core_profile(snapshot: &PersistedState) -> Option<&nimbo_mihomo::FullProfile> {
-    if snapshot.core_profiles.preferred_core != Some(nimbo_mihomo::CoreKind::Mihomo) &&
-        !(snapshot.connected && snapshot.core_profiles.active_profile_id.is_some()) { return None; }
-    let id = snapshot.core_profiles.active_profile_id.as_deref().or_else(||
-        snapshot.active_subscription_url.as_deref().and_then(|url| snapshot.subscriptions.iter().find(|sub| sub.url == url))
-            .and_then(|sub| sub.meta.mihomo_profile_id.as_deref()));
-    id.and_then(|id| snapshot.core_profiles.profile(id).ok()).filter(|p| p.kind == nimbo_mihomo::ProfileKind::MihomoYaml)
+    if snapshot.core_profiles.preferred_core != Some(nimbo_mihomo::CoreKind::Mihomo)
+        && !(snapshot.connected && snapshot.core_profiles.active_profile_id.is_some())
+    {
+        return None;
+    }
+    let id = snapshot
+        .core_profiles
+        .active_profile_id
+        .as_deref()
+        .or_else(|| {
+            snapshot
+                .active_subscription_url
+                .as_deref()
+                .and_then(|url| snapshot.subscriptions.iter().find(|sub| sub.url == url))
+                .and_then(|sub| sub.meta.mihomo_profile_id.as_deref())
+        });
+    id.and_then(|id| snapshot.core_profiles.profile(id).ok())
+        .filter(|p| p.kind == nimbo_mihomo::ProfileKind::MihomoYaml)
 }
 
 /// Snapshot the data the popup needs to render itself.
@@ -443,7 +455,11 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
     .to_string();
     let core_profile = tray_core_profile(&snapshot);
     let active_profile_name = core_profile.map(|p| p.name.clone());
-    let active_server_id = if core_profile.is_some() { None } else { snapshot.active_server_id.clone() };
+    let active_server_id = if core_profile.is_some() {
+        None
+    } else {
+        snapshot.active_server_id.clone()
+    };
     let connection_mode = snapshot.connection_mode;
     let subscription_count = snapshot.subscriptions.len();
     let server_count = snapshot
@@ -466,8 +482,11 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
         }
     }
 
-    if core_profile.is_some() { servers.clear(); }
-    let needs_admin = core_profile.is_none() && matches!(connection_mode, ConnectionMode::Tun | ConnectionMode::Both)
+    if core_profile.is_some() {
+        servers.clear();
+    }
+    let needs_admin = core_profile.is_none()
+        && matches!(connection_mode, ConnectionMode::Tun | ConnectionMode::Both)
         && !is_elevated_cached();
 
     TrayMenuState {
@@ -770,7 +789,12 @@ fn connect_active_server(app: &AppHandle) {
     if let Some(profile_id) = profile_id {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            let result = crate::mihomo_runtime::connect_mihomo_profile(app.clone(), app.state::<AppState>(), profile_id).await;
+            let result = crate::mihomo_runtime::connect_mihomo_profile(
+                app.clone(),
+                app.state::<AppState>(),
+                profile_id,
+            )
+            .await;
             let _ = refresh_tray_menu(&app);
             emit_connect_result(&app, "connect", result.is_ok(), result.err());
         });

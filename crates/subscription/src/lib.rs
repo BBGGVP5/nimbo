@@ -7,7 +7,8 @@ pub mod userinfo;
 pub use fetcher::{
     build_subscription, dedupe_subscription_servers, extract_xray_templates_from_value,
     fetch_subscription, fetch_subscription_with_mirrors, happ_compatible_user_agent, FetchError,
-    FetchOptions, Fetched, SubscriptionFormat, HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS, HAPP_COMPAT_OS_VERSION,
+    FetchOptions, Fetched, SubscriptionFormat, HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS,
+    HAPP_COMPAT_OS_VERSION,
 };
 pub use mirrors::{
     candidates as mirror_candidates, extract_from_url as extract_mirrors_from_url,

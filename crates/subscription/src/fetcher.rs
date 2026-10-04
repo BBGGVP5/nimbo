@@ -151,9 +151,14 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
     let (user_agent, accept, core) = match opts.format {
         SubscriptionFormat::Mihomo => (
             format!("Mihomo/1.19.31 {app_user_agent}"),
-            "application/yaml, text/yaml, text/plain;q=0.8", "mihomo"),
-        SubscriptionFormat::Xray => (happ_compatible_user_agent(&app_user_agent),
-            "application/json, text/plain;q=0.9", "xray"),
+            "application/yaml, text/yaml, text/plain;q=0.8",
+            "mihomo",
+        ),
+        SubscriptionFormat::Xray => (
+            happ_compatible_user_agent(&app_user_agent),
+            "application/json, text/plain;q=0.9",
+            "xray",
+        ),
         SubscriptionFormat::Auto => (happ_compatible_user_agent(&app_user_agent), "*/*", "auto"),
     };
     insert_header(&mut headers, "accept", accept);
@@ -161,11 +166,16 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             let previous = attempt.previous();
-            if previous.len() >= 5 || previous.last().is_some_and(|last|
-                last.origin() != attempt.url().origin()) ||
-                validate_subscription_url(attempt.url().as_str()).is_err() {
+            if previous.len() >= 5
+                || previous
+                    .last()
+                    .is_some_and(|last| last.origin() != attempt.url().origin())
+                || validate_subscription_url(attempt.url().as_str()).is_err()
+            {
                 attempt.error("SOURCE_REDIRECT_BLOCKED")
-            } else { attempt.follow() }
+            } else {
+                attempt.follow()
+            }
         }))
         .connect_timeout(Duration::from_secs(5))
         .timeout(opts.timeout)
@@ -183,11 +193,24 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
     if !resp.status().is_success() {
         return Err(FetchError::Contract("SOURCE_HTTP_ERROR"));
     }
-    if resp.content_length().is_some_and(|n| n > MAX_SUBSCRIPTION_BYTES as u64) {
+    if resp
+        .content_length()
+        .is_some_and(|n| n > MAX_SUBSCRIPTION_BYTES as u64)
+    {
         return Err(FetchError::Contract("SOURCE_TOO_LARGE"));
     }
-    if resp.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok())
-        .is_some_and(|mime| mime.split(';').next().unwrap_or("").trim().eq_ignore_ascii_case("text/html")) {
+    if resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|mime| {
+            mime.split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .eq_ignore_ascii_case("text/html")
+        })
+    {
         return Err(FetchError::Contract("SOURCE_NOT_PROFILE"));
     }
 
@@ -230,7 +253,10 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
     }
     // Do not normalize BOM, CRLF or provider YAML. Native inspection owns parsing.
     let body = String::from_utf8(bytes).map_err(|_| FetchError::Contract("SOURCE_INVALID_UTF8"))?;
-    let prefix = body.trim_start_matches('\u{feff}').trim_start().to_ascii_lowercase();
+    let prefix = body
+        .trim_start_matches('\u{feff}')
+        .trim_start()
+        .to_ascii_lowercase();
     if prefix.starts_with("<!doctype html") || prefix.starts_with("<html") {
         return Err(FetchError::Contract("SOURCE_NOT_PROFILE"));
     }
@@ -243,7 +269,10 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         // Headers are sufficient; don't probe Xray metadata endpoints with a YAML request.
         RemnawaveInfo::default()
     } else {
-        merge_remnawave_info(fetch_subscription_api_info(&client, url).await, parse_subscription_json_info(&body))
+        merge_remnawave_info(
+            fetch_subscription_api_info(&client, url).await,
+            parse_subscription_json_info(&body),
+        )
     };
     let applied_server_descriptions =
         apply_server_descriptions(&mut servers, &remnawave.server_descriptions);
@@ -283,26 +312,42 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
 /// `known_mirrors` и `preferred_url` берутся из сохранённой подписки: после
 /// блокировки основного домена заголовок с зеркалами уже неоткуда прочитать.
 pub async fn fetch_subscription_with_mirrors(
-    url: &str, opts: &FetchOptions, known_mirrors: &[String], preferred_url: Option<&str>,
+    url: &str,
+    opts: &FetchOptions,
+    known_mirrors: &[String],
+    preferred_url: Option<&str>,
 ) -> Result<Fetched, FetchError> {
-    tokio::time::timeout(opts.timeout,
-        fetch_subscription_with_mirrors_inner(url, opts, known_mirrors, preferred_url))
-        .await.map_err(|_| FetchError::Contract("SOURCE_FETCH_TIMEOUT"))?
+    tokio::time::timeout(
+        opts.timeout,
+        fetch_subscription_with_mirrors_inner(url, opts, known_mirrors, preferred_url),
+    )
+    .await
+    .map_err(|_| FetchError::Contract("SOURCE_FETCH_TIMEOUT"))?
 }
 
 const MAX_SUBSCRIPTION_BYTES: usize = 4 * 1024 * 1024;
 fn validate_subscription_url(input: &str) -> Result<(), FetchError> {
     let parsed = url::Url::parse(input).map_err(|_| FetchError::Contract("INVALID_SOURCE_URL"))?;
-    if input.len() > 8192 || input.chars().any(|c| c.is_whitespace() || c.is_control()) ||
-        !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() ||
-        !parsed.username().is_empty() || parsed.password().is_some() || parsed.fragment().is_some() {
+    if input.len() > 8192
+        || input.chars().any(|c| c.is_whitespace() || c.is_control())
+        || !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+    {
         return Err(FetchError::Contract("INVALID_SOURCE_URL"));
     }
     Ok(())
 }
 fn subscription_request_error(error: reqwest::Error) -> FetchError {
-    FetchError::Contract(if error.is_redirect() { "SOURCE_REDIRECT_BLOCKED" }
-        else if error.is_timeout() { "SOURCE_FETCH_TIMEOUT" } else { "SOURCE_FETCH_FAILED" })
+    FetchError::Contract(if error.is_redirect() {
+        "SOURCE_REDIRECT_BLOCKED"
+    } else if error.is_timeout() {
+        "SOURCE_FETCH_TIMEOUT"
+    } else {
+        "SOURCE_FETCH_FAILED"
+    })
 }
 
 async fn fetch_subscription_with_mirrors_inner(

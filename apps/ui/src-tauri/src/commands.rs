@@ -20,9 +20,9 @@ use nimbo_ipc::PROTOCOL_VERSION;
 use nimbo_subscription::{
     build_subscription, extract_mirrors_from_url, extract_xray_templates_from_value,
     fetch_subscription_with_mirrors, happ_compatible_user_agent, merge_mirrors, parse_aggregate,
-    parse_subscription_userinfo, FetchOptions, Fetched, SubscriptionFormat, NaiveTransport, Server, Subscription,
-    TlsFragmentConfig, CURRENT_SUBSCRIPTION_PARSER_REVISION, HAPP_COMPAT_DEVICE_MODEL,
-    HAPP_COMPAT_DEVICE_OS, HAPP_COMPAT_OS_VERSION, USER_AGENT,
+    parse_subscription_userinfo, FetchOptions, Fetched, NaiveTransport, Server, Subscription,
+    SubscriptionFormat, TlsFragmentConfig, CURRENT_SUBSCRIPTION_PARSER_REVISION,
+    HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS, HAPP_COMPAT_OS_VERSION, USER_AGENT,
 };
 use nimbo_xray_config::{
     AppRoutingMode as XrayAppRoutingMode, AppRoutingRule as XrayAppRoutingRule, ConfigBuilder,
@@ -1057,12 +1057,20 @@ pub async fn add_subscription(
 
     state
         .transaction(|s| {
-            if s.core_profiles.preferred_core != snapshot_before.core_profiles.preferred_core { return Err("STALE_GENERATION".into()); }
-            if s.subscriptions.iter().any(|sub| sub.url == source) { return Err("SUBSCRIPTION_ALREADY_EXISTS".into()); }
-            if companion.is_some() && s.core_profiles.profiles.len() >= 1024 { return Err("PROFILE_LIMIT".into()); }
+            if s.core_profiles.preferred_core != snapshot_before.core_profiles.preferred_core {
+                return Err("STALE_GENERATION".into());
+            }
+            if s.subscriptions.iter().any(|sub| sub.url == source) {
+                return Err("SUBSCRIPTION_ALREADY_EXISTS".into());
+            }
+            if companion.is_some() && s.core_profiles.profiles.len() >= 1024 {
+                return Err("PROFILE_LIMIT".into());
+            }
             remove_xray_templates_for_subscription(&mut s.xray_templates, source);
             merge_xray_template_cache(&mut s.xray_templates, source, xray_templates);
-            if let Some(profile) = companion.clone() { s.core_profiles.profiles.push(profile); }
+            if let Some(profile) = companion.clone() {
+                s.core_profiles.profiles.push(profile);
+            }
             s.subscriptions.push(subscription.clone());
             Ok(())
         })
@@ -1079,7 +1087,10 @@ pub async fn refresh_subscription(
     refresh_subscription_inner(&state, url).await
 }
 
-pub(crate) async fn refresh_subscription_inner(state: &AppState, url: String) -> Result<Subscription, String> {
+pub(crate) async fn refresh_subscription_inner(
+    state: &AppState,
+    url: String,
+) -> Result<Subscription, String> {
     let snapshot_before = state.snapshot();
     let source = url.trim();
     let opts = build_fetch_options(&snapshot_before);
@@ -1089,7 +1100,9 @@ pub(crate) async fn refresh_subscription_inner(state: &AppState, url: String) ->
         .subscriptions
         .iter()
         .find(|item| item.url == source);
-    if saved.is_none() { return Err("PROFILE_NOT_FOUND".into()); }
+    if saved.is_none() {
+        return Err("PROFILE_NOT_FOUND".into());
+    }
     let known_mirrors: Vec<String> = saved
         .map(|item| item.meta.mirrors.clone())
         .unwrap_or_default();
@@ -1136,18 +1149,51 @@ pub(crate) async fn refresh_subscription_inner(state: &AppState, url: String) ->
         collect_subscription_xray_templates(&fetched, source, opts.user_agent.as_deref()).await;
     state
         .transaction(|s| {
-            if s.core_profiles.preferred_core != snapshot_before.core_profiles.preferred_core { return Err("STALE_GENERATION".into()); }
-            if snapshot_before.subscriptions.iter().any(|sub| sub.url == source) && !s.subscriptions.iter().any(|sub| sub.url == source) { return Err("PROFILE_NOT_FOUND".into()); }
+            if s.core_profiles.preferred_core != snapshot_before.core_profiles.preferred_core {
+                return Err("STALE_GENERATION".into());
+            }
+            if snapshot_before
+                .subscriptions
+                .iter()
+                .any(|sub| sub.url == source)
+                && !s.subscriptions.iter().any(|sub| sub.url == source)
+            {
+                return Err("PROFILE_NOT_FOUND".into());
+            }
             if let Some(profile) = companion.clone() {
-                let old_link = snapshot_before.subscriptions.iter().find(|sub| sub.url == source).and_then(|sub| sub.meta.mihomo_profile_id.as_deref());
-                let current_link = s.subscriptions.iter().find(|sub| sub.url == source).and_then(|sub| sub.meta.mihomo_profile_id.as_deref());
-                if old_link != current_link { return Err("STALE_REVISION".into()); }
-                if !s.core_profiles.profiles.iter().any(|p| p.id == profile.id) && s.core_profiles.profiles.len() >= 1024 { return Err("PROFILE_LIMIT".into()); }
-                let previous = snapshot_before.core_profiles.profiles.iter().find(|p| p.id == profile.id);
+                let old_link = snapshot_before
+                    .subscriptions
+                    .iter()
+                    .find(|sub| sub.url == source)
+                    .and_then(|sub| sub.meta.mihomo_profile_id.as_deref());
+                let current_link = s
+                    .subscriptions
+                    .iter()
+                    .find(|sub| sub.url == source)
+                    .and_then(|sub| sub.meta.mihomo_profile_id.as_deref());
+                if old_link != current_link {
+                    return Err("STALE_REVISION".into());
+                }
+                if !s.core_profiles.profiles.iter().any(|p| p.id == profile.id)
+                    && s.core_profiles.profiles.len() >= 1024
+                {
+                    return Err("PROFILE_LIMIT".into());
+                }
+                let previous = snapshot_before
+                    .core_profiles
+                    .profiles
+                    .iter()
+                    .find(|p| p.id == profile.id);
                 let current = s.core_profiles.profiles.iter().find(|p| p.id == profile.id);
-                if previous.map(|p| p.revision) != current.map(|p| p.revision) { return Err("STALE_REVISION".into()); }
-                if s.connected && s.core_profiles.active_profile_id.as_deref() == Some(&profile.id) &&
-                    s.core_profiles.profile(&profile.id).is_ok_and(|old| old.source_digest != profile.source_digest) {
+                if previous.map(|p| p.revision) != current.map(|p| p.revision) {
+                    return Err("STALE_REVISION".into());
+                }
+                if s.connected
+                    && s.core_profiles.active_profile_id.as_deref() == Some(&profile.id)
+                    && s.core_profiles
+                        .profile(&profile.id)
+                        .is_ok_and(|old| old.source_digest != profile.source_digest)
+                {
                     return Err("PROFILE_ACTIVE".into());
                 }
                 s.core_profiles.profiles.retain(|p| p.id != profile.id);
@@ -1163,7 +1209,9 @@ pub(crate) async fn refresh_subscription_inner(state: &AppState, url: String) ->
             let mut updated = build_subscription(source, fetched.clone(), existing_name.clone());
             updated.meta.show_on_home = existing_show_on_home.or(Some(true));
             updated.meta.update_interval_minutes = existing_update_interval;
-            updated.meta.mihomo_profile_id = companion.as_ref().map(|p| p.id.clone())
+            updated.meta.mihomo_profile_id = companion
+                .as_ref()
+                .map(|p| p.id.clone())
                 .or_else(|| existing.and_then(|sub| sub.meta.mihomo_profile_id.clone()));
             if companion.is_some() {
                 // Keep the legacy representation for a future switch back. Never flatten provider rules.
@@ -1292,11 +1340,23 @@ pub fn remove_subscription(
 ) -> Result<PersistedState, String> {
     state
         .transaction(|s| {
-            let companion_id = s.subscriptions.iter().find(|sub| sub.url == url).and_then(|sub| sub.meta.mihomo_profile_id.clone());
-            if s.connected && companion_id.as_deref().is_some_and(|id| s.core_profiles.active_profile_id.as_deref() == Some(id)) { return Err("PROFILE_ACTIVE".into()); }
+            let companion_id = s
+                .subscriptions
+                .iter()
+                .find(|sub| sub.url == url)
+                .and_then(|sub| sub.meta.mihomo_profile_id.clone());
+            if s.connected
+                && companion_id
+                    .as_deref()
+                    .is_some_and(|id| s.core_profiles.active_profile_id.as_deref() == Some(id))
+            {
+                return Err("PROFILE_ACTIVE".into());
+            }
             if let Some(id) = companion_id {
                 s.core_profiles.profiles.retain(|profile| profile.id != id);
-                if s.core_profiles.active_profile_id.as_deref() == Some(&id) { s.core_profiles.active_profile_id = None; }
+                if s.core_profiles.active_profile_id.as_deref() == Some(&id) {
+                    s.core_profiles.active_profile_id = None;
+                }
             }
             s.subscriptions.retain(|sub| sub.url != url);
             let valid_server_ids = s
@@ -4875,22 +4935,37 @@ fn join_command_output_reader(
         .map_err(|e| format!("не удалось прочитать {stream_name}: {e}"))
 }
 
-fn prepare_subscription_companion(snapshot: &PersistedState, source: &str, fetched: &Fetched) -> Result<Option<nimbo_mihomo::FullProfile>, String> {
-    if snapshot.core_profiles.preferred_core != Some(nimbo_mihomo::CoreKind::Mihomo) { return Ok(None); }
-    if !is_remote_subscription(source) { return Err("SUBSCRIPTION_CORE_UNSUPPORTED".into()); }
+fn prepare_subscription_companion(
+    snapshot: &PersistedState,
+    source: &str,
+    fetched: &Fetched,
+) -> Result<Option<nimbo_mihomo::FullProfile>, String> {
+    if snapshot.core_profiles.preferred_core != Some(nimbo_mihomo::CoreKind::Mihomo) {
+        return Ok(None);
+    }
+    if !is_remote_subscription(source) {
+        return Err("SUBSCRIPTION_CORE_UNSUPPORTED".into());
+    }
     let existing = snapshot.subscriptions.iter().find(|sub| sub.url == source);
-    let previous = existing.and_then(|sub| sub.meta.mihomo_profile_id.as_deref())
+    let previous = existing
+        .and_then(|sub| sub.meta.mihomo_profile_id.as_deref())
         .and_then(|id| snapshot.core_profiles.profile(id).ok());
-    let name = existing.and_then(|sub| sub.name.as_deref())
-        .or(fetched.suggested_name.as_deref()).unwrap_or("Mihomo");
-    nimbo_mihomo::subscription::prepare(name, &fetched.raw_body, previous).map(Some).map_err(String::from)
+    let name = existing
+        .and_then(|sub| sub.name.as_deref())
+        .or(fetched.suggested_name.as_deref())
+        .unwrap_or("Mihomo");
+    nimbo_mihomo::subscription::prepare(name, &fetched.raw_body, previous)
+        .map(Some)
+        .map_err(String::from)
 }
 
 fn build_fetch_options(state: &PersistedState) -> FetchOptions {
     let mut opts = FetchOptions::default();
     opts.format = match state.core_profiles.preferred_core {
         Some(nimbo_mihomo::CoreKind::Mihomo) => SubscriptionFormat::Mihomo,
-        Some(nimbo_mihomo::CoreKind::Xray) | Some(nimbo_mihomo::CoreKind::Awg) => SubscriptionFormat::Xray,
+        Some(nimbo_mihomo::CoreKind::Xray) | Some(nimbo_mihomo::CoreKind::Awg) => {
+            SubscriptionFormat::Xray
+        }
         None => SubscriptionFormat::Auto,
     };
     if let Some(ua) = &state.user_agent_override {
