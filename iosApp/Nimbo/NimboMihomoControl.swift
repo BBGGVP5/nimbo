@@ -78,7 +78,7 @@ enum NimboMihomoControl {
             throw NimboFullConfigurationError.staleRefresh
         }
         let updated = try current.recordingSelection(group: group.name, member: member, expectedSourceSHA256: full.sourceSHA256)
-        try NimboConfigurationStore.shared.saveFullConfiguration(updated)
+        try NimboConfigurationStore.shared.saveFullConfiguration(updated, expected: current)
     }
 
     private static func native(_ operation: String, source: Data) throws -> [String: Any] {

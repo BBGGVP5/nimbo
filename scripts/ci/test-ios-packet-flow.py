@@ -112,12 +112,16 @@ class PacketFlowContracts(unittest.TestCase):
     def test_import_does_not_flatten_and_live_choice_persists_after_readback(self):
         repository = source("iosApp/Nimbo/NimboSubscriptionRepository.swift")
         self.assertLess(repository.index("NimboMihomoControl.looksLikeConfiguration"), repository.index("NimboParseSubscriptionPayload"))
-        self.assertIn("saveFullConfiguration(candidate)", repository)
+        admission = repository.split("func importFullConfiguration(_ configuration:", 1)[1].split("private func fullSource", 1)[0]
+        self.assertLess(admission.index("configuration.validate()"), admission.index("saveFullConfiguration(configuration)"))
+        self.assertLess(admission.index("NimboMihomoControl.inspection(configuration)"), admission.index("saveFullConfiguration(configuration)"))
+        self.assertIn("saveFullConfiguration(candidate, expected: previous)", repository)
         control = source("iosApp/Nimbo/NimboMihomoControl.swift")
         choice = control.split("static func select(", 1)[1].split("private static func native", 1)[0]
         self.assertLess(choice.index('rpc("mihomoSelect"'), choice.index("recordingSelection"))
         self.assertIn('groups?[group.name]?["now"] as? String == member', choice)
         self.assertIn("current.sourceSHA256 == full.sourceSHA256", choice)
+        self.assertIn("saveFullConfiguration(updated, expected: current)", choice)
         self.assertIn("withTaskCancellationHandler", control)
 
     def test_ping_native_cancellation_and_persistent_source_scoped_values(self):

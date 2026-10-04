@@ -28,6 +28,7 @@ jobs:
           python3 iosApp/Tests/test_ping_contracts.py --swift
           python3 iosApp/Tests/test_on_demand_contracts.py --swift
           python3 iosApp/Tests/test_traffic_statistics_contracts.py --swift
+          python3 iosApp/Tests/test_mihomo_storage_contracts.py --swift
           python3 scripts/ci/test_gomobile_memory_limits.py
 
   verify:

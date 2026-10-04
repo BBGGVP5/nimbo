@@ -701,15 +701,26 @@ struct RootView: View {
         }
     }
 
-    /// Восстановление всегда заканчивается обновлением подписки: настройки без
-    /// свежего списка серверов бесполезны.
+    /// Full configurations restore offline. Do not mutate a live tunnel's profile.
     private func restoreBackup(from url: URL) async {
+        guard !isRefreshingSubscription else { return }
+        guard vpn.state != .connected, vpn.state != .connecting,
+              vpn.state != .preparing, vpn.state != .disconnecting else {
+            notify("info", "Отключите VPN для восстановления резервной копии")
+            return
+        }
+        isRefreshingSubscription = true
+        IosComposeControllerKt.NimboUpdateIosSubscriptionRefreshing(refreshing: true)
+        defer {
+            isRefreshingSubscription = false
+            IosComposeControllerKt.NimboUpdateIosSubscriptionRefreshing(refreshing: false)
+        }
         do {
             if let source = try NimboBackup.restore(from: url) {
                 _ = try await NimboSubscriptionRepository.shared.importRemote(source)
             }
             synchronizeComposeState()
-            await measurePings()
+            if try NimboConfigurationStore.shared.loadFullConfiguration() == nil { await measurePings() }
             notify("success", "Резервная копия восстановлена")
         } catch {
             notify("error", NimboRedactor.redact(error.localizedDescription))

@@ -7,6 +7,8 @@ import Security
 final class NimboConfigurationStore {
     static let shared = NimboConfigurationStore()
 
+    private let fullRecordLock = NSRecursiveLock()
+
     private let service = "com.nimbo.resignable.configuration"
     private let configurationAccount = "active-configuration"
     private let sourceAccount = "active-source"
@@ -20,11 +22,25 @@ final class NimboConfigurationStore {
     /// One SecItem write commits source, identity and desired choices together.
     /// Legacy accounts are retained but cannot override an active full record.
     func saveFullConfiguration(_ configuration: NimboFullConfiguration) throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
         try configuration.validate()
         try write(JSONEncoder().encode(configuration), account: fullConfigurationAccount)
     }
 
+    /// Compare and commit are one critical section, including a live choice write.
+    func saveFullConfiguration(_ configuration: NimboFullConfiguration, expected: NimboFullConfiguration) throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
+        guard try loadFullConfiguration() == expected else {
+            throw NimboFullConfigurationError.staleRefresh
+        }
+        try saveFullConfiguration(configuration)
+    }
+
     func loadFullConfiguration() throws -> NimboFullConfiguration? {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
         guard let data = try read(account: fullConfigurationAccount) else { return nil }
         let configuration = try JSONDecoder().decode(NimboFullConfiguration.self, from: data)
         try configuration.validate()
@@ -32,6 +48,8 @@ final class NimboConfigurationStore {
     }
 
     func save(configuration: Data, source: String?, description: String) throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
         try saveLegacyConfiguration(configuration, source: source, description: description)
         try delete(account: fullConfigurationAccount)
     }
@@ -54,6 +72,8 @@ final class NimboConfigurationStore {
         source: String?,
         description: String
     ) throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
         guard !profile.isEmpty, !selectedServer.isEmpty else { throw NimboConfigurationStoreError.empty }
         try write(profile, account: profileAccount)
         try saveLegacyConfiguration(selectedServer, source: source, description: description)
@@ -63,6 +83,8 @@ final class NimboConfigurationStore {
     }
 
     func saveSelection(configuration: Data, serverID: String) throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
         guard try loadFullConfiguration() == nil else {
             throw NimboFullConfigurationError.fullConfigurationActive
         }
@@ -98,6 +120,8 @@ final class NimboConfigurationStore {
     }
 
     func removeAll() throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
         try delete(account: configurationAccount)
         try delete(account: sourceAccount)
         try delete(account: profileAccount)

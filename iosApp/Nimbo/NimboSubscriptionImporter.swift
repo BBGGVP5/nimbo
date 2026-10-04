@@ -32,7 +32,7 @@ enum NimboSubscriptionImporter {
         guard !source.isEmpty else { throw ImportError.emptySource }
 
         if let url = URL(string: source), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-            let request = NimboNetworkSession.subscriptionRequest(url: url)
+            let request = try NimboNetworkSession.subscriptionRequest(url: url)
             let (data, response) = try await NimboNetworkSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode) else {
                 throw ImportError.http((response as? HTTPURLResponse)?.statusCode ?? -1)
