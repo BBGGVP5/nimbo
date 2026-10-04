@@ -47,7 +47,12 @@ import Foundation
         checked()
     }
     static func object(_ record: NimboFullConfiguration) throws -> [String: Any] {
-        try JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as! [String: Any]
+        var result = try JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as! [String: Any]
+        // Foundation's NSString JSON parser consumes a leading BOM inside this
+        // value on Apple hosts. Fixtures must not silently corrupt the source
+        // before exercising the production Codable decoder/validation.
+        result["originalYAML"] = record.originalYAML
+        return result
     }
     static func tamperedHash() throws {
         var value = try object(record()); value["originalYAML"] = "proxies: []\n"
@@ -177,19 +182,13 @@ import Foundation
     static func metadataAndPreferencesAreRestored() throws {
         try withFixture { defaults, url in
             let original = try record()
-            FileHandle.standardError.write(Data("Metadata fixture: source validated\n".utf8))
             var value = try archive(original)
             value["settings"] = [theme: "light", "com.nimbo.routing.adBlocking": "true", NimboCorePreference.defaultsKey: "mihomo", "unrelated-key": "not-imported"]
             var meta = NimboSubscriptionMeta.empty; meta.announce = "Provider description"; meta.title = "Fixture"
             value["subscriptionMeta"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(meta))
             try write(value, to: url)
-            let archived = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
-            let fields = archived["fullConfiguration"] as! [String: Any]
-            let bytes = Data(base64Encoded: fields["originalUTF8"] as! String)!
-            let text = fields["originalYAML"] as! String
-            let hashMatches = (fields["sourceSHA256"] as! String) == NimboFullConfiguration.digest(bytes)
-            FileHandle.standardError.write(Data("Metadata fixture: bytes=\(bytes == original.sourceData); shadow=\(text == original.originalYAML); hash=\(hashMatches)\n".utf8))
             _ = try NimboBackup.restore(from: url, defaults: defaults)
+            precondition(NimboConfigurationStore.shared.full?.sourceData == original.sourceData)
             precondition(defaults.bool(forKey: "com.nimbo.routing.adBlocking"))
             precondition(defaults.string(forKey: NimboCorePreference.defaultsKey) == "mihomo")
             precondition(defaults.object(forKey: "unrelated-key") == nil)
