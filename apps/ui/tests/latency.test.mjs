@@ -197,7 +197,7 @@ test('real settings section exposes methods, active-route limitation, presets, c
   const radios=rows.filter(r=>r.type==='input' && r.props.type==='radio');
   assert.deepEqual(Array.from(radios,r=>r.props.value), ['nimbo','tcp_connect','http_get','http_head','icmp']);
   assert.equal(radios.find(r=>r.props.value==='nimbo').props.checked,true);
-  assert.ok(rows.some(r=>r.type==='small' && r.props.children==='latencyEstimateDescription'));
+  assert.ok(rows.some(r=>r.props?.children==='latencyEstimateDescription'));
   await radios.find(r=>r.props.value==='http_get').props.onChange();
   assert.equal(changes.at(-1).latency_protocol,'http_get');
   const timeout=rows.find(r=>r.type==='Input' && r.props.inputMode==='decimal');
@@ -208,7 +208,7 @@ test('real settings section exposes methods, active-route limitation, presets, c
   rows.find(r=>r.type==='Input' && r.props.inputMode==='decimal').props.onChange('0.5');rows=nodes(render());
   rows.find(r=>r.type==='Input' && r.props.inputMode==='decimal').props.onCommit();
   assert.equal(changes.at(-1).latency_timeout_ms,500);
-  assert.ok(rows.some(r=>r.type==='CorePreference' && r.props.context==='latency'));
+  assert.ok(!rows.some(r=>r.type==='CorePreference'),'core selection belongs only to Connection settings');
   assert.ok(rows.some(r=>r.type==='details' && r.props.className==='latency-routing-help'));
   assert.ok(rows.some(r=>r.type==='p' && r.props.children==='latencyActiveRouteOnly'));
   const preset=rows.find(r=>r.type==='Choice' && r.props?.label==='testUrl');
@@ -234,7 +234,7 @@ test('classic quality colors and tray prose consume estimate without changing or
   assert.equal(pingTier(660,'http_get').level,'high');
   assert.equal(pingTier(-1,'nimbo').bg,'transparent');
   const tray=source('../src/tray-menu/TrayMenu.tsx');
-  const taskCode=tray.slice(tray.indexOf('function describeTask('),tray.indexOf('function ConnectionsIcon('))+'\nexports.describeTask=describeTask;';
+  const taskCode=tray.slice(tray.indexOf('function describeTask('),tray.indexOf('function TaskDoneIcon('))+'\nexports.describeTask=describeTask;';
   const {describeTask}=evaluate(taskCode,{},latency);
   const labels={pingDone:'Done',pingBest:'Best',serversShort:'servers'};
   assert.ok(describeTask({status:'done',kind:'ping_servers',best:955},labels,'nimbo').includes('≈289 ms'));

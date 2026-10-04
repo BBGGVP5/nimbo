@@ -1,3 +1,5 @@
+import { useCoreStore } from '../coreStore';
+import { isTauriRuntime } from '../lib/api';
 import { AutoFastestLine } from "../components/AutoFastestLine";
 import { SubscriptionInfo } from "../components/SubscriptionInfo";
 import { Dialog } from "../components/Universal";
@@ -18,6 +20,8 @@ import { ServerContextMenu } from "../components/ServerContextMenu";
 import { useCachedSubscriptionLogo } from "../lib/subscriptionLogo";
 import { useAppStore } from "../store";
 import { SignalProfiles } from "./profiles/SignalProfiles";
+import { ProviderAnnouncement } from "./profiles/ProviderAnnouncement";
+import { RefreshFeedback, useSubscriptionRefresh } from "./home/useSubscriptionRefresh";
 import {
   api,
   formatBytes,
@@ -64,6 +68,8 @@ function useFavoriteServers() {
 
 export function Subscriptions() {
   const m = useMessages();
+  const core = useCoreStore();
+  useEffect(() => { if (isTauriRuntime()) void core.refresh(); }, [core.refresh]);
   const subs = useAppStore((s) => s.subscriptions);
   const activeId = useAppStore((s) => s.activeServerId);
   const serverPings = useAppStore((s) => s.serverPings);
@@ -81,7 +87,6 @@ export function Subscriptions() {
   const [query, setQuery] = useState("");
   const [showFavOnly, setShowFavOnly] = useState(false);
   const preferences = useAppStore((s) => s.preferences);
-  const [refreshingUrl, setRefreshingUrl] = useState<string | null>(null);
   const pagePing = usePingActions();
   const pingingUrl = subs.find(sub => sub.servers.some(server => pagePing.pending.has(server.id)))?.url ?? null;
   const [signalSettingsUrl, setSignalSettingsUrl] = useState<string | null>(null);
@@ -97,6 +102,8 @@ export function Subscriptions() {
     hiddenCount,
   } = useServerUiOverrides();
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
+  const subscriptionRefresh = useSubscriptionRefresh(subs.map(sub => sub.url), refreshSubscription,
+    importOpen || adminDialogOpen || !!signalSettingsUrl || !!signalRemoveUrl || !!signalRenameServerId || !!signalHideServerId);
   const serverCount = subs.reduce((sum, sub) => sum + sub.servers.length, 0);
 
   const filteredSubs = useMemo(() => {
@@ -240,7 +247,7 @@ export function Subscriptions() {
   // Профили — полноценными карточками (трафик, срок, описание, ссылки,
   // порядок, настройки и удаление), серверы — общей таблицей ниже.
   // Старый список карточек не дублируется.
-  if (preferences.ui_style === "signal") {
+  if (preferences.ui_style === "signal" || core.data?.preferred_core === "mihomo") {
     const settingsSub = signalSettingsUrl ? subs.find((item) => item.url === signalSettingsUrl) ?? null : null;
     const removeSub = signalRemoveUrl ? subs.find((item) => item.url === signalRemoveUrl) ?? null : null;
     const allServers = subs.flatMap((item) => item.servers);
@@ -251,7 +258,8 @@ export function Subscriptions() {
       ? allServers.find((item) => item.id === signalHideServerId) ?? null
       : null;
     return (
-      <div className="page-view page-view-wide">
+      <div className="page-view page-view-wide nimbo-home-profile" {...subscriptionRefresh.gestureProps}>
+        <RefreshFeedback progress={subscriptionRefresh.progress} refreshing={subscriptionRefresh.refreshing} locale={m.common.locale}/>
         {subs.length === 0 ? (
           <>
             {pageHead}
@@ -281,15 +289,12 @@ export function Subscriptions() {
               </>
             }
             order={subs.map((item) => item.url)}
-            onRefreshSubscription={(url) => {
-              setRefreshingUrl(url);
-              void refreshSubscription(url).catch(error => notifyError(String(error))).finally(() => setRefreshingUrl(null));
-            }}
+            onRefreshSubscription={url => void subscriptionRefresh.refresh([url])}
             onPingSubscription={(url) => void pingSubscriptionServers(url)}
             onOpenSettings={(url) => setSignalSettingsUrl(url)}
             onDeleteSubscription={(url) => setSignalRemoveUrl(url)}
             onMoveSubscription={(url, direction) => moveSubscription(url, direction)}
-            refreshingUrl={refreshingUrl}
+            refreshingUrls={subscriptionRefresh.refreshingUrls}
             pingingUrl={pingingUrl}
             updatedLabel={(sub) => formatFetchedAt(sub.fetched_at, m)}
             supportUrl={(sub) => sub.meta?.support_url?.trim() || "https://t.me/nebulaguard_channel"}
@@ -369,7 +374,8 @@ export function Subscriptions() {
   }
 
   return (
-    <div className="page-view page-view-wide">
+    <div className="page-view page-view-wide nimbo-home-profile" {...subscriptionRefresh.gestureProps}>
+      <RefreshFeedback progress={subscriptionRefresh.progress} refreshing={subscriptionRefresh.refreshing} locale={m.common.locale}/>
       <div className="mb-7 flex items-start justify-between gap-4 mobile-column">
         <div>
           <h1 className="page-title">{m.profiles.title}</h1>
@@ -445,7 +451,7 @@ export function Subscriptions() {
               onToggleFavorite={toggleFavorite}
               onRenameServer={renameServer}
               onHideServer={hideServer}
-              onRefresh={() => refreshSubscription(sub.url)}
+              onRefresh={() => subscriptionRefresh.refresh([sub.url])}
               onUpdate={(settings) => updateSubscriptionSettings(sub.url, settings)}
               onRemove={() => removeSubscription(sub.url)}
               onMoveUp={() => moveSubscription(sub.url, -1)}
@@ -721,14 +727,7 @@ function ProfileCard({
           <MiniStat label={m.profiles.updated} value={updatedAt} />
         </div>
 
-        <div className="subscription-description mb-3 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-accent-panel)] px-3 py-3">
-          <div className="mb-1 text-[9px] uppercase tracking-wider text-[var(--color-text-faint)]">
-            {m.common.description}
-          </div>
-          <div className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-text-dim)]">
-            {visibleDescription || m.common.noDescription}
-          </div>
-        </div>
+        <ProviderAnnouncement description={visibleDescription} labels={m}/>
 
         <div className="mobile-wrap flex gap-2">
           <a

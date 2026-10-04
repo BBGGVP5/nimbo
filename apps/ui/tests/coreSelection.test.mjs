@@ -110,7 +110,7 @@ test('settings show authoritative unavailable states and next manual connection 
   let awg = false;
   let mihomo = false;
   const { CorePreferenceSetting } = await moduleWithMocks('../src/components/CorePreferenceSetting.tsx', {
-    useEffect, _jsx: jsxRuntime.jsx, _jsxs: jsxRuntime.jsxs,
+    useEffect, NimboSelect: ({children,...props}) => createElement("select",props,children), ...helpers, _jsx: jsxRuntime.jsx, _jsxs: jsxRuntime.jsxs,
     useMessages: () => ({ common: { locale: 'en' } }), isTauriRuntime: () => true,
     useCoreStore: () => ({ data: { preferred_core: 'auto' }, availability: [
       { core: 'xray', selector_available: true }, { core: 'awg', selector_available: awg },
@@ -118,7 +118,7 @@ test('settings show authoritative unavailable states and next manual connection 
     ], busy: null, error: null, refresh: async () => {}, preference: async () => {} }),
   });
   let html = renderToStaticMarkup(createElement(CorePreferenceSetting));
-  assert.match(html, /next manual connection/);
+  assert.match(html, /From the next connection/);
   assert.match(html, /value="auto" selected=""/);
   assert.match(html, /value="awg" disabled=""/);
   assert.match(html, /value="mihomo" disabled=""/);
@@ -129,7 +129,7 @@ test('settings show authoritative unavailable states and next manual connection 
   assert.match(html, /href="#\/mihomo"/);
   mihomo = true;
   html = renderToStaticMarkup(createElement(CorePreferenceSetting));
-  assert.match(html, /<option value="mihomo">Mihomo · System Proxy<\/option>/);
+  assert.match(html, /<option value="mihomo">Mihomo<\/option>/);
 });
 
 test('full-profile page uses native categories and blocks connect for TUN/Both/KS', async () => {
@@ -147,7 +147,7 @@ test('full-profile page uses native categories and blocks connect for TUN/Both/K
   };
   const {MihomoProfiles} = await moduleWithMocks('../src/pages/MihomoProfiles.tsx', {
     useEffect,useState,_jsx:jsxRuntime.jsx,_jsxs:jsxRuntime.jsxs,_Fragment:jsxRuntime.Fragment,
-    ...helpers, coreApi:{}, api:{}, isTauriRuntime:()=>true,
+    NimboSelect: ({children,...props}) => createElement("select",props,children), ...helpers, coreApi:{}, api:{}, isTauriRuntime:()=>true,
     useMessages:()=>({common:{locale:'en'}}), useCoreStore:()=>state,
     useAppStore:selector=>selector({status:{connection_mode:mode},preferences:{connection_kill_switch:ks}}),
   });

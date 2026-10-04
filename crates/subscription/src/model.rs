@@ -19,6 +19,9 @@ pub struct Subscription {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SubscriptionMeta {
+    /// Complete source-preserving companion; the normal source URL remains authoritative.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mihomo_profile_id: Option<String>,
     pub description: Option<String>,
     pub support_url: Option<String>,
     pub website_url: Option<String>,

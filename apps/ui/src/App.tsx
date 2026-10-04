@@ -4,7 +4,7 @@ import { DialogFocusManager } from "./components/DialogFocusManager";
 import { latencyPresentation } from "./lib/latency";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Home } from "./pages/Home";
 import { Subscriptions } from "./pages/Subscriptions";
 import { Servers } from "./pages/Servers";
@@ -28,7 +28,7 @@ import {
 } from "./lib/appearance";
 import { useAppStore } from "./store";
 import { SignalSidebar } from "./components/SignalSidebar";
-import { desktopNavItems } from "./lib/desktopNavigation";
+import { activityNavItems, compactDestination, compactNavItems, desktopNavItems } from "./lib/desktopNavigation";
 import { APP_VERSION, CURRENT_SUBSCRIPTION_PARSER_REVISION, api, formatBytes, isTauriRuntime, type AppPostUpdateInfo, type AppUpdateInfo, type AppUpdateProgress, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
 import { cachedSubscriptionTheme } from "./lib/subscriptionTheme";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -38,6 +38,7 @@ import { applyVisualPreferences } from "./lib/visualTheme";
 import { liveNetworkGlassSignal } from "./lib/liveNetworkGlass";
 import { WorkspaceBar } from "./components/WorkspaceBar";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import "./desktop-shell.css";
 
 const APP_UPDATE_DIALOG_EVENT = "nimbo:show-update-dialog";
 
@@ -612,7 +613,7 @@ export default function App() {
       />
 
       <main className="app-main flex-1 overflow-auto p-3 pl-0">
-        <WorkspaceBar />
+        <AppWorkspaceBar />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/subscriptions" element={<Subscriptions />} />
@@ -630,8 +631,37 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+      <DesktopBottomNavigation />
     </div>
   );
+}
+
+export function DesktopBottomNavigation() {
+  const m = useMessages();
+  const { pathname } = useLocation();
+  const selected = compactDestination(pathname);
+  return <nav className="app-bottom-nav" aria-label={m.common.locale.startsWith("ru") ? "Основная навигация" : "Primary navigation"}>
+    {compactNavItems.map(item => <Link key={item.to} to={item.to}
+      aria-current={selected === item.to ? "page" : undefined}
+      className={`app-bottom-nav-item${selected === item.to ? " is-active" : ""}`}>
+      <NavIcon name={item.icon} /><span>{navLabel(m.app, item.key, false)}</span>
+    </Link>)}
+  </nav>;
+}
+
+export function AppWorkspaceBar() {
+  const m = useMessages();
+  const { pathname } = useLocation();
+  const activity = activityNavItems.some(item => item.to === pathname);
+  return <>
+    <div className="app-workspace-header"><WorkspaceBar /></div>
+    {activity && <nav className="app-activity-nav" aria-label={m.common.locale.startsWith("ru") ? "Мониторинг" : "Monitoring"}>
+      {activityNavItems.map(item => <NavLink key={item.to} to={item.to} end={item.end}
+        className={({ isActive }) => `app-activity-link${isActive ? " is-active" : ""}`}>
+        <NavIcon name={item.icon} /><span>{navLabel(m.app, item.key, false)}</span>
+      </NavLink>)}
+    </nav>}
+  </>;
 }
 
 export function showAppUpdateDialog(update: AppUpdateInfo) {

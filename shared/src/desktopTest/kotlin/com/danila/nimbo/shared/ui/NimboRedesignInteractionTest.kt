@@ -127,7 +127,7 @@ class NimboRedesignInteractionTest {
         }
     }
 
-    @Test fun subscriptionActionsAreIndependentAndDescriptionIsPrivateToInfo() {
+    @Test fun subscriptionActionsAreIndependentAndProviderDescriptionIsVisible() {
         var pings = 0
         var refreshes = 0
         var selections = 0
@@ -136,7 +136,7 @@ class NimboRedesignInteractionTest {
         val actions = NimboUiActions(onPingAll = { pings++ }, onRefreshProfile = { refreshes++ }, onSelectServer = { selections++ })
         ImageComposeScene(390, 844) { NimboAppShell(NimboScreen.PROFILES, state, actions) }.use { scene ->
             scene.settle()
-            assertFalse("Provider information only" in scene.texts())
+            assertTrue("Provider information only" in scene.texts())
             assertFalse("Amsterdam" in scene.texts())
             scene.clickLabel("Проверить пинг")
             scene.clickLabel("Обновить подписку")

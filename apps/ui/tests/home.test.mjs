@@ -82,6 +82,8 @@ function fixture({ style = 'classic', state = 'connected', stored = {}, memory }
   const monitor = {};
   vm.runInNewContext(compile("../src/lib/homeMonitor.ts"), { exports: monitor });
   const modules = {
+    '../coreStore': { useCoreStore: () => ({data:null,busy:null,refresh:async()=>{}}) },
+    './home/useSubscriptionRefresh': { RefreshFeedback:'RefreshFeedback',useSubscriptionRefresh:()=>({gestureProps:{},refreshingUrls:new Set(),refresh:async()=>{},progress:0,refreshing:false}) },
     "../lib/homeMonitor": monitor,
     "../lib/latency": latency,
     "../components/Universal": stub("Dialog"),
@@ -93,7 +95,7 @@ function fixture({ style = 'classic', state = 'connected', stored = {}, memory }
     'react-router-dom': { Link: 'Link', useNavigate: () => () => {} },
     '../store': { useAppStore: selector => selector(store) },
     '../lib/i18n': { ...translations, useMessages: () => labels },
-    '../lib/api': { api, subscriptionVisibleOnHome: () => true, formatBytes: bytes => `${bytes} B`,
+    '../lib/api': { isTauriRuntime:()=>false, api, subscriptionVisibleOnHome: () => true, formatBytes: bytes => `${bytes} B`,
       protocolLabel: p => p.kind, transportLabel: () => '', serverListDescription: () => '' },
     '../lib/visiblePolling': polling,
     '../lib/notify': { notifyError: error => errors.push(error) },
@@ -249,6 +251,9 @@ test('Signal empty states distinguish search, favorites, and an empty profile li
       '../../lib/serverUiOverrides': { serverDisplayLabel: s => s.name },
       '../../components/CountryFlag': { CountryFlag: () => null },
       '../../components/LatencyDisplay': { LatencyDisplay: () => null },
+      '../../store': {useAppStore:selector=>selector({status:null})},
+      '../../components/AutoFastestLine':{AutoFastestLine:()=>null},
+      '../../components/NimboSelect':{NimboSelect:()=>null},
     };
     vm.runInNewContext(code, { exports, require: name => deps[name] });
     const html = renderToStaticMarkup(React.createElement(exports.SignalServerRail, props));
@@ -271,7 +276,7 @@ test('restored legacy button preference cannot change universal geometry or disc
  for(const compact of [false,true]) {
   const f=fixture({style:'signal'});f.store.preferences.servers_connect_button=compact?'compact':'classic';f.render();
   let button=f.find('button',f.find('SignalHome').props.actions);
-  assert.equal(button.props['data-variant'],'round');
+  assert.equal(button.props['data-variant'],'compact');
   assert.equal(button.props['aria-label'],f.labels.home.disconnect);
   assert.equal(f.find('ConnectionStateIcon',button).props.connected,true);
   button.props.onClick();await f.settle();assert.equal(f.disconnected,1);

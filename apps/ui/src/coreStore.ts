@@ -16,7 +16,7 @@ export const useCoreStore=create<CoreState>((set,get)=>({
  refresh:async()=>{
   if(readInFlight||get().busy)return;readInFlight=true;const ticket=intent.begin();
   try{const next=await readState();if(!intent.current(ticket))return;const same=sameCoreSession(coreSession(get().runtime),coreSession(next.runtime));set({...next,loaded:true,error:null,...(!same?{snapshot:null,delay:null}:{})});}
-  catch(e){if(intent.current(ticket))set({error:coreErrorCode(e),loaded:true,runtime:null,snapshot:null,delay:null});}
+  catch(e){if(intent.current(ticket))set({error:coreErrorCode(e),loaded:true});}
   finally{readInFlight=false;}
  },
  mutate:async(label,work)=>{
@@ -30,8 +30,15 @@ export const useCoreStore=create<CoreState>((set,get)=>({
   try{
    await coreApi.preference(core);if(!intent.current(ticket))return;
    const next=await readState();if(!intent.current(ticket))return;
-   if(next.data.preferred_core!==core)throw Error('READBACK_MISMATCH');set({...next,loaded:true});
-  }catch(e){if(intent.current(ticket))set({error:coreErrorCode(e)});}finally{if(intent.current(ticket))set({busy:null});}
+   if(next.data.preferred_core!==core)throw Error('READBACK_MISMATCH');set({...next,loaded:true,...(!sameCoreSession(coreSession(get().runtime),coreSession(next.runtime))?{snapshot:null,delay:null}:{})});
+   await useAppStore.getState().hydrate?.();
+  }catch(e){
+   if(intent.current(ticket)){
+    const error=coreErrorCode(e);
+    try {const next=await readState();if(intent.current(ticket))set({...next,loaded:true,...(!sameCoreSession(coreSession(get().runtime),coreSession(next.runtime))?{snapshot:null,delay:null}:{})});await useAppStore.getState().hydrate?.();}catch{}
+    if(intent.current(ticket))set({error});
+   }
+  }finally{if(intent.current(ticket))set({busy:null});}
  },
  connect:async(id)=>{
   const ok=await get().mutate('connect',async()=>{const runtime=await coreApi.connect(id);if(!runtime.running||runtime.profile_id!==id||!runtime.session_id)throw Error('RUNTIME_NOT_RUNNING');});
@@ -40,7 +47,7 @@ export const useCoreStore=create<CoreState>((set,get)=>({
  },
  stop:async()=>{
   const ticket=intent.begin();set({busy:'disconnect',error:null,snapshot:null,delay:null,runtime:null});
-  try{await useAppStore.getState().disconnectServer();if(!intent.current(ticket))return;const next=await readState();if(intent.current(ticket))set({...next,loaded:true});}
+  try{await useAppStore.getState().disconnectServer();if(!intent.current(ticket))return;const next=await readState();if(intent.current(ticket))set({...next,loaded:true,...(!sameCoreSession(coreSession(get().runtime),coreSession(next.runtime))?{snapshot:null,delay:null}:{})});}
   catch(e){if(intent.current(ticket))set({error:coreErrorCode(e)});}finally{if(intent.current(ticket))set({busy:null});}
  },
  live:async(kind,name='',value='',timeout=5000)=>{

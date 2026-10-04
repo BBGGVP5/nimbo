@@ -943,7 +943,11 @@ struct RootView: View {
             return
         }
         isRefreshingSubscription = true
-        defer { isRefreshingSubscription = false }
+        IosComposeControllerKt.NimboUpdateIosSubscriptionRefreshing(refreshing: true)
+        defer {
+            isRefreshingSubscription = false
+            IosComposeControllerKt.NimboUpdateIosSubscriptionRefreshing(refreshing: false)
+        }
         if manual { notify("info", "Обновление подписки…") }
         do {
             let profile = try await NimboSubscriptionRepository.shared.refresh()

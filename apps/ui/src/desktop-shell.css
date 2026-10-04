@@ -1,0 +1,98 @@
+/* Structural rules belong to the shell and work with every saved Nimbo style. */
+.app-shell.app-shell {
+  display: flex;
+  width: 100%;
+  height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.app-shell.app-shell > .app-main {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.app-shell .app-bottom-nav { display: none; }
+/* App supplies the activity tabs with the same icons as the sidebar. */
+.app-workspace-header > .parity-activity-nav { display: none; }
+.app-shell .app-workspace-header { max-width: none; }
+.app-workspace-header .parity-workspace-bar {
+  margin: 0 0 20px !important;
+  padding: 0 !important;
+  min-height: 48px;
+}
+.app-activity-nav { display: flex; gap: 4px; margin: 0 0 20px; }
+.app-activity-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  color: var(--color-text-dim);
+  text-decoration: none;
+  font-size: 13px;
+}
+.app-activity-link.is-active { background: var(--color-card); color: var(--color-text); }
+.app-activity-link .app-nav-icon { width: 18px; height: 18px; flex: none; }
+.settings-page .settings-narrow-destination { display: none; }
+
+@media (min-width: 960px) and (max-width: 1199px) {
+  body .app-shell.app-shell > .signal-rail {
+    position: relative; inset: auto; width: 76px; flex: 0 0 76px;
+    height: 100%; padding: 20px 10px; border-radius: 0;
+  }
+  .app-shell.app-shell .signal-rail :is(.parity-brand-copy,.signal-nav-label,.signal-rail-foot,.app-sidebar-collapse) { display: none; }
+  .app-shell.app-shell .signal-rail-nav { display: flex; flex-direction: column; }
+  .app-shell.app-shell .signal-rail-slot { display: block; }
+  .app-shell.app-shell .signal-nav-item { justify-content: center; }
+  .app-shell.app-shell .signal-nav-icon { display: inline-flex; }
+  .app-shell.app-shell > .app-sidebar-resizer { display: none; }
+}
+
+@media (max-width: 959px) {
+  body .app-shell.app-shell { flex-direction: column; }
+  body .app-shell.app-shell > .signal-rail,
+  body .app-shell.app-shell > .app-sidebar-resizer { display: none !important; }
+  body .app-shell.app-shell > .app-main {
+    width: 100%; margin-bottom: 0 !important; padding: 16px 20px 24px !important;
+  }
+  /* The bar is now in flow; legacy fixed-bar reservations must not leave a gap. */
+  .app-shell.app-shell .page-view { padding-bottom: 0; }
+  .app-shell.app-shell .app-bottom-nav {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    flex: 0 0 auto;
+    width: 100%;
+    min-height: calc(68px + env(safe-area-inset-bottom, 0px));
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
+    z-index: 40;
+  }
+  .app-bottom-nav-item {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-width: 0; min-height: 56px; gap: 4px; padding: 4px;
+    border-radius: 12px; color: var(--color-text-dim); text-decoration: none;
+  }
+  .app-bottom-nav-item.is-active { background: var(--color-card); color: var(--color-text); }
+  .app-bottom-nav-item .app-nav-icon { width: 22px; height: 22px; flex: none; }
+  .app-bottom-nav-item span { font-size: 11px; line-height: 1.3; max-width: 100%; overflow-wrap: anywhere; text-align: center; }
+  .settings-page .settings-narrow-destination { display: flex; }
+  .app-workspace-header .parity-workspace-bar > div { min-width: 0; }
+  .app-workspace-header .parity-workspace-bar strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app-workspace-header .universal-workspace-profile { display: none; }
+}
+@media (max-width: 480px) {
+  body .app-shell.app-shell > .app-main { padding-inline: 12px !important; }
+  .app-activity-nav { gap: 2px; }
+  .app-activity-link { flex: 1 1 0; gap: 5px; padding-inline: 4px; font-size: 11px; }
+  .app-workspace-header .parity-workspace-bar > div:first-child > span { display: none; }
+}
+.app-bottom-nav-item:focus-visible, .app-activity-link:focus-visible {
+  outline: 2px solid var(--color-text); outline-offset: -3px;
+}

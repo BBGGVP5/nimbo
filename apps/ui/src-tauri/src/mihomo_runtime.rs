@@ -287,6 +287,7 @@ pub async fn set_core_preference(
     state: State<'_, AppState>,
     core: Option<nimbo_mihomo::selection::CorePreference>,
 ) -> Result<(), String> {
+    {
     let _lock = CONNECTION_OPERATION.lock().await;
     state.transaction(|s| {
         // Preference applies to the next connection. Do not touch the active
@@ -299,7 +300,25 @@ pub async fn set_core_preference(
         }
         s.core_profiles.preferred_core = core.unwrap_or_default().core();
         Ok(())
-    })
+    })?;
+    }
+    // Saving changes the next connection only. Source refresh happens outside the connection lock.
+    let urls = state.snapshot().subscriptions.into_iter().filter(|sub| sub.url.starts_with("https://") || sub.url.starts_with("http://"))
+        .map(|sub| sub.url).collect::<Vec<_>>();
+    let mut failed = false;
+    for batch in urls.chunks(3) {
+        let app_state = &*state;
+        let refresh = |index: usize| async move {
+            match batch.get(index) {
+                Some(url) => crate::commands::refresh_subscription_inner(app_state, url.clone()).await.is_ok(),
+                None => true,
+            }
+        };
+        let results = tokio::join!(refresh(0), refresh(1), refresh(2));
+        failed |= !(results.0 && results.1 && results.2);
+    }
+    if failed { return Err("SUBSCRIPTION_CORE_REFRESH_FAILED".into()); }
+    Ok(())
 }
 #[derive(Serialize)]
 pub struct RuntimeStatus {
@@ -549,6 +568,7 @@ async fn connect_tun_inner(
         );
         s.active_server_id = None;
         s.auto_subscription_url = None;
+        s.active_subscription_url = s.subscriptions.iter().find(|sub| sub.meta.mihomo_profile_id.as_deref() == Some(&profile.id)).map(|sub| sub.url.clone());
         s.core_profiles.active_profile_id = Some(profile.id.clone());
         s.session_core_preference = Some(nimbo_mihomo::selection::CorePreference::from(
             snapshot.core_profiles.preferred_core,
@@ -681,6 +701,7 @@ pub(crate) async fn connect_profile_inner(
         );
         s.active_server_id = None;
         s.auto_subscription_url = None;
+        s.active_subscription_url = s.subscriptions.iter().find(|sub| sub.meta.mihomo_profile_id.as_deref() == Some(&profile_id)).map(|sub| sub.url.clone());
         s.core_profiles.active_profile_id = Some(profile_id);
         s.session_core_preference = Some(nimbo_mihomo::selection::CorePreference::from(
             snapshot.core_profiles.preferred_core,

@@ -37,7 +37,7 @@ export interface SignalProfilesProps {
   onOpenSettings: (url: string) => void;
   onDeleteSubscription: (url: string) => void;
   onMoveSubscription: (url: string, direction: -1 | 1) => void;
-  refreshingUrl: string | null;
+  refreshingUrls: ReadonlySet<string>;
   pingingUrl: string | null;
   updatedLabel: (sub: Subscription) => string;
   supportUrl: (sub: Subscription) => string;
@@ -67,7 +67,7 @@ export function SignalProfiles({
   onOpenSettings,
   onDeleteSubscription,
   onMoveSubscription,
-  refreshingUrl,
+  refreshingUrls,
   pingingUrl,
   updatedLabel,
   supportUrl,
@@ -75,7 +75,7 @@ export function SignalProfiles({
   order,
 }: SignalProfilesProps) {
   const [collapsedUrls, setCollapsedUrls] = useState<Set<string>>(() => new Set());
-  const autoSubscription = useAppStore(state => state.status?.auto_subscription_url);
+  const autoSubscription = useAppStore(state => state.status?.state === "connected" ? state.status.auto_subscription_url : null);
   const needle = query.trim().toLowerCase();
   const rows = subs
     .filter((sub) => !collapsedUrls.has(sub.url))
@@ -109,7 +109,7 @@ export function SignalProfiles({
             onMoveDown={() => onMoveSubscription(sub.url, 1)}
             canMoveUp={order.indexOf(sub.url) > 0}
             canMoveDown={order.indexOf(sub.url) < order.length - 1}
-            refreshing={refreshingUrl === sub.url}
+            refreshing={refreshingUrls.has(sub.url)}
             pinging={pingingUrl === sub.url}
             collapsed={collapsedUrls.has(sub.url)}
             onToggleCollapsed={() =>

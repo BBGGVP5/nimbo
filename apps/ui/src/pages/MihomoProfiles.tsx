@@ -1,3 +1,4 @@
+import { NimboSelect } from '../components/NimboSelect';
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useCoreStore } from '../coreStore';
 import { useAppStore } from '../store';
@@ -162,9 +163,9 @@ export function MihomoProfiles() {
       <h3>{text('Группы', 'Groups')}</h3>
       {Object.entries(core.snapshot?.groups ?? {}).filter(([, group]) => !group.hidden).map(([name, group]) => <div className="mihomo-live-row" key={name}>
         <div><strong>{name}</strong><small>{group.type ?? '—'}</small></div>
-        {groupCanSelect(group) ? <select aria-label={name} disabled={busy} value={group.now ?? ''} onChange={event => void core.live('select', name, event.target.value)}>
+        {groupCanSelect(group) ? <NimboSelect aria-label={name} disabled={busy} value={group.now ?? ''} onChange={event => void core.live('select', name, event.target.value)}>
           {!group.now && <option value="" disabled>—</option>}{(group.all ?? []).map(member => <option key={member} value={member}>{member}</option>)}
-        </select> : <span>{group.now ?? '—'}</span>}
+        </NimboSelect> : <span>{group.now ?? '—'}</span>}
       </div>)}
       <h3>Proxy providers</h3>
       {Object.entries(core.snapshot?.providers ?? {}).map(([name, provider]) => <div className="mihomo-live-row" key={name}><div><strong>{name}</strong><small>{provider.vehicleType ?? '—'} · {provider.proxies?.length ?? 0} {text('узлов', 'nodes')}</small></div><button disabled={busy} onClick={() => void core.live('provider', name)}>{text('Обновить provider', 'Refresh provider')}</button></div>)}

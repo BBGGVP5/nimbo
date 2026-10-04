@@ -1,4 +1,7 @@
 import { ServerContextMenu } from "../../components/ServerContextMenu";
+import { NimboSelect } from "../../components/NimboSelect";
+import { AutoFastestLine } from "../../components/AutoFastestLine";
+import { useAppStore } from "../../store";
 import { LatencyDisplay } from "../../components/LatencyDisplay";
 import { useMemo, useState, type ReactNode } from "react";
 import { protocolLabel, transportLabel, type Server, type Subscription } from "../../lib/api";
@@ -81,6 +84,7 @@ export function SignalServerRail({
   onShowHidden,
 }: SignalServerRailProps) {
   const [query, setQuery] = useState("");
+  const autoSubscription = useAppStore(state => state.status?.state === "connected" ? state.status.auto_subscription_url : null);
   const sortValue = sortMode === "name"
     ? "name"
     : sortMode === "ping"
@@ -213,6 +217,10 @@ export function SignalServerRail({
       </div>
 
       <div className="signal-srv-list">
+        {currentSub && !query.trim() && !protocolFilter && !showFavOnly && <AutoFastestLine servers={currentSub.servers}
+          subscriptionUrl={currentSub.url} autoSelected={autoSubscription === currentSub.url} activeId={activeId}
+          pings={Object.fromEntries(Object.entries(pingByServer).filter((entry): entry is [string, number] => entry[1] !== undefined))}
+          displayName={serverDisplayLabel}/>}
         {visible.length === 0 && (
           <div className="signal-srv-empty">
             {query.trim() || protocolFilter
@@ -244,6 +252,7 @@ export function SignalServerRail({
                 className="signal-srv-pick"
                 onClick={() => onPickServer(server, sub)}
                 title={serverDisplayLabel(server)}
+                aria-pressed={isActive}
               >
                 <span className="signal-srv-flag" aria-hidden="true">
                   <CountryFlag serverName={server.name} fallback={<span className="signal-srv-globe">◍</span>} className="country-flag-sm" />
@@ -265,6 +274,7 @@ export function SignalServerRail({
                 className={`signal-star${favorite ? " is-on" : ""}`}
                 onClick={() => onToggleFavorite(server.id)}
                 title={m.home.favoritesOnly}
+                aria-label={m.profiles.favorite}
                 aria-pressed={favorite}
               >
                 <StarIcon filled={favorite} />
@@ -399,9 +409,9 @@ export function SignalSelect({
   onChange: (value: string) => void;
   className?: string;
 }) {
-  return <label className={`signal-select universal-select ${className}`.trim()}>
-    {icon}<select aria-label={title} title={title} value={value} onChange={event => onChange(event.target.value)}>
+  return <div className={`signal-select universal-select nimbo-rail-select ${className}`.trim()}>
+    {icon}<NimboSelect aria-label={title} title={title} value={value} onChange={event => onChange(event.target.value)}>
       {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-    </select>
-  </label>;
+    </NimboSelect>
+  </div>;
 }

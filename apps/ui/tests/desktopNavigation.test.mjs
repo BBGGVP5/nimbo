@@ -19,12 +19,15 @@ function loadModule(path, imports = {}) {
 }
 
 test('desktop navigation includes every top-level page without overfilling compact windows', () => {
-  const { desktopNavItems } = loadModule('../src/lib/desktopNavigation.ts');
+  const { desktopNavItems, activityNavItems, compactDestination } = loadModule('../src/lib/desktopNavigation.ts');
   const routes = desktopNavItems.map((item) => item.to);
   assert.deepEqual([...routes].sort(), [
     '/', '/subscriptions', '/statistics', '/routing', '/routing/modules', '/apps',
-    '/connections', '/tunnel-logs', '/notifications', '/sync', '/settings',
+    '/notifications', '/sync', '/settings',
   ].sort());
+  assert.deepEqual(Array.from(activityNavItems,item=>item.to),['/statistics','/connections','/tunnel-logs']);
+  for (const path of ['/statistics','/connections','/tunnel-logs']) assert.equal(compactDestination(path),'/statistics');
+  assert.equal(compactDestination('/mihomo'),'/subscriptions');
   assert.equal(new Set(routes).size, routes.length);
   assert.equal(desktopNavItems.find((item) => item.to === '/routing').end, true);
   assert.equal(desktopNavItems.find((item) => item.to === '/routing/modules').end, true);

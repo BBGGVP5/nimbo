@@ -682,6 +682,11 @@ fun NimboUpdateIosMetrics(
 
 private val iosUiState = mutableStateOf(NimboUiState())
 
+fun NimboUpdateIosSubscriptionRefreshing(refreshing: Boolean) {
+    iosUiState.value = iosUiState.value.copy(profileRefreshing = refreshing)
+}
+
+
 fun NimboUpdateIosTrafficTelemetry(telemetryJson: String?, sessionAvailable: Boolean, activeAdBlockingEnabled: Boolean?) {
     val snapshot = NimboTelemetryDecoder.decode(telemetryJson)
     iosUiState.value = iosUiState.value.copy(

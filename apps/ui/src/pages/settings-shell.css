@@ -1,0 +1,18 @@
+.settings-page .parity-settings-overview { min-width: 0; }
+.settings-page .parity-setting-link { min-width: 0; }
+.settings-page .parity-setting-link :is(strong,small) { overflow-wrap: anywhere; }
+.settings-page .parity-setting-link small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.settings-page .settings-row-description { line-height: 1.45; }
+.settings-page .latency-routing-help p { overflow-wrap: anywhere; }
+.settings-page .update-channel-select-wrap { min-width: 0; }
+.settings-page .update-channel-select { max-width: 100%; }
+.settings-page .settings-narrow-destination { display: none; }
+@media (max-width: 959px) {
+  .settings-page .settings-narrow-destination { display: flex; }
+}
+@media (max-width: 480px) {
+  .settings-page .parity-settings-list { padding: 4px; }
+  .settings-page .parity-settings-detail .settings-card { padding-inline: 12px; }
+  .settings-page .parity-radio-list label { min-height: 56px; padding-block: 10px; }
+  .settings-page .settings-row { gap: 10px; }
+}

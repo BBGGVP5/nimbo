@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { createServer } from 'vite';
 import { chromium } from '../../../installer/node_modules/playwright/index.mjs';
 
-const server=await createServer({server:{host:'127.0.0.1',port:5198,strictPort:true}});await server.listen();
+const server=await createServer({server:{hmr:false,host:'127.0.0.1',port:5198,strictPort:true}});await server.listen();
 const browser=await chromium.launch({headless:true,...(process.env.NIMBO_CHROMIUM_PATH?{executablePath:process.env.NIMBO_CHROMIUM_PATH}:{})});
 const artifacts=process.env.NIMBO_LAYOUT_ARTIFACT_DIR;
 if(artifacts)await mkdir(artifacts,{recursive:true});
@@ -31,21 +31,24 @@ try {
     await page.goto(url);await page.locator('.parity-settings-group').first().waitFor();
     const overview=await page.evaluate(()=>{
       const groups=[...document.querySelectorAll('.parity-settings-group')].map(g=>{const r=g.getBoundingClientRect();return {top:r.top,bottom:r.bottom};});
-      const rows=[...document.querySelectorAll('.parity-setting-link')].map(r=>r.getBoundingClientRect().height);
+      const rows=[...document.querySelectorAll('.parity-setting-link')].map(r=>r.getBoundingClientRect().height).filter(h=>h>0);
       const app=[...document.querySelectorAll('.parity-settings-group')].find(g=>g.querySelector('h2').textContent==='Приложение');
       return {groups,rows,app:[...app.querySelectorAll('strong')].map(e=>e.textContent),overflow:document.documentElement.scrollWidth>innerWidth};
     });
     assert.deepEqual(overview.app.slice(-2),['Обновления','О программе']);
-    assert(Math.max(...overview.rows)-Math.min(...overview.rows)<1,'inconsistent overview row heights');
+    assert(Math.max(...overview.rows)-Math.min(...overview.rows)<1,'inconsistent overview row heights '+JSON.stringify({viewport,theme,style,rows:overview.rows}));
     if(viewport.width>640){assert.equal(overview.groups[0].top,overview.groups[1].top);assert.equal(overview.groups[0].bottom,overview.groups[1].bottom);assert.equal(overview.groups[2].top,overview.groups[3].top);}
     assert(!overview.overflow,'overview horizontal overflow');
     if(artifacts && viewport.width===1100 && style==='signal')await page.screenshot({path:resolve(artifacts,`settings-${theme}.png`),fullPage:true});
-    await page.goto(url+'&section=latency');
-    const core=page.getByLabel('Ядро подключения',{exact:true});await core.waitFor();await page.waitForFunction(()=>!document.querySelector('#desktop-core-preference').disabled);
-    assert(await core.locator('option[value=awg]').isDisabled(),'unavailable core became selectable');
-    await core.selectOption('mihomo');await page.waitForFunction(()=>window.__settingsCalls.length===1);
-    await page.waitForFunction(()=>document.querySelector('#desktop-core-preference').value==='mihomo'&&!document.querySelector('#desktop-core-preference').disabled);
+    await page.goto(url+'&section=connection');
+    const core=page.getByRole('combobox',{name:'Ядро',exact:true});await core.waitFor();await page.waitForFunction(()=>!document.querySelector('#desktop-core-preference').disabled);
+    await core.click();
+    assert.equal(await page.getByRole('option',{name:'AWG — недоступно',exact:true}).getAttribute('aria-disabled'),'true');
+    await page.getByRole('option',{name:'Mihomo',exact:true}).click();await page.waitForFunction(()=>window.__settingsCalls.length===1);
+    await page.waitForFunction(()=>document.querySelector('#desktop-core-preference').textContent.includes('Mihomo')&&!document.querySelector('#desktop-core-preference').disabled);
+    assert.equal(await page.locator('select').count(),0,'native select escaped conversion');
     assert.deepEqual(await page.evaluate(()=>window.__settingsCalls),[['set_core_preference','mihomo']],'core change must save once, never connect');
+    await page.goto(url+'&section=latency');
     const details=page.locator('.latency-routing-help');assert.equal(await details.getAttribute('open'),null);
     const row=page.locator('.settings-choice-row').filter({hasText:'Тестовый URL'}).first();
     const metrics=await row.evaluate(e=>{const r=e.getBoundingClientRect(),control=e.querySelector('.settings-choice-control').getBoundingClientRect(),header=e.querySelector('.settings-row-label-container').getBoundingClientRect();return {height:r.height,controlTop:control.top,headerBottom:header.bottom,overflow:e.scrollWidth>e.clientWidth};});

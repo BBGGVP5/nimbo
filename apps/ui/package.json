@@ -13,6 +13,7 @@
     "test:performance": "node --test tests/visiblePolling.test.mjs",
     "test:traffic": "node --test tests/trafficDashboard.test.mjs",
     "test:traffic:browser": "tsc --noEmit -p tests/browser/tsconfig.traffic-dashboard.json && node tests/browser/traffic-dashboard.mjs",
+    "test:polish": "tsc --noEmit -p tests/browser/tsconfig.cross-platform-polish.json && node tests/browser/cross-platform-polish.mjs",
     "test:settings": "tsc --noEmit -p tests/browser/tsconfig.settings-polish.json && node tests/browser/settings-polish.mjs",
     "build:installer": "tauri build --bundles nsis",
     "build:installer:local": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/windows/build-local-installer.ps1",

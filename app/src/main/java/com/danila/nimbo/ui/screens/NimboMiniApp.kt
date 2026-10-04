@@ -1616,6 +1616,9 @@ private fun NimboHomeScreen(
         needsServerChoice -> t("Нажмите, чтобы выбрать сервер", "Tap to choose a server")
         else -> t("Нажмите, чтобы подключиться", "Tap to connect")
     }
+    NimboSubscriptionPullRefresh(profiles.any { it.isLoading }, profiles.isNotEmpty(), {
+        profiles.filterNot { it.isLoading }.forEach { onRefreshProfile(it.url) }
+    }) {
     Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp).padding(top = 12.dp, bottom = LocalFloatingNavHeight.current + 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1725,6 +1728,7 @@ private fun NimboHomeScreen(
                 MemoryUsageCard(memoryState.currentMb, memoryState.samples, Modifier.fillMaxWidth())
             }
         }
+    }
     }
 }
 
@@ -3719,8 +3723,11 @@ private fun WindowsProfilesList(
     val nebulaColors = LocalNebulaColors.current
     var pinnedServerKeys by remember(serverUiVersion) { mutableStateOf(preferencesManager.getPinnedServerKeys()) }
     val showSubscriptionLogo by preferencesManager.showSubscriptionLogoState
+    NimboSubscriptionPullRefresh(profiles.any { it.isLoading }, profiles.isNotEmpty() && query.isBlank(), {
+        profiles.filterNot { it.isLoading }.forEach { onRefreshProfile(it.url) }
+    }, modifier) {
     LazyColumn(
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = LocalFloatingNavHeight.current + 16.dp)
     ) {
         visibleProfiles.forEach { (profile, servers) ->
@@ -3853,6 +3860,7 @@ private fun WindowsProfilesList(
                 Spacer(Modifier.height(14.dp))
             }
         }
+    }
     }
 }
 
@@ -4710,8 +4718,6 @@ private fun NimboSettingsScreen(
             style = MaterialTheme.typography.bodySmall, color = LocalNebulaColors.current.textSecondary,
             modifier = Modifier.padding(top = 6.dp, bottom = 24.dp))
         SettingsGroupLabel(t("ПОДКЛЮЧЕНИЕ", "CONNECTION"))
-        AdBlockingSettingsCard(preferencesManager)
-        Spacer(Modifier.height(12.dp))
         SettingsCompactCard {
             SettingsRow(Icons.Default.Dns, t("Ядро VPN", "VPN core"),
                 com.danila.nimbo.vpn.VpnCoreChoice.fromId(preferencesManager.vpnCoreState.value)?.let {
@@ -14864,3 +14870,21 @@ DOMAIN-SUFFIX,example.com,DIRECT
 DOMAIN-KEYWORD,analytics,REJECT
 GEOIP,ru,DIRECT
 """.trimIndent()
+
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun NimboSubscriptionPullRefresh(refreshing: Boolean, enabled: Boolean, onRefresh: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxSize(), content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+    val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+    var lastRequest by remember { mutableStateOf(0L) }
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = refreshing, state = pullState, modifier = modifier,
+        onRefresh = {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (enabled && !refreshing && now - lastRequest > 1500L) {
+                lastRequest = now
+                onRefresh()
+            }
+        }, content = content)
+}

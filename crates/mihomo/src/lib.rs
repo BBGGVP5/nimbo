@@ -9,5 +9,6 @@ pub mod helper;
 pub mod process;
 pub mod profiles;
 pub mod selection;
+pub mod subscription;
 pub mod wire;
 pub use profiles::*;

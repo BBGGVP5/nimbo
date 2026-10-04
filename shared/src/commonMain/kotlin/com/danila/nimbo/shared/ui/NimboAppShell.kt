@@ -68,6 +68,8 @@ data class NimboUiState(
     val activeServerName: String = "Выберите сервер",
     val serverCount: Int = 0,
     val profileCount: Int = 0,
+    /** Host subscription operation, shared by the refresh button and pull gesture. */
+    val profileRefreshing: Boolean = false,
     val deviceName: String = "iPhone",
     val systemName: String = "iOS",
     val appVersion: String = ReleaseDefaults.VERSION,
@@ -313,7 +315,7 @@ fun NimboAppShell(
     val wideNavigation = showBottomBar && maxWidth >= 1280.dp
     CompositionLocalProvider(
         LocalNimboContentBottom provides if (showBottomBar && !wideNavigation) 116.dp else 16.dp,
-        LocalNimboContentTop provides if (showBottomBar) 36.dp else 24.dp,
+        LocalNimboContentTop provides if (showBottomBar) 24.dp else 16.dp,
         LocalNimboPingDisplay provides normalizePingDisplay(state.pingDisplay),
         LocalNimboPingProtocol provides normalizePingProtocol(state.pingProtocol),
         LocalNimboElementStyle provides NimboElementStyle.NIMBO_GLASS,

@@ -20,10 +20,11 @@ test('overview updates directly precedes about, without duplicate destinations',
     sectionItems:ids.map(id=>({id,labelKey:id,icon:null})),
     Link:({to,children,...props})=>jsx.jsx('a',{...props,href:to,children}),
     useCoreStore:selector=>selector({data:{preferred_core:'auto'}}),
-    RouteIcon:()=>null,RefreshIcon:()=>null,ConnectionsIcon:()=>null,InfoIcon:()=>null,StatsBarsIcon:()=>null,LogsIcon:()=>null,
+    ListIcon:()=>null,RouteIcon:()=>null,RefreshIcon:()=>null,ConnectionsIcon:()=>null,InfoIcon:()=>null,StatsBarsIcon:()=>null,LogsIcon:()=>null,
   });
   const application=html.match(/<h2>Application<\/h2>(.*?)<\/section>/)?.[1];
   assert(application,'application group absent');
+  assert.equal([...html.matchAll(/<h2>(.*?)<\/h2>/g)].at(-1)[1],'Application');
   const titles=[...application.matchAll(/<strong>(.*?)<\/strong>/g)].map(match=>match[1]);
   assert.deepEqual(titles.slice(-2),['updates','about']);
   assert.equal((html.match(/<strong>updates<\/strong>/g)||[]).length,1);
@@ -36,5 +37,5 @@ test('latency URL description is separate from its full-width choice row',()=>{
   const latency=file.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='LatencySection').getText(file);
   assert.match(latency,/<details className="latency-routing-help">/);
   assert.doesNotMatch(latency,/description={m.settings.latencyActiveRouteOnly}/);
-  assert.match(latency,/<CorePreferenceSetting context="latency"/);
+  assert.doesNotMatch(latency,/<CorePreferenceSetting/);
 });

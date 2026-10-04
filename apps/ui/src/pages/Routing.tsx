@@ -1,3 +1,4 @@
+import { NimboSelect } from '../components/NimboSelect';
 import { Dialog } from "../components/Universal";
 import { Link } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
@@ -623,7 +624,7 @@ function SelectField<T extends string>({
   return (
     <label className="routing-editor-field">
       <span>{label}</span>
-      <select
+      <NimboSelect
         className="routing-editor-input"
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
@@ -633,7 +634,7 @@ function SelectField<T extends string>({
             {option}
           </option>
         ))}
-      </select>
+      </NimboSelect>
     </label>
   );
 }

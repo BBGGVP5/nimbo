@@ -17,6 +17,7 @@ const theme=params.get('theme')??'dark';
 const style=params.get('style')==='material_you'?'material_you':params.get('style')==='dotted'?'dotted':'signal';
 document.body.dataset.uiStyle=style;document.body.dataset.theme=theme;
 useAppStore.setState(state=>({preferences:{...state.preferences,ui_style:style,theme_mode:theme as 'dark'|'light',language:'ru',latency_protocol:'nimbo',show_subscription_logo:true},subscriptions:[],status:null,
+  hydrate:async()=>{},
   setPreferences:async preferences=>{useAppStore.setState({preferences});return preferences;}}));
 api.getAppVersion=async()=>'1.3.0-beta.1';
 api.getDeviceInfo=async()=>{throw Error('No device data in fixture');};

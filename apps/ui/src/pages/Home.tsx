@@ -1,8 +1,11 @@
+import { useCoreStore } from '../coreStore';
+import { isTauriRuntime } from '../lib/api';
 import { memoryPaths, measuredTimeLabels, type MemorySample } from "../lib/homeMonitor";
 import { OperationPhrase } from "../components/OperationPhrase";
 import { ConnectionStateIcon } from "../components/ConnectionStateIcon";
 import { Dialog } from "../components/Universal";
 import { HomeSubscriptions } from "./home/HomeSubscriptions";
+import { RefreshFeedback, useSubscriptionRefresh } from "./home/useSubscriptionRefresh";
 import { latencyPresentation } from "../lib/latency";
 import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -242,6 +245,9 @@ function useResizableServersPanel() {
 
 export function Home() {
   const m = useMessages();
+  const core = useCoreStore();
+  const useMihomo = core.data?.preferred_core === 'mihomo';
+  useEffect(() => { if (isTauriRuntime()) void core.refresh(); }, [core.refresh]);
   const navigate = useNavigate();
   const subs = useAppStore((s) => s.subscriptions);
   const activeId = useAppStore((s) => s.activeServerId);
@@ -264,7 +270,6 @@ export function Home() {
   const trafficMonitoringAvailable = useAppStore((s) => s.trafficMonitoringAvailable);
   const sessionStartedAt = useAppStore((s) => s.sessionStartedAt);
 
-  const [refreshingUrl, setRefreshingUrl] = useState<string | null>(null);
   const [pinging, setPinging] = useState(false);
   const pingAbort = useRef<AbortController | null>(null);
   useEffect(() => () => { pingAbort.current?.abort(); }, []);
@@ -370,6 +375,8 @@ export function Home() {
     [subs, serverOverrides],
   );
 
+  const subscriptionRefresh = useSubscriptionRefresh(visibleSubs.map(sub => sub.url), refreshSubscription, adminDialogOpen || compactSheetOpen);
+
   const currentSub = useMemo(() => {
     if (activeSubscriptionUrl) {
       const match = visibleSubs.find((sub) => sub.url === activeSubscriptionUrl);
@@ -440,8 +447,11 @@ export function Home() {
     return null;
   }, [activeId, connectingServerId, switchingServerId, baseEntries, subs]);
   const fallbackEntry = activeEntry ?? baseEntries[0] ?? null;
+  const coreSub = (core.runtime?.running ? subs.find(sub => sub.meta?.mihomo_profile_id === core.runtime?.profile_id) : null) ?? currentSub;
+  const coreProfile = core.data?.profiles.find(profile => profile.id === coreSub?.meta?.mihomo_profile_id);
+  const displayedMihomo = useMihomo || core.runtime?.running === true;
   const connected = status?.state === "connected";
-  const connecting = Boolean(connectingServerId) || status?.state === "connecting";
+  const connecting = Boolean(connectingServerId) || core.busy === "connect" || status?.state === "connecting";
   const switching = Boolean(switchingServerId);
   const showMemory = connected && !connecting && !disconnecting && !switching
     && preferences.show_memory_usage && !widgetsCollapsed;
@@ -496,14 +506,7 @@ export function Home() {
 
   const onRefreshSelected = async (sub: Subscription | null = currentSub) => {
     if (!sub) return;
-    setRefreshingUrl(sub.url);
-    try {
-      await refreshSubscription(sub.url);
-    } catch (e) {
-      notifyError(String(e));
-    } finally {
-      setRefreshingUrl(null);
-    }
+    await subscriptionRefresh.refresh([sub.url]);
   };
 
   const onPingServers = async (entries: ServerEntry[] = baseEntries) => {
@@ -539,6 +542,11 @@ export function Home() {
     try {
       if (connected) {
         await disconnectServer();
+        return;
+      }
+      if (useMihomo) {
+        if (!coreProfile) { notifyError(m.common.locale.startsWith('ru') ? 'Обновите подписку для Mihomo.' : 'Refresh the subscription for Mihomo.'); return; }
+        await core.connect(coreProfile.id);
         return;
       }
       if (!fallbackEntry) {
@@ -612,7 +620,7 @@ export function Home() {
   // ── Signal ────────────────────────────────────────────────────
   // Приборная панель включается вместе со стилем: остальные стили
   // продолжают работать с прежней разметкой ниже.
-  if (preferences.ui_style === "signal") {
+  if (preferences.ui_style === "signal" || displayedMihomo) {
     const signalState = switching
       ? "switching"
       : disconnecting
@@ -636,7 +644,7 @@ export function Home() {
       : status?.connection_mode === "both"
         ? "TUN + PROXY"
         : "TUN";
-    const activeServer = fallbackEntry?.server ?? null;
+    const activeServer = displayedMihomo ? null : fallbackEntry?.server ?? null;
     const activePing = activeServer ? serverPings[activeServer.id] : undefined;
     const rateUnits = (bytesPerSecond: number) => {
       const text = formatBytes(Math.max(0, bytesPerSecond));
@@ -674,7 +682,8 @@ export function Home() {
     ];
 
     return (
-      <>
+      <div className="nimbo-home-profile nimbo-home-refresh" {...subscriptionRefresh.gestureProps}>
+        <RefreshFeedback progress={subscriptionRefresh.progress} refreshing={subscriptionRefresh.refreshing} locale={m.common.locale}/>
         <SignalHome
           labels={m}
           state={signalState}
@@ -698,10 +707,10 @@ export function Home() {
           serverFlag={activeServer
             ? <CountryFlag serverName={activeServer.name} fallback={<GlobeIcon />} className="country-flag-sm" />
             : <GlobeIcon />}
-          serverName={activeServer ? serverDisplayLabel(activeServer) : m.signal.noServer}
+          serverName={displayedMihomo ? coreProfile?.name ?? "Mihomo" : activeServer ? serverDisplayLabel(activeServer) : m.signal.noServer}
           autoSelected={connected && !!status?.auto_subscription_url &&
             status.auto_subscription_url === fallbackEntry?.sub.url}
-          serverProtocol={activeServer
+          serverProtocol={displayedMihomo ? "Mihomo · YAML" : activeServer
             ? `${protocolLabel(activeServer.protocol)} · ${transportLabel(activeServer.protocol) || "JSON"}`
             : ""}
           serverPing={<LatencyDisplay value={activePing} loading={!!activeServer && pingingServerIds.has(activeServer.id)} />}
@@ -732,13 +741,13 @@ export function Home() {
             <>
               <button
                 type="button"
-                className="signal-btn signal-btn--primary"
-                data-variant="round"
+                className="signal-btn signal-btn--primary nimbo-connect-action"
+                data-variant="compact"
                 aria-label={switching ? m.home.switching : connecting ? m.home.connecting : disconnecting ? m.home.disconnecting : connected ? m.home.disconnect : m.home.connect}
                 aria-pressed={connected}
                 aria-busy={connecting || disconnecting || switching}
                 onClick={() => void onToggleConnection()}
-                disabled={(!connected && !fallbackEntry) || connecting || disconnecting || switching}
+                disabled={(!connected && (useMihomo ? !coreProfile : !fallbackEntry)) || connecting || disconnecting || switching || !!core.busy}
               >
                 <ConnectionStateIcon connected={connected} busy={connecting || disconnecting || switching} />
                 {switching
@@ -756,7 +765,7 @@ export function Home() {
           }
           serverRail={visibleSubs.length ? <HomeSubscriptions subs={visibleSubs} labels={m}
             onRefresh={sub => void onRefreshSelected(sub)} onPing={sub => void onPingServers(sub.servers.map(server => ({ server, sub })))}
-            refreshingUrl={refreshingUrl} pinging={pinging} renderServers={sub => (
+            refreshingUrls={subscriptionRefresh.refreshingUrls} pinging={pinging} renderServers={sub => (
             <SignalServerRail
               labels={m}
               subs={[sub]}
@@ -794,7 +803,7 @@ export function Home() {
           }}
           onCheckPings={() => void onPingServers()}
           onRefreshSubscription={currentSub ? () => void onRefreshSelected() : undefined}
-          refreshing={refreshingUrl === currentSub?.url}
+          refreshing={!!currentSub && subscriptionRefresh.refreshingUrls.has(currentSub.url)}
           pinging={pinging}
           railWidth={serversPanelWidth.width}
           railCollapsed={sidePanelCollapsed}
@@ -807,26 +816,28 @@ export function Home() {
           <CompactServerSheet {...sharedPanelProps} onClose={() => setCompactSheetOpen(false)} />
         )}
         {adminDialogOpen && <AdminRestartDialog onClose={() => setAdminDialogOpen(false)} />}
-      </>
+      </div>
     );
   }
 
   return (
     <div
       className={[
-        "home-grid h-full",
+        "home-grid h-full nimbo-home-profile",
         sidePanelCollapsed ? "home-grid-collapsed" : "",
         !sidePanelCollapsed && serverListCollapsed && sortedEntries.length ? "home-grid-server-list-collapsed" : "",
       ].join(" ")}
       style={{
         "--servers-panel-width": `${serversPanelWidth.width}px`,
       } as React.CSSProperties}
+      {...subscriptionRefresh.gestureProps}
     >
+      <RefreshFeedback progress={subscriptionRefresh.progress} refreshing={subscriptionRefresh.refreshing} locale={m.common.locale}/>
       <section className="home-center">
         <div className="home-top">
           <ProfileSummary
             sub={currentSub}
-            refreshing={refreshingUrl === currentSub?.url}
+            refreshing={!!currentSub && subscriptionRefresh.refreshingUrls.has(currentSub.url)}
             onRefresh={onRefreshSelected}
             showLogo={preferences.show_subscription_logo}
             labels={m}

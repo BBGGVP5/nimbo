@@ -13,9 +13,19 @@ def read(path):
     return (ROOT / path).read_text(encoding="utf-8-sig")
 
 class TrafficStatisticsContracts(unittest.TestCase):
+    def test_refresh_state_reaches_shared_ios_home_and_profile_gestures(self):
+        root = read("iosApp/Nimbo/RootView.swift")
+        self.assertIn("NimboUpdateIosSubscriptionRefreshing(refreshing: true)", root)
+        self.assertIn("NimboUpdateIosSubscriptionRefreshing(refreshing: false)", root)
+        bridge = read("shared/src/iosMain/kotlin/com/danila/nimbo/shared/ui/IosComposeController.kt")
+        self.assertIn("copy(profileRefreshing = refreshing)", bridge)
+        for name in ["NimboHomeScreen.kt", "NimboProfilesScreen.kt"]:
+            self.assertIn("NimboPullRefresh", read("shared/src/commonMain/kotlin/com/danila/nimbo/shared/ui/" + name))
+
     def test_ad_blocking_is_only_in_routing_settings_on_every_platform(self):
         for path in [
             "app/src/main/java/com/danila/nimbo/ui/screens/TrafficDashboard.kt",
+            "app/src/main/java/com/danila/nimbo/ui/screens/NimboMiniApp.kt",
             "shared/src/commonMain/kotlin/com/danila/nimbo/shared/ui/NimboStatsScreen.kt",
             "shared/src/commonMain/kotlin/com/danila/nimbo/shared/ui/NimboTrafficDashboard.kt",
             "apps/ui/src/pages/stats/TrafficDashboard.tsx"]:

@@ -1,0 +1,30 @@
+button.nimbo-select {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 14px;
+  min-height: 44px; min-width: 0; max-width: 100%; padding: 10px 14px;
+  border: 1px solid var(--color-border-strong); border-radius: 12px;
+  background: var(--color-surface); color: var(--color-text); font: inherit; font-size: 13px;
+  text-align: left; cursor: pointer; box-sizing: border-box;
+}
+.nimbo-select__value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nimbo-select svg, .nimbo-select__option svg { width: 18px; height: 18px; flex: 0 0 18px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+button.nimbo-select[aria-expanded="true"] { border-color: var(--color-text-dim); }
+button.nimbo-select:focus-visible { outline: 2px solid var(--color-text); outline-offset: 3px; }
+button.nimbo-select:disabled { opacity: .45; cursor: not-allowed; }
+.nimbo-select__list {
+  position: fixed; z-index: 10020; overflow-y: auto; overscroll-behavior: contain;
+  padding: 5px; box-sizing: border-box; border: 1px solid var(--color-border-strong); border-radius: 14px;
+  background: var(--color-surface); color: var(--color-text); box-shadow: 0 8px 28px #0003;
+  font: 13px/1.45 var(--font-sans, sans-serif);
+}
+.nimbo-select__option { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 10px 12px; border-radius: 9px; cursor: pointer; box-sizing: border-box; }
+.nimbo-select__option > span { min-width: 0; overflow-wrap: anywhere; }
+.nimbo-select__option[data-active="true"]:not([aria-disabled="true"]) { background: var(--color-card); }
+.nimbo-select__option[aria-selected="true"] { font-weight: 600; }
+.nimbo-select__option[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
+@media (prefers-reduced-motion: no-preference) {
+  button.nimbo-select { transition: border-color 120ms, transform 100ms; }
+  button.nimbo-select:not(:disabled):active { transform: scale(.98); }
+  .nimbo-select__list { animation: nimbo-select-in 130ms ease-out; }
+  @keyframes nimbo-select-in { from { opacity: 0; translate: 0 -3px; } to { opacity: 1; translate: 0 0; } }
+}
+@media (forced-colors: active) { .nimbo-select__option[data-active="true"] { outline: 1px solid Highlight; } }

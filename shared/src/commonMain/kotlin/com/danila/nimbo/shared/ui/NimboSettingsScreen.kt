@@ -51,7 +51,7 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
         Column(
             Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())
                 .padding(top = LocalNimboContentTop.current, bottom = LocalNimboContentBottom.current).nimboScreenPadding(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             val selected = tab
             if (selected == null) {
@@ -335,7 +335,7 @@ private fun SystemPage(state: NimboUiState, actions: NimboUiActions) {
 
 @Composable
 internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         BasicText(title, Modifier.padding(start = 16.dp, top = 4.dp),
             style = NimboBodyStyle.copy(color = NimboPalette.TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium))
         NimboSurface(Modifier.fillMaxWidth(), cornerRadius = 18.dp,
@@ -352,9 +352,9 @@ internal fun SettingsDivider() {
 private fun SettingsRow(icon: NimboIconName, title: String, subtitle: String? = null,
     showDivider: Boolean = false, value: String? = null, onClick: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Row(Modifier.weight(1f).heightIn(min = 52.dp)
-            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
-            .padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.weight(1f).heightIn(min = 48.dp)
+            .then(if (onClick != null) Modifier.nimboClickable(onClick = onClick) else Modifier)
+            .padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             NimboIcon(icon, tint = NimboPalette.TextSecondary, modifier = Modifier.size(20.dp))
             Column(Modifier.weight(1f)) {
@@ -384,7 +384,7 @@ internal fun NimboSettingsBack(title: String, onClick: () -> Unit) {
 @Composable
 internal fun NimboSettingsAction(title: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
     Box(modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp))
-        .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
+        .nimboClickable(enabled = enabled, onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center) {
         BasicText(title, style = NimboBodyStyle.copy(color = if (enabled) NimboPalette.Text else NimboPalette.TextTertiary))
     }
@@ -393,7 +393,7 @@ internal fun NimboSettingsAction(title: String, modifier: Modifier = Modifier, e
 @Composable
 internal fun NimboSettingsInfo(title: String, message: String) {
     var open by remember { mutableStateOf(false) }
-    Box(Modifier.size(44.dp).clip(CircleShape).clickable(role = Role.Button) { open = true }
+    Box(Modifier.size(44.dp).clip(CircleShape).nimboClickable { open = true }
         .semantics { contentDescription = "Информация: $title" }, contentAlignment = Alignment.Center) {
         NimboIcon(NimboIconName.INFO, tint = NimboPalette.TextSecondary, modifier = Modifier.size(20.dp))
     }

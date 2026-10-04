@@ -314,6 +314,11 @@ internal fun NimboSubscriptionHeader(state: NimboUiState, actions: NimboUiAction
                     if (remaining > 0f) Box(Modifier.fillMaxWidth(remaining).height(2.dp).background(NimboPalette.Accent.copy(alpha = .65f)))
                 }
             }
+            if (state.profileAnnounce.isNotBlank()) {
+                BasicText(state.profileAnnounce.trim(), maxLines = 3,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    style = NimboBodyStyle.copy(fontSize = 12.sp))
+            }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SubscriptionAction(NimboIconName.PING, if (state.pingInProgress) "Остановить пинг" else "Пинг", description = if (state.pingInProgress) "Остановить пинг" else NimboIconName.PING.accessibleLabel, onClick = actions.onPingAll)
                 SubscriptionAction(NimboIconName.REFRESH, "Обновить", onClick = actions.onRefreshProfile)

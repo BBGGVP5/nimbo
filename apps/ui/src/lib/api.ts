@@ -150,6 +150,7 @@ export interface TlsFragmentConfig {
 }
 
 export interface SubscriptionMeta {
+  mihomo_profile_id?: string | null;
   description?: string | null;
   support_url?: string | null;
   website_url?: string | null;
