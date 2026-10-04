@@ -4960,18 +4960,18 @@ fn prepare_subscription_companion(
 }
 
 fn build_fetch_options(state: &PersistedState) -> FetchOptions {
-    let mut opts = FetchOptions::default();
-    opts.format = match state.core_profiles.preferred_core {
+    let format = match state.core_profiles.preferred_core {
         Some(nimbo_mihomo::CoreKind::Mihomo) => SubscriptionFormat::Mihomo,
         Some(nimbo_mihomo::CoreKind::Xray) | Some(nimbo_mihomo::CoreKind::Awg) => {
             SubscriptionFormat::Xray
         }
         None => SubscriptionFormat::Auto,
     };
-    if let Some(ua) = &state.user_agent_override {
-        opts.user_agent = Some(ua.clone());
+    FetchOptions {
+        format,
+        user_agent: state.user_agent_override.clone(),
+        ..FetchOptions::default()
     }
-    opts
 }
 
 fn is_remote_subscription(source: &str) -> bool {

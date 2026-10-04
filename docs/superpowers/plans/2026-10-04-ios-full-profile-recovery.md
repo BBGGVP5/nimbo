@@ -31,9 +31,15 @@ Files: `iosApp/Nimbo/NimboBackup.swift`, `RootView.swift`, `AboutView.swift`, `N
 
 ## 4. Verification and delivery
 Files: `.github/workflows/build-ios-unsigned.yml`, `.github/workflows/ci.yml`, plan/report.
-- [ ] Add `python3 iosApp/Tests/test_mihomo_storage_contracts.py --swift` to Apple jobs; compile the production full record and backup files with test storage doubles using `xcrun swiftc -swift-version 5 -parse-as-library`.
-- [ ] Run Python discovery after installing tree-sitter only into the ignored local test dependency directory; record any remaining failures, never claim local Swift execution on Windows.
-- [ ] Verify unchanged older build status; source diff/UTF-8 checks; mirror hashes; commit/push only owned files and dispatch new unsigned iOS artifact build. Desktop code is unchanged in this repair.
+- [x] Add `python3 iosApp/Tests/test_mihomo_storage_contracts.py --swift` to Apple jobs; compile the production full record and backup files with test storage doubles using `xcrun swiftc -swift-version 5 -parse-as-library`.
+- [x] Run Python discovery after installing tree-sitter only into the ignored local test dependency directory; record any remaining failures, never claim local Swift execution on Windows.
+- [x] Verify unchanged older build status; source diff/UTF-8 checks; mirror hashes; commit/push only owned files and dispatch new unsigned iOS artifact build. Desktop runtime changes are formatting and an equivalent fetch-options initializer; the Linux helper test now includes the added ad-blocking field.
 
 ## Local checkpoint
-84 iOS source contracts pass; 11 changed Swift files parse without syntax errors using tree-sitter. The previous packet-flow string guard was updated to assert stronger native-inspection-before-save and complete-record compare-and-save ordering after the repository extraction. Provider description/quota metadata now travels in the backup as well; a dedicated UserDefaults suite prevents test preferences touching a user's settings. Apple executable scenarios (12 named cases, including old schema and failure atomicity) are queued through the new gate; no local Swift execution is claimed.
+84 iOS source contracts, 11 packet-flow source checks and 9 native-source checks pass locally; changed Swift files parse without syntax errors using tree-sitter. Production backup/full-record code executed on macOS in run 37188972048: all 14 scenarios passed, including offline metadata/settings recovery, exact source-envelope extraction and native inspection identity. Storage doubles and a dedicated UserDefaults suite do not touch a user's Keychain, network or VPN.
+
+The executable regression exposed Foundation's NSString JSON parser consuming a BOM inside an originalYAML value. Exact source extraction and inspection now use typed Codable decoding before the graph projection. Persisted records retain authoritative UTF-8 Data with additive backwards-compatible decoding, digest validation and no silent source replacement. Test fixtures also preserve the source before intentional tampering; validation was not relaxed to make them pass.
+
+Local Rust checks passed 164 tests across IPC, Mihomo, subscriptions and the Windows helper (seven external/native cases remain explicitly ignored). cargo fmt passes. Strict Clippy identified one fetch-options default reassignment; use the equivalent struct initializer rather than disabling its lint. The Linux CI compile failure was a missing ad_blocking field in a test fixture. No host TUN/firewall/service changes were performed.
+
+Prior binaries for source 320981e built successfully: unsigned iOS run 37186792796 and Windows/Linux artifacts run 37186794539. Updated iOS artifacts are being built in run 37188974238; its final status belongs in the delivery receipt. A successful build does not replace signed physical-device Packet Tunnel testing.

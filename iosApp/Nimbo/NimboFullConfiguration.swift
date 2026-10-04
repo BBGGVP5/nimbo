@@ -9,7 +9,7 @@ struct NimboFullConfiguration: Codable, Equatable, CustomStringConvertible {
     let coreId: String
     let format: String
     let originalYAML: String
-    /// JSON's textual string bridge may canonically normalize Unicode. Base64
+    /// Foundation's textual JSON bridge may consume a leading BOM. Base64
     /// Data retains the authoritative bytes; older records can omit this field.
     private let originalUTF8: Data?
     let sourceSHA256: String
