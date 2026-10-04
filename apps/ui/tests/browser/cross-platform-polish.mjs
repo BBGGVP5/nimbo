@@ -37,7 +37,8 @@ try {
   assert.equal(await page.locator('.universal-connection .nimbo-connect-action').count(),0,'action remains inside connection card');assert(layout.control.bottom<=layout.grid.y);
   if(width>=1000){assert(Math.abs(layout.connection.y-layout.card.y)<2,'card tops misaligned');assert(Math.abs(layout.connection.width-layout.card.width)<2,'card widths unequal');assert(Math.abs(layout.connection.height-layout.card.height)<2,'card heights unequal');assert(layout.card.x>=layout.connection.x+layout.connection.width);}
   else assert(layout.subs.y>=layout.connection.bottom,'narrow cards must stack');
-  if(variant==='round'){assert(Math.abs(layout.action.width-layout.action.height)<1&&layout.action.width>=120,'round action not circular');assert.equal(await page.locator('.nimbo-connect-action').innerText(),'');}
+  if(width>=1000)assert(layout.connection.height<=300,'ordinary home cards remain unnecessarily tall');
+  if(variant==='round'){assert(Math.abs(layout.action.width-layout.action.height)<1&&layout.action.width>=(width<=600?144:176),'round action still too small');assert.equal(await page.locator('.nimbo-connect-action').innerText(),'');}
   else assert(layout.action.height<=52&&layout.action.width>layout.action.height&&layout.action.width<=240,'compact action stretched');
   assert.equal(await page.locator('.signal-rail-foot').getByText(/NIMBO/i).count(),0);assert.equal(await page.locator('.signal-core-chip > span').innerText(),'Соединение');
   if(width<960){assert.equal(layout.sidebar.width,0);assert(Math.abs(layout.main.bottom-layout.nav.y)<2,'legacy fixed-bar margin leaves a gap above navigation');assert.equal(await page.locator('.app-bottom-nav-item:visible').count(),4);assert(layout.nav.y>=740&&layout.nav.bottom<=851,'bottom navigation not at window bottom');}
@@ -61,13 +62,45 @@ try {
   const {page,errors}=await pageFor({width,height:850},query);await page.locator('.nimbo-connect-action').waitFor();
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   if(query==='long=1') {
-   const read=page.getByRole('button',{name:'Читать полностью',exact:true});await read.click();assert.equal(await page.getByRole('button',{name:'Свернуть',exact:true}).getAttribute('aria-expanded'),'true');assert.equal(await page.locator('.nimbo-provider-announcement p script').count(),0);
+   const announcement=page.locator('.nimbo-provider-announcement');const paragraph=announcement.locator('p');
+   assert.equal(await paragraph.textContent(),await page.evaluate(()=>window.fixtureDescription),'collapsed announcement lost source formatting');
+   assert.equal(await announcement.locator('h3').count(),0,'redundant description heading');
+   const collapsed=await paragraph.evaluate(e=>({height:e.getBoundingClientRect().height,line:parseFloat(getComputedStyle(e).lineHeight),wrap:getComputedStyle(e).whiteSpace}));assert.equal(collapsed.wrap,'pre-wrap');assert(collapsed.height<=collapsed.line*3+1);
+   const read=page.getByRole('button',{name:'Читать полностью',exact:true});await read.click();assert.equal(await page.getByRole('button',{name:'Свернуть',exact:true}).getAttribute('aria-expanded'),'true');assert.equal(await paragraph.locator('script').count(),0);
+   assert.equal(await paragraph.textContent(),await page.evaluate(()=>window.fixtureDescription));assert((await paragraph.boundingBox()).height>collapsed.height);
+   if(artifacts)await page.screenshot({path:resolve(artifacts,`announcement-${width}-expanded.png`),fullPage:true});
+   await page.getByRole('button',{name:'Свернуть',exact:true}).click();assert.equal(await read.getAttribute('aria-expanded'),'false');
+   if(artifacts)await page.screenshot({path:resolve(artifacts,`announcement-${width}-collapsed.png`),fullPage:true});
    if(width>1000){const heights=await page.evaluate(()=>['.universal-connection','.signal-profile'].map(s=>document.querySelector(s).getBoundingClientRect().height));assert(Math.abs(heights[0]-heights[1])<2);}
   } else if(query==='multiple=1')assert.equal(await page.locator('.universal-home-subscriptions .signal-profile').count(),2);
   else if(query==='state=connecting'){assert(await page.locator('.nimbo-connect-action').isDisabled());assert.equal(await page.locator('.nimbo-connect-action [data-connection-icon="loading"]').count(),1);assert.deepEqual(await page.evaluate(()=>window.polishCalls),[]);}
   else {assert.equal(await page.locator('.nimbo-connect-action [data-connection-icon="cloud"]').count(),1);await page.locator('.nimbo-connect-action').click();await page.waitForFunction(()=>window.polishCalls.includes('disconnect'));}
   assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
  }
+ for(const width of [360,1440])for(const theme of ['dark','light'])for(const mode of ['home','profiles']) {
+  const {page,errors}=await pageFor({width,height:1100},`mode=${mode}&theme=${theme}&announcement=1`);
+  const paragraph=page.locator('.nimbo-provider-announcement p');const disclosure=page.locator('.nimbo-profile-disclosure');
+  await paragraph.waitFor();const before=await disclosure.getAttribute('aria-expanded');
+  assert.equal(await paragraph.textContent(),await page.evaluate(()=>window.fixtureDescription));assert.equal(await page.locator('.nimbo-provider-announcement h3').count(),0);
+  const read=page.getByRole('button',{name:'Читать полностью',exact:true});await read.click();
+  assert.equal(await disclosure.getAttribute('aria-expanded'),before,'announcement expansion toggled the server list');
+  assert.equal(await paragraph.textContent(),await page.evaluate(()=>window.fixtureDescription));
+  if(artifacts)await page.locator('.signal-profile').screenshot({path:resolve(artifacts,`provider-${mode}-${width}-${theme}-expanded.png`)});
+  await page.getByRole('button',{name:'Свернуть',exact:true}).click();
+  assert.equal(await disclosure.getAttribute('aria-expanded'),before);
+  if(artifacts)await page.locator('.signal-profile').screenshot({path:resolve(artifacts,`provider-${mode}-${width}-${theme}-collapsed.png`)});
+  assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
+ }
+ const {page:resize,errors:resizeErrors}=await pageFor({width:1440,height:850},'mode=profiles');
+ await resize.locator('.nimbo-provider-announcement p').waitFor();
+ await resize.evaluate(()=>window.setFixtureDescription('A'.repeat(220)));
+ await resize.waitForFunction(()=>document.querySelector('.nimbo-provider-announcement p').textContent==='A'.repeat(220));
+ await resize.getByRole('button',{name:'Читать полностью',exact:true}).waitFor({state:'hidden'});
+ await resize.setViewportSize({width:360,height:850});await resize.getByRole('button',{name:'Читать полностью',exact:true}).click();
+ await resize.evaluate(()=>window.setFixtureDescription('New source\n'+('line\n').repeat(8)));
+ await resize.waitForFunction(()=>document.querySelector('.nimbo-provider-announcement p').textContent===window.fixtureDescription);
+ assert.equal(await resize.getByRole('button',{name:'Читать полностью',exact:true}).getAttribute('aria-expanded'),'false','new description kept stale expanded state');
+ assert.deepEqual(resizeErrors,[]);assert.deepEqual(await resize.evaluate(()=>window.unexpectedCalls),[]);await resize.close();cases++;
  for(const width of [360,1440])for(const theme of ['dark','light']) {
   const {page,errors}=await pageFor({width,height:850},'mode=notifications&theme='+theme);await page.locator('.notification-history-item').first().waitFor();
   const metrics=await page.locator('.notification-history-item').first().evaluate(e=>({inset:e.querySelector('.notification-history-icon').getBoundingClientRect().x-e.getBoundingClientRect().x,stripe:getComputedStyle(e,'::before').content,wrap:getComputedStyle(e.querySelector('.notification-history-message')).whiteSpace,overflow:document.documentElement.scrollWidth>innerWidth}));

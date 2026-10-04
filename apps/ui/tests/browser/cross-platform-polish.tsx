@@ -28,7 +28,14 @@ const prefs = {...defaultAppPreferences,language:'ru',ui_style:'signal',theme_mo
 document.body.dataset.uiStyle='signal'; document.body.dataset.theme=prefs.theme_mode;
 const server = {id:'test-fi',name:'Финляндия',protocol:{kind:'vless',address:'fixture.invalid',port:443,uuid:'fixture',encryption:'none',stream:{network:'tcp',security:'reality'}}} as Subscription['servers'][number];
 const sub: Subscription = {url:'https://fixture.invalid/sub',name:'Провайдер',servers:[server],info:{upload:1024,download:4096,total:1048576,expire:0},fetched_at:1,meta:{description:'Описание подписки: доступные локации и новости провайдера.',mihomo_profile_id:'yaml-fixture'}};
-if(params.has('long')) sub.meta!.description='Описание подписки: '+('Длинное объявление провайдера <script>literal</script>. ').repeat(16);
+if(params.has('long')) sub.meta!.description='  Новости провайдера\n\n  Новая локация <script>literal</script>.\n'+('Длинное объявление провайдера.\n').repeat(16)+'  ';
+if(params.has('announcement')) sub.meta!.description='🛡️ Провайдер\n📅 Срок: бессрочно\n📊 Использовано: 12 GiB\n🆔 2 · профиль теста\nПомощь: @provider_support';
+const announcementFixture=window as unknown as {fixtureDescription:string;setFixtureDescription:(description:string)=>void};
+announcementFixture.fixtureDescription=sub.meta!.description!;
+announcementFixture.setFixtureDescription=description=>{
+ announcementFixture.fixtureDescription=description;
+ useAppStore.setState(state=>({subscriptions:state.subscriptions.map(item=>item.url===sub.url?{...item,meta:{...item.meta,description}}:item)}));
+};
 const inspection={api:1,sourceDigest:'fixture',nativeValidated:false,issues:[],graph:{groups:[{name:'VPN',type:'select',proxies:['DIRECT','REJECT']},{name:'Auto',type:'url-test',proxies:['node']}]}};
 const calls:string[]=[]; (window as unknown as {polishCalls:string[]}).polishCalls=calls;
 useAppStore.setState({subscriptions:params.has('multiple')?[sub,{...sub,url:'https://fixture.invalid/second',name:'Вторая подписка'}]:[sub],activeServerId:server.id,activeSubscriptionUrl:sub.url,status:{state:params.get('state')??'disconnected',connection_mode:'system_proxy'} as never,preferences:prefs,
