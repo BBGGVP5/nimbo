@@ -23,3 +23,22 @@ export function subscriptionGroups(profile: CoreProfile | undefined, snapshot: C
   }
   return [...groups];
 }
+
+/** Read name/type only; the graph must never become a source/credential renderer. */
+export function subscriptionMemberDetails(profile: CoreProfile | undefined, snapshot: CoreSnapshot | null, running: boolean, name: string): {type?: string; now?: string} {
+  if (running) {
+    const group = snapshot?.groups[name];
+    if (group) return { ...(typeof group.type === 'string' ? {type: group.type} : {}), ...(typeof group.now === 'string' ? {now: group.now} : {}) };
+    for (const provider of Object.values(snapshot?.providers ?? {})) {
+      const proxy = provider.proxies?.find(entry => entry.name === name);
+      if (typeof proxy?.type === 'string') return {type: proxy.type};
+    }
+  }
+  const graph = currentSubscriptionInspection(profile)?.graph;
+  for (const entries of [graph?.proxies, graph?.groups]) {
+    if (!Array.isArray(entries)) continue;
+    const entry = entries.find(value => value && typeof value === 'object' && value.name === name);
+    if (typeof entry?.type === 'string') return {type: entry.type};
+  }
+  return name === 'DIRECT' ? {type:'Direct'} : name === 'REJECT' ? {type:'Reject'} : {};
+}

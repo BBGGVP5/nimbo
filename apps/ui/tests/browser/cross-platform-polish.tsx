@@ -14,6 +14,8 @@ import { api, defaultAppPreferences, type Subscription } from '../../src/lib/api
 import { desktopNavItems } from '../../src/lib/desktopNavigation';
 import { messages } from '../../src/lib/i18n';
 import warningFixture from '../fixtures/mihomo-warning-inspection.json';
+import tabFixture from '../fixtures/mihomo-tabbed-inspection.json';
+import 'flag-icons/css/flag-icons.min.css';
 import '../../src/styles.css';
 import '../../src/universal.css';
 import '../../src/secondary.css';
@@ -49,10 +51,11 @@ useAppStore.setState({subscriptions:params.has('multiple')?[sub,{...sub,url:'htt
   hydrate:async()=>{}, syncStatus:async()=>{},setActiveServer:async id=>{useAppStore.setState({activeServerId:id});},
   connectServer:async id=>{calls.push('legacy:'+id);},
   disconnectServer:async()=>{calls.push('disconnect');useAppStore.setState({status:{state:'disconnected',connection_mode:'system_proxy'} as never});},
-  refreshSubscription:async url=>{calls.push('refresh:'+url); await new Promise(r=>setTimeout(r,150)); return sub;},
+  refreshSubscription:async url=>{calls.push('refresh:'+url); await new Promise(r=>setTimeout(r,150)); if(params.has('inspectFail'))useAppStore.setState(state=>({subscriptions:state.subscriptions.map(item=>({...item,fetched_at:(item.fetched_at??0)+1}))})); return sub;},
 });
 useCoreStore.setState({loaded:true,data:{preferred_core:mihomo?'mihomo':'auto',active_profile_id:null,profiles:[{id:'yaml-fixture',name:'Провайдер · YAML',kind:'mihomo_yaml',source_digest:'fixture',revision:1,selections:{},inspection}]},runtime:null});
 if(params.has('warning')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,source_digest:warningFixture.inspection.sourceDigest,inspection:warningFixture.inspection}))}}));
+if(params.has('cards')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,source_digest:tabFixture.sourceDigest,inspection:tabFixture}))}}));
 if(params.has('empty')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,inspection:{...inspection,graph:{groups:[]}}}))}}));
 if(params.has('inspect')||params.has('inspectFail')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,inspection:null}))}}));
 if(params.has('stale')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,inspection:{...inspection,sourceDigest:'old'}}))}}));
