@@ -7,11 +7,24 @@ import Foundation
     static var checks = 0
 
     static func main() throws {
-        try exactRoundTrip(); try tamperedHash(); try unsupportedVersion()
-        try choicesBoundToSource(); invalidUTF8(); sizeLimit()
-        try offlineBackupRoundTrip(); try oldVersionAndLocalLegacyRecovery()
-        try invalidArchiveIsAtomic(); try admissionAndStorageFailuresAreAtomic()
-        try metadataAndPreferencesAreRestored(); try corruptRecordCannotExportLegacy()
+        let scenarios: [(String, () throws -> Void)] = [
+            ("exactRoundTrip", { try exactRoundTrip() }), ("tamperedHash", { try tamperedHash() }),
+            ("unsupportedVersion", { try unsupportedVersion() }), ("choicesBoundToSource", { try choicesBoundToSource() }),
+            ("invalidUTF8", { invalidUTF8() }), ("sizeLimit", { sizeLimit() }),
+            ("offlineBackupRoundTrip", { try offlineBackupRoundTrip() }),
+            ("oldVersionAndLocalLegacyRecovery", { try oldVersionAndLocalLegacyRecovery() }),
+            ("invalidArchiveIsAtomic", { try invalidArchiveIsAtomic() }),
+            ("admissionAndStorageFailuresAreAtomic", { try admissionAndStorageFailuresAreAtomic() }),
+            ("metadataAndPreferencesAreRestored", { try metadataAndPreferencesAreRestored() }),
+            ("corruptRecordCannotExportLegacy", { try corruptRecordCannotExportLegacy() })]
+        for (name, operation) in scenarios {
+            do { try operation() }
+            catch {
+                FileHandle.standardError.write(Data("FAIL scenario: \(name); \(error)\n".utf8))
+                throw error
+            }
+            FileHandle.standardError.write(Data("PASS scenario: \(name)\n".utf8))
+        }
         print("PASS: \(checks) full-record and production offline-backup scenarios; storage doubles, no VPN/Keychain/HTTP")
     }
     static func checked() { checks += 1 }
@@ -26,21 +39,29 @@ import Foundation
         let decoded = try JSONDecoder().decode(NimboFullConfiguration.self, from: JSONEncoder().encode(original))
         try decoded.validate()
         precondition(decoded == original && decoded.sourceData == Data(yaml.utf8))
-        precondition(!decoded.description.contains("private-fixture")); checked()
+        precondition(!decoded.description.contains("private-fixture"))
+        var oldRecord = try object(NimboFullConfiguration(data: Data("proxies: []\r\n".utf8), source: nil))
+        oldRecord.removeValue(forKey: "originalUTF8")
+        let legacy = try JSONDecoder().decode(NimboFullConfiguration.self, from: JSONSerialization.data(withJSONObject: oldRecord))
+        precondition(legacy.sourceData == Data("proxies: []\r\n".utf8))
+        checked()
     }
     static func object(_ record: NimboFullConfiguration) throws -> [String: Any] {
         try JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as! [String: Any]
     }
     static func tamperedHash() throws {
         var value = try object(record()); value["originalYAML"] = "proxies: []\n"
-        let corrupted = try JSONDecoder().decode(NimboFullConfiguration.self, from: JSONSerialization.data(withJSONObject: value))
-        rejects { try corrupted.validate() }; checked()
+        let data = try JSONSerialization.data(withJSONObject: value)
+        rejects { _ = try JSONDecoder().decode(NimboFullConfiguration.self, from: data) }
+        var changedBytes = try object(record()); changedBytes["originalUTF8"] = Data("proxies: []\n".utf8).base64EncodedString()
+        let bytesData = try JSONSerialization.data(withJSONObject: changedBytes)
+        rejects { _ = try JSONDecoder().decode(NimboFullConfiguration.self, from: bytesData) }; checked()
     }
     static func unsupportedVersion() throws {
         for pair in [("schemaVersion", 9 as Any), ("coreId", "xray" as Any), ("format", "future" as Any)] {
             var value = try object(record()); value[pair.0] = pair.1
-            let corrupted = try JSONDecoder().decode(NimboFullConfiguration.self, from: JSONSerialization.data(withJSONObject: value))
-            rejects { try corrupted.validate() }
+            let data = try JSONSerialization.data(withJSONObject: value)
+            rejects { _ = try JSONDecoder().decode(NimboFullConfiguration.self, from: data) }
         }
         checked()
     }

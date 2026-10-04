@@ -9,6 +9,9 @@ struct NimboFullConfiguration: Codable, Equatable, CustomStringConvertible {
     let coreId: String
     let format: String
     let originalYAML: String
+    /// JSON's textual string bridge may canonically normalize Unicode. Base64
+    /// Data retains the authoritative bytes; older records can omit this field.
+    private let originalUTF8: Data?
     let sourceSHA256: String
     let source: String?
     let title: String
@@ -16,7 +19,7 @@ struct NimboFullConfiguration: Codable, Equatable, CustomStringConvertible {
     let groupSelections: [String: String]
 
     var description: String { "NimboFullConfiguration(source=<redacted>)" }
-    var sourceData: Data { Data(originalYAML.utf8) }
+    var sourceData: Data { originalUTF8 ?? Data(originalYAML.utf8) }
 
     init(data: Data, source: String?, title: String = "Mihomo", groupSelections: [String: String] = [:]) throws {
         guard !data.isEmpty, data.count <= Self.maximumSourceBytes else {
@@ -30,10 +33,32 @@ struct NimboFullConfiguration: Codable, Equatable, CustomStringConvertible {
         coreId = "mihomo"
         format = "mihomo-yaml"
         originalYAML = text
+        originalUTF8 = data
         sourceSHA256 = Self.digest(data)
         self.source = source
         self.title = title
         self.groupSelections = groupSelections
+        try validate()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, coreId, format, originalYAML, originalUTF8, sourceSHA256, source, title, groupSelections
+    }
+
+    init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try fields.decode(Int.self, forKey: .schemaVersion)
+        coreId = try fields.decode(String.self, forKey: .coreId)
+        format = try fields.decode(String.self, forKey: .format)
+        let textualYAML = try fields.decode(String.self, forKey: .originalYAML)
+        originalUTF8 = try fields.decodeIfPresent(Data.self, forKey: .originalUTF8)
+        originalYAML = originalUTF8.map { String(decoding: $0, as: UTF8.self) } ?? textualYAML
+        // The shadow string must agree semantically; it cannot replace the bytes.
+        guard textualYAML == originalYAML else { throw NimboFullConfigurationError.sourceMismatch }
+        sourceSHA256 = try fields.decode(String.self, forKey: .sourceSHA256)
+        source = try fields.decodeIfPresent(String.self, forKey: .source)
+        title = try fields.decode(String.self, forKey: .title)
+        groupSelections = try fields.decode([String: String].self, forKey: .groupSelections)
         try validate()
     }
 
@@ -43,6 +68,9 @@ struct NimboFullConfiguration: Codable, Equatable, CustomStringConvertible {
         }
         guard !sourceData.isEmpty, sourceData.count <= Self.maximumSourceBytes else {
             throw NimboFullConfigurationError.invalidSize
+        }
+        guard Data(originalYAML.utf8) == sourceData else {
+            throw NimboFullConfigurationError.invalidEncoding
         }
         guard sourceSHA256 == Self.digest(sourceData) else {
             throw NimboFullConfigurationError.sourceMismatch
