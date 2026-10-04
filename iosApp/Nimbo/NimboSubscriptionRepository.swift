@@ -242,16 +242,7 @@ final class NimboSubscriptionRepository {
     }
 
     private func fullSource(_ data: Data) throws -> Data {
-        if let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-           let original = object["originalYAML"] as? String {
-            if object["schemaVersion"] != nil || object["originalUTF8"] != nil {
-                let record = try decoder.decode(NimboFullConfiguration.self, from: data)
-                try record.validate()
-                return record.sourceData
-            }
-            return Data(original.utf8)
-        }
-        return data
+        try NimboFullConfiguration.sourceData(fromPayload: data)
     }
 
     private func importFullConfiguration(_ data: Data, source: String?, title: String? = nil) throws -> NimboSubscriptionProfile {

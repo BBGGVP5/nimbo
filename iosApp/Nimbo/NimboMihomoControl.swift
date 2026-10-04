@@ -97,6 +97,18 @@ enum NimboMihomoControl {
             throw NSError(domain: "Nimbo.Mihomo", code: 1, userInfo: [NSLocalizedDescriptionKey:
                 "Mihomo: " + ((reply?["error"] as? [String: Any])?["code"] as? String ?? "INSPECTION_FAILED")])
         }
+        if operation == "inspect" {
+            // Validate the typed wire envelope before exposing its graph. Restore
+            // its exact source after Foundation's lossy NSString JSON projection.
+            let identity = try NimboMihomoInspection.decode(data, requestID: requestID, sourceData: source)
+            guard var payload = reply["data"] as? [String: Any] else {
+                throw NimboFullConfigurationError.inspectionFailed
+            }
+            payload["originalYAML"] = identity.originalYAML
+            var validated = reply
+            validated["data"] = payload
+            return validated
+        }
         return reply
     }
 

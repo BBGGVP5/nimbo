@@ -11,6 +11,8 @@ import Foundation
             ("exactRoundTrip", { try exactRoundTrip() }), ("tamperedHash", { try tamperedHash() }),
             ("unsupportedVersion", { try unsupportedVersion() }), ("choicesBoundToSource", { try choicesBoundToSource() }),
             ("invalidUTF8", { invalidUTF8() }), ("sizeLimit", { sizeLimit() }),
+            ("sourceEnvelopePreservesBytes", { try sourceEnvelopePreservesBytes() }),
+            ("wireInspectionPreservesBytes", { try wireInspectionPreservesBytes() }),
             ("offlineBackupRoundTrip", { try offlineBackupRoundTrip() }),
             ("oldVersionAndLocalLegacyRecovery", { try oldVersionAndLocalLegacyRecovery() }),
             ("invalidArchiveIsAtomic", { try invalidArchiveIsAtomic() }),
@@ -53,6 +55,33 @@ import Foundation
         // before exercising the production Codable decoder/validation.
         result["originalYAML"] = record.originalYAML
         return result
+    }
+    static func sourceEnvelopePreservesBytes() throws {
+        struct Source: Encodable { let originalYAML: String }
+        let original = try record()
+        let wire = try JSONEncoder().encode(Source(originalYAML: yaml))
+        let extracted = try NimboFullConfiguration.sourceData(fromPayload: wire)
+        precondition(extracted == original.sourceData)
+        let stored = try NimboFullConfiguration.sourceData(fromPayload: JSONEncoder().encode(original))
+        precondition(stored == original.sourceData)
+        let unchanged = try NimboFullConfiguration.sourceData(fromPayload: original.sourceData)
+        precondition(unchanged == original.sourceData)
+        rejects { _ = try NimboFullConfiguration.sourceData(fromPayload: Data("{\"originalYAML\":42}".utf8)) }
+        checked()
+    }
+    static func wireInspectionPreservesBytes() throws {
+        struct Payload: Encodable { let originalYAML: String; let sourceSHA256: String }
+        struct Envelope: Encodable {
+            let apiVersion = 1; let requestId = "fixture-inspection"; let success = true
+            let generation = 0; let data: Payload
+        }
+        let original = try record()
+        let wire = try JSONEncoder().encode(Envelope(data: Payload(originalYAML: yaml, sourceSHA256: original.sourceSHA256)))
+        let identity = try NimboMihomoInspection.decode(wire, requestID: "fixture-inspection", sourceData: original.sourceData)
+        precondition(Data(identity.originalYAML.utf8) == original.sourceData)
+        rejects { _ = try NimboMihomoInspection.decode(wire, requestID: "wrong-request", sourceData: original.sourceData) }
+        rejects { _ = try NimboMihomoInspection.decode(wire, requestID: "fixture-inspection", sourceData: Data("proxies: []".utf8)) }
+        checked()
     }
     static func tamperedHash() throws {
         var value = try object(record()); value["originalYAML"] = "proxies: []\n"

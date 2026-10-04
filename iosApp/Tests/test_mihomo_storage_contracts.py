@@ -19,6 +19,11 @@ class MihomoStorageContracts(unittest.TestCase):
                          'schemaVersion == 1', 'coreId == "mihomo"', 'format == "mihomo-yaml"']:
             self.assertIn(fragment, code)
         self.assertNotIn('originalYAML.trimmingCharacters', code)
+        self.assertIn('static func sourceData(fromPayload', code)
+        self.assertIn('JSONDecoder().decode(Source.self', code)
+        control = read('Nimbo/NimboMihomoControl.swift')
+        self.assertIn('NimboMihomoInspection.decode(data, requestID: requestID, sourceData: source)', control)
+        self.assertIn('payload["originalYAML"] = identity.originalYAML', control)
 
     def test_single_keychain_record_and_selection_guard(self):
         code = read('Nimbo/NimboConfigurationStore.swift')

@@ -88,6 +88,18 @@ struct NimboFullConfiguration: Codable, Equatable, CustomStringConvertible {
         }
     }
 
+    /// Do not extract source text through JSONSerialization/NSString: that
+    /// bridge can consume a UTF-8 BOM inside an otherwise valid JSON string.
+    static func sourceData(fromPayload data: Data) throws -> Data {
+        guard let fields = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              fields["originalYAML"] != nil else { return data }
+        if fields["schemaVersion"] != nil || fields["originalUTF8"] != nil {
+            return try JSONDecoder().decode(Self.self, from: data).sourceData
+        }
+        struct Source: Decodable { let originalYAML: String }
+        return Data(try JSONDecoder().decode(Source.self, from: data).originalYAML.utf8)
+    }
+
     func replacingSource(_ data: Data) throws -> Self {
         let unchanged = Self.digest(data) == sourceSHA256
         return try Self(data: data, source: source, title: title,
