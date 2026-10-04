@@ -40,8 +40,6 @@ body[data-ui-style] .nimbo-home-profile .universal-subscription { gap: 0; }
 .nimbo-home-profile .universal-home-subscriptions .universal-subscription-servers { max-height: 360px; overflow: auto; overscroll-behavior: contain; }
 .nimbo-provider-announcement { margin: 0 0 8px; padding: 6px 0; }
 .nimbo-provider-announcement p { margin: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-text-dim); }
-.nimbo-provider-announcement.is-collapsed p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
-.nimbo-provider-announcement button { min-height: 44px; font: inherit; font-size: 12px; color: var(--color-text); cursor: pointer; }
 body[data-ui-style] .universal-subscription .signal-profile-head { gap: 6px; }
 body[data-ui-style] .universal-subscription .signal-profile-head .signal-icon-btn { width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 10px; flex: 0 0 44px; border: 1px solid var(--color-border); border-radius: 12px; background: transparent; display: grid; place-items: center; }
 body[data-ui-style] .universal-subscription .signal-profile-head .signal-icon-btn svg { width: 18px; height: 18px; }

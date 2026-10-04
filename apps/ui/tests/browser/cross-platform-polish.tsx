@@ -13,6 +13,7 @@ import { useCoreStore } from '../../src/coreStore';
 import { api, defaultAppPreferences, type Subscription } from '../../src/lib/api';
 import { desktopNavItems } from '../../src/lib/desktopNavigation';
 import { messages } from '../../src/lib/i18n';
+import warningFixture from '../fixtures/mihomo-warning-inspection.json';
 import '../../src/styles.css';
 import '../../src/universal.css';
 import '../../src/secondary.css';
@@ -36,6 +37,12 @@ announcementFixture.setFixtureDescription=description=>{
  announcementFixture.fixtureDescription=description;
  useAppStore.setState(state=>({subscriptions:state.subscriptions.map(item=>item.url===sub.url?{...item,meta:{...item.meta,description}}:item)}));
 };
+const coreFixture=window as unknown as {fixtureCoreUpdated:boolean;refreshFixtureSubscription:()=>void};
+coreFixture.fixtureCoreUpdated=false;
+coreFixture.refreshFixtureSubscription=()=>{
+ coreFixture.fixtureCoreUpdated=true;
+ useAppStore.setState(state=>({subscriptions:state.subscriptions.map(item=>item.url===sub.url?{...item,fetched_at:(item.fetched_at??0)+1}:item)}));
+};
 const inspection={api:1,sourceDigest:'fixture',nativeValidated:false,issues:[],graph:{groups:[{name:'VPN',type:'select',proxies:['DIRECT','REJECT']},{name:'Auto',type:'url-test',proxies:['node']}]}};
 const calls:string[]=[]; (window as unknown as {polishCalls:string[]}).polishCalls=calls;
 useAppStore.setState({subscriptions:params.has('multiple')?[sub,{...sub,url:'https://fixture.invalid/second',name:'Вторая подписка'}]:[sub],activeServerId:server.id,activeSubscriptionUrl:sub.url,status:{state:params.get('state')??'disconnected',connection_mode:'system_proxy'} as never,preferences:prefs,
@@ -45,7 +52,10 @@ useAppStore.setState({subscriptions:params.has('multiple')?[sub,{...sub,url:'htt
   refreshSubscription:async url=>{calls.push('refresh:'+url); await new Promise(r=>setTimeout(r,150)); return sub;},
 });
 useCoreStore.setState({loaded:true,data:{preferred_core:mihomo?'mihomo':'auto',active_profile_id:null,profiles:[{id:'yaml-fixture',name:'Провайдер · YAML',kind:'mihomo_yaml',source_digest:'fixture',revision:1,selections:{},inspection}]},runtime:null});
-if(params.has('inspect')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,inspection:null}))}}));
+if(params.has('warning')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,source_digest:warningFixture.inspection.sourceDigest,inspection:warningFixture.inspection}))}}));
+if(params.has('empty')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,inspection:{...inspection,graph:{groups:[]}}}))}}));
+if(params.has('inspect')||params.has('inspectFail')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,inspection:null}))}}));
+if(params.has('stale')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,inspection:{...inspection,sourceDigest:'old'}}))}}));
 if(params.has('foreign')) useCoreStore.setState({runtime:{running:true,profile_id:'foreign',session_id:'foreign-session',native_generation:2,mixed_address:null,network_owner:'desktop-proxy'},snapshot:{groups:{Foreign:{type:'Selector',all:['private-foreign-node'],now:'private-foreign-node'}},providers:{},ruleProviders:{}}});
 api.listAppProxyRules=async()=>[];
 api.getSubscriptionLogo=async()=>null;

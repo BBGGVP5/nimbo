@@ -3,6 +3,9 @@ body[data-ui-style] .core-subscription-head { display: flex; flex-wrap: wrap; al
 body[data-ui-style] .core-subscription-head > button { margin-left: auto; }
 .core-subscription-head > span { font-size: 11px; color: var(--color-text-dim); }
 body[data-ui-style] .core-subscription-control small { font-size: 11px; color: var(--color-text-dim); overflow-wrap: anywhere; }
+body[data-ui-style] .core-subscription-inspection { min-width: 0; font-size: 11px; color: var(--color-text-dim); }
+.core-subscription-inspection > summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; }
+.core-subscription-inspection ul { margin: 6px 0 0; padding-left: 18px; overflow-wrap: anywhere; }
 body[data-ui-style] .core-subscription-group { display: block; min-width: 0; border: 1px solid var(--color-border); border-radius: 12px; padding: 0; }
 body[data-ui-style] .core-subscription-group > summary { display: flex; align-items: center; gap: 12px; list-style: none; padding: 12px; min-height: 48px; cursor: pointer; }
 .core-subscription-group > summary::-webkit-details-marker { display: none; }

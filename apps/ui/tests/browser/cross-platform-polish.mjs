@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createServer } from 'vite';
 import { chromium } from '../../../installer/node_modules/playwright/index.mjs';
@@ -8,28 +8,37 @@ const server=await createServer({server:{hmr:false,host:'127.0.0.1',port:5199,st
 const browser=await chromium.launch({headless:true,...(process.env.NIMBO_CHROMIUM_PATH?{executablePath:process.env.NIMBO_CHROMIUM_PATH}:{})});
 const artifacts=process.env.NIMBO_LAYOUT_ARTIFACT_DIR;if(artifacts)await mkdir(artifacts,{recursive:true});
 let cases=0;
+const warningInspection=JSON.parse(await readFile(new URL('../fixtures/mihomo-warning-inspection.json',import.meta.url),'utf8')).inspection;
 async function pageFor(viewport,query='') {
  const page=await browser.newPage({viewport,reducedMotion:'reduce'});const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.addInitScript(()=>{
+ await page.addInitScript(({warningInspection})=>{
   window.nativeCalls=[];window.unexpectedCalls=[];let running=false,now='DIRECT';
+  const params=new URLSearchParams(location.search);let inspected=!(params.has('inspect')||params.has('inspectFail')||params.has('stale')),failedInspection=false,updatedInspected=false;
+  const profile=()=>window.fixtureCoreUpdated?{id:'yaml-fixture',name:'Провайдер · YAML',kind:'mihomo_yaml',revision:2,selections:{},source_digest:'updated-fixture',inspection:updatedInspected?{api:1,sourceDigest:'updated-fixture',nativeValidated:false,issues:[],graph:{groups:[{name:'Updated category',type:'select',proxies:['Updated node']}]}}:null}:({id:'yaml-fixture',name:'Провайдер · YAML',kind:'mihomo_yaml',revision:1,selections:{},source_digest:params.has('warning')?warningInspection.sourceDigest:'fixture',inspection:!inspected?null:params.has('warning')?warningInspection:{api:1,sourceDigest:'fixture',nativeValidated:false,issues:[],graph:{groups:params.has('empty')?[]:[{name:'VPN',type:'select',proxies:['DIRECT','REJECT']},{name:'Auto',type:'url-test',proxies:['node']}]}}});
   if(new URLSearchParams(location.search).get('mode')==='notifications') {
    const time=Date.now();localStorage.setItem('nimbo.notifications.lastSeen',String(time-3600000));
    localStorage.setItem('nimbo.notifications.history',JSON.stringify([{id:'one',tone:'info',message:'Настройки сохранены.',createdAt:time},{id:'two',tone:'error',message:'Длинное сообщение: '+('Проверьте подключение и повторите попытку. ').repeat(15),createdAt:time-86400000},{id:'three',tone:'success',message:'Подписка обновлена.',createdAt:time-10*86400000}]));
   }
   window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
    window.nativeCalls.push([command,args]);
-   if(command==='inspect_core_profile')return {};
-   if(command==='get_core_profiles')return {preferred_core:new URLSearchParams(location.search).has('mihomo')?'mihomo':'auto',active_profile_id:running?'yaml-fixture':null,profiles:[{id:'yaml-fixture',name:'Провайдер · YAML',kind:'mihomo_yaml',revision:1,selections:{},source_digest:'fixture',inspection:{api:1,sourceDigest:'fixture',nativeValidated:false,issues:[],graph:{groups:[{name:'VPN',type:'select',proxies:['DIRECT','REJECT']},{name:'Auto',type:'url-test',proxies:['node']}]}}}]};
+   if(command==='inspect_core_profile'){if(params.has('inspectFail')&&!failedInspection){failedInspection=true;throw Error('NATIVE_INSPECTION_FAILED');}inspected=true;if(window.fixtureCoreUpdated)updatedInspected=true;return profile();}
+   if(command==='get_core_profiles')return {preferred_core:params.has('mihomo')?'mihomo':'auto',active_profile_id:running?'yaml-fixture':null,profiles:[profile()]};
    if(command==='get_core_availability')return [{core:'mihomo',selector_available:true,binary_verified:true,system_proxy_available:true}];
-   if(command==='get_mihomo_status'||command==='connect_mihomo_profile'){if(command==='connect_mihomo_profile')running=true;return {running,profile_id:running?'yaml-fixture':null,session_id:running?'fixture-session':null,native_generation:1,network_owner:running?'desktop-proxy':'none'};}
+   if(command==='get_mihomo_status'||command==='connect_mihomo_profile'){if(command==='connect_mihomo_profile'){if(params.has('warning'))throw Error('UNSUPPORTED_FIELD');running=true;}return {running,profile_id:running?'yaml-fixture':null,session_id:running?'fixture-session':null,native_generation:1,network_owner:running?'desktop-proxy':'none'};}
    if(command==='mihomo_snapshot'||command==='mihomo_select'){if(command==='mihomo_select'){if(new URLSearchParams(location.search).has('selectFail'))throw Error('READBACK_MISMATCH');now=args.name;}return {groups:{VPN:{type:'Selector',now,all:['DIRECT','REJECT']},Auto:{type:'URLTest',now:'node',all:['node']}},providers:{},ruleProviders:{}};}
    window.unexpectedCalls.push(command);throw Error('Unexpected fixture IPC: '+command);
   }};
- });
+ },{warningInspection});
  await page.goto('http://127.0.0.1:5199/tests/browser/cross-platform-polish.html?'+query);
  return {page,errors};
 }
 try {
+ const {page:refreshProfile,errors:refreshErrors}=await pageFor({width:1440,height:850},'mode=profiles&mihomo=1');
+ await refreshProfile.locator('.core-subscription-group').first().waitFor();await refreshProfile.evaluate(()=>window.refreshFixtureSubscription());
+ await refreshProfile.getByRole('group',{name:'Updated category',exact:true}).waitFor({timeout:5000});
+ assert.equal(await refreshProfile.locator('.core-subscription-group').count(),1);assert(await refreshProfile.getByRole('button',{name:'Updated category: Updated node',exact:true}).isDisabled());
+ assert(!(await refreshProfile.evaluate(()=>window.nativeCalls)).some(([cmd])=>cmd==='connect_mihomo_profile'||cmd==='mihomo_select'),'subscription refresh activated the native core');
+ assert.deepEqual(refreshErrors,[]);assert.deepEqual(await refreshProfile.evaluate(()=>window.unexpectedCalls),[]);await refreshProfile.close();cases++;
  for(const width of [360,600,800,900,960,1000,1280,1440])for(const theme of ['dark','light'])for(const variant of ['round','compact']) {
   const {page,errors}=await pageFor({width,height:850},'theme='+theme+'&button='+variant);await page.locator('.universal-connection').waitFor();
   const layout=await page.evaluate(()=>{const box=s=>{const r=document.querySelector(s).getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,bottom:r.bottom,height:r.height};};return {main:box('.app-main'),action:box('.nimbo-connect-action'),control:box('.universal-connect-control'),grid:box('.universal-home-grid'),connection:box('.universal-connection'),subs:box('.universal-subscription-section'),card:box('.universal-home-subscriptions .signal-profile'),nav:box('.app-bottom-nav'),sidebar:box('.signal-rail'),overflow:document.documentElement.scrollWidth>innerWidth};});
@@ -63,14 +72,11 @@ try {
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   if(query==='long=1') {
    const announcement=page.locator('.nimbo-provider-announcement');const paragraph=announcement.locator('p');
-   assert.equal(await paragraph.textContent(),await page.evaluate(()=>window.fixtureDescription),'collapsed announcement lost source formatting');
+   assert.equal(await paragraph.textContent(),await page.evaluate(()=>window.fixtureDescription),'full announcement lost source formatting');
    assert.equal(await announcement.locator('h3').count(),0,'redundant description heading');
-   const collapsed=await paragraph.evaluate(e=>({height:e.getBoundingClientRect().height,line:parseFloat(getComputedStyle(e).lineHeight),wrap:getComputedStyle(e).whiteSpace}));assert.equal(collapsed.wrap,'pre-wrap');assert(collapsed.height<=collapsed.line*3+1);
-   const read=page.getByRole('button',{name:'Читать полностью',exact:true});await read.click();assert.equal(await page.getByRole('button',{name:'Свернуть',exact:true}).getAttribute('aria-expanded'),'true');assert.equal(await paragraph.locator('script').count(),0);
-   assert.equal(await paragraph.textContent(),await page.evaluate(()=>window.fixtureDescription));assert((await paragraph.boundingBox()).height>collapsed.height);
-   if(artifacts)await page.screenshot({path:resolve(artifacts,`announcement-${width}-expanded.png`),fullPage:true});
-   await page.getByRole('button',{name:'Свернуть',exact:true}).click();assert.equal(await read.getAttribute('aria-expanded'),'false');
-   if(artifacts)await page.screenshot({path:resolve(artifacts,`announcement-${width}-collapsed.png`),fullPage:true});
+   const full=await paragraph.evaluate(e=>({height:e.getBoundingClientRect().height,line:parseFloat(getComputedStyle(e).lineHeight),wrap:getComputedStyle(e).whiteSpace,clipped:e.scrollHeight>e.clientHeight+1}));assert.equal(full.wrap,'pre-wrap');assert(full.height>full.line*3&&!full.clipped,'description remains cropped');
+   assert.equal(await announcement.locator('button').count(),0);assert.equal(await paragraph.locator('script').count(),0);
+   if(artifacts)await page.locator('.signal-profile').screenshot({path:resolve(artifacts,`announcement-${width}-full.png`)});
    if(width>1000){const heights=await page.evaluate(()=>['.universal-connection','.signal-profile'].map(s=>document.querySelector(s).getBoundingClientRect().height));assert(Math.abs(heights[0]-heights[1])<2);}
   } else if(query==='multiple=1')assert.equal(await page.locator('.universal-home-subscriptions .signal-profile').count(),2);
   else if(query==='state=connecting'){assert(await page.locator('.nimbo-connect-action').isDisabled());assert.equal(await page.locator('.nimbo-connect-action [data-connection-icon="loading"]').count(),1);assert.deepEqual(await page.evaluate(()=>window.polishCalls),[]);}
@@ -82,13 +88,12 @@ try {
   const paragraph=page.locator('.nimbo-provider-announcement p');const disclosure=page.locator('.nimbo-profile-disclosure');
   await paragraph.waitFor();const before=await disclosure.getAttribute('aria-expanded');
   assert.equal(await paragraph.textContent(),await page.evaluate(()=>window.fixtureDescription));assert.equal(await page.locator('.nimbo-provider-announcement h3').count(),0);
-  const read=page.getByRole('button',{name:'Читать полностью',exact:true});await read.click();
-  assert.equal(await disclosure.getAttribute('aria-expanded'),before,'announcement expansion toggled the server list');
+  assert.equal(await page.locator('.nimbo-provider-announcement button').count(),0);
+  const full=await paragraph.evaluate(e=>({height:e.getBoundingClientRect().height,line:parseFloat(getComputedStyle(e).lineHeight),clipped:e.scrollHeight>e.clientHeight+1}));assert(full.height>full.line*3&&!full.clipped);
+  await paragraph.click();
+  assert.equal(await disclosure.getAttribute('aria-expanded'),before,'announcement click toggled the server list');
   assert.equal(await paragraph.textContent(),await page.evaluate(()=>window.fixtureDescription));
-  if(artifacts)await page.locator('.signal-profile').screenshot({path:resolve(artifacts,`provider-${mode}-${width}-${theme}-expanded.png`)});
-  await page.getByRole('button',{name:'Свернуть',exact:true}).click();
-  assert.equal(await disclosure.getAttribute('aria-expanded'),before);
-  if(artifacts)await page.locator('.signal-profile').screenshot({path:resolve(artifacts,`provider-${mode}-${width}-${theme}-collapsed.png`)});
+  if(artifacts)await page.locator('.signal-profile').screenshot({path:resolve(artifacts,`provider-${mode}-${width}-${theme}-full.png`)});
   assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
  }
  const {page:resize,errors:resizeErrors}=await pageFor({width:1440,height:850},'mode=profiles');
@@ -96,10 +101,10 @@ try {
  await resize.evaluate(()=>window.setFixtureDescription('A'.repeat(220)));
  await resize.waitForFunction(()=>document.querySelector('.nimbo-provider-announcement p').textContent==='A'.repeat(220));
  await resize.getByRole('button',{name:'Читать полностью',exact:true}).waitFor({state:'hidden'});
- await resize.setViewportSize({width:360,height:850});await resize.getByRole('button',{name:'Читать полностью',exact:true}).click();
+ await resize.setViewportSize({width:360,height:850});assert.equal(await resize.locator('.nimbo-provider-announcement button').count(),0);
  await resize.evaluate(()=>window.setFixtureDescription('New source\n'+('line\n').repeat(8)));
  await resize.waitForFunction(()=>document.querySelector('.nimbo-provider-announcement p').textContent===window.fixtureDescription);
- assert.equal(await resize.getByRole('button',{name:'Читать полностью',exact:true}).getAttribute('aria-expanded'),'false','new description kept stale expanded state');
+ assert.equal(await resize.locator('.nimbo-provider-announcement button').count(),0);assert(await resize.locator('.nimbo-provider-announcement p').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'updated description is cropped');
  assert.deepEqual(resizeErrors,[]);assert.deepEqual(await resize.evaluate(()=>window.unexpectedCalls),[]);await resize.close();cases++;
  for(const width of [360,1440])for(const theme of ['dark','light']) {
   const {page,errors}=await pageFor({width,height:850},'mode=notifications&theme='+theme);await page.locator('.notification-history-item').first().waitFor();
@@ -119,12 +124,32 @@ try {
  const cardWidth=await offline.locator('.signal-profile').evaluate(e=>({card:e.getBoundingClientRect().width,page:document.querySelector('.nimbo-home-profile').getBoundingClientRect().width}));assert(Math.abs(cardWidth.card-cardWidth.page)<2,'profile card needlessly narrower than content');
  const disclosure=offline.locator('.nimbo-profile-disclosure');await disclosure.click();assert.equal(await disclosure.getAttribute('aria-expanded'),'false');await disclosure.click();assert.equal(await disclosure.getAttribute('aria-expanded'),'true');
  if(artifacts)await offline.screenshot({path:resolve(artifacts,'mihomo-disconnected-groups.png'),fullPage:true});assert.deepEqual(offlineErrors,[]);assert.deepEqual(await offline.evaluate(()=>window.unexpectedCalls),[]);await offline.close();cases++;
- for(const query of ['inspect=1','foreign=1']) {
+ for(const query of ['inspect=1','stale=1','foreign=1']) {
   const {page,errors}=await pageFor({width:360,height:850},'mode=profiles&mihomo=1&'+query);await page.locator('.core-subscription-group').first().waitFor();
   assert(await page.getByRole('button',{name:'VPN: REJECT',exact:true}).isDisabled());assert.equal(await page.getByText('private-foreign-node',{exact:true}).count(),0);
-  const calls=await page.evaluate(()=>window.nativeCalls);assert.equal(calls.filter(([cmd])=>cmd==='inspect_core_profile').length,query==='inspect=1'?1:0);assert(!calls.some(([cmd])=>cmd==='connect_mihomo_profile'||cmd==='mihomo_select'));
+  const calls=await page.evaluate(()=>window.nativeCalls);assert.equal(calls.filter(([cmd])=>cmd==='inspect_core_profile').length,query==='foreign=1'?0:1);assert(!calls.some(([cmd])=>cmd==='connect_mihomo_profile'||cmd==='mihomo_select'));
   assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
  }
+ for(const width of [360,1440])for(const theme of ['dark','light']) {
+  const {page,errors}=await pageFor({width,height:1100},`mode=profiles&mihomo=1&warning=1&announcement=1&theme=${theme}`);
+  await page.locator('.core-subscription-group').first().waitFor();assert.equal(await page.locator('.core-subscription-group').count(),3,'native warning-bearing graph is hidden');
+  for(const name of ['VPN','Streaming','Auto'])assert(await page.getByRole('group',{name,exact:true}).isVisible());
+  assert.equal(await page.locator('.core-subscription-member:not(:disabled)').count(),0);assert.equal(await page.locator('.core-subscription-member[aria-pressed="true"]').count(),0);
+  await page.locator('.core-subscription-inspection > summary').click();assert(await page.getByText('UNSUPPORTED_CONFIG · log-level',{exact:true}).isVisible());
+  const calls=await page.evaluate(()=>window.nativeCalls);assert(!calls.some(([cmd])=>cmd==='connect_mihomo_profile'||cmd==='mihomo_select'||cmd==='inspect_core_profile'),'preview activated or re-inspected a current native graph');
+  if(artifacts)await page.locator('.signal-profile').screenshot({path:resolve(artifacts,`mihomo-warning-categories-${width}-${theme}.png`)});
+  await page.locator('.core-subscription-head button').click();await page.locator('.core-subscription-control [role="alert"]').waitFor();
+  assert.equal(await page.locator('.core-subscription-group').count(),3,'failed admission erased categories');assert.equal(await page.locator('.core-subscription-member:not(:disabled)').count(),0);
+  assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
+ }
+ const {page:inspectFailure,errors:inspectErrors}=await pageFor({width:360,height:850},'mode=profiles&mihomo=1&inspectFail=1');
+ await inspectFailure.locator('.core-subscription-control [role="alert"]').waitFor();assert.equal(await inspectFailure.locator('.core-subscription-group').count(),0);
+ await inspectFailure.getByRole('button',{name:'Проверить профиль',exact:true}).click();await inspectFailure.locator('.core-subscription-group').first().waitFor();assert.equal(await inspectFailure.locator('.core-subscription-group').count(),2);
+ assert.equal((await inspectFailure.evaluate(()=>window.nativeCalls)).filter(([cmd])=>cmd==='inspect_core_profile').length,2);assert.deepEqual(inspectErrors,[]);assert.deepEqual(await inspectFailure.evaluate(()=>window.unexpectedCalls),[]);await inspectFailure.close();cases++;
+ const {page:empty,errors:emptyErrors}=await pageFor({width:1440,height:850},'mode=profiles&mihomo=1&empty=1');
+ await empty.getByText('В этом YAML нет видимых групп.',{exact:true}).waitFor();assert.equal(await empty.locator('.core-subscription-group').count(),0);
+ await empty.getByRole('button',{name:'Проверить профиль',exact:true}).click();await empty.waitForFunction(()=>window.nativeCalls.some(([cmd])=>cmd==='inspect_core_profile'));
+ assert.equal(await empty.locator('.core-subscription-group').count(),0);assert.deepEqual(emptyErrors,[]);assert.deepEqual(await empty.evaluate(()=>window.unexpectedCalls),[]);await empty.close();cases++;
  const {page:failed,errors:failedErrors}=await pageFor({width:800,height:850},'mode=profiles&mihomo=1&selectFail=1');await failed.locator('.core-subscription-head button').click();await failed.getByRole('button',{name:'VPN: REJECT',exact:true}).click();await failed.locator('.core-subscription-control [role="alert"]').waitFor();assert.equal(await failed.getByRole('button',{name:'VPN: REJECT',exact:true}).getAttribute('aria-pressed'),'false');assert.equal(await failed.getByRole('button',{name:'VPN: DIRECT',exact:true}).getAttribute('aria-pressed'),'true');assert.deepEqual(failedErrors,[]);assert.deepEqual(await failed.evaluate(()=>window.unexpectedCalls),[]);await failed.close();cases++;
  const {page:update}=await pageFor({width:1440,height:850},'update=1');await update.locator('.signal-core-update').click();assert.deepEqual(await update.evaluate(()=>window.polishCalls),['update']);assert.equal(await update.locator('.parity-brand-copy small').innerText(),'v1.3.0 β1');await update.close();cases++;
  const {page:profile,errors:profileErrors}=await pageFor({width:800,height:850},'mode=profiles');await profile.locator('.parity-server-row.is-active').waitFor();

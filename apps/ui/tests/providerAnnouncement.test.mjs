@@ -18,11 +18,12 @@ const render = description => renderToStaticMarkup(jsx.jsx(Component, {
   description, labels: { common: { locale: 'ru', description: 'Описание' } },
 }));
 
-test('subscription announcement preserves source whitespace and all lines before disclosure', () => {
+test('subscription announcement is complete immediately, with no heading or disclosure', () => {
   const description = '  Provider\n\nsecond line  \n' + 'new location\n'.repeat(20) + '  ';
   const html = render(description);
   assert(html.includes(description), 'provider text was trimmed, flattened or truncated');
   assert.doesNotMatch(html, /<h[1-6]\b/, 'generated description heading is redundant');
+  assert.doesNotMatch(html, /is-collapsed|<button\b/, 'full provider description must not require expansion');
 });
 
 test('provider-authored markup is displayed literally, never executed', () => {
