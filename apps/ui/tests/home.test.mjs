@@ -272,11 +272,11 @@ test('universal Signal memory uses the real measurement callback only while conn
   assert.equal([...f.timers.values()].filter(timer => timer.delay === 2000).length, 0); f.stop();
 });
 
-test('restored legacy button preference cannot change universal geometry or disconnect action', async () => {
+test('round and compact preferences retain the real disconnect action and busy guard', async () => {
  for(const compact of [false,true]) {
   const f=fixture({style:'signal'});f.store.preferences.servers_connect_button=compact?'compact':'classic';f.render();
   let button=f.find('button',f.find('SignalHome').props.actions);
-  assert.equal(button.props['data-variant'],'compact');
+  assert.equal(button.props['data-variant'],compact?'compact':'round');
   assert.equal(button.props['aria-label'],f.labels.home.disconnect);
   assert.equal(f.find('ConnectionStateIcon',button).props.connected,true);
   button.props.onClick();await f.settle();assert.equal(f.disconnected,1);

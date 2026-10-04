@@ -62,7 +62,7 @@ test('full YAML tools remain accessible without a duplicate top-level profiles d
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
   assert.match(app, /<Route path="\/mihomo" element={<MihomoProfiles/);
   const core = readFileSync(new URL('../src/components/CorePreferenceSetting.tsx', import.meta.url), 'utf8');
-  assert.match(core, /href="#\/mihomo"/);
+  assert.doesNotMatch(core, /href="#\/mihomo"/, 'advanced button removed by design');
 });
 
 test('universal compact bar uses the same four primary destinations', () => {

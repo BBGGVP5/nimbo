@@ -57,8 +57,8 @@ export function SignalProfileCard({ labels: m, sub, serverCount, onRefresh, onPi
       <button type="button" className="universal-subscription-toggle" onClick={onToggleCollapsed} aria-expanded={!collapsed} aria-controls={id}>
         <span className="signal-sub-logo">{logo ? <img src={logo} alt=""/> : name.slice(0, 2).toUpperCase()}</span>
         <span className="signal-profile-copy"><span className="signal-profile-name">{name}</span><span className="signal-sub-meta">{serverCount} {m.common.locale.startsWith("ru") ? (serverCount % 100 >= 11 && serverCount % 100 <= 14 ? "серверов" : serverCount % 10 === 1 ? "сервер" : serverCount % 10 >= 2 && serverCount % 10 <= 4 ? "сервера" : "серверов") : serverCount === 1 ? "server" : "servers"}</span></span>
-        <span className={`signal-collapse-btn${collapsed ? " is-collapsed" : ""}`}><ChevronIcon direction="right"/></span>
       </button>
+      <button type="button" className="signal-icon-btn nimbo-profile-disclosure" onClick={onToggleCollapsed} aria-label={`${name}: ${collapsed ? m.common.locale.startsWith("ru") ? "раскрыть" : "expand" : m.common.locale.startsWith("ru") ? "свернуть" : "collapse"}`} aria-expanded={!collapsed} aria-controls={id}><ChevronIcon direction={collapsed ? "down" : "up"}/></button>
       <button type="button" className="signal-icon-btn" aria-label={`${m.common.description}: ${name}`} title={m.common.description} onClick={() => setInfoOpen(true)}><InfoIcon/></button>
       {onSettings && onDelete && onMoveUp && onMoveDown && <ActionMenu label={m.profiles.subscriptionMenu} actions={[
         { label: m.profiles.subscriptionSettings, onClick: onSettings },

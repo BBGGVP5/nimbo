@@ -592,7 +592,7 @@ export default function App() {
           label={(key) => navLabel(m.app, key, false)}
           unread={unreadNotifications}
           version={`V${APP_VERSION}`}
-          coreLabel="VPN"
+          coreLabel={m.settings.connection}
           coreState={status?.state === "connected" ? m.signal.coreOk : m.signal.coreIdle}
           updateLabel={startupUpdate ? m.signal.coreUpdate : null}
           onUpdate={startupUpdate ? () => navigate("/settings") : undefined}

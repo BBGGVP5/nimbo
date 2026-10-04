@@ -126,7 +126,7 @@ test('settings show authoritative unavailable states and next manual connection 
   html = renderToStaticMarkup(createElement(CorePreferenceSetting));
   assert.match(html, /<option value="awg">AWG<\/option>/);
   assert.match(html, /value="mihomo" disabled=""/);
-  assert.match(html, /href="#\/mihomo"/);
+  assert.doesNotMatch(html, /href="#\/mihomo"/, 'no redundant Advanced YAML link in settings');
   mihomo = true;
   html = renderToStaticMarkup(createElement(CorePreferenceSetting));
   assert.match(html, /<option value="mihomo">Mihomo<\/option>/);

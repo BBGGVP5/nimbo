@@ -299,10 +299,10 @@ export function SignalServerRail({
 }
 
 /** Шеврон для кнопок сворачивания рельса. */
-export function ChevronIcon({ direction }: { direction: "left" | "right" }) {
+export function ChevronIcon({ direction }: { direction: "left" | "right" | "up" | "down" }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {direction === "right" ? <path d="m9 5 7 7-7 7" /> : <path d="m15 5-7 7 7 7" />}
+      <path d={direction === "right" ? "m9 5 7 7-7 7" : direction === "left" ? "m15 5-7 7 7 7" : direction === "down" ? "m5 9 7 7 7-7" : "m5 15 7-7 7 7"} />
     </svg>
   );
 }

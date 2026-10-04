@@ -33,15 +33,19 @@ try {
       const groups=[...document.querySelectorAll('.parity-settings-group')].map(g=>{const r=g.getBoundingClientRect();return {top:r.top,bottom:r.bottom};});
       const rows=[...document.querySelectorAll('.parity-setting-link')].map(r=>r.getBoundingClientRect().height).filter(h=>h>0);
       const app=[...document.querySelectorAll('.parity-settings-group')].find(g=>g.querySelector('h2').textContent==='Приложение');
-      return {groups,rows,app:[...app.querySelectorAll('strong')].map(e=>e.textContent),overflow:document.documentElement.scrollWidth>innerWidth};
+      const lists=[...document.querySelectorAll('.parity-settings-list')].map(list=>{const rows=[...list.querySelectorAll('.parity-setting-link')].filter(r=>r.getBoundingClientRect().height>0);const last=rows.at(-1);return {gap:list.getBoundingClientRect().bottom-last.getBoundingClientRect().bottom,after:getComputedStyle(last,'::after').content};});
+      return {groups,rows,lists,app:[...app.querySelectorAll('strong')].map(e=>e.textContent),overflow:document.documentElement.scrollWidth>innerWidth};
     });
     assert.deepEqual(overview.app.slice(-2),['Обновления','О программе']);
     assert(Math.max(...overview.rows)-Math.min(...overview.rows)<1,'inconsistent overview row heights '+JSON.stringify({viewport,theme,style,rows:overview.rows}));
-    if(viewport.width>640){assert.equal(overview.groups[0].top,overview.groups[1].top);assert.equal(overview.groups[0].bottom,overview.groups[1].bottom);assert.equal(overview.groups[2].top,overview.groups[3].top);}
+    if(viewport.width>640){assert.equal(overview.groups[0].top,overview.groups[1].top);assert.equal(overview.groups[2].top,overview.groups[3].top);}
+    for(const list of overview.lists){assert(list.gap<12,'sparse settings card stretched with empty space');assert.equal(list.after,'none','divider under last visible item');}
     assert(!overview.overflow,'overview horizontal overflow');
     if(artifacts && viewport.width===1100 && style==='signal')await page.screenshot({path:resolve(artifacts,`settings-${theme}.png`),fullPage:true});
     await page.goto(url+'&section=connection');
     const core=page.getByRole('combobox',{name:'Ядро',exact:true});await core.waitFor();await page.waitForFunction(()=>!document.querySelector('#desktop-core-preference').disabled);
+    assert.equal(await page.getByRole('link',{name:/Дополнительно:/}).count(),0);
+    if(artifacts&&viewport.width===1100&&style==='signal')await page.screenshot({path:resolve(artifacts,`connection-settings-${theme}.png`),fullPage:true});
     await core.click();
     assert.equal(await page.getByRole('option',{name:'AWG — недоступно',exact:true}).getAttribute('aria-disabled'),'true');
     await page.getByRole('option',{name:'Mihomo',exact:true}).click();await page.waitForFunction(()=>window.__settingsCalls.length===1);

@@ -12,12 +12,17 @@ async function pageFor(viewport,query='') {
  const page=await browser.newPage({viewport,reducedMotion:'reduce'});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.addInitScript(()=>{
   window.nativeCalls=[];window.unexpectedCalls=[];let running=false,now='DIRECT';
+  if(new URLSearchParams(location.search).get('mode')==='notifications') {
+   const time=Date.now();localStorage.setItem('nimbo.notifications.lastSeen',String(time-3600000));
+   localStorage.setItem('nimbo.notifications.history',JSON.stringify([{id:'one',tone:'info',message:'Настройки сохранены.',createdAt:time},{id:'two',tone:'error',message:'Длинное сообщение: '+('Проверьте подключение и повторите попытку. ').repeat(15),createdAt:time-86400000},{id:'three',tone:'success',message:'Подписка обновлена.',createdAt:time-10*86400000}]));
+  }
   window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
    window.nativeCalls.push([command,args]);
-   if(command==='get_core_profiles')return {preferred_core:new URLSearchParams(location.search).has('mihomo')?'mihomo':'auto',active_profile_id:running?'yaml-fixture':null,profiles:[{id:'yaml-fixture',name:'Провайдер · YAML',kind:'mihomo_yaml',revision:1,selections:{},source_digest:'fixture',inspection:null}]};
+   if(command==='inspect_core_profile')return {};
+   if(command==='get_core_profiles')return {preferred_core:new URLSearchParams(location.search).has('mihomo')?'mihomo':'auto',active_profile_id:running?'yaml-fixture':null,profiles:[{id:'yaml-fixture',name:'Провайдер · YAML',kind:'mihomo_yaml',revision:1,selections:{},source_digest:'fixture',inspection:{api:1,sourceDigest:'fixture',nativeValidated:false,issues:[],graph:{groups:[{name:'VPN',type:'select',proxies:['DIRECT','REJECT']},{name:'Auto',type:'url-test',proxies:['node']}]}}}]};
    if(command==='get_core_availability')return [{core:'mihomo',selector_available:true,binary_verified:true,system_proxy_available:true}];
    if(command==='get_mihomo_status'||command==='connect_mihomo_profile'){if(command==='connect_mihomo_profile')running=true;return {running,profile_id:running?'yaml-fixture':null,session_id:running?'fixture-session':null,native_generation:1,network_owner:running?'desktop-proxy':'none'};}
-   if(command==='mihomo_snapshot'||command==='mihomo_select'){if(command==='mihomo_select')now=args.name;return {groups:{VPN:{type:'Selector',now,all:['DIRECT','REJECT']},Auto:{type:'URLTest',now:'node'}},providers:{},ruleProviders:{}};}
+   if(command==='mihomo_snapshot'||command==='mihomo_select'){if(command==='mihomo_select'){if(new URLSearchParams(location.search).has('selectFail'))throw Error('READBACK_MISMATCH');now=args.name;}return {groups:{VPN:{type:'Selector',now,all:['DIRECT','REJECT']},Auto:{type:'URLTest',now:'node',all:['node']}},providers:{},ruleProviders:{}};}
    window.unexpectedCalls.push(command);throw Error('Unexpected fixture IPC: '+command);
   }};
  });
@@ -25,17 +30,22 @@ async function pageFor(viewport,query='') {
  return {page,errors};
 }
 try {
- for(const width of [360,600,800,900,1280,1440])for(const theme of ['dark','light']) {
-  const {page,errors}=await pageFor({width,height:850},'theme='+theme);await page.locator('.universal-connection').waitFor();
-  const layout=await page.evaluate(()=>{const box=s=>{const r=document.querySelector(s).getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,bottom:r.bottom,height:r.height};};return {main:box('.app-main'),action:box('.nimbo-connect-action'),power:box('.universal-power'),connection:box('.universal-connection-section'),subs:box('.universal-subscription-section'),nav:box('.app-bottom-nav'),sidebar:box('.signal-rail'),overflow:document.documentElement.scrollWidth>innerWidth};});
-  assert(layout.main.width>width*.65,'content stolen by sidebar');assert(layout.subs.y>=layout.connection.bottom,'subscriptions beside connection instead of below');assert(!layout.overflow);
+ for(const width of [360,600,800,900,960,1000,1280,1440])for(const theme of ['dark','light'])for(const variant of ['round','compact']) {
+  const {page,errors}=await pageFor({width,height:850},'theme='+theme+'&button='+variant);await page.locator('.universal-connection').waitFor();
+  const layout=await page.evaluate(()=>{const box=s=>{const r=document.querySelector(s).getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,bottom:r.bottom,height:r.height};};return {main:box('.app-main'),action:box('.nimbo-connect-action'),control:box('.universal-connect-control'),grid:box('.universal-home-grid'),connection:box('.universal-connection'),subs:box('.universal-subscription-section'),card:box('.universal-home-subscriptions .signal-profile'),nav:box('.app-bottom-nav'),sidebar:box('.signal-rail'),overflow:document.documentElement.scrollWidth>innerWidth};});
+  assert(layout.main.width>width*.65,'content stolen by sidebar');assert(!layout.overflow);
+  assert.equal(await page.locator('.universal-connection .nimbo-connect-action').count(),0,'action remains inside connection card');assert(layout.control.bottom<=layout.grid.y);
+  if(width>=1000){assert(Math.abs(layout.connection.y-layout.card.y)<2,'card tops misaligned');assert(Math.abs(layout.connection.width-layout.card.width)<2,'card widths unequal');assert(Math.abs(layout.connection.height-layout.card.height)<2,'card heights unequal');assert(layout.card.x>=layout.connection.x+layout.connection.width);}
+  else assert(layout.subs.y>=layout.connection.bottom,'narrow cards must stack');
+  if(variant==='round'){assert(Math.abs(layout.action.width-layout.action.height)<1&&layout.action.width>=120,'round action not circular');assert.equal(await page.locator('.nimbo-connect-action').innerText(),'');}
+  else assert(layout.action.height<=52&&layout.action.width>layout.action.height&&layout.action.width<=240,'compact action stretched');
+  assert.equal(await page.locator('.signal-rail-foot').getByText(/NIMBO/i).count(),0);assert.equal(await page.locator('.signal-core-chip > span').innerText(),'Соединение');
   if(width<960){assert.equal(layout.sidebar.width,0);assert(Math.abs(layout.main.bottom-layout.nav.y)<2,'legacy fixed-bar margin leaves a gap above navigation');assert.equal(await page.locator('.app-bottom-nav-item:visible').count(),4);assert(layout.nav.y>=740&&layout.nav.bottom<=851,'bottom navigation not at window bottom');}
-  if(width<=600)assert(layout.action.width>=layout.power.width-2&&layout.action.width>layout.main.width*.8,'mobile connect action is not full width');
   assert(await page.getByText('Описание подписки:',{exact:false}).isVisible());
   const heading=page.locator('.universal-page-heading h1');await heading.dispatchEvent('pointerdown',{pointerId:1,isPrimary:true,button:0,clientX:40,clientY:30,pointerType:'mouse'});await heading.dispatchEvent('pointermove',{pointerId:1,isPrimary:true,clientX:40,clientY:130,pointerType:'mouse'});await heading.dispatchEvent('pointerup',{pointerId:1,isPrimary:true,clientX:40,clientY:130,pointerType:'mouse'});
   await page.waitForFunction(()=>window.polishCalls.length===1);assert.deepEqual(await page.evaluate(()=>window.polishCalls),['refresh:https://fixture.invalid/sub']);
   await page.waitForFunction(()=>document.querySelector('.nimbo-pull-feedback').hidden);
-  if(artifacts&&theme==='dark')await page.screenshot({path:resolve(artifacts,`home-${width}.png`)});
+  if(artifacts&&(theme==='dark'||width===1440))await page.screenshot({path:resolve(artifacts,`home-${width}-${variant}-${theme}.png`)});
   assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
  }
  for(const width of [320,1100]) {
@@ -47,14 +57,54 @@ try {
   await select.click();await page.getByRole('button',{name:'Снаружи'}).click();assert.equal(await select.getAttribute('aria-expanded'),'false');assert.equal(await page.locator('select').count(),0);
   assert.deepEqual(errors,[]);await page.close();cases++;
  }
+ for(const width of [360,1440])for(const query of ['long=1','multiple=1','state=connecting','state=connected']) {
+  const {page,errors}=await pageFor({width,height:850},query);await page.locator('.nimbo-connect-action').waitFor();
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  if(query==='long=1') {
+   const read=page.getByRole('button',{name:'Читать полностью',exact:true});await read.click();assert.equal(await page.getByRole('button',{name:'Свернуть',exact:true}).getAttribute('aria-expanded'),'true');assert.equal(await page.locator('.nimbo-provider-announcement p script').count(),0);
+   if(width>1000){const heights=await page.evaluate(()=>['.universal-connection','.signal-profile'].map(s=>document.querySelector(s).getBoundingClientRect().height));assert(Math.abs(heights[0]-heights[1])<2);}
+  } else if(query==='multiple=1')assert.equal(await page.locator('.universal-home-subscriptions .signal-profile').count(),2);
+  else if(query==='state=connecting'){assert(await page.locator('.nimbo-connect-action').isDisabled());assert.equal(await page.locator('.nimbo-connect-action [data-connection-icon="loading"]').count(),1);assert.deepEqual(await page.evaluate(()=>window.polishCalls),[]);}
+  else {assert.equal(await page.locator('.nimbo-connect-action [data-connection-icon="cloud"]').count(),1);await page.locator('.nimbo-connect-action').click();await page.waitForFunction(()=>window.polishCalls.includes('disconnect'));}
+  assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
+ }
+ for(const width of [360,1440])for(const theme of ['dark','light']) {
+  const {page,errors}=await pageFor({width,height:850},'mode=notifications&theme='+theme);await page.locator('.notification-history-item').first().waitFor();
+  const metrics=await page.locator('.notification-history-item').first().evaluate(e=>({inset:e.querySelector('.notification-history-icon').getBoundingClientRect().x-e.getBoundingClientRect().x,stripe:getComputedStyle(e,'::before').content,wrap:getComputedStyle(e.querySelector('.notification-history-message')).whiteSpace,overflow:document.documentElement.scrollWidth>innerWidth}));
+  assert(metrics.inset>=12);assert.equal(metrics.stripe,'none');assert.equal(metrics.wrap,'normal');assert(!metrics.overflow);
+  if(artifacts)await page.screenshot({path:resolve(artifacts,`notifications-${width}-${theme}.png`),fullPage:true});
+  await page.locator('.notification-filter-chip[data-tone="error"]').click();assert.equal(await page.locator('.notification-history-item').count(),1);
+  await page.locator('.notification-history-delete').click();assert.equal(await page.locator('.notification-history-item').count(),0);
+  await page.locator('.notification-filter-chip[data-tone="all"]').click();assert.equal(await page.locator('.notification-history-item').count(),2);
+  await page.getByRole('button',{name:'Очистить всё',exact:true}).click();const dialog=page.getByRole('dialog');await dialog.getByRole('button',{name:'Отмена',exact:true}).click();assert.equal(await page.locator('.notification-history-item').count(),2);
+  await page.getByRole('button',{name:'Очистить всё',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'Очистить всё',exact:true}).click();assert.equal(await page.locator('.notification-history-item').count(),0);
+  assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
+ }
+ const {page:offline,errors:offlineErrors}=await pageFor({width:1440,height:850},'mode=profiles&mihomo=1');await offline.locator('.core-subscription-group').first().waitFor();
+ assert.equal(await offline.locator('.core-subscription-group').count(),2);assert(await offline.getByRole('button',{name:'VPN: REJECT',exact:true}).isDisabled());assert.equal(await offline.getByRole('link',{name:/Группы/}).count(),0);
+ const header=await offline.locator('.signal-profile-head').evaluate(e=>[...e.querySelectorAll('.signal-icon-btn')].map(b=>({y:b.getBoundingClientRect().y,w:b.getBoundingClientRect().width,h:b.getBoundingClientRect().height})));assert(header.every(b=>b.w===44&&b.h===44&&Math.abs(b.y-header[0].y)<1),'header buttons misaligned');
+ const cardWidth=await offline.locator('.signal-profile').evaluate(e=>({card:e.getBoundingClientRect().width,page:document.querySelector('.nimbo-home-profile').getBoundingClientRect().width}));assert(Math.abs(cardWidth.card-cardWidth.page)<2,'profile card needlessly narrower than content');
+ const disclosure=offline.locator('.nimbo-profile-disclosure');await disclosure.click();assert.equal(await disclosure.getAttribute('aria-expanded'),'false');await disclosure.click();assert.equal(await disclosure.getAttribute('aria-expanded'),'true');
+ if(artifacts)await offline.screenshot({path:resolve(artifacts,'mihomo-disconnected-groups.png'),fullPage:true});assert.deepEqual(offlineErrors,[]);assert.deepEqual(await offline.evaluate(()=>window.unexpectedCalls),[]);await offline.close();cases++;
+ for(const query of ['inspect=1','foreign=1']) {
+  const {page,errors}=await pageFor({width:360,height:850},'mode=profiles&mihomo=1&'+query);await page.locator('.core-subscription-group').first().waitFor();
+  assert(await page.getByRole('button',{name:'VPN: REJECT',exact:true}).isDisabled());assert.equal(await page.getByText('private-foreign-node',{exact:true}).count(),0);
+  const calls=await page.evaluate(()=>window.nativeCalls);assert.equal(calls.filter(([cmd])=>cmd==='inspect_core_profile').length,query==='inspect=1'?1:0);assert(!calls.some(([cmd])=>cmd==='connect_mihomo_profile'||cmd==='mihomo_select'));
+  assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
+ }
+ const {page:failed,errors:failedErrors}=await pageFor({width:800,height:850},'mode=profiles&mihomo=1&selectFail=1');await failed.locator('.core-subscription-head button').click();await failed.getByRole('button',{name:'VPN: REJECT',exact:true}).click();await failed.locator('.core-subscription-control [role="alert"]').waitFor();assert.equal(await failed.getByRole('button',{name:'VPN: REJECT',exact:true}).getAttribute('aria-pressed'),'false');assert.equal(await failed.getByRole('button',{name:'VPN: DIRECT',exact:true}).getAttribute('aria-pressed'),'true');assert.deepEqual(failedErrors,[]);assert.deepEqual(await failed.evaluate(()=>window.unexpectedCalls),[]);await failed.close();cases++;
+ const {page:update}=await pageFor({width:1440,height:850},'update=1');await update.locator('.signal-core-update').click();assert.deepEqual(await update.evaluate(()=>window.polishCalls),['update']);assert.equal(await update.locator('.parity-brand-copy small').innerText(),'v1.3.0 β1');await update.close();cases++;
  const {page:profile,errors:profileErrors}=await pageFor({width:800,height:850},'mode=profiles');await profile.locator('.parity-server-row.is-active').waitFor();
  const row=await profile.locator('.parity-server-row.is-active').evaluate(e=>({border:getComputedStyle(e).borderWidth,width:e.getBoundingClientRect().width,parent:e.parentElement.getBoundingClientRect().width}));assert.notEqual(row.border,'0px');assert(Math.abs(row.width-row.parent)<3,'selection does not cover full row');assert.deepEqual(profileErrors,[]);await profile.close();cases++;
  const {page:core,errors:coreErrors}=await pageFor({width:800,height:850},'mihomo=1');await core.getByRole('button',{name:/Подключ/}).first().click();
  await core.waitForFunction(()=>window.nativeCalls.some(([cmd])=>cmd==='connect_mihomo_profile'));
  assert.deepEqual(await core.evaluate(()=>window.nativeCalls.find(([cmd])=>cmd==='connect_mihomo_profile')[1]),{profileId:'yaml-fixture'});
  assert.deepEqual(await core.evaluate(()=>window.polishCalls.filter(call=>call.startsWith('legacy:'))),[]);
- await core.locator('.universal-subscription-toggle').click();const group=core.getByRole('combobox',{name:'VPN',exact:true});await group.waitFor();await group.scrollIntoViewIfNeeded();await core.waitForTimeout(150);await group.click();await core.getByRole('option',{name:'REJECT',exact:true}).click();
- await core.waitForFunction(()=>window.nativeCalls.some(([cmd])=>cmd==='mihomo_select'));assert.equal(await group.innerText(),'REJECT');assert.deepEqual(coreErrors,[]);assert.deepEqual(await core.evaluate(()=>window.unexpectedCalls),[]);await core.close();cases++;
+ await core.locator('.universal-subscription-toggle').click();const group=core.getByRole('group',{name:'VPN',exact:true});await group.waitFor();await group.getByRole('button',{name:'VPN: REJECT',exact:true}).click();
+ await core.waitForFunction(()=>window.nativeCalls.some(([cmd])=>cmd==='mihomo_select'));await core.waitForFunction(()=>document.querySelector('[aria-label="VPN: REJECT"]').getAttribute('aria-pressed')==='true');
+ assert.deepEqual(await core.evaluate(()=>window.nativeCalls.find(([cmd])=>cmd==='mihomo_select')[1]),{profileId:'yaml-fixture',sessionId:'fixture-session',group:'VPN',name:'REJECT'});
+ assert(await core.getByRole('button',{name:'Auto: node',exact:true}).isDisabled());
+ if(artifacts)await core.screenshot({path:resolve(artifacts,'mihomo-inline-groups.png')});assert.deepEqual(coreErrors,[]);assert.deepEqual(await core.evaluate(()=>window.unexpectedCalls),[]);await core.close();cases++;
  const {page:tray,errors:trayErrors}=await pageFor({width:360,height:760},'mode=tray');await tray.locator('.tray-card').waitFor();await tray.waitForTimeout(100);
  const trayBounds=await tray.locator('.tray-card').boundingBox();assert(trayBounds.width<=328&&trayBounds.height<590,'tray remains oversized');assert.equal(await tray.locator('.tray-utility-grid,.tray-maintenance').count(),0);
  if(artifacts)await tray.screenshot({path:resolve(artifacts,'tray.png')});assert.deepEqual(trayErrors,[]);await tray.close();cases++;

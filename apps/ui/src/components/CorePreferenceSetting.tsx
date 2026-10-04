@@ -43,7 +43,6 @@ export function CorePreferenceSetting({ context = 'connection' }: { context?: 'c
         : ru ? 'AWG недоступен на этой установке.' : 'AWG is unavailable in this installation.')}
       {!native && (ru ? 'Выбор доступен в desktop-приложении.' : 'Selection is available in the desktop app.')}
     </div></details>
-    <a className="settings-action" href="#/mihomo">{ru ? 'Дополнительно: YAML и группы' : 'Advanced: YAML and groups'}</a>
     {busy === 'preference' && <div role="status">{ru ? 'Сохранение…' : 'Saving…'}</div>}
     {error && <div role="alert" className="settings-row-description">
       {mihomoErrorMessage(error, ru)}

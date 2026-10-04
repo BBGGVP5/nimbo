@@ -607,6 +607,7 @@ export function Home() {
   };
 
   const isCompactButton = preferences.servers_connect_button === "compact";
+  const connectionActionLabel = switching ? m.home.switching : connecting ? m.home.connecting : disconnecting ? m.home.disconnecting : connected ? m.home.disconnect : m.home.connect;
   const connectionStatusLabel = switching
     ? (m.home.switching || "Переключение...")
     : disconnecting
@@ -742,24 +743,17 @@ export function Home() {
               <button
                 type="button"
                 className="signal-btn signal-btn--primary nimbo-connect-action"
-                data-variant="compact"
-                aria-label={switching ? m.home.switching : connecting ? m.home.connecting : disconnecting ? m.home.disconnecting : connected ? m.home.disconnect : m.home.connect}
+                data-variant={isCompactButton ? "compact" : "round"}
+                aria-label={connectionActionLabel}
                 aria-pressed={connected}
                 aria-busy={connecting || disconnecting || switching}
                 onClick={() => void onToggleConnection()}
                 disabled={(!connected && (useMihomo ? !coreProfile : !fallbackEntry)) || connecting || disconnecting || switching || !!core.busy}
               >
                 <ConnectionStateIcon connected={connected} busy={connecting || disconnecting || switching} />
-                {switching
-                  ? m.home.switching
-                  : connecting
-                    ? m.home.connecting
-                    : disconnecting
-                      ? m.home.disconnecting
-                      : connected
-                        ? m.home.disconnect
-                        : m.home.connect}
+                {isCompactButton && connectionActionLabel}
               </button>
+              {!isCompactButton && <span className="nimbo-connect-caption" aria-hidden="true">{connectionActionLabel}</span>}
               <OperationPhrase active={connecting || switching} locale={m.common.locale} />
             </>
           }
