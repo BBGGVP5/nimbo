@@ -4,6 +4,11 @@ import { groupCanSelect } from '../lib/coreProfiles';
 import { NimboSelect } from './NimboSelect';
 import { CountryFlag } from './CountryFlag';
 import { subscriptionMemberDetails } from './core-subscription-groups';
+import type { useMihomoPing } from './useMihomoPing';
+
+function PingIcon({pending=false}:{pending?:boolean}) {
+  return <svg className={pending ? 'core-proxy-ping-icon is-pending' : 'core-proxy-ping-icon'} viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>;
+}
 
 function proxyType(type: string | undefined, ru: boolean): string {
   const labels: Record<string, string> = {
@@ -23,10 +28,11 @@ function ProxyName({ name, ru }: { name: string; ru: boolean }) {
 }
 
 /** Navigation is local; proxy selection is authoritative only after native readback. */
-export function MihomoProxyGroups({ profileId, profile, snapshot, groups, running, disabled, ru, onSelect }: {
+export function MihomoProxyGroups({ profileId, profile, snapshot, groups, running, disabled, ru, ping, onSelect }: {
   profileId: string | undefined; profile: CoreProfile | undefined; snapshot: CoreSnapshot | null;
   groups: Array<[string, CoreGroup]>; running: boolean; disabled: boolean; ru: boolean;
   onSelect: (group: string, member: string) => void;
+  ping: ReturnType<typeof useMihomoPing>;
 }) {
   const [choice, setChoice] = useState<{profileId: string | undefined; name: string} | null>(null);
   const id = useId(), tabs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -61,18 +67,35 @@ export function MihomoProxyGroups({ profileId, profile, snapshot, groups, runnin
       <NimboSelect className="core-proxy-category-menu" aria-label={ru ? 'Категория' : 'Category'} title={ru ? 'Категории' : 'Categories'} value={name} onChange={event => choose(event.target.value)}>
         {groups.map(([category]) => <option key={category} value={category}>{category}</option>)}
       </NimboSelect>
+      <button type="button" className="core-proxy-ping-all" disabled={!ping.running && (!ping.available || !group.all?.length)}
+        aria-label={ping.running ? (ru ? 'Остановить пинг' : 'Stop ping') : `${ru ? 'Пинг категории' : 'Ping category'}: ${name}`}
+        title={ping.running ? (ru ? 'Остановить пинг' : 'Stop ping') : !running ? (ru ? 'Пинг доступен при подключении' : 'Connect to check latency') : (ru ? 'Пинг серверов категории' : 'Check category servers')}
+        onClick={() => ping.running ? ping.cancel() : ping.run(group.all ?? [])}>
+        <PingIcon pending={ping.running}/><span>{ping.running ? (ru ? 'Стоп' : 'Stop') : (ru ? 'Пинг' : 'Ping')}</span>
+      </button>
     </div>
     <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-tab-${index}`} tabIndex={0}>
       <div className="core-subscription-members" role="group" aria-label={name}>
         {(group.all ?? []).map(member => {
           const info = subscriptionMemberDetails(profile, running ? snapshot : null, running, member);
           const selected = running && group.now === member;
-          return <button key={member} type="button" className="core-subscription-member" aria-label={`${name}: ${member}`} aria-pressed={selected}
+          const result = ping.results.get(member);
+          const latency = result?.state === 'success' ? `${result.ms} ms` : result?.state === 'pending' ? '…' : result?.state === 'error' ? (result.reason === 'timeout' ? (ru ? 'Тайм-аут' : 'Timeout') : (ru ? 'Недоступен' : 'Unavailable')) : '—';
+          return <div key={member} className="core-proxy-card">
+            <button type="button" className="core-subscription-member" aria-label={`${name}: ${member}`} aria-pressed={selected}
             disabled={!running || !groupCanSelect(group) || disabled} title={member} onClick={() => onSelect(name, member)}>
             <span className="core-proxy-card-name"><ProxyName name={member} ru={ru}/></span>
             {selected && <svg className="core-proxy-card-selected" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>}
-            <span className="core-proxy-card-meta"><span>{proxyType(info.type, ru)}</span>{info.now && <span className="core-proxy-card-route" title={info.now}><ProxyName name={info.now} ru={ru}/></span>}</span>
-          </button>;
+            <span className="core-proxy-card-meta"><span>{proxyType(info.type, ru)}</span>{info.now && <span className="core-proxy-card-route" title={info.now}><ProxyName name={info.now} ru={ru}/></span>}
+              <span className="core-proxy-card-latency" data-state={result?.state ?? 'idle'} role="status" aria-label={`${member}: ${latency}`}>{latency}</span>
+            </span>
+            </button>
+            <button type="button" className="core-proxy-ping-one" aria-label={`${ru ? 'Пинг' : 'Ping'}: ${member}`}
+              title={!running ? (ru ? 'Пинг доступен при подключении' : 'Connect to check latency') : (ru ? 'Проверить пинг' : 'Check latency')}
+              disabled={!ping.available || ping.running} aria-busy={result?.state === 'pending'} onClick={() => ping.run([member])}>
+              <PingIcon pending={result?.state === 'pending'}/>
+            </button>
+          </div>;
         })}
       </div>
       {!group.all?.length && <small role="status">{ru ? 'Нет серверов' : 'No servers'}</small>}

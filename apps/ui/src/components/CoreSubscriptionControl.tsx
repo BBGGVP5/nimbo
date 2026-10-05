@@ -6,6 +6,7 @@ import { mihomoErrorMessage } from '../lib/coreProfiles';
 import { useMessages } from '../lib/i18n';
 import { currentSubscriptionInspection, subscriptionGroups } from './core-subscription-groups';
 import { MihomoProxyGroups } from './MihomoProxyGroups';
+import { useMihomoPing } from './useMihomoPing';
 import './core-subscription-groups.css';
 
 /** The subscribed YAML owns routing; never present its legacy Xray nodes as Mihomo selections. */
@@ -20,6 +21,7 @@ export function CoreSubscriptionControl({ sub }: { sub: Subscription }) {
   const groups = subscriptionGroups(profile, running ? core.snapshot : null, running);
   const subscriptionVersion = `${id ?? ''}:${sub.fetched_at ?? ''}`;
   const requestedVersion = useRef<string | null>(null);
+  const ping = useMihomoPing(id, sub.url);
   useEffect(() => {
     if (!native || !id || core.busy || requestedVersion.current === subscriptionVersion) return;
     requestedVersion.current = subscriptionVersion;
@@ -32,10 +34,7 @@ export function CoreSubscriptionControl({ sub }: { sub: Subscription }) {
     else if (!running && profile && !inspection) void core.mutate('inspect', () => coreApi.inspect(profile.id));
   }, [native, core.loaded, running, profile, inspection, core.snapshot, core.busy, core.error, core.refresh, core.live, core.mutate]);
   return <div className="core-subscription-control" data-no-toggle>
-    <div className="core-subscription-head"><strong>Mihomo</strong>
-      {profile && <button type="button" className="signal-btn signal-btn--sm" disabled={!!core.busy || !native} onClick={() => void (running ? core.stop() : core.connect(profile.id))}>{running ? (ru ? 'Отключить' : 'Disconnect') : (ru ? 'Подключить' : 'Connect')}</button>}
-    </div>
-    <MihomoProxyGroups profileId={id} profile={profile} snapshot={running ? core.snapshot : null} groups={groups} running={running} disabled={!!core.busy || !native} ru={ru} onSelect={(name, member) => void core.live('select', name, member)}/>
+    <MihomoProxyGroups profileId={id} profile={profile} snapshot={running ? core.snapshot : null} groups={groups} running={running} disabled={!!core.busy || !native} ru={ru} ping={ping} onSelect={(name, member) => void core.live('select', name, member)}/>
     {((running && !core.snapshot) || (!running && profile && !inspection && !core.error && native)) && <small role="status">{ru ? 'Загрузка…' : 'Loading…'}</small>}
     {!profile && core.loaded && !core.error && <small role="status">{ru ? 'Обновите подписку' : 'Refresh the subscription'}</small>}
     {((!running && inspection) || (running && core.snapshot)) && !groups.length && <small role="status">{ru ? 'Нет категорий' : 'No categories'}</small>}

@@ -39,7 +39,11 @@ announcementFixture.setFixtureDescription=description=>{
  announcementFixture.fixtureDescription=description;
  useAppStore.setState(state=>({subscriptions:state.subscriptions.map(item=>item.url===sub.url?{...item,meta:{...item.meta,description}}:item)}));
 };
-const coreFixture=window as unknown as {fixtureCoreUpdated:boolean;refreshFixtureSubscription:()=>void};
+const coreFixture=window as unknown as {fixtureCoreUpdated:boolean;refreshFixtureSubscription:()=>void;connectFixtureProfile:()=>Promise<void>;changePingSettings:()=>void;changeCoreSession:()=>void;setNativeSession:(id:string)=>void;unmountMihomo:()=>void};
+coreFixture.connectFixtureProfile=()=>useCoreStore.getState().connect('yaml-fixture');
+coreFixture.changePingSettings=()=>useAppStore.setState(state=>({preferences:{...state.preferences,latency_test_url:'https://changed.invalid/204',latency_timeout_ms:60000}}));
+coreFixture.changeCoreSession=()=>{coreFixture.setNativeSession('new-fixture-session');useCoreStore.setState(state=>({runtime:{...state.runtime!,session_id:'new-fixture-session',native_generation:2}}));};
+coreFixture.unmountMihomo=()=>useCoreStore.setState(state=>({data:{...state.data!,preferred_core:'auto'}}));
 coreFixture.fixtureCoreUpdated=false;
 coreFixture.refreshFixtureSubscription=()=>{
  coreFixture.fixtureCoreUpdated=true;
@@ -54,6 +58,7 @@ useAppStore.setState({subscriptions:params.has('multiple')?[sub,{...sub,url:'htt
   refreshSubscription:async url=>{calls.push('refresh:'+url); await new Promise(r=>setTimeout(r,150)); if(params.has('inspectFail'))useAppStore.setState(state=>({subscriptions:state.subscriptions.map(item=>({...item,fetched_at:(item.fetched_at??0)+1}))})); return sub;},
 });
 useCoreStore.setState({loaded:true,data:{preferred_core:mihomo?'mihomo':'auto',active_profile_id:null,profiles:[{id:'yaml-fixture',name:'Провайдер · YAML',kind:'mihomo_yaml',source_digest:'fixture',revision:1,selections:{},inspection}]},runtime:null});
+if(params.has('running')) useCoreStore.setState({runtime:{running:true,profile_id:'yaml-fixture',session_id:'fixture-session',native_generation:1,mixed_address:null,network_owner:'desktop-proxy'}});
 if(params.has('warning')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,source_digest:warningFixture.inspection.sourceDigest,inspection:warningFixture.inspection}))}}));
 if(params.has('cards')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,source_digest:tabFixture.sourceDigest,inspection:tabFixture}))}}));
 if(params.has('empty')) useCoreStore.setState(state=>({data:{...state.data!,profiles:state.data!.profiles.map(p=>({...p,inspection:{...inspection,graph:{groups:[]}}}))}}));
