@@ -55,3 +55,9 @@ test('offline source replacement or child cancellation discards the batch',async
   assert.deepEqual(names,['FI']);assert.equal(last().results.size,0);assert.equal(last().waiting,false);
  }
 });
+test('fixed DNS, unsupported and helper failures are distinct from unreachable nodes',async()=>{
+ for(const [code,reason] of [['PROBE_DNS_FAILED','dns'],['PROBE_REQUIRES_SESSION','unsupported'],['CORE_UNAVAILABLE','core'],['INVALID_NATIVE_RESPONSE','core']]){
+  const {queue,last}=setup();await queue.run(['FI'],async()=>{throw Error(code+' private.invalid');},()=>true);
+  assert.deepEqual(last().results.get('FI'),{state:'error',reason});
+ }
+});

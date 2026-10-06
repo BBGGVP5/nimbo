@@ -95,6 +95,26 @@ func desktopProbeLeaves(d *inspection, name string) ([]map[string]any, error) {
 	return leaves, nil
 }
 
+// Offline measurement intentionally uses physical DNS, not a VPN group's route.
+// Keep transport parameters (h3, certificate policy, etc.) byte-exact. This is
+// ephemeral probe policy, never an edit to the original YAML or VPN admission.
+func desktopProbeDNSServer(server string) string {
+	base, fragment, hasFragment := strings.Cut(server, "#")
+	if !hasFragment {
+		return server
+	}
+	params := []string{}
+	for _, piece := range strings.Split(fragment, "&") {
+		if strings.Contains(piece, "=") {
+			params = append(params, piece)
+		}
+	}
+	if len(params) == 0 {
+		return base
+	}
+	return base + "#" + strings.Join(params, "&")
+}
+
 func installDesktopProbeDNS(d *inspection) error {
 	// Only resolver settings and static hosts are parsed. This config contains no
 	// subscription proxies, providers, rules, inbound endpoints or TUN settings.
@@ -103,11 +123,15 @@ func installDesktopProbeDNS(d *inspection) error {
 		for _, key := range []string{"nameserver", "default-nameserver", "proxy-server-nameserver", "prefer-h3", "ipv6"} {
 			if value, exists := original[key]; exists {
 				if servers, ok := value.([]any); ok {
+					projected := make([]any, 0, len(servers))
 					for _, server := range servers {
-						if s, ok := server.(string); ok && strings.Contains(s, "#") {
-							return problem("PROBE_REQUIRES_SESSION", "dns", "routed DNS requires a live graph")
+						if s, ok := server.(string); ok {
+							projected = append(projected, desktopProbeDNSServer(s))
+						} else {
+							projected = append(projected, server)
 						}
 					}
+					value = projected
 				}
 				dns[key] = value
 			}

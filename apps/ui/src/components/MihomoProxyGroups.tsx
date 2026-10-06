@@ -5,10 +5,7 @@ import { NimboSelect } from './NimboSelect';
 import { CountryFlag } from './CountryFlag';
 import { subscriptionMemberDetails } from './core-subscription-groups';
 import type { useMihomoPing } from './useMihomoPing';
-
-function PingIcon({pending=false}:{pending?:boolean}) {
-  return <svg className={pending ? 'core-proxy-ping-icon is-pending' : 'core-proxy-ping-icon'} viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>;
-}
+import { PingIcon } from './PingIcon';
 
 function proxyType(type: string | undefined, ru: boolean): string {
   const labels: Record<string, string> = {
@@ -74,7 +71,8 @@ export function MihomoProxyGroups({ profileId, profile, snapshot, groups, runnin
           const info = subscriptionMemberDetails(profile, running ? snapshot : null, running, member);
           const selected = running && group.now === member;
           const result = ping.results.get(member);
-          const latency = result?.state === 'success' ? `${result.ms} ms` : result?.state === 'pending' ? '…' : result?.state === 'error' ? (result.reason === 'timeout' ? (ru ? 'Тайм-аут' : 'Timeout') : (ru ? 'Недоступен' : 'Unavailable')) : '—';
+          const errors={timeout:ru?'Тайм-аут':'Timeout',dns:ru?'Ошибка DNS':'DNS failed',unsupported:ru?'Нужен сеанс':'Needs session',core:ru?'Нет ядра':'Core unavailable',unavailable:ru?'Недоступен':'Unavailable'};
+          const latency = result?.state === 'success' ? `${result.ms} ms` : result?.state === 'pending' ? '…' : result?.state === 'error' ? errors[result.reason] : '—';
           return <div key={member} className="core-proxy-card">
             <button type="button" className="core-subscription-member" aria-label={`${name}: ${member}`} aria-pressed={selected}
             disabled={!running || !groupCanSelect(group) || disabled} title={member} onClick={() => onSelect(name, member)}>
@@ -87,7 +85,7 @@ export function MihomoProxyGroups({ profileId, profile, snapshot, groups, runnin
             <button type="button" className="core-proxy-ping-one" aria-label={`${ru ? 'Пинг' : 'Ping'}: ${member}`}
               title={ru ? 'Проверить пинг' : 'Check latency'}
               disabled={!ping.available || ping.running} aria-busy={result?.state === 'pending'} onClick={() => ping.run([member])}>
-              <PingIcon pending={result?.state === 'pending'}/>
+              <PingIcon className="core-proxy-ping-icon" pending={result?.state === 'pending'}/>
             </button>
           </div>;
         })}

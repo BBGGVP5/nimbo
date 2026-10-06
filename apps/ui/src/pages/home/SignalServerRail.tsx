@@ -9,6 +9,8 @@ import { fillTemplate, type Messages } from "../../lib/i18n";
 import { serverDisplayLabel } from "../../lib/serverUiOverrides";
 import { CountryFlag } from "../../components/CountryFlag";
 import { Link } from "react-router-dom";
+import { PingIcon } from "../../components/PingIcon";
+export { PingIcon } from "../../components/PingIcon";
 
 /**
  * Рельс серверов в стиле Signal: поиск, фильтры-чипы и плотный список,
@@ -338,16 +340,6 @@ export function StarIcon({ filled = false }: { filled?: boolean }) {
       aria-hidden="true"
     >
       <path d="m12 3.6 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.8l5.9-.9z" />
-    </svg>
-  );
-}
-
-/** Значок проверки задержки — две встречные стрелки. */
-export function PingIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M7 20V7m0 0L3.5 10.5M7 7l3.5 3.5" />
-      <path d="M17 4v13m0 0 3.5-3.5M17 17l-3.5-3.5" />
     </svg>
   );
 }

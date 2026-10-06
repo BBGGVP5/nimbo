@@ -5,7 +5,7 @@ import { isTauriRuntime } from '../lib/api';
 import { coreApi } from '../lib/coreApi';
 import { coreSession, sameCoreSession } from '../lib/coreProfiles';
 import { normalizeLatencyTimeout, normalizeLatencyUrl } from '../lib/latency';
-import { MihomoPingQueue, type PingSnapshot } from '../lib/mihomoPing';
+import { MihomoPingQueue, type PingSnapshot, type PingResult } from '../lib/mihomoPing';
 import { subscriptionGroups } from './core-subscription-groups';
 
 function pingScope(profileId:string|undefined,subscriptionUrl:string,enabled:boolean){
@@ -51,7 +51,7 @@ export function useMihomoPing(profileId:string|undefined,subscriptionUrl:string,
    return result;
   },()=>pingScope(profileId,subscriptionUrl,enabled)?.key===request.key);
  };
- return {results:state.key===key?state.results:new Map(),running:state.key===key&&state.running,
+ return {results:state.key===key?state.results:new Map<string,PingResult>(),running:state.key===key&&state.running,
   available:!!scope&&!useCoreStore.getState().busy&&!state.waiting,run,
   runAll:()=>{const request=pingScope(profileId,subscriptionUrl,enabled);if(request)run(subscriptionGroups(request.profile,request.session?useCoreStore.getState().snapshot:null,!!request.session).flatMap(([,group])=>group.all??[]));},
   cancel:()=>queue.cancel()};

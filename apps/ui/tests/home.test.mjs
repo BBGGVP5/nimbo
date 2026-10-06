@@ -254,6 +254,7 @@ test('Signal empty states distinguish search, favorites, and an empty profile li
       '../../store': {useAppStore:selector=>selector({status:null})},
       '../../components/AutoFastestLine':{AutoFastestLine:()=>null},
       '../../components/NimboSelect':{NimboSelect:()=>null},
+      '../../components/PingIcon':{PingIcon:()=>null},
     };
     vm.runInNewContext(code, { exports, require: name => deps[name] });
     const html = renderToStaticMarkup(React.createElement(exports.SignalServerRail, props));

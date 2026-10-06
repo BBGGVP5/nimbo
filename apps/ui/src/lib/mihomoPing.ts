@@ -1,4 +1,4 @@
-export type PingResult = {state:'pending'} | {state:'success';ms:number} | {state:'error';reason:'timeout'|'unavailable'};
+export type PingResult = {state:'pending'} | {state:'success';ms:number} | {state:'error';reason:'timeout'|'unavailable'|'dns'|'unsupported'|'core'};
 export interface PingSnapshot { key:string|null; running:boolean; waiting:boolean; results:Map<string,PingResult> }
 
 /** The native controller serializes checks. Do not flood its operation lock or own VPN intent. */
@@ -41,7 +41,9 @@ export class MihomoPingQueue {
     }catch(error){
      if(/\b(STALE_GENERATION|STALE_REVISION|SOURCE_DIGEST_MISMATCH|CONNECTION_CANCELLED|PROBE_CANCELLED|NOT_RUNNING|CORE_EXITED)\b/.test(String(error))){discard();return;}
      // Only fixed presentation states leave this queue, never native error details.
-     result={state:'error',reason:/\b(PROBE_TIMEOUT|DELAY_TIMEOUT)\b/.test(String(error))?'timeout':'unavailable'};
+     const code=String(error);
+     const reason=/\b(PROBE_TIMEOUT|DELAY_TIMEOUT)\b/.test(code)?'timeout':/\bPROBE_DNS_FAILED\b/.test(code)?'dns':/\bPROBE_REQUIRES_SESSION\b/.test(code)?'unsupported':/\b(CORE_UNAVAILABLE|CORE_HASH_MISMATCH|INVALID_NATIVE_RESPONSE|NATIVE_CORE_API_UNAVAILABLE)\b/.test(code)?'core':'unavailable';
+     result={state:'error',reason};
     }
     if(!valid()){discard();return;}
     this.results.set(name,result);this.emit();

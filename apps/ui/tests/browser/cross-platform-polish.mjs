@@ -36,6 +36,9 @@ async function pageFor(viewport,query='') {
      if(params.has('nativeChanged')){session='new-fixture-session';generation++;}
      if(params.has('pingErrors')&&args.name.includes('XHTTP'))throw Error('PROBE_TIMEOUT');
      if(params.has('pingErrors')&&args.name.includes('gRPC'))throw Error('DELAY_FAILED https://secret.invalid credential');
+     if(params.has('pingDiagnostics')&&args.name.includes('XHTTP'))throw Error('PROBE_DNS_FAILED private.invalid');
+     if(params.has('pingDiagnostics')&&args.name.includes('gRPC'))throw Error('PROBE_REQUIRES_SESSION private.invalid');
+     if(params.has('pingDiagnostics')&&args.name==='DIRECT')throw Error('CORE_UNAVAILABLE private.invalid');
      return {delayMs:params.has('invalidPing')?-1:args.name==='DIRECT'?0:79,...(command==='mihomo_probe'?{sourceSHA256:params.has('wrongProof')?'other':args.sourceDigest,scope:'desktop-offline-probe',vpnStarted:params.has('vpnProof')}: {})};
     }finally{window.fixturePingActive--;}
    }
@@ -57,6 +60,7 @@ try {
   const bulk=page.getByRole('button',{name:'Пинг подписки',exact:true});const refresh=page.getByRole('button',{name:'Обновить подписку',exact:true});
   assert(await bulk.isEnabled());assert.equal(await page.locator('.core-proxy-navigation .core-proxy-ping-all').count(),0);
   assert.equal(await bulk.evaluate(e=>e.parentElement.className),'universal-subscription-footer');
+  const glyphs=await page.evaluate(()=>[...document.querySelectorAll('.core-proxy-ping-all svg,.core-proxy-ping-one svg')].map(svg=>[...svg.querySelectorAll('path')].map(path=>path.getAttribute('d')).join('|')));assert(glyphs.every(glyph=>glyph===glyphs[0]),'Ping glyphs differ between footer and cards');
   const alignment=await page.evaluate(()=>{const a=document.querySelector('.core-proxy-ping-all').getBoundingClientRect(),b=document.querySelector('.universal-subscription-footer [aria-label="Обновить подписку"]').getBoundingClientRect();return Math.abs(a.y-b.y)<1&&Math.abs(a.height-b.height)<1&&a.right<=b.x;});assert(alignment,'Ping and Refresh are not matching adjacent footer buttons');
   const one=page.getByRole('button',{name:'Пинг: 🇫🇮 Финляндия',exact:true});assert(await one.isEnabled());await one.click();
   await page.waitForFunction(()=>document.querySelector('[aria-label="🚫 Недоступные сайты: 🇫🇮 Финляндия"] .core-proxy-card-latency')?.textContent==='79 ms');
@@ -72,6 +76,13 @@ try {
   assert.equal(await page.evaluate(()=>window.fixturePingMax),1);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   if(artifacts)await page.locator('.signal-profile').screenshot({path:resolve(artifacts,`mihomo-offline-ping-${width}-${theme}.png`)});
   assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
+ }
+ {
+  const {page,errors}=await pageFor({width:360,height:1100},'mode=profiles&mihomo=1&cards=1&pingDiagnostics=1');
+  await page.getByRole('button',{name:'Пинг подписки',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelectorAll('.core-proxy-card-latency[data-state="success"],.core-proxy-card-latency[data-state="error"]').length===8&&!document.querySelector('.core-proxy-ping-all[aria-busy="true"]'));
+  for(const text of ['Ошибка DNS','Нужен сеанс','Нет ядра'])assert.equal(await page.locator('.core-proxy-card-latency').filter({hasText:text}).count(),1);
+  assert(!(await page.locator('.core-subscription-control').innerText()).includes('private.invalid'));assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
  }
  for(const query of ['wrongProof=1','vpnProof=1','invalidPing=1']){
   const {page,errors}=await pageFor({width:800,height:900},'mode=profiles&mihomo=1&cards=1&'+query);

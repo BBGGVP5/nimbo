@@ -43,6 +43,10 @@ url?,timeoutMs?,expectedStatus?,targetRequestId?}`. Unknown/duplicate request fi
   Timeout/cancel closes adapters and restores resolver/log/IPv6 globals. Rust
   owns/reaps this child on Connect/Disconnect intent and validates source/scope/
   no-VPN proof before a latency value is allowed across frontend IPC.
+  Independent desktop checks remove bare `#Group` DNS-routing hints from their
+  ephemeral resolver projection, preserving `key=value` transport parameters,
+  DNS endpoints and original source/hash. Such group hints alone do not require
+  VPN startup; the configured resolver is contacted on the physical network.
 * `diagnosticConfig`: returns the last prepared Android raw configuration, or
   `{available:false}` if none was prepared. Serialized with native operations;
   no network or disk IO, no core restart. This is an internal sensitive snapshot,
