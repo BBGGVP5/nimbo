@@ -39,7 +39,7 @@ export class MihomoPingQueue {
      if(typeof ms!=='number'||!Number.isInteger(ms)||ms<0||ms>65535)throw Error('INVALID_DELAY');
      result={state:'success',ms};
     }catch(error){
-     if(/\b(STALE_GENERATION|CONNECTION_CANCELLED|NOT_RUNNING|CORE_EXITED)\b/.test(String(error))){discard();return;}
+     if(/\b(STALE_GENERATION|STALE_REVISION|SOURCE_DIGEST_MISMATCH|CONNECTION_CANCELLED|PROBE_CANCELLED|NOT_RUNNING|CORE_EXITED)\b/.test(String(error))){discard();return;}
      // Only fixed presentation states leave this queue, never native error details.
      result={state:'error',reason:/\b(PROBE_TIMEOUT|DELAY_TIMEOUT)\b/.test(String(error))?'timeout':'unavailable'};
     }

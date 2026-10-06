@@ -154,6 +154,34 @@ pub async fn inspect(binary: &VerifiedBinary, profile: &FullProfile) -> Result<I
     wire::decode_inspection(Envelope::decode(&bytes, None)?, profile)
 }
 
+/// Disposable outbound-only process: no session/data directory/helper lease is created.
+/// Dropping this future (including Connect/Disconnect cancellation) reaps its owned child.
+pub async fn probe(
+    binary: &VerifiedBinary,
+    profile: &FullProfile,
+    name: &str,
+    url: &str,
+    timeout_ms: u64,
+) -> Result<wire::OfflineProbeResult, String> {
+    let request = wire::offline_probe_request(profile, name, url, timeout_ms)?;
+    let id = request["requestId"].as_str().ok_or("INVALID_REQUEST")?;
+    let mut child = OwnedChild::spawn(binary, "probe")?;
+    let bytes = child
+        .exchange(
+            serde_json::to_vec(&request).map_err(|_| "INVALID_REQUEST")?,
+            Duration::from_millis(timeout_ms + 5000),
+        )
+        .await
+        .map_err(|error| {
+            if error == "CORE_START_TIMEOUT" {
+                "PROBE_TIMEOUT".into()
+            } else {
+                error
+            }
+        })?;
+    wire::decode_offline_probe(Envelope::decode(&bytes, Some(id))?, profile)
+}
+
 enum SessionOwner {
     Proxy(OwnedChild),
     #[cfg(any(windows, target_os = "linux"))]

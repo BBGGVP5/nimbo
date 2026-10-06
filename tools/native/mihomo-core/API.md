@@ -29,6 +29,20 @@ url?,timeoutMs?,expectedStatus?,targetRequestId?}`. Unknown/duplicate request fi
   Mihomo key; `rootKeys` are sorted keys from that parsed mapping. Byte-exact source
   is authoritative (comments, anchors, ordering retained there).
   Unknown/unsupported content remains inspectable, but cannot validate/start.
+* `probeDesktop`: stopped ownership only; `yaml,name,url,timeoutMs` (100..30000)
+  and `expectedStatus`. CLI `nimbo-mihomo probe` accepts only this operation,
+  replies once and exits. Checks a named static outbound with real HTTP GET.
+  Returns `{delayMs,sourceSHA256,scope:"desktop-offline-probe",vpnStarted:false}`
+  with generation zero. Only outbound adapters, static hosts and internal DNS
+  are constructed; full source listeners/TUN/rules/providers, cache and native
+  session are never loaded. Native start admission remains unchanged. Static
+  nested groups check the first healthy declared leaf, not an active selection.
+  Dynamic/provider/filter groups and runtime-dependent/chained outbounds fail
+  explicitly with `PROBE_REQUIRES_SESSION`. Group membership and proxy protocol
+  are not converted to Xray. No provider/asset downloads or persistence occur.
+  Timeout/cancel closes adapters and restores resolver/log/IPv6 globals. Rust
+  owns/reaps this child on Connect/Disconnect intent and validates source/scope/
+  no-VPN proof before a latency value is allowed across frontend IPC.
 * `diagnosticConfig`: returns the last prepared Android raw configuration, or
   `{available:false}` if none was prepared. Serialized with native operations;
   no network or disk IO, no core restart. This is an internal sensitive snapshot,

@@ -67,12 +67,6 @@ export function MihomoProxyGroups({ profileId, profile, snapshot, groups, runnin
       <NimboSelect className="core-proxy-category-menu" aria-label={ru ? 'Категория' : 'Category'} title={ru ? 'Категории' : 'Categories'} value={name} onChange={event => choose(event.target.value)}>
         {groups.map(([category]) => <option key={category} value={category}>{category}</option>)}
       </NimboSelect>
-      <button type="button" className="core-proxy-ping-all" disabled={!ping.running && (!ping.available || !group.all?.length)}
-        aria-label={ping.running ? (ru ? 'Остановить пинг' : 'Stop ping') : `${ru ? 'Пинг категории' : 'Ping category'}: ${name}`}
-        title={ping.running ? (ru ? 'Остановить пинг' : 'Stop ping') : !running ? (ru ? 'Пинг доступен при подключении' : 'Connect to check latency') : (ru ? 'Пинг серверов категории' : 'Check category servers')}
-        onClick={() => ping.running ? ping.cancel() : ping.run(group.all ?? [])}>
-        <PingIcon pending={ping.running}/><span>{ping.running ? (ru ? 'Стоп' : 'Stop') : (ru ? 'Пинг' : 'Ping')}</span>
-      </button>
     </div>
     <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-tab-${index}`} tabIndex={0}>
       <div className="core-subscription-members" role="group" aria-label={name}>
@@ -91,7 +85,7 @@ export function MihomoProxyGroups({ profileId, profile, snapshot, groups, runnin
             </span>
             </button>
             <button type="button" className="core-proxy-ping-one" aria-label={`${ru ? 'Пинг' : 'Ping'}: ${member}`}
-              title={!running ? (ru ? 'Пинг доступен при подключении' : 'Connect to check latency') : (ru ? 'Проверить пинг' : 'Check latency')}
+              title={ru ? 'Проверить пинг' : 'Check latency'}
               disabled={!ping.available || ping.running} aria-busy={result?.state === 'pending'} onClick={() => ping.run([member])}>
               <PingIcon pending={result?.state === 'pending'}/>
             </button>

@@ -31,8 +31,8 @@ func run() int {
 		defer signal.Stop(signals)
 		return runTun(os.Stdin, os.Stdout, signals, core.StartDesktopTun, core.Invoke)
 	}
-	if len(os.Args) != 2 || (os.Args[1] != "inspect" && os.Args[1] != "validate-tun" && os.Args[1] != "serve") {
-		fmt.Fprintln(os.Stderr, "usage: nimbo-mihomo inspect|validate-tun|serve (stdin to EOF) | serve-tun (framed privileged startup + stdin lease)")
+	if len(os.Args) != 2 || (os.Args[1] != "inspect" && os.Args[1] != "validate-tun" && os.Args[1] != "serve" && os.Args[1] != "probe") {
+		fmt.Fprintln(os.Stderr, "usage: nimbo-mihomo inspect|validate-tun|probe|serve (stdin to EOF) | serve-tun (framed privileged startup + stdin lease)")
 		return 2
 	}
 	b, err := io.ReadAll(io.LimitReader(os.Stdin, (8<<20)+1))
@@ -56,8 +56,12 @@ func run() int {
 		var header struct {
 			Operation string `json:"operation"`
 		}
-		if json.Unmarshal(b, &header) != nil || header.Operation != "start" {
-			fmt.Fprintln(os.Stderr, "serve requires a start request")
+		wanted := "start"
+		if os.Args[1] == "probe" {
+			wanted = "probeDesktop"
+		}
+		if json.Unmarshal(b, &header) != nil || header.Operation != wanted {
+			fmt.Fprintln(os.Stderr, "request operation does not match CLI mode")
 			return 2
 		}
 		request = string(b)
@@ -71,7 +75,7 @@ func run() int {
 	if !reply.Success {
 		return 1
 	}
-	if os.Args[1] == "inspect" || os.Args[1] == "validate-tun" {
+	if os.Args[1] == "inspect" || os.Args[1] == "validate-tun" || os.Args[1] == "probe" {
 		return 0
 	}
 	signals := make(chan os.Signal, 1)

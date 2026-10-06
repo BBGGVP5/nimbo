@@ -42,7 +42,7 @@ announcementFixture.setFixtureDescription=description=>{
 const coreFixture=window as unknown as {fixtureCoreUpdated:boolean;refreshFixtureSubscription:()=>void;connectFixtureProfile:()=>Promise<void>;changePingSettings:()=>void;changeCoreSession:()=>void;setNativeSession:(id:string)=>void;unmountMihomo:()=>void};
 coreFixture.connectFixtureProfile=()=>useCoreStore.getState().connect('yaml-fixture');
 coreFixture.changePingSettings=()=>useAppStore.setState(state=>({preferences:{...state.preferences,latency_test_url:'https://changed.invalid/204',latency_timeout_ms:60000}}));
-coreFixture.changeCoreSession=()=>{coreFixture.setNativeSession('new-fixture-session');useCoreStore.setState(state=>({runtime:{...state.runtime!,session_id:'new-fixture-session',native_generation:2}}));};
+coreFixture.changeCoreSession=()=>{coreFixture.setNativeSession('new-fixture-session');useCoreStore.setState({runtime:{running:true,profile_id:'yaml-fixture',session_id:'new-fixture-session',native_generation:2,mixed_address:null,network_owner:'desktop-proxy'}});};
 coreFixture.unmountMihomo=()=>useCoreStore.setState(state=>({data:{...state.data!,preferred_core:'auto'}}));
 coreFixture.fixtureCoreUpdated=false;
 coreFixture.refreshFixtureSubscription=()=>{

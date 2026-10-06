@@ -34,4 +34,7 @@ export const coreApi = {
  refreshProvider:(session:CoreSession,name:string)=>call<CoreSnapshot>('mihomo_refresh_provider',{...session,name}),
  refreshRuleProvider:(session:CoreSession,name:string)=>call<CoreSnapshot>('mihomo_refresh_rule_provider',{...session,name}),
  delay:(session:CoreSession,name:string,url:string,timeoutMs:number)=>call<{delayMs:number}>('mihomo_delay',{...session,name,url,timeoutMs,expectedStatus:null}),
+ probe:(profile:Pick<CoreProfile,'id'|'source_digest'|'revision'>,name:string,url:string,timeoutMs:number)=>call<{delayMs:number;sourceSHA256:string;scope:'desktop-offline-probe';vpnStarted:false}>('mihomo_probe',{
+  profileId:profile.id,sourceDigest:profile.source_digest,revision:profile.revision,name,url,timeoutMs,
+ }),
 };

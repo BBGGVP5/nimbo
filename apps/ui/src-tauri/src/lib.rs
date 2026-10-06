@@ -430,6 +430,7 @@ pub fn run() {
             mihomo_runtime::mihomo_refresh_provider,
             mihomo_runtime::mihomo_refresh_rule_provider,
             mihomo_runtime::mihomo_delay,
+            mihomo_runtime::mihomo_probe,
             app_ready,
             get_status,
             auto_route::connect_auto_server,

@@ -6,11 +6,11 @@ import { mihomoErrorMessage } from '../lib/coreProfiles';
 import { useMessages } from '../lib/i18n';
 import { currentSubscriptionInspection, subscriptionGroups } from './core-subscription-groups';
 import { MihomoProxyGroups } from './MihomoProxyGroups';
-import { useMihomoPing } from './useMihomoPing';
+import type { useMihomoPing } from './useMihomoPing';
 import './core-subscription-groups.css';
 
 /** The subscribed YAML owns routing; never present its legacy Xray nodes as Mihomo selections. */
-export function CoreSubscriptionControl({ sub }: { sub: Subscription }) {
+export function CoreSubscriptionControl({ sub, ping }: { sub: Subscription; ping:ReturnType<typeof useMihomoPing> }) {
   const core = useCoreStore();
   const ru = useMessages().common.locale.startsWith('ru');
   const id = sub.meta?.mihomo_profile_id ?? undefined;
@@ -21,7 +21,6 @@ export function CoreSubscriptionControl({ sub }: { sub: Subscription }) {
   const groups = subscriptionGroups(profile, running ? core.snapshot : null, running);
   const subscriptionVersion = `${id ?? ''}:${sub.fetched_at ?? ''}`;
   const requestedVersion = useRef<string | null>(null);
-  const ping = useMihomoPing(id, sub.url);
   useEffect(() => {
     if (!native || !id || core.busy || requestedVersion.current === subscriptionVersion) return;
     requestedVersion.current = subscriptionVersion;

@@ -14,7 +14,7 @@ async function pageFor(viewport,query='') {
  const page=await browser.newPage({viewport,reducedMotion:'reduce'});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.addInitScript(({warningInspection,tabInspection})=>{
   window.nativeCalls=[];window.unexpectedCalls=[];let running=new URLSearchParams(location.search).has('running'),now='DIRECT',session='fixture-session',generation=1;const selectedMembers={};
-  window.setNativeSession=id=>{session=id;generation++;};window.fixturePingActive=0;window.fixturePingMax=0;window.fixturePingWaiters=[];window.releaseFixturePing=()=>window.fixturePingWaiters.shift()?.();
+  window.setNativeSession=id=>{session=id;generation++;running=true;};window.fixturePingActive=0;window.fixturePingMax=0;window.fixturePingWaiters=[];window.releaseFixturePing=()=>window.fixturePingWaiters.shift()?.();
   const params=new URLSearchParams(location.search);let inspected=!(params.has('inspect')||params.has('inspectFail')||params.has('stale')),failedInspection=false,updatedInspected=false;
   const profile=()=>window.fixtureCoreUpdated?{id:'yaml-fixture',name:'Провайдер · YAML',kind:'mihomo_yaml',revision:2,selections:{},source_digest:'updated-fixture',inspection:updatedInspected?{api:1,sourceDigest:'updated-fixture',nativeValidated:false,issues:[],graph:{groups:[{name:'Updated category',type:'select',proxies:['Updated node']}]}}:null}:({id:'yaml-fixture',name:'Провайдер · YAML',kind:'mihomo_yaml',revision:1,selections:{},source_digest:params.has('warning')?warningInspection.sourceDigest:'fixture',inspection:!inspected?null:params.has('warning')?warningInspection:{api:1,sourceDigest:'fixture',nativeValidated:false,issues:[],graph:{groups:params.has('empty')?[]:[{name:'VPN',type:'select',proxies:['DIRECT','REJECT']},{name:'Auto',type:'url-test',proxies:['node']}]}}});
   const currentProfile=()=>params.has('cards')?{...profile(),source_digest:tabInspection.sourceDigest,inspection:tabInspection}:profile();
@@ -28,7 +28,7 @@ async function pageFor(viewport,query='') {
    if(command==='get_core_profiles')return {preferred_core:params.has('mihomo')?'mihomo':'auto',active_profile_id:running?'yaml-fixture':null,profiles:[currentProfile()]};
    if(command==='get_core_availability')return [{core:'mihomo',selector_available:true,binary_verified:true,system_proxy_available:true}];
    if(command==='get_mihomo_status'||command==='connect_mihomo_profile'){if(command==='connect_mihomo_profile'){if(params.has('warning'))throw Error('UNSUPPORTED_FIELD');running=true;}return {running,profile_id:running?'yaml-fixture':null,session_id:running?session:null,native_generation:generation,network_owner:running?'desktop-proxy':'none'};}
-   if(command==='mihomo_delay'){
+   if(command==='mihomo_delay'||command==='mihomo_probe'){
     window.fixturePingActive++;window.fixturePingMax=Math.max(window.fixturePingMax,window.fixturePingActive);
     try{
      if(params.has('deferPing'))await new Promise(resolve=>window.fixturePingWaiters.push(resolve));
@@ -36,7 +36,7 @@ async function pageFor(viewport,query='') {
      if(params.has('nativeChanged')){session='new-fixture-session';generation++;}
      if(params.has('pingErrors')&&args.name.includes('XHTTP'))throw Error('PROBE_TIMEOUT');
      if(params.has('pingErrors')&&args.name.includes('gRPC'))throw Error('DELAY_FAILED https://secret.invalid credential');
-     return {delayMs:params.has('invalidPing')?-1:args.name==='DIRECT'?0:79};
+     return {delayMs:params.has('invalidPing')?-1:args.name==='DIRECT'?0:79,...(command==='mihomo_probe'?{sourceSHA256:params.has('wrongProof')?'other':args.sourceDigest,scope:'desktop-offline-probe',vpnStarted:params.has('vpnProof')}: {})};
     }finally{window.fixturePingActive--;}
    }
    if(params.has('cards')&&(command==='mihomo_snapshot'||command==='mihomo_select')){
@@ -51,6 +51,45 @@ async function pageFor(viewport,query='') {
  return {page,errors};
 }
 try {
+ for(const width of [360,1440])for(const theme of ['dark','light']){
+  const {page,errors}=await pageFor({width,height:1100},`mode=profiles&mihomo=1&cards=1&announcement=1&pingErrors=1&theme=${theme}`);
+  await page.getByRole('tab',{name:'🚫 Недоступные сайты',exact:true}).waitFor();
+  const bulk=page.getByRole('button',{name:'Пинг подписки',exact:true});const refresh=page.getByRole('button',{name:'Обновить подписку',exact:true});
+  assert(await bulk.isEnabled());assert.equal(await page.locator('.core-proxy-navigation .core-proxy-ping-all').count(),0);
+  assert.equal(await bulk.evaluate(e=>e.parentElement.className),'universal-subscription-footer');
+  const alignment=await page.evaluate(()=>{const a=document.querySelector('.core-proxy-ping-all').getBoundingClientRect(),b=document.querySelector('.universal-subscription-footer [aria-label="Обновить подписку"]').getBoundingClientRect();return Math.abs(a.y-b.y)<1&&Math.abs(a.height-b.height)<1&&a.right<=b.x;});assert(alignment,'Ping and Refresh are not matching adjacent footer buttons');
+  const one=page.getByRole('button',{name:'Пинг: 🇫🇮 Финляндия',exact:true});assert(await one.isEnabled());await one.click();
+  await page.waitForFunction(()=>document.querySelector('[aria-label="🚫 Недоступные сайты: 🇫🇮 Финляндия"] .core-proxy-card-latency')?.textContent==='79 ms');
+  assert.deepEqual(await page.evaluate(()=>window.nativeCalls.find(([cmd])=>cmd==='mihomo_probe')[1]),{profileId:'yaml-fixture',sourceDigest:'tabs-fixture',revision:1,name:'🇫🇮 Финляндия',url:'https://www.gstatic.com/generate_204',timeoutMs:5000});
+  // The same subscription-wide action remains useful while its server list is collapsed.
+  await page.locator('.nimbo-profile-disclosure').click();assert.equal(await page.locator('.nimbo-profile-disclosure').getAttribute('aria-expanded'),'false');await bulk.click();
+  await page.waitForFunction(()=>document.querySelectorAll('.core-proxy-card-latency[data-state="success"],.core-proxy-card-latency[data-state="error"]').length===8&&!document.querySelector('.core-proxy-ping-all[aria-busy="true"]'));
+  await page.locator('.nimbo-profile-disclosure').click();
+  assert.equal(await page.locator('.core-subscription-member[aria-pressed="true"]').count(),0,'offline checks claimed an active selection');
+  assert.equal(await page.locator('.core-subscription-member:not(:disabled)').count(),0);assert(await refresh.isEnabled());
+  const requests=await page.evaluate(()=>window.nativeCalls.filter(([cmd])=>cmd==='mihomo_probe').map(([,args])=>args.name));assert.deepEqual(requests,['🇫🇮 Финляндия',...tabInspection.graph.groups[0].proxies]);
+  assert(!(await page.evaluate(()=>window.nativeCalls)).some(([cmd])=>['connect_mihomo_profile','mihomo_delay','mihomo_select','export_core_profile','ping_server','ping_servers'].includes(cmd)),'offline checks started VPN, exported credentials or used legacy probes');
+  assert.equal(await page.evaluate(()=>window.fixturePingMax),1);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  if(artifacts)await page.locator('.signal-profile').screenshot({path:resolve(artifacts,`mihomo-offline-ping-${width}-${theme}.png`)});
+  assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
+ }
+ for(const query of ['wrongProof=1','vpnProof=1','invalidPing=1']){
+  const {page,errors}=await pageFor({width:800,height:900},'mode=profiles&mihomo=1&cards=1&'+query);
+  await page.getByRole('button',{name:'Пинг: DIRECT',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.core-proxy-card-latency[data-state="error"]'));
+  assert.equal(await page.locator('.core-proxy-card-latency[data-state="success"]').count(),0);assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
+ }
+ for(const change of ['cancel','settings','session','refresh','unmount']){
+  const {page,errors}=await pageFor({width:360,height:1100},'mode=profiles&mihomo=1&cards=1&deferPing=1');
+  await page.getByRole('button',{name:'Пинг подписки',exact:true}).click();await page.waitForFunction(()=>window.fixturePingWaiters.length===1);
+  if(change==='cancel')await page.getByRole('button',{name:'Остановить пинг',exact:true}).click();
+  if(change==='settings')await page.evaluate(()=>window.changePingSettings());
+  if(change==='session')await page.evaluate(()=>window.changeCoreSession());
+  if(change==='refresh')await page.evaluate(()=>window.refreshFixtureSubscription());
+  if(change==='unmount')await page.evaluate(()=>window.unmountMihomo());
+  await page.waitForFunction(()=>!document.querySelector('.core-proxy-card-latency[data-state="pending"]'));await page.evaluate(()=>window.releaseFixturePing());await page.waitForFunction(()=>window.fixturePingActive===0);await page.waitForTimeout(50);
+  assert.equal((await page.evaluate(()=>window.nativeCalls)).filter(([cmd])=>cmd==='mihomo_probe').length,1);assert.equal(await page.locator('.core-proxy-card-latency[data-state="success"]').count(),0);
+  assert(!(await page.evaluate(()=>window.nativeCalls)).some(([cmd])=>['connect_mihomo_profile','mihomo_select'].includes(cmd)));assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);await page.close();cases++;
+ }
  const {page:refreshProfile,errors:refreshErrors}=await pageFor({width:1440,height:850},'mode=profiles&mihomo=1');
  await refreshProfile.getByRole('tab',{name:'VPN',exact:true}).waitFor({timeout:5000});await refreshProfile.evaluate(()=>window.refreshFixtureSubscription());
  await refreshProfile.getByRole('group',{name:'Updated category',exact:true}).waitFor({timeout:5000});
@@ -88,7 +127,7 @@ try {
   const one=page.getByRole('button',{name:'Пинг: DIRECT',exact:true});await one.focus();await page.keyboard.press('Enter');
   await page.waitForFunction(()=>document.querySelector('[aria-label="🚫 Недоступные сайты: DIRECT"] .core-proxy-card-latency')?.textContent==='0 ms');
   assert.deepEqual(await page.evaluate(()=>window.nativeCalls.find(([cmd])=>cmd==='mihomo_delay')[1]),{profileId:'yaml-fixture',sessionId:'fixture-session',name:'DIRECT',url:'https://www.gstatic.com/generate_204',timeoutMs:5000,expectedStatus:null});
-  await page.getByRole('button',{name:'Пинг категории: 🚫 Недоступные сайты',exact:true}).click();
+  await page.getByRole('button',{name:'Пинг подписки',exact:true}).click();
   await page.waitForFunction(()=>document.querySelectorAll('.core-proxy-card-latency[data-state="success"],.core-proxy-card-latency[data-state="error"]').length===8&&!document.querySelector('.core-proxy-ping-all[aria-label="Остановить пинг"]'));
   assert.equal(await page.locator('.core-proxy-card-latency').filter({hasText:'Тайм-аут'}).count(),1);assert.equal(await page.locator('.core-proxy-card-latency').filter({hasText:'Недоступен'}).count(),1);
   const requests=await page.evaluate(()=>window.nativeCalls.filter(([cmd])=>cmd==='mihomo_delay').map(([,args])=>args.name));assert.deepEqual(requests,['DIRECT',...tabInspection.graph.groups[0].proxies]);
@@ -109,7 +148,7 @@ try {
  }
  for(const change of ['cancel','settings','session','refresh','unmount']){
   const {page,errors}=await pageFor({width:360,height:1100},'mode=profiles&mihomo=1&cards=1&running=1&deferPing=1');
-  await page.getByRole('button',{name:'Пинг категории: 🚫 Недоступные сайты',exact:true}).click();
+  await page.getByRole('button',{name:'Пинг подписки',exact:true}).click();
   await page.waitForFunction(()=>window.fixturePingWaiters.length===1);
   assert.equal(await page.locator('.core-proxy-card-latency[data-state="pending"]').count(),8);
   if(change==='cancel')await page.getByRole('button',{name:'Остановить пинг',exact:true}).click();
@@ -118,7 +157,7 @@ try {
   if(change==='refresh')await page.evaluate(()=>window.refreshFixtureSubscription());
   if(change==='unmount')await page.evaluate(()=>window.unmountMihomo());
   await page.waitForFunction(()=>!document.querySelector('.core-proxy-card-latency[data-state="pending"]'));
-  if(change==='cancel')assert(await page.getByRole('button',{name:'Пинг категории: 🚫 Недоступные сайты',exact:true}).isDisabled(),'cancel allowed another queued native request before draining');
+  if(change==='cancel')assert(await page.getByRole('button',{name:'Пинг подписки',exact:true}).isDisabled(),'cancel allowed another queued native request before draining');
   await page.evaluate(()=>window.releaseFixturePing());await page.waitForFunction(()=>window.fixturePingActive===0);await page.waitForTimeout(50);
   assert.equal(await page.locator('.core-proxy-card-latency[data-state="success"]').count(),0);assert.equal((await page.evaluate(()=>window.nativeCalls)).filter(([cmd])=>cmd==='mihomo_delay').length,1,'cancelled queue kept dispatching');
   assert(!(await page.evaluate(()=>window.nativeCalls)).some(([cmd])=>['connect_mihomo_profile','mihomo_select'].includes(cmd)));
@@ -218,7 +257,7 @@ try {
  }
  const {page:offline,errors:offlineErrors}=await pageFor({width:1440,height:850},'mode=profiles&mihomo=1');await offline.getByRole('tab',{name:'VPN',exact:true}).waitFor();
  assert.equal(await offline.getByRole('tab').count(),2);assert.equal(await offline.getByRole('tabpanel').count(),1);assert(await offline.getByRole('button',{name:'VPN: REJECT',exact:true}).isDisabled());assert.equal(await offline.getByRole('link',{name:/Группы/}).count(),0);
- assert.equal(await offline.locator('.core-subscription-head').count(),0);assert.equal(await offline.locator('.core-proxy-ping-one').count(),2);assert(await offline.getByRole('button',{name:'Пинг: DIRECT',exact:true}).isDisabled());assert.equal(await offline.getByRole('button',{name:'Пинг: DIRECT',exact:true}).getAttribute('title'),'Пинг доступен при подключении');
+ assert.equal(await offline.locator('.core-subscription-head').count(),0);assert.equal(await offline.locator('.core-proxy-ping-one').count(),2);assert(await offline.getByRole('button',{name:'Пинг: DIRECT',exact:true}).isEnabled());assert.equal(await offline.getByRole('button',{name:'Пинг: DIRECT',exact:true}).getAttribute('title'),'Проверить пинг');
  const header=await offline.locator('.signal-profile-head').evaluate(e=>[...e.querySelectorAll('.signal-icon-btn')].map(b=>({y:b.getBoundingClientRect().y,w:b.getBoundingClientRect().width,h:b.getBoundingClientRect().height})));assert(header.every(b=>b.w===44&&b.h===44&&Math.abs(b.y-header[0].y)<1),'header buttons misaligned');
  const cardWidth=await offline.locator('.signal-profile').evaluate(e=>({card:e.getBoundingClientRect().width,page:document.querySelector('.nimbo-home-profile').getBoundingClientRect().width}));assert(Math.abs(cardWidth.card-cardWidth.page)<2,'profile card needlessly narrower than content');
  const disclosure=offline.locator('.nimbo-profile-disclosure');await disclosure.click();assert.equal(await disclosure.getAttribute('aria-expanded'),'false');await disclosure.click();assert.equal(await disclosure.getAttribute('aria-expanded'),'true');

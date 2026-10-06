@@ -49,3 +49,9 @@ test('retry replaces only requested names and special member names are safe map 
  const {queue,last}=setup();await queue.run(['FI','__proto__','constructor'],async()=>({delayMs:20}),()=>true);
  await queue.run(['FI'],async()=>({delayMs:8}),()=>true);assert.equal(last().results.get('FI').ms,8);assert.equal(last().results.get('__proto__').ms,20);assert.equal(last().results.get('constructor').ms,20);
 });
+test('offline source replacement or child cancellation discards the batch',async()=>{
+ for(const code of ['STALE_REVISION','SOURCE_DIGEST_MISMATCH','PROBE_CANCELLED']){
+  const {queue,last}=setup(),names=[];await queue.run(['FI','DE'],async name=>{names.push(name);throw Error(code);},()=>true);
+  assert.deepEqual(names,['FI']);assert.equal(last().results.size,0);assert.equal(last().waiting,false);
+ }
+});

@@ -440,6 +440,8 @@ func (m *manager) dispatch(r *request) (any, error) {
 		return m.lastDiagnosticConfig, nil
 	case "probeAndroid":
 		return m.probeAndroid(*r)
+	case "probeDesktop":
+		return m.probeDesktop(*r)
 	case "start":
 		return m.start(*r)
 	case "stop":

@@ -18,20 +18,20 @@ body[data-ui-style] .core-subscription-member { position: relative; display: fle
 .core-proxy-card-meta { display: grid; min-width: 0; padding-right: 40px; gap: 2px; font-size: 11px; line-height: 1.4; color: var(--color-text-dim); }
 .core-proxy-card-meta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .core-proxy-card-selected { position: absolute; top: 15px; right: 12px; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
-body[data-ui-style] .core-proxy-ping-all, body[data-ui-style] .core-proxy-ping-one { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; min-width: 44px; min-height: 44px; padding: 8px; border: 0; border-radius: 10px; background: transparent; color: var(--color-text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 140ms ease, transform 100ms ease; }
+body[data-ui-style] .core-proxy-ping-one { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; min-width: 44px; min-height: 44px; padding: 8px; border: 0; border-radius: 10px; background: transparent; color: var(--color-text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 140ms ease, transform 100ms ease; }
 body[data-ui-style] .core-proxy-ping-one { position: absolute; bottom: 5px; right: 5px; width: 44px; height: 44px; }
-body[data-ui-style] .core-proxy-ping-all:disabled, body[data-ui-style] .core-proxy-ping-one:disabled { color: var(--color-text-dim); cursor: default; opacity: .65; }
+body[data-ui-style] .core-proxy-ping-one:disabled { color: var(--color-text-dim); cursor: default; opacity: .65; }
 .core-proxy-ping-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.core-proxy-ping-icon.is-pending { animation: core-ping-pulse 900ms ease-in-out infinite alternate; }
+.core-proxy-ping-icon.is-pending, .core-proxy-ping-all[aria-busy="true"] svg { animation: core-ping-pulse 900ms ease-in-out infinite alternate; }
 .core-proxy-card-latency { font-variant-numeric: tabular-nums; }
 .core-proxy-card-latency[data-state="success"] { color: var(--color-text); }
-body[data-ui-style] .core-proxy-ping-all:focus-visible, body[data-ui-style] .core-proxy-ping-one:focus-visible { outline: 2px solid var(--color-text); outline-offset: -3px; }
-body[data-ui-style] .core-proxy-ping-all:not(:disabled):active, body[data-ui-style] .core-proxy-ping-one:not(:disabled):active { transform: scale(.94); }
+body[data-ui-style] .core-proxy-ping-one:focus-visible { outline: 2px solid var(--color-text); outline-offset: -3px; }
+body[data-ui-style] .core-proxy-ping-one:not(:disabled):active { transform: scale(.94); }
 body[data-ui-style] .core-subscription-member[aria-pressed="true"] { border-color: var(--color-text); background: var(--color-card); box-shadow: inset 0 0 0 .5px var(--color-text); }
 body[data-ui-style] .core-subscription-member:disabled { opacity: 1; cursor: default; }
 body[data-ui-style] .core-subscription-member:not(:disabled):active { transform: scale(.98); }
 body[data-ui-style] .core-proxy-tab:focus-visible, body[data-ui-style] .core-subscription-member:focus-visible, .core-proxy-browser [role="tabpanel"]:focus-visible { outline: 2px solid var(--color-text); outline-offset: -3px; }
-@media (hover: hover) { body[data-ui-style] .core-subscription-member:not(:disabled):hover { background: var(--color-card); border-color: var(--color-text-dim); } body[data-ui-style] .core-proxy-ping-all:not(:disabled):hover, body[data-ui-style] .core-proxy-ping-one:not(:disabled):hover { background: var(--color-card); } }
+@media (hover: hover) { body[data-ui-style] .core-subscription-member:not(:disabled):hover { background: var(--color-card); border-color: var(--color-text-dim); } body[data-ui-style] .core-proxy-ping-one:not(:disabled):hover { background: var(--color-card); } }
 @media (max-width: 600px) {
   body[data-ui-style] .core-subscription-members { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
   body[data-ui-style] .core-subscription-member { padding: 12px; border-radius: 14px; }
@@ -39,4 +39,4 @@ body[data-ui-style] .core-proxy-tab:focus-visible, body[data-ui-style] .core-sub
   body[data-ui-style] .core-proxy-tab { max-width: 230px; }
 }
 @keyframes core-ping-pulse { from { opacity: .35; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { body[data-ui-style] .core-subscription-member, body[data-ui-style] .core-proxy-ping-one, body[data-ui-style] .core-proxy-ping-all { transition: none; } .core-proxy-ping-icon.is-pending { animation: none; } }
+@media (prefers-reduced-motion: reduce) { body[data-ui-style] .core-subscription-member, body[data-ui-style] .core-proxy-ping-one, body[data-ui-style] .core-proxy-ping-all { transition: none; } .core-proxy-ping-icon.is-pending, .core-proxy-ping-all[aria-busy="true"] svg { animation: none; } }

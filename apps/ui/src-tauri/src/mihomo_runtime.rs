@@ -823,6 +823,65 @@ pub async fn mihomo_delay(
     )
     .await
 }
+
+fn offline_probe_profile(
+    snapshot: &PersistedState,
+    profile_id: &str,
+    digest: &str,
+    revision: u64,
+) -> Result<FullProfile, String> {
+    if snapshot.connected {
+        return Err("BUSY".into());
+    }
+    let profile = snapshot
+        .core_profiles
+        .profile(profile_id)
+        .map_err(String::from)?;
+    if profile.source_digest != digest || profile.revision != revision {
+        return Err("STALE_REVISION".into());
+    }
+    if profile.kind != ProfileKind::MihomoYaml {
+        return Err("UNSUPPORTED_CORE".into());
+    }
+    profile.verify().map_err(String::from)?;
+    Ok(profile.clone())
+}
+
+#[tauri::command]
+pub async fn mihomo_probe(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    profile_id: String,
+    source_digest: String,
+    revision: u64,
+    name: String,
+    url: String,
+    timeout_ms: u64,
+) -> Result<nimbo_mihomo::wire::OfflineProbeResult, String> {
+    let ticket = CONNECTION_INTENT.load(Ordering::SeqCst);
+    let _lock = CONNECTION_OPERATION.lock().await;
+    let busy = state.runtime(|r| {
+        r.mihomo.is_some()
+            || r.xray.is_some()
+            || r.naive.is_some()
+            || r.awg.is_some()
+            || r.tun2socks.is_some()
+            || r.tun_snapshot.is_some()
+    });
+    if busy {
+        return Err("BUSY".into());
+    }
+    let profile = offline_probe_profile(&state.snapshot(), &profile_id, &source_digest, revision)?;
+    let result = await_current(
+        ticket,
+        &CONNECTION_INTENT,
+        nimbo_mihomo::process::probe(&binary(&app)?, &profile, &name, &url, timeout_ms),
+    )
+    .await?;
+    // Replacing/refreshing a stored source is independent of connection intent.
+    offline_probe_profile(&state.snapshot(), &profile_id, &source_digest, revision)?;
+    Ok(result)
+}
 /// Called by existing periodic monitor, serialized with user connection operations.
 /// Do not reconnect automatically: a failure must not resurrect cancelled intent.
 pub async fn reconcile_process_exit(app: &AppHandle) {
@@ -845,6 +904,27 @@ pub async fn reconcile_process_exit(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn offline_probe_admission_is_readonly_and_does_not_require_connection_mode() {
+        let mut state = PersistedState::default();
+        let p = FullProfile::new(
+            "Fixture".into(),
+            ProfileKind::MihomoYaml,
+            "proxies: [{name: local, type: direct}]\n".into(),
+        )
+        .unwrap();
+        state.core_profiles.profiles.push(p.clone());
+        state.connection_mode = ConnectionMode::Both;
+        state.preferences.connection_kill_switch = true;
+        let admitted = offline_probe_profile(&state, &p.id, &p.source_digest, p.revision).unwrap();
+        assert_eq!(admitted.original_text, p.original_text);
+        assert!(!state.connected);
+        assert!(offline_probe_profile(&state, &p.id, "other", p.revision).is_err());
+        assert!(offline_probe_profile(&state, &p.id, &p.source_digest, p.revision + 1).is_err());
+        state.connected = true;
+        assert!(offline_probe_profile(&state, &p.id, &p.source_digest, p.revision).is_err());
+        assert_eq!(state.core_profiles.profiles[0].selections, p.selections);
+    }
     #[test]
     fn mihomo_preflight_preserves_connected_state_and_source_on_incompatible_mode() {
         let mut snapshot = PersistedState::default();
