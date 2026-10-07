@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.danila.nimbo.network.PingDisplay
 import com.danila.nimbo.network.pingBars
 import com.danila.nimbo.network.displayPingMs
@@ -52,8 +53,8 @@ internal fun PingValueContent(ping: Int?, displayMode: Int, color: Color) {
             }
         }
         if (mode == PingDisplay.NUMERIC || mode == PingDisplay.BOTH) {
-            Text(label, color = color, style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+            Text(label, color = color, style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp),
+                fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
         }
     }
 }

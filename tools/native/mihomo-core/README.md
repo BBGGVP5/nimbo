@@ -14,7 +14,7 @@ persistent Kill Switch and hard-crash recovery are not claimed. See VERIFICATION
 
 # Nimbo embedded core adapter (wire API 1)
 
-This is executable Go source using **actual Mihomo v1.19.31**, not a YAML-to-server
+This is executable Go source using **actual Mihomo v1.19.32**, not a YAML-to-server
 converter. Read [API.md](API.md). It is an initial managed native component, **not
 full Android/iOS/desktop VPN support and not a release-readiness claim**.
 
@@ -111,8 +111,8 @@ fails without invoking upstream's delete-corrupt-cache recovery. Regression test
 reopen and rename the actual Windows DB after stop, including dataDir changes.
 Inspect has no IO. Validate uses the native parser but does not apply config/fetch
 providers/open cache/bind listeners; tests assert no dataDir writes. Some native
-parsers can read configuration-related state: do not call validate “arbitrary full
-Mihomo offline validation” outside this admitted schema.
+parsers can read configuration-related state: do not call validate вЂњarbitrary full
+Mihomo offline validationвЂќ outside this admitted schema.
 
 ## Mobile gates (must not enable picker as ready)
 
@@ -142,8 +142,8 @@ Canonical handoffs: `iosApp/docs/mihomo-ios-integration-handoff.md` and
 
 ## Upstream source / licensing
 
-Mihomo commit `ab405bad5beeeac8b003bb01f60f134f6df54471`:
-https://raw.githubusercontent.com/MetaCubeX/mihomo/ab405bad5beeeac8b003bb01f60f134f6df54471/go.mod
+Mihomo commit `88dcbf7f1614a67c3b36b848ee3592dfa92ada36`:
+https://raw.githubusercontent.com/MetaCubeX/mihomo/88dcbf7f1614a67c3b36b848ee3592dfa92ada36/go.mod
 and sibling LICENSE, adapter/provider/provider.go, hub/executor/executor.go,
 component/profile/cachefile/cache.go, listener/sing_tun/server.go are the audited
 primary source references. Module metadata/checksums are pinned in pins.json/go.sum.

@@ -77,7 +77,7 @@ url?,timeoutMs?,expectedStatus?,targetRequestId?}`. Unknown/duplicate request fi
   by callers for compatibility with older native bridges. No list download.
   Returns status only once listeners and providers are ready; rollback on error.
 * `status`: `{state,mixedAddress,controllerAddress,networkOwner,sourceSHA256,
-  coreVersion:"v1.19.31",coreCommit,apiVersion:1}`. No secret/source disclosed.
+  coreVersion:"v1.19.32",coreCommit,apiVersion:1}`. No secret/source disclosed.
   States: stopped, starting, running, stopping; Android can additionally report failed.
 * `snapshot`: `{groups:{name:upstreamProxyDTO},providers:{name:{name,vehicleType,
   version,proxies:upstreamProxyDTO[]}}}`. Snapshot members may change dynamically.

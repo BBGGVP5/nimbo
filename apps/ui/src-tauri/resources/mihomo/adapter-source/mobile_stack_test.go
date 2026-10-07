@@ -21,26 +21,23 @@ import (
 	D "github.com/miekg/dns"
 )
 
-type testPacketTun struct{ ep *channel.Endpoint }
-
-func (t *testPacketTun) Read([]byte) (int, error)                       { return 0, io.ErrClosedPipe }
-func (t *testPacketTun) Write([]byte) (int, error)                      { return 0, io.ErrClosedPipe }
-func (t *testPacketTun) Close() error                                   { t.ep.Close(); return nil }
-func (t *testPacketTun) WritePacket(p *stack.PacketBuffer) (int, error) { return p.Size(), nil }
-func (t *testPacketTun) NewEndpoint() (stack.LinkEndpoint, stack.NICOptions, error) {
-	return t.ep, stack.NICOptions{}, nil
-}
-func testMobileStack(t *testing.T, m *mobileSession) *testPacketTun {
+func testMobileStack(t *testing.T, m *mobileSession) *PacketFlowTun {
 	t.Helper()
-	device := &testPacketTun{channel.New(128, 1500, "")}
-	s, e := tun.NewStack("gvisor", tun.StackOptions{Context: m.ctx, Tun: device, TunOptions: tun.Options{MTU: 1500, Inet4Address: []netip.Prefix{netip.MustParsePrefix("172.19.0.1/30")}}, Handler: m, Logger: log.SingLogger})
+	device, e := NewPacketFlowTun(1500)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = s.Start(); e != nil {
+	s, e := tun.NewStack("gvisor", tun.StackOptions{Context: m.ctx, Tun: device, TunOptions: tun.Options{MTU: 1500, Inet4Address: []netip.Prefix{netip.MustParsePrefix("172.19.0.1/30")}}, Handler: m, Logger: log.SingLogger})
+	if e != nil {
+		device.Close()
 		t.Fatal(e)
 	}
-	t.Cleanup(func() { m.cancel(); s.Close(); m.close(); device.Close() })
+	if e = s.Start(); e != nil {
+		device.Close()
+		s.Close()
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { m.cancel(); device.Close(); s.Close(); m.close() })
 	return device
 }
 func TestMobileRealGvisorUDPManagedDNS(t *testing.T) {
@@ -57,19 +54,15 @@ func TestMobileRealGvisorUDPManagedDNS(t *testing.T) {
 	ip.SetChecksum(^ip.CalculateChecksum())
 	udp := header.UDP(raw[20:])
 	udp.Encode(&header.UDPFields{SrcPort: 25000, DstPort: 53, Length: uint16(len(raw) - 20)})
-	pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(raw)})
-	device.ep.InjectInbound(header.IPv4ProtocolNumber, pkt)
-	pkt.DecRef()
+	if err := device.IngestPacket(raw); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 	defer cancel()
-	out := device.ep.ReadContext(ctx)
-	if out == nil {
-		t.Fatal("real IP stack did not return DNS")
+	b, e := device.ReadPacket(ctx)
+	if e != nil {
+		t.Fatal("real packet flow did not return DNS", e)
 	}
-	defer out.DecRef()
-	v := out.ToView()
-	defer v.Release()
-	b := v.AsSlice()
 	h := header.IPv4(b)
 	u := header.UDP(b[h.HeaderLength():])
 	r := new(D.Msg)
@@ -92,24 +85,38 @@ func TestMobileRealGvisorTCPManagedDNS(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(m.ctx)
 	done := make(chan struct{}, 2)
-	pump := func(from, to *channel.Endpoint) {
+	go func() {
 		defer func() { done <- struct{}{} }()
 		for {
-			p := from.ReadContext(ctx)
+			p := peer.ReadContext(ctx)
 			if p == nil {
 				return
 			}
 			v := p.ToView()
-			raw := append([]byte(nil), v.AsSlice()...)
+			err := device.IngestPacket(v.AsSlice())
 			v.Release()
-			in := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(raw)})
-			to.InjectInbound(p.NetworkProtocolNumber, in)
-			in.DecRef()
+			p.DecRef()
+			if err != nil {
+				return
+			}
+		}
+	}()
+	go func() {
+		defer func() { done <- struct{}{} }()
+		for {
+			raw, err := device.ReadPacket(ctx)
+			if err != nil {
+				return
+			}
+			protocol, err := packetFlowProtocol(raw, 1500)
+			if err != nil {
+				return
+			}
+			p := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(raw)})
+			peer.InjectInbound(protocol, p)
 			p.DecRef()
 		}
-	}
-	go pump(peer, device.ep)
-	go pump(device.ep, peer)
+	}()
 	defer func() {
 		cancel()
 		client.Close()

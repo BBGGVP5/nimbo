@@ -173,7 +173,7 @@ func TestAndroidTunPlanListsVMessTCPAndWebSocketWithoutClaimingDeviceReadiness(t
 	if !plan.Success || plan.Data.DeviceVerified {
 		t.Fatalf("plan overstates runtime readiness: %+v", plan)
 	}
-	if !strings.Contains(plan.Data.Protocols, "pinned Mihomo v1.19.31 upstream outbound parser") {
+	if !strings.Contains(plan.Data.Protocols, "pinned Mihomo v1.19.32 upstream outbound parser") {
 		t.Fatalf("upstream protocol scope not reported: %q", plan.Data.Protocols)
 	}
 	if !strings.Contains(plan.Data.TransportScope, "proxy/protocol implementations") {

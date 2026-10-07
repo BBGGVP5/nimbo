@@ -26,6 +26,7 @@ jobs:
         run: python3 scripts/ci/test-ios-packet-flow.py --swift
       - name: Verify generation-safe provider and existing native ping contracts
         run: |
+          python3 iosApp/Tests/test_design_audit_contracts.py --swift
           python3 scripts/ci/test-ios-mihomo-source.py
           python3 iosApp/Tests/test_ping_contracts.py --swift
           python3 iosApp/Tests/test_on_demand_contracts.py --swift

@@ -52,7 +52,7 @@ cp go.mod go.sum "${WORK_DIR}/verify/"
   go mod verify
 )
 [[ "$(go list -m -f '{{.Version}}' github.com/amnezia-vpn/amneziawg-go/v3)" == "${AWG_VERSION}" ]]
-[[ "$(go list -m -f '{{.Version}}' github.com/metacubex/mihomo)" == 'v1.19.31' ]]
+[[ "$(go list -m -f '{{.Version}}' github.com/metacubex/mihomo)" == 'v1.19.32' ]]
 go test -mod=readonly -count=1 nimbo/awgcore nimbo/mihomocore ./cgo_bridge
 
 # Execute the production request contract against the same merged C bridge on
@@ -120,7 +120,7 @@ ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
   shasum -a 256 "${ROOT_DIR}/tools/native/libxray-memory/memory_ios.go"
   echo 'native_api3_awg_contract_test=passed'
   echo 'native_mihomo_v1_contract_test=passed'
-  echo 'mihomo_version=v1.19.31'
+  echo 'mihomo_version=v1.19.32'
   echo 'mihomo_ios_tun=public-packet-flow-source-linked-device-unverified'
   echo 'swift_awg_link_check=iphoneos-arm64,iphonesimulator-arm64,iphonesimulator-x86_64'
   shasum -a 256 "${BRIDGE_DIR}/"*.go "${BRIDGE_DIR}/go.mod" "${BRIDGE_DIR}/go.sum"

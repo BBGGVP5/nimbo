@@ -194,7 +194,7 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
                 .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val ink = if (fill.luminance() > .5f) Color(0xFF202020) else Color.White
-                NimboIcon(state.connectionIcon, Modifier.size(24.dp), ink)
+                NimboConnectionGlyph(motion, ink, Modifier.size(24.dp))
                 BasicText(actionLabel, Modifier.weight(1f), style = NimboBodyStyle.copy(
                     color = ink, fontWeight = FontWeight.SemiBold, fontSize = 16.sp))
             }
@@ -211,9 +211,9 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
                     .semantics { contentDescription = actionLabel }
                     .clickable(enabled = !state.connectionBusy, role = Role.Button,
                         interactionSource = interactionSource, indication = null, onClick = toggle), contentAlignment = Alignment.Center) {
-                    NimboIcon(state.connectionIcon, Modifier.size(if (connected) 56.dp else 34.dp)
+                    NimboConnectionGlyph(motion, if (fill.luminance() > .5f) Color(0xFF202020) else Color.White, Modifier.size(56.dp)
                         .graphicsLayer { scaleX = motion.iconScale.value; scaleY = motion.iconScale.value },
-                        tint = if (fill.luminance() > .5f) Color(0xFF202020) else Color.White)
+                    )
                 }
             }
         }
@@ -250,6 +250,24 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
             BasicText(state.errorMessage, style = NimboBodyStyle.copy(color = NimboPalette.Red))
             NimboLinkButton(NimboIconName.LOGS, "Открыть диагностику", actions.onOpenDiagnostics)
         }
+    }
+}
+
+/** One persistent silhouette stack; true connected state controls its only animation target. */
+@Composable
+private fun NimboConnectionGlyph(motion: NimboConnectionMotion, ink: Color, modifier: Modifier = Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        NimboIcon(NimboIconName.POWER, Modifier.fillMaxSize(.7f).graphicsLayer {
+            val progress = motion.cloudProgress.value
+            alpha = 1f - progress
+            scaleX = 1f - .5f * progress; scaleY = scaleX
+            rotationZ = -45f * progress
+        }, ink)
+        NimboIcon(NimboIconName.CLOUD, Modifier.fillMaxSize().graphicsLayer {
+            val progress = motion.cloudProgress.value
+            alpha = progress; scaleX = .55f + .45f * progress; scaleY = scaleX
+            translationY = (1f - progress) * 3.dp.toPx()
+        }, ink)
     }
 }
 

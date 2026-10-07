@@ -1903,21 +1903,26 @@ private fun MihomoHomeSelectedServerBar(
     var liveSelection by remember(profile.url) {
         mutableStateOf<com.danila.nimbo.mihomo.MihomoActiveSelection?>(null)
     }
-    LaunchedEffect(profile.url, sourceHash, connected, lastChoice?.group) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(profile.url, sourceHash, connected, lastChoice?.group, lifecycle) {
         liveSelection = null
         if (!connected || sourceHash == null) return@LaunchedEffect
-        while (true) {
-            liveSelection = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching {
-                    val status = com.danila.nimbo.mihomo.MihomoBridge.response("status")
-                    if (status.data.get("state")?.asString != "running" ||
-                        status.data.get("sourceSHA256")?.asString != sourceHash) return@runCatching null
-                    val snapshot = com.danila.nimbo.mihomo.MihomoBridge.response("snapshot",
-                        generation = status.generation)
-                    com.danila.nimbo.mihomo.mihomoActiveSelection(snapshot.data, lastChoice?.group)
-                }.getOrNull()
-            }
-            delay(3000)
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            try {
+                while (true) {
+                    liveSelection = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching {
+                            val status = com.danila.nimbo.mihomo.MihomoBridge.response("status")
+                            if (status.data.get("state")?.asString != "running" ||
+                                status.data.get("sourceSHA256")?.asString != sourceHash) return@runCatching null
+                            val snapshot = com.danila.nimbo.mihomo.MihomoBridge.response("snapshot",
+                                generation = status.generation)
+                            com.danila.nimbo.mihomo.mihomoActiveSelection(snapshot.data, lastChoice?.group)
+                        }.getOrNull()
+                    }
+                    delay(3000)
+                }
+            } finally { liveSelection = null }
         }
     }
     val pingUrl by preferencesManager.pingUrlState

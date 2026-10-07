@@ -30,6 +30,7 @@ import kotlinx.coroutines.launch
 class NimboConnectionMotion internal constructor(
     val scale: State<Float>,
     val iconScale: State<Float>,
+    val cloudProgress: State<Float>,
     internal val cycle: State<Float>,
     internal val confirmation: State<Float>,
     internal val busy: Boolean
@@ -42,6 +43,11 @@ fun rememberNimboConnectionMotion(
     pressed: Boolean,
     enabled: Boolean = true
 ): NimboConnectionMotion {
+    val cloud = animateFloatAsState(
+        targetValue = if (connected && !busy) 1f else 0f,
+        animationSpec = if (enabled) tween(420, easing = FastOutSlowInEasing) else snap(),
+        label = "connection-cloud-transform"
+    )
     val scale = animateFloatAsState(
         targetValue = if (!enabled) 1f else if (pressed) .91f else if (busy) .975f else 1f,
         animationSpec = if (!enabled) snap() else if (pressed) tween(85, easing = FastOutSlowInEasing)
@@ -77,7 +83,7 @@ fun rememberNimboConnectionMotion(
         }
     }
     return remember(scale, busy) {
-        NimboConnectionMotion(scale, icon.asState(), cycle.asState(), confirmation.asState(), busy)
+        NimboConnectionMotion(scale, icon.asState(), cloud, cycle.asState(), confirmation.asState(), busy)
     }
 }
 

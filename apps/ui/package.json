@@ -15,6 +15,7 @@
     "test:traffic:browser": "tsc --noEmit -p tests/browser/tsconfig.traffic-dashboard.json && node tests/browser/traffic-dashboard.mjs",
     "test:polish": "tsc --noEmit -p tests/browser/tsconfig.cross-platform-polish.json && node tests/browser/cross-platform-polish.mjs",
     "test:settings": "tsc --noEmit -p tests/browser/tsconfig.settings-polish.json && node tests/browser/settings-polish.mjs",
+    "test:secondary": "tsc --noEmit -p tests/browser/tsconfig.secondary-audit.json && node tests/browser/secondary-audit.mjs",
     "build:installer": "tauri build --bundles nsis",
     "build:installer:local": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/windows/build-local-installer.ps1",
     "build:installer:current": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/windows/build-local-installer.ps1 -Targets current",

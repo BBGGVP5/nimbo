@@ -132,7 +132,7 @@ def main():
                                           check=True, capture_output=True, text=True).stdout
                 for module, version in (
                     ("github.com/xtls/xray-core", "v1.260327.1-0.20260930074004-b26a91de4f32"),
-                    ("github.com/metacubex/mihomo", "v1.19.31"),
+                    ("github.com/metacubex/mihomo", "v1.19.32"),
                 ):
                     replacement = dependency(metadata, module, version)
                     if replacement is None and module == "github.com/metacubex/mihomo":

@@ -4,8 +4,8 @@ import CoreFoundation
 /// Portable admission for the real C bridge, also executed by macOS CI.
 /// A successful envelope alone is not proof that this packet owner is ready.
 enum NimboMihomoSessionPolicy {
-    static let coreVersion = "v1.19.31"
-    static let coreCommit = "ab405bad5beeeac8b003bb01f60f134f6df54471"
+    static let coreVersion = "v1.19.32"
+    static let coreCommit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
 
     struct Identity: Equatable {
         let generation: UInt64

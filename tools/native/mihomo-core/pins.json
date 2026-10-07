@@ -1,11 +1,11 @@
 {
   "apiVersion": 1,
   "module": "github.com/metacubex/mihomo",
-  "version": "v1.19.31",
-  "commit": "ab405bad5beeeac8b003bb01f60f134f6df54471",
-  "sum": "h1:gqtGzDf8DtNCj8gGE5XSgGeF2j40ZUBB0nlwiSyxg5g=",
-  "goModSum": "h1:LrKKxtHjjlgYjYiTrYyvI8bOWwHW0HUH0c1LXlf3Kcg=",
-  "sourceZipSHA256": "c87ea4f7ed3b59e7e753769866cd12c61e656c6cad585333a544eeec835cc6cf",
+  "version": "v1.19.32",
+  "commit": "88dcbf7f1614a67c3b36b848ee3592dfa92ada36",
+  "sum": "h1:uD7ZC3P77isWD554NNvtee65L+99+/C5hyc+Lk8rVEk=",
+  "goModSum": "h1:d7xWi5iEktkC9PqXkD/Vo4AEcb0Q92XikfLoySUDWls=",
+  "sourceZipSHA256": "2a63640dcdd4ff2fb429488b120515c2e2fb2391cf6d2c2d6f21a8dc86b864e4",
   "toolchain": "go1.27.1",
   "protobuf": {
     "module": "github.com/metacubex/protobuf-go",
@@ -20,11 +20,11 @@
   "binaryManifest": ".build/bin/build-manifest.json",
   "singTun": {
     "module": "github.com/metacubex/sing-tun",
-    "version": "v0.4.24",
-    "commit": "b50ae28a1409c7bce8e96e6c6966cf57d8ace754",
-    "sum": "h1:2H/RhlwQxUgc1K8h46giwV5uTUovx+DhQGpVPlUB4Yo=",
-    "goModSum": "h1:YLk0jq8ITecb0LlNKAXC+NTkYTYmvihQxFAR495LN8c=",
-    "sourceZipSHA256": "37f80ed92b3b130e4f71bc065991fe08e824cbaacf2015a72f8c7bf8c65a8654"
+    "version": "v0.4.27",
+    "commit": "27e28c30de350cff262e32d9ed92b87215a0ff7c",
+    "sum": "h1:dWCpFDlWelQrhH3y5KkMrJXEXYeJ0V2LROP8Cxv96MI=",
+    "goModSum": "h1:5nlmrOy+FG0yhiLm+O/pzmirZVrpLuDQZuA+qI9x5kg=",
+    "sourceZipSHA256": "ec7fe1bcb921c76a3b487624794e72d9a39b8591d51f928ffd43bdc3ae3d62e0"
   },
   "netlink": {
     "module": "github.com/sagernet/netlink",

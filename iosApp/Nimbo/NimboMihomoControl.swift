@@ -3,14 +3,7 @@ import LibXray
 import NetworkExtension
 
 enum NimboMihomoControl {
-    struct Group: Identifiable {
-        let name: String
-        let type: String
-        let members: [String]
-        let current: String?
-        var id: String { name }
-        var selectable: Bool { ["select", "Selector"].contains(type) }
-    }
+    typealias Group = NimboMihomoGroup
 
     static func looksLikeConfiguration(_ data: Data) -> Bool {
         guard let text = String(data: data, encoding: .utf8) else { return false }
@@ -48,20 +41,14 @@ enum NimboMihomoControl {
 
     static func declaredGroups(_ full: NimboFullConfiguration) throws -> [Group] {
         let graph = try inspection(full)["declaredGraph"] as? [String: Any]
-        return (graph?["groups"] as? [[String: Any]] ?? []).compactMap { group in
-            guard let name = group["name"] as? String, let type = group["type"] as? String else { return nil }
-            return Group(name: name, type: type, members: group["proxies"] as? [String] ?? [], current: full.groupSelections[name])
-        }
+        return NimboMihomoGroup.declared(graph?["groups"] as? [[String: Any]] ?? [], selections: full.groupSelections)
     }
 
     static func liveGroups(_ full: NimboFullConfiguration, session: NETunnelProviderSession) async throws -> [Group] {
         let reply = try await rpc("mihomoSnapshot", full: full, session: session)
         let data = reply["data"] as? [String: Any]
         let groups = data?["groups"] as? [String: [String: Any]] ?? [:]
-        return groups.keys.sorted().compactMap { name in
-            guard let value = groups[name], let type = value["type"] as? String else { return nil }
-            return Group(name: name, type: type, members: value["all"] as? [String] ?? [], current: value["now"] as? String)
-        }
+        return NimboMihomoGroup.live(groups, declaredOrder: try declaredGroups(full).map(\.name))
     }
 
     @MainActor static func select(group: Group, member: String, full: NimboFullConfiguration,

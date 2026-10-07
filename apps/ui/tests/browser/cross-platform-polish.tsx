@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { AppWorkspaceBar, DesktopBottomNavigation } from '../../src/App';
 import { SignalSidebar } from '../../src/components/SignalSidebar';
 import { NimboSelect } from '../../src/components/NimboSelect';
+import { ConnectionStateIcon } from '../../src/components/ConnectionStateIcon';
 import { Home } from '../../src/pages/Home';
 import { Subscriptions } from '../../src/pages/Subscriptions';
 import { Notifications } from '../../src/pages/Notifications';
@@ -74,7 +75,12 @@ function SelectFixture() {
  const [value,setValue]=useState('auto');
  return <div style={{padding:20,maxWidth:460}}><label htmlFor="fixture-select">Ядро</label><NimboSelect id="fixture-select" value={value} onChange={e=>{setValue(e.target.value);calls.push('choose:'+e.target.value);}}><option value="auto">Авто</option><option value="awg" disabled>AWG — недоступно</option><option value="xray">Xray</option><option value="mihomo">Mihomo</option></NimboSelect><p data-value>{value}</p><button>Снаружи</button></div>;
 }
+function MotionFixture() {
+ const [state,setState]=useState('power');
+ return <div style={{padding:40}}><button className="nimbo-connect-action" data-variant="round" aria-label="Состояние соединения"><ConnectionStateIcon connected={state==='cloud'} busy={state==='loading'} motion={!params.has('motionOff')}/></button>
+   {['power','loading','cloud'].map(value=><button key={value} onClick={()=>setState(value)}>{value}</button>)}</div>;
+}
 function Shell() {return <div className="app-shell"><SignalSidebar labels={messages.ru} items={desktopNavItems.map(item=>({...item,icon:<svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/></svg>}))} label={key=>String(messages.ru.app[key as keyof typeof messages.ru.app])} unread={0} version="v1.3.0-beta.1" coreLabel={messages.ru.settings.connection} coreState="idle" updateLabel={params.has('update')?'Обновить':null} onUpdate={()=>calls.push('update')} width={232}/><main className="app-main"><AppWorkspaceBar/>{mode==='profiles'?<Subscriptions/>:mode==='notifications'?<Notifications/>:<Home/>}</main><DesktopBottomNavigation/></div>;}
-const content=mode==='tray'?<TrayMenu previewState={{connected:false,activeServerId:'test-fi',autoSelected:false,connectionMode:'system_proxy',subscriptionCount:1,serverCount:1,language:'ru',visualPreferences:prefs,providerTheme:null,servers:[{id:'test-fi',name:'Финляндия'}],needsAdmin:false}}/>:mode==='select'?<SelectFixture/>:<Shell/>;
+const content=mode==='tray'?<TrayMenu previewState={{connected:false,activeServerId:'test-fi',autoSelected:false,connectionMode:'system_proxy',subscriptionCount:1,serverCount:1,language:'ru',visualPreferences:prefs,providerTheme:null,servers:[{id:'test-fi',name:'Финляндия'}],needsAdmin:false}}/>:mode==='motion'?<MotionFixture/>:mode==='select'?<SelectFixture/>:<Shell/>;
 if(mode==='tray') void import('../../src/tray-menu/tray-menu.css');
 createRoot(document.getElementById('root')!).render(<MemoryRouter initialEntries={[mode==='profiles'?'/subscriptions':mode==='notifications'?'/notifications':'/']}>{content}</MemoryRouter>);

@@ -13,7 +13,8 @@ export function LatencyDisplay({ value, loading = false, format, error, protocol
   const presentation = latencyPresentation(error ? null : value, protocol ?? preferences.latency_protocol, loading);
   const { bars } = presentation;
   const label = loading ? "…" : presentation.label;
-  if (!bars) return <span role="status" aria-busy={loading} title={error ?? undefined}>{label}</span>;
+  const compactStyle = {fontSize:11,fontWeight:400,fontVariantNumeric:'tabular-nums'} as const;
+  if (!bars) return <span className="nimbo-latency-label" role="status" aria-busy={loading} style={compactStyle} title={error ?? undefined}>{label}</span>;
   const explanation = presentation.approximate
     ? fillTemplate(getMessages(language ?? preferences.language).settings.latencyEstimateLabel, { estimate: label, raw: value! })
     : label;
@@ -21,8 +22,8 @@ export function LatencyDisplay({ value, loading = false, format, error, protocol
   const numeric = !visual || display === "both";
   const dots = display === "dots" || display === "badge";
   return (
-    <span role="img" aria-label={explanation} title={explanation} data-latency-format={display}
-      style={{ display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" }}>
+    <span className="nimbo-latency-label" role="img" aria-label={explanation} title={explanation} data-latency-format={display}
+      style={{ ...compactStyle, display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" }}>
       {presentation.approximate && !numeric && <span aria-hidden="true">≈</span>}
       {visual && <svg aria-hidden="true" width="22" height="14" viewBox="0 0 22 14" fill="currentColor" data-latency-bars={bars}>
         {[0, 1, 2, 3].map(index => dots

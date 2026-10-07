@@ -8,7 +8,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--source',type=Path,required=True);args=parser.parse_args();source=args.source.resolve()
     m=json.loads((source/'build-manifest.json').read_text())
     platform={'linux/amd64':'linux-x64','linux/arm64':'linux-arm64','windows/amd64':'windows-x64'}.get(m['target'])
-    assert platform and m['apiVersion']==1 and m['coreCommit']=='ab405bad5beeeac8b003bb01f60f134f6df54471'
+    assert platform and m['apiVersion']==1 and m['coreCommit']=='88dcbf7f1614a67c3b36b848ee3592dfa92ada36'
     binary='nimbo-mihomo.exe' if platform=='windows-x64' else 'nimbo-mihomo'
     assert sha(source/binary)==m['sha256']
     for entry in m['sourceFiles']:

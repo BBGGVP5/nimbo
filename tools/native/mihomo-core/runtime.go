@@ -39,8 +39,8 @@ import (
 	"github.com/metacubex/mihomo/tunnel/statistic"
 )
 
-const coreVersion = "v1.19.31"
-const coreCommit = "ab405bad5beeeac8b003bb01f60f134f6df54471"
+const coreVersion = "v1.19.32"
+const coreCommit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
 
 type startOptions struct {
 	AdBlocking        bool     `json:"adBlocking,omitempty"`

@@ -54,6 +54,21 @@ async function pageFor(viewport,query='') {
  return {page,errors};
 }
 try {
+ for(const reduced of [false,true])for(const savedOff of [false,true]){
+  const {page,errors}=await pageFor({width:360,height:760},'mode=motion'+(savedOff?'&motionOff=1':''));
+  await page.emulateMedia({reducedMotion:reduced?'reduce':'no-preference'});
+  await page.evaluate(()=>{window.motionNodes=[document.querySelector('.connection-state-power'),document.querySelector('.connection-state-cloud')];});
+  const duration=await page.locator('.connection-state-cloud').evaluate(e=>getComputedStyle(e).transitionDuration);
+  assert.equal(duration.split(',').every(value=>parseFloat(value)<=.001),reduced||savedOff);
+  await page.getByRole('button',{name:'loading',exact:true}).click();assert.equal(await page.locator('[data-connection-icon="loading"]').count(),1);
+  await page.getByRole('button',{name:'cloud',exact:true}).click();await page.waitForTimeout(reduced||savedOff?20:500);
+  assert.equal(await page.locator('.connection-state-cloud').evaluate(e=>getComputedStyle(e).opacity),'1');
+  assert.equal(await page.locator('.connection-state-power').evaluate(e=>getComputedStyle(e).opacity),'0');
+  await page.getByRole('button',{name:'power',exact:true}).click();await page.getByRole('button',{name:'cloud',exact:true}).click();await page.getByRole('button',{name:'power',exact:true}).click();await page.waitForTimeout(reduced||savedOff?20:500);
+  assert.equal(await page.locator('.connection-state-cloud').evaluate(e=>getComputedStyle(e).opacity),'0');
+  assert(await page.evaluate(()=>window.motionNodes[0]===document.querySelector('.connection-state-power')&&window.motionNodes[1]===document.querySelector('.connection-state-cloud')),'icons unmounted instead of transforming');
+  assert.equal(await page.evaluate(()=>window.nativeCalls.length),0,'visual motion triggered IPC');assert.deepEqual(errors,[]);await page.close();cases++;
+ }
  for(const width of [360,1440])for(const theme of ['dark','light']){
   const {page,errors}=await pageFor({width,height:1100},`mode=profiles&mihomo=1&cards=1&announcement=1&pingErrors=1&theme=${theme}`);
   await page.getByRole('tab',{name:'🚫 Недоступные сайты',exact:true}).waitFor();
@@ -64,6 +79,7 @@ try {
   const alignment=await page.evaluate(()=>{const a=document.querySelector('.core-proxy-ping-all').getBoundingClientRect(),b=document.querySelector('.universal-subscription-footer [aria-label="Обновить подписку"]').getBoundingClientRect();return Math.abs(a.y-b.y)<1&&Math.abs(a.height-b.height)<1&&a.right<=b.x;});assert(alignment,'Ping and Refresh are not matching adjacent footer buttons');
   const one=page.getByRole('button',{name:'Пинг: 🇫🇮 Финляндия',exact:true});assert(await one.isEnabled());await one.click();
   await page.waitForFunction(()=>document.querySelector('[aria-label="🚫 Недоступные сайты: 🇫🇮 Финляндия"] .core-proxy-card-latency')?.textContent==='79 ms');
+  assert.equal(await page.locator('.core-proxy-card-latency').first().evaluate(e=>getComputedStyle(e).fontSize),'10px');
   assert.deepEqual(await page.evaluate(()=>window.nativeCalls.find(([cmd])=>cmd==='mihomo_probe')[1]),{profileId:'yaml-fixture',sourceDigest:'tabs-fixture',revision:1,name:'🇫🇮 Финляндия',url:'https://www.gstatic.com/generate_204',timeoutMs:5000});
   // The same subscription-wide action remains useful while its server list is collapsed.
   await page.locator('.nimbo-profile-disclosure').click();assert.equal(await page.locator('.nimbo-profile-disclosure').getAttribute('aria-expanded'),'false');await bulk.click();

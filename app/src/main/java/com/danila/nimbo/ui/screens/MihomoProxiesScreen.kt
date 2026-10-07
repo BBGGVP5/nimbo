@@ -24,6 +24,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -368,7 +369,7 @@ internal fun MihomoProxiesScreen(onAddSubscription: () -> Unit) {
                                     else if (member in unmeasurable || subgroup != null) t("Группа", "Group")
                                 else if (member == "DIRECT") t("Напрямую", "Direct") else "—",
                                     color = if (latency != null) colors.accent else colors.textSecondary,
-                                    style = MaterialTheme.typography.labelMedium,
+                                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp),
                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }

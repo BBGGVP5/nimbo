@@ -100,6 +100,6 @@ try {
     foreach ($inputFile in $inputs) {
         if ((Get-FileHash -LiteralPath $inputFile.path).Hash.ToLowerInvariant() -ne $inputFile.sha256) { throw "Build inputs changed: $($inputFile.path). Artifact not approved." }
     }
-    [ordered]@{ stage=$stage; androidBuilt=[bool]$Build; productionLibraryChanged=$false; libXray='26.9.30'; mihomo='v1.19.31' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'result.json') -Encoding utf8
+    [ordered]@{ stage=$stage; androidBuilt=[bool]$Build; productionLibraryChanged=$false; libXray='26.9.30'; mihomo='v1.19.32' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'result.json') -Encoding utf8
     Write-Output "Staged build: $stage (never installed or promoted automatically)"
 } finally { Pop-Location }

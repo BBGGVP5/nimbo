@@ -750,7 +750,7 @@ export function Home() {
                 onClick={() => void onToggleConnection()}
                 disabled={(!connected && (useMihomo ? !coreProfile : !fallbackEntry)) || connecting || disconnecting || switching || !!core.busy}
               >
-                <ConnectionStateIcon connected={connected} busy={connecting || disconnecting || switching} />
+                <ConnectionStateIcon connected={connected} busy={connecting || disconnecting || switching} motion={preferences.nav_icon_motion} />
                 {isCompactButton && connectionActionLabel}
               </button>
               {!isCompactButton && <span className="nimbo-connect-caption" aria-hidden="true">{connectionActionLabel}</span>}

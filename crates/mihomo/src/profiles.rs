@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 pub const MAX_SOURCE_BYTES: usize = 4 * 1024 * 1024;
 pub const WIRE_API: u32 = 1;
-pub const CORE_VERSION: &str = "v1.19.31";
-pub const CORE_COMMIT: &str = "ab405bad5beeeac8b003bb01f60f134f6df54471";
+pub const CORE_VERSION: &str = "v1.19.32";
+pub const CORE_COMMIT: &str = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

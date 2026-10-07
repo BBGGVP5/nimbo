@@ -60,6 +60,9 @@ jobs:
       - name: Verify profile selection ordering and screen contracts
         run: python3 iosApp/Tests/test_profile_screen_contracts.py --swift
 
+      - name: Verify compact design and native Mihomo category projection
+        run: python3 iosApp/Tests/test_design_audit_contracts.py --swift
+
       - name: Verify native Live Activity policy and packaging
         run: python3 iosApp/Tests/test_live_activity_contracts.py --swift
 

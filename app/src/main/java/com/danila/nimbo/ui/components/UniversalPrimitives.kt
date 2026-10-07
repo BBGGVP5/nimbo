@@ -53,6 +53,10 @@ import com.danila.nimbo.ui.theme.LocalBackgroundAnimationEnabled
 import com.danila.nimbo.ui.theme.LocalReducedTransparencyEnabled
 import com.danila.nimbo.shared.ui.NimboConnectionHalo
 import com.danila.nimbo.shared.ui.rememberNimboConnectionMotion
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.FastOutSlowInEasing
 
 /** Measured floating navigation extent, including system inset and scaled labels. */
 val LocalFloatingNavHeight = compositionLocalOf { 132.dp }
@@ -91,12 +95,19 @@ internal fun usesConnectedCloud(connected: Boolean, connecting: Boolean, disconn
 fun NimboConnectionIcon(connected: Boolean, connecting: Boolean, modifier: Modifier = Modifier,
     disconnecting: Boolean = false, tint: Color = LocalContentColor.current,
     contentDescription: String? = null) {
-    if (usesConnectedCloud(connected, connecting, disconnecting)) {
-        Icon(painterResource(R.drawable.nimbo_cloud), contentDescription,
-            modifier.testTag("connection-cloud"), tint = tint)
-    } else {
-        Icon(Icons.Default.PowerSettingsNew, contentDescription,
-            modifier.testTag("connection-power"), tint = tint)
+    val showCloud = usesConnectedCloud(connected, connecting, disconnecting)
+    val enabled = LocalBackgroundAnimationEnabled.current && !LocalReducedTransparencyEnabled.current
+    val progress by animateFloatAsState(if (showCloud) 1f else 0f,
+        animationSpec = if (enabled) tween(420, easing = FastOutSlowInEasing) else snap(), label = "connection-cloud-transform")
+    Box(modifier.semantics { if (contentDescription != null) this.contentDescription = contentDescription }, contentAlignment = Alignment.Center) {
+        Icon(Icons.Default.PowerSettingsNew, null,
+            Modifier.fillMaxSize(.78f).testTag(if (showCloud) "connection-power-layer" else "connection-power").graphicsLayer {
+                alpha = 1f - progress; scaleX = 1f - .5f * progress; scaleY = scaleX; rotationZ = -45f * progress
+            }, tint = tint)
+        Icon(painterResource(R.drawable.nimbo_cloud), null,
+            Modifier.fillMaxSize().testTag(if (showCloud) "connection-cloud" else "connection-cloud-layer").graphicsLayer {
+                alpha = progress; scaleX = .55f + .45f * progress; scaleY = scaleX; translationY = (1f - progress) * 3.dp.toPx()
+            }, tint = tint)
     }
 }
 

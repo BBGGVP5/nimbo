@@ -103,11 +103,12 @@ export function MihomoProfiles() {
     <header className="mihomo-page__header">
       <a className="settings-action" href="#/settings?section=connection">← {text('Настройки подключения', 'Connection settings')}</a>
       <h1>Mihomo</h1>
-      <p>{text('Дополнительно · полные YAML-профили', 'Advanced · complete YAML profiles')}</p>
-      <p>{text('Обычную ссылку подписки добавляйте в «Профили». Этот раздел нужен для готового полного YAML, чтобы сохранить его группы, providers и правила.', 'Add ordinary subscription links in Profiles. This section is for complete YAML configurations whose groups, providers and rules must be preserved.')}</p>
+      <p>{text('Полные YAML-профили', 'Complete YAML profiles')}</p>
     </header>
     <div className="mihomo-notice">
-      {text('Windows и Linux: TUN через проверенный системный помощник. Windows поддерживает System Proxy и Both, а с новым помощником — внешний Kill Switch для TUN/Both. Защита сохраняется при сбое и закрытии приложения. Правила записываются для загрузки Windows; после перезапуска нужен явный сброс перед новым подключением. Настройки подключения не меняются автоматически.', 'Windows and Linux: TUN through the verified system helper. Windows supports System Proxy and Both; the updated helper provides external Kill Switch for TUN/Both. Protection survives failure and app exit. Windows boot protection is registered; after a restart, explicitly reset before reconnecting. Connection settings are never changed automatically.')}
+      <details><summary>{text('Режимы подключения', 'Connection modes')}</summary>
+      <p>{text('Windows и Linux: TUN через проверенный системный помощник. Windows поддерживает System Proxy и Both, а с новым помощником — внешний Kill Switch для TUN/Both. Защита сохраняется при сбое и закрытии приложения. Правила записываются для загрузки Windows; после перезапуска нужен явный сброс перед новым подключением. Настройки подключения не меняются автоматически.', 'Windows and Linux: TUN through the verified system helper. Windows supports System Proxy and Both; the updated helper provides external Kill Switch for TUN/Both. Protection survives failure and app exit. Windows boot protection is registered; after a restart, explicitly reset before reconnecting. Connection settings are never changed automatically.')}</p>
+      </details>
       {!native && <p>{text('Для импорта и подключения откройте desktop-приложение.', 'Open the desktop app to import and connect.')}</p>}
       {native && blocked && <p role="status">{mihomoErrorMessage(blocked, ru)}</p>}
     </div>
@@ -122,7 +123,7 @@ export function MihomoProfiles() {
 
     <section className="mihomo-panel" aria-labelledby="mihomo-import-heading" aria-busy={busy}>
       <h2 id="mihomo-import-heading">{text('Импорт полного YAML', 'Import complete YAML')}</h2>
-      <p>{text('Ссылка, файл или текст, до 4 МиБ. Группы, providers и правила сохраняются без преобразования. Ссылки отдельных серверов здесь не импортируются.', 'URL, file or text, up to 4 MiB. Groups, providers and rules are preserved without conversion. Individual server links are not imported here.')}</p>
+      <p>{text('Файл, ссылка или текст, до 4 МиБ. Группы и правила сохраняются.', 'File, URL or text, up to 4 MiB. Groups and rules are preserved.')}</p>
       <label className="mihomo-import__name">{text('Название профиля', 'Profile name')}<input value={name} maxLength={512} disabled={busy || !native} onChange={e => setName(e.target.value)} autoComplete="off" /></label>
       <form onSubmit={event => void importUrl(event)} className="mihomo-import-url">
         <label>{text('Ссылка на полный YAML', 'Complete YAML URL')}<input type="url" value={sourceUrl} maxLength={MAX_CORE_URL_BYTES} disabled={busy || !native} onChange={e => setSourceUrl(e.target.value)} autoComplete="off" spellCheck={false} placeholder="https://…" aria-describedby="mihomo-url-policy" /></label>

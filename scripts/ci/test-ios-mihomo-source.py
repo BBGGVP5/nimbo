@@ -87,7 +87,7 @@ class MergedMihomoSourceTests(unittest.TestCase):
 
     def test_root_lock_and_native_gate(self):
         lock = (ROOT / 'iosApp/GoBridge/go.mod').read_text()
-        for pin in ['nimbo/mihomocore v0.0.0', 'github.com/metacubex/mihomo v1.19.31',
+        for pin in ['nimbo/mihomocore v0.0.0', 'github.com/metacubex/mihomo v1.19.32',
                     'replace nimbo/mihomocore => ../../tools/native/mihomo-core',
                     'replace google.golang.org/protobuf => ../../tools/native/mihomo-core/.build/protobuf',
                     'github.com/amnezia-vpn/amneziawg-go/v3 v3.1.20260828',

@@ -43,8 +43,8 @@ fn main() {
         return; // old proxy-only artifact is never elevated into a new TUN owner
     }
     assert_eq!(m["apiVersion"], 1);
-    assert_eq!(m["coreVersion"], "v1.19.31");
-    assert_eq!(m["coreCommit"], "ab405bad5beeeac8b003bb01f60f134f6df54471");
+    assert_eq!(m["coreVersion"], "v1.19.32");
+    assert_eq!(m["coreCommit"], "88dcbf7f1614a67c3b36b848ee3592dfa92ada36");
     assert_eq!(
         m["target"],
         if platform == "linux-x64" {
@@ -58,10 +58,10 @@ fn main() {
     assert!(m["toolchain"]
         .as_str()
         .is_some_and(|s| s.contains("go1.27.1")));
-    let provenance = if root.join("adapter-source").is_dir() {
-        root.clone()
-    } else {
+    let provenance = if platform == "windows-x64" {
         root.parent().unwrap().to_path_buf()
+    } else {
+        root.clone()
     };
     let sources = m["sourceFiles"].as_array().expect("frozen source manifest");
     assert!(!sources.is_empty());

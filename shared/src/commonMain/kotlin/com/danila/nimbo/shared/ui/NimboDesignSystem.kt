@@ -597,7 +597,8 @@ internal fun NimboPill(
     text: String,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    textSize: androidx.compose.ui.unit.TextUnit = 13.sp
 ) {
     val style = LocalNimboElementStyle.current
     val shape = nimboStyledShape(12.dp, 2.dp)
@@ -631,7 +632,7 @@ internal fun NimboPill(
             .padding(horizontal = 13.dp, vertical = 9.dp),
         style = TextStyle(fontFamily = NimboTypography.body, 
             color = if (selected) NimboPalette.Accent else NimboPalette.TextSecondary,
-            fontSize = 13.sp,
+            fontSize = textSize,
             fontWeight = FontWeight.Bold
         )
     )

@@ -23,7 +23,9 @@ pub fn prepare() {
         "nimbo-mihomo"
     });
     let manifest = dir.join("build-manifest.json");
-    let provenance = if platform == "windows-x64" && !dir.join("adapter-source").is_dir() {
+    // Windows staging/installer own top-level provenance. Ignore stale local
+    // per-platform snapshots left by a portable build of another revision.
+    let provenance = if platform == "windows-x64" {
         Path::new("resources/mihomo").to_path_buf()
     } else {
         dir.clone()
@@ -90,12 +92,12 @@ pub fn prepare() {
     );
     assert_eq!(
         metadata["coreVersion"].as_str(),
-        Some("v1.19.31"),
+        Some("v1.19.32"),
         "Mihomo pin mismatch"
     );
     assert_eq!(
         metadata["coreCommit"].as_str(),
-        Some("ab405bad5beeeac8b003bb01f60f134f6df54471"),
+        Some("88dcbf7f1614a67c3b36b848ee3592dfa92ada36"),
         "Mihomo commit mismatch"
     );
     assert_eq!(

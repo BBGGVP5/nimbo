@@ -1,4 +1,5 @@
 body[data-ui-style] .core-subscription-control { padding: 4px 0; display: grid; gap: 12px; min-width: 0; }
+body[data-ui-style] .universal-subscription-footer .core-proxy-ping-all { font-size: 12px; font-weight: 500; }
 body[data-ui-style] .core-subscription-control small { font-size: 11px; color: var(--color-text-dim); overflow-wrap: anywhere; }
 body[data-ui-style] .core-proxy-browser { min-width: 0; display: grid; gap: 12px; }
 body[data-ui-style] .core-proxy-navigation { display: flex; min-width: 0; align-items: center; gap: 6px; }
@@ -23,7 +24,7 @@ body[data-ui-style] .core-proxy-ping-one { position: absolute; bottom: 5px; righ
 body[data-ui-style] .core-proxy-ping-one:disabled { color: var(--color-text-dim); cursor: default; opacity: .65; }
 .core-proxy-ping-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .core-proxy-ping-icon.is-pending, .core-proxy-ping-all[aria-busy="true"] svg { animation: core-ping-pulse 900ms ease-in-out infinite alternate; }
-.core-proxy-card-latency { font-variant-numeric: tabular-nums; }
+.core-proxy-card-latency { font-size: 10px; line-height: 1.4; font-weight: 400; font-variant-numeric: tabular-nums; }
 .core-proxy-card-latency[data-state="success"] { color: var(--color-text); }
 body[data-ui-style] .core-proxy-ping-one:focus-visible { outline: 2px solid var(--color-text); outline-offset: -3px; }
 body[data-ui-style] .core-proxy-ping-one:not(:disabled):active { transform: scale(.94); }

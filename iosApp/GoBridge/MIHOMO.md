@@ -60,8 +60,8 @@ AWG ABI, and it does not claim multi-engine mobile TUN concurrency is safe.
 
 ## Root dependency graph and build
 
-`go.mod`/`go.sum` now include `nimbo/mihomocore v0.0.0` and Mihomo v1.19.31,
-commit `ab405bad5beeeac8b003bb01f60f134f6df54471`. Xray-core, AWG and canonical
+`go.mod`/`go.sum` now include `nimbo/mihomocore v0.0.0` and Mihomo v1.19.32,
+commit `88dcbf7f1614a67c3b36b848ee3592dfa92ada36`. Xray-core, AWG and canonical
 gVisor remain at their previous pins. Minimal version selection increases
 Brotli 1.0.6 → 1.1.1, compress 1.17.4 → 1.17.9, and x/exp from its 2024-05 pin
 to `v0.0.0-20240904232852-e7e105dedf7e`; unused direct `kr/text` is removed.

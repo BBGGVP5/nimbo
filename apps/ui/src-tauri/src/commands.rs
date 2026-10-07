@@ -6405,11 +6405,11 @@ fn verify_naive_binary(path: &Path) -> Result<(), String> {
 fn expected_naive_binary_sha256() -> Option<&'static str> {
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     {
-        return Some("94f99801c665d29fc071624663c6f7bfa59e8d5efaa84cd08ef5ebb18b46cb62");
+        return Some("71b1bc593a1470f3fbaf216469edde58b06a97449558aa3bc70cb265591635b7");
     }
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
-        return Some("baea1e9b9f8dd879a6374110bd7bdca80c2ecbdca8debc4f84f784a8739eaea7");
+        return Some("9fba072aceb445d0401bb26273584726c479f5c4bc7f911aebf293c90136b044");
     }
     #[allow(unreachable_code)]
     None

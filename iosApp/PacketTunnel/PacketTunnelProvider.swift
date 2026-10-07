@@ -161,7 +161,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler?(Self.responseData(["ok": true]))
             case "status":
                 let running = self.mihomo.isConfigured ? self.mihomo.isRunning : ((try? self.core.isRunning()) ?? false)
-                let version = self.mihomo.isConfigured ? "Mihomo v1.19.31" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : ((try? self.core.version()) ?? "unknown")
+                let version = self.mihomo.isConfigured ? "Mihomo v1.19.32" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : ((try? self.core.version()) ?? "unknown")
                 completionHandler?(Self.responseData([
                     "ok": true,
                     "running": running,
@@ -237,7 +237,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 ))
             case "diagnostics":
                 let running = self.mihomo.isConfigured ? self.mihomo.isRunning : ((try? self.core.isRunning()) ?? false)
-                let version = self.mihomo.isConfigured ? "Mihomo v1.19.31" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : ((try? self.core.version()) ?? "unknown")
+                let version = self.mihomo.isConfigured ? "Mihomo v1.19.32" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : ((try? self.core.version()) ?? "unknown")
                 let outboundCount = self.outboundCount
                 Task {
                     let records = (try? await NimboDiagnostics.shared.recentRecordsData(maxBytes: 384 * 1_024)) ?? Data()
