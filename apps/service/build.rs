@@ -58,7 +58,8 @@ fn main() {
     assert!(m["toolchain"]
         .as_str()
         .is_some_and(|s| s.contains("go1.27.1")));
-    let provenance = if platform == "windows-x64" {
+    // Layout follows the verified builder manifest, not stale local folders.
+    let provenance = if platform == "windows-x64" && m["builderSHA256"].as_str().is_none() {
         root.parent().unwrap().to_path_buf()
     } else {
         root.clone()

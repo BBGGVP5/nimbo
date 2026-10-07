@@ -1,12 +1,12 @@
-# New-design audit Р Р†Р вЂљРІР‚Сњ 7 October 2026
+# New-design audit Р В Р вЂ Р В РІР‚С™Р Р†Р вЂљРЎСљ 7 October 2026
 
 ## Active surfaces and migration status
 
 | Platform | Active implementation | Checked scope | Status |
 |---|---|---|---|
 | Desktop | React App routes and native Tauri shell | Home, subscription profiles, settings groups, notifications, tray, routing, modules, applications, connections, statistics/traffic, logs, sync, complete YAML screen | Main and secondary routes use existing Nimbo tokens; responsive automated coverage passes. Advanced YAML prose was still oversized and is now concise, with compatibility details collapsed. |
-| Android | `MainScreen` Р Р†РІР‚В РІР‚в„ў `NimboMiniApp`, dedicated Mihomo profile/proxy screens | Compact ping components, selected-route monitoring, power/cloud transition, shared design/presentation rules | Kotlin compilation, shared tests, Android unit tests and APK build pass. Dedicated utility screens remain platform-specific, not a web-page copy. |
-| iOS | `RootView` Р Р†РІР‚В РІР‚в„ў shared Compose for ordinary tabs; native `ProfilesContainerView` for full Mihomo configs; native settings/import/sync/diagnostics sheets | Shared typography/motion, native full-profile category migration and source/session guards, current source contracts | The native Mihomo list was an actual migration gap. It now uses category tabs and an adaptive card grid. Windows source tests are not a SwiftUI render or device acceptance; macOS build/compiled Foundation tests are required. |
+| Android | `MainScreen` Р В Р вЂ Р Р†Р вЂљР’В Р Р†Р вЂљРІвЂћСћ `NimboMiniApp`, dedicated Mihomo profile/proxy screens | Compact ping components, selected-route monitoring, power/cloud transition, shared design/presentation rules | Kotlin compilation, shared tests, Android unit tests and APK build pass. Dedicated utility screens remain platform-specific, not a web-page copy. |
+| iOS | `RootView` Р В Р вЂ Р Р†Р вЂљР’В Р Р†Р вЂљРІвЂћСћ shared Compose for ordinary tabs; native `ProfilesContainerView` for full Mihomo configs; native settings/import/sync/diagnostics sheets | Shared typography/motion, native full-profile category migration and source/session guards, current source contracts | The native Mihomo list was an actual migration gap. It now uses category tabs and an adaptive card grid. Windows source tests are not a SwiftUI render or device acceptance; macOS build/compiled Foundation tests are required. |
 
 ## Fixed findings
 
@@ -21,7 +21,7 @@
 - Power/cloud layers stay mounted. Coordinated opacity, scale and rotation transitions reverse smoothly and support interruption; loading never changes native VPN state. System reduced motion and saved animation preferences remain authoritative.
 - Android standalone probe DNS no longer tries to resolve bare VPN group routing hints while disconnected; actual DNS transport parameters remain intact. A loopback regression covers the projection without starting a VPN.
 - Android instrumentation sources still used obsolete trailing-lambda call sites after the icon action API gained a final Boolean option. Explicit named `onClick` arguments restore test compilation; production interaction contracts are unchanged.
-- Windows GUI/service build gates could choose an unrelated stale per-platform source snapshot, unlike the installer. All three now use the Windows staging-owned top-level provenance, and their source pin gates agree with the actual rebuilt helper.
+- Windows GUI/service build gates could choose an unrelated stale per-platform source snapshot, unlike the installer. GUI/service now follow the declared builder manifest: top-level provenance for PowerShell Windows staging (as in the installer), per-platform provenance for portable builds. Their source pin gates agree with the actual rebuilt helper.
 
 ## Local verification results
 
@@ -54,3 +54,5 @@ Local custom-installer compilation was not completed because its pre-existing ge
 macOS CI compiled the new category projection/design gate successfully. Its first complete iOS gate then caught an obsolete file-wide assertion against `.disabled(busy || !group.selectable)`: the new sibling selection control correctly needs that guard, while the separate Ping button must not inherit it. The regression now checks both controls separately (including the 44pt ping target), preserving the automatic-group latency invariant. Compiled/native iOS gates are rerun after this correction.
 
 The first remote Linux/Windows Clippy gates also exposed an existing eight-argument Tauri offline-probe command lint. A narrowly documented exception preserves its six named client fields plus two injected framework arguments; no request schema, native admission or cancellation behavior changes. Local workspace Clippy with `-D warnings` now passes (excluding the custom installer, as in CI).
+
+The native Windows CI fixture uses the portable builder, unlike release packaging. Its first post-upgrade run correctly rejected a forced top-level snapshot. The layout rule now follows the verified manifest's portable builder marker, not directory existence: this handles both real build layouts without adopting an unrelated stale snapshot. Local source regression and GUI/service tests are rerun; the remote rerun requires delivery of the follow-up.

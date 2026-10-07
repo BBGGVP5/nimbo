@@ -8,6 +8,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class MihomoRuntimePins(unittest.TestCase):
+    def test_provenance_uses_declared_builder_not_directory_existence(self):
+        for name in ["apps/ui/src-tauri/mihomo_build.rs", "apps/service/build.rs"]:
+            code = (ROOT / name).read_text(encoding="utf-8-sig")
+            self.assertIn('["builderSHA256"].as_str().is_none()', code)
+            self.assertNotIn('join("adapter-source").is_dir()', code)
+        portable = (ROOT / "scripts/ci/build-mihomo-desktop.py").read_text()
+        self.assertIn("builderSHA256=digest(Path(__file__))", portable)
+
     def test_all_active_runtime_and_packaging_gates_agree(self):
         pin = json.loads((ROOT / "tools/native/mihomo-core/pins.json").read_text())
         for name in [

@@ -23,13 +23,6 @@ pub fn prepare() {
         "nimbo-mihomo"
     });
     let manifest = dir.join("build-manifest.json");
-    // Windows staging/installer own top-level provenance. Ignore stale local
-    // per-platform snapshots left by a portable build of another revision.
-    let provenance = if platform == "windows-x64" {
-        Path::new("resources/mihomo").to_path_buf()
-    } else {
-        dir.clone()
-    };
     for p in [&binary, &manifest] {
         println!("cargo:rerun-if-changed={}", p.display());
     }
@@ -47,6 +40,14 @@ pub fn prepare() {
         .unwrap_or(&manifest_bytes);
     let metadata: serde_json::Value =
         serde_json::from_slice(bytes).expect("invalid Mihomo manifest");
+    // The portable builder declares its own per-platform source snapshot.
+    // PowerShell Windows staging owns top-level provenance instead. An old
+    // directory merely existing must never override the current build layout.
+    let provenance = if platform == "windows-x64" && metadata["builderSHA256"].as_str().is_none() {
+        Path::new("resources/mihomo").to_path_buf()
+    } else {
+        dir.clone()
+    };
     if std::env::var("PROFILE").as_deref() == Ok("release") {
         assert!(
             metadata["sourceFiles"]
