@@ -848,6 +848,9 @@ fn offline_probe_profile(
 }
 
 #[tauri::command]
+// AppHandle/State are injected; keep the six named IPC fields compatible with
+// existing clients rather than changing the wire envelope for a lint threshold.
+#[allow(clippy::too_many_arguments)]
 pub async fn mihomo_probe(
     app: AppHandle,
     state: State<'_, AppState>,
