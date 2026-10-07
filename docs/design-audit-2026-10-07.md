@@ -1,12 +1,12 @@
-# New-design audit вЂ” 7 October 2026
+# New-design audit РІР‚вЂќ 7 October 2026
 
 ## Active surfaces and migration status
 
 | Platform | Active implementation | Checked scope | Status |
 |---|---|---|---|
 | Desktop | React App routes and native Tauri shell | Home, subscription profiles, settings groups, notifications, tray, routing, modules, applications, connections, statistics/traffic, logs, sync, complete YAML screen | Main and secondary routes use existing Nimbo tokens; responsive automated coverage passes. Advanced YAML prose was still oversized and is now concise, with compatibility details collapsed. |
-| Android | `MainScreen` в†’ `NimboMiniApp`, dedicated Mihomo profile/proxy screens | Compact ping components, selected-route monitoring, power/cloud transition, shared design/presentation rules | Kotlin compilation, shared tests, Android unit tests and APK build pass. Dedicated utility screens remain platform-specific, not a web-page copy. |
-| iOS | `RootView` в†’ shared Compose for ordinary tabs; native `ProfilesContainerView` for full Mihomo configs; native settings/import/sync/diagnostics sheets | Shared typography/motion, native full-profile category migration and source/session guards, current source contracts | The native Mihomo list was an actual migration gap. It now uses category tabs and an adaptive card grid. Windows source tests are not a SwiftUI render or device acceptance; macOS build/compiled Foundation tests are required. |
+| Android | `MainScreen` РІвЂ вЂ™ `NimboMiniApp`, dedicated Mihomo profile/proxy screens | Compact ping components, selected-route monitoring, power/cloud transition, shared design/presentation rules | Kotlin compilation, shared tests, Android unit tests and APK build pass. Dedicated utility screens remain platform-specific, not a web-page copy. |
+| iOS | `RootView` РІвЂ вЂ™ shared Compose for ordinary tabs; native `ProfilesContainerView` for full Mihomo configs; native settings/import/sync/diagnostics sheets | Shared typography/motion, native full-profile category migration and source/session guards, current source contracts | The native Mihomo list was an actual migration gap. It now uses category tabs and an adaptive card grid. Windows source tests are not a SwiftUI render or device acceptance; macOS build/compiled Foundation tests are required. |
 
 ## Fixed findings
 
@@ -50,3 +50,5 @@ Reviewed directly against upstream release/tag APIs on 7 October 2026:
 See the ignored delivery receipts for exact commit, test counts, native artifact identities and CI URLs. A queued/running artifact build is not a completed release or installation.
 
 Local custom-installer compilation was not completed because its pre-existing generated Windows AWG payload is absent in this checkout. The release workflow rebuilds the matching AWG and source-verifies/stages Mihomo before packaging; source pin guards passing is not a full installer acceptance claim.
+
+macOS CI compiled the new category projection/design gate successfully. Its first complete iOS gate then caught an obsolete file-wide assertion against `.disabled(busy || !group.selectable)`: the new sibling selection control correctly needs that guard, while the separate Ping button must not inherit it. The regression now checks both controls separately (including the 44pt ping target), preserving the automatic-group latency invariant. Compiled/native iOS gates are rerun after this correction.

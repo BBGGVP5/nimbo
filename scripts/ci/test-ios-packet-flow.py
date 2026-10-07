@@ -128,7 +128,17 @@ class PacketFlowContracts(unittest.TestCase):
         card = source("iosApp/Nimbo/NimboMihomoProfileCard.swift")
         self.assertNotIn("composePresentation", card) # private in RootView, inaccessible here
         self.assertIn("NimboMihomoPingCache", card)
-        self.assertNotIn(".disabled(busy || !group.selectable)", card)
+        # Automatic groups are read-only for selection, not for latency.
+        # The redesign uses sibling buttons instead of disabling a container;
+        # binding this invariant to the entire file falsely bans the valid
+        # selection guard while failing to prove the ping target is independent.
+        members = card.split("private func memberCard(", 1)[1].split("@MainActor private func invalidatePing", 1)[0]
+        selection, ping = members.split("Button { ping([member]) } label:", 1)
+        self.assertIn(".disabled(busy || !group.selectable)", selection)
+        self.assertNotIn("group.selectable", ping)
+        self.assertIn(".disabled(busy || pingTask != nil || vpn.state != .connected)", ping)
+        self.assertIn(".frame(minWidth: 44, minHeight: 44)", ping)
+        self.assertIn('.accessibilityLabel("Пинг:', ping)
         control = source("iosApp/Nimbo/NimboMihomoControl.swift")
         self.assertIn('"cancelMihomoProbe"', control)
         self.assertIn('request["requestID"] = requestID', control)
