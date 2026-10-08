@@ -31,4 +31,7 @@ for relative in ["README.md", "docs/releases/1.3.0-beta.1.md", "docs/previews/RE
         assert int(re.search(r'width="(\d+)"', attributes).group(1)) <= 300, relative
 for relative in ["README.md", "docs/releases/1.3.0-beta.1.md"]:
     assert "src-tauri/icons/icon.png" in (ROOT / relative).read_text(encoding="utf-8")
+for relative in ["CHANGELOG_NIMBO.md", "docs/releases/1.3.0-beta.1.md"]:
+    core_notes = (ROOT / relative).read_text(encoding="utf-8")
+    assert "Переработка VPN-ядра Nimbo" in core_notes and "с нуля" in core_notes, relative
 print("PASS: 14 preview hashes/sizes, six compact linked screens, logo-only GitHub presentation and provenance")
