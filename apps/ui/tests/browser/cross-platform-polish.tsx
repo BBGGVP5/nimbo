@@ -34,6 +34,13 @@ const server = {id:'test-fi',name:'Финляндия',protocol:{kind:'vless',ad
 const sub: Subscription = {url:'https://fixture.invalid/sub',name:'Провайдер',servers:[server],info:{upload:1024,download:4096,total:1048576,expire:0},fetched_at:1,meta:{description:'Описание подписки: доступные локации и новости провайдера.',mihomo_profile_id:'yaml-fixture'}};
 if(params.has('long')) sub.meta!.description='  Новости провайдера\n\n  Новая локация <script>literal</script>.\n'+('Длинное объявление провайдера.\n').repeat(16)+'  ';
 if(params.has('announcement')) sub.meta!.description='🛡️ Провайдер\n📅 Срок: бессрочно\n📊 Использовано: 12 GiB\n🆔 2 · профиль теста\nПомощь: @provider_support';
+if(params.has('releasePreview')) {
+ sub.name='Моя подписка';
+ sub.servers=['Финляндия','Германия','Нидерланды'].map((name,index)=>({...server,id:index===0?server.id:`demo-${index}`,name}));
+ sub.info={upload:0,download:12*1024**3,total:100*1024**3,expire:0};
+ sub.fetched_at=Date.UTC(2026,9,8,8,0)/1000;
+ sub.meta!.description='🇫🇮 Финляндия · 🇩🇪 Германия · 🇳🇱 Нидерланды\nДоступные локации и обновления профиля.';
+}
 const announcementFixture=window as unknown as {fixtureDescription:string;setFixtureDescription:(description:string)=>void};
 announcementFixture.fixtureDescription=sub.meta!.description!;
 announcementFixture.setFixtureDescription=description=>{

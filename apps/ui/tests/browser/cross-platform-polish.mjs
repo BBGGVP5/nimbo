@@ -54,6 +54,25 @@ async function pageFor(viewport,query='') {
  return {page,errors};
 }
 try {
+ if(process.argv.includes('--release-previews')) {
+  assert(artifacts,'NIMBO_LAYOUT_ARTIFACT_DIR is required for release previews');
+  for(const [name,query] of [['desktop-home','releasePreview=1'],['desktop-mihomo','mode=profiles&mihomo=1&cards=1&releasePreview=1']]) {
+   const {page,errors}=await pageFor({width:1600,height:1000},query);
+   await page.locator('.signal-profile').waitFor();
+   await page.evaluate(()=>window.setFixtureDescription('🇫🇮 Финляндия · 🇩🇪 Германия · 🇳🇱 Нидерланды\nДоступные локации и обновления профиля.'));
+   await page.evaluate(()=>document.fonts.ready);
+   if(name==='desktop-mihomo') {
+    await page.getByRole('tab').first().waitFor();
+    await page.locator('.core-proxy-ping-all').click();
+    await page.waitForFunction(()=>document.querySelectorAll('.core-proxy-card-latency[data-state="success"]').length===8);
+   }
+   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+   assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>window.unexpectedCalls),[]);
+   // The sidebar fixture intentionally uses placeholder glyphs: capture only real production pages.
+   await page.locator('.app-main').screenshot({path:resolve(artifacts,`${name}.png`)});
+   await page.close();
+  }
+ }
  for(const reduced of [false,true])for(const savedOff of [false,true]){
   const {page,errors}=await pageFor({width:360,height:760},'mode=motion'+(savedOff?'&motionOff=1':''));
   await page.emulateMedia({reducedMotion:reduced?'reduce':'no-preference'});
