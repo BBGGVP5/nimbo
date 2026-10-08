@@ -8,6 +8,13 @@
 .phone-screen{position:relative}.phone-screen:after{content:'';position:absolute;bottom:8px;left:36%;width:28%;height:3px;background:#ddd;border-radius:3px}.ios-nav{position:absolute;left:9px;right:9px;bottom:26px;display:flex;padding:4px;background:#29292ce8;border:1px solid #414145;border-radius:26px;backdrop-filter:blur(10px)}.ios-nav span{display:flex;flex:1;min-width:0;flex-direction:column;align-items:center;gap:4px;padding:8px 2px;color:#aaa;font:500 7px 'Golos Text',sans-serif}.ios-nav .active{background:#414144;border-radius:23px;color:#eee}.ios-nav svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 </style>
 <style>
+/* Modern 16:9 display; screenshots are rerendered at that ratio, never stretched. */
+.monitor-bezel{border-radius:14px;padding:7px 7px 9px;background:linear-gradient(135deg,#424247,#17171a 24%,#0a0a0c 76%,#35353a);box-shadow:0 23px 60px #0009,inset 0 0 0 1px #6668}
+.monitor img{border-radius:7px}.monitor-chin{height:4px}.monitor-chin i{width:2px;height:2px;margin-top:2px;background:#535358}
+.stand{width:62px;height:100px;background:linear-gradient(90deg,#25252a,#73737c 42%,#383840);clip-path:polygon(32% 0,68% 0,88% 100%,12% 100%)}
+.base{width:220px;height:9px;border-radius:45% 45% 5px 5px;background:linear-gradient(#76767e,#3a3a40 50%,#202024);box-shadow:0 8px 18px #0008}
+</style>
+<style>
 .phone-screen{overflow:hidden;border-radius:34px;background:#111}.phone .phone-screen img{border-radius:0 0 33px 33px}.statusbar{height:38px;display:flex;align-items:center;justify-content:space-between;padding:7px 11px 3px;background:#111;font:600 11px Manrope,sans-serif;color:#eee}.status-time{width:45px}.status-pill{display:flex;align-items:center;justify-content:center;gap:4px;border:1px solid #303035;border-radius:18px;background:#050506;width:92px;height:24px;font:700 8px 'Golos Text',sans-serif;letter-spacing:.8px}.statusbar .status-pill img{width:15px;height:15px;border-radius:4px}.status-icons{display:flex;align-items:center;gap:4px}.status-icons svg{width:14px;height:12px}.status-battery{height:9px;width:18px;border:1px solid #eee;border-radius:3px;position:relative;padding:1px}.status-battery:after{content:'';position:absolute;right:-3px;top:2px;width:2px;height:3px;background:#ddd;border-radius:1px}.status-battery i{display:block;height:5px;border-radius:1px;background:#eee}
 </style>
 <main class="stage"><header><img src="../../apps/ui/src-tauri/icons/icon.png" alt=""><strong>nimbo</strong></header><div class="devices">

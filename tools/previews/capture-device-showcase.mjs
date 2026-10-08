@@ -14,6 +14,7 @@ try {
   const url=pathToFileURL(resolve(root,'docs/previews/device-showcase.html'));url.searchParams.set('view',view);
   await page.goto(url.href);await page.evaluate(()=>document.fonts.ready);
   assert(await page.evaluate(()=>[...document.images].every(i=>i.complete&&i.naturalWidth>0)),'Missing preview image');
+  assert(await page.locator('#desktop').evaluate(i=>Math.abs(i.naturalWidth/i.naturalHeight-16/9)<0.001),'Desktop screen must be rendered at 16:9');
   assert(await page.evaluate(()=>[...document.querySelectorAll('.device')].every(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight;})),'Device clipped');
   assert.deepEqual(errors,[]);
   if(separate) {

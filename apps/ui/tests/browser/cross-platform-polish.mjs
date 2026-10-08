@@ -57,7 +57,7 @@ try {
  if(process.argv.includes('--release-previews')) {
   assert(artifacts,'NIMBO_LAYOUT_ARTIFACT_DIR is required for release previews');
   for(const [name,query] of [['desktop-home','releasePreview=1'],['desktop-mihomo','mode=profiles&mihomo=1&cards=1&releasePreview=1']]) {
-   const {page,errors}=await pageFor({width:1600,height:1000},query);
+   const {page,errors}=await pageFor({width:1820,height:900},query);
    await page.locator('.signal-profile').waitFor();
    await page.evaluate(()=>window.setFixtureDescription('🇫🇮 Финляндия · 🇩🇪 Германия · 🇳🇱 Нидерланды\nДоступные локации и обновления профиля.'));
    await page.evaluate(()=>document.fonts.ready);
