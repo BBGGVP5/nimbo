@@ -17,6 +17,7 @@
 - Selected second poster SHA-256: `85ed79cc62530a23181d664bef239ec7ab85fd8531c6e4aa6b83ccc9e9ee191c`. Multipart rich media upload avoided republishing the poster in GitHub.
 - Fourteen unique platform download links validated against published assets; HTTP HEAD succeeded. APK/IPA/Windows/Linux options and relevant beta limitations are included.
 - Nine animated custom emoji IDs verified with `getCustomEmojiStickers`; five buttons retain custom-emoji icons. Telegram returned the color/style fields in the message.
+- Following the user's table feedback, the same Rich message body was edited in place: two download-table headings and all five platform rows now contain custom-emoji entities. Telegram returned exactly seven custom-emoji entities in the table; the photo and colored keyboard were retained.
 - Following the user's color feedback, the existing message keyboard was edited in place: main download and Android green, iPhone and Linux red, Windows blue. No duplicate post and no previous announcement deletion.
 - No paid broadcast, token/keystore disclosure, or change to the bot's configuration.
 

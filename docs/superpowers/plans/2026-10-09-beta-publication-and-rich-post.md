@@ -17,4 +17,4 @@
 
 ## Results
 
-GitHub prerelease published with 28 unchanged/verified assets and tag a1a16fa. Existing prior bot configuration and exact human topic link verified; no credentials printed or persisted in Git. `sendRichMessage` returned message 16052 in topic 6135 with photo, rich blocks, colored buttons and custom-emoji IDs. Keyboard adjusted in place to two green, two red and one blue button after user feedback. No paid broadcast, new topic, old post deletion, duplicate send, PR merge or physical-device acceptance claim.
+GitHub prerelease published with 28 unchanged/verified assets and tag a1a16fa. Existing prior bot configuration and exact human topic link verified; no credentials printed or persisted in Git. `sendRichMessage` returned message 16052 in topic 6135 with photo, rich blocks, colored buttons and custom-emoji IDs. Keyboard adjusted in place to two green, two red and one blue button after user feedback. Table updated in place with seven custom-emoji entities (two headings/five platforms), retaining photo and keyboard. No paid broadcast, new topic, old post deletion, duplicate send, PR merge or physical-device acceptance claim.
