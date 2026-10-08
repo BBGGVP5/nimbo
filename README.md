@@ -26,6 +26,26 @@
 
 [Галерея: главная, профили и настройки](./docs/previews/README.md) · [Постер для релизов](./docs/poster/README.md)
 
+#### Desktop — главная
+
+<img src="./docs/previews/1.3.0-beta.1/desktop-home-device.png" width="960" alt="Desktop — главная" />
+
+#### Desktop — группы Mihomo
+
+<img src="./docs/previews/1.3.0-beta.1/desktop-mihomo-device.png" width="960" alt="Desktop — группы Mihomo" />
+
+#### Android
+
+| Главная | Настройки |
+|---|---|
+| <img src="./docs/previews/1.3.0-beta.1/android-home-device.png" width="360" alt="Android — главная" /> | <img src="./docs/previews/1.3.0-beta.1/android-settings-device.png" width="360" alt="Android — настройки" /> |
+
+#### iOS
+
+| Главная | Настройки |
+|---|---|
+| <img src="./docs/previews/1.3.0-beta.1/ios-home-device.png" width="360" alt="iOS — главная" /> | <img src="./docs/previews/1.3.0-beta.1/ios-settings-device.png" width="360" alt="iOS — настройки" /> |
+
 Nimbo импортирует подписки с `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `naive+https://` и `naive+quic://`, показывает серверы, измеряет задержку и создаёт конфигурацию подключения. Для NaiveProxy Nimbo запускает официальный нативный клиент как локальный SOCKS-компонент. Интерфейс написан на React, desktop-оболочка и системная логика — на Tauri/Rust.
 
 Возможности текущей desktop-версии:
