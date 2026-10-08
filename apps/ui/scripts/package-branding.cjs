@@ -9,8 +9,11 @@ async function main(){
  const cloudPath=fs.readFileSync(path.join(source,'cloud.svg'),'utf8').match(/ d="([^"]+)"/)[1];
  const component=path.join(root,'apps/ui/src/components/ConnectionStateIcon.tsx');
  const componentSource=fs.readFileSync(component,'utf8');
- if(!/<path d="M\d+ [^\"]+" \/>/.test(componentSource))throw Error('Missing connection cloud path');
- fs.writeFileSync(component,componentSource.replace('viewBox="160 152 704 704"','viewBox="160 160 704 704"').replace(/(<path d=")M\d+ [^\"]+" \/>/,`$1${cloudPath}" />`));
+ const cloudLayer=/(<svg\b[^>]*className="[^"]*\bconnection-state-cloud\b[^"]*"[^>]*>\s*<path\s+d=")[^"]+("\s*\/>)/;
+ if(!cloudLayer.test(componentSource))throw Error('Missing named connection cloud layer');
+ // Persistent power/cloud layers now coexist. Never replace the first path:
+ // that is the power glyph, not the cloud, and JSX spacing is not significant.
+ fs.writeFileSync(component,componentSource.replace(cloudLayer,(_,prefix,suffix)=>prefix+cloudPath+suffix));
  const master=path.join(source,'app-icon-master.png');
  for(const name of fs.readdirSync(icons).filter(n=>n.endsWith('.png')&&n!=='tray.png')){
   const dst=path.join(icons,name), meta=await sharp(dst).metadata();
@@ -42,6 +45,9 @@ async function main(){
   }
   fs.writeFileSync(path.join(root,'apps/ui/src-tauri/windows',name),bmp);
  }
+ // The general pass uses the opaque Apple master. Windows taskbar/installer
+ // artwork must be restored LAST from its approved rounded vector variant.
+ require('node:child_process').execFileSync(process.execPath,[path.join(root,'scripts/package-windows-icons.cjs')],{stdio:'inherit'});
  console.log('Desktop PNG/ICO/ICNS/tray/UI and NSIS bitmaps packaged');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

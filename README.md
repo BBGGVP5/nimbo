@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./nimbo.png" width="96" alt="Логотип Nimbo" />
+  <img src="./apps/ui/src-tauri/icons/icon.png" width="104" height="104" alt="Новая закруглённая иконка Nimbo" />
 </p>
 
 <h1 align="center">Nimbo</h1>
@@ -13,6 +13,10 @@
 </p>
 
 ## О проекте
+
+### Готовится Nimbo 1.3.0 Beta 1
+
+Новый дизайн, полные YAML-профили и группы Mihomo, AmneziaWG 3.1 и новая закруглённая иконка. [Изменения для пользователей и ограничения беты](./docs/releases/1.3.0-beta.1.md).
 
 Nimbo импортирует подписки с `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `naive+https://` и `naive+quic://`, показывает серверы, измеряет задержку и создаёт конфигурацию подключения. Для NaiveProxy Nimbo запускает официальный нативный клиент как локальный SOCKS-компонент. Интерфейс написан на React, desktop-оболочка и системная логика — на Tauri/Rust.
 

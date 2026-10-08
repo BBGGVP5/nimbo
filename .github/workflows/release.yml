@@ -44,7 +44,10 @@ jobs:
       - name: Проверить версии выпуска
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
-        run: python tools/release/check-versions.py
+        run: |
+          python tools/release/check-versions.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/release/test_stage_github_release.py
 
       - name: Установить Go для AmneziaWG
         uses: actions/setup-go@v5
@@ -246,18 +249,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            if [[ "$TAG" =~ -(alpha|beta|rc)(\.|-)?[0-9]*$ ]]; then
-              gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --prerelease --generate-notes
-            else
-              gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --generate-notes
-            fi
-          fi
-          while IFS= read -r -d '' file; do
-            hash="$(sha256sum "$file" | awk '{print $1}')"
-            printf '%s  %s\n' "$hash" "$(basename "$file")" > "${file}.sha256"
-          done < <(find release-assets -type f ! -name '*.sha256' -print0)
-          find release-assets -type f -print0 | xargs -0 gh release upload "$TAG" -R "$GITHUB_REPOSITORY"
+        run: python tools/release/stage_github_release.py --assets release-assets
