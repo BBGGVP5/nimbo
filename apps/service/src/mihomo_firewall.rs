@@ -178,6 +178,15 @@ fn port(field: GUID, value: u16) -> FWPM_FILTER_CONDITION0 {
     c.conditionValue.Anonymous.uint16 = value;
     c
 }
+fn tun_interface_condition(luid: &mut u64) -> FWPM_FILTER_CONDITION0 {
+    // ALE's local interface belongs to the chosen source address, not necessarily
+    // the routed egress. Re-entry/source selection can differ after adapter
+    // retirement. Permit only the exact current TUN's routed next hop; a socket
+    // forced onto a physical interface must still hit the persistent block.
+    let mut c = condition(FWPM_CONDITION_IP_NEXTHOP_INTERFACE, FWP_UINT64);
+    c.conditionValue.Anonymous.uint64 = luid;
+    c
+}
 fn load() -> Result<Option<Journal>, String> {
     let p = path()?;
     match fs::symlink_metadata(&p) {
@@ -347,9 +356,12 @@ impl Firewall {
         )?;
         self.engine.transaction(|| {
             for family in 0..2 {
-                let mut c = condition(FWPM_CONDITION_IP_LOCAL_INTERFACE, FWP_UINT64);
-                c.conditionValue.Anonymous.uint64 = &mut value;
-                self.engine.add(&self.journal, family, 4, &mut [c])?;
+                self.engine.add(
+                    &self.journal,
+                    family,
+                    4,
+                    &mut [tun_interface_condition(&mut value)],
+                )?;
             }
             Ok(())
         })
@@ -439,6 +451,20 @@ pub(crate) fn release_for_uninstall() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tun_permit_matches_routed_interface_not_source_address_interface() {
+        let mut luid = 0x0006_0000_0000_0123;
+        let c = tun_interface_condition(&mut luid);
+        let key = |g: GUID| (g.data1, g.data2, g.data3, g.data4);
+        assert_eq!(key(c.fieldKey), key(FWPM_CONDITION_IP_NEXTHOP_INTERFACE));
+        assert_ne!(key(c.fieldKey), key(FWPM_CONDITION_IP_LOCAL_INTERFACE));
+        assert_eq!(c.matchType, FWP_MATCH_EQUAL);
+        assert_eq!(c.conditionValue.r#type, FWP_UINT64);
+        assert_eq!(unsafe { *c.conditionValue.Anonymous.uint64 }, luid);
+        // The permit is ephemeral: never retain a recycled TUN LUID at reboot.
+        assert_eq!(filter_flags(4), 0);
+    }
     #[test]
     fn reboot_policy_does_not_persist_process_or_recycled_luid_permits() {
         assert_eq!(filter_flags(0), FWPM_FILTER_FLAG_PERSISTENT);

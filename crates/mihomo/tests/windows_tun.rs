@@ -11,8 +11,11 @@ use std::{
     time::Duration,
 };
 fn tcp(address: &str) -> Vec<u8> {
-    let mut stream =
-        TcpStream::connect_timeout(&address.parse().unwrap(), Duration::from_secs(3)).unwrap();
+    let mut stream = TcpStream::connect_timeout(&address.parse().unwrap(), Duration::from_secs(3))
+        .unwrap_or_else(|error| {
+            eprintln!("Native TCP connect failed for public fixture {address}: {error}");
+            panic!("native routed TCP handshake failed; preserve Kill Switch and inspect VM diagnostics")
+        });
     stream
         .set_read_timeout(Some(Duration::from_secs(3)))
         .unwrap();
@@ -279,6 +282,17 @@ fn assert_registered_reboot_policy() {
                     0,
                     "saved block must remain enabled"
                 );
+                if role == 4 {
+                    assert_eq!((*f).numFilterConditions, 1);
+                    let condition = &*(*f).filterCondition;
+                    let key = |g: GUID| (g.data1, g.data2, g.data3, g.data4);
+                    assert_eq!(
+                        key(condition.fieldKey),
+                        key(FWPM_CONDITION_IP_NEXTHOP_INTERFACE)
+                    );
+                    assert_eq!(condition.matchType, FWP_MATCH_EQUAL);
+                    assert_eq!(condition.conditionValue.r#type, FWP_UINT64);
+                }
                 FwpmFreeMemory0((&mut f as *mut *mut FWPM_FILTER0).cast());
             }
         }
@@ -315,7 +329,9 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
         assert!(session.info.tun_ready && session.is_running());
         assert_registered_reboot_policy();
         let mixed = nimbo_mihomo::wire::loopback_address(&session.info.mixed_address).unwrap();
+        eprintln!("Both/WFP case {failure}: routed TCP4");
         assert!(tcp("198.18.0.10:18080").ends_with(b"nimbo-windows-tun"));
+        eprintln!("Both/WFP case {failure}: routed TCP6");
         assert!(tcp("[2001:db8::10]:18080").ends_with(b"nimbo-windows-tun"));
         // Apply/restore the actual GUI's per-user proxy and ownership check.
         let saved_proxy = owned_proxy::snapshot().unwrap();

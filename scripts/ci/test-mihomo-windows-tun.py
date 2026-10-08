@@ -184,8 +184,28 @@ rules: ["MATCH,FixtureChoice"]
             subprocess.run([str(staged), '--install'], check=True, timeout=45)
             installed = True
             environment.update(NIMBO_TEST_MIHOMO_BINARY=str(binary), NIMBO_TEST_MIHOMO_SHA256=manifest['sha256'], NIMBO_TEST_TUN_SOURCE=str(source), NIMBO_TEST_PHYSICAL_INDEX=physical_index, NIMBO_TEST_BYPASS_TARGET=target, NIMBO_TEST_PHYSICAL_DNS=physical_dns)
-            subprocess.run([str(driver), '--ignored', '--test-threads=1', '--nocapture'], env=environment, check=True, timeout=240)
+            # Isolate plain TUN before crash-retained protection. Otherwise an
+            # earlier Both failure produces a misleading second failure in TUN
+            # preflight (RESET_REQUIRED). Every original acceptance case stays
+            # mandatory; emergency reset is only the explicit finally cleanup.
+            for case in ('actual_windows_broker_session_tcp_udp_dns_selection_and_cleanup',
+                         'actual_both_kill_switch_denies_physical_bypass_and_survives_native_death'):
+                print('Mandatory Windows gate: ' + case, flush=True)
+                subprocess.run([str(driver), '--ignored', '--exact', case, '--test-threads=1', '--nocapture'],
+                               env=environment, check=True, timeout=240)
             assert fixture.tcp_count >= 6 and fixture.udp_count >= 2 and fixture.dns_count >= 1, 'native fixture traffic absent'
+        except BaseException:
+            # This entry is guarded at main() by BOTH explicit disposable-VM
+            # flags. Public fixture/network metadata only, never config/keys.
+            try:
+                print('DISPOSABLE VM network state before explicit cleanup: ' + ps(
+                    "[ordered]@{adapters=@(Get-NetAdapter -IncludeHidden | Select-Object Name,ifIndex,Status); "
+                    "addresses=@(Get-NetIPAddress | Select-Object InterfaceAlias,IPAddress,AddressState); "
+                    "routes=@(Get-NetRoute | Where-Object {$_.InterfaceAlias -eq 'nimbo-mh0'} | "
+                    "Select-Object DestinationPrefix,InterfaceIndex,NextHop,RouteMetric)} | ConvertTo-Json -Compress -Depth 5"), flush=True)
+            except Exception as diagnostic_error:
+                print('VM diagnostic read failed: ' + type(diagnostic_error).__name__, flush=True)
+            raise
         finally:
             reset = None
             try:
