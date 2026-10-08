@@ -18,33 +18,14 @@
 
 Новый дизайн, полные YAML-профили и группы Mihomo, AmneziaWG 3.1, блокировка рекламных доменов, обновлённая статистика трафика и новая закруглённая иконка. [Изменения для пользователей и ограничения беты](./docs/releases/1.3.0-beta.1.md).
 
-![Nimbo — новое оформление](./docs/poster/nimbo-poster-orbit-2026.png)
-
 ### Новый дизайн на desktop, Android и iOS
 
-![Nimbo — главная на разных платформах](./docs/previews/1.3.0-beta.1/devices-home.png)
+| Desktop · Windows / Linux | Android | iOS |
+|---|---|---|
+| <a href="./docs/previews/1.3.0-beta.1/desktop-home-device.png"><img src="./docs/previews/1.3.0-beta.1/desktop-home-device.png" width="300" alt="Desktop — Главная" /></a> | <a href="./docs/previews/1.3.0-beta.1/android-home-device.png"><img src="./docs/previews/1.3.0-beta.1/android-home-device.png" width="180" alt="Android — Главная" /></a> | <a href="./docs/previews/1.3.0-beta.1/ios-home-device.png"><img src="./docs/previews/1.3.0-beta.1/ios-home-device.png" width="180" alt="iOS — Главная" /></a> |
+| <a href="./docs/previews/1.3.0-beta.1/desktop-mihomo-device.png"><img src="./docs/previews/1.3.0-beta.1/desktop-mihomo-device.png" width="300" alt="Desktop — Профили / настройки" /></a> | <a href="./docs/previews/1.3.0-beta.1/android-settings-device.png"><img src="./docs/previews/1.3.0-beta.1/android-settings-device.png" width="180" alt="Android — Профили / настройки" /></a> | <a href="./docs/previews/1.3.0-beta.1/ios-settings-device.png"><img src="./docs/previews/1.3.0-beta.1/ios-settings-device.png" width="180" alt="iOS — Профили / настройки" /></a> |
 
-[Галерея: главная, профили и настройки](./docs/previews/README.md) · [Постер для релизов](./docs/poster/README.md)
-
-#### Desktop — главная
-
-<img src="./docs/previews/1.3.0-beta.1/desktop-home-device.png" width="960" alt="Desktop — главная" />
-
-#### Desktop — группы Mihomo
-
-<img src="./docs/previews/1.3.0-beta.1/desktop-mihomo-device.png" width="960" alt="Desktop — группы Mihomo" />
-
-#### Android
-
-| Главная | Настройки |
-|---|---|
-| <img src="./docs/previews/1.3.0-beta.1/android-home-device.png" width="360" alt="Android — главная" /> | <img src="./docs/previews/1.3.0-beta.1/android-settings-device.png" width="360" alt="Android — настройки" /> |
-
-#### iOS
-
-| Главная | Настройки |
-|---|---|
-| <img src="./docs/previews/1.3.0-beta.1/ios-home-device.png" width="360" alt="iOS — главная" /> | <img src="./docs/previews/1.3.0-beta.1/ios-settings-device.png" width="360" alt="iOS — настройки" /> |
+Нажмите на экран, чтобы открыть крупное изображение. [Полная галерея](./docs/previews/README.md).
 
 Nimbo импортирует подписки с `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `naive+https://` и `naive+quic://`, показывает серверы, измеряет задержку и создаёт конфигурацию подключения. Для NaiveProxy Nimbo запускает официальный нативный клиент как локальный SOCKS-компонент. Интерфейс написан на React, desktop-оболочка и системная логика — на Tauri/Rust.
 

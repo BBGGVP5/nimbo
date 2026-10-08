@@ -1,36 +1,13 @@
 # Новый дизайн Nimbo
 
-## Главная
+| Desktop · Windows / Linux | Android | iOS |
+|---|---|---|
+| <a href="./1.3.0-beta.1/desktop-home-device.png"><img src="./1.3.0-beta.1/desktop-home-device.png" width="300" alt="Desktop — Главная" /></a> | <a href="./1.3.0-beta.1/android-home-device.png"><img src="./1.3.0-beta.1/android-home-device.png" width="180" alt="Android — Главная" /></a> | <a href="./1.3.0-beta.1/ios-home-device.png"><img src="./1.3.0-beta.1/ios-home-device.png" width="180" alt="iOS — Главная" /></a> |
+| <a href="./1.3.0-beta.1/desktop-mihomo-device.png"><img src="./1.3.0-beta.1/desktop-mihomo-device.png" width="300" alt="Desktop — Профили / настройки" /></a> | <a href="./1.3.0-beta.1/android-settings-device.png"><img src="./1.3.0-beta.1/android-settings-device.png" width="180" alt="Android — Профили / настройки" /></a> | <a href="./1.3.0-beta.1/ios-settings-device.png"><img src="./1.3.0-beta.1/ios-settings-device.png" width="180" alt="iOS — Профили / настройки" /></a> |
 
-![Nimbo — desktop, Android и iOS](./1.3.0-beta.1/devices-home.png)
+Нажмите на экран для просмотра в полном размере.
 
-## Профили и настройки
-
-![Nimbo — группы Mihomo и настройки телефонов](./1.3.0-beta.1/devices-settings.png)
-
-## Desktop
-
-### Главная
-
-<img src="./1.3.0-beta.1/desktop-home-device.png" width="960" alt="Desktop — главная" />
-
-### Группы Mihomo
-
-<img src="./1.3.0-beta.1/desktop-mihomo-device.png" width="960" alt="Desktop — группы Mihomo" />
-
-## Android
-
-| Главная | Настройки |
-|---|---|
-| <img src="./1.3.0-beta.1/android-home-device.png" width="360" alt="Android — главная" /> | <img src="./1.3.0-beta.1/android-settings-device.png" width="360" alt="Android — настройки" /> |
-
-## iOS
-
-| Главная | Настройки |
-|---|---|
-| <img src="./1.3.0-beta.1/ios-home-device.png" width="360" alt="iOS — главная" /> | <img src="./1.3.0-beta.1/ios-settings-device.png" width="360" alt="iOS — настройки" /> |
-
-[PNG — главная в устройствах](./1.3.0-beta.1/devices-home.png) · [PNG — настройки в устройствах](./1.3.0-beta.1/devices-settings.png) · [Постер для релизов](../poster/README.md)
+[Все устройства рядом — главная](./1.3.0-beta.1/devices-home.png) · [Профили и настройки](./1.3.0-beta.1/devices-settings.png)
 
 Это превью дизайна. Значения и системное оформление в конкретной ОС могут отличаться; галерея не является проверкой подключения или задержки.
 
