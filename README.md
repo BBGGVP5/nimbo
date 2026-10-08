@@ -14,9 +14,9 @@
 
 ## О проекте
 
-### Готовится Nimbo 1.3.0 Beta 1
+### Nimbo 1.3.0 Beta 1
 
-Новый дизайн, переработанная работа VPN-ядра Nimbo, полные YAML-профили и группы Mihomo, AmneziaWG 3.1, блокировка рекламных доменов, обновлённая статистика трафика и новая закруглённая иконка. [Изменения для пользователей и ограничения беты](./docs/releases/1.3.0-beta.1.md).
+Новый дизайн, переработанная работа VPN-ядра Nimbo, полные YAML-профили и группы Mihomo, AmneziaWG 3.1, блокировка рекламных доменов, обновлённая статистика трафика и новая закруглённая иконка. [Скачать бету](https://github.com/BBGGVP5/nimbo/releases/tag/v1.3.0-beta.1) · [Изменения и ограничения](./docs/releases/1.3.0-beta.1.md).
 
 ### Новый дизайн на desktop, Android и iOS
 
@@ -44,7 +44,7 @@ Nimbo импортирует подписки с `vless://`, `vmess://`, `trojan
 | Windows 10/11 x64 | Основная | NSIS setup (`.exe`) |
 | Linux x64 | Экспериментальная | AppImage, DEB, RPM |
 | Linux arm64 | Поддержан Xray runtime; пакет нужно собирать на arm64 Linux | AppImage/DEB/RPM при нативной сборке |
-| Android | Актуальный клиент в `app/` | APK после сборки native AAR |
+| Android | Актуальный клиент в `app/` | APK: ARM64, ARMv7, Universal |
 | iOS/iPadOS | Исходники и переподписываемая IPA через GitHub Actions | IPA (нужна подпись и разрешение Network Extension) |
 
 Нативный Mihomo packet-flow backend включён в iOS-сборку; успешная сборка IPA и превью дизайна не заменяют проверку VPN-туннеля на физическом устройстве. Такая проверка для этой беты ещё не подтверждена.
