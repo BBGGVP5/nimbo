@@ -37,6 +37,10 @@ trap 'rm -f "${PROJECT_SPEC}"; [[ -z "${PACKAGE_DIR}" ]] || rm -rf "${PACKAGE_DI
 cp "${ROOT_DIR}/iosApp/project.yml" "${PROJECT_SPEC}"
 rm -rf "${DERIVED_DATA}" "${ROOT_DIR}/iosApp/Nimbo.xcodeproj"
 
+# Fail native ABI/TLS/Swift link checks before the expensive Kotlin release link.
+chmod +x "${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
+"${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
+
 chmod +x ./gradlew
 # Kotlin/Native release LTO runs inside Gradle's JVM. The Android-oriented 2 GiB
 # project default exhausted its heap in DevirtualizationAnalysis on macOS CI.
@@ -45,9 +49,6 @@ echo 'iOS Kotlin/Native release link: Gradle heap=6 GiB, workers=1'
 ./gradlew --no-daemon --max-workers=1 \
   '-Dorg.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -XX:+HeapDumpOnOutOfMemoryError' \
   -PnimboIosOnly=true :shared:linkReleaseFrameworkIosArm64
-
-chmod +x "${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
-"${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
 
 PACKET_TUNNEL_RESOURCES="${ROOT_DIR}/iosApp/build/PacketTunnelResources"
 if [[ -d "${ROOT_DIR}/app/src/main/assets" ]]; then
