@@ -18,7 +18,7 @@ import Foundation
   let dns = (result["outbounds"] as! [[String:Any]]).last!
   precondition((dns["settings"] as! [String:Any])["rewriteNetwork"] as! String == "tcp")
   precondition((dns["settings"] as! [String:Any])["rewriteAddress"] as! String == "9.9.9.9")
-  precondition((dns["proxySettings"] as! [String:String])["tag"] == "proxy")
+  precondition(((dns["streamSettings"] as! [String:Any])["sockopt"] as! [String:String])["dialerProxy"] == "proxy")
   let rules = (result["routing"] as! [String:Any])["rules"] as! [[String:Any]]
   precondition(rules.count == 3 && rules.last!["outboundTag"] as! String == "direct")
   precondition(rules[0]["outboundTag"] as! String == "proxy")

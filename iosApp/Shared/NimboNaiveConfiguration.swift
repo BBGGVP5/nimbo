@@ -54,7 +54,7 @@ enum NimboNaiveRouting {
             "tag": "nimbo-naive-dns", "protocol": "dns",
             "settings": ["rewriteNetwork": "tcp", "rewriteAddress": dnsServer, "rewritePort": 53,
                          "rules": [["action": "direct"]]],
-            "proxySettings": ["tag": "proxy"]
+            "streamSettings": ["sockopt": ["dialerProxy": "proxy"]]
         ])
         config["outbounds"] = outbounds
         var routing = config["routing"] as? [String: Any] ?? [:]
