@@ -23,3 +23,5 @@ Tests: `go test ./...`; native macOS `go test -tags with_naive ./...`; native Wi
 - Generic UDP, mixed Xray balancers, and claiming native Naive inside arbitrary full Mihomo documents are deliberately out of scope. Public release still requires iPhone memory/network-handoff acceptance and a transitive Chromium notice audit.
 
 The pinned iOS archives require the narrowly scoped `../naive-apple-compat` feature-init correction. It is gated by exact archive hashes and symbol evidence; see that directory for source analysis. It does not change Chromium TLS or network behavior.
+
+Final Apple CI passed for `085374a` ([run 37896866798](https://github.com/BBGGVP5/nimbo/actions/runs/37896866798)): native C ABI tests, actual Swift-to-Xray DNS route, device and both simulator Swift links, and IPA packaging. Downloaded package SHA-256 and CRC, native symbols in both executables, Packet Tunnel entitlements, and bundled root notices were verified. This is a private re-signable test IPA; physical iPhone acceptance and transitive notice audit remain pending.
