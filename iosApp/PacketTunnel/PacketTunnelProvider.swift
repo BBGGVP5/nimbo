@@ -786,7 +786,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     self.coreRestarts = 0
                     self.pingRoute = configuration.pingRouteVerified ? candidatePingRoute : nil
                     self.pingServerID = pingServerID
-                    let coreVersion = self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version) / Xray \(try self.core.version())" : try self.core.version()
+                    let xrayVersion = try self.core.version()
+                    let coreVersion = self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version) / Xray \(xrayVersion)" : xrayVersion
                     self.outboundCount = configuration.outboundCount
                     self.activeAdBlockingEnabled = options.adBlockingEnabled
                     continuation.resume(returning: CoreStartupResult(

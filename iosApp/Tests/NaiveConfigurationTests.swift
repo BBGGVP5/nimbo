@@ -6,7 +6,7 @@ import Foundation
    let cfg = try NimboNaiveConfiguration.parseIfPresent(input)
    precondition(cfg != nil && !cfg!.rawText.contains("Readable"))
   }
-  for text in ["naive://u@host", "naive://u:p@host:0", "naive://u:p@host/path", "naive://u:p@host\nvless://x"] {
+  for text in ["naive://u@host", "naive://u:p@host:0", "naive://u:p@host/path", "naive://u:p@host\nvless://x", "naive://u:p@host#Name\nnaive://u:p@other"] {
    do { _ = try NimboNaiveConfiguration.parseIfPresent(text); preconditionFailure("invalid Naive link accepted") }
    catch NimboNaiveError.invalidConfiguration {}
   }

@@ -6,12 +6,16 @@ struct NimboNaiveConfiguration {
     static func parseIfPresent(_ source: String) throws -> Self? {
         var text = source.trimmingCharacters(in: .whitespacesAndNewlines)
         if let data = text.data(using: .utf8),
-           let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-           let links = object["shareLinks"] as? [String], links.count == 1 {
+           let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            // A native full document stays authoritative, even with auxiliary links.
+            guard ["coreId", "outbounds", "proxies", "proxy-groups", "proxy-providers", "rule-providers", "originalYAML"]
+                    .allSatisfy({ object[$0] == nil }),
+                  let links = object["shareLinks"] as? [String], links.count == 1 else { return nil }
             text = links[0].trimmingCharacters(in: .whitespacesAndNewlines)
         }
         let scheme = text.components(separatedBy: "://").first?.lowercased() ?? ""
         guard ["naive", "naive+https", "naive+quic"].contains(scheme) else { return nil }
+        guard text.rangeOfCharacter(from: .newlines) == nil else { throw NimboNaiveError.invalidConfiguration }
         // Fragment labels are display-only and may contain unescaped spaces/emoji.
         let transport = String(text.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0])
         guard transport.utf8.count <= 16 * 1024,

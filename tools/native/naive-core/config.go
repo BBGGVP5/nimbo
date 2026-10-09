@@ -25,6 +25,9 @@ func Parse(link string) (Config, error) {
 		return fail()
 	}
 	link = strings.TrimSpace(link)
+	if strings.ContainsAny(link, "\r\n\x00") {
+		return fail()
+	}
 	// Human-readable fragments may contain spaces or emoji, but are not transport data.
 	link = strings.SplitN(link, "#", 2)[0]
 	if strings.IndexFunc(link, unicode.IsSpace) >= 0 {

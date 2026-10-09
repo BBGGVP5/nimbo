@@ -254,7 +254,21 @@ func (c *diagnosticConnections) close() {
 	c.items = nil
 }
 
+// Optional in-process transport projection, registered only by native builds.
+// Its cleanup runs after the temporary Xray instance and all HTTP sockets close.
+var prepareDiagnosticTransport func(context.Context, diagnosticRequest) (diagnosticRequest, func(), string)
+
 func executeDiagnostic(ctx context.Context, request diagnosticRequest) (int64, string) {
+	if prepareDiagnosticTransport != nil {
+		prepared, cleanup, code := prepareDiagnosticTransport(ctx, request)
+		if cleanup != nil {
+			defer cleanup()
+		}
+		if code != "" {
+			return -1, code
+		}
+		request = prepared
+	}
 	outbounds, code := diagnosticOutbounds(request)
 	if code != "" {
 		return -1, code

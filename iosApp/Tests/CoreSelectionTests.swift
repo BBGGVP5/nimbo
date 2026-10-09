@@ -89,6 +89,8 @@ enum CoreSelectionTests {
             try NimboCoreAdmission.validate(preference: "awg", data: wireguardInXray)
         }
         for data in [Data(#"{"coreId":"mihomo","outbounds":[]}"#.utf8),
+                     Data(#"{"coreId":"mihomo","shareLinks":["naive://u:p@host"]}"#.utf8),
+                     Data(#"{"originalYAML":"proxies: []","shareLinks":["naive://u:p@host"]}"#.utf8),
                      Data(#"{"proxies":[],"outbounds":[]}"#.utf8),
                      Data(#"{"originalYAML":"proxies: []","outbounds":[]}"#.utf8)] {
             try rejected(.incompatible) { try NimboCoreAdmission.validate(preference: "xray", data: data) }

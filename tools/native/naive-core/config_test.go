@@ -13,7 +13,7 @@ func TestParse(t *testing.T) {
 	}
 }
 func TestRejectConfigWithoutEchoingSecrets(t *testing.T) {
-	for _, s := range []string{"vless://secret:secret@host", "naive://u@host", "naive://u:p@host:0", "naive://u:p@host:", "naive://u:p@host:65536", "naive://u:p@host/path", "naive://u:p@host?peer=x%2C%20EXCLUDE%20*", "naive://u:p@host?peer=bad%00name", "naive://u:%zz@host", "naive://u:p@host\nnaive://u:p@other", "naive://u:p@host?peer=a..b"} {
+	for _, s := range []string{"vless://secret:secret@host", "naive://u@host", "naive://u:p@host:0", "naive://u:p@host:", "naive://u:p@host:65536", "naive://u:p@host/path", "naive://u:p@host?peer=x%2C%20EXCLUDE%20*", "naive://u:p@host?peer=bad%00name", "naive://u:%zz@host", "naive://u:p@host\nnaive://u:p@other", "naive://u:p@host?peer=a..b", "naive://u:p@host#name\nnaive://u:p@other"} {
 		if _, e := Parse(s); e != ErrConfig {
 			t.Fatal("invalid link must return generic config error")
 		}

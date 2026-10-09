@@ -31,6 +31,13 @@ class NaiveContracts(unittest.TestCase):
   network=read('iosApp/PacketTunnel/PacketTunnelNetwork.swift')
   self.assertIn('naiveDNS ? ["198.18.0.2"]',network)
   self.assertIn('naiveDNS: engine == .naive',read('iosApp/PacketTunnel/PacketTunnelProvider.swift'))
+ def test_offline_ping_uses_independent_native_client(self):
+  body=read('iosApp/GoBridge/nimbo_naive_diagnostic.go')
+  self.assertIn('naivecore.Start',body)
+  self.assertIn('context.AfterFunc(ctx, runtime.Close)',body)
+  self.assertNotIn('nimboNaive.runtime',body)
+  self.assertNotIn('NimboNaiveStop',body)
+  self.assertIn('defer cleanup()',read('iosApp/GoBridge/nimbo_diagnostic.go'))
  def test_no_credentials_in_source_fixtures(self):
   tests=read('iosApp/Tests/NaiveConfigurationTests.swift')
   self.assertNotIn('sub.connectioncloud',tests)
