@@ -444,7 +444,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-private enum class MiniDestination {
+internal enum class MiniDestination {
     Home, Subscription, AppAccess, Settings,
     Theme, AppIcon, Language, PingSettings, About, Disclaimer, ConnectionId, Notifications, Updates, Logs,
     Routing, RoutingModules, Connections, Statistics, Firewall, WhitelistCheck, WhitelistPing,
@@ -1699,12 +1699,13 @@ private fun NimboHomeScreen(
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(t("Мои подписки", "My subscriptions"), Modifier.weight(1f),
+                Text(t("Мои подписки", "My subscriptions"), Modifier.weight(1f).alignByBaseline(),
                     color = colors.textPrimary, style = MaterialTheme.typography.titleSmall)
-                TextButton(if (mihomoHome) onOpenMihomoProfiles else onOpenProfiles) {
-                    Text(t("Все профили", "All profiles"), style = MaterialTheme.typography.labelSmall, color = colors.textSecondary)
-                    Spacer(Modifier.width(4.dp))
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(14.dp), tint = colors.textSecondary)
+                Box(Modifier.alignByBaseline().clip(RoundedCornerShape(10.dp))
+                    .clickable(role = Role.Button, onClick = if (mihomoHome) onOpenMihomoProfiles else onOpenProfiles)
+                    .padding(horizontal = 8.dp, vertical = 14.dp)) {
+                    Text(t("Все профили ↗", "All profiles ↗"), style = MaterialTheme.typography.labelSmall,
+                        color = colors.textSecondary)
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -1840,7 +1841,7 @@ private fun SubscriptionOverviewPanel(
                             style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     }
                 })
-            SubscriptionDescription(displayProfile.announce, expanded)
+            SubscriptionDescription(displayProfile.announce)
             SubscriptionQuotaSummary(displayProfile)
             SubscriptionActionsRow(preferencesManager.getLastSubscriptionUpdateTime(
                 if (native) profile.mihomoSourceUrl ?: profile.url else profile.url),
@@ -3875,10 +3876,9 @@ private fun WindowsProfilesList(
 private val subscriptionCardExpanded = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
 
 @Composable
-private fun SubscriptionDescription(description: String?, expanded: Boolean) {
+internal fun SubscriptionDescription(description: String?) {
     description?.trim()?.takeIf { it.isNotEmpty() }?.let { text ->
         Text(text, style = MaterialTheme.typography.bodySmall, color = LocalNebulaColors.current.textSecondary,
-            maxLines = if (expanded) 8 else 3, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth())
     }
 }
@@ -3938,7 +3938,7 @@ private fun WindowsSubscriptionCard(
                         }
                     }
                 })
-            SubscriptionDescription(profile.announce, expanded)
+            SubscriptionDescription(profile.announce)
             SubscriptionQuotaSummary(profile)
             SubscriptionActionsRow(lastUpdateMs, isPinging, profile.isLoading, onPingAll, onRefresh)
             if (!profile.error.isNullOrBlank()) Text(sanitizeProfileErrorForUi(profile.error).orEmpty(),
@@ -4671,7 +4671,8 @@ private fun NimboSettingsScreen(
     var section by rememberSaveable { mutableStateOf(-1) }
     var developerUnlocked by rememberSaveable { mutableStateOf(false) }
     val tapGate = remember { com.danila.nimbo.utils.DeveloperTapGate() }
-    androidx.activity.compose.BackHandler(enabled = section >= 0) { section = -1 }
+    val settingsBack = { section = if (section == 5 || section == 6) 12 else -1 }
+    androidx.activity.compose.BackHandler(enabled = section >= 0, onBack = settingsBack)
     val motionEnabled = rememberMiniMotionEnabled()
     AnimatedContent(section, transitionSpec = {
         val duration = if (motionEnabled) 140 else 0
@@ -4689,11 +4690,13 @@ private fun NimboSettingsScreen(
         7 -> t("Резервная копия", "Backup")
         8 -> t("Ядро VPN", "VPN core")
         11 -> t("Разработчик", "Developer")
+        12 -> t("Подписки и серверы", "Subscriptions and servers")
+        13 -> t("Диагностика", "Diagnostics")
         else -> t("DNS и транспорт", "DNS and transport")
     }
     if (activeSection >= 0) {
         androidx.compose.runtime.key(activeSection) {
-            NimboSubPageScaffold(title, onBack = { section = -1 }) {
+            NimboSubPageScaffold(title, onBack = settingsBack) {
                 when (activeSection) {
                     0 -> GeneralSettingsSection(preferencesManager)
                     1 -> ThemeSettingsSection(preferencesManager, onAppIconClick)
@@ -4705,6 +4708,19 @@ private fun NimboSettingsScreen(
                     7 -> BackupSettingsSection(preferencesManager)
                     8 -> NimboCoreSettings(preferencesManager, onConnect, onOpenSubscription)
                     11 -> DeveloperSettingsSection()
+                    12 -> SettingsCompactCard {
+                        SettingsRow(Icons.Default.Refresh, t("Обновление подписок", "Subscription updates"),
+                            t("Интервал и обновление при запуске", "Interval and refresh on launch"), { section = 5 })
+                        SettingsRow(Icons.Default.Dns, t("Настройки серверов", "Server settings"),
+                            t("Сортировка, выбор и проверка", "Sorting, selection and testing"), { section = 6 }, false)
+                    }
+                    13 -> SettingsCompactCard {
+                        SettingsRow(Icons.Default.BarChart, t("Статистика", "Statistics"), null, onStatsClick)
+                        SettingsRow(Icons.Default.NetworkCheck, t("Проверка сети", "Network check"), null, onWhitelistClick)
+                        SettingsRow(Icons.AutoMirrored.Filled.Article, t("Журнал", "Logs"), null, onLogsClick)
+                        SettingsRow(Icons.Default.Notifications, t("Уведомления", "Notifications"), null, onNotificationsClick)
+                        SettingsRow(Icons.Default.Key, t("ID подключения", "Connection ID"), null, onConnectionIdClick, false)
+                    }
                     else -> AdvancedSettingsSection(preferencesManager)
                 }
             }
@@ -4713,15 +4729,11 @@ private fun NimboSettingsScreen(
     }
     Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp).padding(top = 20.dp, bottom = LocalFloatingNavHeight.current + 16.dp)) {
-        Box(Modifier.fillMaxWidth().clickable {
-            if (tapGate.tap(android.os.SystemClock.elapsedRealtime())) { developerUnlocked = true; section = 11 }
-        }) { com.danila.nimbo.ui.components.NimboBrandHeader() }
-        Spacer(Modifier.height(20.dp))
         Text(t("Настройки", "Settings"), style = MaterialTheme.typography.headlineMedium,
-            color = LocalNebulaColors.current.textPrimary, modifier = Modifier.semantics { heading() })
-        Text(t("Главное — рядом. Остальное — по необходимости.", "The essentials, close at hand."),
-            style = MaterialTheme.typography.bodySmall, color = LocalNebulaColors.current.textSecondary,
-            modifier = Modifier.padding(top = 6.dp, bottom = 24.dp))
+            color = LocalNebulaColors.current.textPrimary, modifier = Modifier.semantics { heading() }.clickable {
+                if (tapGate.tap(android.os.SystemClock.elapsedRealtime())) { developerUnlocked = true; section = 11 }
+            })
+        Spacer(Modifier.height(20.dp))
         SettingsGroupLabel(t("ПОДКЛЮЧЕНИЕ", "CONNECTION"))
         SettingsCompactCard {
             SettingsRow(Icons.Default.Dns, t("Ядро VPN", "VPN core"),
@@ -4743,19 +4755,12 @@ private fun NimboSettingsScreen(
             SettingsRow(Icons.Default.Backup, t("Резервная копия", "Backup"), t("Экспорт и восстановление", "Export and restore"), { section = 7 }, false)
         }
         Spacer(Modifier.height(20.dp))
-        SettingsGroupLabel(t("ПРОФИЛИ", "PROFILES"))
+        SettingsGroupLabel(t("ИНСТРУМЕНТЫ", "TOOLS"))
         SettingsCompactCard {
-            SettingsRow(Icons.Default.Refresh, t("Обновление подписок", "Subscription updates"), null, { section = 5 })
-            SettingsRow(Icons.Default.Dns, t("Настройки серверов", "Server settings"), null, { section = 6 }, false)
-        }
-        Spacer(Modifier.height(20.dp))
-        SettingsGroupLabel(t("ДИАГНОСТИКА", "DIAGNOSTICS"))
-        SettingsCompactCard {
-            SettingsRow(Icons.Default.BarChart, t("Статистика", "Statistics"), null, onStatsClick)
-            SettingsRow(Icons.Default.NetworkCheck, t("Проверка сети", "Network check"), null, onWhitelistClick)
-            SettingsRow(Icons.AutoMirrored.Filled.Article, t("Журнал", "Logs"), null, onLogsClick)
-            SettingsRow(Icons.Default.Notifications, t("Уведомления", "Notifications"), null, onNotificationsClick)
-            SettingsRow(Icons.Default.Key, t("ID подключения", "Connection ID"), null, onConnectionIdClick, false)
+            SettingsRow(Icons.Default.Layers, t("Подписки и серверы", "Subscriptions and servers"),
+                t("Обновление и выбор серверов", "Refresh and server selection"), { section = 12 })
+            SettingsRow(Icons.Default.NetworkCheck, t("Диагностика", "Diagnostics"),
+                t("Проверка сети, журнал и уведомления", "Network checks, logs and notifications"), { section = 13 }, false)
         }
         Spacer(Modifier.height(20.dp))
         SettingsCompactCard {
@@ -8619,7 +8624,7 @@ private fun Modifier.frostedBackdrop(
 }
 
 @Composable
-private fun BoxScope.NimboBottomControls(
+internal fun BoxScope.NimboBottomControls(
     onHeightMeasured: (Dp) -> Unit,
     backdropLayer: GraphicsLayer,
     destination: MiniDestination,
@@ -8641,40 +8646,48 @@ private fun BoxScope.NimboBottomControls(
         .padding(horizontal = 16.dp, vertical = 10.dp).widthIn(max = 520.dp).fillMaxWidth(),
         shape = RoundedCornerShape(28.dp), color = colors.controlFill,
         border = BorderStroke(1.dp, colors.panelBorder), tonalElevation = 0.dp) {
-        Row(Modifier.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            entries.forEach { (target, icon, label) ->
-                val selected = destination == target || (target == MiniDestination.Settings && destination == MiniDestination.AppAccess)
-                val interaction = remember(target) { MutableInteractionSource() }
-                val pressed by interaction.collectIsPressedAsState()
-                val fill by animateColorAsState(
-                    targetValue = when {
-                        selected -> colors.textPrimary.copy(alpha = .14f)
-                        pressed -> colors.textPrimary.copy(alpha = .07f)
-                        else -> Color.Transparent
-                    },
-                    animationSpec = if (navMotionEnabled) tween(160) else snap(),
-                    label = "bottom-nav-fill-${target.name}"
-                )
-                val scale by animateFloatAsState(
-                    targetValue = if (pressed) .96f else 1f,
-                    animationSpec = if (navMotionEnabled) tween(130) else snap(),
-                    label = "bottom-nav-press-${target.name}"
-                )
-                Box(modifier = Modifier.weight(1f).heightIn(min = 54.dp)
-                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                    .clip(RoundedCornerShape(20.dp)).background(fill)
-                    .clickable(interactionSource = interaction, indication = null) { onDestinationChange(target) }
-                    .semantics {
-                        this.selected = selected
-                        role = Role.Tab
-                    }, contentAlignment = Alignment.Center) {
-                    Column(Modifier.padding(horizontal = 2.dp, vertical = 6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(icon, null, Modifier.size(22.dp), tint = if (selected) colors.textPrimary else colors.textSecondary)
-                        Spacer(Modifier.height(4.dp))
-                        Text(label, style = MaterialTheme.typography.labelSmall,
-                            textAlign = TextAlign.Center, color = if (selected) colors.textPrimary else colors.textSecondary)
+        BoxWithConstraints(Modifier.padding(6.dp)) {
+            val columns = com.danila.nimbo.ui.navigation.navigationColumnCount(maxWidth.value, navDensity.fontScale)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                entries.chunked(columns).forEach { rowEntries ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        rowEntries.forEach { (target, icon, label) ->
+                            val selected = destination == target || (target == MiniDestination.Settings && destination == MiniDestination.AppAccess)
+                            val interaction = remember(target) { MutableInteractionSource() }
+                            val pressed by interaction.collectIsPressedAsState()
+                            val fill by animateColorAsState(
+                                targetValue = when {
+                                    selected -> colors.textPrimary.copy(alpha = .14f)
+                                    pressed -> colors.textPrimary.copy(alpha = .07f)
+                                    else -> Color.Transparent
+                                },
+                                animationSpec = if (navMotionEnabled) tween(160) else snap(),
+                                label = "bottom-nav-fill-${target.name}"
+                            )
+                            val scale by animateFloatAsState(
+                                targetValue = if (pressed) .96f else 1f,
+                                animationSpec = if (navMotionEnabled) tween(130) else snap(),
+                                label = "bottom-nav-press-${target.name}"
+                            )
+                            Box(modifier = Modifier.weight(1f).heightIn(min = 54.dp)
+                                .graphicsLayer { scaleX = scale; scaleY = scale }
+                                .clip(RoundedCornerShape(20.dp)).background(fill)
+                                .clickable(interactionSource = interaction, indication = null) { onDestinationChange(target) }
+                                .semantics {
+                                    this.selected = selected
+                                    role = Role.Tab
+                                }, contentAlignment = Alignment.Center) {
+                                Column(Modifier.padding(horizontal = 2.dp, vertical = 6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(icon, null, Modifier.size(22.dp), tint = if (selected) colors.textPrimary else colors.textSecondary)
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center, color = if (selected) colors.textPrimary else colors.textSecondary)
+                                }
+                            }
+                        }
                     }
                 }
             }

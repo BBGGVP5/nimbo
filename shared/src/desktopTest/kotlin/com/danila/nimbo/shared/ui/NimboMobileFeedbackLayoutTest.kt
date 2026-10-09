@@ -16,14 +16,14 @@ import kotlin.test.assertTrue
 class NimboMobileFeedbackLayoutTest {
     @Test fun sectionBaselineAndSettingsStayAlignedAtPhoneWidths() {
         val output = File("build/reports/mobile-feedback").apply { mkdirs() }
-        for (width in listOf(390, 430)) for (theme in listOf("light", "dark")) {
+        for (width in listOf(320, 390, 430)) for (theme in listOf("light", "dark")) {
             val state = NimboUiState(
                 appearance = NimboAppearance(themeMode = theme, textScale = 1.25f),
                 vpnState = "connected", profileCount = 1, serverCount = 2,
                 activeProfileName = "Моя подписка", activeServerName = "Финляндия",
                 activeServerId = "demo", nativeBottomClearance = 100f,
                 servers = listOf(NimboServerUi("demo", "Финляндия", "naive", selected = true)),
-                profileAnnounce = "Демонстрационный профиль", navIconMotion = false,
+                profileAnnounce = "Строка 1\nСтрока 2\nСтрока 3\nСтрока 4\nСтрока 5", navIconMotion = false,
                 showMemoryWidget = false, showSpeedWidget = false
             )
             for (page in listOf(NimboScreen.HOME, NimboScreen.SETTINGS)) {
@@ -33,6 +33,14 @@ class NimboMobileFeedbackLayoutTest {
                     repeat(4) { scene.render(it * 1_000_000_000L).close() }
                     val nodes = scene.semanticsOwners.flatMap { it.getAllSemanticsNodes(mergingEnabled = false) }
                     if (page == NimboScreen.HOME) {
+                        val announcement = nodes.single { n ->
+                            n.config.getOrNull(SemanticsProperties.Text).orEmpty().any { it.text == state.profileAnnounce }
+                        }
+                        val announcementLayouts = mutableListOf<TextLayoutResult>()
+                        assertTrue(announcement.config[SemanticsActions.GetTextLayoutResult].action!!.invoke(announcementLayouts))
+                        val announcementLayout = announcementLayouts.single()
+                        assertTrue(announcementLayout.lineCount == 5 && !announcementLayout.isLineEllipsized(4),
+                            "Provider announcement truncated at $width/$theme")
                         val baselines = listOf("Мои подписки", "Все профили ↗").map { label ->
                             val node = nodes.single { n -> n.config.getOrNull(SemanticsProperties.Text).orEmpty().any { it.text == label } }
                             val layouts = mutableListOf<TextLayoutResult>()

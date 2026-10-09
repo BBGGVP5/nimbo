@@ -90,7 +90,7 @@ struct NimboTabBar: View {
                     Text(tab.title).nimboFont(11, relativeTo: .caption2, weight: .semibold)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                        .frame(height: 18)
+                        .frame(minHeight: 18)
                 }
                 .padding(.horizontal, 3)
                 .padding(.vertical, 9)
