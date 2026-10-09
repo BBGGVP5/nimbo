@@ -131,6 +131,14 @@ class VpnStartupSourceRegressions(unittest.TestCase):
         self.assertIn('try requireStoppedConnection()', source(CONTROLLER))
         self.assertIn('status == .disconnected || status == .invalid', function(CONTROLLER, 'requireStoppedConnection'))
 
+    def test_profile_removal_waits_for_real_stop_without_creating_a_profile(self):
+        body = function(CONTROLLER, 'clearConfiguration')
+        self.assertNotIn('loadOrCreateManager', body)
+        self.assertLess(body.index('while manager.connection.status'), body.index('tunnelProtocol.providerConfiguration ='))
+        self.assertIn('isStagingConfiguration = true', body)
+        self.assertIn('try await setOnDemand(false, on: manager)', body)
+        self.assertNotIn('try? await setOnDemand', body)
+
     def test_launch_is_read_only_and_has_no_automatic_diagnostics_sheet(self):
         app = source('Nimbo/NimboApp.swift')
         self.assertIn('await vpnController.restore()', app)

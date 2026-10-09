@@ -21,7 +21,7 @@ class NimboMobileFeedbackLayoutTest {
                 appearance = NimboAppearance(themeMode = theme, textScale = 1.25f),
                 vpnState = "connected", profileCount = 1, serverCount = 2,
                 activeProfileName = "Моя подписка", activeServerName = "Финляндия",
-                activeServerId = "demo", nativeBottomClearance = 100f,
+                activeServerId = "demo", nativeTopClearance = 59f, nativeBottomClearance = 134f,
                 servers = listOf(NimboServerUi("demo", "Финляндия", "naive", selected = true)),
                 profileAnnounce = "Строка 1\nСтрока 2\nСтрока 3\nСтрока 4\nСтрока 5", navIconMotion = false,
                 showMemoryWidget = false, showSpeedWidget = false
@@ -56,6 +56,8 @@ class NimboMobileFeedbackLayoutTest {
                         }
                         assertTrue(abs(baselines[0] - baselines[1]) <= 1f, "Section baselines differ: $baselines")
                     } else {
+                        val title = nodes.single { n -> n.config.getOrNull(SemanticsProperties.Text).orEmpty().any { it.text == "Настройки" } }
+                        assertTrue(title.boundsInRoot.top >= 59f, "Controls must remain below the system status area")
                         val texts = nodes.flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty() }.map { it.text }
                         assertTrue("Автоподключение" in texts)
                         assertTrue("Настройки" in texts)

@@ -255,20 +255,34 @@ final class VpnController: ObservableObject {
     }
 
     func clearConfiguration() async throws {
-        if state == .connected || state == .connecting { await disconnect() }
+        guard !isRestoring, !isStartingConnection, !isStagingConfiguration,
+              !isSavingCorePreference, !isSavingOnDemand, switchingServerID == nil else {
+            throw NimboCoreSelectionError.busy
+        }
+        isStagingConfiguration = true
+        defer { isStagingConfiguration = false }
         if manager == nil { manager = try await NimboTunnelControl.manager() }
+        // Nothing installed: deleting an imported profile must not ask for VPN permission.
+        guard let manager else { return }
+        if manager.connection.status != .disconnected && manager.connection.status != .invalid {
+            await disconnect()
+            let deadline = ProcessInfo.processInfo.systemUptime + 15
+            while manager.connection.status != .disconnected && manager.connection.status != .invalid {
+                try Task.checkCancellation()
+                guard ProcessInfo.processInfo.systemUptime < deadline else { throw VpnControllerError.switchStopTimeout }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            synchronizeStatus()
+        }
         try requireStoppedConnection()
-        if manager == nil { manager = try await loadOrCreateManager() }
-        try requireStoppedConnection()
-        guard let manager,
-              let tunnelProtocol = manager.protocolConfiguration as? NETunnelProviderProtocol else {
+        guard let tunnelProtocol = manager.protocolConfiguration?.copy() as? NETunnelProviderProtocol else {
             throw VpnControllerError.managerUnavailable
         }
+        // Pause first; a save failure must preserve the imported configuration.
+        try await setOnDemand(false, on: manager)
+        try requireStoppedConnection()
         tunnelProtocol.providerConfiguration = ["schema": 2]
         manager.protocolConfiguration = tunnelProtocol
-        // Поднимать нечего: без конфигурации автоподъём только плодил бы
-        // неудачные запуски.
-        try? await setOnDemand(false, on: manager)
         try await manager.saveToPreferences()
         try await manager.loadFromPreferences()
     }
