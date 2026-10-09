@@ -163,8 +163,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 if let id = request?["requestID"] as? String { self.pingTasks.removeValue(forKey: id)?.cancel() }
                 completionHandler?(Self.responseData(["ok": true]))
             case "status":
-                let running = self.mihomo.isConfigured ? self.mihomo.isRunning : ((try? self.core.isRunning()) ?? false)
-                let version = self.mihomo.isConfigured ? "Mihomo v1.19.32" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : ((try? self.core.version()) ?? "unknown")
+                let running = self.mihomo.isConfigured ? self.mihomo.isRunning : (((try? self.core.isRunning()) ?? false) && (!self.naive.isConfigured || self.naive.isRunning))
+                let version = self.mihomo.isConfigured ? "Mihomo v1.19.32" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version)" : ((try? self.core.version()) ?? "unknown")
                 completionHandler?(Self.responseData([
                     "ok": true,
                     "running": running,
@@ -239,8 +239,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     (try? self.awg.stats()) ?? ["ok": false, "error": "IOS_AWG_STATS_FAILED"]
                 ))
             case "diagnostics":
-                let running = self.mihomo.isConfigured ? self.mihomo.isRunning : ((try? self.core.isRunning()) ?? false)
-                let version = self.mihomo.isConfigured ? "Mihomo v1.19.32" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : ((try? self.core.version()) ?? "unknown")
+                let running = self.mihomo.isConfigured ? self.mihomo.isRunning : (((try? self.core.isRunning()) ?? false) && (!self.naive.isConfigured || self.naive.isRunning))
+                let version = self.mihomo.isConfigured ? "Mihomo v1.19.32" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version)" : ((try? self.core.version()) ?? "unknown")
                 let outboundCount = self.outboundCount
                 Task {
                     let records = (try? await NimboDiagnostics.shared.recentRecordsData(maxBytes: 384 * 1_024)) ?? Data()
@@ -786,7 +786,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     self.coreRestarts = 0
                     self.pingRoute = configuration.pingRouteVerified ? candidatePingRoute : nil
                     self.pingServerID = pingServerID
-                    let coreVersion = try self.core.version()
+                    let coreVersion = self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version) / Xray \(try self.core.version())" : try self.core.version()
                     self.outboundCount = configuration.outboundCount
                     self.activeAdBlockingEnabled = options.adBlockingEnabled
                     continuation.resume(returning: CoreStartupResult(

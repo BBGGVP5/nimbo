@@ -3,6 +3,7 @@ import LibXray
 
 /// Lifecycle-queue only. The in-process Chromium client owns no TUN or subprocess.
 final class NaiveProxyBridge {
+    static let version = "150.0.7871.63"
     private(set) var isConfigured = false
     func start(_ configuration: NimboNaiveConfiguration) throws -> Data {
         close()
@@ -17,7 +18,7 @@ final class NaiveProxyBridge {
                 try decode(NimboNaiveStart(UnsafeMutablePointer(mutating: $0)))
             }
             guard let port = response["port"] as? Int, (1...65535).contains(port),
-                  response["version"] as? String == "150.0.7871.63" else { throw NimboNaiveError.runtimeFailure }
+                  response["version"] as? String == Self.version else { throw NimboNaiveError.runtimeFailure }
             isConfigured = true
             return try JSONSerialization.data(withJSONObject: ["outbounds": [[
                 "tag": "proxy", "protocol": "socks",
