@@ -12,7 +12,8 @@ enum PacketTunnelNetwork {
 
     static func settings(
         options: NimboRoutingOptions = .default,
-        awg: NimboAWGConfiguration? = nil
+        awg: NimboAWGConfiguration? = nil,
+        naiveDNS: Bool = false
     ) -> NEPacketTunnelNetworkSettings {
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
 
@@ -40,7 +41,10 @@ enum PacketTunnelNetwork {
         settings.ipv6Settings = ipv6
 
         // «Системный» набор означает отсутствие своих DNS: адреса выдаёт сеть.
-        if let servers = awg.flatMap({ $0.dns.isEmpty ? nil : $0.dns }) ?? options.dnsServers {
+        // Naive cannot carry raw UDP. A virtual resolver stays inside TUN even
+        // with the system DNS preset or a physical LAN DNS server excluded by routes.
+        let resolverServers = naiveDNS ? ["198.18.0.2"] : (awg.flatMap({ $0.dns.isEmpty ? nil : $0.dns }) ?? options.dnsServers)
+        if let servers = resolverServers {
             let dns = NEDNSSettings(servers: servers)
             dns.matchDomains = [""]
             settings.dnsSettings = dns

@@ -22,6 +22,13 @@ import Foundation
   let rules = (result["routing"] as! [String:Any])["rules"] as! [[String:Any]]
   precondition(rules.count == 3 && rules.last!["outboundTag"] as! String == "direct")
   precondition(rules[0]["outboundTag"] as! String == "proxy")
+  if CommandLine.arguments.count == 2 {
+   let input: [String:Any] = ["outbounds": [["tag":"proxy", "protocol":"socks",
+     "settings":["servers":[["address":"127.0.0.1", "port":1,
+       "users":[["user":"contract","pass":"local-dns-contract"]]]]]]]]
+   let data = try JSONSerialization.data(withJSONObject: NimboNaiveRouting.applying(to:input,dnsServer:"9.9.9.9"))
+   try data.write(to: URL(fileURLWithPath:CommandLine.arguments[1]))
+  }
   print("Native Naive share admission and TCP DNS routing passed")
  }
 }

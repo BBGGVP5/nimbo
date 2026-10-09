@@ -108,7 +108,7 @@ def run_swift():
     sources = ["iosApp/Shared/" + name for name in ["NimboRoutingOptions.swift", "NimboAdBlocking.swift",
         "NimboTrafficTelemetry.swift", "NimboMihomoSessionPolicy.swift", "NimboPingPolicy.swift",
         "NimboPingCompletion.swift", "NimboHTTPProbe.swift", "NimboSOCKSTunnel.swift"]]
-    sources += ["iosApp/PacketTunnel/NimboPingRoute.swift", "iosApp/PacketTunnel/XrayConfiguration.swift",
+    sources += ["iosApp/PacketTunnel/NimboPingRoute.swift", "iosApp/Shared/NimboNaiveConfiguration.swift", "iosApp/PacketTunnel/XrayConfiguration.swift",
                 "iosApp/Tests/PingConfigurationStubs.swift", "iosApp/Tests/TrafficPolicyTests.swift"]
     with tempfile.TemporaryDirectory(prefix="nimbo-traffic-") as tmp:
         binary = str(Path(tmp) / "TrafficPolicyTests")

@@ -30,7 +30,7 @@ SOURCES = [
     "iosApp/Nimbo/NimboPingService.swift",
     "iosApp/Nimbo/NimboDiagnosticProbe.swift",
     "iosApp/PacketTunnel/NimboPingRoute.swift",
-    "iosApp/PacketTunnel/XrayConfiguration.swift",
+    "iosApp/Shared/NimboNaiveConfiguration.swift", "iosApp/PacketTunnel/XrayConfiguration.swift",
     "iosApp/Tests/PingConfigurationStubs.swift",
     "iosApp/Tests/PingDiagnosticTests.swift",
     "iosApp/Tests/PingPolicyTests.swift",
@@ -200,7 +200,7 @@ class PingContracts(unittest.TestCase):
         self.assertIn('values: [KotlinInt(int: Int32(value))]', root)
         self.assertEqual(root.count('session: vpn.manager?.connection as? NETunnelProviderSession'), 2)
         policy = read('iosApp/Shared/NimboPingPolicy.swift')
-        self.assertIn('guard raw >= 0 else { return "—" }', policy)
+        self.assertIn('guard raw >= 0 else { return "вЂ”" }', policy)
         self.assertIn('return raw >= 0 ? raw : 200_000', policy)
 
     def test_display_scaling_is_not_applied_to_measurements_or_auto(self):

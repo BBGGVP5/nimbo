@@ -597,7 +597,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         do {
             let awgConfiguration = try NimboAWGConfiguration.parseIfPresent(String(decoding: data, as: UTF8.self))
             try await ensureStartIsCurrent(generation)
-            try await applyNetworkSettings(PacketTunnelNetwork.settings(options: routingOptions, awg: awgConfiguration))
+            try await applyNetworkSettings(PacketTunnelNetwork.settings(options: routingOptions, awg: awgConfiguration, naiveDNS: engine == .naive))
             await NimboDiagnostics.shared.record(
                 .info,
                 stage: .route,

@@ -27,6 +27,10 @@ class NaiveContracts(unittest.TestCase):
   for value in ['with_naive','iossimulator','libcronet.a','NimboNaiveStart','NaiveProxyBridge.swift']:
    self.assertIn(value,body)
   self.assertIn('naive-core',read('iosApp/GoBridge/go.mod'))
+ def test_virtual_dns_cannot_escape_via_system_lan_resolver(self):
+  network=read('iosApp/PacketTunnel/PacketTunnelNetwork.swift')
+  self.assertIn('naiveDNS ? ["198.18.0.2"]',network)
+  self.assertIn('naiveDNS: engine == .naive',read('iosApp/PacketTunnel/PacketTunnelProvider.swift'))
  def test_no_credentials_in_source_fixtures(self):
   tests=read('iosApp/Tests/NaiveConfigurationTests.swift')
   self.assertNotIn('sub.connectioncloud',tests)
