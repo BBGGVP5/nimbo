@@ -175,6 +175,10 @@ assert_plist() {
   fi
 }
 
+# XcodeGen folder resources must actually reach the IPA, not only the project.
+for notice in Chromium-LICENSE.txt cronet-go-LICENSE.txt GPL-3.0.txt NaiveProxy-LICENSE.txt Naive-Sources.txt; do
+  cmp "${ROOT_DIR}/iosApp/NativeNotices/${notice}" "${APP_PATH}/NativeNotices/${notice}"
+done
 assert_plist "${APP_PATH}/Info.plist" "CFBundleIdentifier" "${APP_BUNDLE_ID}"
 assert_plist "${APP_PATH}/Info.plist" "CFBundleShortVersionString" "${MARKETING_VERSION}"
 assert_plist "${APP_PATH}/Info.plist" "CFBundleVersion" "${BUILD_NUMBER}"

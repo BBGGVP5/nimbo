@@ -64,9 +64,10 @@ targets:
     sources:
       - path: Nimbo
       - path: Shared
-    resources:
       - path: NativeNotices
         type: folder
+        buildPhase: resources
+    resources:
       - path: Nimbo/Assets.xcassets
       - path: Branding/Branding.xcassets
     dependencies:

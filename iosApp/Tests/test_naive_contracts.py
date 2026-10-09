@@ -38,6 +38,11 @@ class NaiveContracts(unittest.TestCase):
   self.assertNotIn('nimboNaive.runtime',body)
   self.assertNotIn('NimboNaiveStop',body)
   self.assertIn('defer cleanup()',read('iosApp/GoBridge/nimbo_diagnostic.go'))
+ def test_notices_are_real_xcode_resources_and_packaging_is_checked(self):
+  project=read('iosApp/project.yml')
+  self.assertIn('      - path: NativeNotices\n        type: folder\n        buildPhase: resources',project)
+  build=read('scripts/ci/build-unsigned-ios.sh')
+  self.assertIn('"${APP_PATH}/NativeNotices/${notice}"',build)
  def test_no_credentials_in_source_fixtures(self):
   tests=read('iosApp/Tests/NaiveConfigurationTests.swift')
   self.assertNotIn('sub.connectioncloud',tests)
