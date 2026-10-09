@@ -12,7 +12,11 @@ import Foundation
     }
 
     static func waitOffMain(_ semaphore: DispatchSemaphore) async {
-        let result = await Task.detached { semaphore.wait(timeout: .now() + 3) }.value
+        let result = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: semaphore.wait(timeout: .now() + 3))
+            }
+        }
         precondition(result == .success)
     }
 
@@ -46,7 +50,10 @@ import Foundation
         } }
         await waitOffMain(entered)
         let lease = NimboVpnCommandLease()
-        let start = Task<Void, Error> { try await queue.perform(lease: lease) { preconditionFailure("Cancelled start executed") } }
+        let forbiddenStart: @Sendable () throws -> Void = {
+            preconditionFailure("Cancelled start executed")
+        }
+        let start = Task { try await queue.perform(lease: lease, forbiddenStart) }
         await Task.yield()
         lease.invalidate()
         release.signal()
