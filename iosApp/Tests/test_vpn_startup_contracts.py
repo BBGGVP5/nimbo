@@ -107,9 +107,9 @@ class VpnStartupSourceRegressions(unittest.TestCase):
 
     def test_success_cancel_and_recovered_attempt_invalidate_callbacks(self):
         body = function(CONTROLLER, 'synchronizeStatus')
-        self.assertRegex(body, r'case \.connected:\s+stopTimedOut = false\s+startAttempt.invalidate\(\)\s+state = \.connected')
+        self.assertRegex(body, r'case \.connected:\s+startTimeoutState = nil\s+stopTimedOut = false\s+startAttempt.invalidate\(\)\s+state = \.connected')
         disconnect = function(CONTROLLER, 'disconnect')
-        self.assertLess(disconnect.index('startAttempt.invalidate()'), disconnect.index('await'))
+        self.assertLess(disconnect.index('startAttempt.cancel()'), disconnect.index('await'))
         self.assertIn('if phase == .reportingFailure { generation &+= 1 }', function(POLICY, 'observedProgress'))
         self.assertIn('generation &+= 1', function(POLICY, 'invalidate'))
 
@@ -118,12 +118,27 @@ class VpnStartupSourceRegressions(unittest.TestCase):
         self.assertIn('case .reportFailure:\n                reportUnexpectedDisconnect()', body)
         self.assertIn('if case .failed = state { break }', body)
         poll = function(CONTROLLER, 'scheduleStatusPollIfNeeded')
-        self.assertIn('if waited > 30', poll)
-        self.assertIn('code: "IOS_VPN_START_TIMEOUT"', poll)
+        self.assertIn('NimboVpnStartAttempt.deadlineExceeded', poll)
+        self.assertIn('"IOS_VPN_START_TIMEOUT"', poll)
         self.assertIn('!startAttempt.isPending, waited > 30', poll)
         self.assertNotIn('state = .idle', poll)
         self.assertIn('IOS_VPN_STOP_TIMEOUT', poll)
-        self.assertIn('guard !startAttempt.isPreparing else { return }', poll)
+        self.assertNotIn('guard !startAttempt.isPreparing else { return }', poll)
+
+    def test_preparation_watchdog_and_success_are_not_user_cancellation(self):
+        connect = function(CONTROLLER, 'connect')
+        self.assertLess(connect.index('scheduleStatusPollIfNeeded()'), connect.index('try await'))
+        late = connect.split('if !startAttempt.isCurrent(attempt)', 1)[1].split('startAttempt.requestedStart', 1)[0]
+        self.assertIn('if startAttempt.cancellationGeneration != cancellation', late)
+        self.assertLess(late.index('cancellationGeneration != cancellation'), late.index('stopVPNTunnel()'))
+        poll = function(CONTROLLER, 'scheduleStatusPollIfNeeded')
+        self.assertIn('!self.isStartingConnection', poll)
+        self.assertIn('!self.isStagingConfiguration', poll)
+        self.assertIn('startTimeoutState == nil', poll)
+        self.assertIn('IOS_VPN_PREPARATION_TIMEOUT', poll)
+        self.assertIn('RunLoop.main.add(timer, forMode: .common)', poll)
+        sync = function(CONTROLLER, 'synchronizeStatus')
+        self.assertIn('if let timeout = startTimeoutState', sync)
 
     def test_reconnect_checks_observed_status_before_writing_preferences(self):
         body = function(CONTROLLER, 'connect')
@@ -157,7 +172,7 @@ class VpnStartupSourceRegressions(unittest.TestCase):
         catch = body.split('catch {', 1)[1]
         self.assertLess(catch.index('stopVPNTunnel()'), catch.index('IOS_ON_DEMAND_PAUSE_FAILED'))
         self.assertNotIn('loadOrCreateManager()', body)
-        self.assertNotIn('loadOrCreateManager()', function(CONTROLLER, 'scheduleStatusPollIfNeeded').split('Timer.scheduledTimer', 1)[1])
+        self.assertNotIn('loadOrCreateManager()', function(CONTROLLER, 'scheduleStatusPollIfNeeded').split('let timer = Timer(', 1)[1])
 
     def test_readiness_is_not_used_as_disconnect_cause(self):
         body = function(CONTROLLER, 'applyDisconnectError')

@@ -25,6 +25,7 @@ final class VpnController: ObservableObject {
     private var isStartingConnection = false
     private var isRestoring = false
     private var stopTimedOut = false
+    private var startTimeoutState: State?
     private var isStagingConfiguration = false
     private var isSavingOnDemand = false
 
@@ -355,13 +356,19 @@ final class VpnController: ObservableObject {
         guard state != .connected, state != .connecting, state != .preparing,
               state != .disconnecting, !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { return }
         isStartingConnection = true
-        defer { isStartingConnection = false }
+        defer {
+            isStartingConnection = false
+            scheduleStatusPollIfNeeded()
+        }
         let attempt = startAttempt.begin()
+        let cancellation = startAttempt.cancellationGeneration
+        startTimeoutState = nil
         statusPollTimer?.invalidate()
         statusPollTimer = nil
         transitionStartedAt = nil
         startRequestedAt = nil
         state = .connecting
+        scheduleStatusPollIfNeeded()
         do {
             // A stale UI timeout must never authorize rewriting a live/stopping
             // provider. Reconcile the real system state before any preference write.
@@ -423,10 +430,16 @@ final class VpnController: ObservableObject {
             // profile is used by app, widget and subsequent system starts.
             try await NimboOnDemandRules.persist(NimboOnDemandSettings.load(), on: manager)
             if !startAttempt.isCurrent(attempt) {
-                // A user stop can race an awaited preferences write. No newer
-                // app start is allowed until this owner exits; restore pause.
-                try await setOnDemand(false, on: manager)
-                manager.connection.stopVPNTunnel()
+                // Success and a watchdog timeout also invalidate the attempt.
+                // Only a real user stop should pause/stop this manager here.
+                if startAttempt.cancellationGeneration != cancellation {
+                    do { try await setOnDemand(false, on: manager) }
+                    catch {
+                        manager.connection.stopVPNTunnel()
+                        throw error
+                    }
+                    manager.connection.stopVPNTunnel()
+                }
                 synchronizeStatus()
                 return
             }
@@ -457,7 +470,8 @@ final class VpnController: ObservableObject {
     func disconnect(invalidateSelection: Bool = true) async {
         if invalidateSelection { selectionIntent = UUID() }
         // Осознанное отключение не должно выглядеть как сбой запуска.
-        startAttempt.invalidate()
+        startAttempt.cancel()
+        startTimeoutState = nil
         transitionStartedAt = nil
         stopTimedOut = false
         state = .disconnecting
@@ -707,13 +721,22 @@ final class VpnController: ObservableObject {
                 state = .idle
             }
         case .connecting, .reasserting:
+            if let timeout = startTimeoutState {
+                state = timeout
+                break
+            }
             startAttempt.observedProgress()
             state = .connecting
         case .connected:
+            startTimeoutState = nil
             stopTimedOut = false
             startAttempt.invalidate()
             state = .connected
         case .disconnecting:
+            if let timeout = startTimeoutState {
+                state = timeout
+                break
+            }
             if stopTimedOut {
                 state = .failed(code: "IOS_VPN_STOP_TIMEOUT",
                     message: "iOS ещё останавливает VPN. Дождитесь отключения в настройках iOS и повторите попытку.")
@@ -744,10 +767,13 @@ final class VpnController: ObservableObject {
     /// Заодно считается предел ожидания: висеть с вращающейся кнопкой хуже,
     /// чем честно сказать, что не получилось.
     private func scheduleStatusPollIfNeeded() {
-        // Saving preferences / waiting for permission is not yet a tunnel start.
-        // Avoid a second loadOrCreateManager while connect() is awaiting one.
-        guard !startAttempt.isPreparing else { return }
-        guard isTransitional || stopTimedOut else {
+        // Preparation has its own deadline. Never release write ownership when
+        // it expires: an uncompleted NE save can still finish later.
+        let observedStatus = manager?.connection.status
+        let observingTimedOutStart = startTimeoutState != nil &&
+            (isStartingConnection || observedStatus == .connecting ||
+             observedStatus == .reasserting || observedStatus == .disconnecting)
+        guard isTransitional || stopTimedOut || observingTimedOutStart else {
             statusPollTimer?.invalidate()
             statusPollTimer = nil
             transitionStartedAt = nil
@@ -765,29 +791,39 @@ final class VpnController: ObservableObject {
                 state = .failed(code: "IOS_VPN_STOP_TIMEOUT",
                     message: "iOS ещё останавливает VPN. Дождитесь отключения в настройках iOS и повторите попытку.")
             }
-            if waited > 30 && !stopTimedOut {
-                statusPollTimer?.invalidate()
-                statusPollTimer = nil
-                transitionStartedAt = nil
+            let preparing = startAttempt.isPreparing || state == .preparing
+            if NimboVpnStartAttempt.deadlineExceeded(elapsed: waited, preparing: preparing),
+               !stopTimedOut, startTimeoutState == nil {
                 startAttempt.invalidate()
-                state = .failed(
-                    code: "IOS_VPN_START_TIMEOUT",
-                    message: "Система не подняла туннель за 30 секунд. Проверьте профиль VPN в настройках iOS."
-                )
-                return
+                let code = preparing ? "IOS_VPN_PREPARATION_TIMEOUT" : "IOS_VPN_START_TIMEOUT"
+                let message = preparing
+                    ? "iOS не завершила подготовку VPN-профиля за 60 секунд. Проверьте системный запрос разрешения VPN. Откройте диагностику, если ожидание не завершится."
+                    : "Система не подняла туннель за 30 секунд. Проверьте профиль VPN в настройках iOS."
+                let failure = State.failed(code: code, message: message)
+                startTimeoutState = failure
+                state = failure
+                Task {
+                    await NimboDiagnostics.shared.record(.error, stage: .tunnelStart,
+                        code: code, message: message,
+                        metadata: ["system_status": self.manager.map { Self.statusName($0.connection.status) } ?? "unloaded",
+                                   "preparing": String(preparing), "elapsed_seconds": String(Int(waited))])
+                }
             }
         }
 
         guard statusPollTimer == nil else { return }
-        statusPollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                if self.manager == nil {
+                if self.manager == nil, !self.isStartingConnection,
+                   !self.isStagingConfiguration, !self.isRestoring {
                     self.manager = try? await NimboTunnelControl.manager()
                 }
                 self.synchronizeStatus()
             }
         }
+        statusPollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     /// Спрашиваем систему, почему соединение разорвалось. Без этого в логе
