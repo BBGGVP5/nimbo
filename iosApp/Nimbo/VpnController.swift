@@ -23,6 +23,8 @@ final class VpnController: ObservableObject {
     @Published private(set) var switchingServerID: String?
     private var selectionIntent = UUID()
     private var isStartingConnection = false
+    private var isRestoring = false
+    private var stopTimedOut = false
     private var isStagingConfiguration = false
     private var isSavingOnDemand = false
 
@@ -122,8 +124,30 @@ final class VpnController: ObservableObject {
         if let statusObserver { NotificationCenter.default.removeObserver(statusObserver) }
     }
 
+    /// App launch only observes the existing profile. Permission/staging belongs
+    /// to an explicit setup or connect action, never a competing launch task.
+    func restore() async {
+        guard !isRestoring, !isStartingConnection, !isStagingConfiguration else { return }
+        isRestoring = true
+        defer { isRestoring = false }
+        do {
+            manager = try await NimboTunnelControl.manager()
+            if manager != nil { synchronizeStatus() }
+        } catch {
+            fail(code: "IOS_VPN_MANAGER_LOAD_FAILED", error: error)
+        }
+    }
+
+    private func requireStoppedConnection() throws {
+        guard let status = manager?.connection.status else { return }
+        guard status == .disconnected || status == .invalid else {
+            synchronizeStatus()
+            throw NimboCoreSelectionError.busy
+        }
+    }
+
     func prepare() async {
-        guard !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { return }
+        guard !isRestoring, !isStartingConnection, !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { return }
         state = .preparing
         await NimboDiagnostics.shared.record(
             .info,
@@ -176,6 +200,7 @@ final class VpnController: ObservableObject {
     func stageConfiguration(data: Data) async throws {
         guard !data.isEmpty else { throw VpnControllerError.emptyConfiguration }
         guard data.count <= 15 * 1_024 * 1_024 else { throw VpnControllerError.configurationTooLarge }
+        try requireStoppedConnection()
         let profileEngine = try validateCore(data: data)
         let preference = try NimboCorePreference.decode(
             UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey)
@@ -183,7 +208,10 @@ final class VpnController: ObservableObject {
         guard !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { throw NimboCoreSelectionError.busy }
         isStagingConfiguration = true
         defer { isStagingConfiguration = false }
+        if manager == nil { manager = try await NimboTunnelControl.manager() }
+        try requireStoppedConnection()
         if manager == nil { manager = try await loadOrCreateManager() }
+        try requireStoppedConnection()
         guard let manager,
               let tunnelProtocol = manager.protocolConfiguration as? NETunnelProviderProtocol else {
             throw VpnControllerError.managerUnavailable
@@ -228,7 +256,10 @@ final class VpnController: ObservableObject {
 
     func clearConfiguration() async throws {
         if state == .connected || state == .connecting { await disconnect() }
+        if manager == nil { manager = try await NimboTunnelControl.manager() }
+        try requireStoppedConnection()
         if manager == nil { manager = try await loadOrCreateManager() }
+        try requireStoppedConnection()
         guard let manager,
               let tunnelProtocol = manager.protocolConfiguration as? NETunnelProviderProtocol else {
             throw VpnControllerError.managerUnavailable
@@ -306,7 +337,7 @@ final class VpnController: ObservableObject {
     }
 
     func connect(selectionOwner: UUID? = nil) async {
-        guard !isStartingConnection, switchingServerID == nil || selectionOwner == selectionIntent else { return }
+        guard !isRestoring, !isStartingConnection, switchingServerID == nil || selectionOwner == selectionIntent else { return }
         guard state != .connected, state != .connecting, state != .preparing,
               state != .disconnecting, !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { return }
         isStartingConnection = true
@@ -318,6 +349,17 @@ final class VpnController: ObservableObject {
         startRequestedAt = nil
         state = .connecting
         do {
+            // A stale UI timeout must never authorize rewriting a live/stopping
+            // provider. Reconcile the real system state before any preference write.
+            if manager == nil { manager = try await NimboTunnelControl.manager() }
+            guard startAttempt.isCurrent(attempt) else { return }
+            if let status = manager?.connection.status,
+               status != .invalid && status != .disconnected {
+                startAttempt.invalidate()
+                synchronizeStatus()
+                return
+            }
+            stopTimedOut = false
             // Full documents take precedence over retained legacy server records.
             // Admission runs before loadOrCreateManager can change NE preferences.
             if let full = try NimboConfigurationStore.shared.loadFullConfiguration() {
@@ -403,19 +445,27 @@ final class VpnController: ObservableObject {
         // Осознанное отключение не должно выглядеть как сбой запуска.
         startAttempt.invalidate()
         transitionStartedAt = nil
+        stopTimedOut = false
         state = .disconnecting
         // Менеджера может не быть: приложение перезапустили, а туннель поднят
         // системой. Без загрузки остановка не дошла бы до него, и кнопка
         // крутилась бы вечно.
-        if manager == nil { manager = try? await loadOrCreateManager() }
+        if manager == nil { manager = try? await NimboTunnelControl.manager() }
         // Правило могло остаться от прежней версии: без снятия система
         // подняла бы туннель обратно через секунду, и кнопка выглядела бы
         // сломанной.
         if let manager {
             do { try await setOnDemand(false, on: manager) }
-            catch { fail(code: "IOS_ON_DEMAND_PAUSE_FAILED", error: error); return }
+            catch {
+                // A failed preferences save must not swallow the user's stop.
+                manager.connection.stopVPNTunnel()
+                fail(code: "IOS_ON_DEMAND_PAUSE_FAILED", error: error)
+                synchronizeStatus()
+                return
+            }
         }
-        manager?.connection.stopVPNTunnel()
+        guard let manager else { state = .idle; return }
+        manager.connection.stopVPNTunnel()
         synchronizeStatus()
         await NimboDiagnostics.shared.record(.info, stage: .stop, code: "IOS_TUNNEL_STOP_REQUESTED", message: "Остановка Packet Tunnel запрошена пользователем")
     }
@@ -624,6 +674,10 @@ final class VpnController: ObservableObject {
 
         switch status {
         case .invalid, .disconnected:
+            if stopTimedOut {
+                stopTimedOut = false
+                state = .idle
+            }
             switch startAttempt.disconnectedAction() {
             case .waitForStart:
                 // startVPNTunnel returns before NE necessarily leaves its old
@@ -642,9 +696,15 @@ final class VpnController: ObservableObject {
             startAttempt.observedProgress()
             state = .connecting
         case .connected:
+            stopTimedOut = false
             startAttempt.invalidate()
             state = .connected
         case .disconnecting:
+            if stopTimedOut {
+                state = .failed(code: "IOS_VPN_STOP_TIMEOUT",
+                    message: "iOS ещё останавливает VPN. Дождитесь отключения в настройках iOS и повторите попытку.")
+                break
+            }
             if startAttempt.isPreparing {
                 state = .connecting
             } else {
@@ -673,7 +733,7 @@ final class VpnController: ObservableObject {
         // Saving preferences / waiting for permission is not yet a tunnel start.
         // Avoid a second loadOrCreateManager while connect() is awaiting one.
         guard !startAttempt.isPreparing else { return }
-        guard isTransitional else {
+        guard isTransitional || stopTimedOut else {
             statusPollTimer?.invalidate()
             statusPollTimer = nil
             transitionStartedAt = nil
@@ -683,17 +743,15 @@ final class VpnController: ObservableObject {
         if transitionStartedAt == nil { transitionStartedAt = Date() }
         if let startedAt = transitionStartedAt {
             let waited = Date().timeIntervalSince(startedAt)
-            // Отключение система выполняет быстро; если за пять секунд статус
-            // не пришёл, туннеля уже нет — показываем покой.
-            if case .disconnecting = state, !startAttempt.isPending, waited > 5 {
-                statusPollTimer?.invalidate()
-                statusPollTimer = nil
-                transitionStartedAt = nil
+            // Only NE's terminal status means the old provider has stopped.
+            // Keep observing after timeout so a late successful stop recovers UI.
+            if case .disconnecting = state, !startAttempt.isPending, waited > 30 {
+                stopTimedOut = true
                 startAttempt.invalidate()
-                state = .idle
-                return
+                state = .failed(code: "IOS_VPN_STOP_TIMEOUT",
+                    message: "iOS ещё останавливает VPN. Дождитесь отключения в настройках iOS и повторите попытку.")
             }
-            if waited > 30 {
+            if waited > 30 && !stopTimedOut {
                 statusPollTimer?.invalidate()
                 statusPollTimer = nil
                 transitionStartedAt = nil
@@ -711,7 +769,7 @@ final class VpnController: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 if self.manager == nil {
-                    self.manager = try? await self.loadOrCreateManager()
+                    self.manager = try? await NimboTunnelControl.manager()
                 }
                 self.synchronizeStatus()
             }

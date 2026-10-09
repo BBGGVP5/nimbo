@@ -89,29 +89,30 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        with tempfile.TemporaryDirectory(prefix='nimbo-mihomo-cabi-') as directory:
-            started = call('start', yaml=FIXTURE, options=dict(dataDir=directory, networkOwner='desktop-proxy',
-                           mixedAddress='127.0.0.1:0', controllerAddress='127.0.0.1:0', secret='local-cabi-secret-' * 4))
-            assert started['success'], started
-            try:
-                busy = response(library.NimboMihomoSetSocketProtectorV1(callback_type(), None))
-                assert not busy['success'] and busy['error']['code'] == 'BUSY'
-                assert call('snapshot')['success']
-                assert call('select', group='Choice', name='local')['success']
-                host, port = started['data']['mixedAddress'].rsplit(':', 1)
-                connection = http.client.HTTPConnection(host, int(port), timeout=5)
+        for reconnect in range(8):
+            with tempfile.TemporaryDirectory(prefix='nimbo-mihomo-cabi-') as directory:
+                started = call('start', yaml=FIXTURE, options=dict(dataDir=directory, networkOwner='desktop-proxy',
+                               mixedAddress='127.0.0.1:0', controllerAddress='127.0.0.1:0', secret='local-cabi-secret-' * 4))
+                assert started['success'], started
                 try:
-                    connection.request('GET', 'http://127.0.0.1:%d/' % server.server_port)
-                    reply = connection.getresponse()
-                    assert reply.status != 204, 'Denied socket reached its target'
-                    reply.read()
-                except (OSError, http.client.HTTPException):
-                    pass
+                    busy = response(library.NimboMihomoSetSocketProtectorV1(callback_type(), None))
+                    assert not busy['success'] and busy['error']['code'] == 'BUSY'
+                    assert call('snapshot')['success']
+                    assert call('select', group='Choice', name='local')['success']
+                    host, port = started['data']['mixedAddress'].rsplit(':', 1)
+                    connection = http.client.HTTPConnection(host, int(port), timeout=5)
+                    try:
+                        connection.request('GET', 'http://127.0.0.1:%d/' % server.server_port)
+                        reply = connection.getresponse()
+                        assert reply.status != 204, 'Denied socket reached its target'
+                        reply.read()
+                    except (OSError, http.client.HTTPException):
+                        pass
+                    finally:
+                        connection.close()
+                    assert calls and all(fd >= 0 for fd in calls), 'Protection callback was not invoked'
                 finally:
-                    connection.close()
-                assert calls and all(fd >= 0 for fd in calls), 'Protection callback was not invoked'
-            finally:
-                assert call('stop', generation=started['generation'])['success']
+                    assert call('stop', generation=started['generation'])['success']
     finally:
         server.shutdown()
         server.server_close()

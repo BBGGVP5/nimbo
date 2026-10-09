@@ -26,10 +26,9 @@ struct NimboApp: App {
                         message: "Nimbo iOS запущен"
                     )
                     do {
-                        if let migrated = try await NimboSubscriptionRepository.shared.migrateStoredProfileIfNeeded(),
-                           let selected = migrated.selectedServer {
-                            try await vpnController.stageConfiguration(data: NimboSubscriptionRepository.shared.stagingData(for: selected))
-                        }
+                        // Storage migration does not need VPN permission and must
+                        // not rewrite an existing or stopping provider at launch.
+                        _ = try await NimboSubscriptionRepository.shared.migrateStoredProfileIfNeeded()
                     } catch {
                         await NimboDiagnostics.shared.record(
                             .warning,
@@ -38,7 +37,7 @@ struct NimboApp: App {
                             message: NimboRedactor.redact(error.localizedDescription)
                         )
                     }
-                    await vpnController.prepare()
+                    await vpnController.restore()
                 }
         }
     }

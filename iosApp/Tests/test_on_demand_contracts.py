@@ -18,7 +18,9 @@ class OnDemandContracts(unittest.TestCase):
             self.assertNotIn(forbidden, rules)
     def test_manual_stop_is_not_silently_rearmed_by_load(self):
         source=read("iosApp/Nimbo/VpnController.swift")
-        self.assertIn('catch { fail(code: "IOS_ON_DEMAND_PAUSE_FAILED", error: error); return }',source)
+        self.assertIn('fail(code: "IOS_ON_DEMAND_PAUSE_FAILED", error: error)', source)
+        stop = source.split('func disconnect(', 1)[1].split('func selectServer(', 1)[0]
+        self.assertIn('manager.connection.stopVPNTunnel()', stop.split('catch {', 1)[1])
         self.assertIn("Never called on launch",source)
         self.assertIn("NimboOnDemandRules.providerKey] == nil",source)
         self.assertIn("NimboCoreAdmission.validate(",source)

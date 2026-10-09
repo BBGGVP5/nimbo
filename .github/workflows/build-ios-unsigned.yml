@@ -76,6 +76,9 @@ jobs:
       - name: Verify native Naive policy and DNS routing
         run: python3 iosApp/Tests/test_naive_contracts.py --swift
 
+      - name: Verify reconnect startup and core admission policies
+        run: python3 scripts/ci/test-ios-reconnect.py
+
       - name: Install build tools
         run: brew install xcodegen ldid-procursus
 

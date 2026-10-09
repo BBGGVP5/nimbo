@@ -42,7 +42,7 @@ def main():
     for invalid in (None, b"{", b"x" * 32769, b'{"link":"bad-secret"}'):
         result = response(lib.NimboNaiveStart(invalid))
         assert not result["ok"] and "secret" not in json.dumps(result)
-    for scheme in ("naive+https", "naive+quic"):
+    for scheme in ("naive+https", "naive+quic") * 4:
         request["link"] = scheme + "://fixture:secret@192.0.2.1:443?peer=proxy.example"
         wire = json.dumps(request).encode()
         result = response(lib.NimboNaiveStart(wire))

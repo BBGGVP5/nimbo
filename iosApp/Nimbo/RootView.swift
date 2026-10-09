@@ -10,6 +10,7 @@ struct RootView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showProfiles = false
     @State private var bottomBarHeight: CGFloat = 88
+    @State private var contentSafeBottom: CGFloat = 0
     @State private var fullConfiguration: NimboFullConfiguration?
     @State private var fullServerCount = 0
     @AppStorage("com.nimbo.appearance.themeMode") private var themeMode = "system"
@@ -19,8 +20,6 @@ struct RootView: View {
     @AppStorage("com.nimbo.appearance.pingAfterRefresh") private var pingAfterRefresh = true
     @AppStorage("com.nimbo.appearance.refreshOnLaunch") private var refreshOnLaunch = false
     @State private var showDiagnostics = false
-    @State private var showReadiness = false
-    @AppStorage("com.nimbo.readiness.checkedBuild") private var readinessBuild = ""
     @State private var showAbout = false
     @State private var showCoreSettings = false
     @State private var showOnDemandSettings = false
@@ -61,21 +60,8 @@ struct RootView: View {
             .sheet(isPresented: $showOnDemandSettings) {
                 NavigationStack { NimboOnDemandSettingsView().environmentObject(vpn) }
             }
-            .sheet(isPresented: $showReadiness) {
-                NavigationStack {
-                    ReadinessView().environmentObject(vpn)
-                        .toolbar { ToolbarItem(placement: .confirmationAction) {
-                            Button("Готово") { showReadiness = false }.frame(minWidth: 44, minHeight: 44)
-                        } }
-                }
-            }
-            .task {
-                let build = "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "")-\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? "")"
-                if readinessBuild != build {
-                    readinessBuild = build
-                    showReadiness = true
-                }
-            }
+            // Readiness stays available in Diagnostics. Never stack a launch
+            // sheet over import, updates or the system VPN permission alert.
             .preferredColorScheme(themeMode == "light" ? .light : (themeMode == "dark" || themeMode == "oled") ? .dark : nil)
     }
 
@@ -85,7 +71,10 @@ struct RootView: View {
             if UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular {
                 HStack(spacing: 0) {
                     NimboWideSidebar(selection: $selectedTab)
-                        .onAppear { IosComposeControllerKt.NimboSetIosBottomClearance(points: 0) }
+                        .onAppear {
+                            IosComposeControllerKt.NimboSetIosBottomClearance(points: 0)
+                            IosComposeControllerKt.NimboSetIosTopClearance(points: 0)
+                        }
                     Group {
                         if selectedTab == .profiles, fullConfiguration != nil {
                             ProfilesContainerView().environmentObject(vpn)
@@ -97,17 +86,24 @@ struct RootView: View {
                 Group {
                     if selectedTab == .profiles, fullConfiguration != nil {
                         ProfilesContainerView(bottomInset: bottomBarHeight + 12).environmentObject(vpn)
-                    } else { ComposeScreen(tab: selectedTab) }
+                    } else {
+                        GeometryReader { geometry in
+                            ComposeScreen(tab: selectedTab)
+                                .ignoresSafeArea(.container, edges: .vertical)
+                                .onAppear { updateContentInsets(geometry.safeAreaInsets) }
+                                .onChange(of: geometry.safeAreaInsets) { updateContentInsets($0) }
+                        }
+                    }
                 }
                     .overlay(alignment: .bottom) {
                         NimboTabBar(selection: $selectedTab)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
                                 bottomBarHeight = height
-                                IosComposeControllerKt.NimboSetIosBottomClearance(points: Double(height + 12))
+                                IosComposeControllerKt.NimboSetIosBottomClearance(points: Double(height + contentSafeBottom + 12))
                             }
                     }
                     .onAppear {
-                        IosComposeControllerKt.NimboSetIosBottomClearance(points: Double(bottomBarHeight + 12))
+                        IosComposeControllerKt.NimboSetIosBottomClearance(points: Double(bottomBarHeight + contentSafeBottom + 12))
                     }
             }
         }
@@ -117,6 +113,12 @@ struct RootView: View {
             if selectedTab == .notifications { NimboLiveActivitySettingsView() }
 
         }
+    }
+
+    private func updateContentInsets(_ insets: EdgeInsets) {
+        contentSafeBottom = insets.bottom
+        IosComposeControllerKt.NimboSetIosTopClearance(points: Double(insets.top))
+        IosComposeControllerKt.NimboSetIosBottomClearance(points: Double(bottomBarHeight + insets.bottom + 12))
     }
 
     private var lifecycleLayer: some View {

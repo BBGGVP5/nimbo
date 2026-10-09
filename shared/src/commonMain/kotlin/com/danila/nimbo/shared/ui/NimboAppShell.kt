@@ -64,6 +64,7 @@ data class NimboUiState(
     val vpnState: String = "idle",
     /** Measured native overlay height in points; content scrolls clear of the floating bar. */
     val nativeBottomClearance: Float = 0f,
+    val nativeTopClearance: Float = 0f,
     val errorCode: String? = null,
     val errorMessage: String? = null,
     val activeProfileName: String = "Подписка не добавлена",
@@ -306,6 +307,7 @@ fun NimboAppShell(
 ) {
     var internalScreen by remember(initialScreen) { mutableStateOf(initialScreen) }
     val selectedScreen = externalScreen ?: internalScreen
+    val backActions = remember { NimboBackActions() }
     val routedActions = actions.copy(onOpenScreen = { wireName ->
         internalScreen = NimboScreen.fromWireName(wireName)
         actions.onOpenScreen(wireName)
@@ -319,7 +321,9 @@ fun NimboAppShell(
     val wideNavigation = showBottomBar && maxWidth >= 1280.dp
     CompositionLocalProvider(
         LocalNimboContentBottom provides if (showBottomBar && !wideNavigation) 116.dp else maxOf(16f, state.nativeBottomClearance).dp,
-        LocalNimboContentTop provides if (showBottomBar) 24.dp else 16.dp,
+        LocalNimboContentTop provides if (showBottomBar) 24.dp else (state.nativeTopClearance + 8f).dp,
+        LocalNimboEdgeBackEnabled provides !showBottomBar,
+        LocalNimboBackActions provides backActions,
         LocalNimboPingDisplay provides normalizePingDisplay(state.pingDisplay),
         LocalNimboPingProtocol provides normalizePingProtocol(state.pingProtocol),
         LocalNimboElementStyle provides NimboElementStyle.NIMBO_GLASS,
@@ -339,7 +343,16 @@ fun NimboAppShell(
             onSurface = NimboPalette.Text
         )
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().nimboEdgeBack {
+            backActions.back {
+                val parent = when (selectedScreen) {
+                    NimboScreen.MODULES, NimboScreen.ROUTING_PROFILES -> NimboScreen.ROUTING
+                    NimboScreen.ROUTING -> NimboScreen.SETTINGS
+                    else -> NimboScreen.HOME
+                }
+                routedActions.onOpenScreen(parent.wireName)
+            }
+        }) {
             // Universal-v2 has one matte canvas; persisted legacy styles cannot replace it.
             Box(Modifier.fillMaxSize().background(NimboPalette.Background))
 

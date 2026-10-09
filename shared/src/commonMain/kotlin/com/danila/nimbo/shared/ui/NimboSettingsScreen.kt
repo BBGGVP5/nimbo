@@ -382,6 +382,7 @@ private fun SystemValue(label: String, value: String) {
 
 @Composable
 internal fun NimboSettingsBack(title: String, onClick: () -> Unit) {
+    NimboRegisterBack(onClick)
     NimboSettingsAction("‹ $title", onClick = onClick)
 }
 
@@ -415,7 +416,7 @@ internal fun NimboSettingsDialog(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        BoxWithConstraints(Modifier.fillMaxWidth().imePadding()) {
+        BoxWithConstraints(Modifier.fillMaxWidth().imePadding().nimboEdgeBack(onDismiss)) {
             NimboSurface(Modifier.fillMaxWidth().heightIn(max = maxHeight * .9f),
                 cornerRadius = 20.dp, padding = PaddingValues(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -56,6 +56,9 @@ cp go.mod go.sum "${WORK_DIR}/verify/"
 )
 [[ "$(go list -m -f '{{.Version}}' github.com/amnezia-vpn/amneziawg-go/v3)" == "${AWG_VERSION}" ]]
 [[ "$(go list -m -f '{{.Version}}' github.com/metacubex/mihomo)" == 'v1.19.32' ]]
+python3 "${ROOT_DIR}/scripts/ci/prepare-xray-apple-tun.py" --dependency-dir "${WORK_DIR}/xray-apple"
+go test -mod=readonly -race -count=1 -timeout=90s -run '^TestNimboBorrowedDescriptorReconnect$' github.com/xtls/xray-core/proxy/tun
+
 go test -mod=readonly -count=1 nimbo/awgcore nimbo/mihomocore ./cgo_bridge
 go test -mod=readonly -count=1 -timeout=120s nimbo/naivecore
 

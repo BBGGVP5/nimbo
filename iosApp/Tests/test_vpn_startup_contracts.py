@@ -47,13 +47,13 @@ class VpnStartupSourceRegressions(unittest.TestCase):
     def test_on_demand_started_during_save_arms_watchdog(self):
         body = function(CONTROLLER, 'connect')
         arm = body.index('startAttempt.requestedStart(for: attempt)')
-        self.assertLess(arm, body.index('switch manager.connection.status'))
+        self.assertLess(arm, body.index('switch manager.connection.status', arm))
         self.assertGreater(arm, body.index('try await NimboOnDemandRules.persist'))
 
     def test_native_bar_overlays_content_with_measured_scroll_clearance(self):
         root = source("Nimbo/RootView.swift")
         self.assertIn('.overlay(alignment: .bottom)', root)
-        self.assertIn('NimboSetIosBottomClearance(points: Double(height + 12))', root)
+        self.assertIn('NimboSetIosBottomClearance(points: Double(height + contentSafeBottom + 12))', root)
         self.assertNotIn('.safeAreaPadding(', root)  # minimum deployment target remains iOS 16
         self.assertIn('ProfilesContainerView(bottomInset: bottomBarHeight + 12)', root)
 
@@ -107,7 +107,7 @@ class VpnStartupSourceRegressions(unittest.TestCase):
 
     def test_success_cancel_and_recovered_attempt_invalidate_callbacks(self):
         body = function(CONTROLLER, 'synchronizeStatus')
-        self.assertRegex(body, r'case \.connected:\s+startAttempt.invalidate\(\)\s+state = \.connected')
+        self.assertRegex(body, r'case \.connected:\s+stopTimedOut = false\s+startAttempt.invalidate\(\)\s+state = \.connected')
         disconnect = function(CONTROLLER, 'disconnect')
         self.assertLess(disconnect.index('startAttempt.invalidate()'), disconnect.index('await'))
         self.assertIn('if phase == .reportingFailure { generation &+= 1 }', function(POLICY, 'observedProgress'))
@@ -120,8 +120,36 @@ class VpnStartupSourceRegressions(unittest.TestCase):
         poll = function(CONTROLLER, 'scheduleStatusPollIfNeeded')
         self.assertIn('if waited > 30', poll)
         self.assertIn('code: "IOS_VPN_START_TIMEOUT"', poll)
-        self.assertIn('!startAttempt.isPending, waited > 5', poll)
+        self.assertIn('!startAttempt.isPending, waited > 30', poll)
+        self.assertNotIn('state = .idle', poll)
+        self.assertIn('IOS_VPN_STOP_TIMEOUT', poll)
         self.assertIn('guard !startAttempt.isPreparing else { return }', poll)
+
+    def test_reconnect_checks_observed_status_before_writing_preferences(self):
+        body = function(CONTROLLER, 'connect')
+        self.assertLess(body.index('status != .invalid && status != .disconnected'), body.index('try await stageConfiguration'))
+        self.assertIn('try requireStoppedConnection()', source(CONTROLLER))
+        self.assertIn('status == .disconnected || status == .invalid', function(CONTROLLER, 'requireStoppedConnection'))
+
+    def test_launch_is_read_only_and_has_no_automatic_diagnostics_sheet(self):
+        app = source('Nimbo/NimboApp.swift')
+        self.assertIn('await vpnController.restore()', app)
+        self.assertNotIn('stageConfiguration', app)
+        restore = function(CONTROLLER, 'restore')
+        self.assertIn('NimboTunnelControl.manager()', restore)
+        for forbidden in ['saveToPreferences', 'loadOrCreateManager', 'validateCore']:
+            self.assertNotIn(forbidden, restore)
+        root = source('Nimbo/RootView.swift')
+        self.assertNotIn('readinessBuild', root)
+        self.assertNotIn('showReadiness = true', root)
+        self.assertIn('ReadinessView()', source('Nimbo/DiagnosticsView.swift'))
+
+    def test_stop_request_survives_on_demand_save_failure(self):
+        body = function(CONTROLLER, 'disconnect')
+        catch = body.split('catch {', 1)[1]
+        self.assertLess(catch.index('stopVPNTunnel()'), catch.index('IOS_ON_DEMAND_PAUSE_FAILED'))
+        self.assertNotIn('loadOrCreateManager()', body)
+        self.assertNotIn('loadOrCreateManager()', function(CONTROLLER, 'scheduleStatusPollIfNeeded').split('Timer.scheduledTimer', 1)[1])
 
     def test_readiness_is_not_used_as_disconnect_cause(self):
         body = function(CONTROLLER, 'applyDisconnectError')

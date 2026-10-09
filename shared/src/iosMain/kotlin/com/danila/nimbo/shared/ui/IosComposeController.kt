@@ -863,6 +863,10 @@ fun NimboSetIosScreen(wireName: String) {
 
 fun NimboCurrentIosScreen(): String = iosScreen.value.wireName
 
+fun NimboSetIosTopClearance(points: Double) {
+    if (points.isFinite()) iosUiState.value = iosUiState.value.copy(nativeTopClearance = points.coerceIn(0.0, 150.0).toFloat())
+}
+
 fun NimboSetIosBottomClearance(points: Double) {
     if (points.isFinite()) iosUiState.value = iosUiState.value.copy(nativeBottomClearance = points.coerceIn(0.0, 300.0).toFloat())
 }
