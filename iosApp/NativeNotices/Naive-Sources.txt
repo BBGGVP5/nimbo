@@ -8,3 +8,7 @@ Nimbo adapter and integration/build source:
 https://github.com/BBGGVP5/nimbo/tree/codex/ondemand-memory-20260930/tools/native/naive-core
 https://github.com/BBGGVP5/nimbo/blob/codex/ondemand-memory-20260930/scripts/ci/build-libxray-awg-apple.sh
 Native modules are checksum-verified through the pinned Go module graph.
+
+Nimbo iOS-only compatibility source (pinned unused kqueue feature init):
+https://github.com/BBGGVP5/nimbo/tree/codex/ondemand-memory-20260930/tools/native/naive-apple-compat
+See its README for exact upstream source evidence and archive guards.

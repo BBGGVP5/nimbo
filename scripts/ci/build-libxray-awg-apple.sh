@@ -92,7 +92,15 @@ build_slice() {
       -ldflags='-s -w -buildid=' -buildmode=c-archive -o "${out}/libXray.a" ./cgo_bridge
   # c-archive does not carry third-party static archives into the final Swift
   # link. Merge Cronet objects, not another Go runtime, into this exact slice.
-  xcrun libtool -static -o "${out}/libXray-complete.a" "${out}/libXray.a" "${cronet_dir}/libcronet.a"
+  # Exact upstream iOS archives reference a feature initializer for the absent
+  # kqueue pump; iOS Cronet uses CFRunLoop. Fail closed on any dependency change.
+  local compat="${ROOT_DIR}/tools/native/naive-apple-compat"
+  python3 "${compat}/test_check_archive.py"
+  python3 "${compat}/check_archive.py" "${cronet_dir}/libcronet.a" "${cronet_module##*/}"
+  xcrun --sdk "${sdk}" clang++ -isysroot "${sdk_path}" -target "${target}" \
+    -fapplication-extension -c "${compat}/unused_kqueue_feature.cc" -o "${out}/unused_kqueue_feature.o"
+  xcrun libtool -static -o "${out}/libXray-complete.a" "${out}/libXray.a" \
+    "${cronet_dir}/libcronet.a" "${out}/unused_kqueue_feature.o"
   mv "${out}/libXray-complete.a" "${out}/libXray.a"
   cp "${out}/libXray.h" "${out}/Headers/"
   cp build/template/module.modulemap "${out}/Headers/"
@@ -142,6 +150,8 @@ ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
   echo 'naive_version=150.0.7871.63'
   echo 'cronet_go_commit=0d28acc44093df24b2526dea3d6ffefd6b0a54f0'
   echo 'native_naive_contract_test=passed'
+  echo 'cronet_ios_compat=pinned-unused-kqueue-feature-init'
+  shasum -a 256 "${ROOT_DIR}/tools/native/naive-apple-compat/"*.py "${ROOT_DIR}/tools/native/naive-apple-compat/"*.cc
   echo 'naive_ios_device_acceptance=required'
   echo 'native_api3_awg_contract_test=passed'
   echo 'native_mihomo_v1_contract_test=passed'

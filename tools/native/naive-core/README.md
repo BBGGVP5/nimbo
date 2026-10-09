@@ -21,3 +21,5 @@ Tests: `go test ./...`; native macOS `go test -tags with_naive ./...`; native Wi
 - Native iOS integration additionally uses a virtual TUN DNS address even with the system DNS preset, so excluded physical LAN routes cannot carry intercepted DNS around the proxy.
 - App-process Nimbo Ping creates an isolated authenticated Naive adapter, then closes it after the temporary diagnostic core and sockets. It does not touch the Packet Tunnel singleton.
 - Generic UDP, mixed Xray balancers, and claiming native Naive inside arbitrary full Mihomo documents are deliberately out of scope. Public release still requires iPhone memory/network-handoff acceptance and a transitive Chromium notice audit.
+
+The pinned iOS archives require the narrowly scoped `../naive-apple-compat` feature-init correction. It is gated by exact archive hashes and symbol evidence; see that directory for source analysis. It does not change Chromium TLS or network behavior.
