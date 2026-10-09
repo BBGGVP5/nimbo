@@ -24,6 +24,11 @@ class LiveActivityContracts(unittest.TestCase):
         source = read("iosApp/LiveActivity/NimboLiveActivityWidget.swift")
         for contract in ["ActivityConfiguration", "DynamicIsland", "compactLeading", "compactTrailing", "minimal", "context.isStale"]:
             self.assertIn(contract, source)
+        self.assertEqual(source.count('Image("NimboCloudSymbol")'), 4)
+        self.assertIn('.minimumScaleFactor(0.8)', source)
+        self.assertIn('compactText(english:', source)
+        self.assertIn('statusSymbol(context.state.phase, stale: context.isStale)', source)
+        self.assertNotIn('Image(systemName: "cloud.fill")', source)
         attributes = read("iosApp/Shared/NimboLiveActivityAttributes.swift")
         for secret in ["serverName", "profileName", "nodeID", "subscriptionURL", "password"]:
             self.assertNotIn(secret, attributes)

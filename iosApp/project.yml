@@ -186,6 +186,8 @@ targets:
       - path: LiveActivity
       - path: Shared/NimboLiveActivityAttributes.swift
       - path: Shared/NimboLiveActivityPolicy.swift
+      - path: Branding/Branding.xcassets
+        buildPhase: resources
     dependencies:
       - sdk: ActivityKit.framework
       - sdk: WidgetKit.framework

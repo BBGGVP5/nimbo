@@ -20,19 +20,20 @@ def read(name):
 def verify_ipa_branding(path):
     """Check packaging only: this does not validate provisioning or device behavior."""
     app = 'Payload/Nimbo.app'
-    widget = app + '/PlugIns/NimboControlWidget.appex'
+    widgets = [app + '/PlugIns/' + name + '.appex' for name in ('NimboControlWidget', 'NimboLiveActivity')]
     with zipfile.ZipFile(path) as archive:
-        for bundle in (app, widget):
+        for bundle in [app, *widgets]:
             for resource in ('Info.plist', 'Assets.car'):
                 name = bundle + '/' + resource
                 if name not in archive.namelist() or archive.getinfo(name).file_size == 0:
                     raise ValueError('Missing or empty packaged resource: ' + name)
-        info = plistlib.loads(archive.read(widget + '/Info.plist'))
-        if info.get('NSExtension', {}).get('NSExtensionPointIdentifier') != 'com.apple.widgetkit-extension':
-            raise ValueError('ControlWidget is not a WidgetKit extension')
-        executable = widget + '/' + info.get('CFBundleExecutable', '')
-        if executable not in archive.namelist() or archive.getinfo(executable).file_size == 0:
-            raise ValueError('Missing ControlWidget executable')
+        for widget in widgets:
+            info = plistlib.loads(archive.read(widget + '/Info.plist'))
+            if info.get('NSExtension', {}).get('NSExtensionPointIdentifier') != 'com.apple.widgetkit-extension':
+                raise ValueError('Not a WidgetKit extension: ' + widget)
+            executable = widget + '/' + info.get('CFBundleExecutable', '')
+            if executable not in archive.namelist() or archive.getinfo(executable).file_size == 0:
+                raise ValueError('Missing widget executable: ' + widget)
 
 
 class BrandingContracts(unittest.TestCase):
@@ -44,6 +45,10 @@ class BrandingContracts(unittest.TestCase):
         resources = {app + '/Info.plist': plistlib.dumps({}), app + '/Assets.car': b'catalog',
                      widget + '/Info.plist': info, widget + '/Assets.car': b'catalog',
                      widget + '/NimboControlWidget': b'executable'}
+        live = app + '/PlugIns/NimboLiveActivity.appex'
+        resources.update({live + '/Info.plist': plistlib.dumps({'CFBundleExecutable': 'NimboLiveActivity',
+                         'NSExtension': {'NSExtensionPointIdentifier': 'com.apple.widgetkit-extension'}}),
+                         live + '/Assets.car': b'catalog', live + '/NimboLiveActivity': b'executable'})
         # Synthetic fixtures validate the packaging guard, not the asset contents.
         with tempfile.TemporaryDirectory() as directory:
             for missing in (None, *resources):
@@ -75,8 +80,9 @@ class BrandingContracts(unittest.TestCase):
     def test_shared_catalog_in_app_and_widget_not_tunnel(self):
         targets = read('project.yml').split('targets:', 1)[1].split('\nschemes:', 1)[0]
         app, rest = targets.split('\n  NimboPacketTunnel:', 1)
-        tunnel, widget = rest.split('\n  NimboControlWidget:', 1)
-        for target in [app, widget]:
+        tunnel, rest = rest.split('\n  NimboLiveActivity:', 1)
+        live, widget = rest.split('\n  NimboControlWidget:', 1)
+        for target in [app, live, widget]:
             self.assertNotIn('\n    resources:', target)
             sources = target.split('\n    sources:', 1)[1].split('\n    dependencies:', 1)[0]
             self.assertIn('- path: Branding/Branding.xcassets\n        buildPhase: resources', sources)
@@ -162,7 +168,7 @@ if __name__ == '__main__':
         raise SystemExit(1)
     if args.ipa:
         verify_ipa_branding(args.ipa)
-        print('PASS: IPA contains app/control asset catalogs and control executable (not a signature/device check)')
+        print('PASS: IPA contains app/control/LiveActivity catalogs and widget executables (not a signature/device check)')
     if args.mac:
         mac_checks()
     else:
