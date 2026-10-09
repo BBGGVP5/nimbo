@@ -62,6 +62,8 @@ import androidx.compose.ui.semantics.stateDescription
 data class NimboUiState(
     val appearance: NimboAppearance = NimboAppearance(),
     val vpnState: String = "idle",
+    /** Measured native overlay height in points; content scrolls clear of the floating bar. */
+    val nativeBottomClearance: Float = 0f,
     val errorCode: String? = null,
     val errorMessage: String? = null,
     val activeProfileName: String = "Подписка не добавлена",
@@ -283,6 +285,8 @@ data class NimboUiActions(
     val onImportBackup: () -> Unit = {},
     /** Открыть перенос данных с другого устройства. */
     val onOpenSync: () -> Unit = {},
+    /** Native on-demand settings; absent when the platform has no such sheet. */
+    val onOpenOnDemandSettings: (() -> Unit)? = null,
     /** Native core selector; absent on clients that do not provide this sheet. */
     val onOpenCoreSettings: (() -> Unit)? = null
 )
@@ -314,7 +318,7 @@ fun NimboAppShell(
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val wideNavigation = showBottomBar && maxWidth >= 1280.dp
     CompositionLocalProvider(
-        LocalNimboContentBottom provides if (showBottomBar && !wideNavigation) 116.dp else 16.dp,
+        LocalNimboContentBottom provides if (showBottomBar && !wideNavigation) 116.dp else maxOf(16f, state.nativeBottomClearance).dp,
         LocalNimboContentTop provides if (showBottomBar) 24.dp else 16.dp,
         LocalNimboPingDisplay provides normalizePingDisplay(state.pingDisplay),
         LocalNimboPingProtocol provides normalizePingProtocol(state.pingProtocol),

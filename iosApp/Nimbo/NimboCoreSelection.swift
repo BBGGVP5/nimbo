@@ -80,27 +80,37 @@ enum NimboCoreAdmission {
             if object["outbounds"] is [Any] {
                 // Native Xray documents remain Xray, including a WireGuard outbound.
                 detected = .xray
-            } else if let links = object["shareLinks"] as? [String], !links.isEmpty,
-                      links.allSatisfy({ isXrayShareText($0) }) {
+            } else if let links = object["shareLinks"] as? [String], !links.isEmpty {
+                try rejectUnsupportedShareProtocols(links.joined(separator: "\n"))
+                guard links.allSatisfy({ isXrayShareText($0) }) else { throw NimboCoreSelectionError.unsupportedProfile }
                 detected = .xray
             } else {
                 throw NimboCoreSelectionError.unsupportedProfile
             }
         } else if try NimboAWGConfiguration.parseIfPresent(text) != nil {
             detected = .awg
-        } else if isXrayShareText(text) {
-            detected = .xray
         } else {
-            // YAML and unrecognized inputs never fall through to Xray conversion.
-            throw NimboCoreSelectionError.unsupportedProfile
+            try rejectUnsupportedShareProtocols(text)
+            guard isXrayShareText(text) else { throw NimboCoreSelectionError.unsupportedProfile }
+            detected = .xray
         }
         guard declared == nil || declared == detected else { throw NimboCoreSelectionError.incompatible }
         return detected
     }
 
+    private static func rejectUnsupportedShareProtocols(_ text: String) throws {
+        for line in text.split(whereSeparator: \.isNewline) {
+            let scheme = line.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "://").first?.lowercased()
+            if scheme == "naive" || scheme == "naive+https" || scheme == "naive+quic" {
+                throw NimboCoreSelectionError.naiveUnavailable
+            }
+            if scheme == "tuic" || scheme == "mieru" { throw NimboCoreSelectionError.tuicRequiresMihomo }
+        }
+    }
+
     private static func isXrayShareText(_ text: String) -> Bool {
         let schemes: Set<String> = ["vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "hy2",
-                                    "hysteria", "tuic", "naive", "naive+https", "naive+quic", "socks", "socks5"]
+                                    "hysteria", "socks", "socks5"]
         let lines = text.split(whereSeparator: \.isNewline)
         return !lines.isEmpty && lines.allSatisfy { line in
             let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -111,10 +121,14 @@ enum NimboCoreAdmission {
 }
 
 enum NimboCoreSelectionError: LocalizedError {
-    case unknownPreference, unavailable, incompatible, unsupportedProfile, busy
+    case unknownPreference, unavailable, incompatible, unsupportedProfile, busy, naiveUnavailable, tuicRequiresMihomo
 
     var errorDescription: String? {
         switch self {
+        case .naiveUnavailable:
+            return "NaiveProxy сохранён, но его нативный клиент ещё не встроен в Nimbo для iOS. Выберите другой сервер (IOS_NAIVE_UNAVAILABLE)."
+        case .tuicRequiresMihomo:
+            return "Для TUIC/Mieru импортируйте профиль Mihomo вашего провайдера и выберите ядро Auto или Mihomo (IOS_TUIC_REQUIRES_MIHOMO)."
         case .unknownPreference:
             return "Неизвестное ядро VPN. Выберите Auto, Xray, AWG или Mihomo в настройках (IOS_CORE_UNKNOWN)."
         case .unavailable:

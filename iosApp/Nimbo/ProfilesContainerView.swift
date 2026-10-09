@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ProfilesContainerView: View {
+    var bottomInset: CGFloat = 0
     @EnvironmentObject private var vpn: VpnController
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -53,6 +54,7 @@ struct ProfilesContainerView: View {
                                 busy: isWorking).nimboCard()
                 }
                 importCard
+                if bottomInset > 0 { Color.clear.frame(height: bottomInset).accessibilityHidden(true) }
             }
             .nimboSheetStyle()
             .interactiveDismissDisabled(isWorking)

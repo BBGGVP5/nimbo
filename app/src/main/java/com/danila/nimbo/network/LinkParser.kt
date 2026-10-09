@@ -189,21 +189,39 @@ object LinkParser {
             "ss" -> parseShadowsocks(link, uri)
             "hy", "hy2", "hysteria2", "hysteria" -> parseHysteria2(link, uri)
             "naive", "naive+https", "naive+quic" -> parseNaiveProxy(trimmed)
+            "tuic", "mieru" -> parseMihomoShare(trimmed, protocol)
             "awg", "amneziawg" -> parseAwgLink(link, uri)
             "wireguard", "wg" -> parseWireGuardLink(link, uri)
-            else -> parseVless(link, uri)
+            else -> throw IllegalArgumentException("Неподдерживаемый протокол ссылки")
         }
     }
 
+    private fun decodeProxyComponent(value: String): String =
+        java.net.URLDecoder.decode(value.replace("+", "%2B"), "UTF-8")
+
+    private fun parseMihomoShare(link: String, protocol: String): Server {
+        val parsed = runCatching { URI(link.substringBefore('#')) }
+            .getOrElse { throw IllegalArgumentException("Некорректная ссылка ${protocol.uppercase()}") }
+        val host = parsed.host.orEmpty().removePrefix("[").removeSuffix("]")
+        require(host.isNotBlank()) { "В ссылке ${protocol.uppercase()} не указан сервер" }
+        val port = if (parsed.port == -1) 443 else parsed.port
+        require(port in 1..65535) { "Некорректный порт ${protocol.uppercase()}" }
+        val userInfo = parsed.rawUserInfo.orEmpty()
+        require(userInfo.isNotBlank()) { "В ссылке ${protocol.uppercase()} нет данных авторизации" }
+        return Server(name = decodeProxyComponent(link.substringAfter('#', "")).ifBlank { protocol.uppercase() },
+            host = host, port = port, uuid = decodeProxyComponent(userInfo), protocol = protocol,
+            network = if (protocol == "tuic") "quic" else "tcp", security = if (protocol == "tuic") "tls" else "")
+    }
+
     private fun parseNaiveProxy(link: String): Server {
-        val parsed = runCatching { URI(link) }
-            .getOrElse { throw IllegalArgumentException("Некорректная ссылка NaiveProxy", it) }
+        val parsed = runCatching { URI(link.substringBefore('#')) }
+            .getOrElse { throw IllegalArgumentException("Некорректная ссылка NaiveProxy") }
         val transport = when (parsed.scheme?.lowercase()) {
             "naive+quic" -> "quic"
             "naive", "naive+https" -> "https"
             else -> throw IllegalArgumentException("Поддерживаются naive+https:// и naive+quic://")
         }
-        val host = parsed.host?.trim().orEmpty()
+        val host = parsed.host?.trim().orEmpty().removePrefix("[").removeSuffix("]")
         if (host.isBlank()) throw IllegalArgumentException("В ссылке NaiveProxy не указан сервер")
 
         val rawUserInfo = parsed.rawUserInfo.orEmpty()
@@ -211,14 +229,21 @@ object LinkParser {
         if (separator <= 0 || separator == rawUserInfo.lastIndex) {
             throw IllegalArgumentException("В ссылке NaiveProxy нужны имя пользователя и пароль")
         }
-        val username = Uri.decode(rawUserInfo.substring(0, separator)).trim()
-        val password = Uri.decode(rawUserInfo.substring(separator + 1))
+        val username = decodeProxyComponent(rawUserInfo.substring(0, separator))
+        val password = decodeProxyComponent(rawUserInfo.substring(separator + 1))
         if (username.isBlank() || password.isBlank()) {
             throw IllegalArgumentException("В ссылке NaiveProxy нужны имя пользователя и пароль")
         }
 
-        val port = if (parsed.port > 0) parsed.port else 443
-        val displayName = Uri.decode(parsed.rawFragment.orEmpty()).trim().ifBlank { "NaiveProxy" }
+        val port = if (parsed.port == -1) 443 else parsed.port
+        require(port in 1..65535) { "Некорректный порт NaiveProxy" }
+        val params = parsed.rawQuery.orEmpty().split('&').mapNotNull { entry ->
+            val key = entry.substringBefore('=').lowercase()
+            val value = decodeProxyComponent(entry.substringAfter('=', ""))
+            value.takeIf { it.isNotBlank() }?.let { key to it }
+        }.toMap()
+        val peer = params["peer"] ?: params["sni"] ?: host
+        val displayName = decodeProxyComponent(link.substringAfter('#', "")).trim().ifBlank { "NaiveProxy" }
         return Server(
             name = displayName,
             host = host,
@@ -227,7 +252,7 @@ object LinkParser {
             protocol = "naive",
             security = "tls",
             network = transport,
-            sni = host,
+            sni = peer,
             naiveUsername = username,
             naivePassword = password,
             naiveTransport = transport

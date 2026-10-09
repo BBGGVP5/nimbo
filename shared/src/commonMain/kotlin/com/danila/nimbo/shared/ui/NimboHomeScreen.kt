@@ -78,9 +78,11 @@ internal fun NimboHomeScreen(
         item { HomeHeader(state, actions) }
         item { NimboConnectionPanel(state, actions) }
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                BasicText("Мои подписки", Modifier.weight(1f), style = NimboSectionTitleStyle)
-                BasicText("Все профили ↗", Modifier.heightIn(min = 44.dp).nimboClickable(onClick = onOpenProfiles).padding(vertical = 12.dp), style = NimboBodyStyle.copy(fontSize = 12.sp))
+            Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+                BasicText("Мои подписки", Modifier.weight(1f).alignByBaseline(), style = NimboSectionTitleStyle)
+                Box(Modifier.alignByBaseline().nimboClickable(onClick = onOpenProfiles).padding(vertical = 14.dp)) {
+                    BasicText("Все профили ↗", style = NimboBodyStyle.copy(fontSize = 12.sp))
+                }
             }
         }
         if (state.profileCount == 0) {

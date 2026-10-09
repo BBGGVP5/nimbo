@@ -9,6 +9,7 @@ struct RootView: View {
     @EnvironmentObject private var vpn: VpnController
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showProfiles = false
+    @State private var bottomBarHeight: CGFloat = 88
     @State private var fullConfiguration: NimboFullConfiguration?
     @State private var fullServerCount = 0
     @AppStorage("com.nimbo.appearance.themeMode") private var themeMode = "system"
@@ -78,12 +79,13 @@ struct RootView: View {
             .preferredColorScheme(themeMode == "light" ? .light : (themeMode == "dark" || themeMode == "oled") ? .dark : nil)
     }
 
-    /// Compose receives the safe area remaining above the native panel.
+    /// The native panel floats over content; scrolling pages reserve its measured height.
     private var screen: some View {
         Group {
             if UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular {
                 HStack(spacing: 0) {
                     NimboWideSidebar(selection: $selectedTab)
+                        .onAppear { IosComposeControllerKt.NimboSetIosBottomClearance(points: 0) }
                     Group {
                         if selectedTab == .profiles, fullConfiguration != nil {
                             ProfilesContainerView().environmentObject(vpn)
@@ -94,11 +96,18 @@ struct RootView: View {
             } else {
                 Group {
                     if selectedTab == .profiles, fullConfiguration != nil {
-                        ProfilesContainerView().environmentObject(vpn)
+                        ProfilesContainerView(bottomInset: bottomBarHeight + 12).environmentObject(vpn)
                     } else { ComposeScreen(tab: selectedTab) }
                 }
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                    .overlay(alignment: .bottom) {
                         NimboTabBar(selection: $selectedTab)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                                bottomBarHeight = height
+                                IosComposeControllerKt.NimboSetIosBottomClearance(points: Double(height + 12))
+                            }
+                    }
+                    .onAppear {
+                        IosComposeControllerKt.NimboSetIosBottomClearance(points: Double(bottomBarHeight + 12))
                     }
             }
         }
@@ -106,16 +115,7 @@ struct RootView: View {
         .tint(NimboNative.accent)
         .safeAreaInset(edge: .top, spacing: 0) {
             if selectedTab == .notifications { NimboLiveActivitySettingsView() }
-            if selectedTab == .settings {
-                Button { showOnDemandSettings = true } label: {
-                    HStack {
-                        Label("Автоподключение · On-demand", systemImage: "wifi")
-                        Spacer()
-                        Text(NimboOnDemandSettings.load().enabled ? (vpn.manager?.isOnDemandEnabled == true ? "Включено" : "Пауза") : "Выключено")
-                            .font(.caption).foregroundStyle(NimboNative.secondary)
-                    }.frame(minHeight: 44)
-                }.padding(.horizontal, 20)
-            }
+
         }
     }
 
@@ -124,7 +124,7 @@ struct RootView: View {
             .onAppear(perform: synchronizeComposeState)
             .onAppear(perform: publishSessions)
             .onChange(of: scenePhase) { phase in
-                if phase == .active { vpn.refreshLiveActivity() }
+                if phase == .active { vpn.refreshSystemStatus() }
             }
             .task(id: scenePhase) {
                 guard scenePhase == .active else { return }
@@ -166,6 +166,9 @@ struct RootView: View {
             .onReceive(NotificationCenter.default.publisher(for: .nimboDownloadUpdate)) { _ in
                 Task { await downloadUpdate() }
             }
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("com.nimbo.action.on-demand-settings"))) { _ in
+                showOnDemandSettings = true
+            }
             .onReceive(NotificationCenter.default.publisher(for: .nimboSystemSettings)) { _ in
                 openSystemSettings()
             }
@@ -180,7 +183,7 @@ struct RootView: View {
 
     private var vpnLayer: some View {
         sheetsLayer
-            .onReceive(vpn.$state) { (state: VpnController.State) in
+            .onReceive(vpn.$state.removeDuplicates()) { (state: VpnController.State) in
                 handleVpnState(state)
                 if state != .preparing && state != .connecting && state != .disconnecting {
                     Task { await loadSubscriptionMetaIfNeeded() }
@@ -508,7 +511,7 @@ struct RootView: View {
         default:
             break
         }
-        synchronizeComposeState()
+        synchronizeComposeState(state: state)
     }
 
     /// Проверка, что после подключения трафик действительно пошёл.
@@ -903,7 +906,12 @@ struct RootView: View {
     }
 
     private func synchronizeComposeState() {
-        let presentation = vpn.state.composePresentation
+        synchronizeComposeState(state: vpn.state)
+    }
+
+    // @Published emits in willSet: always bridge the received value, not vpn.state.
+    private func synchronizeComposeState(state: VpnController.State) {
+        let presentation = state.composePresentation
         let full = try? NimboConfigurationStore.shared.loadFullConfiguration()
         if fullConfiguration?.sourceSHA256 != full?.sourceSHA256 {
             fullConfiguration = full

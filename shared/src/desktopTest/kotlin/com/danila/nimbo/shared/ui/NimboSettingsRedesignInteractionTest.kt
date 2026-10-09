@@ -359,8 +359,7 @@ class NimboSettingsRedesignInteractionTest {
                 scene.settle(); scene.clickText("Обновления")
                 scene.snapshot("$theme-320x480-text125-update-progress")
                 for ((trigger, title, name) in listOf(
-                    Triple("Сборки", "Сборки", "channel"),
-                    Triple("Информация: Страница релиза", "Страница релиза", "release-info")
+                    Triple("Сборки", "Сборки", "channel")
                 )) {
                     if (name == "channel") scene.clickText(trigger) else scene.clickLabel(trigger)
                     val modal = scene.dialogNodes()

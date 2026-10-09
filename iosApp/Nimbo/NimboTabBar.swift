@@ -66,7 +66,7 @@ struct NimboTabBar: View {
                     tabs
                 }
             } else {
-                HStack(alignment: .top, spacing: 2) { tabs }
+                HStack(alignment: .center, spacing: 2) { tabs }
             }
         }
         .padding(6)
@@ -83,11 +83,14 @@ struct NimboTabBar: View {
                 select(tab)
             } label: {
                 VStack(spacing: 5) {
-                    Image(systemName: tab.symbol).nimboFont(20, relativeTo: .title3)
+                    Image(systemName: tab.symbol)
+                        .font(.system(size: 22, weight: .regular))
+                        .frame(width: 28, height: 28)
                         .accessibilityHidden(true)
                     Text(tab.title).nimboFont(11, relativeTo: .caption2, weight: .semibold)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(height: 18)
                 }
                 .padding(.horizontal, 3)
                 .padding(.vertical, 9)

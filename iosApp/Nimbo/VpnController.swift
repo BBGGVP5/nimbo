@@ -39,6 +39,12 @@ final class VpnController: ObservableObject {
         NimboLiveActivityBridge.synchronize(phase)
     }
 
+    /// Reconcile missed status notifications after returning from Settings/background.
+    func refreshSystemStatus() {
+        synchronizeStatus()
+        refreshLiveActivity()
+    }
+
     /// Called before any disconnect, profile selection, or NetworkExtension write.
     @discardableResult
     func validateCore(data: Data) throws -> NimboCoreProfile {
@@ -368,6 +374,9 @@ final class VpnController: ObservableObject {
                 synchronizeStatus()
                 return
             }
+            startAttempt.requestedStart(for: attempt)
+            startRequestedAt = Date()
+            transitionStartedAt = startRequestedAt
             // Arming On Demand may already have started the same tunnel.
             // Do not issue a second start or turn a working session into failure.
             switch manager.connection.status {
@@ -377,9 +386,6 @@ final class VpnController: ObservableObject {
             case .disconnecting: throw NimboCoreSelectionError.busy
             default: break
             }
-            startAttempt.requestedStart(for: attempt)
-            startRequestedAt = Date()
-            transitionStartedAt = startRequestedAt
             try manager.connection.startVPNTunnel()
             // Статус мог смениться прямо сейчас: уведомления об этом может уже
             // не быть, поэтому спрашиваем сами.
@@ -840,16 +846,16 @@ final class VpnController: ObservableObject {
             || raw.contains("not permitted")
             || (nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileWriteNoPermissionError)
 
-        // NEVPNErrorDomain 5 (configurationReadWriteFailed) прилетает, пока
-        // пользователь не подтвердил системный запрос на добавление
-        // VPN-конфигурации. Это не проблема подписи, и советовать
-        // переподписывать приложение здесь неверно.
+        // Configuration storage errors do not prove that the user denied consent.
+        // Keep the original domain/code available to diagnostics.
         if nsError.domain == NEVPNErrorDomain,
            let vpnCode = NEVPNError.Code(rawValue: nsError.code),
            vpnCode == .configurationReadWriteFailed || vpnCode == .configurationDisabled {
             return (
-                "IOS_VPN_CONFIG_NOT_APPROVED",
-                "iOS ещё не разрешила добавить VPN-конфигурацию. Подтвердите системный запрос — он появляется при первом подключении.",
+                "IOS_VPN_CONFIG_UNAVAILABLE",
+                vpnCode == .configurationDisabled
+                    ? "Профиль VPN выключен в настройках iOS. Включите профиль Nimbo и повторите подключение."
+                    : "iOS не смогла сохранить или прочитать профиль VPN. Повторите подключение; если ошибка останется, откройте диагностику.",
                 nsError.domain,
                 "\(nsError.code)"
             )

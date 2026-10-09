@@ -863,6 +863,10 @@ fun NimboSetIosScreen(wireName: String) {
 
 fun NimboCurrentIosScreen(): String = iosScreen.value.wireName
 
+fun NimboSetIosBottomClearance(points: Double) {
+    if (points.isFinite()) iosUiState.value = iosUiState.value.copy(nativeBottomClearance = points.coerceIn(0.0, 300.0).toFloat())
+}
+
 fun NimboComposeViewController(screenName: String): UIViewController =
     ComposeUIViewController {
         NimboSharedScreen(
@@ -881,6 +885,7 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onOpenAbout = { postIosAction(AboutAction) },
                 onOpenSystemSettings = { postIosAction(SystemSettingsAction) },
                 onOpenCoreSettings = { postIosAction(OpenCoreSettingsAction) },
+                onOpenOnDemandSettings = { postIosAction("com.nimbo.action.on-demand-settings") },
                 onOpenUrl = { postIosAction(OpenUrlAction, it) },
                 onToggleFavorite = { toggleFavoriteServer(it) },
                 onPingServer = { postIosAction(PingServerAction, it) },

@@ -71,9 +71,10 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
                     SettingsRow(NimboIconName.PING, "Пинг серверов",
                         value = "${pingMethodTitle(state.pingProtocol)} · ${state.pingTimeoutMs / 1000.0} с",
                         showDivider = true, onClick = { tab = SettingsTab.LATENCY })
-                    SettingsRow(NimboIconName.CONNECTION, "Проверка БС",
-                        "Доступность сервисов через текущую сеть", showDivider = true,
-                        onClick = actions.onOpenDiagnostics)
+                    actions.onOpenOnDemandSettings?.let {
+                        SettingsRow(NimboIconName.CONNECTION, "Автоподключение",
+                            "Wi-Fi и сотовая сеть", showDivider = true, onClick = it)
+                    }
                     SettingsRow(NimboIconName.ROUTE, "Маршрутизация", showDivider = true,
                         onClick = { actions.onOpenScreen(NimboScreen.ROUTING.wireName) })
                     SettingsRow(NimboIconName.CLOUD, "Подписка", onClick = { tab = SettingsTab.SUBSCRIPTION })
@@ -286,9 +287,12 @@ private fun UpdatesPage(state: NimboUiState, actions: NimboUiActions) {
         SettingsDivider()
         AppearanceToggle("Сообщать о новых сборках", state.updateNotify) { actions.onSetUpdate("notify", it.toString()) }
     }
-    val notes = com.danila.nimbo.shared.updates.ReleaseNotesText.withoutPlatformHeading(state.updateNotes)
+    val notes = com.danila.nimbo.shared.updates.ReleaseNotesText.forApp(state.updateNotes)
     if (notes.isNotBlank()) SettingsSection("Что изменилось") {
-        SelectionContainer { BasicText(notes, Modifier.padding(vertical = 12.dp), style = NimboBodyStyle) }
+        var expanded by remember(notes) { mutableStateOf(false) }
+        SelectionContainer { BasicText(notes, Modifier.padding(vertical = 12.dp), style = NimboBodyStyle,
+            maxLines = if (expanded) Int.MAX_VALUE else 6, overflow = TextOverflow.Ellipsis) }
+        NimboSettingsAction(if (expanded) "Свернуть" else "Все изменения", onClick = { expanded = !expanded })
     }
 }
 
@@ -360,10 +364,10 @@ private fun SettingsRow(icon: NimboIconName, title: String, subtitle: String? = 
             Column(Modifier.weight(1f)) {
                 BasicText(title, style = NimboBodyStyle.copy(color = NimboPalette.Text))
                 if (!value.isNullOrBlank()) BasicText(value, style = NimboBodyStyle)
+                if (!subtitle.isNullOrBlank()) BasicText(subtitle, style = NimboBodyStyle.copy(fontSize = 12.sp))
             }
-            if (onClick != null && subtitle.isNullOrBlank()) BasicText("›", style = NimboBodyStyle)
+            if (onClick != null) BasicText("›", style = NimboBodyStyle)
         }
-        if (!subtitle.isNullOrBlank()) NimboSettingsInfo(title, subtitle)
     }
     if (showDivider) SettingsDivider()
 }

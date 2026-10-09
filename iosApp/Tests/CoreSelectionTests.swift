@@ -11,6 +11,16 @@ enum CoreSelectionTests {
 
     static func main() throws {
         try compatibilityMatrix()
+        for scheme in ["naive", "naive+https", "naive+quic"] {
+            try rejected(.naiveUnavailable) {
+                try NimboCoreAdmission.validate(preference: "auto", data: Data("\(scheme)://u:p@example.invalid".utf8))
+            }
+        }
+        for scheme in ["tuic", "mieru"] {
+            try rejected(.tuicRequiresMihomo) {
+                try NimboCoreAdmission.validate(preference: "auto", data: Data("\(scheme)://id:p@example.invalid".utf8))
+            }
+        }
         try unknownIDsFailClosed()
         try fullDocumentIdentity()
         try malformedAndUnsupportedInputs()

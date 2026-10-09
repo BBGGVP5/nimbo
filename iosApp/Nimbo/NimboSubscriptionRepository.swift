@@ -140,8 +140,10 @@ final class NimboSubscriptionRepository {
         if try refreshSource() != nil {
             return try await refresh()
         }
-        guard let selected = profile.selectedServer else { return profile }
-        return try importPayload(Data(selected.rawConfiguration.utf8), source: nil)
+        // Reparse the entire local link collection; do not collapse it to the selected node.
+        let links = profile.servers.filter { !$0.isNativeXrayJson }.map(\.rawConfiguration)
+        guard links.count == profile.servers.count, !links.isEmpty else { return profile }
+        return try importPayload(Data(links.joined(separator: "\n").utf8), source: nil)
     }
 
     /// Данные для Packet Tunnel: для автобалансировщика это список реальных

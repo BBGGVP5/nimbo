@@ -36,6 +36,39 @@ CONTROLLER = 'Nimbo/VpnController.swift'
 POLICY = 'Nimbo/NimboVpnStartAttempt.swift'
 
 class VpnStartupSourceRegressions(unittest.TestCase):
+    def test_compose_receives_new_published_value_not_previous_property(self):
+        root = source('Nimbo/RootView.swift')
+        handler = function('Nimbo/RootView.swift', 'handleVpnState')
+        self.assertIn('synchronizeComposeState(state: state)', handler)
+        self.assertNotIn('synchronizeComposeState()', handler)
+        self.assertIn('let presentation = state.composePresentation', root)
+        self.assertIn('.onReceive(vpn.$state.removeDuplicates())', root)
+
+    def test_on_demand_started_during_save_arms_watchdog(self):
+        body = function(CONTROLLER, 'connect')
+        arm = body.index('startAttempt.requestedStart(for: attempt)')
+        self.assertLess(arm, body.index('switch manager.connection.status'))
+        self.assertGreater(arm, body.index('try await NimboOnDemandRules.persist'))
+
+    def test_native_bar_overlays_content_with_measured_scroll_clearance(self):
+        root = source("Nimbo/RootView.swift")
+        self.assertIn('.overlay(alignment: .bottom)', root)
+        self.assertIn('NimboSetIosBottomClearance(points: Double(height + 12))', root)
+        self.assertNotIn('.safeAreaPadding(', root)  # minimum deployment target remains iOS 16
+        self.assertIn('ProfilesContainerView(bottomInset: bottomBarHeight + 12)', root)
+
+    def test_balancer_excludes_sidecars_and_unsupported_share_protocols(self):
+        staging = source('Nimbo/NimboStagingPayload.swift')
+        candidates = function('Nimbo/NimboStagingPayload.swift', 'balancerCandidates')
+        self.assertIn('["vless", "vmess", "trojan", "ss", "hysteria2", "hy2", "socks", "socks5"].contains', candidates)
+        self.assertNotIn('"naive"', candidates)
+        self.assertNotIn('"tuic"', candidates)
+
+    def test_storage_failure_does_not_claim_user_denied_consent(self):
+        body = function(CONTROLLER, 'errorPresentation')
+        self.assertIn('IOS_VPN_CONFIG_UNAVAILABLE', body)
+        self.assertNotIn('iOS ещё не разрешила', body)
+
     def test_old_disconnected_status_waits_until_progress(self):
         body = function(POLICY, 'disconnectedAction')
         self.assertRegex(body, r'case \.preparing, \.awaitingStatus:\s+return \.waitForStart')

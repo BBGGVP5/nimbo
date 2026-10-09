@@ -1914,13 +1914,8 @@ object SubscriptionManager {
     }
 
     private fun findProtocolLinksInText(text: String): List<String> {
-        val regex = Regex("""(?i)\b(?:vless|vmess|trojan|ss|hysteria2|hysteria|hy2|hy|tuic|awg|amneziawg|wireguard|wg)://[^\s"'<>]+""")
-        return regex.findAll(text)
-            .map { match ->
-                match.value.trim().trimEnd(',', ';', ']', '}', ')')
-            }
+        return com.danila.nimbo.shared.subscription.SubscriptionShareLinks.extract(text)
             .filter { isProtocolLink(it) }
-            .toList()
     }
 
     private fun parseHysteriaLinksFromClashYaml(text: String): List<String> {
@@ -2448,6 +2443,7 @@ object SubscriptionManager {
             normalized.startsWith("naive+https://") ||
             normalized.startsWith("naive+quic://") ||
             normalized.startsWith("tuic://") ||
+            normalized.startsWith("mieru://") ||
             normalized.startsWith("awg://") ||
             normalized.startsWith("amneziawg://") ||
             normalized.startsWith("wireguard://") ||

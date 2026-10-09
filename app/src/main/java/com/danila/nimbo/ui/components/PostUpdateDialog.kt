@@ -35,6 +35,7 @@ fun PostUpdateDialog(
         onConfirm = onDismiss
     ) {
         UpdateReleaseNotes(
+            maxHeight = (LocalConfiguration.current.screenHeightDp * 0.35f).dp,
             content = changelog.ifBlank {
                 t(
                     "Для этой установки подробный список изменений не сохранён.",
