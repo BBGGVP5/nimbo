@@ -50,6 +50,21 @@ class VpnStartupSourceRegressions(unittest.TestCase):
         self.assertLess(arm, body.index('switch manager.connection.status', arm))
         self.assertGreater(arm, body.index('try await NimboOnDemandRules.persist'))
 
+    def test_status_transition_does_not_reload_profiles_on_ui_thread(self):
+        root = source('Nimbo/RootView.swift')
+        status = root.split('private func synchronizeComposeState(state:', 1)[1].split('private func refreshComposeProfile', 1)[0]
+        self.assertIn('NimboUpdateIosConnectionState(', status)
+        for blocking in ['NimboConfigurationStore.shared', 'NimboSubscriptionRepository.shared', 'NimboMihomoControl.inspection']:
+            self.assertNotIn(blocking, status)
+        for name in [CONTROLLER, 'Shared/NimboTunnelControl.swift']:
+            code = source(name)
+            self.assertNotIn('try manager.connection.startVPNTunnel()', code)
+            self.assertNotIn('manager.connection.stopVPNTunnel()', code)
+            self.assertIn('NimboVpnSystemCommands.start(', code)
+            self.assertIn('NimboVpnSystemCommands.stop(', code)
+        self.assertIn('startCommandLease?.invalidate()', function(CONTROLLER, 'disconnect'))
+        self.assertIn('startCommandLease?.invalidate()', function(CONTROLLER, 'scheduleStatusPollIfNeeded'))
+
     def test_native_bar_overlays_content_with_measured_scroll_clearance(self):
         root = source("Nimbo/RootView.swift")
         self.assertIn('.overlay(alignment: .bottom)', root)
@@ -84,12 +99,12 @@ class VpnStartupSourceRegressions(unittest.TestCase):
         between = body.split('let loaded = try await loadOrCreateManager()', 1)[1].split('manager = loaded', 1)[0]
         self.assertIn('guard startAttempt.isCurrent(attempt)', between)
         last_await = body.index('await NimboDiagnostics.shared.record')
-        actual_start = body.index('try manager.connection.startVPNTunnel()')
+        actual_start = body.index('try await NimboVpnSystemCommands.start(manager.connection, lease: commandLease)')
         self.assertIn('guard startAttempt.isCurrent(attempt)', body[last_await:actual_start])
 
     def test_request_and_clock_are_registered_before_system_start(self):
         body = function(CONTROLLER, 'connect')
-        start = body.index('try manager.connection.startVPNTunnel()')
+        start = body.index('try await NimboVpnSystemCommands.start(manager.connection, lease: commandLease)')
         self.assertLess(body.index('startAttempt.requestedStart(for: attempt)'), start)
         self.assertLess(body.index('startRequestedAt = Date()'), start)
         self.assertLess(body.index('transitionStartedAt = startRequestedAt'), start)
@@ -130,7 +145,7 @@ class VpnStartupSourceRegressions(unittest.TestCase):
         self.assertLess(connect.index('scheduleStatusPollIfNeeded()'), connect.index('try await'))
         late = connect.split('if !startAttempt.isCurrent(attempt)', 1)[1].split('startAttempt.requestedStart', 1)[0]
         self.assertIn('if startAttempt.cancellationGeneration != cancellation', late)
-        self.assertLess(late.index('cancellationGeneration != cancellation'), late.index('stopVPNTunnel()'))
+        self.assertLess(late.index('cancellationGeneration != cancellation'), late.index('NimboVpnSystemCommands.stop('))
         poll = function(CONTROLLER, 'scheduleStatusPollIfNeeded')
         self.assertIn('!self.isStartingConnection', poll)
         self.assertIn('!self.isStagingConfiguration', poll)
@@ -170,7 +185,7 @@ class VpnStartupSourceRegressions(unittest.TestCase):
     def test_stop_request_survives_on_demand_save_failure(self):
         body = function(CONTROLLER, 'disconnect')
         catch = body.split('catch {', 1)[1]
-        self.assertLess(catch.index('stopVPNTunnel()'), catch.index('IOS_ON_DEMAND_PAUSE_FAILED'))
+        self.assertLess(catch.index('NimboVpnSystemCommands.stop('), catch.index('IOS_ON_DEMAND_PAUSE_FAILED'))
         self.assertNotIn('loadOrCreateManager()', body)
         self.assertNotIn('loadOrCreateManager()', function(CONTROLLER, 'scheduleStatusPollIfNeeded').split('let timer = Timer(', 1)[1])
 

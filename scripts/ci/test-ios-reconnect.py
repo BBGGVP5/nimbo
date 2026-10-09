@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[2]
 with tempfile.TemporaryDirectory(prefix="nimbo-reconnect-") as directory:
     for name, sources in [
         ("start", ["Nimbo/NimboVpnStartAttempt.swift", "Tests/VpnStartAttemptTests.swift"]),
+        ("commands", ["Shared/NimboVpnCommandQueue.swift", "Tests/VpnCommandQueueTests.swift"]),
         ("core", ["Shared/NimboAWGConfiguration.swift", "Shared/NimboNaiveConfiguration.swift",
                   "Nimbo/NimboCoreSelection.swift", "Tests/CoreSelectionTests.swift"]),
     ]:

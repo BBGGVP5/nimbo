@@ -12,6 +12,7 @@ settings:
     CURRENT_PROJECT_VERSION: 180
     MARKETING_VERSION: 1.3.0
     NIMBO_DISPLAY_VERSION: 1.3.0-beta.1
+    NIMBO_BUILD_REVISION: local
     NIMBO_APP_BUNDLE_ID: com.nimbo.resignable
     NIMBO_PACKET_TUNNEL_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).PacketTunnel"
     NIMBO_CONTROL_WIDGET_BUNDLE_ID: "$(NIMBO_APP_BUNDLE_ID).ControlWidget"
@@ -43,6 +44,7 @@ targets:
           - _nimbo-sync._tcp
         NimboPacketTunnelBundleIdentifier: "$(NIMBO_PACKET_TUNNEL_BUNDLE_ID)"
         NimboDisplayVersion: "$(NIMBO_DISPLAY_VERSION)"
+        NimboBuildRevision: "$(NIMBO_BUILD_REVISION)"
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIRequiredDeviceCapabilities:
@@ -230,6 +232,8 @@ targets:
       - path: ControlWidget
       - path: Shared/NimboConstants.swift
       - path: Shared/NimboTunnelControl.swift
+      - path: Shared/NimboVpnCommandQueue.swift
+      - path: Shared/NimboVpnSystemCommands.swift
       - path: Shared/NimboOnDemandPolicy.swift
       - path: Shared/NimboOnDemandRules.swift
       - path: Shared/NimboAWGConfiguration.swift

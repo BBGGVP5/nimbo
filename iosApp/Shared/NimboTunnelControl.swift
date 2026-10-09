@@ -27,9 +27,13 @@ enum NimboTunnelControl {
         if !enabled {
             // Explicit stop must also disable legacy on-demand rules.
             if manager.isOnDemandEnabled {
-                try await NimboOnDemandRules.persist(NimboOnDemandSettings(), on: manager)
+                do { try await NimboOnDemandRules.persist(NimboOnDemandSettings(), on: manager) }
+                catch {
+                    await NimboVpnSystemCommands.stop(manager.connection)
+                    throw error
+                }
             }
-            manager.connection.stopVPNTunnel()
+            await NimboVpnSystemCommands.stop(manager.connection)
             return
         }
         switch manager.connection.status {
@@ -57,7 +61,7 @@ enum NimboTunnelControl {
         case .disconnecting: throw ControlError.busy
         default: break
         }
-        try manager.connection.startVPNTunnel()
+        try await NimboVpnSystemCommands.start(manager.connection, lease: NimboVpnCommandLease())
     }
 
     static func statusDescription() async throws -> String {

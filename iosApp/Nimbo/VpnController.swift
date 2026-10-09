@@ -26,6 +26,7 @@ final class VpnController: ObservableObject {
     private var isRestoring = false
     private var stopTimedOut = false
     private var startTimeoutState: State?
+    private var startCommandLease: NimboVpnCommandLease?
     private var isStagingConfiguration = false
     private var isSavingOnDemand = false
 
@@ -360,6 +361,9 @@ final class VpnController: ObservableObject {
             isStartingConnection = false
             scheduleStatusPollIfNeeded()
         }
+        let commandLease = NimboVpnCommandLease()
+        startCommandLease = commandLease
+        defer { if startCommandLease === commandLease { startCommandLease = nil } }
         let attempt = startAttempt.begin()
         let cancellation = startAttempt.cancellationGeneration
         startTimeoutState = nil
@@ -367,8 +371,11 @@ final class VpnController: ObservableObject {
         statusPollTimer = nil
         transitionStartedAt = nil
         startRequestedAt = nil
+        await recordConnectStep("ui_connecting_begin")
+        guard startAttempt.isCurrent(attempt) else { return }
         state = .connecting
         scheduleStatusPollIfNeeded()
+        await recordConnectStep("ui_connecting_published")
         do {
             // A stale UI timeout must never authorize rewriting a live/stopping
             // provider. Reconcile the real system state before any preference write.
@@ -381,6 +388,8 @@ final class VpnController: ObservableObject {
                 return
             }
             stopTimedOut = false
+            await recordConnectStep("configuration_stage_begin")
+            guard startAttempt.isCurrent(attempt) else { return }
             // Full documents take precedence over retained legacy server records.
             // Admission runs before loadOrCreateManager can change NE preferences.
             if let full = try NimboConfigurationStore.shared.loadFullConfiguration() {
@@ -406,6 +415,7 @@ final class VpnController: ObservableObject {
             } else {
                 throw VpnControllerError.missingConfiguration
             }
+            await recordConnectStep("configuration_stage_returned")
             guard startAttempt.isCurrent(attempt) else { return }
             if manager == nil {
                 let loaded = try await loadOrCreateManager()
@@ -428,17 +438,20 @@ final class VpnController: ObservableObject {
             guard startAttempt.isCurrent(attempt) else { return }
             // Only a user opt-in may arm On Demand. The same admitted staged
             // profile is used by app, widget and subsequent system starts.
+            await recordConnectStep("on_demand_save_begin")
+            guard startAttempt.isCurrent(attempt) else { return }
             try await NimboOnDemandRules.persist(NimboOnDemandSettings.load(), on: manager)
+            await recordConnectStep("on_demand_save_returned")
             if !startAttempt.isCurrent(attempt) {
                 // Success and a watchdog timeout also invalidate the attempt.
                 // Only a real user stop should pause/stop this manager here.
                 if startAttempt.cancellationGeneration != cancellation {
                     do { try await setOnDemand(false, on: manager) }
                     catch {
-                        manager.connection.stopVPNTunnel()
+                        await NimboVpnSystemCommands.stop(manager.connection)
                         throw error
                     }
-                    manager.connection.stopVPNTunnel()
+                    await NimboVpnSystemCommands.stop(manager.connection)
                 }
                 synchronizeStatus()
                 return
@@ -455,7 +468,10 @@ final class VpnController: ObservableObject {
             case .disconnecting: throw NimboCoreSelectionError.busy
             default: break
             }
-            try manager.connection.startVPNTunnel()
+            await recordConnectStep("system_start_begin")
+            guard startAttempt.isCurrent(attempt) else { return }
+            try await NimboVpnSystemCommands.start(manager.connection, lease: commandLease)
+            await recordConnectStep("system_start_returned")
             // Статус мог смениться прямо сейчас: уведомления об этом может уже
             // не быть, поэтому спрашиваем сами.
             synchronizeStatus()
@@ -467,9 +483,16 @@ final class VpnController: ObservableObject {
         }
     }
 
+    private func recordConnectStep(_ step: String) async {
+        await NimboDiagnostics.shared.record(.debug, stage: .tunnelStart,
+            code: "IOS_CONNECT_STEP", message: "Этап подключения VPN",
+            metadata: ["step": step])
+    }
+
     func disconnect(invalidateSelection: Bool = true) async {
         if invalidateSelection { selectionIntent = UUID() }
         // Осознанное отключение не должно выглядеть как сбой запуска.
+        startCommandLease?.invalidate()
         startAttempt.cancel()
         startTimeoutState = nil
         transitionStartedAt = nil
@@ -486,14 +509,14 @@ final class VpnController: ObservableObject {
             do { try await setOnDemand(false, on: manager) }
             catch {
                 // A failed preferences save must not swallow the user's stop.
-                manager.connection.stopVPNTunnel()
+                await NimboVpnSystemCommands.stop(manager.connection)
                 fail(code: "IOS_ON_DEMAND_PAUSE_FAILED", error: error)
                 synchronizeStatus()
                 return
             }
         }
         guard let manager else { state = .idle; return }
-        manager.connection.stopVPNTunnel()
+        await NimboVpnSystemCommands.stop(manager.connection)
         synchronizeStatus()
         await NimboDiagnostics.shared.record(.info, stage: .stop, code: "IOS_TUNNEL_STOP_REQUESTED", message: "Остановка Packet Tunnel запрошена пользователем")
     }
@@ -794,6 +817,7 @@ final class VpnController: ObservableObject {
             let preparing = startAttempt.isPreparing || state == .preparing
             if NimboVpnStartAttempt.deadlineExceeded(elapsed: waited, preparing: preparing),
                !stopTimedOut, startTimeoutState == nil {
+                startCommandLease?.invalidate()
                 startAttempt.invalidate()
                 let code = preparing ? "IOS_VPN_PREPARATION_TIMEOUT" : "IOS_VPN_START_TIMEOUT"
                 let message = preparing

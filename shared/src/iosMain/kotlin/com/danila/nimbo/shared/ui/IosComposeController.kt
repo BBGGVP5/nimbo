@@ -710,6 +710,15 @@ fun NimboResetIosMetrics() {
 }
 private val iosJson = Json { ignoreUnknownKeys = true }
 
+/** A VPN transition keeps the already loaded profile, pings and subscription metadata. */
+fun NimboUpdateIosConnectionState(vpnState: String, errorCode: String?, errorMessage: String?) {
+    iosUiState.value = iosUiState.value.copy(
+        vpnState = vpnState,
+        errorCode = errorCode,
+        errorMessage = errorMessage
+    )
+}
+
 fun NimboUpdateIosUiState(
     vpnState: String,
     errorCode: String?,

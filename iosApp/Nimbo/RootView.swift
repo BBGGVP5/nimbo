@@ -908,11 +908,22 @@ struct RootView: View {
     }
 
     private func synchronizeComposeState() {
-        synchronizeComposeState(state: vpn.state)
+        refreshComposeProfile(state: vpn.state)
     }
 
     // @Published emits in willSet: always bridge the received value, not vpn.state.
     private func synchronizeComposeState(state: VpnController.State) {
+        let presentation = state.composePresentation
+        IosComposeControllerKt.NimboUpdateIosConnectionState(
+            vpnState: presentation.state,
+            errorCode: presentation.code,
+            errorMessage: presentation.message
+        )
+    }
+
+    /// Profile reads/decoding belong to explicit profile refreshes. A tunnel
+    /// transition must not synchronously reload Keychain or inspect native YAML.
+    private func refreshComposeProfile(state: VpnController.State) {
         let presentation = state.composePresentation
         let full = try? NimboConfigurationStore.shared.loadFullConfiguration()
         if fullConfiguration?.sourceSHA256 != full?.sourceSHA256 {

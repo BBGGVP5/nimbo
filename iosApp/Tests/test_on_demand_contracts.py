@@ -20,7 +20,7 @@ class OnDemandContracts(unittest.TestCase):
         source=read("iosApp/Nimbo/VpnController.swift")
         self.assertIn('fail(code: "IOS_ON_DEMAND_PAUSE_FAILED", error: error)', source)
         stop = source.split('func disconnect(', 1)[1].split('func selectServer(', 1)[0]
-        self.assertIn('manager.connection.stopVPNTunnel()', stop.split('catch {', 1)[1])
+        self.assertIn('await NimboVpnSystemCommands.stop(manager.connection)', stop.split('catch {', 1)[1])
         self.assertIn("Never called on launch",source)
         self.assertIn("NimboOnDemandRules.providerKey] == nil",source)
         self.assertIn("NimboCoreAdmission.validate(",source)
@@ -50,7 +50,7 @@ def swift_tests():
         subprocess.run(["xcrun","swiftc","-parse-as-library","iosApp/Shared/NimboOnDemandPolicy.swift","iosApp/Tests/OnDemandPolicyTests.swift","-o",exe],cwd=ROOT,check=True)
         subprocess.run([exe],check=True)
         sdk=subprocess.check_output(["xcrun","--sdk","iphoneos","--show-sdk-path"],text=True).strip()
-        shared=["iosApp/Shared/NimboOnDemandPolicy.swift","iosApp/Shared/NimboOnDemandRules.swift"]
+        shared=["iosApp/Shared/NimboOnDemandPolicy.swift","iosApp/Shared/NimboOnDemandRules.swift", "iosApp/Shared/NimboVpnCommandQueue.swift", "iosApp/Shared/NimboVpnSystemCommands.swift"]
         subprocess.run(["xcrun","swiftc","-typecheck","-parse-as-library","-target","arm64-apple-ios16.0","-sdk",sdk,*shared],cwd=ROOT,check=True)
         subprocess.run(["xcrun","swiftc","-typecheck","-parse-as-library","-application-extension","-target","arm64-apple-ios18.0","-sdk",sdk,*shared,"iosApp/Shared/NimboConstants.swift","iosApp/Shared/NimboAWGConfiguration.swift","iosApp/Shared/NimboNaiveConfiguration.swift","iosApp/Nimbo/NimboCoreSelection.swift","iosApp/Shared/NimboTunnelControl.swift"],cwd=ROOT,check=True)
         stub=pathlib.Path(directory)/"VpnController.swift"

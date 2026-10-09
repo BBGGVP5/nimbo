@@ -113,6 +113,7 @@ actor NimboDiagnostics {
             "generated_at": formatter.string(from: Date()),
             "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
             "build": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown",
+            "source_revision": Bundle.main.infoDictionary?["NimboBuildRevision"] as? String ?? "unknown",
             "os": NimboDiagnosticPlatformInfo.system,
             "device": NimboDiagnosticPlatformInfo.device,
             "user_agent": NimboDiagnosticPlatformInfo.userAgent,
