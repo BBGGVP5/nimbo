@@ -38,6 +38,7 @@ jobs:
           cache-dependency-path: |
             iosApp/GoBridge/go.sum
             tools/native/awg-core/go.sum
+            tools/native/naive-core/go.sum
 
       - name: Verify pinned LibXray source and binary contracts
         run: python3 tools/release/check-libxray.py --apple-only
@@ -71,6 +72,9 @@ jobs:
 
       - name: Verify Mihomo packet-flow source contracts
         run: python3 scripts/ci/test-ios-packet-flow.py --swift
+
+      - name: Verify native Naive policy and DNS routing
+        run: python3 iosApp/Tests/test_naive_contracts.py --swift
 
       - name: Install build tools
         run: brew install xcodegen ldid-procursus

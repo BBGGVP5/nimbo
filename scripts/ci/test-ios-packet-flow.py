@@ -80,7 +80,8 @@ class PacketFlowContracts(unittest.TestCase):
         for fragment in ["length > 1500", "capacity < 1500", "C.GoBytes", "C.memcpy"]:
             self.assertIn(fragment, bridge)
         self.assertEqual(build.count("-buildmode=c-archive"), 1)
-        self.assertIn("-tags=ios,with_gvisor", build)
+        self.assertIn("local tags='ios,with_naive,with_gvisor,no_tailscale,no_zerotier,no_easytier'", build)
+        self.assertIn('go build -mod=readonly -tags="${tags}"', build)
         self.assertIn("MihomoPacketBridge.swift", build)
 
     def test_system_settings_and_public_packet_flow_match(self):
@@ -175,6 +176,7 @@ if __name__ == "__main__":
         with tempfile.TemporaryDirectory(prefix="nimbo-core-selection-") as directory:
             output = str(Path(directory) / "core-tests")
             subprocess.run(["swiftc", str(ROOT / "iosApp/Shared/NimboAWGConfiguration.swift"),
+                str(ROOT / "iosApp/Shared/NimboNaiveConfiguration.swift"),
                 str(ROOT / "iosApp/Nimbo/NimboCoreSelection.swift"),
                 str(ROOT / "iosApp/Tests/CoreSelectionTests.swift"), "-o", output], check=True)
             subprocess.run([output], check=True)

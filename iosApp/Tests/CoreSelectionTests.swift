@@ -12,8 +12,13 @@ enum CoreSelectionTests {
     static func main() throws {
         try compatibilityMatrix()
         for scheme in ["naive", "naive+https", "naive+quic"] {
-            try rejected(.naiveUnavailable) {
-                try NimboCoreAdmission.validate(preference: "auto", data: Data("\(scheme)://u:p@example.invalid".utf8))
+            let data = Data("\(scheme)://u:p@example.invalid".utf8)
+            for selected in ["auto", "xray"] {
+                let result = try NimboCoreAdmission.validate(preference: selected, data: data)
+                precondition(result == .naive)
+            }
+            for selected in ["awg", "mihomo"] {
+                try rejected(.incompatible) { try NimboCoreAdmission.validate(preference: selected, data: data) }
             }
         }
         for scheme in ["tuic", "mieru"] {

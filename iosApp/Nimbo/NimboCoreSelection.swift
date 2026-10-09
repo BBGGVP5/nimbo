@@ -31,7 +31,7 @@ enum NimboCorePreference: String, CaseIterable {
 }
 
 enum NimboCoreProfile: String {
-    case xray, awg, mihomo
+    case xray, awg, mihomo, naive
 }
 
 enum NimboCoreAdmission {
@@ -41,7 +41,7 @@ enum NimboCoreAdmission {
         let selected = try NimboCorePreference.decode(preference)
         guard selected.isAvailable else { throw NimboCoreSelectionError.unavailable }
         let profile = try classify(data, declaredEngine: declaredEngine)
-        guard selected == .auto || selected.rawValue == profile.rawValue else {
+        guard selected == .auto || selected.rawValue == profile.rawValue || (profile == .naive && selected == .xray) else {
             throw NimboCoreSelectionError.incompatible
         }
         return profile
@@ -64,6 +64,10 @@ enum NimboCoreAdmission {
             declared = nil
         }
         let text = original.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{feff}")))
+        if try NimboNaiveConfiguration.parseIfPresent(text) != nil {
+            guard declared == nil || declared == .naive else { throw NimboCoreSelectionError.incompatible }
+            return .naive
+        }
         let detected: NimboCoreProfile
         if let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
             // Never feed a Mihomo JSON/YAML record or document through share-text conversion.
@@ -102,7 +106,7 @@ enum NimboCoreAdmission {
         for line in text.split(whereSeparator: \.isNewline) {
             let scheme = line.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "://").first?.lowercased()
             if scheme == "naive" || scheme == "naive+https" || scheme == "naive+quic" {
-                throw NimboCoreSelectionError.naiveUnavailable
+                throw NimboCoreSelectionError.unsupportedProfile
             }
             if scheme == "tuic" || scheme == "mieru" { throw NimboCoreSelectionError.tuicRequiresMihomo }
         }
@@ -121,12 +125,10 @@ enum NimboCoreAdmission {
 }
 
 enum NimboCoreSelectionError: LocalizedError {
-    case unknownPreference, unavailable, incompatible, unsupportedProfile, busy, naiveUnavailable, tuicRequiresMihomo
+    case unknownPreference, unavailable, incompatible, unsupportedProfile, busy, tuicRequiresMihomo
 
     var errorDescription: String? {
         switch self {
-        case .naiveUnavailable:
-            return "NaiveProxy сохранён, но его нативный клиент ещё не встроен в Nimbo для iOS. Выберите другой сервер (IOS_NAIVE_UNAVAILABLE)."
         case .tuicRequiresMihomo:
             return "Для TUIC/Mieru импортируйте профиль Mihomo вашего провайдера и выберите ядро Auto или Mihomo (IOS_TUIC_REQUIRES_MIHOMO)."
         case .unknownPreference:

@@ -73,6 +73,8 @@ foreach ($name in @('awg-core','mihomo-core')) {
 
 Push-Location $source
 try {
+    & $go mod edit -droprequire=nimbo/naivecore -dropreplace=nimbo/naivecore
+    if ($LASTEXITCODE) { throw 'Cannot remove Apple-only Naive adapter.' }
     & $go mod edit "-replace=nimbo/awgcore=$($snapshots['awg-core'].Replace('\','/'))"
     if ($LASTEXITCODE) { throw 'Cannot stage root dependency replacements.' }
     # Share the Apple source verifier: validate every protobuf file, not merely

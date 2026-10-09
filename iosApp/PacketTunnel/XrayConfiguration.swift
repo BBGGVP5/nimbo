@@ -20,7 +20,8 @@ enum XrayConfigurationBuilder {
         options: NimboRoutingOptions = .default,
         tunnelMTU: Int = PacketTunnelNetwork.mtu,
         pingRoute: NimboPingRoute? = nil,
-        bridge: LibXrayBridge
+        bridge: LibXrayBridge,
+        naiveDNS: Bool = false
     ) throws -> PreparedXrayConfiguration {
         guard !tunnelInterfaceName.isEmpty else { throw XrayConfigurationError.tunnelInterfaceUnknown }
         guard !sourceData.isEmpty else { throw XrayConfigurationError.empty }
@@ -76,6 +77,9 @@ enum XrayConfigurationBuilder {
             configuration["routing"] = routing
         }
 
+        if naiveDNS {
+            configuration = NimboNaiveRouting.applying(to: configuration, dnsServer: options.dnsServers?.first ?? "1.1.1.1")
+        }
         configuration = NimboAdBlocking.applying(to: configuration, enabled: options.adBlockingEnabled)
         let data = try JSONSerialization.data(withJSONObject: configuration, options: [.sortedKeys])
         guard data.count <= maximumInputBytes,

@@ -7,6 +7,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let lifecycleQueue = DispatchQueue(label: "com.nimbo.packet-tunnel.lifecycle")
     private let core = LibXrayBridge()
     private let awg = AmneziaWGBridge()
+    private let naive = NaiveProxyBridge()
     private let mihomo = MihomoPacketBridge()
     private var previousPathInterfaces: Set<String>?
     private var lifecycleGeneration: UInt64 = 0
@@ -82,6 +83,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         }
                         if (try? self.core.isRunning()) == true { try? self.core.stop() }
                         self.awg.close()
+                        self.naive.close()
                         self.mihomo.stop()
                         self.starting = false
                         self.started = false
@@ -115,6 +117,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 stopError = error
             }
             self.awg.close()
+            self.naive.close()
             self.mihomo.stop()
             self.starting = false
             self.started = false
@@ -279,13 +282,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             let awgHealthy = !self.awg.isConfigured || self.awg.suspended ||
                 ((try? self.awg.stats())?["running"] as? Bool == true)
-            if (try? self.core.isRunning()) == true, awgHealthy {
+            if (try? self.core.isRunning()) == true, awgHealthy, (!self.naive.isConfigured || self.naive.isRunning) {
                 self.watchdogMisses = 0
                 return
             }
             self.watchdogMisses += 1
             guard self.watchdogMisses >= 3 else { return }
             self.stopWatchdog()
+            if self.naive.isConfigured, !self.naive.isRunning {
+                self.failActiveTunnel(NimboNaiveError.runtimeFailure)
+                return
+            }
             if self.awg.isConfigured {
                 self.failActiveTunnel(NimboAWGError.runtimeFailure)
                 return
@@ -349,6 +356,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         previousPathInterfaces = interfaces
         if !satisfied || returned || changed { invalidatePingSamples() }
 
+        if naive.isConfigured, satisfied, returned || changed { naive.networkChanged() }
         if mihomo.isConfigured { return } // Dedicated physical binder owns Mihomo path handoff.
         if awg.isConfigured {
             // Never reinstall network settings or replace Xray's TUN FD.
@@ -380,6 +388,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         mihomo.cancelLiveProbe()
         lifecycleQueue.async {
             self.invalidatePingSamples()
+            self.naive.networkChanged()
             if self.awg.isConfigured { self.awg.suspend() }
             completionHandler()
         }
@@ -389,6 +398,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         mihomo.cancelLiveProbe()
         lifecycleQueue.async { [weak self] in
             guard let self, self.started else { return }
+            self.naive.networkChanged()
             if self.awg.isConfigured {
                 self.restartAWG()
                 return
@@ -485,6 +495,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         stopPathMonitor()
         try? core.stop()
         awg.close()
+        naive.close()
         mihomo.stop()
         starting = false
         started = false
@@ -741,6 +752,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     self.cancelPings()
                     if (try? self.core.isRunning()) == true { try self.core.stop() }
                     self.awg.close()
+                    self.naive.close()
                     try self.core.configureRuntimeEnvironment(
                         tunnelFileDescriptor: descriptor,
                         assetDirectory: assetDirectory
@@ -749,6 +761,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     let xraySource: Data
                     if let awgConfiguration {
                         xraySource = try self.awg.start(awgConfiguration)
+                    } else if let naiveConfiguration = try NimboNaiveConfiguration.parseIfPresent(String(decoding: sourceData, as: UTF8.self)) {
+                        xraySource = try self.naive.start(naiveConfiguration)
                     } else {
                         xraySource = sourceData
                     }
@@ -761,7 +775,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         options: options,
                         tunnelMTU: awgConfiguration?.mtu ?? PacketTunnelNetwork.mtu,
                         pingRoute: candidatePingRoute,
-                        bridge: self.core
+                        bridge: self.core,
+                        naiveDNS: self.naive.isConfigured
                     )
                     try self.core.run(configurationJSON: configuration.json)
                     guard try self.core.isRunning() else { throw PacketTunnelError.coreDidNotStart }
@@ -781,6 +796,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 } catch {
                     if (try? self.core.isRunning()) == true { try? self.core.stop() }
                     self.awg.close()
+                    self.naive.close()
                     continuation.resume(throwing: error)
                 }
             }

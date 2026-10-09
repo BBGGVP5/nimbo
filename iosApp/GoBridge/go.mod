@@ -3,20 +3,22 @@ module github.com/xtls/libxray
 go 1.27.1
 
 require (
+	github.com/amnezia-vpn/amneziawg-go/v3 v3.1.20260828
 	github.com/metacubex/age v0.0.0-20260603010618-28d156b4ea78
 	github.com/stretchr/testify v1.12.1
 	github.com/xtls/xray-core v1.260327.1-0.20260930074004-b26a91de4f32
 	golang.org/x/mobile v0.0.0-20260908204917-8b95e45f8d3e
 	golang.org/x/sys v0.48.0
 	google.golang.org/protobuf v1.36.12
+	nimbo/awgcore v0.0.0
 	nimbo/mihomocore v0.0.0
+	nimbo/naivecore v0.0.0
 )
 
 require (
 	github.com/RyuaNerin/go-krypto v1.3.0 // indirect
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344 // indirect
 	github.com/akutz/memconn v0.1.0 // indirect
-	github.com/amnezia-vpn/amneziawg-go/v3 v3.1.20260828
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/apernet/quic-go v0.61.1-0.20260806010916-184d081eef3e // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
@@ -28,6 +30,7 @@ require (
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/dunglas/httpsfv v1.0.2 // indirect
 	github.com/easytier/easytier/easytier-go v0.0.0-20260910071355-3d0c9c3ca5e2 // indirect
+	github.com/ebitengine/purego v0.10.0 // indirect
 	github.com/enfein/mieru/v3 v3.38.0 // indirect
 	github.com/ericlagergren/aegis v0.0.0-20250325060835-cd0defd64358 // indirect
 	github.com/ericlagergren/polyval v0.0.0-20220411101811-e25bc10ba391 // indirect
@@ -132,7 +135,14 @@ require (
 	github.com/refraction-networking/utls v1.8.3-0.20260301010127-aa6edf4b11af // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/safchain/ethtool v0.3.0 // indirect
+	github.com/sagernet/cronet-go v0.0.0-20260912104727-0d28acc44093 // indirect
+	github.com/sagernet/cronet-go/lib/darwin_amd64 v0.0.0-20260912104727-0d28acc44093 // indirect
+	github.com/sagernet/cronet-go/lib/darwin_arm64 v0.0.0-20260912104727-0d28acc44093 // indirect
+	github.com/sagernet/cronet-go/lib/ios_amd64_simulator v0.0.0-20260912104727-0d28acc44093 // indirect
+	github.com/sagernet/cronet-go/lib/ios_arm64 v0.0.0-20260912104727-0d28acc44093 // indirect
+	github.com/sagernet/cronet-go/lib/ios_arm64_simulator v0.0.0-20260912104727-0d28acc44093 // indirect
 	github.com/sagernet/netlink v0.0.0-20240612041022-b9a21c07ac6a // indirect
+	github.com/sagernet/sing v0.8.9 // indirect
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/sina-ghaderi/poly1305 v0.0.0-20220724002748-c5926b03988b // indirect
 	github.com/sina-ghaderi/rabaead v0.0.0-20220730151906-ab6e06b96e8c // indirect
@@ -175,7 +185,6 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gvisor.dev/gvisor v0.0.0-20260122175437-89a5d21be8f0 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
-	nimbo/awgcore v0.0.0
 )
 
 replace nimbo/awgcore => ../../tools/native/awg-core
@@ -183,3 +192,5 @@ replace nimbo/awgcore => ../../tools/native/awg-core
 replace nimbo/mihomocore => ../../tools/native/mihomo-core
 
 replace google.golang.org/protobuf => ../../tools/native/mihomo-core/.build/protobuf
+
+replace nimbo/naivecore => ../../tools/native/naive-core

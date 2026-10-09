@@ -65,6 +65,8 @@ targets:
       - path: Nimbo
       - path: Shared
     resources:
+      - path: NativeNotices
+        type: folder
       - path: Nimbo/Assets.xcassets
       - path: Branding/Branding.xcassets
     dependencies:
@@ -83,6 +85,19 @@ targets:
       - sdk: libresolv.tbd
       - sdk: Security.framework
       - sdk: CoreFoundation.framework
+      - sdk: libc++.tbd
+      - sdk: CoreGraphics.framework
+      - sdk: CoreText.framework
+      - sdk: Foundation.framework
+      - sdk: UIKit.framework
+      - sdk: CFNetwork.framework
+      - sdk: MobileCoreServices.framework
+      - sdk: Network.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: UniformTypeIdentifiers.framework
+      - sdk: CoreTelephony.framework
+      - sdk: CryptoTokenKit.framework
+      - sdk: LocalAuthentication.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: "$(NIMBO_APP_BUNDLE_ID)"
@@ -134,6 +149,19 @@ targets:
       # The final Swift link must resolve Go's Darwin x509 framework symbols.
       - sdk: Security.framework
       - sdk: CoreFoundation.framework
+      - sdk: libc++.tbd
+      - sdk: CoreGraphics.framework
+      - sdk: CoreText.framework
+      - sdk: Foundation.framework
+      - sdk: UIKit.framework
+      - sdk: CFNetwork.framework
+      - sdk: MobileCoreServices.framework
+      - sdk: Network.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: UniformTypeIdentifiers.framework
+      - sdk: CoreTelephony.framework
+      - sdk: CryptoTokenKit.framework
+      - sdk: LocalAuthentication.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: "$(NIMBO_PACKET_TUNNEL_BUNDLE_ID)"
@@ -204,6 +232,7 @@ targets:
       - path: Shared/NimboOnDemandRules.swift
       - path: Shared/NimboAWGConfiguration.swift
       - path: Nimbo/NimboCoreSelection.swift
+      - path: Shared/NimboNaiveConfiguration.swift
     resources:
       - path: Branding/Branding.xcassets
     dependencies:
