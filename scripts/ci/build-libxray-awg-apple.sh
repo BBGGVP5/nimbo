@@ -149,7 +149,7 @@ ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
   echo 'mihomo_ios_tun=public-packet-flow-source-linked-device-unverified'
   echo 'swift_awg_link_check=iphoneos-arm64,iphonesimulator-arm64,iphonesimulator-x86_64'
   shasum -a 256 "${BRIDGE_DIR}/"*.go "${BRIDGE_DIR}/go.mod" "${BRIDGE_DIR}/go.sum"
-  find "${AWG_DIR}" -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) -print | LC_ALL=C sort | while IFS= read -r file; do
+  find "${AWG_DIR}" "${NAIVE_DIR}" -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) -print | LC_ALL=C sort | while IFS= read -r file; do
     shasum -a 256 "${file}"
   done
 } > "${ROOT_DIR}/iosApp/Vendor/libxray-build-info.txt"

@@ -21,3 +21,9 @@
 
 ## Boundaries
 Naive's standard CONNECT transport carries TCP. Generic UDP is not claimed; DNS is carried over TCP. The official Chromium engine validates certificates with the platform trust store. Credentials stay in memory/private ignored smoke fixtures, never test snapshots or release notes. Physical iOS NetworkExtension routing, memory ceiling and Wi-Fi/cellular handoff need device verification even after CI passes.
+
+## Execution evidence
+
+Implementation is in the iOS Packet Tunnel, Go C ABI and pinned native module. The app-side isolated diagnostic path supports Naive without turning on VPN. On Windows: 9 native transport tests, pure Go tests/vet, merged bridge tests, and both private HTTPS fixtures through the complete diagnostic path passed. 100 iOS source contracts and 11 packet-flow source checks passed; these do not substitute for an iPhone test.
+
+Apple build for commit 9d78854: https://github.com/BBGGVP5/nimbo/actions/runs/37891379768 . Swift prerequisite checks passed; native archive/IPA build is still pending at this checkpoint. No published release asset or Telegram post has been replaced. Runtime code is mirrored to the primary workspace; its unrelated ping-test variant is preserved.

@@ -12,3 +12,12 @@ Tests: `go test ./...`; native macOS `go test -tags with_naive ./...`; native Wi
 - cronet-go: https://github.com/SagerNet/cronet-go/tree/0d28acc44093df24b2526dea3d6ffefd6b0a54f0 — GPL-3.0-or-later; retained LICENSE.cronet-go.
 - Chromium/NaiveProxy code in the static library: upstream root BSD-style licenses retained in `iosApp/NativeNotices`, alongside the complete GPL-3.0 text and corresponding source links. Audit transitive Chromium notices before a public release. The pinned Naive submodule is `72a06c9fca0e2d228588c7f3074bf7efff3ff686`.
 - These dependencies are not a second independently loaded Go runtime. Neither the runtime nor build scripts log user URLs, credentials or TLS key material.
+
+## Validation snapshot (2026-10-09)
+
+- Pure Go parser, SOCKS authentication, TCP copy, cancellation and network-reset tests passed.
+- Native Windows tests with the exact pinned DLL passed, including rejection of an untrusted proxy certificate.
+- Both private provider HTTPS fixtures returned HTTP 204 through the real adapter. The full merged Xray + Naive diagnostic path also succeeded for both, without enabling the system VPN. No URLs or credentials are retained in repository fixtures.
+- Native iOS integration additionally uses a virtual TUN DNS address even with the system DNS preset, so excluded physical LAN routes cannot carry intercepted DNS around the proxy.
+- App-process Nimbo Ping creates an isolated authenticated Naive adapter, then closes it after the temporary diagnostic core and sockets. It does not touch the Packet Tunnel singleton.
+- Generic UDP, mixed Xray balancers, and claiming native Naive inside arbitrary full Mihomo documents are deliberately out of scope. Public release still requires iPhone memory/network-handoff acceptance and a transitive Chromium notice audit.
