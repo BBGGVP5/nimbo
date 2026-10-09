@@ -67,9 +67,8 @@ targets:
       - path: NativeNotices
         type: folder
         buildPhase: resources
-    resources:
-      - path: Nimbo/Assets.xcassets
       - path: Branding/Branding.xcassets
+        buildPhase: resources
     dependencies:
       - target: NimboPacketTunnel
         embed: true
@@ -220,9 +219,9 @@ targets:
     entitlements:
       path: ControlWidget/NimboControlWidget.entitlements
       properties:
-        # Виджет не поднимает свой туннель, а переключает уже настроенный,
-        # поэтому packet-tunnel-provider ему не положен: iOS 27 отвергает
-        # связку расширений, где виджет просит право туннеля.
+        # The control requests VPN management, not its own packet tunnel.
+        # Re-signing must preserve this entitlement; actual profile access
+        # from the extension still needs verification on the signed device.
         com.apple.developer.networking.vpn.api:
           - allow-vpn
     sources:
@@ -234,8 +233,8 @@ targets:
       - path: Shared/NimboAWGConfiguration.swift
       - path: Nimbo/NimboCoreSelection.swift
       - path: Shared/NimboNaiveConfiguration.swift
-    resources:
       - path: Branding/Branding.xcassets
+        buildPhase: resources
     dependencies:
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework

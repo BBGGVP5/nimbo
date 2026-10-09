@@ -18,17 +18,13 @@ struct NimboControlWidget: ControlWidget {
                 "Nimbo",
                 isOn: status == .connected || status == .connecting || status == .reasserting,
                 action: NimboToggleTunnelIntent()
-            ) { isOn in
-                // Only a confirmed connection earns the cloud; transitional states
-                // remain switchable off. Control Center requires the symbol asset.
+            ) { _ in
+                // Keep the brand visible in the gallery and every tunnel state.
+                // State is conveyed by the toggle and the actual status label.
                 Label {
-                    Text(isOn ? "Подключено" : "Отключено")
+                    Text(statusTitle(status))
                 } icon: {
-                    if status == .connected {
-                        Image("NimboCloudSymbol")
-                    } else {
-                        Image(systemName: "power")
-                    }
+                    Image("NimboCloudSymbol")
                 }
             }
         }
@@ -37,6 +33,17 @@ struct NimboControlWidget: ControlWidget {
     }
 
     nonisolated static let kind = "com.nimbo.control.vpn"
+
+    private func statusTitle(_ status: NEVPNStatus) -> String {
+        switch status {
+        case .connected: return "Подключено"
+        case .connecting: return "Подключение…"
+        case .reasserting: return "Восстановление…"
+        case .disconnecting: return "Отключение…"
+        case .disconnected, .invalid: return "Отключено"
+        @unknown default: return "Неизвестно"
+        }
+    }
 }
 
 /// Состояние туннеля для элемента управления.
@@ -52,10 +59,9 @@ struct TunnelStateProvider: ControlValueProvider {
 
 /// Действие переключателя.
 ///
-/// Расширение включает туннель, не открывая приложение. Своего туннеля оно не
-/// поднимает — только переключает уже настроенный, поэтому ему хватает права
-/// `allow-vpn`. Право туннеля здесь не просто лишнее: с ним iOS 27 отвергает
-/// связку расширений целиком, и перестаёт запускаться сам туннель.
+/// Requests a state change for an existing profile, without creating a tunnel
+/// provider in the widget. Validate profile access after third-party re-signing:
+/// packaging an entitlement is not proof that iOS grants it to this process.
 struct NimboToggleTunnelIntent: SetValueIntent {
     static let title: LocalizedStringResource = "Nimbo VPN"
     static let description = IntentDescription("Включает и отключает туннель Nimbo")

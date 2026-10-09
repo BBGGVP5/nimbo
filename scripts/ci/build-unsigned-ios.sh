@@ -352,6 +352,11 @@ ditto "${APP_PATH}" "${PACKAGE_DIR}/Payload/Nimbo.app"
 )
 mv -f "${PACKAGE_DIR}/${OUTPUT_NAME}" "${OUTPUT_PATH}"
 
+if [[ -n "${WIDGET_EXECUTABLE}" ]]; then
+  # Source-only SVG checks cannot catch a catalog omitted by XcodeGen.
+  python3 "${ROOT_DIR}/iosApp/Tests/test_branding_contracts.py" --ipa "${OUTPUT_PATH}"
+fi
+
 shasum -a 256 "${OUTPUT_PATH}" > "${OUTPUT_PATH}.sha256"
 
 cat > "${ARTIFACT_DIR}/build-manifest.txt" <<MANIFEST

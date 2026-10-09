@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+import zipfile
 
 IOS = Path(__file__).resolve().parents[1]
 
@@ -16,7 +17,48 @@ def read(name):
     return (IOS / name).read_text(encoding='utf-8')
 
 
+def verify_ipa_branding(path):
+    """Check packaging only: this does not validate provisioning or device behavior."""
+    app = 'Payload/Nimbo.app'
+    widget = app + '/PlugIns/NimboControlWidget.appex'
+    with zipfile.ZipFile(path) as archive:
+        for bundle in (app, widget):
+            for resource in ('Info.plist', 'Assets.car'):
+                name = bundle + '/' + resource
+                if name not in archive.namelist() or archive.getinfo(name).file_size == 0:
+                    raise ValueError('Missing or empty packaged resource: ' + name)
+        info = plistlib.loads(archive.read(widget + '/Info.plist'))
+        if info.get('NSExtension', {}).get('NSExtensionPointIdentifier') != 'com.apple.widgetkit-extension':
+            raise ValueError('ControlWidget is not a WidgetKit extension')
+        executable = widget + '/' + info.get('CFBundleExecutable', '')
+        if executable not in archive.namelist() or archive.getinfo(executable).file_size == 0:
+            raise ValueError('Missing ControlWidget executable')
+
+
 class BrandingContracts(unittest.TestCase):
+    def test_final_ipa_rejects_missing_widget_resources(self):
+        app = 'Payload/Nimbo.app'
+        widget = app + '/PlugIns/NimboControlWidget.appex'
+        info = plistlib.dumps({'CFBundleExecutable': 'NimboControlWidget',
+                              'NSExtension': {'NSExtensionPointIdentifier': 'com.apple.widgetkit-extension'}})
+        resources = {app + '/Info.plist': plistlib.dumps({}), app + '/Assets.car': b'catalog',
+                     widget + '/Info.plist': info, widget + '/Assets.car': b'catalog',
+                     widget + '/NimboControlWidget': b'executable'}
+        # Synthetic fixtures validate the packaging guard, not the asset contents.
+        with tempfile.TemporaryDirectory() as directory:
+            for missing in (None, *resources):
+                with self.subTest(missing=missing):
+                    path = Path(directory) / 'test.ipa'
+                    with zipfile.ZipFile(path, 'w') as archive:
+                        for name, contents in resources.items():
+                            if name != missing:
+                                archive.writestr(name, contents)
+                    if missing is None:
+                        verify_ipa_branding(path)
+                    else:
+                        with self.assertRaises(ValueError):
+                            verify_ipa_branding(path)
+
     def test_all_target_versions_inherit_release(self):
         project = read('project.yml')
         self.assertEqual(re.findall(r'CURRENT_PROJECT_VERSION: (.+)', project), ['180'])
@@ -35,8 +77,9 @@ class BrandingContracts(unittest.TestCase):
         app, rest = targets.split('\n  NimboPacketTunnel:', 1)
         tunnel, widget = rest.split('\n  NimboControlWidget:', 1)
         for target in [app, widget]:
-            self.assertIn('resources:', target)
-            self.assertIn('- path: Branding/Branding.xcassets', target)
+            self.assertNotIn('\n    resources:', target)
+            sources = target.split('\n    sources:', 1)[1].split('\n    dependencies:', 1)[0]
+            self.assertIn('- path: Branding/Branding.xcassets\n        buildPhase: resources', sources)
         self.assertNotIn('Branding.xcassets', tunnel)
 
     def test_control_uses_custom_symbol_preserves_behavior(self):
@@ -44,7 +87,10 @@ class BrandingContracts(unittest.TestCase):
         self.assertIn('Image("NimboCloudSymbol")', control)
         self.assertNotIn('Image("NimboCloud")', control)
         self.assertNotIn('systemImage:', control)
-        self.assertIn('Text(isOn ? "Подключено" : "Отключено")', control)
+        self.assertNotIn('Image(systemName:', control)
+        self.assertIn('Text(statusTitle(status))', control)
+        self.assertIn('case .connecting: return "Подключение…"', control)
+        self.assertIn('case .disconnecting: return "Отключение…"', control)
         self.assertIn('try await NimboTunnelControl.setEnabled(value)', control)
         symbol = ET.fromstring(read('Branding/Branding.xcassets/NimboCloudSymbol.symbolset/NimboCloudSymbol.svg'))
         ids = {element.get('id') for element in symbol.iter()}
@@ -109,10 +155,14 @@ def mac_checks():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mac', action='store_true')
+    parser.add_argument('--ipa', type=Path, help='Check actual app and ControlWidget resources in a packaged IPA')
     args = parser.parse_args()
     result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(BrandingContracts))
     if not result.wasSuccessful():
         raise SystemExit(1)
+    if args.ipa:
+        verify_ipa_branding(args.ipa)
+        print('PASS: IPA contains app/control asset catalogs and control executable (not a signature/device check)')
     if args.mac:
         mac_checks()
     else:
