@@ -52,6 +52,7 @@ final class VpnController: ObservableObject {
     /// Called before any disconnect, profile selection, or NetworkExtension write.
     @discardableResult
     func validateCore(data: Data) throws -> NimboCoreProfile {
+        guard !NimboSubscriptionRepository.shared.isWorking else { throw NimboSubscriptionOperationGate.GateError.busy }
         guard !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { throw NimboCoreSelectionError.busy }
         let preference = UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey)
         if let full = try NimboConfigurationStore.shared.loadFullConfiguration() {
@@ -257,6 +258,7 @@ final class VpnController: ObservableObject {
     }
 
     func clearConfiguration() async throws {
+        guard !NimboSubscriptionRepository.shared.isWorking else { throw NimboSubscriptionOperationGate.GateError.busy }
         guard !isRestoring, !isStartingConnection, !isStagingConfiguration,
               !isSavingCorePreference, !isSavingOnDemand, switchingServerID == nil else {
             throw NimboCoreSelectionError.busy
@@ -353,6 +355,10 @@ final class VpnController: ObservableObject {
     }
 
     func connect(selectionOwner: UUID? = nil) async {
+        guard !NimboSubscriptionRepository.shared.isWorking else {
+            fail(code: "IOS_SUBSCRIPTION_BUSY", error: NimboSubscriptionOperationGate.GateError.busy)
+            return
+        }
         guard !isRestoring, !isStartingConnection, switchingServerID == nil || selectionOwner == selectionIntent else { return }
         guard state != .connected, state != .connecting, state != .preparing,
               state != .disconnecting, !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { return }
@@ -380,6 +386,7 @@ final class VpnController: ObservableObject {
             // A stale UI timeout must never authorize rewriting a live/stopping
             // provider. Reconcile the real system state before any preference write.
             if manager == nil { manager = try await NimboTunnelControl.manager() }
+            if let manager { try await manager.loadFromPreferences() }
             guard startAttempt.isCurrent(attempt) else { return }
             if let status = manager?.connection.status,
                status != .invalid && status != .disconnected {
@@ -440,6 +447,9 @@ final class VpnController: ObservableObject {
             // profile is used by app, widget and subsequent system starts.
             await recordConnectStep("on_demand_save_begin")
             guard startAttempt.isCurrent(attempt) else { return }
+            // Selecting another enterprise VPN disables our stored profile.
+            // Explicit connect restores this owned profile before saving/reloading.
+            manager.isEnabled = true
             try await NimboOnDemandRules.persist(NimboOnDemandSettings.load(), on: manager)
             await recordConnectStep("on_demand_save_returned")
             if !startAttempt.isCurrent(attempt) {
@@ -456,6 +466,7 @@ final class VpnController: ObservableObject {
                 synchronizeStatus()
                 return
             }
+            guard manager.isEnabled else { throw NSError(domain: NEVPNErrorDomain, code: NEVPNError.Code.configurationDisabled.rawValue) }
             startAttempt.requestedStart(for: attempt)
             startRequestedAt = Date()
             transitionStartedAt = startRequestedAt

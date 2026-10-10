@@ -13,6 +13,7 @@ final class NimboConfigurationStore {
     private let configurationAccount = "active-configuration"
     private let sourceAccount = "active-source"
     private let profileAccount = "normalized-profile-v2"
+    private let selectedServerAccount = "selected-server-id-v1"
     private let fullConfigurationAccount = "full-configuration-v1"
     private let descriptionKey = "nimbo.active.configuration.description"
     private let activeServerIDKey = "nimbo.active.server.id"
@@ -77,6 +78,7 @@ final class NimboConfigurationStore {
         guard !profile.isEmpty, !selectedServer.isEmpty else { throw NimboConfigurationStoreError.empty }
         try write(profile, account: profileAccount)
         try saveLegacyConfiguration(selectedServer, source: source, description: description)
+        try write(Data(selectedServerID.utf8), account: selectedServerAccount)
         UserDefaults.standard.set(selectedServerID, forKey: activeServerIDKey)
         // Commit active-engine replacement only after all legacy writes succeed.
         try delete(account: fullConfigurationAccount)
@@ -90,6 +92,7 @@ final class NimboConfigurationStore {
         }
         guard !configuration.isEmpty, !serverID.isEmpty else { throw NimboConfigurationStoreError.empty }
         try write(configuration, account: configurationAccount)
+        try write(Data(serverID.utf8), account: selectedServerAccount)
         UserDefaults.standard.set(serverID, forKey: activeServerIDKey)
     }
 
@@ -116,7 +119,17 @@ final class NimboConfigurationStore {
     var activeServerID: String? {
         // Presence, not successful decoding, prevents falling back to an old node.
         if (try? read(account: fullConfigurationAccount)) != nil { return nil }
-        return UserDefaults.standard.string(forKey: activeServerIDKey)
+        if let id = UserDefaults.standard.string(forKey: activeServerIDKey) { return id }
+        guard let data = try? read(account: selectedServerAccount) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    func retainSelectedServerID(_ id: String) throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
+        guard !id.isEmpty, try loadFullConfiguration() == nil else { return }
+        try write(Data(id.utf8), account: selectedServerAccount)
+        UserDefaults.standard.set(id, forKey: activeServerIDKey)
     }
 
     func removeAll() throws {
@@ -125,6 +138,7 @@ final class NimboConfigurationStore {
         try delete(account: configurationAccount)
         try delete(account: sourceAccount)
         try delete(account: profileAccount)
+        try delete(account: selectedServerAccount)
         try delete(account: fullConfigurationAccount)
         UserDefaults.standard.removeObject(forKey: descriptionKey)
         UserDefaults.standard.removeObject(forKey: activeServerIDKey)

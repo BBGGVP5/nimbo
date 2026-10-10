@@ -25,7 +25,7 @@ final class NimboVpnCommandQueue: @unchecked Sendable {
     private let queue: DispatchQueue
 
     init(label: String) {
-        queue = DispatchQueue(label: label, qos: .userInitiated)
+        queue = DispatchQueue(label: label, qos: .userInitiated, autoreleaseFrequency: .workItem)
     }
 
     func perform<T: Sendable>(lease: NimboVpnCommandLease? = nil,

@@ -9,7 +9,7 @@ struct RootView: View {
     @EnvironmentObject private var vpn: VpnController
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showProfiles = false
-    @State private var bottomBarHeight: CGFloat = 88
+    @State private var bottomBarHeight: CGFloat = 74
     @State private var contentSafeBottom: CGFloat = 0
     @State private var fullConfiguration: NimboFullConfiguration?
     @State private var fullServerCount = 0
@@ -185,6 +185,9 @@ struct RootView: View {
 
     private var vpnLayer: some View {
         sheetsLayer
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("com.nimbo.subscription.restored"))) { _ in
+                synchronizeComposeState()
+            }
             .onReceive(vpn.$state.removeDuplicates()) { (state: VpnController.State) in
                 handleVpnState(state)
                 if state != .preparing && state != .connecting && state != .disconnecting {
@@ -325,15 +328,14 @@ struct RootView: View {
             }
     }
 
-    /// Почта владельца, трафик и срок живут в заголовках ответа панели, а не
-    /// в ссылках. Пока подписку не обновляли, их просто нет — поэтому при
-    /// первом запуске после обновления приложения тянем их сами, молча.
+    /// A retained profile must work offline after reinstall. Only the existing
+    /// refresh-on-launch opt-in starts a network refresh, not missing defaults.
     private func loadSubscriptionMetaIfNeeded() async {
         guard vpn.state != .connected, vpn.state != .connecting,
               vpn.state != .preparing, vpn.state != .disconnecting,
               !isRefreshingSubscription,
               !didCheckLaunchSubscription,
-              NimboSubscriptionMetaStore.current.updatedAt == 0 || refreshOnLaunch,
+              refreshOnLaunch,
               (try? NimboConfigurationStore.shared.loadSource()) ?? nil != nil else { return }
         didCheckLaunchSubscription = true
         await refreshSubscription(manual: false)
@@ -590,6 +592,10 @@ struct RootView: View {
         case .connected, .connecting, .preparing:
             await vpn.disconnect()
         case .idle, .disconnecting, .failed:
+            guard !isRefreshingSubscription, !NimboSubscriptionRepository.shared.isWorking else {
+                notify("info", "Дождитесь завершения обновления подписки")
+                return
+            }
             await vpn.connect()
         }
     }
@@ -928,9 +934,9 @@ struct RootView: View {
         let full = try? NimboConfigurationStore.shared.loadFullConfiguration()
         if fullConfiguration?.sourceSHA256 != full?.sourceSHA256 {
             fullConfiguration = full
-            let graph = full.flatMap { try? NimboMihomoControl.inspection($0)["declaredGraph"] as? [String: Any] }
-            fullServerCount = (graph?["proxies"] as? [Any])?.count ?? 0
         }
+        let graph = full.flatMap { NimboMihomoControl.cachedInspection($0)?["declaredGraph"] as? [String: Any] }
+        fullServerCount = (graph?["proxies"] as? [Any])?.count ?? 0
         let profile = try? NimboSubscriptionRepository.shared.loadProfile()
         let selected = profile?.selectedServer
         let profileJson = NimboSubscriptionRepository.shared.rawProfileJSON()

@@ -57,7 +57,7 @@ enum NimboSubscriptionImporter {
             profile = try await NimboSubscriptionRepository.shared.importRemote(trimmed)
         } else {
             let resolved = try await resolve(source)
-            profile = try NimboSubscriptionRepository.shared.importPayload(
+            profile = try await NimboSubscriptionRepository.shared.importPayloadAsync(
                 resolved.data, source: resolved.source
             )
             NimboSubscriptionMetaStore.save(.empty)

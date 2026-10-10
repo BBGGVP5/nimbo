@@ -6,7 +6,7 @@ import Foundation
 /// владельца подписки (обычно почта или ник), остаток трафика, срок действия и
 /// адреса поддержки. Набор заголовков совпадает с тем, что читает Android в
 /// `SubscriptionManager`.
-struct NimboSubscriptionMeta: Codable, Equatable {
+struct NimboSubscriptionMeta: Codable, Equatable, Sendable {
     var title: String?
     var supportUrl: String?
     var websiteUrl: String?

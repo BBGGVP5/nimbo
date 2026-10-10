@@ -69,10 +69,10 @@ struct NimboTabBar: View {
                 HStack(alignment: .center, spacing: 2) { tabs }
             }
         }
-        .padding(6)
+        .padding(5)
         .background { barBackground }
         .frame(maxWidth: 680)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
         .padding(.top, 8)
         .padding(.bottom, 6)
     }
@@ -82,22 +82,22 @@ struct NimboTabBar: View {
             Button {
                 select(tab)
             } label: {
-                VStack(spacing: 5) {
+                VStack(spacing: 4) {
                     Image(systemName: tab.symbol)
-                        .font(.system(size: 22, weight: .regular))
-                        .frame(width: 28, height: 28)
+                        .font(.system(size: 20, weight: .regular))
+                        .frame(width: 24, height: 24)
                         .accessibilityHidden(true)
                     Text(tab.title).nimboFont(11, relativeTo: .caption2, weight: .semibold)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                        .frame(minHeight: 18)
+                        .frame(minHeight: 16)
                 }
                 .padding(.horizontal, 3)
-                .padding(.vertical, 9)
+                .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, minHeight: 54)
                 .foregroundStyle(selection.navigationTab == tab ? selectedInk : NimboNative.secondary)
                 .background(selection.navigationTab == tab ? selectedFill : .clear,
-                            in: RoundedRectangle(cornerRadius: 28))
+                            in: RoundedRectangle(cornerRadius: 24))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

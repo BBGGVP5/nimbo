@@ -4,6 +4,18 @@ import NetworkExtension
 
 enum NimboMihomoControl {
     typealias Group = NimboMihomoGroup
+    private static let inspectionCache: NSCache<NSString, NSDictionary> = {
+        let cache = NSCache<NSString, NSDictionary>()
+        cache.countLimit = 2
+        cache.totalCostLimit = 12 * 1_024 * 1_024
+        return cache
+    }()
+
+    static func cachedInspection(_ full: NimboFullConfiguration) -> [String: Any]? {
+        guard let payload = inspectionCache.object(forKey: full.sourceSHA256 as NSString) as? [String: Any],
+              payload["originalYAML"] as? String == full.originalYAML else { return nil }
+        return payload
+    }
 
     static func looksLikeConfiguration(_ data: Data) -> Bool {
         guard let text = String(data: data, encoding: .utf8) else { return false }
@@ -24,12 +36,15 @@ enum NimboMihomoControl {
     }
 
     static func inspection(_ full: NimboFullConfiguration) throws -> [String: Any] {
+        if let cached = cachedInspection(full) { return cached }
         let response = try native("inspect", source: full.sourceData)
         guard let payload = response["data"] as? [String: Any],
               payload["sourceSHA256"] as? String == full.sourceSHA256,
               payload["originalYAML"] as? String == full.originalYAML else {
             throw NimboFullConfigurationError.inspectionFailed
         }
+        inspectionCache.setObject(payload as NSDictionary, forKey: full.sourceSHA256 as NSString,
+            cost: full.sourceData.count * 3)
         return payload
     }
 

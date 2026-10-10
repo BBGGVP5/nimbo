@@ -29,6 +29,7 @@ struct NimboApp: App {
                         // Storage migration does not need VPN permission and must
                         // not rewrite an existing or stopping provider at launch.
                         _ = try await NimboSubscriptionRepository.shared.migrateStoredProfileIfNeeded()
+                        NotificationCenter.default.post(name: Notification.Name("com.nimbo.subscription.restored"), object: nil)
                     } catch {
                         await NimboDiagnostics.shared.record(
                             .warning,

@@ -3,7 +3,7 @@ import CryptoKit
 
 /// Authoritative source, not a generated runtime config or a promise of mobile support.
 /// Keep this record in Keychain; descriptions must never expose provider credentials.
-struct NimboFullConfiguration: Codable, Equatable, CustomStringConvertible {
+struct NimboFullConfiguration: Codable, Equatable, CustomStringConvertible, Sendable {
     static let maximumSourceBytes = 4 * 1_024 * 1_024
     let schemaVersion: Int
     let coreId: String
