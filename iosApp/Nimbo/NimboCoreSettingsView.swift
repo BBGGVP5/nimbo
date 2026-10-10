@@ -32,10 +32,10 @@ struct NimboCoreSettingsView: View {
                 } header: {
                     Text("Ядро VPN")
                 } footer: {
-                    Text("Выбор применяется при следующем подключении. Текущее подключение продолжает работать. Auto выбирает ядро по профилю. AWG — для конфигураций AmneziaWG и WireGuard в формате INI. Mihomo пока недоступно для VPN на iOS.")
+                    Text("Выбор применяется при следующем подключении. Текущее подключение продолжает работать. Auto выбирает ядро по профилю. AWG — для конфигураций AmneziaWG и WireGuard в формате INI. Mihomo — для полной YAML-конфигурации: правила, DNS и группы обрабатываются самим ядром.")
                 }
                 if NimboCorePreference(rawValue: storedCore) == nil {
-                    Text("Сохранено неизвестное ядро. Выберите Auto, Xray или AWG.")
+                    Text("Сохранено неизвестное ядро. Выберите Auto, Xray, AWG или Mihomo.")
                         .foregroundStyle(.red)
                 }
                 if let errorMessage {

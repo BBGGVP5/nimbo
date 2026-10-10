@@ -1,0 +1,108 @@
+name: Mihomo desktop native TUN
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/ondemand-memory-20260930']
+    paths:
+      - 'tools/native/mihomo-core/**'
+      - 'scripts/ci/build-mihomo-desktop.py'
+      - 'scripts/ci/test-mihomo-desktop-netns.py'
+      - 'scripts/ci/test-mihomo-helper-netns.py'
+      - 'scripts/ci/test-mihomo-windows-tun.py'
+      - 'scripts/ci/stage-mihomo-desktop.py'
+      - 'apps/service/**'
+      - 'crates/ipc/**'
+      - 'crates/mihomo/**'
+      - 'scripts/ci/prepare-mihomo-merged.py'
+      - '.github/workflows/mihomo-desktop-tun.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native ${{ matrix.target }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: linux/amd64
+            artifact: linux-x64
+          - runner: ubuntu-22.04-arm
+            target: linux/arm64
+            artifact: linux-arm64
+          - runner: windows-latest
+            target: windows/amd64
+            artifact: windows-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: tools/native/mihomo-core/go.sum
+      - name: Verify pinned source, test, vet and build actual native stack
+        run: python scripts/ci/build-mihomo-desktop.py --target '${{ matrix.target }}' --output 'native-desktop/${{ matrix.artifact }}'
+      - name: Actual TCP UDP DNS IPv6 selection and cleanup in isolated namespace
+        if: runner.os == 'Linux'
+        run: sudo env NIMBO_DISPOSABLE_NETNS=1 python3 scripts/ci/test-mihomo-desktop-netns.py --binary 'native-desktop/${{ matrix.artifact }}/nimbo-mihomo'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mihomo-helper-${{ matrix.artifact }}
+      - name: Stage native source and identity for protected native helper
+        run: python3 scripts/ci/stage-mihomo-desktop.py --source 'native-desktop/${{ matrix.artifact }}'
+      - name: Verify IPC and service adapter contracts
+        env:
+          CARGO_BUILD_JOBS: 2
+        run: cargo test --locked -p nimbo-ipc -p nimbo-mihomo -p nimbo-svc
+      - name: Build actual native broker
+        run: cargo build --locked -p nimbo-svc
+      - name: Actual authenticated helper and Rust session in isolated namespaces
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          command -v strace >/dev/null || { sudo apt-get update && sudo apt-get install -y strace; }
+          python3 -m unittest discover -s scripts/ci -p test_mihomo_netns_diagnostics.py
+          cargo test --locked -p nimbo-mihomo --test helper_tun --no-run --message-format=json > "$RUNNER_TEMP/helper-artifacts.json"
+          driver=$(python3 -c 'import json,sys; a=[x["executable"] for x in map(json.loads,open(sys.argv[1])) if x.get("reason")=="compiler-artifact" and x.get("target",{}).get("name")=="helper_tun" and x.get("executable")]; assert len(a)==1; print(a[0])' "$RUNNER_TEMP/helper-artifacts.json")
+          test -n "$driver"
+          sudo env NIMBO_DISPOSABLE_NETNS=1 python3 scripts/ci/test-mihomo-helper-netns.py --binary 'native-desktop/${{ matrix.artifact }}/nimbo-mihomo' --helper target/debug/nimbo-svc --rust-test "$driver" --trace-native
+          # A tracer changes scheduling: the original untraced gate must pass too.
+          sudo env NIMBO_DISPOSABLE_NETNS=1 python3 scripts/ci/test-mihomo-helper-netns.py --binary 'native-desktop/${{ matrix.artifact }}/nimbo-mihomo' --helper target/debug/nimbo-svc --rust-test "$driver"
+      - name: Actual Windows authenticated broker and native TCP UDP DNS cleanup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          NIMBO_DISPOSABLE_WINDOWS: '1'
+        run: |
+          # Select only the artifact for this exact Cargo invocation, never a
+          # stale hashed executable restored by the build cache.
+          $artifacts = @(cargo test --locked -p nimbo-mihomo --test windows_tun --no-run --message-format=json)
+          if ($LASTEXITCODE) {
+            $artifacts | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.reason -eq 'compiler-message' } | ForEach-Object { Write-Host $_.message.rendered }
+            throw 'Windows acceptance driver compilation failed'
+          }
+          $driver = @($artifacts | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.target.name -eq 'windows_tun' -and $_.executable })
+          if ($driver.Count -ne 1) { throw 'Windows native acceptance driver missing or ambiguous' }
+          python scripts/ci/test-mihomo-windows-tun.py --native 'native-desktop/${{ matrix.artifact }}' --helper target/debug/nimbo-svc.exe --rust-test $driver[0].executable
+          if ($LASTEXITCODE) { throw 'Windows native TUN acceptance failed' }
+      - name: Actual proxy provider refresh and cancelled startup
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          export NIMBO_TEST_MIHOMO_BINARY="$PWD/native-desktop/${{ matrix.artifact }}/nimbo-mihomo"
+          export NIMBO_TEST_MIHOMO_SHA256=$(python3 -c "import json;print(json.load(open('native-desktop/${{ matrix.artifact }}/build-manifest.json'))['sha256'])")
+          cargo test --locked -p nimbo-mihomo --test native_loopback -- --ignored --test-threads=1
+      - name: Keep source fingerprints and internal native artifacts (not a public release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-native-${{ matrix.artifact }}
+          path: native-desktop/${{ matrix.artifact }}/
+          if-no-files-found: error

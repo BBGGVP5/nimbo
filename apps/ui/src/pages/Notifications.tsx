@@ -2,6 +2,7 @@ import { PageHeader, StatePanel, Metric, useSecondaryCopy } from "../components/
 import { Surface, Dialog } from "../components/Universal";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fillTemplate, useMessages } from "../lib/i18n";
+import "./notifications-polish.css";
 import {
   type AppNotification,
   type NotificationTone,

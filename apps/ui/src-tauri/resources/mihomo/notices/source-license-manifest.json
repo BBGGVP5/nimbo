@@ -1,29 +1,30 @@
 {
   "schemaVersion": 1,
   "apiVersion": 1,
-  "goModSHA256": "162e45c25acfced804116dadd24eff907bbd5c40252f9aa667b6a79ea073a3dd",
-  "goSumSHA256": "f57878079bd857d4a96d56fc07bbe7223db63049dbf48c29bb03f8a26f6daf99",
-  "pinsSHA256": "0b781ac7f5e2882087b8ccf74499205732f952d2d7bbf9ca3da697cfdfa8326c",
+  "goModSHA256": "548e63999b7672300d463086c956214412265fe983db3f1fd7508b4fa50913c5",
+  "goSumSHA256": "bf159aa1fbbdced5ba49be1d3486f403aae75239bb4f65352a1bc000ad61456b",
+  "pinsSHA256": "20c291a40cc3fe38c7dfd53ea89c22f0a33f3a5961ec042177ecd5c8d9c79d6c",
   "modules": [
     {
+      "replacementVersion": "",
       "version": "v1.2.1",
-      "replacementVersion": "",
-      "reachedByCLI": false,
-      "notices": [],
       "module": "github.com/BurntSushi/toml",
-      "replacement": ""
-    },
-    {
-      "version": "v1.0.0",
-      "replacementVersion": "",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/RyuaNerin/elliptic2",
       "replacement": ""
     },
     {
-      "version": "v1.3.0",
       "replacementVersion": "",
+      "version": "v1.0.0",
+      "module": "github.com/RyuaNerin/elliptic2",
+      "reachedByCLI": false,
+      "notices": [],
+      "replacement": ""
+    },
+    {
+      "replacementVersion": "",
+      "version": "v1.3.0",
+      "module": "github.com/RyuaNerin/go-krypto",
       "reachedByCLI": true,
       "notices": [
         {
@@ -31,20 +32,20 @@
           "path": "licenses/modules/github.com_RyuaNerin_go-krypto@v1.3.0/LICENSE"
         }
       ],
-      "module": "github.com/RyuaNerin/go-krypto",
       "replacement": ""
     },
     {
-      "version": "v0.1.0",
       "replacementVersion": "",
+      "version": "v0.1.0",
+      "module": "github.com/RyuaNerin/testingutil",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/RyuaNerin/testingutil",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20211027044916-e49e68abd344",
       "replacementVersion": "",
+      "version": "v0.0.0-20211027044916-e49e68abd344",
+      "module": "github.com/Yawning/aez",
       "reachedByCLI": true,
       "notices": [
         {
@@ -52,12 +53,12 @@
           "path": "licenses/modules/github.com_Yawning_aez@v0.0.0-20211027044916-e49e68abd344/LICENSE"
         }
       ],
-      "module": "github.com/Yawning/aez",
       "replacement": ""
     },
     {
-      "version": "v1.7.1",
       "replacementVersion": "",
+      "version": "v1.7.1",
+      "module": "github.com/ajg/form",
       "reachedByCLI": false,
       "notices": [
         {
@@ -65,12 +66,12 @@
           "path": "licenses/modules/github.com_ajg_form@v1.7.1/LICENSE"
         }
       ],
-      "module": "github.com/ajg/form",
       "replacement": ""
     },
     {
-      "version": "v0.1.0",
       "replacementVersion": "",
+      "version": "v0.1.0",
+      "module": "github.com/akutz/memconn",
       "reachedByCLI": false,
       "notices": [
         {
@@ -78,12 +79,12 @@
           "path": "licenses/modules/github.com_akutz_memconn@v0.1.0/LICENSE"
         }
       ],
-      "module": "github.com/akutz/memconn",
       "replacement": ""
     },
     {
-      "version": "v1.1.1",
       "replacementVersion": "",
+      "version": "v1.1.1",
+      "module": "github.com/andybalholm/brotli",
       "reachedByCLI": true,
       "notices": [
         {
@@ -91,12 +92,12 @@
           "path": "licenses/modules/github.com_andybalholm_brotli@v1.1.1/LICENSE"
         }
       ],
-      "module": "github.com/andybalholm/brotli",
       "replacement": ""
     },
     {
-      "version": "v0.2.0",
       "replacementVersion": "",
+      "version": "v0.2.0",
+      "module": "github.com/bahlo/generic-list-go",
       "reachedByCLI": true,
       "notices": [
         {
@@ -104,20 +105,20 @@
           "path": "licenses/modules/github.com_bahlo_generic-list-go@v0.2.0/LICENSE"
         }
       ],
-      "module": "github.com/bahlo/generic-list-go",
       "replacement": ""
     },
     {
-      "version": "v3.5.1+incompatible",
       "replacementVersion": "",
+      "version": "v3.5.1+incompatible",
+      "module": "github.com/blang/semver",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/blang/semver",
       "replacement": ""
     },
     {
-      "version": "v1.3.0",
       "replacementVersion": "",
+      "version": "v1.3.0",
+      "module": "github.com/bodgit/plumbing",
       "reachedByCLI": true,
       "notices": [
         {
@@ -125,12 +126,12 @@
           "path": "licenses/modules/github.com_bodgit_plumbing@v1.3.0/LICENSE"
         }
       ],
-      "module": "github.com/bodgit/plumbing",
       "replacement": ""
     },
     {
-      "version": "v1.0.1",
       "replacementVersion": "",
+      "version": "v1.0.1",
+      "module": "github.com/bodgit/windows",
       "reachedByCLI": true,
       "notices": [
         {
@@ -138,20 +139,20 @@
           "path": "licenses/modules/github.com_bodgit_windows@v1.0.1/LICENSE"
         }
       ],
-      "module": "github.com/bodgit/windows",
       "replacement": ""
     },
     {
-      "version": "v1.5.1",
       "replacementVersion": "",
+      "version": "v1.5.1",
+      "module": "github.com/chzyer/readline",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/chzyer/readline",
       "replacement": ""
     },
     {
-      "version": "v0.12.3",
       "replacementVersion": "",
+      "version": "v0.12.3",
+      "module": "github.com/cilium/ebpf",
       "reachedByCLI": false,
       "notices": [
         {
@@ -163,12 +164,12 @@
           "path": "licenses/modules/github.com_cilium_ebpf@v0.12.3/examples/headers/LICENSE.BSD-2-Clause"
         }
       ],
-      "module": "github.com/cilium/ebpf",
       "replacement": ""
     },
     {
-      "version": "v1.8.12",
       "replacementVersion": "",
+      "version": "v1.8.12",
+      "module": "github.com/coder/websocket",
       "reachedByCLI": false,
       "notices": [
         {
@@ -176,12 +177,12 @@
           "path": "licenses/modules/github.com_coder_websocket@v1.8.12/LICENSE.txt"
         }
       ],
-      "module": "github.com/coder/websocket",
       "replacement": ""
     },
     {
-      "version": "v0.8.0",
       "replacementVersion": "",
+      "version": "v0.8.0",
+      "module": "github.com/coreos/go-iptables",
       "reachedByCLI": false,
       "notices": [
         {
@@ -193,20 +194,20 @@
           "path": "licenses/modules/github.com_coreos_go-iptables@v0.8.0/NOTICE"
         }
       ],
-      "module": "github.com/coreos/go-iptables",
       "replacement": ""
     },
     {
-      "version": "v1.1.1",
       "replacementVersion": "",
+      "version": "v1.1.1",
+      "module": "github.com/davecgh/go-spew",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/davecgh/go-spew",
       "replacement": ""
     },
     {
-      "version": "v1.12.0",
       "replacementVersion": "",
+      "version": "v1.12.0",
+      "module": "github.com/dlclark/regexp2",
       "reachedByCLI": true,
       "notices": [
         {
@@ -214,12 +215,12 @@
           "path": "licenses/modules/github.com_dlclark_regexp2@v1.12.0/LICENSE"
         }
       ],
-      "module": "github.com/dlclark/regexp2",
       "replacement": ""
     },
     {
-      "version": "v1.0.2",
       "replacementVersion": "",
+      "version": "v1.0.2",
+      "module": "github.com/dunglas/httpsfv",
       "reachedByCLI": true,
       "notices": [
         {
@@ -227,20 +228,20 @@
           "path": "licenses/modules/github.com_dunglas_httpsfv@v1.0.2/LICENSE"
         }
       ],
-      "module": "github.com/dunglas/httpsfv",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20210103155950-6a8e9d1f2415",
       "replacementVersion": "",
+      "version": "v0.0.0-20210103155950-6a8e9d1f2415",
+      "module": "github.com/dvyukov/go-fuzz",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/dvyukov/go-fuzz",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260910071355-3d0c9c3ca5e2",
       "replacementVersion": "",
+      "version": "v0.0.0-20260910071355-3d0c9c3ca5e2",
+      "module": "github.com/easytier/easytier/easytier-go",
       "reachedByCLI": true,
       "notices": [
         {
@@ -248,37 +249,37 @@
           "path": "licenses/modules/github.com_easytier_easytier_easytier-go@v0.0.0-20260910071355-3d0c9c3ca5e2/LICENSE"
         }
       ],
-      "module": "github.com/easytier/easytier/easytier-go",
       "replacement": ""
     },
     {
-      "version": "v3.37.0",
       "replacementVersion": "",
+      "version": "v3.38.0",
+      "module": "github.com/enfein/mieru/v3",
       "reachedByCLI": true,
       "notices": [
         {
           "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "path": "licenses/modules/github.com_enfein_mieru_v3@v3.37.0/LICENSE"
+          "path": "licenses/modules/github.com_enfein_mieru_v3@v3.38.0/LICENSE"
         },
         {
           "sha256": "33b7614d6cb1f09eb73b72656228375212267f74ea4719768dc8aef5aad288a7",
-          "path": "licenses/modules/github.com_enfein_mieru_v3@v3.37.0/pkg/deque/LICENSE"
+          "path": "licenses/modules/github.com_enfein_mieru_v3@v3.38.0/pkg/deque/LICENSE"
         },
         {
           "sha256": "51a0c9ec7f8b7634181b8d4c03e5b5d204ac21d6e72f46c313973424664b2e6b",
-          "path": "licenses/modules/github.com_enfein_mieru_v3@v3.37.0/pkg/log/LICENSE"
+          "path": "licenses/modules/github.com_enfein_mieru_v3@v3.38.0/pkg/log/LICENSE"
         },
         {
           "sha256": "1827290f11d53a54d744cd21550fc18a2562cbdafd3056476b15f239e7254ecb",
-          "path": "licenses/modules/github.com_enfein_mieru_v3@v3.37.0/pkg/socks5/LICENSE"
+          "path": "licenses/modules/github.com_enfein_mieru_v3@v3.38.0/pkg/socks5/LICENSE"
         }
       ],
-      "module": "github.com/enfein/mieru/v3",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20250325060835-cd0defd64358",
       "replacementVersion": "",
+      "version": "v0.0.0-20250325060835-cd0defd64358",
+      "module": "github.com/ericlagergren/aegis",
       "reachedByCLI": true,
       "notices": [
         {
@@ -286,12 +287,12 @@
           "path": "licenses/modules/github.com_ericlagergren_aegis@v0.0.0-20250325060835-cd0defd64358/LICENSE"
         }
       ],
-      "module": "github.com/ericlagergren/aegis",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20220411101811-e25bc10ba391",
       "replacementVersion": "",
+      "version": "v0.0.0-20220411101811-e25bc10ba391",
+      "module": "github.com/ericlagergren/polyval",
       "reachedByCLI": true,
       "notices": [
         {
@@ -299,12 +300,12 @@
           "path": "licenses/modules/github.com_ericlagergren_polyval@v0.0.0-20220411101811-e25bc10ba391/LICENSE"
         }
       ],
-      "module": "github.com/ericlagergren/polyval",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20220206064634-960a4dd2bc5c",
       "replacementVersion": "",
+      "version": "v0.0.0-20220206064634-960a4dd2bc5c",
+      "module": "github.com/ericlagergren/saferand",
       "reachedByCLI": false,
       "notices": [
         {
@@ -312,12 +313,12 @@
           "path": "licenses/modules/github.com_ericlagergren_saferand@v0.0.0-20220206064634-960a4dd2bc5c/LICENSE"
         }
       ],
-      "module": "github.com/ericlagergren/saferand",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20220507050439-0b757b3aa5f1",
       "replacementVersion": "",
+      "version": "v0.0.0-20220507050439-0b757b3aa5f1",
+      "module": "github.com/ericlagergren/siv",
       "reachedByCLI": true,
       "notices": [
         {
@@ -325,12 +326,12 @@
           "path": "licenses/modules/github.com_ericlagergren_siv@v0.0.0-20220507050439-0b757b3aa5f1/LICENSE"
         }
       ],
-      "module": "github.com/ericlagergren/siv",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20220507045147-890d697da010",
       "replacementVersion": "",
+      "version": "v0.0.0-20220507045147-890d697da010",
+      "module": "github.com/ericlagergren/subtle",
       "reachedByCLI": true,
       "notices": [
         {
@@ -338,12 +339,12 @@
           "path": "licenses/modules/github.com_ericlagergren_subtle@v0.0.0-20220507045147-890d697da010/LICENSE"
         }
       ],
-      "module": "github.com/ericlagergren/subtle",
       "replacement": ""
     },
     {
-      "version": "v1.14.6",
       "replacementVersion": "",
+      "version": "v1.14.6",
+      "module": "github.com/frankban/quicktest",
       "reachedByCLI": false,
       "notices": [
         {
@@ -351,12 +352,12 @@
           "path": "licenses/modules/github.com_frankban_quicktest@v1.14.6/LICENSE"
         }
       ],
-      "module": "github.com/frankban/quicktest",
       "replacement": ""
     },
     {
-      "version": "v1.9.0",
       "replacementVersion": "",
+      "version": "v1.9.0",
+      "module": "github.com/fsnotify/fsnotify",
       "reachedByCLI": true,
       "notices": [
         {
@@ -364,12 +365,12 @@
           "path": "licenses/modules/github.com_fsnotify_fsnotify@v1.9.0/LICENSE"
         }
       ],
-      "module": "github.com/fsnotify/fsnotify",
       "replacement": ""
     },
     {
-      "version": "v2.9.0",
       "replacementVersion": "",
+      "version": "v2.9.0",
+      "module": "github.com/fxamacker/cbor/v2",
       "reachedByCLI": false,
       "notices": [
         {
@@ -377,12 +378,12 @@
           "path": "licenses/modules/github.com_fxamacker_cbor_v2@v2.9.0/LICENSE"
         }
       ],
-      "module": "github.com/fxamacker/cbor/v2",
       "replacement": ""
     },
     {
-      "version": "v0.0.4",
       "replacementVersion": "",
+      "version": "v0.0.4",
+      "module": "github.com/gaukas/godicttls",
       "reachedByCLI": true,
       "notices": [
         {
@@ -390,12 +391,12 @@
           "path": "licenses/modules/github.com_gaukas_godicttls@v0.0.4/LICENSE"
         }
       ],
-      "module": "github.com/gaukas/godicttls",
       "replacement": ""
     },
     {
-      "version": "v0.1.0",
       "replacementVersion": "",
+      "version": "v0.1.0",
+      "module": "github.com/github/fakeca",
       "reachedByCLI": false,
       "notices": [
         {
@@ -403,12 +404,12 @@
           "path": "licenses/modules/github.com_github_fakeca@v0.1.0/LICENSE.md"
         }
       ],
-      "module": "github.com/github/fakeca",
       "replacement": ""
     },
     {
-      "version": "v1.3.0",
       "replacementVersion": "",
+      "version": "v1.3.0",
+      "module": "github.com/go-ole/go-ole",
       "reachedByCLI": true,
       "notices": [
         {
@@ -416,12 +417,12 @@
           "path": "licenses/modules/github.com_go-ole_go-ole@v1.3.0/LICENSE"
         }
       ],
-      "module": "github.com/go-ole/go-ole",
       "replacement": ""
     },
     {
-      "version": "v0.1.0",
       "replacementVersion": "",
+      "version": "v0.1.0",
+      "module": "github.com/gobwas/httphead",
       "reachedByCLI": true,
       "notices": [
         {
@@ -429,12 +430,12 @@
           "path": "licenses/modules/github.com_gobwas_httphead@v0.1.0/LICENSE"
         }
       ],
-      "module": "github.com/gobwas/httphead",
       "replacement": ""
     },
     {
-      "version": "v0.2.1",
       "replacementVersion": "",
+      "version": "v0.2.1",
+      "module": "github.com/gobwas/pool",
       "reachedByCLI": true,
       "notices": [
         {
@@ -442,12 +443,12 @@
           "path": "licenses/modules/github.com_gobwas_pool@v0.2.1/LICENSE"
         }
       ],
-      "module": "github.com/gobwas/pool",
       "replacement": ""
     },
     {
-      "version": "v1.4.0",
       "replacementVersion": "",
+      "version": "v1.4.0",
+      "module": "github.com/gobwas/ws",
       "reachedByCLI": true,
       "notices": [
         {
@@ -455,12 +456,12 @@
           "path": "licenses/modules/github.com_gobwas_ws@v1.4.0/LICENSE"
         }
       ],
-      "module": "github.com/gobwas/ws",
       "replacement": ""
     },
     {
-      "version": "v5.4.0",
       "replacementVersion": "",
+      "version": "v5.4.0",
+      "module": "github.com/gofrs/uuid/v5",
       "reachedByCLI": true,
       "notices": [
         {
@@ -468,12 +469,12 @@
           "path": "licenses/modules/github.com_gofrs_uuid_v5@v5.4.0/LICENSE"
         }
       ],
-      "module": "github.com/gofrs/uuid/v5",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20241129210726-2c02b8208cf8",
       "replacementVersion": "",
+      "version": "v0.0.0-20241129210726-2c02b8208cf8",
+      "module": "github.com/golang/groupcache",
       "reachedByCLI": false,
       "notices": [
         {
@@ -481,20 +482,20 @@
           "path": "licenses/modules/github.com_golang_groupcache@v0.0.0-20241129210726-2c02b8208cf8/LICENSE"
         }
       ],
-      "module": "github.com/golang/groupcache",
       "replacement": ""
     },
     {
-      "version": "v1.5.4",
       "replacementVersion": "",
+      "version": "v1.5.4",
+      "module": "github.com/golang/protobuf",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/golang/protobuf",
       "replacement": ""
     },
     {
-      "version": "v1.0.0",
       "replacementVersion": "",
+      "version": "v1.0.0",
+      "module": "github.com/golang/snappy",
       "reachedByCLI": true,
       "notices": [
         {
@@ -506,12 +507,12 @@
           "path": "licenses/modules/github.com_golang_snappy@v1.0.0/LICENSE"
         }
       ],
-      "module": "github.com/golang/snappy",
       "replacement": ""
     },
     {
-      "version": "v1.1.3",
       "replacementVersion": "",
+      "version": "v1.1.3",
+      "module": "github.com/google/btree",
       "reachedByCLI": true,
       "notices": [
         {
@@ -519,12 +520,12 @@
           "path": "licenses/modules/github.com_google_btree@v1.1.3/LICENSE"
         }
       ],
-      "module": "github.com/google/btree",
       "replacement": ""
     },
     {
-      "version": "v0.6.0",
       "replacementVersion": "",
+      "version": "v0.6.0",
+      "module": "github.com/google/go-cmp",
       "reachedByCLI": false,
       "notices": [
         {
@@ -532,12 +533,12 @@
           "path": "licenses/modules/github.com_google_go-cmp@v0.6.0/LICENSE"
         }
       ],
-      "module": "github.com/google/go-cmp",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20240727154555-813a5fbdbec8",
       "replacementVersion": "",
+      "version": "v0.0.0-20240727154555-813a5fbdbec8",
+      "module": "github.com/google/pprof",
       "reachedByCLI": false,
       "notices": [
         {
@@ -553,12 +554,12 @@
           "path": "licenses/modules/github.com_google_pprof@v0.0.0-20240727154555-813a5fbdbec8/third_party/svgpan/LICENSE"
         }
       ],
-      "module": "github.com/google/pprof",
       "replacement": ""
     },
     {
-      "version": "v1.6.1",
       "replacementVersion": "",
+      "version": "v1.6.1",
+      "module": "github.com/google/tink/go",
       "reachedByCLI": false,
       "notices": [
         {
@@ -566,12 +567,12 @@
           "path": "licenses/modules/github.com_google_tink_go@v1.6.1/LICENSE"
         }
       ],
-      "module": "github.com/google/tink/go",
       "replacement": ""
     },
     {
-      "version": "v2.0.7",
       "replacementVersion": "",
+      "version": "v2.0.7",
+      "module": "github.com/hashicorp/golang-lru/v2",
       "reachedByCLI": true,
       "notices": [
         {
@@ -583,28 +584,28 @@
           "path": "licenses/modules/github.com_hashicorp_golang-lru_v2@v2.0.7/simplelru/LICENSE_list"
         }
       ],
-      "module": "github.com/hashicorp/golang-lru/v2",
       "replacement": ""
     },
     {
+      "replacementVersion": "",
       "version": "v0.0.0-20190730060125-05d35a94e714",
-      "replacementVersion": "",
-      "reachedByCLI": false,
-      "notices": [],
       "module": "github.com/hugelgupf/socketpair",
-      "replacement": ""
-    },
-    {
-      "version": "v0.0.0-20240312041847-bd984b5ce465",
-      "replacementVersion": "",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/ianlancetaylor/demangle",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20250109001534-8abf58130905",
       "replacementVersion": "",
+      "version": "v0.0.0-20240312041847-bd984b5ce465",
+      "module": "github.com/ianlancetaylor/demangle",
+      "reachedByCLI": false,
+      "notices": [],
+      "replacement": ""
+    },
+    {
+      "replacementVersion": "",
+      "version": "v0.0.0-20250109001534-8abf58130905",
+      "module": "github.com/insomniacslk/dhcp",
       "reachedByCLI": true,
       "notices": [
         {
@@ -612,12 +613,12 @@
           "path": "licenses/modules/github.com_insomniacslk_dhcp@v0.0.0-20250109001534-8abf58130905/LICENSE"
         }
       ],
-      "module": "github.com/insomniacslk/dhcp",
       "replacement": ""
     },
     {
-      "version": "v1.1.0",
       "replacementVersion": "",
+      "version": "v1.1.0",
+      "module": "github.com/josharian/native",
       "reachedByCLI": true,
       "notices": [
         {
@@ -625,12 +626,12 @@
           "path": "licenses/modules/github.com_josharian_native@v1.1.0/license"
         }
       ],
-      "module": "github.com/josharian/native",
       "replacement": ""
     },
     {
-      "version": "v1.4.0",
       "replacementVersion": "",
+      "version": "v1.4.0",
+      "module": "github.com/jsimonetti/rtnetlink",
       "reachedByCLI": false,
       "notices": [
         {
@@ -638,12 +639,12 @@
           "path": "licenses/modules/github.com_jsimonetti_rtnetlink@v1.4.0/LICENSE.md"
         }
       ],
-      "module": "github.com/jsimonetti/rtnetlink",
       "replacement": ""
     },
     {
-      "version": "v1.17.9",
       "replacementVersion": "",
+      "version": "v1.17.9",
+      "module": "github.com/klauspost/compress",
       "reachedByCLI": true,
       "notices": [
         {
@@ -691,12 +692,12 @@
           "path": "licenses/modules/github.com_klauspost_compress@v1.17.9/zstd/internal/xxhash/LICENSE.txt"
         }
       ],
-      "module": "github.com/klauspost/compress",
       "replacement": ""
     },
     {
-      "version": "v2.2.6",
       "replacementVersion": "",
+      "version": "v2.2.6",
+      "module": "github.com/klauspost/cpuid/v2",
       "reachedByCLI": true,
       "notices": [
         {
@@ -704,12 +705,12 @@
           "path": "licenses/modules/github.com_klauspost_cpuid_v2@v2.2.6/LICENSE"
         }
       ],
-      "module": "github.com/klauspost/cpuid/v2",
       "replacement": ""
     },
     {
-      "version": "v1.12.3",
       "replacementVersion": "",
+      "version": "v1.12.3",
+      "module": "github.com/klauspost/reedsolomon",
       "reachedByCLI": true,
       "notices": [
         {
@@ -717,12 +718,12 @@
           "path": "licenses/modules/github.com_klauspost_reedsolomon@v1.12.3/LICENSE"
         }
       ],
-      "module": "github.com/klauspost/reedsolomon",
       "replacement": ""
     },
     {
-      "version": "v0.3.1",
       "replacementVersion": "",
+      "version": "v0.3.1",
+      "module": "github.com/kr/pretty",
       "reachedByCLI": false,
       "notices": [
         {
@@ -730,12 +731,12 @@
           "path": "licenses/modules/github.com_kr_pretty@v0.3.1/License"
         }
       ],
-      "module": "github.com/kr/pretty",
       "replacement": ""
     },
     {
-      "version": "v0.2.0",
       "replacementVersion": "",
+      "version": "v0.2.0",
+      "module": "github.com/kr/text",
       "reachedByCLI": false,
       "notices": [
         {
@@ -743,12 +744,12 @@
           "path": "licenses/modules/github.com_kr_text@v0.2.0/License"
         }
       ],
-      "module": "github.com/kr/text",
       "replacement": ""
     },
     {
-      "version": "v1.7.2",
       "replacementVersion": "",
+      "version": "v1.7.2",
+      "module": "github.com/mdlayher/netlink",
       "reachedByCLI": false,
       "notices": [
         {
@@ -756,20 +757,20 @@
           "path": "licenses/modules/github.com_mdlayher_netlink@v1.7.2/LICENSE.md"
         }
       ],
-      "module": "github.com/mdlayher/netlink",
       "replacement": ""
     },
     {
-      "version": "v1.1.2",
       "replacementVersion": "",
+      "version": "v1.1.2",
+      "module": "github.com/mdlayher/packet",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/mdlayher/packet",
       "replacement": ""
     },
     {
-      "version": "v0.5.1",
       "replacementVersion": "",
+      "version": "v0.5.1",
+      "module": "github.com/mdlayher/socket",
       "reachedByCLI": false,
       "notices": [
         {
@@ -777,12 +778,12 @@
           "path": "licenses/modules/github.com_mdlayher_socket@v0.5.1/LICENSE.md"
         }
       ],
-      "module": "github.com/mdlayher/socket",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260603010618-28d156b4ea78",
       "replacementVersion": "",
+      "version": "v0.0.0-20260603010618-28d156b4ea78",
+      "module": "github.com/metacubex/age",
       "reachedByCLI": true,
       "notices": [
         {
@@ -794,12 +795,12 @@
           "path": "licenses/modules/github.com_metacubex_age@v0.0.0-20260603010618-28d156b4ea78/.github/workflows/LICENSE.suffix.txt"
         }
       ],
-      "module": "github.com/metacubex/age",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260908071407-0c1c6f40ecd7",
       "replacementVersion": "",
+      "version": "v0.0.0-20260908071407-0c1c6f40ecd7",
+      "module": "github.com/metacubex/amneziawg-go",
       "reachedByCLI": true,
       "notices": [
         {
@@ -807,12 +808,12 @@
           "path": "licenses/modules/github.com_metacubex_amneziawg-go@v0.0.0-20260908071407-0c1c6f40ecd7/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/amneziawg-go",
       "replacement": ""
     },
     {
-      "version": "v0.1.0",
       "replacementVersion": "",
+      "version": "v0.1.0",
+      "module": "github.com/metacubex/ascon",
       "reachedByCLI": true,
       "notices": [
         {
@@ -820,12 +821,12 @@
           "path": "licenses/modules/github.com_metacubex_ascon@v0.1.0/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/ascon",
       "replacement": ""
     },
     {
-      "version": "v0.29.0",
       "replacementVersion": "",
+      "version": "v0.29.0",
+      "module": "github.com/metacubex/bart",
       "reachedByCLI": true,
       "notices": [
         {
@@ -833,12 +834,12 @@
           "path": "licenses/modules/github.com_metacubex_bart@v0.29.0/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/bart",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260706163408-d4ec34ad7c48",
       "replacementVersion": "",
+      "version": "v0.0.0-20260706163408-d4ec34ad7c48",
+      "module": "github.com/metacubex/bbolt",
       "reachedByCLI": true,
       "notices": [
         {
@@ -846,12 +847,12 @@
           "path": "licenses/modules/github.com_metacubex_bbolt@v0.0.0-20260706163408-d4ec34ad7c48/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/bbolt",
       "replacement": ""
     },
     {
-      "version": "v0.1.0",
       "replacementVersion": "",
+      "version": "v0.1.0",
+      "module": "github.com/metacubex/blake3",
       "reachedByCLI": true,
       "notices": [
         {
@@ -859,12 +860,12 @@
           "path": "licenses/modules/github.com_metacubex_blake3@v0.1.0/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/blake3",
       "replacement": ""
     },
     {
-      "version": "v0.1.5",
       "replacementVersion": "",
+      "version": "v0.1.5",
+      "module": "github.com/metacubex/chacha",
       "reachedByCLI": true,
       "notices": [
         {
@@ -876,12 +877,12 @@
           "path": "licenses/modules/github.com_metacubex_chacha@v0.1.5/poly1305/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/chacha",
       "replacement": ""
     },
     {
-      "version": "v0.1.1",
       "replacementVersion": "",
+      "version": "v0.1.1",
+      "module": "github.com/metacubex/chi",
       "reachedByCLI": true,
       "notices": [
         {
@@ -889,12 +890,12 @@
           "path": "licenses/modules/github.com_metacubex_chi@v0.1.1/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/chi",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260727083417-67ccdb0cf771",
       "replacementVersion": "",
+      "version": "v0.0.0-20260727083417-67ccdb0cf771",
+      "module": "github.com/metacubex/connect-ip-go",
       "reachedByCLI": true,
       "notices": [
         {
@@ -902,25 +903,25 @@
           "path": "licenses/modules/github.com_metacubex_connect-ip-go@v0.0.0-20260727083417-67ccdb0cf771/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/connect-ip-go",
       "replacement": ""
     },
     {
-      "version": "v0.1.1",
       "replacementVersion": "",
+      "version": "v0.1.2",
+      "module": "github.com/metacubex/cpu",
       "reachedByCLI": true,
       "notices": [
         {
           "sha256": "22975ebe413674bc619428a26e53412013dccffa69e2f27100dbd8d946fde287",
-          "path": "licenses/modules/github.com_metacubex_cpu@v0.1.1/LICENSE"
+          "path": "licenses/modules/github.com_metacubex_cpu@v0.1.2/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/cpu",
       "replacement": ""
     },
     {
-      "version": "v1.2.0",
       "replacementVersion": "",
+      "version": "v1.2.0",
+      "module": "github.com/metacubex/edwards25519",
       "reachedByCLI": true,
       "notices": [
         {
@@ -928,12 +929,12 @@
           "path": "licenses/modules/github.com_metacubex_edwards25519@v1.2.0/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/edwards25519",
       "replacement": ""
     },
     {
-      "version": "v0.1.1",
       "replacementVersion": "",
+      "version": "v0.1.1",
+      "module": "github.com/metacubex/fswatch",
       "reachedByCLI": true,
       "notices": [
         {
@@ -941,12 +942,12 @@
           "path": "licenses/modules/github.com_metacubex_fswatch@v0.1.1/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/fswatch",
       "replacement": ""
     },
     {
-      "version": "v1.1.20-0.20230608035415-7e2f98a3e759",
       "replacementVersion": "",
+      "version": "v1.1.20-0.20230608035415-7e2f98a3e759",
+      "module": "github.com/metacubex/gopacket",
       "reachedByCLI": false,
       "notices": [
         {
@@ -958,29 +959,29 @@
           "path": "licenses/modules/github.com_metacubex_gopacket@v1.1.20-0.20230608035415-7e2f98a3e759/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/gopacket",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260826100401-79317d808312",
       "replacementVersion": "",
+      "version": "v0.0.0-20260922041103-e2cbcd6e7400",
+      "module": "github.com/metacubex/gvisor",
       "reachedByCLI": false,
       "notices": [
         {
           "sha256": "16818597d03ff1b20e9a5e6eeedb3108acde75ec30c3edba534892b1a66b1e71",
-          "path": "licenses/modules/github.com_metacubex_gvisor@v0.0.0-20260826100401-79317d808312/AUTHORS"
+          "path": "licenses/modules/github.com_metacubex_gvisor@v0.0.0-20260922041103-e2cbcd6e7400/AUTHORS"
         },
         {
           "sha256": "0fbab5c58efbdf6d31e8085214f2dd821659c03d73cff3ed2b08e98826ea1cd9",
-          "path": "licenses/modules/github.com_metacubex_gvisor@v0.0.0-20260826100401-79317d808312/LICENSE"
+          "path": "licenses/modules/github.com_metacubex_gvisor@v0.0.0-20260922041103-e2cbcd6e7400/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/gvisor",
       "replacement": ""
     },
     {
-      "version": "v0.1.0",
       "replacementVersion": "",
+      "version": "v0.1.0",
+      "module": "github.com/metacubex/hkdf",
       "reachedByCLI": true,
       "notices": [
         {
@@ -988,12 +989,12 @@
           "path": "licenses/modules/github.com_metacubex_hkdf@v0.1.0/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/hkdf",
       "replacement": ""
     },
     {
-      "version": "v0.1.0",
       "replacementVersion": "",
+      "version": "v0.1.0",
+      "module": "github.com/metacubex/hpke",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1001,25 +1002,25 @@
           "path": "licenses/modules/github.com_metacubex_hpke@v0.1.0/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/hpke",
       "replacement": ""
     },
     {
-      "version": "v0.1.7",
       "replacementVersion": "",
+      "version": "v0.1.8",
+      "module": "github.com/metacubex/http",
       "reachedByCLI": true,
       "notices": [
         {
           "sha256": "22975ebe413674bc619428a26e53412013dccffa69e2f27100dbd8d946fde287",
-          "path": "licenses/modules/github.com_metacubex_http@v0.1.7/LICENSE"
+          "path": "licenses/modules/github.com_metacubex_http@v0.1.8/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/http",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260727080412-732f2fc9a34d",
       "replacementVersion": "",
+      "version": "v0.0.0-20260727080412-732f2fc9a34d",
+      "module": "github.com/metacubex/jls-quic-go",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1031,12 +1032,12 @@
           "path": "licenses/modules/github.com_metacubex_jls-quic-go@v0.0.0-20260727080412-732f2fc9a34d/assets/LICENSE.md"
         }
       ],
-      "module": "github.com/metacubex/jls-quic-go",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260723084315-67adc0e2f796",
       "replacementVersion": "",
+      "version": "v0.0.0-20260723084315-67adc0e2f796",
+      "module": "github.com/metacubex/jls-tls",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1044,12 +1045,12 @@
           "path": "licenses/modules/github.com_metacubex_jls-tls@v0.0.0-20260723084315-67adc0e2f796/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/jls-tls",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260721082349-16b4998c8f89",
       "replacementVersion": "",
+      "version": "v0.0.0-20260721082349-16b4998c8f89",
+      "module": "github.com/metacubex/jsonv2",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1061,12 +1062,12 @@
           "path": "licenses/modules/github.com_metacubex_jsonv2@v0.0.0-20260721082349-16b4998c8f89/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/jsonv2",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260105040817-550693377604",
       "replacementVersion": "",
+      "version": "v0.0.0-20260105040817-550693377604",
+      "module": "github.com/metacubex/kcp-go",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1074,12 +1075,12 @@
           "path": "licenses/modules/github.com_metacubex_kcp-go@v0.0.0-20260105040817-550693377604/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/kcp-go",
       "replacement": ""
     },
     {
-      "version": "v0.1.0",
       "replacementVersion": "",
+      "version": "v0.1.0",
+      "module": "github.com/metacubex/mhurl",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1087,46 +1088,46 @@
           "path": "licenses/modules/github.com_metacubex_mhurl@v0.1.0/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/mhurl",
       "replacement": ""
     },
     {
-      "version": "v1.19.31",
       "replacementVersion": "",
+      "version": "v1.19.32",
+      "module": "github.com/metacubex/mihomo",
       "reachedByCLI": true,
       "notices": [
         {
           "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-          "path": "licenses/modules/github.com_metacubex_mihomo@v1.19.31/LICENSE"
+          "path": "licenses/modules/github.com_metacubex_mihomo@v1.19.32/LICENSE"
         },
         {
           "sha256": "efeb1f4690b9c00796d4304271e95e0a1a5468f40808771d70ef921777163ffc",
-          "path": "licenses/modules/github.com_metacubex_mihomo@v1.19.31/transport/hysteria/conns/faketcp/LICENSE"
+          "path": "licenses/modules/github.com_metacubex_mihomo@v1.19.32/transport/hysteria/conns/faketcp/LICENSE"
         },
         {
           "sha256": "0013dccd233c44fdf6878ed92e23b230be685b5477cef0e821ad113b7e583783",
-          "path": "licenses/modules/github.com_metacubex_mihomo@v1.19.31/transport/kcptun/LICENSE.md"
+          "path": "licenses/modules/github.com_metacubex_mihomo@v1.19.32/transport/kcptun/LICENSE.md"
         }
       ],
-      "module": "github.com/metacubex/mihomo",
-      "replacement": ""
+      "replacement": "C:/Users/Danila/AndroidStudioProjects/Nimbo/.codex-tmp/github-ios-build-20260928/tools/native/mihomo-core/.build/mihomo-patched-079c3b5e12604492ab9ab3d4cf385e4d/dependencies/mihomo"
     },
     {
-      "version": "v0.0.0-20260910230046-ba762df4c91d",
       "replacementVersion": "",
+      "version": "v0.0.0-20260930071539-961d4b1c1983",
+      "module": "github.com/metacubex/mipstack",
       "reachedByCLI": true,
       "notices": [
         {
           "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
-          "path": "licenses/modules/github.com_metacubex_mipstack@v0.0.0-20260910230046-ba762df4c91d/LICENSE"
+          "path": "licenses/modules/github.com_metacubex_mipstack@v0.0.0-20260930071539-961d4b1c1983/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/mipstack",
       "replacement": ""
     },
     {
-      "version": "v0.1.0",
       "replacementVersion": "",
+      "version": "v0.1.0",
+      "module": "github.com/metacubex/mlkem",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1134,12 +1135,12 @@
           "path": "licenses/modules/github.com_metacubex_mlkem@v0.1.0/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/mlkem",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260426003805-208c2c1ba2cb",
       "replacementVersion": "",
+      "version": "v0.0.0-20260426003805-208c2c1ba2cb",
+      "module": "github.com/metacubex/nftables",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1147,20 +1148,20 @@
           "path": "licenses/modules/github.com_metacubex_nftables@v0.0.0-20260426003805-208c2c1ba2cb/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/nftables",
       "replacement": ""
     },
     {
-      "version": "v0.0.4",
       "replacementVersion": "",
+      "version": "v0.0.4",
+      "module": "github.com/metacubex/nistec",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/metacubex/nistec",
       "replacement": ""
     },
     {
-      "version": "v0.6.0",
       "replacementVersion": "",
+      "version": "v0.6.0",
+      "module": "github.com/metacubex/qpack",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1168,12 +1169,12 @@
           "path": "licenses/modules/github.com_metacubex_qpack@v0.6.0/LICENSE.md"
         }
       ],
-      "module": "github.com/metacubex/qpack",
       "replacement": ""
     },
     {
-      "version": "v0.61.1-0.20260727080200-2548683b76f4",
       "replacementVersion": "",
+      "version": "v0.61.1-0.20260727080200-2548683b76f4",
+      "module": "github.com/metacubex/quic-go",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1185,12 +1186,12 @@
           "path": "licenses/modules/github.com_metacubex_quic-go@v0.61.1-0.20260727080200-2548683b76f4/assets/LICENSE.md"
         }
       ],
-      "module": "github.com/metacubex/quic-go",
       "replacement": ""
     },
     {
-      "version": "v0.2.0",
       "replacementVersion": "",
+      "version": "v0.2.0",
+      "module": "github.com/metacubex/randv2",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1198,12 +1199,12 @@
           "path": "licenses/modules/github.com_metacubex_randv2@v0.2.0/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/randv2",
       "replacement": ""
     },
     {
-      "version": "v0.1.9",
       "replacementVersion": "",
+      "version": "v0.1.9",
+      "module": "github.com/metacubex/restls-client-go",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1215,12 +1216,12 @@
           "path": "licenses/modules/github.com_metacubex_restls-client-go@v0.1.9/LICENSE-RESTLS"
         }
       ],
-      "module": "github.com/metacubex/restls-client-go",
       "replacement": ""
     },
     {
-      "version": "v1.6.4",
       "replacementVersion": "",
+      "version": "v1.6.4",
+      "module": "github.com/metacubex/sevenzip",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1228,38 +1229,38 @@
           "path": "licenses/modules/github.com_metacubex_sevenzip@v1.6.4/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/sevenzip",
       "replacement": ""
     },
     {
-      "version": "v0.5.7",
       "replacementVersion": "",
-      "reachedByCLI": true,
-      "notices": [
-        {
-          "sha256": "2f02b7486bcfa90d115c71a20437f3906b6fd5bef81c5dc0efd341399e89d0fd",
-          "path": "licenses/modules/github.com_metacubex_sing@v0.5.7/LICENSE"
-        }
-      ],
+      "version": "v0.5.8",
       "module": "github.com/metacubex/sing",
-      "replacement": ""
-    },
-    {
-      "version": "v0.3.10",
-      "replacementVersion": "",
       "reachedByCLI": true,
       "notices": [
         {
           "sha256": "2f02b7486bcfa90d115c71a20437f3906b6fd5bef81c5dc0efd341399e89d0fd",
-          "path": "licenses/modules/github.com_metacubex_sing-mux@v0.3.10/LICENSE"
+          "path": "licenses/modules/github.com_metacubex_sing@v0.5.8/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/sing-mux",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260904234848-1c242664697a",
       "replacementVersion": "",
+      "version": "v0.3.12",
+      "module": "github.com/metacubex/sing-mux",
+      "reachedByCLI": true,
+      "notices": [
+        {
+          "sha256": "2f02b7486bcfa90d115c71a20437f3906b6fd5bef81c5dc0efd341399e89d0fd",
+          "path": "licenses/modules/github.com_metacubex_sing-mux@v0.3.12/LICENSE"
+        }
+      ],
+      "replacement": ""
+    },
+    {
+      "replacementVersion": "",
+      "version": "v0.0.0-20260904234848-1c242664697a",
+      "module": "github.com/metacubex/sing-quic",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1267,12 +1268,12 @@
           "path": "licenses/modules/github.com_metacubex_sing-quic@v0.0.0-20260904234848-1c242664697a/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/sing-quic",
       "replacement": ""
     },
     {
-      "version": "v0.2.13",
       "replacementVersion": "",
+      "version": "v0.2.13",
+      "module": "github.com/metacubex/sing-shadowsocks",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1280,12 +1281,12 @@
           "path": "licenses/modules/github.com_metacubex_sing-shadowsocks@v0.2.13/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/sing-shadowsocks",
       "replacement": ""
     },
     {
-      "version": "v0.2.8",
       "replacementVersion": "",
+      "version": "v0.2.8",
+      "module": "github.com/metacubex/sing-shadowsocks2",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1293,25 +1294,25 @@
           "path": "licenses/modules/github.com_metacubex_sing-shadowsocks2@v0.2.8/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/sing-shadowsocks2",
       "replacement": ""
     },
     {
-      "version": "v0.4.24",
       "replacementVersion": "",
+      "version": "v0.4.27",
+      "module": "github.com/metacubex/sing-tun",
       "reachedByCLI": true,
       "notices": [
         {
           "sha256": "2f02b7486bcfa90d115c71a20437f3906b6fd5bef81c5dc0efd341399e89d0fd",
-          "path": "licenses/modules/github.com_metacubex_sing-tun@v0.4.24/LICENSE"
+          "path": "licenses/modules/github.com_metacubex_sing-tun@v0.4.27/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/sing-tun",
-      "replacement": ""
+      "replacement": "C:/Users/Danila/AndroidStudioProjects/Nimbo/.codex-tmp/github-ios-build-20260928/tools/native/mihomo-core/.build/mihomo-patched-079c3b5e12604492ab9ab3d4cf385e4d/dependencies/sing-tun"
     },
     {
-      "version": "v0.2.5",
       "replacementVersion": "",
+      "version": "v0.2.5",
+      "module": "github.com/metacubex/sing-vmess",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1319,12 +1320,12 @@
           "path": "licenses/modules/github.com_metacubex_sing-vmess@v0.2.5/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/sing-vmess",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260826105301-c3ae17d19f9e",
       "replacementVersion": "",
+      "version": "v0.0.0-20260826105301-c3ae17d19f9e",
+      "module": "github.com/metacubex/sing-wireguard",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1332,12 +1333,12 @@
           "path": "licenses/modules/github.com_metacubex_sing-wireguard@v0.0.0-20260826105301-c3ae17d19f9e/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/sing-wireguard",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260105030934-d0c8756d3141",
       "replacementVersion": "",
+      "version": "v0.0.0-20260105030934-d0c8756d3141",
+      "module": "github.com/metacubex/smux",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1345,12 +1346,12 @@
           "path": "licenses/modules/github.com_metacubex_smux@v0.0.0-20260105030934-d0c8756d3141/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/smux",
       "replacement": ""
     },
     {
-      "version": "v0.1.0",
       "replacementVersion": "",
+      "version": "v0.1.0",
+      "module": "github.com/metacubex/ssh",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1358,12 +1359,12 @@
           "path": "licenses/modules/github.com_metacubex_ssh@v0.1.0/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/ssh",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260821153257-ff0ecd818181",
       "replacementVersion": "",
+      "version": "v0.0.0-20260821153257-ff0ecd818181",
+      "module": "github.com/metacubex/tailscale",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1387,12 +1388,12 @@
           "path": "licenses/modules/github.com_metacubex_tailscale@v0.0.0-20260821153257-ff0ecd818181/tempfork/oauth2/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/tailscale",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260725073821-e61ab99cede2",
       "replacementVersion": "",
+      "version": "v0.0.0-20260725073821-e61ab99cede2",
+      "module": "github.com/metacubex/tailscale-wireguard-go",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1400,12 +1401,12 @@
           "path": "licenses/modules/github.com_metacubex_tailscale-wireguard-go@v0.0.0-20260725073821-e61ab99cede2/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/tailscale-wireguard-go",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260623020846-376a77860b8c",
       "replacementVersion": "",
+      "version": "v0.0.0-20260623020846-376a77860b8c",
+      "module": "github.com/metacubex/tfo-go",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1413,12 +1414,12 @@
           "path": "licenses/modules/github.com_metacubex_tfo-go@v0.0.0-20260623020846-376a77860b8c/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/tfo-go",
       "replacement": ""
     },
     {
-      "version": "v0.1.8",
       "replacementVersion": "",
+      "version": "v0.1.8",
+      "module": "github.com/metacubex/tls",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1426,29 +1427,29 @@
           "path": "licenses/modules/github.com_metacubex_tls@v0.1.8/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/tls",
       "replacement": ""
     },
     {
-      "version": "v1.8.7",
       "replacementVersion": "",
+      "version": "v1.8.8",
+      "module": "github.com/metacubex/utls",
       "reachedByCLI": true,
       "notices": [
         {
           "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067",
-          "path": "licenses/modules/github.com_metacubex_utls@v1.8.7/LICENSE"
+          "path": "licenses/modules/github.com_metacubex_utls@v1.8.8/LICENSE"
         },
         {
           "sha256": "ac089a3cb515b32ba1c8c2b401646527f55815a9022013693d515f2e2e4fb6ec",
-          "path": "licenses/modules/github.com_metacubex_utls@v1.8.7/dicttls/LICENSE"
+          "path": "licenses/modules/github.com_metacubex_utls@v1.8.8/dicttls/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/utls",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260628025728-9ae6bdcf2a7d",
       "replacementVersion": "",
+      "version": "v0.0.0-20260628025728-9ae6bdcf2a7d",
+      "module": "github.com/metacubex/wazero",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1460,12 +1461,12 @@
           "path": "licenses/modules/github.com_metacubex_wazero@v0.0.0-20260628025728-9ae6bdcf2a7d/NOTICE"
         }
       ],
-      "module": "github.com/metacubex/wazero",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20250820062549-a6cecdd7f57f",
       "replacementVersion": "",
+      "version": "v0.0.0-20250820062549-a6cecdd7f57f",
+      "module": "github.com/metacubex/wireguard-go",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1473,12 +1474,12 @@
           "path": "licenses/modules/github.com_metacubex_wireguard-go@v0.0.0-20250820062549-a6cecdd7f57f/LICENSE"
         }
       ],
-      "module": "github.com/metacubex/wireguard-go",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20250918083631-dd5f17c0be49",
       "replacementVersion": "",
+      "version": "v0.0.0-20250918083631-dd5f17c0be49",
+      "module": "github.com/metacubex/yamux",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1490,12 +1491,12 @@
           "path": "licenses/modules/github.com_metacubex_yamux@v0.0.0-20250918083631-dd5f17c0be49/LICENSE-BSD"
         }
       ],
-      "module": "github.com/metacubex/yamux",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20260813124750-13fa6f45da5f",
       "replacementVersion": "",
+      "version": "v0.0.0-20260813124750-13fa6f45da5f",
+      "module": "github.com/metacubex/zerotier-go",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1507,12 +1508,12 @@
           "path": "licenses/modules/github.com_metacubex_zerotier-go@v0.0.0-20260813124750-13fa6f45da5f/NOTICE"
         }
       ],
-      "module": "github.com/metacubex/zerotier-go",
       "replacement": ""
     },
     {
-      "version": "v1.1.63",
       "replacementVersion": "",
+      "version": "v1.1.63",
+      "module": "github.com/miekg/dns",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1524,12 +1525,12 @@
           "path": "licenses/modules/github.com_miekg_dns@v1.1.63/LICENSE"
         }
       ],
-      "module": "github.com/miekg/dns",
       "replacement": ""
     },
     {
-      "version": "v1.0.0",
       "replacementVersion": "",
+      "version": "v1.0.0",
+      "module": "github.com/mitchellh/go-ps",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1537,12 +1538,12 @@
           "path": "licenses/modules/github.com_mitchellh_go-ps@v1.0.0/LICENSE.md"
         }
       ],
-      "module": "github.com/mitchellh/go-ps",
       "replacement": ""
     },
     {
-      "version": "v2.1.0",
       "replacementVersion": "",
+      "version": "v2.1.0",
+      "module": "github.com/mroth/weightedrand/v2",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1550,12 +1551,12 @@
           "path": "licenses/modules/github.com_mroth_weightedrand_v2@v2.1.0/LICENSE.txt"
         }
       ],
-      "module": "github.com/mroth/weightedrand/v2",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20220228165953-2091330c22b7",
       "replacementVersion": "",
+      "version": "v0.0.0-20220228165953-2091330c22b7",
+      "module": "github.com/oasisprotocol/deoxysii",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1563,20 +1564,20 @@
           "path": "licenses/modules/github.com_oasisprotocol_deoxysii@v0.0.0-20220228165953-2091330c22b7/LICENSE"
         }
       ],
-      "module": "github.com/oasisprotocol/deoxysii",
       "replacement": ""
     },
     {
-      "version": "v0.8.1",
       "replacementVersion": "",
+      "version": "v0.8.1",
+      "module": "github.com/openacid/errors",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/openacid/errors",
       "replacement": ""
     },
     {
-      "version": "v0.1.21",
       "replacementVersion": "",
+      "version": "v0.1.21",
+      "module": "github.com/openacid/low",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1584,28 +1585,28 @@
           "path": "licenses/modules/github.com_openacid_low@v0.1.21/LICENSE"
         }
       ],
-      "module": "github.com/openacid/low",
       "replacement": ""
     },
     {
+      "replacementVersion": "",
       "version": "v0.1.3",
-      "replacementVersion": "",
-      "reachedByCLI": false,
-      "notices": [],
       "module": "github.com/openacid/must",
-      "replacement": ""
-    },
-    {
-      "version": "v0.1.6",
-      "replacementVersion": "",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/openacid/testkeys",
       "replacement": ""
     },
     {
-      "version": "v1.12.0",
       "replacementVersion": "",
+      "version": "v0.1.6",
+      "module": "github.com/openacid/testkeys",
+      "reachedByCLI": false,
+      "notices": [],
+      "replacement": ""
+    },
+    {
+      "replacementVersion": "",
+      "version": "v1.12.0",
+      "module": "github.com/oschwald/maxminddb-golang",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1613,12 +1614,12 @@
           "path": "licenses/modules/github.com_oschwald_maxminddb-golang@v1.12.0/LICENSE"
         }
       ],
-      "module": "github.com/oschwald/maxminddb-golang",
       "replacement": ""
     },
     {
-      "version": "v4.1.27",
       "replacementVersion": "",
+      "version": "v4.1.27",
+      "module": "github.com/pierrec/lz4/v4",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1626,12 +1627,12 @@
           "path": "licenses/modules/github.com_pierrec_lz4_v4@v4.1.27/LICENSE"
         }
       ],
-      "module": "github.com/pierrec/lz4/v4",
       "replacement": ""
     },
     {
-      "version": "v0.8.0",
       "replacementVersion": "",
+      "version": "v0.8.0",
+      "module": "github.com/pires/go-proxyproto",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1639,28 +1640,28 @@
           "path": "licenses/modules/github.com_pires_go-proxyproto@v0.8.0/LICENSE"
         }
       ],
-      "module": "github.com/pires/go-proxyproto",
       "replacement": ""
     },
     {
+      "replacementVersion": "",
       "version": "v0.9.1",
-      "replacementVersion": "",
-      "reachedByCLI": false,
-      "notices": [],
       "module": "github.com/pkg/errors",
-      "replacement": ""
-    },
-    {
-      "version": "v1.0.0",
-      "replacementVersion": "",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/pmezard/go-difflib",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20200203143853-96a758eda86e",
       "replacementVersion": "",
+      "version": "v1.0.0",
+      "module": "github.com/pmezard/go-difflib",
+      "reachedByCLI": false,
+      "notices": [],
+      "replacement": ""
+    },
+    {
+      "replacementVersion": "",
+      "version": "v0.0.0-20200203143853-96a758eda86e",
+      "module": "github.com/rasky/go-lzo",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1668,12 +1669,12 @@
           "path": "licenses/modules/github.com_rasky_go-lzo@v0.0.0-20200203143853-96a758eda86e/LICENSE.gpl"
         }
       ],
-      "module": "github.com/rasky/go-lzo",
       "replacement": ""
     },
     {
-      "version": "v1.12.0",
       "replacementVersion": "",
+      "version": "v1.12.0",
+      "module": "github.com/rogpeppe/go-internal",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1681,12 +1682,12 @@
           "path": "licenses/modules/github.com_rogpeppe_go-internal@v1.12.0/LICENSE"
         }
       ],
-      "module": "github.com/rogpeppe/go-internal",
       "replacement": ""
     },
     {
-      "version": "v0.3.0",
       "replacementVersion": "",
+      "version": "v0.3.0",
+      "module": "github.com/safchain/ethtool",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1694,12 +1695,12 @@
           "path": "licenses/modules/github.com_safchain_ethtool@v0.3.0/LICENSE"
         }
       ],
-      "module": "github.com/safchain/ethtool",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20240612041022-b9a21c07ac6a",
       "replacementVersion": "",
+      "version": "v0.0.0-20240612041022-b9a21c07ac6a",
+      "module": "github.com/sagernet/netlink",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1707,12 +1708,12 @@
           "path": "licenses/modules/github.com_sagernet_netlink@v0.0.0-20240612041022-b9a21c07ac6a/LICENSE"
         }
       ],
-      "module": "github.com/sagernet/netlink",
-      "replacement": ""
+      "replacement": "C:/Users/Danila/AndroidStudioProjects/Nimbo/.codex-tmp/github-ios-build-20260928/tools/native/mihomo-core/.build/mihomo-patched-079c3b5e12604492ab9ab3d4cf385e4d/dependencies/netlink"
     },
     {
-      "version": "v1.53.0",
       "replacementVersion": "",
+      "version": "v1.53.0",
+      "module": "github.com/samber/lo",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1720,12 +1721,12 @@
           "path": "licenses/modules/github.com_samber_lo@v1.53.0/LICENSE"
         }
       ],
-      "module": "github.com/samber/lo",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20220724002748-c5926b03988b",
       "replacementVersion": "",
+      "version": "v0.0.0-20220724002748-c5926b03988b",
+      "module": "github.com/sina-ghaderi/poly1305",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1733,12 +1734,12 @@
           "path": "licenses/modules/github.com_sina-ghaderi_poly1305@v0.0.0-20220724002748-c5926b03988b/LICENSE"
         }
       ],
-      "module": "github.com/sina-ghaderi/poly1305",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20220730151906-ab6e06b96e8c",
       "replacementVersion": "",
+      "version": "v0.0.0-20220730151906-ab6e06b96e8c",
+      "module": "github.com/sina-ghaderi/rabaead",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1746,12 +1747,12 @@
           "path": "licenses/modules/github.com_sina-ghaderi_rabaead@v0.0.0-20220730151906-ab6e06b96e8c/LICENSE"
         }
       ],
-      "module": "github.com/sina-ghaderi/rabaead",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20220730151941-9ce26f4f872e",
       "replacementVersion": "",
+      "version": "v0.0.0-20220730151941-9ce26f4f872e",
+      "module": "github.com/sina-ghaderi/rabbitio",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1759,12 +1760,12 @@
           "path": "licenses/modules/github.com_sina-ghaderi_rabbitio@v0.0.0-20220730151941-9ce26f4f872e/LICENSE"
         }
       ],
-      "module": "github.com/sina-ghaderi/rabbitio",
       "replacement": ""
     },
     {
-      "version": "v1.9.4",
       "replacementVersion": "",
+      "version": "v1.9.4",
+      "module": "github.com/sirupsen/logrus",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1772,12 +1773,12 @@
           "path": "licenses/modules/github.com_sirupsen_logrus@v1.9.4/LICENSE"
         }
       ],
-      "module": "github.com/sirupsen/logrus",
       "replacement": ""
     },
     {
-      "version": "v0.1.1",
       "replacementVersion": "",
+      "version": "v0.1.1",
+      "module": "github.com/stangelandcl/ppmd",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1785,12 +1786,12 @@
           "path": "licenses/modules/github.com_stangelandcl_ppmd@v0.1.1/LICENSE"
         }
       ],
-      "module": "github.com/stangelandcl/ppmd",
       "replacement": ""
     },
     {
-      "version": "v0.5.2",
       "replacementVersion": "",
+      "version": "v0.5.2",
+      "module": "github.com/stretchr/objx",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1798,12 +1799,12 @@
           "path": "licenses/modules/github.com_stretchr_objx@v0.5.2/LICENSE"
         }
       ],
-      "module": "github.com/stretchr/objx",
       "replacement": ""
     },
     {
-      "version": "v1.12.1",
       "replacementVersion": "",
+      "version": "v1.12.1",
+      "module": "github.com/stretchr/testify",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1819,12 +1820,12 @@
           "path": "licenses/modules/github.com_stretchr_testify@v1.12.1/internal/spew/LICENSE"
         }
       ],
-      "module": "github.com/stretchr/testify",
       "replacement": ""
     },
     {
-      "version": "v0.1.1-0.20260409135935-3638fb84b77d",
       "replacementVersion": "",
+      "version": "v0.1.1-0.20260409135935-3638fb84b77d",
+      "module": "github.com/tailscale/certstore",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1832,12 +1833,12 @@
           "path": "licenses/modules/github.com_tailscale_certstore@v0.1.1-0.20260409135935-3638fb84b77d/LICENSE.md"
         }
       ],
-      "module": "github.com/tailscale/certstore",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20231025203758-c4f33415bf55",
       "replacementVersion": "",
+      "version": "v0.0.0-20231025203758-c4f33415bf55",
+      "module": "github.com/tailscale/go-winio",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1845,12 +1846,12 @@
           "path": "licenses/modules/github.com_tailscale_go-winio@v0.0.0-20231025203758-c4f33415bf55/LICENSE"
         }
       ],
-      "module": "github.com/tailscale/go-winio",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20221223112325-20486734a56a",
       "replacementVersion": "",
+      "version": "v0.0.0-20221223112325-20486734a56a",
+      "module": "github.com/tailscale/hujson",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1858,12 +1859,12 @@
           "path": "licenses/modules/github.com_tailscale_hujson@v0.0.0-20221223112325-20486734a56a/LICENSE"
         }
       ],
-      "module": "github.com/tailscale/hujson",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20250107143737-35a0c7bd7edc",
       "replacementVersion": "",
+      "version": "v0.0.0-20250107143737-35a0c7bd7edc",
+      "module": "github.com/tailscale/peercred",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1875,12 +1876,12 @@
           "path": "licenses/modules/github.com_tailscale_peercred@v0.0.0-20250107143737-35a0c7bd7edc/LICENSE"
         }
       ],
-      "module": "github.com/tailscale/peercred",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20230220225925-ffce2a382923",
       "replacementVersion": "",
+      "version": "v0.0.0-20230220225925-ffce2a382923",
+      "module": "github.com/u-root/uio",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1888,12 +1889,12 @@
           "path": "licenses/modules/github.com_u-root_uio@v0.0.0-20230220225925-ffce2a382923/LICENSE"
         }
       ],
-      "module": "github.com/u-root/uio",
       "replacement": ""
     },
     {
-      "version": "v0.5.15",
       "replacementVersion": "",
+      "version": "v0.5.15",
+      "module": "github.com/ulikunitz/xz",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1901,20 +1902,20 @@
           "path": "licenses/modules/github.com_ulikunitz_xz@v0.5.15/LICENSE"
         }
       ],
-      "module": "github.com/ulikunitz/xz",
       "replacement": ""
     },
     {
-      "version": "v1.3.1",
       "replacementVersion": "",
+      "version": "v1.3.1",
+      "module": "github.com/vishvananda/netlink",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/vishvananda/netlink",
       "replacement": ""
     },
     {
-      "version": "v0.0.5",
       "replacementVersion": "",
+      "version": "v0.0.5",
+      "module": "github.com/vishvananda/netns",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1922,12 +1923,12 @@
           "path": "licenses/modules/github.com_vishvananda_netns@v0.0.5/LICENSE"
         }
       ],
-      "module": "github.com/vishvananda/netns",
       "replacement": ""
     },
     {
-      "version": "v5.4.1",
       "replacementVersion": "",
+      "version": "v5.4.1",
+      "module": "github.com/vmihailenco/msgpack/v5",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1935,12 +1936,12 @@
           "path": "licenses/modules/github.com_vmihailenco_msgpack_v5@v5.4.1/LICENSE"
         }
       ],
-      "module": "github.com/vmihailenco/msgpack/v5",
       "replacement": ""
     },
     {
-      "version": "v2.0.0",
       "replacementVersion": "",
+      "version": "v2.0.0",
+      "module": "github.com/vmihailenco/tagparser/v2",
       "reachedByCLI": true,
       "notices": [
         {
@@ -1948,12 +1949,12 @@
           "path": "licenses/modules/github.com_vmihailenco_tagparser_v2@v2.0.0/LICENSE"
         }
       ],
-      "module": "github.com/vmihailenco/tagparser/v2",
       "replacement": ""
     },
     {
-      "version": "v0.8.4",
       "replacementVersion": "",
+      "version": "v0.8.4",
+      "module": "github.com/x448/float16",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1961,12 +1962,12 @@
           "path": "licenses/modules/github.com_x448_float16@v0.8.4/LICENSE"
         }
       ],
-      "module": "github.com/x448/float16",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20190602105132-8df528c0c9ae",
       "replacementVersion": "",
+      "version": "v0.0.0-20190602105132-8df528c0c9ae",
+      "module": "github.com/xtaci/lossyconn",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1974,12 +1975,12 @@
           "path": "licenses/modules/github.com_xtaci_lossyconn@v0.0.0-20190602105132-8df528c0c9ae/LICENSE"
         }
       ],
-      "module": "github.com/xtaci/lossyconn",
       "replacement": ""
     },
     {
-      "version": "v1.0.5",
       "replacementVersion": "",
+      "version": "v1.0.5",
+      "module": "github.com/xyproto/randomstring",
       "reachedByCLI": false,
       "notices": [
         {
@@ -1987,12 +1988,12 @@
           "path": "licenses/modules/github.com_xyproto_randomstring@v1.0.5/LICENSE"
         }
       ],
-      "module": "github.com/xyproto/randomstring",
       "replacement": ""
     },
     {
-      "version": "v3.0.2",
       "replacementVersion": "",
+      "version": "v3.0.2",
+      "module": "github.com/yosida95/uritemplate/v3",
       "reachedByCLI": true,
       "notices": [
         {
@@ -2000,20 +2001,20 @@
           "path": "licenses/modules/github.com_yosida95_uritemplate_v3@v3.0.2/LICENSE"
         }
       ],
-      "module": "github.com/yosida95/uritemplate/v3",
       "replacement": ""
     },
     {
-      "version": "v1.4.13",
       "replacementVersion": "",
+      "version": "v1.4.13",
+      "module": "github.com/yuin/goldmark",
       "reachedByCLI": false,
       "notices": [],
-      "module": "github.com/yuin/goldmark",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20230221065045-e58665ef23c7",
       "replacementVersion": "",
+      "version": "v0.0.0-20230221065045-e58665ef23c7",
+      "module": "gitlab.com/go-extension/aes-ccm",
       "reachedByCLI": true,
       "notices": [
         {
@@ -2021,12 +2022,12 @@
           "path": "licenses/modules/gitlab.com_go-extension_aes-ccm@v0.0.0-20230221065045-e58665ef23c7/LICENSE"
         }
       ],
-      "module": "gitlab.com/go-extension/aes-ccm",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20190805113838-0a714cd429ec",
       "replacementVersion": "",
+      "version": "v0.0.0-20190805113838-0a714cd429ec",
+      "module": "gitlab.com/yawning/bsaes.git",
       "reachedByCLI": true,
       "notices": [
         {
@@ -2034,20 +2035,20 @@
           "path": "licenses/modules/gitlab.com_yawning_bsaes.git@v0.0.0-20190805113838-0a714cd429ec/LICENSE.txt"
         }
       ],
-      "module": "gitlab.com/yawning/bsaes.git",
       "replacement": ""
     },
     {
-      "version": "v1.6.0",
       "replacementVersion": "",
+      "version": "v1.6.0",
+      "module": "go.uber.org/automaxprocs",
       "reachedByCLI": false,
       "notices": [],
-      "module": "go.uber.org/automaxprocs",
       "replacement": ""
     },
     {
-      "version": "v0.4.0",
       "replacementVersion": "",
+      "version": "v0.4.0",
+      "module": "go.uber.org/mock",
       "reachedByCLI": false,
       "notices": [
         {
@@ -2059,12 +2060,12 @@
           "path": "licenses/modules/go.uber.org_mock@v0.4.0/LICENSE"
         }
       ],
-      "module": "go.uber.org/mock",
       "replacement": ""
     },
     {
-      "version": "v3.0.5",
       "replacementVersion": "",
+      "version": "v3.0.5",
+      "module": "go.yaml.in/yaml/v3",
       "reachedByCLI": true,
       "notices": [
         {
@@ -2076,12 +2077,12 @@
           "path": "licenses/modules/go.yaml.in_yaml_v3@v3.0.5/NOTICE"
         }
       ],
-      "module": "go.yaml.in/yaml/v3",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20240501181205-ae6ca9944745",
       "replacementVersion": "",
+      "version": "v0.0.0-20240501181205-ae6ca9944745",
+      "module": "go4.org/mem",
       "reachedByCLI": false,
       "notices": [
         {
@@ -2089,29 +2090,29 @@
           "path": "licenses/modules/go4.org_mem@v0.0.0-20240501181205-ae6ca9944745/LICENSE"
         }
       ],
-      "module": "go4.org/mem",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20231129151722-fdeea329fbba",
       "replacementVersion": "",
+      "version": "v0.0.0-20260823151212-3075585bcbeb",
+      "module": "go4.org/netipx",
       "reachedByCLI": true,
       "notices": [
         {
           "sha256": "7868b053d41a7d213354d2c0417ca82c3a045d7cf5f9c2e3bb749b3882c52136",
-          "path": "licenses/modules/go4.org_netipx@v0.0.0-20231129151722-fdeea329fbba/AUTHORS"
+          "path": "licenses/modules/go4.org_netipx@v0.0.0-20260823151212-3075585bcbeb/AUTHORS"
         },
         {
           "sha256": "1bfc4f32f4ec8ca8fce54bd2d97784f003786753a69a78ca74ffae1574037fb9",
-          "path": "licenses/modules/go4.org_netipx@v0.0.0-20231129151722-fdeea329fbba/LICENSE"
+          "path": "licenses/modules/go4.org_netipx@v0.0.0-20260823151212-3075585bcbeb/LICENSE"
         }
       ],
-      "module": "go4.org/netipx",
       "replacement": ""
     },
     {
-      "version": "v0.33.0",
       "replacementVersion": "",
+      "version": "v0.33.0",
+      "module": "golang.org/x/crypto",
       "reachedByCLI": true,
       "notices": [
         {
@@ -2123,12 +2124,12 @@
           "path": "licenses/modules/golang.org_x_crypto@v0.33.0/PATENTS"
         }
       ],
-      "module": "golang.org/x/crypto",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20240904232852-e7e105dedf7e",
       "replacementVersion": "",
+      "version": "v0.0.0-20240904232852-e7e105dedf7e",
+      "module": "golang.org/x/exp",
       "reachedByCLI": true,
       "notices": [
         {
@@ -2140,28 +2141,28 @@
           "path": "licenses/modules/golang.org_x_exp@v0.0.0-20240904232852-e7e105dedf7e/PATENTS"
         }
       ],
-      "module": "golang.org/x/exp",
       "replacement": ""
     },
     {
+      "replacementVersion": "",
       "version": "v0.0.0-20221208152030-732eee02a75a",
-      "replacementVersion": "",
-      "reachedByCLI": false,
-      "notices": [],
       "module": "golang.org/x/exp/typeparams",
-      "replacement": ""
-    },
-    {
-      "version": "v0.0.0-20200302205851-738671d3881b",
-      "replacementVersion": "",
       "reachedByCLI": false,
       "notices": [],
-      "module": "golang.org/x/lint",
       "replacement": ""
     },
     {
-      "version": "v0.20.0",
       "replacementVersion": "",
+      "version": "v0.0.0-20200302205851-738671d3881b",
+      "module": "golang.org/x/lint",
+      "reachedByCLI": false,
+      "notices": [],
+      "replacement": ""
+    },
+    {
+      "replacementVersion": "",
+      "version": "v0.20.0",
+      "module": "golang.org/x/mod",
       "reachedByCLI": false,
       "notices": [
         {
@@ -2173,12 +2174,12 @@
           "path": "licenses/modules/golang.org_x_mod@v0.20.0/PATENTS"
         }
       ],
-      "module": "golang.org/x/mod",
       "replacement": ""
     },
     {
-      "version": "v0.35.0",
       "replacementVersion": "",
+      "version": "v0.35.0",
+      "module": "golang.org/x/net",
       "reachedByCLI": true,
       "notices": [
         {
@@ -2190,12 +2191,12 @@
           "path": "licenses/modules/golang.org_x_net@v0.35.0/PATENTS"
         }
       ],
-      "module": "golang.org/x/net",
       "replacement": ""
     },
     {
-      "version": "v0.11.0",
       "replacementVersion": "",
+      "version": "v0.11.0",
+      "module": "golang.org/x/sync",
       "reachedByCLI": true,
       "notices": [
         {
@@ -2207,12 +2208,12 @@
           "path": "licenses/modules/golang.org_x_sync@v0.11.0/PATENTS"
         }
       ],
-      "module": "golang.org/x/sync",
       "replacement": ""
     },
     {
-      "version": "v0.30.0",
       "replacementVersion": "",
+      "version": "v0.30.0",
+      "module": "golang.org/x/sys",
       "reachedByCLI": true,
       "notices": [
         {
@@ -2224,20 +2225,20 @@
           "path": "licenses/modules/golang.org_x_sys@v0.30.0/PATENTS"
         }
       ],
-      "module": "golang.org/x/sys",
       "replacement": ""
     },
     {
-      "version": "v0.0.0-20240521205824-bda55230c457",
       "replacementVersion": "",
+      "version": "v0.0.0-20240521205824-bda55230c457",
+      "module": "golang.org/x/telemetry",
       "reachedByCLI": false,
       "notices": [],
-      "module": "golang.org/x/telemetry",
       "replacement": ""
     },
     {
-      "version": "v0.29.0",
       "replacementVersion": "",
+      "version": "v0.29.0",
+      "module": "golang.org/x/term",
       "reachedByCLI": false,
       "notices": [
         {
@@ -2249,12 +2250,12 @@
           "path": "licenses/modules/golang.org_x_term@v0.29.0/PATENTS"
         }
       ],
-      "module": "golang.org/x/term",
       "replacement": ""
     },
     {
-      "version": "v0.22.0",
       "replacementVersion": "",
+      "version": "v0.22.0",
+      "module": "golang.org/x/text",
       "reachedByCLI": true,
       "notices": [
         {
@@ -2266,12 +2267,12 @@
           "path": "licenses/modules/golang.org_x_text@v0.22.0/PATENTS"
         }
       ],
-      "module": "golang.org/x/text",
       "replacement": ""
     },
     {
-      "version": "v0.10.0",
       "replacementVersion": "",
+      "version": "v0.10.0",
+      "module": "golang.org/x/time",
       "reachedByCLI": true,
       "notices": [
         {
@@ -2283,12 +2284,12 @@
           "path": "licenses/modules/golang.org_x_time@v0.10.0/PATENTS"
         }
       ],
-      "module": "golang.org/x/time",
       "replacement": ""
     },
     {
-      "version": "v0.24.0",
       "replacementVersion": "",
+      "version": "v0.24.0",
+      "module": "golang.org/x/tools",
       "reachedByCLI": false,
       "notices": [
         {
@@ -2300,36 +2301,36 @@
           "path": "licenses/modules/golang.org_x_tools@v0.24.0/PATENTS"
         }
       ],
-      "module": "golang.org/x/tools",
       "replacement": ""
     },
     {
+      "replacementVersion": "",
       "version": "v0.0.0-20191011141410-1b5146add898",
-      "replacementVersion": "",
-      "reachedByCLI": false,
-      "notices": [],
       "module": "golang.org/x/xerrors",
+      "reachedByCLI": false,
+      "notices": [],
       "replacement": ""
     },
     {
+      "replacementVersion": "",
       "version": "v0.0.0-20240610135401-a8a62080eff3",
-      "replacementVersion": "",
-      "reachedByCLI": false,
-      "notices": [],
       "module": "google.golang.org/genproto/googleapis/rpc",
-      "replacement": ""
-    },
-    {
-      "version": "v1.64.1",
-      "replacementVersion": "",
       "reachedByCLI": false,
       "notices": [],
-      "module": "google.golang.org/grpc",
       "replacement": ""
     },
     {
-      "version": "v1.34.2",
       "replacementVersion": "",
+      "version": "v1.64.1",
+      "module": "google.golang.org/grpc",
+      "reachedByCLI": false,
+      "notices": [],
+      "replacement": ""
+    },
+    {
+      "replacementVersion": "",
+      "version": "v1.34.2",
+      "module": "google.golang.org/protobuf",
       "reachedByCLI": true,
       "notices": [
         {
@@ -2341,36 +2342,36 @@
           "path": "licenses/modules/google.golang.org_protobuf@v1.34.2/PATENTS"
         }
       ],
-      "module": "google.golang.org/protobuf",
       "replacement": "./.build/protobuf"
     },
     {
+      "replacementVersion": "",
       "version": "v1.0.0-20180628173108-788fd7840127",
-      "replacementVersion": "",
-      "reachedByCLI": false,
-      "notices": [],
       "module": "gopkg.in/check.v1",
+      "reachedByCLI": false,
+      "notices": [],
       "replacement": ""
     },
     {
+      "replacementVersion": "",
       "version": "v3.0.1",
-      "replacementVersion": "",
-      "reachedByCLI": false,
-      "notices": [],
       "module": "gopkg.in/yaml.v3",
-      "replacement": ""
-    },
-    {
-      "version": "v0.4.5",
-      "replacementVersion": "",
       "reachedByCLI": false,
       "notices": [],
-      "module": "honnef.co/go/tools",
       "replacement": ""
     },
     {
-      "version": "v0.4.0",
       "replacementVersion": "",
+      "version": "v0.4.5",
+      "module": "honnef.co/go/tools",
+      "reachedByCLI": false,
+      "notices": [],
+      "replacement": ""
+    },
+    {
+      "replacementVersion": "",
+      "version": "v0.4.0",
+      "module": "software.sslmate.com/src/go-pkcs12",
       "reachedByCLI": false,
       "notices": [
         {
@@ -2378,7 +2379,6 @@
           "path": "licenses/modules/software.sslmate.com_src_go-pkcs12@v0.4.0/LICENSE"
         }
       ],
-      "module": "software.sslmate.com/src/go-pkcs12",
       "replacement": ""
     }
   ],

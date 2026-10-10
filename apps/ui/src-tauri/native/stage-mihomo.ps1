@@ -7,7 +7,7 @@ $binary=Join-Path $core '.build/bin/nimbo-mihomo.exe'
 $pinsPath=Join-Path $core 'pins.json'
 $manifest=Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 $pins=Get-Content -Raw -LiteralPath $pinsPath | ConvertFrom-Json
-if ($pins.version -ne 'v1.19.31' -or $pins.commit -ne 'ab405bad5beeeac8b003bb01f60f134f6df54471' -or $pins.apiVersion -ne 1) {throw 'Unexpected source pin'}
+if ($pins.version -ne 'v1.19.32' -or $pins.commit -ne '88dcbf7f1614a67c3b36b848ee3592dfa92ada36' -or $pins.apiVersion -ne 1) {throw 'Unexpected source pin'}
 if ($manifest.apiVersion -ne 1 -or $manifest.coreVersion -ne $pins.version -or $manifest.coreCommit -ne $pins.commit -or $manifest.target -ne 'windows/amd64' -or $manifest.toolchain -notmatch 'go1\.27\.1 windows/amd64') {throw 'Unexpected helper build identity'}
 foreach ($pair in @(@($binary,$manifest.sha256),@((Join-Path $core 'go.mod'),$manifest.goModSHA256),@((Join-Path $core 'go.sum'),$manifest.goSumSHA256),@($pinsPath,$manifest.pinsSHA256))) {
  if ((Get-FileHash -LiteralPath $pair[0] -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pair[1]) {throw 'Source/build hash mismatch; ask native owner to rebuild, never download a binary'}

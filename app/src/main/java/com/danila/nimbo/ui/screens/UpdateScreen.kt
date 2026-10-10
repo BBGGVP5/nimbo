@@ -4,6 +4,8 @@ import com.danila.nimbo.ui.components.NimboOperation
 import com.danila.nimbo.ui.components.contrastingLabel
 import com.danila.nimbo.ui.components.NimboOperationPhrase
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -406,7 +408,7 @@ private fun UpdateHistoryCard(currentInfo: UpdateInfo) {
 
 /** Shared only by update surfaces; the complete Markdown and its links stay available. */
 @Composable
-internal fun UpdateReleaseNotes(content: String) {
+internal fun UpdateReleaseNotes(content: String, maxHeight: androidx.compose.ui.unit.Dp? = null) {
     val colors = LocalNebulaColors.current
     var expanded by rememberSaveable(content) { mutableStateOf(false) }
     val stateLabel = if (expanded) t("Развёрнуто", "Expanded") else t("Свёрнуто", "Collapsed")
@@ -434,7 +436,9 @@ internal fun UpdateReleaseNotes(content: String) {
         if (expanded) {
             HorizontalDivider(color = colors.panelBorder)
             Spacer(Modifier.height(12.dp))
-            MarkdownChangelog(content = content, color = colors.textSecondary, itemAlignment = Alignment.Start)
+            Box(if (maxHeight != null) Modifier.heightIn(max = maxHeight).verticalScroll(rememberScrollState()) else Modifier) {
+                MarkdownChangelog(content = content, color = colors.textSecondary, itemAlignment = Alignment.Start)
+            }
         }
     }
 }
@@ -865,7 +869,7 @@ fun MarkdownChangelog(
     val linkColor = LocalNebulaColors.current.accent
     // Also clean notes saved by an older version, without requiring another update.
     val lines = remember(content) {
-        com.danila.nimbo.shared.updates.ReleaseNotesText.withoutPlatformHeading(content).lines()
+        com.danila.nimbo.shared.updates.ReleaseNotesText.forApp(content).lines()
     }
     var inCodeBlock = false
     val codeBuffer = mutableListOf<String>()

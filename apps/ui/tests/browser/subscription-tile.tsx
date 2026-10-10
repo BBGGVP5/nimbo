@@ -22,7 +22,7 @@ function Fixture() {
   return <main style={{ maxWidth: 640, margin: "24px auto", padding: 16 }}>
     <h1>Subscription tile pointer regression</h1>
     <p>Click tile regions, actions, disabled targets and expanded server space. Counters expose double toggles.</p>
-    <label style={{ display: "block", padding: "12px 0" }}><input type="checkbox" checked={busy} onChange={event => setBusy(event.target.checked)}/> Disable ping and refresh</label>
+    <label style={{ display: "block", padding: "12px 0" }}><input type="checkbox" checked={busy} onChange={event => setBusy(event.target.checked)}/> Ping in progress / disable refresh</label>
     <output id="counts" style={{ display: "block", padding: "12px 0" }}>{JSON.stringify({ ...counts, collapsed, busy })}</output>
     <SignalProfileCard labels={messages.en} sub={sub} serverCount={1} collapsed={collapsed}
       onToggleCollapsed={() => { count("toggles"); setCollapsed(value => !value); }}

@@ -13,7 +13,7 @@ enum class VpnCoreChoice(val id: String, val title: String) {
 }
 
 object VpnCorePolicy {
-    enum class Rejection { UNKNOWN_CORE, UNAVAILABLE, INCOMPATIBLE, NO_COMPATIBLE_SERVERS }
+    enum class Rejection { UNKNOWN_CORE, UNAVAILABLE, INCOMPATIBLE, NO_COMPATIBLE_SERVERS, SHARE_REQUIRES_MIHOMO_PROFILE }
 
     fun isMihomo(server: Server): Boolean = server.protocol.trim().equals("mihomo", true)
 
@@ -28,6 +28,7 @@ object VpnCorePolicy {
         }
         if (choice == VpnCoreChoice.MIHOMO || server.protocol.trim().lowercase() in
             setOf("clash", "clash-meta", "yaml")) return Rejection.INCOMPATIBLE
+        if (server.protocol.lowercase() in setOf("tuic", "mieru")) return Rejection.SHARE_REQUIRES_MIHOMO_PROFILE
         // Native Xray templates must not accidentally enter the WG INI runner.
         if (server.usesAwgEngine() && (server.isRemoteTemplateServer() ||
                 server.templateUuid?.startsWith("subscription-json:") == true)) return Rejection.INCOMPATIBLE
@@ -39,6 +40,8 @@ object VpnCorePolicy {
         servers.filter { rejection(coreId, it) == null }
 
     fun message(reason: Rejection, english: Boolean): String = when (reason) {
+        Rejection.SHARE_REQUIRES_MIHOMO_PROFILE -> if (english) "TUIC/Mieru requires a Mihomo subscription in this build. Import the provider’s Mihomo profile."
+            else "Для TUIC/Mieru в этой сборке нужна подписка Mihomo. Импортируйте профиль Mihomo вашего провайдера."
         Rejection.UNKNOWN_CORE -> if (english) "Unknown VPN core. Choose a core in Settings → VPN core."
             else "Неизвестное ядро VPN. Выберите ядро в Настройки → Ядро VPN."
         Rejection.UNAVAILABLE -> if (english) "The compiled Mihomo Android adapter is unavailable in this build."

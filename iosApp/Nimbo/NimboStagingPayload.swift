@@ -27,7 +27,7 @@ enum NimboStagingPayload {
     private static func balancerCandidates(in profile: NimboSubscriptionProfile) -> [NimboSubscriptionServer] {
         profile.servers.filter { candidate in
             !isAutoBalancer(candidate) &&
-                !["amneziawg", "awg", "wireguard"].contains(candidate.protocol.lowercased()) &&
+                ["vless", "vmess", "trojan", "ss", "hysteria2", "hy2", "socks", "socks5"].contains(candidate.protocol.lowercased()) &&
                 !candidate.isNativeXrayJson && !candidate.host.isEmpty &&
                 candidate.rawConfiguration.contains("://")
         }

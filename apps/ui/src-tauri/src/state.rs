@@ -16,6 +16,8 @@ const STORAGE_FILE: &str = "subscriptions.json";
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PersistedState {
     #[serde(default)]
+    pub on_demand: crate::on_demand::Config,
+    #[serde(default)]
     pub core_profiles: nimbo_mihomo::CoreProfiles,
     /// Captured by a manual connection; recovery/Auto keep this preference even
     /// when settings change. None is a legacy state without a session snapshot.
@@ -23,6 +25,9 @@ pub struct PersistedState {
     pub session_core_preference: Option<nimbo_mihomo::selection::CorePreference>,
     #[serde(default)]
     pub pending_mihomo_proxy_port: Option<u16>,
+    /// A requested external policy may remain after native/helper failure.
+    #[serde(default)]
+    pub pending_mihomo_kill_switch: bool,
     #[serde(default)]
     pub subscriptions: Vec<Subscription>,
     #[serde(default)]
@@ -85,6 +90,10 @@ impl PersistedState {
     /// — несколько мегабайт на диск до появления окна.
     pub fn normalize_runtime_defaults(&mut self) -> bool {
         let mut changed = false;
+        if self.on_demand.settings.clone().validated().is_err() {
+            self.on_demand = crate::on_demand::Config::default();
+            changed = true;
+        }
         if self.socks_username.trim().is_empty() {
             self.socks_username = default_socks_username();
             changed = true;
@@ -93,7 +102,47 @@ impl PersistedState {
             self.socks_password = default_socks_password();
             changed = true;
         }
-        changed | self.normalize_subscription_servers()
+        changed | self.normalize_sync_placeholders() | self.normalize_subscription_servers()
+    }
+
+    fn normalize_sync_placeholders(&mut self) -> bool {
+        // Older Android peers exported a local document ID as a subscription
+        // URL. Only discard its untouched, empty link-only import; never infer
+        // a duplicate from a title or discard initialized/native profile data.
+        let default_meta =
+            serde_json::to_value(nimbo_subscription::SubscriptionMeta::default()).ok();
+        let mut removed = std::collections::HashSet::new();
+        self.subscriptions.retain(|sub| {
+            let placeholder = crate::cross_sync::is_internal_mihomo_url(&sub.url)
+                && sub.parser_revision == 0
+                && sub.fetched_at == 0
+                && sub.servers.is_empty()
+                && sub.info.is_none()
+                && serde_json::to_value(&sub.meta).ok() == default_meta;
+            if placeholder {
+                removed.insert(sub.url.clone());
+            }
+            !placeholder
+        });
+        if removed.is_empty() {
+            return false;
+        }
+        removed.retain(|url| !self.subscriptions.iter().any(|sub| &sub.url == url));
+        if self
+            .active_subscription_url
+            .as_ref()
+            .is_some_and(|url| removed.contains(url))
+        {
+            self.active_subscription_url = None;
+        }
+        if self
+            .auto_subscription_url
+            .as_ref()
+            .is_some_and(|url| removed.contains(url))
+        {
+            self.auto_subscription_url = None;
+        }
+        true
     }
 
     fn normalize_subscription_servers(&mut self) -> bool {
@@ -265,6 +314,8 @@ pub struct AppPreferences {
     pub show_memory_usage: bool,
     #[serde(default)]
     pub connection_kill_switch: bool,
+    #[serde(default)]
+    pub ad_blocking_enabled: bool,
     /// MTU TUN-интерфейса; 0 — оставить значение по умолчанию.
     #[serde(default)]
     pub tunnel_mtu: u32,
@@ -443,6 +494,7 @@ impl Default for AppPreferences {
             show_speed_chart: true,
             show_memory_usage: false,
             connection_kill_switch: false,
+            ad_blocking_enabled: false,
             tunnel_mtu: 0,
             tunnel_dns: String::new(),
             tunnel_sniffing: true,
@@ -591,6 +643,7 @@ pub struct TrafficRuntimeSample {
 
 #[derive(Default)]
 pub struct RuntimeState {
+    pub ad_blocking_active: bool,
     pub mihomo: Option<nimbo_mihomo::process::Session>,
     pub(crate) ping_route: Option<crate::latency::PingRoute>,
     /// Живое соединение с привилегированным хелпером, пока поднят TUN.
@@ -690,6 +743,10 @@ impl AppState {
             state.persist()?;
         }
         Ok(state)
+    }
+
+    pub fn read<R>(&self, f: impl FnOnce(&PersistedState) -> R) -> R {
+        f(&self.inner.lock().unwrap_or_else(|error| error.into_inner()))
     }
 
     pub fn snapshot(&self) -> PersistedState {
@@ -828,6 +885,127 @@ fn storage_path() -> anyhow::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loading_removes_only_empty_internal_sync_placeholders() {
+        let path = std::env::temp_dir().join(format!(
+            "nimbo-sync-placeholder-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let placeholder = Subscription {
+            url: " MiHoMo://child ".into(),
+            name: Some("Provider · Mihomo".into()),
+            parser_revision: 0,
+            meta: Default::default(),
+            servers: vec![],
+            info: None,
+            fetched_at: 0,
+        };
+        let mut snapshot = PersistedState::default();
+        let source = "proxies: [{name: Direct, type: direct}]\n";
+        snapshot.core_profiles.profiles.push(
+            nimbo_mihomo::FullProfile::new(
+                "Local YAML".into(),
+                nimbo_mihomo::ProfileKind::MihomoYaml,
+                source.into(),
+            )
+            .unwrap(),
+        );
+        let full_before = serde_json::to_value(&snapshot.core_profiles).unwrap();
+        let ordinary = Subscription {
+            url: "https://example.test/sub".into(),
+            ..placeholder.clone()
+        };
+        let linked = Subscription {
+            url: "mihomo://linked".into(),
+            meta: nimbo_subscription::SubscriptionMeta {
+                mihomo_profile_id: Some(snapshot.core_profiles.profiles[0].id.clone()),
+                ..Default::default()
+            },
+            ..placeholder.clone()
+        };
+        let initialized = Subscription {
+            url: "mihomo://initialized".into(),
+            fetched_at: 1,
+            ..placeholder.clone()
+        };
+        snapshot.subscriptions = vec![ordinary, placeholder.clone(), linked, initialized];
+        snapshot.active_subscription_url = Some(placeholder.url.clone());
+        snapshot.auto_subscription_url = Some("https://example.test/sub".into());
+        std::fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+        let loaded = AppState::load_from_path(path.clone()).unwrap().snapshot();
+        assert_eq!(loaded.subscriptions.len(), 3);
+        assert!(loaded.active_subscription_url.is_none());
+        assert_eq!(
+            loaded.auto_subscription_url.as_deref(),
+            Some("https://example.test/sub")
+        );
+        assert_eq!(
+            serde_json::to_value(&loaded.core_profiles).unwrap(),
+            full_before
+        );
+        let saved: PersistedState = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved.subscriptions.len(), 3);
+        assert_eq!(
+            AppState::load_from_path(path.clone())
+                .unwrap()
+                .snapshot()
+                .subscriptions
+                .len(),
+            3
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn on_demand_pause_is_durable_and_stale_connect_cannot_resume_it() {
+        let path =
+            std::env::temp_dir().join(format!("nimbo-on-demand-{}.json", uuid::Uuid::new_v4()));
+        let state = AppState::load_from_path(path.clone()).unwrap();
+        state
+            .transaction(|s| {
+                s.on_demand.settings.enabled = true;
+                s.on_demand.settings.trusted_ssids = vec!["Home".into()];
+                s.active_server_id = Some("server".into());
+                s.session_core_preference = Some(nimbo_mihomo::selection::CorePreference::Xray);
+                Ok(())
+            })
+            .unwrap();
+        crate::on_demand::manual_pause(&state).unwrap();
+        let stale = crate::commands::CONNECTION_INTENT
+            .load(std::sync::atomic::Ordering::SeqCst)
+            .wrapping_sub(1);
+        crate::on_demand::manual_connected(&state, stale).unwrap();
+        let reloaded = AppState::load_from_path(path.clone()).unwrap();
+        assert!(reloaded.read(|s| s.on_demand.paused));
+        assert!(reloaded.read(|s| s.on_demand.settings.enabled));
+        assert_eq!(
+            reloaded.read(|s| s.on_demand.settings.trusted_ssids.clone()),
+            ["Home"]
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn on_demand_pause_write_failure_is_reported_without_fake_persistence() {
+        let path = std::env::temp_dir().join(format!(
+            "nimbo-on-demand-failure-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let state = AppState::load_from_path(path.clone()).unwrap();
+        state
+            .transaction(|s| {
+                s.on_demand.settings.enabled = true;
+                Ok(())
+            })
+            .unwrap();
+        let blocked = path.with_extension("json.tmp");
+        std::fs::create_dir(&blocked).unwrap();
+        assert!(crate::on_demand::manual_pause(&state).is_err());
+        assert!(!state.read(|s| s.on_demand.paused));
+        std::fs::remove_dir(blocked).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn core_profiles_migrate_and_roundtrip_without_flattening() {

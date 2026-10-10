@@ -77,8 +77,8 @@ internal fun NimboPingBadge(server: NimboServerUi, selected: Boolean = false, qu
     // Missing, failed and pending results remain distinguishable in every display mode.
     if (display == "numeric" || level == 0) {
         if (quiet) BasicText(label.replace(" ms", " мс"), accessible,
-            style = NimboBodyStyle.copy(fontSize = 12.sp))
-        else NimboPill(label, modifier = accessible, selected = selected)
+            style = NimboBodyStyle.copy(fontSize = 11.sp))
+        else NimboPill(label, modifier = accessible, selected = selected, textSize = 11.sp)
         return
     }
     val foreground = if (selected) NimboPalette.Accent else NimboPalette.Text
@@ -106,7 +106,7 @@ internal fun NimboPingBadge(server: NimboServerUi, selected: Boolean = false, qu
                 }
             }
             if (display == "both") {
-                BasicText(label, style = TextStyle(fontFamily = NimboTypography.body, color = foreground, fontSize = 13.sp))
+                BasicText(label, style = TextStyle(fontFamily = NimboTypography.body, color = foreground, fontSize = 12.sp))
             }
         }
     }

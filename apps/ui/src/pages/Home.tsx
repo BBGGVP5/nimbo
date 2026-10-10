@@ -1,8 +1,11 @@
+import { useCoreStore } from '../coreStore';
+import { isTauriRuntime } from '../lib/api';
 import { memoryPaths, measuredTimeLabels, type MemorySample } from "../lib/homeMonitor";
 import { OperationPhrase } from "../components/OperationPhrase";
 import { ConnectionStateIcon } from "../components/ConnectionStateIcon";
 import { Dialog } from "../components/Universal";
 import { HomeSubscriptions } from "./home/HomeSubscriptions";
+import { RefreshFeedback, useSubscriptionRefresh } from "./home/useSubscriptionRefresh";
 import { latencyPresentation } from "../lib/latency";
 import { LatencyDisplay } from "../components/LatencyDisplay";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,6 +17,7 @@ import { startVisiblePolling } from "../lib/visiblePolling";
 import { expireLabels, useMessages } from "../lib/i18n";
 import { serverDisplayLabel, useServerUiOverrides } from "../lib/serverUiOverrides";
 import type { Messages } from "../lib/i18n";
+import { ServerContextMenu } from "../components/ServerContextMenu";
 import { pingServersProgressively } from "../lib/ping";
 import { useCachedSubscriptionLogo } from "../lib/subscriptionLogo";
 import { useAppStore } from "../store";
@@ -241,6 +245,9 @@ function useResizableServersPanel() {
 
 export function Home() {
   const m = useMessages();
+  const core = useCoreStore();
+  const useMihomo = core.data?.preferred_core === 'mihomo';
+  useEffect(() => { if (isTauriRuntime()) void core.refresh(); }, [core.refresh]);
   const navigate = useNavigate();
   const subs = useAppStore((s) => s.subscriptions);
   const activeId = useAppStore((s) => s.activeServerId);
@@ -263,7 +270,6 @@ export function Home() {
   const trafficMonitoringAvailable = useAppStore((s) => s.trafficMonitoringAvailable);
   const sessionStartedAt = useAppStore((s) => s.sessionStartedAt);
 
-  const [refreshingUrl, setRefreshingUrl] = useState<string | null>(null);
   const [pinging, setPinging] = useState(false);
   const pingAbort = useRef<AbortController | null>(null);
   useEffect(() => () => { pingAbort.current?.abort(); }, []);
@@ -369,6 +375,8 @@ export function Home() {
     [subs, serverOverrides],
   );
 
+  const subscriptionRefresh = useSubscriptionRefresh(visibleSubs.map(sub => sub.url), refreshSubscription, adminDialogOpen || compactSheetOpen);
+
   const currentSub = useMemo(() => {
     if (activeSubscriptionUrl) {
       const match = visibleSubs.find((sub) => sub.url === activeSubscriptionUrl);
@@ -439,8 +447,11 @@ export function Home() {
     return null;
   }, [activeId, connectingServerId, switchingServerId, baseEntries, subs]);
   const fallbackEntry = activeEntry ?? baseEntries[0] ?? null;
+  const coreSub = (core.runtime?.running ? subs.find(sub => sub.meta?.mihomo_profile_id === core.runtime?.profile_id) : null) ?? currentSub;
+  const coreProfile = core.data?.profiles.find(profile => profile.id === coreSub?.meta?.mihomo_profile_id);
+  const displayedMihomo = useMihomo || core.runtime?.running === true;
   const connected = status?.state === "connected";
-  const connecting = Boolean(connectingServerId) || status?.state === "connecting";
+  const connecting = Boolean(connectingServerId) || core.busy === "connect" || status?.state === "connecting";
   const switching = Boolean(switchingServerId);
   const showMemory = connected && !connecting && !disconnecting && !switching
     && preferences.show_memory_usage && !widgetsCollapsed;
@@ -495,24 +506,16 @@ export function Home() {
 
   const onRefreshSelected = async (sub: Subscription | null = currentSub) => {
     if (!sub) return;
-    setRefreshingUrl(sub.url);
-    try {
-      await refreshSubscription(sub.url);
-    } catch (e) {
-      notifyError(String(e));
-    } finally {
-      setRefreshingUrl(null);
-    }
+    await subscriptionRefresh.refresh([sub.url]);
   };
 
   const onPingServers = async (entries: ServerEntry[] = baseEntries) => {
-    if (pingAbort.current) { pingAbort.current.abort(); return; }
+    if (pingAbort.current) { pingAbort.current.abort(); setPinging(false); setPingingServerIds(new Set()); return; }
     if (!entries.length) return;
     const controller = new AbortController();
     pingAbort.current = controller;
     const serverIds = entries.map(({ server }) => server.id);
     setPinging(true);
-    serverIds.forEach(id => setServerPing(id, null));
     setPingingServerIds(new Set(serverIds));
     try {
       await pingServersProgressively(serverIds, (result) => {
@@ -531,31 +534,19 @@ export function Home() {
   };
 
   const onPingServer = async (serverId: string) => {
-    setPingingServerIds((current) => {
-      const next = new Set(current);
-      next.add(serverId);
-      return next;
-    });
-    try {
-      setServerPing(serverId, null);
-      const result = await api.pingServer(serverId);
-      if (result.error) notifyError(result.error);
-      setServerPing(result.server_id, result.latency_ms ?? null);
-    } catch (e) {
-      notifyError(String(e));
-    } finally {
-      setPingingServerIds((current) => {
-        const next = new Set(current);
-        next.delete(serverId);
-        return next;
-      });
-    }
+    const target = baseEntries.find(({ server }) => server.id === serverId);
+    if (target) await onPingServers([target]);
   };
 
   const onToggleConnection = async () => {
     try {
       if (connected) {
         await disconnectServer();
+        return;
+      }
+      if (useMihomo) {
+        if (!coreProfile) { notifyError(m.common.locale.startsWith('ru') ? 'Обновите подписку для Mihomo.' : 'Refresh the subscription for Mihomo.'); return; }
+        await core.connect(coreProfile.id);
         return;
       }
       if (!fallbackEntry) {
@@ -616,6 +607,7 @@ export function Home() {
   };
 
   const isCompactButton = preferences.servers_connect_button === "compact";
+  const connectionActionLabel = switching ? m.home.switching : connecting ? m.home.connecting : disconnecting ? m.home.disconnecting : connected ? m.home.disconnect : m.home.connect;
   const connectionStatusLabel = switching
     ? (m.home.switching || "Переключение...")
     : disconnecting
@@ -629,7 +621,7 @@ export function Home() {
   // ── Signal ────────────────────────────────────────────────────
   // Приборная панель включается вместе со стилем: остальные стили
   // продолжают работать с прежней разметкой ниже.
-  if (preferences.ui_style === "signal") {
+  if (preferences.ui_style === "signal" || displayedMihomo) {
     const signalState = switching
       ? "switching"
       : disconnecting
@@ -653,7 +645,7 @@ export function Home() {
       : status?.connection_mode === "both"
         ? "TUN + PROXY"
         : "TUN";
-    const activeServer = fallbackEntry?.server ?? null;
+    const activeServer = displayedMihomo ? null : fallbackEntry?.server ?? null;
     const activePing = activeServer ? serverPings[activeServer.id] : undefined;
     const rateUnits = (bytesPerSecond: number) => {
       const text = formatBytes(Math.max(0, bytesPerSecond));
@@ -691,7 +683,8 @@ export function Home() {
     ];
 
     return (
-      <>
+      <div className="nimbo-home-profile nimbo-home-refresh" {...subscriptionRefresh.gestureProps}>
+        <RefreshFeedback progress={subscriptionRefresh.progress} refreshing={subscriptionRefresh.refreshing} locale={m.common.locale}/>
         <SignalHome
           labels={m}
           state={signalState}
@@ -715,10 +708,10 @@ export function Home() {
           serverFlag={activeServer
             ? <CountryFlag serverName={activeServer.name} fallback={<GlobeIcon />} className="country-flag-sm" />
             : <GlobeIcon />}
-          serverName={activeServer ? serverDisplayLabel(activeServer) : m.signal.noServer}
+          serverName={displayedMihomo ? coreProfile?.name ?? "Mihomo" : activeServer ? serverDisplayLabel(activeServer) : m.signal.noServer}
           autoSelected={connected && !!status?.auto_subscription_url &&
             status.auto_subscription_url === fallbackEntry?.sub.url}
-          serverProtocol={activeServer
+          serverProtocol={displayedMihomo ? "Mihomo · YAML" : activeServer
             ? `${protocolLabel(activeServer.protocol)} · ${transportLabel(activeServer.protocol) || "JSON"}`
             : ""}
           serverPing={<LatencyDisplay value={activePing} loading={!!activeServer && pingingServerIds.has(activeServer.id)} />}
@@ -749,31 +742,24 @@ export function Home() {
             <>
               <button
                 type="button"
-                className="signal-btn signal-btn--primary"
-                data-variant="round"
-                aria-label={switching ? m.home.switching : connecting ? m.home.connecting : disconnecting ? m.home.disconnecting : connected ? m.home.disconnect : m.home.connect}
+                className="signal-btn signal-btn--primary nimbo-connect-action"
+                data-variant={isCompactButton ? "compact" : "round"}
+                aria-label={connectionActionLabel}
                 aria-pressed={connected}
                 aria-busy={connecting || disconnecting || switching}
                 onClick={() => void onToggleConnection()}
-                disabled={(!connected && !fallbackEntry) || connecting || disconnecting || switching}
+                disabled={(!connected && (useMihomo ? !coreProfile : !fallbackEntry)) || connecting || disconnecting || switching || !!core.busy}
               >
-                <ConnectionStateIcon connected={connected} busy={connecting || disconnecting || switching} />
-                {switching
-                  ? m.home.switching
-                  : connecting
-                    ? m.home.connecting
-                    : disconnecting
-                      ? m.home.disconnecting
-                      : connected
-                        ? m.home.disconnect
-                        : m.home.connect}
+                <ConnectionStateIcon connected={connected} busy={connecting || disconnecting || switching} motion={preferences.nav_icon_motion} />
+                {isCompactButton && connectionActionLabel}
               </button>
+              {!isCompactButton && <span className="nimbo-connect-caption" aria-hidden="true">{connectionActionLabel}</span>}
               <OperationPhrase active={connecting || switching} locale={m.common.locale} />
             </>
           }
           serverRail={visibleSubs.length ? <HomeSubscriptions subs={visibleSubs} labels={m}
             onRefresh={sub => void onRefreshSelected(sub)} onPing={sub => void onPingServers(sub.servers.map(server => ({ server, sub })))}
-            refreshingUrl={refreshingUrl} pinging={pinging} renderServers={sub => (
+            refreshingUrls={subscriptionRefresh.refreshingUrls} pinging={pinging} renderServers={sub => (
             <SignalServerRail
               labels={m}
               subs={[sub]}
@@ -795,6 +781,7 @@ export function Home() {
               onShowFavOnly={setShowFavOnly}
               onPickServer={(server) => void onToggleServer(server.id)}
               pinging={pinging}
+              onPingServer={id => void onPingServer(id)}
               onPing={() => void onPingServers(sub.servers.map(server => ({ server, sub })))}
               onSwitchSubscription={(url) => void onSwitchSubscription(url)}
               hiddenCount={hiddenServerCount}
@@ -810,7 +797,7 @@ export function Home() {
           }}
           onCheckPings={() => void onPingServers()}
           onRefreshSubscription={currentSub ? () => void onRefreshSelected() : undefined}
-          refreshing={refreshingUrl === currentSub?.url}
+          refreshing={!!currentSub && subscriptionRefresh.refreshingUrls.has(currentSub.url)}
           pinging={pinging}
           railWidth={serversPanelWidth.width}
           railCollapsed={sidePanelCollapsed}
@@ -823,26 +810,28 @@ export function Home() {
           <CompactServerSheet {...sharedPanelProps} onClose={() => setCompactSheetOpen(false)} />
         )}
         {adminDialogOpen && <AdminRestartDialog onClose={() => setAdminDialogOpen(false)} />}
-      </>
+      </div>
     );
   }
 
   return (
     <div
       className={[
-        "home-grid h-full",
+        "home-grid h-full nimbo-home-profile",
         sidePanelCollapsed ? "home-grid-collapsed" : "",
         !sidePanelCollapsed && serverListCollapsed && sortedEntries.length ? "home-grid-server-list-collapsed" : "",
       ].join(" ")}
       style={{
         "--servers-panel-width": `${serversPanelWidth.width}px`,
       } as React.CSSProperties}
+      {...subscriptionRefresh.gestureProps}
     >
+      <RefreshFeedback progress={subscriptionRefresh.progress} refreshing={subscriptionRefresh.refreshing} locale={m.common.locale}/>
       <section className="home-center">
         <div className="home-top">
           <ProfileSummary
             sub={currentSub}
-            refreshing={refreshingUrl === currentSub?.url}
+            refreshing={!!currentSub && subscriptionRefresh.refreshingUrls.has(currentSub.url)}
             onRefresh={onRefreshSelected}
             showLogo={preferences.show_subscription_logo}
             labels={m}
@@ -1152,6 +1141,7 @@ function CompactServerSheet({
             activeId={panelProps.activeId}
             pingByServer={panelProps.pingByServer}
             pingingServerIds={panelProps.pingingServerIds as Set<string>}
+            onPingServer={id => void panelProps.onPingServer(id)}
             favorites={panelProps.favorites as Set<string>}
             onToggleFavorite={panelProps.onToggleFavorite}
             sortMode={panelProps.sortMode}
@@ -1466,7 +1456,10 @@ function ServerSidePanel({
             const isFav = favorites.has(server.id);
 
             return (
-              <div
+              <ServerContextMenu label={labels.profiles.serverMenu} actions={[
+                  { label: pingingServerIds.has(server.id) ? (labels.common.locale.startsWith("ru") ? "Остановить пинг" : "Stop ping") : labels.profiles.testLatency, onClick: () => void onPingServer(server.id) },
+                  { label: isFav ? labels.home.removeFromFavorites : labels.home.addToFavorites, onClick: () => onToggleFavorite(server.id) },
+                ]}
                 key={server.id}
                 className={[
                   "server-side-entry group relative flex items-center rounded-lg transition-all",
@@ -1507,7 +1500,7 @@ function ServerSidePanel({
                     />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="server-side-name text-[14px] font-semibold text-white">{label}</div>
+                    <div className="server-side-name text-[14px] font-semibold text-white" data-server-menu-anchor>{label}</div>
                     {description && (
                       <div className="server-side-description text-[12px] text-[var(--color-text-faint)]">
                         {description}
@@ -1532,22 +1525,9 @@ function ServerSidePanel({
                   >
                     <StarIcon filled={isFav} />
                   </button>
-                  <button
-                    onClick={() => void onPingServer(server.id)}
-                    title={pinging ? labels.common.cancel : labels.home.pingServers}
-                    aria-label={labels.home.pingServers}
-                    disabled={pingingServerIds.has(server.id)}
-                    className={[
-                      "server-side-action-button grid h-7 w-7 shrink-0 place-items-center rounded-md transition-all",
-                      pingingServerIds.has(server.id)
-                        ? "server-side-action-pinned text-[var(--color-accent-bright)] opacity-100"
-                        : "text-[var(--color-text-faint)] opacity-0 group-hover:opacity-70 hover:bg-[var(--color-glass-bg-strong)] hover:text-white",
-                    ].join(" ")}
-                  >
-                    <PingIcon spinning={pingingServerIds.has(server.id)} />
-                  </button>
+
                 </div>
-              </div>
+              </ServerContextMenu>
             );
           })
         )}

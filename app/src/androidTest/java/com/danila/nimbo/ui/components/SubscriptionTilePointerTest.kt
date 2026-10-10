@@ -44,7 +44,7 @@ class SubscriptionTilePointerTest {
                         Box(Modifier.fillMaxWidth().height(4.dp).testTag("quota"))
                         Row(Modifier.fillMaxWidth()) {
                             Text("Updated today", Modifier.weight(1f).testTag("footer"))
-                            NimboIconAction(Icons.Default.Refresh, "Refresh") {}
+                            NimboIconAction(Icons.Default.Refresh, "Refresh", onClick = {})
                         }
                     }
                 }
@@ -106,12 +106,12 @@ class SubscriptionTilePointerTest {
                             }
                         })
                         Row {
-                            NimboIconAction(Icons.Default.SignalCellularAlt, "Ping", busy.value) { pings++ }
-                            NimboIconAction(Icons.Default.Refresh, "Refresh", busy.value) { refreshes++ }
+                            NimboIconAction(Icons.Default.SignalCellularAlt, "Ping", busy.value, onClick = { pings++ })
+                            NimboIconAction(Icons.Default.Refresh, "Refresh", busy.value, onClick = { refreshes++ })
                         }
                         NimboServerRow("Server", "Location", false, { selections++ }, { serverPings++ },
                             menu = {
-                                NimboIconAction(Icons.Default.MoreVert, "Server menu", busy.value) { serverMenus++ }
+                                NimboIconAction(Icons.Default.MoreVert, "Server menu", busy.value, onClick = { serverMenus++ })
                             }, ping = { Text("20 ms") })
                         NimboSubscriptionServerRow("Home server", "Location", false,
                             onClick = { selections++ }, latency = { Text("30 ms") })

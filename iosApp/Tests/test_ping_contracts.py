@@ -24,12 +24,13 @@ SOURCES = [
     "iosApp/Shared/NimboHTTPProbe.swift",
     "iosApp/Shared/NimboSOCKSTunnel.swift",
     "iosApp/Shared/NimboRoutingOptions.swift",
+    "iosApp/Shared/NimboAdBlocking.swift",
     "iosApp/Nimbo/NimboICMPProbe.swift",
     "iosApp/Nimbo/NimboActiveRouteProbe.swift",
     "iosApp/Nimbo/NimboPingService.swift",
     "iosApp/Nimbo/NimboDiagnosticProbe.swift",
     "iosApp/PacketTunnel/NimboPingRoute.swift",
-    "iosApp/PacketTunnel/XrayConfiguration.swift",
+    "iosApp/Shared/NimboNaiveConfiguration.swift", "iosApp/PacketTunnel/XrayConfiguration.swift",
     "iosApp/Tests/PingConfigurationStubs.swift",
     "iosApp/Tests/PingDiagnosticTests.swift",
     "iosApp/Tests/PingPolicyTests.swift",
@@ -126,7 +127,14 @@ class PingContracts(unittest.TestCase):
             self.assertIn('NimboBeginIosPings(serverIds: ' + ids + ')', s)
         self.assertEqual(s.count('NimboBeginIosPings('), 2)
         self.assertNotIn('serverIds: [], values: [], inProgress: true', s)
-        self.assertEqual(s.count('defer {\n            IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)'), 2)
+        self.assertEqual(s.count('if pingRunID == runID { IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false) }'), 2)
+        self.assertIn('pingTask?.cancel()', s)
+        self.assertIn('await previous?.value', s)
+        self.assertIn('guard !Task.isCancelled, pingRunID == runID else { return }', s)
+        shared = read('shared/src/iosMain/kotlin/com/danila/nimbo/shared/ui/IosComposeController.kt')
+        begin = shared.split('fun NimboBeginIosPings(', 1)[1].split('fun NimboUpdateIosPings(', 1)[0]
+        self.assertNotIn('iosPings.value =', begin)
+        self.assertNotIn('setObject', begin)
 
     def test_provider_identity_generation_method_and_health(self):
         s = read("iosApp/PacketTunnel/PacketTunnelProvider.swift")

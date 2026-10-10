@@ -37,6 +37,10 @@ trap 'rm -f "${PROJECT_SPEC}"; [[ -z "${PACKAGE_DIR}" ]] || rm -rf "${PACKAGE_DI
 cp "${ROOT_DIR}/iosApp/project.yml" "${PROJECT_SPEC}"
 rm -rf "${DERIVED_DATA}" "${ROOT_DIR}/iosApp/Nimbo.xcodeproj"
 
+# Fail native ABI/TLS/Swift link checks before the expensive Kotlin release link.
+chmod +x "${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
+"${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
+
 chmod +x ./gradlew
 # Kotlin/Native release LTO runs inside Gradle's JVM. The Android-oriented 2 GiB
 # project default exhausted its heap in DevirtualizationAnalysis on macOS CI.
@@ -45,9 +49,6 @@ echo 'iOS Kotlin/Native release link: Gradle heap=6 GiB, workers=1'
 ./gradlew --no-daemon --max-workers=1 \
   '-Dorg.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -XX:+HeapDumpOnOutOfMemoryError' \
   -PnimboIosOnly=true :shared:linkReleaseFrameworkIosArm64
-
-chmod +x "${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
-"${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
 
 PACKET_TUNNEL_RESOURCES="${ROOT_DIR}/iosApp/build/PacketTunnelResources"
 if [[ -d "${ROOT_DIR}/app/src/main/assets" ]]; then
@@ -129,6 +130,7 @@ xcodebuild \
   NIMBO_APP_BUNDLE_ID="${APP_BUNDLE_ID}" \
   NIMBO_PACKET_TUNNEL_BUNDLE_ID="${TUNNEL_BUNDLE_ID}" \
   NIMBO_DISPLAY_VERSION="${VERSION}" \
+  NIMBO_BUILD_REVISION="$(git -C "${ROOT_DIR}" rev-parse --short=12 HEAD)" \
   MARKETING_VERSION="${MARKETING_VERSION}" \
   CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
   CODE_SIGNING_ALLOWED=NO \
@@ -174,6 +176,10 @@ assert_plist() {
   fi
 }
 
+# XcodeGen folder resources must actually reach the IPA, not only the project.
+for notice in Chromium-LICENSE.txt cronet-go-LICENSE.txt GPL-3.0.txt NaiveProxy-LICENSE.txt Naive-Sources.txt; do
+  cmp "${ROOT_DIR}/iosApp/NativeNotices/${notice}" "${APP_PATH}/NativeNotices/${notice}"
+done
 assert_plist "${APP_PATH}/Info.plist" "CFBundleIdentifier" "${APP_BUNDLE_ID}"
 assert_plist "${APP_PATH}/Info.plist" "CFBundleShortVersionString" "${MARKETING_VERSION}"
 assert_plist "${APP_PATH}/Info.plist" "CFBundleVersion" "${BUILD_NUMBER}"
@@ -346,6 +352,11 @@ ditto "${APP_PATH}" "${PACKAGE_DIR}/Payload/Nimbo.app"
   /usr/bin/zip -qry "${PACKAGE_DIR}/${OUTPUT_NAME}" Payload
 )
 mv -f "${PACKAGE_DIR}/${OUTPUT_NAME}" "${OUTPUT_PATH}"
+
+if [[ -n "${WIDGET_EXECUTABLE}" ]]; then
+  # Source-only SVG checks cannot catch a catalog omitted by XcodeGen.
+  python3 "${ROOT_DIR}/iosApp/Tests/test_branding_contracts.py" --ipa "${OUTPUT_PATH}"
+fi
 
 shasum -a 256 "${OUTPUT_PATH}" > "${OUTPUT_PATH}.sha256"
 

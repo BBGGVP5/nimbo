@@ -45,10 +45,11 @@ if ((& $go version) -ne 'go version go1.27.1 windows/amd64') { throw 'Go toolcha
 if ($LASTEXITCODE) { throw 'Source extraction failed.' }
 Copy-Item -LiteralPath (Join-Path $appleBridge 'go.mod'),(Join-Path $appleBridge 'go.sum') -Destination $source
 Get-ChildItem -LiteralPath $bridge -Filter '*.go' -File | Copy-Item -Destination $source
+Copy-Item -LiteralPath (Join-Path $repo 'tools/native/libxray-memory/memory_ios.go') -Destination (Join-Path $source 'memory/memory_ios.go')
 
-$inputs = @($bridge,$appleBridge,(Join-Path $repo 'tools/native/awg-core'),$mihomo) | ForEach-Object {
+$inputs = @((Join-Path $repo 'tools/native/libxray-memory'),$bridge,$appleBridge,(Join-Path $repo 'tools/native/awg-core'),$mihomo) | ForEach-Object {
     Get-ChildItem -LiteralPath $_ -Recurse -File | Where-Object {
-        $_.FullName -notmatch '[\\/]\.build[\\/]' -and ($_.Extension -eq '.go' -or $_.Name -in @('go.mod','go.sum','pins.json','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch'))
+        $_.FullName -notmatch '[\\/]\.build[\\/]' -and ($_.Extension -eq '.go' -or $_.Name -in @('go.mod','go.sum','pins.json','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','mihomo-rule-journal.patch','mihomo-traffic-counters.patch','sing-tun-rule-journal.patch','netlink-rule-identity.patch'))
     }
 } | ForEach-Object { [ordered]@{ path=$_.FullName; sha256=(Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant() } }
 $inputs | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stage 'inputs.json') -Encoding utf8
@@ -72,6 +73,8 @@ foreach ($name in @('awg-core','mihomo-core')) {
 
 Push-Location $source
 try {
+    & $go mod edit -droprequire=nimbo/naivecore -dropreplace=nimbo/naivecore
+    if ($LASTEXITCODE) { throw 'Cannot remove Apple-only Naive adapter.' }
     & $go mod edit "-replace=nimbo/awgcore=$($snapshots['awg-core'].Replace('\','/'))"
     if ($LASTEXITCODE) { throw 'Cannot stage root dependency replacements.' }
     # Share the Apple source verifier: validate every protobuf file, not merely
@@ -99,6 +102,6 @@ try {
     foreach ($inputFile in $inputs) {
         if ((Get-FileHash -LiteralPath $inputFile.path).Hash.ToLowerInvariant() -ne $inputFile.sha256) { throw "Build inputs changed: $($inputFile.path). Artifact not approved." }
     }
-    [ordered]@{ stage=$stage; androidBuilt=[bool]$Build; productionLibraryChanged=$false; libXray='26.9.30'; mihomo='v1.19.31' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'result.json') -Encoding utf8
+    [ordered]@{ stage=$stage; androidBuilt=[bool]$Build; productionLibraryChanged=$false; libXray='26.9.30'; mihomo='v1.19.32' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'result.json') -Encoding utf8
     Write-Output "Staged build: $stage (never installed or promoted automatically)"
 } finally { Pop-Location }

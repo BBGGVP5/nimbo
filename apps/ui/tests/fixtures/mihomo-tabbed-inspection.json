@@ -1,0 +1,25 @@
+{
+  "api": 1,
+  "sourceDigest": "tabs-fixture",
+  "nativeValidated": false,
+  "issues": [{"code": "UNSUPPORTED_CONFIG", "path": "mixed-port"}],
+  "graph": {
+    "groups": [
+      {"name": "🚫 Недоступные сайты", "type": "select", "proxies": ["🎲 Любой доступный сервер", "DIRECT", "🇫🇮 Финляндия", "🇫🇮 Финляндия · XHTTP 🚀", "🇫🇮 Финляндия · gRPC 🔗", "🇫🇮 Финляндия · Shadowsocks ✈️", "🇫🇮 Финляндия · Trojan 🐎", "🇫🇮 Финляндия · Hysteria2 🛡️"]},
+      {"name": "🤖 AI / Gemini", "type": "url-test", "proxies": ["🇫🇮 Финляндия", "🇫🇮 Финляндия · Trojan 🐎"]},
+      {"name": "▶️ YouTube", "type": "select", "proxies": ["DIRECT", "🇫🇮 Финляндия · Shadowsocks ✈️"]},
+      {"name": "💬 Discord", "type": "select", "proxies": ["🇫🇮 Финляндия", "🇫🇮 Финляндия · gRPC 🔗"]},
+      {"name": "🌍 Очень длинное название дополнительной категории", "type": "select", "proxies": ["🇫🇮 Финляндия · Hysteria2 🛡️"]},
+      {"name": "🎲 Любой доступный сервер", "type": "fallback", "hidden": true, "proxies": ["🇫🇮 Финляндия", "🇫🇮 Финляндия · Trojan 🐎"]}
+    ],
+    "proxies": [
+      {"name": "🇫🇮 Финляндия", "type": "vless"},
+      {"name": "🇫🇮 Финляндия · XHTTP 🚀", "type": "vless"},
+      {"name": "🇫🇮 Финляндия · gRPC 🔗", "type": "vless"},
+      {"name": "🇫🇮 Финляндия · Shadowsocks ✈️", "type": "ss"},
+      {"name": "🇫🇮 Финляндия · Trojan 🐎", "type": "trojan"},
+      {"name": "🇫🇮 Финляндия · Hysteria2 🛡️", "type": "hysteria2"}
+    ],
+    "providers": {}
+  }
+}

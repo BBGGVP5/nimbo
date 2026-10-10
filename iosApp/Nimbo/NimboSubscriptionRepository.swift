@@ -2,52 +2,52 @@ import Foundation
 import CryptoKit
 import NimboShared
 
-struct NimboSubscriptionServer: Codable, Identifiable, Equatable {
-    let id: String
-    let name: String
-    let `protocol`: String
-    let host: String
-    let port: Int
-    let transport: String
-    let security: String
-    let rawConfiguration: String
-    let isNativeXrayJson: Bool
-
-    var connectionLabel: String {
-        [self.protocol.uppercased(), transport.uppercased(), security.capitalized]
-            .filter { !$0.isEmpty }
-            .joined(separator: " · ")
-    }
-}
-
-struct NimboSubscriptionProfile: Codable, Equatable {
-    let parserRevision: Int
-    let title: String
-    let source: String?
-    let format: String
-    let servers: [NimboSubscriptionServer]
-    let diagnosticCode: String?
-
+extension NimboSubscriptionProfile {
     var selectedServer: NimboSubscriptionServer? {
-        guard let selectedID = NimboConfigurationStore.shared.activeServerID else {
-            return servers.first
-        }
+        let selectedID = NimboConfigurationStore.shared.activeServerID
         if selectedID == NimboStagingPayload.automaticServerID {
             return NimboStagingPayload.automaticServer(in: self) ?? servers.first
         }
-        return servers.first(where: { $0.id == selectedID }) ?? servers.first
+        if let selectedID, let server = servers.first(where: { $0.id == selectedID }) { return server }
+        let retained = try? NimboConfigurationStore.shared.loadConfiguration()
+        if let recovered = NimboSelectedServerRecovery.exactID(configuration: retained,
+            entries: servers.map { ($0.id, $0.rawConfiguration) }) {
+            return servers.first(where: { $0.id == recovered })
+        }
+        if NimboSelectedServerRecovery.isAutomatic(retained), let automatic = NimboStagingPayload.automaticServer(in: self) {
+            return automatic
+        }
+        return servers.first
     }
 }
 
-final class NimboSubscriptionRepository {
+final class NimboSubscriptionRepository: @unchecked Sendable {
     static let shared = NimboSubscriptionRepository()
 
-    private let decoder = JSONDecoder()
+    // All remaining fields are immutable or protected by the operation gate.
+    private static let workQueue = NimboVpnCommandQueue(label: "com.nimbo.subscription.work")
+    private let operationGate = NimboSubscriptionOperationGate()
+    var isWorking: Bool { operationGate.isWorking }
+
+    private func runOperation(_ body: (NimboVpnCommandLease) async throws -> NimboSubscriptionProfile) async throws -> NimboSubscriptionProfile {
+        let lease = try operationGate.begin()
+        defer { operationGate.finish(lease) }
+        return try await withTaskCancellationHandler(operation: { try await body(lease) },
+            onCancel: { lease.invalidate() })
+    }
+
+    func importPayloadAsync(_ data: Data, source: String?) async throws -> NimboSubscriptionProfile {
+        try await runOperation { lease in
+            try await Self.workQueue.perform(lease: lease) {
+                try self.importPayload(data, source: source, lease: lease)
+            }
+        }
+    }
     private let maximumInputBytes = 15 * 1_024 * 1_024
 
     private init() {}
 
-    func importPayload(_ data: Data, source: String?) throws -> NimboSubscriptionProfile {
+    func importPayload(_ data: Data, source: String?, title: String? = nil, lease: NimboVpnCommandLease? = nil) throws -> NimboSubscriptionProfile {
         guard !data.isEmpty, data.count <= maximumInputBytes else {
             throw NimboSubscriptionRepositoryError.invalidSize
         }
@@ -55,7 +55,11 @@ final class NimboSubscriptionRepository {
             throw NimboSubscriptionRepositoryError.invalidEncoding
         }
 
-        let normalizedData: Data
+        if NimboMihomoControl.looksLikeConfiguration(data) {
+            return try importFullConfiguration(data, source: source, lease: lease)
+        }
+
+        var normalizedData: Data
         if let awg = try NimboAWGConfiguration.parseIfPresent(payload) {
             let id = "awg-" + SHA256.hash(data: Data(awg.rawText.utf8)).map { String(format: "%02x", $0) }.joined()
             let server = NimboSubscriptionServer(
@@ -75,7 +79,12 @@ final class NimboSubscriptionRepository {
             }
             normalizedData = data
         }
-        let profile = try decoder.decode(NimboSubscriptionProfile.self, from: normalizedData)
+        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
+           var object = try JSONSerialization.jsonObject(with: normalizedData) as? [String: Any] {
+            object["title"] = title
+            normalizedData = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        }
+        let profile = try JSONDecoder().decode(NimboSubscriptionProfile.self, from: normalizedData)
         guard !profile.servers.isEmpty else {
             throw NimboSubscriptionRepositoryError.noSupportedServers(profile.diagnosticCode)
         }
@@ -83,7 +92,8 @@ final class NimboSubscriptionRepository {
         let previousID = NimboConfigurationStore.shared.activeServerID
         let selected = (previousID == NimboStagingPayload.automaticServerID
             ? NimboStagingPayload.automaticServer(in: profile) : nil)
-            ?? profile.servers.first(where: { $0.id == previousID }) ?? profile.servers[0]
+            ?? profile.servers.first(where: { $0.id == previousID }) ?? profile.selectedServer ?? profile.servers[0]
+        guard lease?.isActive != false else { throw CancellationError() }
         try NimboConfigurationStore.shared.save(
             profile: normalizedData,
             selectedServer: NimboStagingPayload.make(for: selected, in: profile),
@@ -108,9 +118,11 @@ final class NimboSubscriptionRepository {
         return profile
     }
 
-    func loadProfile(migratingLegacy: Bool = true) throws -> NimboSubscriptionProfile? {
+    func loadProfile(migratingLegacy: Bool = false) throws -> NimboSubscriptionProfile? {
+        // Never resurrect the retained Xray profile under an active full document.
+        if let full = try NimboConfigurationStore.shared.loadFullConfiguration() { return fullConfigurationProfile(full) }
         if let data = try NimboConfigurationStore.shared.loadProfile() {
-            let profile = try decoder.decode(NimboSubscriptionProfile.self, from: data)
+            let profile = try JSONDecoder().decode(NimboSubscriptionProfile.self, from: data)
             return profile
         }
         guard migratingLegacy,
@@ -120,19 +132,29 @@ final class NimboSubscriptionRepository {
         return try importPayload(legacy, source: try NimboConfigurationStore.shared.loadSource())
     }
 
-    /// Reparse subscriptions saved by an older parser after an application update.
-    /// A remote subscription is fetched again so migration never collapses the
-    /// profile to the single server that happened to be selected before updating.
+    /// Restore/migrate the complete cached profile without requiring Internet.
+    /// A reinstall may clear defaults while retaining Keychain material.
     func migrateStoredProfileIfNeeded() async throws -> NimboSubscriptionProfile? {
-        guard let profile = try loadProfile(migratingLegacy: true) else { return nil }
-        guard SubscriptionParserMigration.shared.needsMigration(parserRevision: Int32(profile.parserRevision)) else {
-            return profile
-        }
-        if try refreshSource() != nil {
-            return try await refresh()
-        }
-        guard let selected = profile.selectedServer else { return profile }
-        return try importPayload(Data(selected.rawConfiguration.utf8), source: nil)
+        let lease = try operationGate.begin()
+        defer { operationGate.finish(lease) }
+        return try await withTaskCancellationHandler(operation: {
+            try await Self.workQueue.perform(lease: lease) { () throws -> NimboSubscriptionProfile? in
+                if let full = try NimboConfigurationStore.shared.loadFullConfiguration() {
+                    _ = try NimboMihomoControl.inspection(full) // Warm the UI's immutable graph cache off-main.
+                    return self.fullConfigurationProfile(full)
+                }
+                guard let profile = try self.loadProfile(migratingLegacy: true) else { return nil }
+                guard lease.isActive else { throw CancellationError() }
+                if let selected = profile.selectedServer {
+                    try NimboConfigurationStore.shared.retainSelectedServerID(selected.id)
+                }
+                guard SubscriptionParserMigration.shared.needsMigration(parserRevision: Int32(profile.parserRevision)) else { return profile }
+                let links = profile.servers.filter { !$0.isNativeXrayJson }.map(\.rawConfiguration)
+                guard links.count == profile.servers.count, !links.isEmpty else { return profile }
+                return try self.importPayload(Data(links.joined(separator: "\n").utf8),
+                    source: try self.refreshSource(), title: profile.title, lease: lease)
+            }
+        }, onCancel: { lease.invalidate() })
     }
 
     /// Данные для Packet Tunnel: для автобалансировщика это список реальных
@@ -143,6 +165,9 @@ final class NimboSubscriptionRepository {
     }
 
     func select(serverID: String) throws -> NimboSubscriptionServer {
+        guard try NimboConfigurationStore.shared.loadFullConfiguration() == nil else {
+            throw NimboFullConfigurationError.fullConfigurationActive
+        }
         guard let profile = try loadProfile(migratingLegacy: true),
               let server = serverID == NimboStagingPayload.automaticServerID
                 ? NimboStagingPayload.automaticServer(in: profile)
@@ -171,13 +196,24 @@ final class NimboSubscriptionRepository {
     }
 
     func refresh() async throws -> NimboSubscriptionProfile {
-        guard let source = try refreshSource() else {
-            throw NimboSubscriptionRepositoryError.sourceUnavailable
+        try await runOperation { lease in
+            if let full = try await Self.workQueue.perform(lease: lease, {
+                try NimboConfigurationStore.shared.loadFullConfiguration()
+            }) {
+                return try await self.refreshFullConfigurationImpl(full, lease: lease)
+            }
+            guard let source = try await Self.workQueue.perform(lease: lease, { try self.refreshSource() }) else {
+                throw NimboSubscriptionRepositoryError.sourceUnavailable
+            }
+            return try await self.importRemoteImpl(source, lease: lease)
         }
-        return try await importRemote(source)
     }
 
     func importRemote(_ source: String) async throws -> NimboSubscriptionProfile {
+        try await runOperation { lease in try await self.importRemoteImpl(source, lease: lease) }
+    }
+
+    private func importRemoteImpl(_ source: String, lease: NimboVpnCommandLease) async throws -> NimboSubscriptionProfile {
         guard let url = URL(string: source), url.host != nil,
               ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw NimboSubscriptionRepositoryError.sourceUnavailable
@@ -186,7 +222,7 @@ final class NimboSubscriptionRepository {
             .info, stage: .config, code: "IOS_SUBSCRIPTION_REFRESH_STARTED",
             message: "Запрошено обновление подписки"
         )
-        let request = NimboNetworkSession.subscriptionRequest(url: url)
+        let request = try NimboNetworkSession.subscriptionRequest(url: url)
         let (data, response) = try await NimboNetworkSession.shared.data(for: request)
         await NimboDiagnostics.shared.record(
             .info, stage: .config, code: "IOS_SUBSCRIPTION_RESPONSE",
@@ -203,14 +239,115 @@ final class NimboSubscriptionRepository {
         // Имя владельца подписки, трафик и срок панель отдаёт заголовками —
         // в самих ссылках этого нет.
         // Не меняем метаданные действующего профиля при ошибке разбора.
-        let profile = try importPayload(data, source: source)
-        NimboSubscriptionMetaStore.save(NimboSubscriptionMeta(headers: http.allHeaderFields))
-        return profile
+        let meta = NimboSubscriptionMeta(headers: http.allHeaderFields)
+        return try await Self.workQueue.perform(lease: lease) {
+            let profile: NimboSubscriptionProfile
+            if NimboMihomoControl.looksLikeConfiguration(data) {
+                profile = try self.importFullConfiguration(data, source: source, title: meta.title, lease: lease)
+            } else {
+                let preference = try NimboCorePreference.decode(UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey))
+                guard preference != .mihomo else { throw NimboFullConfigurationError.inspectionFailed }
+                profile = try self.importPayload(data, source: source, title: meta.title, lease: lease)
+            }
+            NimboSubscriptionMetaStore.save(meta)
+            return profile
+        }
+    }
+
+    /// Import/restore an entire validated document; never project it into Server.
+    @discardableResult
+    func importFullConfiguration(_ configuration: NimboFullConfiguration, lease: NimboVpnCommandLease? = nil) throws -> NimboSubscriptionProfile {
+        try configuration.validate()
+        try NimboMihomoControl.preflight(configuration.sourceData)
+        _ = try NimboMihomoControl.inspection(configuration)
+        guard lease?.isActive != false else { throw CancellationError() }
+        try NimboConfigurationStore.shared.saveFullConfiguration(configuration)
+        return fullConfigurationProfile(configuration)
+    }
+
+    private func fullSource(_ data: Data) throws -> Data {
+        try NimboFullConfiguration.sourceData(fromPayload: data)
+    }
+
+    private func importFullConfiguration(_ data: Data, source: String?, title: String? = nil, lease: NimboVpnCommandLease? = nil) throws -> NimboSubscriptionProfile {
+        let sourceData = try fullSource(data)
+        let previous = try NimboConfigurationStore.shared.loadFullConfiguration()
+        let candidate = try NimboFullConfiguration(data: sourceData, source: source,
+            title: title ?? (previous?.source == source ? previous?.title : nil) ?? "Mihomo",
+            groupSelections: previous?.sourceSHA256 == NimboFullConfiguration.digest(sourceData)
+                ? (previous?.groupSelections ?? [:]) : [:])
+        return try importFullConfiguration(candidate, lease: lease)
+    }
+
+    /// The captured full record owns the request. Preference changes cannot turn a
+    /// YAML refresh into a legacy migration, nor resurrect the retained Xray node.
+    func refreshFullConfiguration(_ previous: NimboFullConfiguration) async throws -> NimboSubscriptionProfile {
+        try await runOperation { lease in try await self.refreshFullConfigurationImpl(previous, lease: lease) }
+    }
+
+    private func refreshFullConfigurationImpl(_ previous: NimboFullConfiguration, lease: NimboVpnCommandLease) async throws -> NimboSubscriptionProfile {
+        try await Self.workQueue.perform(lease: lease) { try previous.validate() }
+        guard let source = previous.source, let url = URL(string: source) else {
+            throw NimboSubscriptionRepositoryError.sourceUnavailable
+        }
+        let request = try NimboNetworkSession.subscriptionRequest(url: url, core: .mihomo)
+        let (data, response) = try await NimboNetworkSession.shared.data(for: request)
+        try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode) else {
+            throw NimboSubscriptionRepositoryError.http((response as? HTTPURLResponse)?.statusCode ?? -1)
+        }
+        guard !data.isEmpty, data.count <= NimboFullConfiguration.maximumSourceBytes else {
+            throw NimboFullConfigurationError.invalidSize
+        }
+        let meta = NimboSubscriptionMeta(headers: http.allHeaderFields)
+        return try await Self.workQueue.perform(lease: lease) {
+            guard NimboMihomoControl.looksLikeConfiguration(data) else { throw NimboFullConfigurationError.inspectionFailed }
+            let refreshed = try previous.replacingSource(self.fullSource(data))
+            let candidate = try NimboFullConfiguration(data: refreshed.sourceData, source: refreshed.source,
+                title: meta.title ?? refreshed.title, groupSelections: refreshed.groupSelections)
+            try NimboMihomoControl.preflight(candidate.sourceData)
+            _ = try NimboMihomoControl.inspection(candidate)
+            guard lease.isActive else { throw CancellationError() }
+            try NimboConfigurationStore.shared.saveFullConfiguration(candidate, expected: previous)
+            NimboSubscriptionMetaStore.save(meta)
+            return self.fullConfigurationProfile(candidate)
+        }
+    }
+
+    /// Legacy offline backups also keep their whole server list and selected ID.
+    /// Decoding and validation finish before the first Keychain write.
+    func restoreLegacyProfile(_ data: Data, source: String?, selectedServerID: String?) throws {
+        guard !data.isEmpty, data.count <= maximumInputBytes else {
+            throw NimboSubscriptionRepositoryError.invalidSize
+        }
+        let decoded = try JSONDecoder().decode(NimboSubscriptionProfile.self, from: data)
+        guard !decoded.servers.isEmpty, decoded.servers.count <= 20_000,
+              Set(decoded.servers.map(\.id)).count == decoded.servers.count,
+              decoded.servers.allSatisfy({ !$0.id.isEmpty && !$0.rawConfiguration.isEmpty }) else {
+            throw NimboSubscriptionRepositoryError.noSupportedServers(decoded.diagnosticCode)
+        }
+        let profile = NimboSubscriptionProfile(parserRevision: decoded.parserRevision, title: decoded.title,
+            source: source ?? decoded.source, format: decoded.format, servers: decoded.servers,
+            diagnosticCode: decoded.diagnosticCode)
+        let selected = (selectedServerID == NimboStagingPayload.automaticServerID
+            ? NimboStagingPayload.automaticServer(in: profile) : nil)
+            ?? profile.servers.first(where: { $0.id == selectedServerID }) ?? profile.servers[0]
+        try NimboConfigurationStore.shared.save(profile: JSONEncoder().encode(profile),
+            selectedServer: NimboStagingPayload.make(for: selected, in: profile),
+            selectedServerID: selected.id, source: profile.source, description: profile.title)
+    }
+
+    private func fullConfigurationProfile(_ full: NimboFullConfiguration) -> NimboSubscriptionProfile {
+        NimboSubscriptionProfile(parserRevision: Int(SubscriptionParserMigration.shared.currentRevision),
+            title: full.title, source: full.source, format: "mihomo-yaml", servers: [], diagnosticCode: nil)
     }
 
     func rawProfileJSON() -> String? {
-        guard let data = try? NimboConfigurationStore.shared.loadProfile() else { return nil }
-        return String(data: data, encoding: .utf8)
+        do {
+            guard try NimboConfigurationStore.shared.loadFullConfiguration() == nil else { return nil }
+            guard let data = try NimboConfigurationStore.shared.loadProfile() else { return nil }
+            return String(data: data, encoding: .utf8)
+        } catch { return nil }
     }
 }
 

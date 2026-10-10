@@ -275,6 +275,8 @@ fun RoutingScreen(onNavigateBack: () -> Unit, onOpenModules: () -> Unit = {}) {
         title = t("Маршрутизация", "Routing"),
         onBack = onNavigateBack
     ) {
+        AdBlockingSettingsCard(preferencesManager)
+        Spacer(Modifier.height(16.dp))
         RoutingOverviewCard(
             activeName = activeDisplayName,
             enabled = routingEnabled && activeProfile != null,

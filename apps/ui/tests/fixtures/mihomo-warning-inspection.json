@@ -1,0 +1,64 @@
+{
+  "provenance": {
+    "operation": "inspect",
+    "apiVersion": 1,
+    "coreCommit": "ab405bad5beeeac8b003bb01f60f134f6df54471",
+    "binarySHA256": "166f6550522e6ebfd4c946ced6d55e371dda888303f209e428597e23e1e2b46d"
+  },
+  "source": "mode: rule\nlog-level: info\nmixed-port: 7890\nproxies:\n  - {name: FI, type: direct}\n  - {name: DE, type: direct}\nproxy-groups:\n  - {name: VPN, type: select, proxies: [Auto, FI, DE]}\n  - {name: Streaming, type: select, proxies: [FI, DE]}\n  - {name: Auto, type: url-test, proxies: [FI, DE], url: https://fixture.invalid/check, interval: 300}\nrules: [\"MATCH,VPN\"]\n",
+  "inspection": {
+    "api": 1,
+    "sourceDigest": "b5780d4484939276f5eb39b97a66a028122596c0f446a1e9ec0aaf9816833b98",
+    "nativeValidated": false,
+    "graph": {
+      "proxies": [
+        {
+          "name": "FI",
+          "type": "direct"
+        },
+        {
+          "name": "DE",
+          "type": "direct"
+        }
+      ],
+      "groups": [
+        {
+          "name": "VPN",
+          "proxies": [
+            "Auto",
+            "FI",
+            "DE"
+          ],
+          "type": "select"
+        },
+        {
+          "name": "Streaming",
+          "proxies": [
+            "FI",
+            "DE"
+          ],
+          "type": "select"
+        },
+        {
+          "name": "Auto",
+          "proxies": [
+            "FI",
+            "DE"
+          ],
+          "type": "url-test"
+        }
+      ],
+      "providers": {}
+    },
+    "issues": [
+      {
+        "code": "UNSUPPORTED_CONFIG",
+        "path": "log-level"
+      },
+      {
+        "code": "UNSUPPORTED_CONFIG",
+        "path": "mixed-port"
+      }
+    ]
+  }
+}

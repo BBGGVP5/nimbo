@@ -1,3 +1,7 @@
+import { ServerContextMenu } from "../../components/ServerContextMenu";
+import { NimboSelect } from "../../components/NimboSelect";
+import { AutoFastestLine } from "../../components/AutoFastestLine";
+import { useAppStore } from "../../store";
 import { LatencyDisplay } from "../../components/LatencyDisplay";
 import { useMemo, useState, type ReactNode } from "react";
 import { protocolLabel, transportLabel, type Server, type Subscription } from "../../lib/api";
@@ -5,6 +9,8 @@ import { fillTemplate, type Messages } from "../../lib/i18n";
 import { serverDisplayLabel } from "../../lib/serverUiOverrides";
 import { CountryFlag } from "../../components/CountryFlag";
 import { Link } from "react-router-dom";
+import { PingIcon } from "../../components/PingIcon";
+export { PingIcon } from "../../components/PingIcon";
 
 /**
  * Рельс серверов в стиле Signal: поиск, фильтры-чипы и плотный список,
@@ -39,6 +45,7 @@ export interface SignalServerRailProps {
   onPickServer: (server: Server, sub: Subscription) => void;
   pinging: boolean;
   onPing: () => void;
+  onPingServer?: (id: string) => void;
   onSwitchSubscription: (url: string) => void;
   onCollapse?: () => void;
   emptyAction?: ReactNode;
@@ -71,6 +78,7 @@ export function SignalServerRail({
   onPickServer,
   pinging,
   onPing,
+  onPingServer,
   onSwitchSubscription,
   onCollapse,
   emptyAction,
@@ -78,6 +86,7 @@ export function SignalServerRail({
   onShowHidden,
 }: SignalServerRailProps) {
   const [query, setQuery] = useState("");
+  const autoSubscription = useAppStore(state => state.status?.state === "connected" ? state.status.auto_subscription_url : null);
   const sortValue = sortMode === "name"
     ? "name"
     : sortMode === "ping"
@@ -210,6 +219,10 @@ export function SignalServerRail({
       </div>
 
       <div className="signal-srv-list">
+        {currentSub && !query.trim() && !protocolFilter && !showFavOnly && <AutoFastestLine servers={currentSub.servers}
+          subscriptionUrl={currentSub.url} autoSelected={autoSubscription === currentSub.url} activeId={activeId}
+          pings={Object.fromEntries(Object.entries(pingByServer).filter((entry): entry is [string, number] => entry[1] !== undefined))}
+          displayName={serverDisplayLabel}/>}
         {visible.length === 0 && (
           <div className="signal-srv-empty">
             {query.trim() || protocolFilter
@@ -229,8 +242,11 @@ export function SignalServerRail({
           const loading = pingingServerIds.has(server.id);
           const favorite = favorites.has(server.id);
           return (
-            <div
-              key={`${sub.url}:${server.id}`}
+            <ServerContextMenu
+              key={`${sub.url}:${server.id}`} label={m.profiles.serverMenu} actions={[
+                { label: loading ? (m.common.locale.startsWith("ru") ? "Остановить пинг" : "Stop ping") : m.profiles.testLatency, onClick: () => onPingServer?.(server.id), disabled: !onPingServer },
+                { label: favorite ? m.home.removeFromFavorites : m.home.addToFavorites, onClick: () => onToggleFavorite(server.id) },
+              ]}
               className={`signal-srv-row${isActive ? " is-active" : ""}`}
             >
               <button
@@ -238,12 +254,13 @@ export function SignalServerRail({
                 className="signal-srv-pick"
                 onClick={() => onPickServer(server, sub)}
                 title={serverDisplayLabel(server)}
+                aria-pressed={isActive}
               >
                 <span className="signal-srv-flag" aria-hidden="true">
                   <CountryFlag serverName={server.name} fallback={<span className="signal-srv-globe">◍</span>} className="country-flag-sm" />
                 </span>
                 <span className="signal-srv-copy">
-                  <span className="signal-srv-name">{serverDisplayLabel(server)}</span>
+                  <span className="signal-srv-name" data-server-menu-anchor>{serverDisplayLabel(server)}</span>
                   <span className="signal-srv-sub">
                     {isActive
                       ? fillTemplate(m.signal.activeNow, { protocol: protocolLabel(server.protocol) })
@@ -259,11 +276,12 @@ export function SignalServerRail({
                 className={`signal-star${favorite ? " is-on" : ""}`}
                 onClick={() => onToggleFavorite(server.id)}
                 title={m.home.favoritesOnly}
+                aria-label={m.profiles.favorite}
                 aria-pressed={favorite}
               >
                 <StarIcon filled={favorite} />
               </button>
-            </div>
+            </ServerContextMenu>
           );
         })}
       </div>
@@ -283,10 +301,10 @@ export function SignalServerRail({
 }
 
 /** Шеврон для кнопок сворачивания рельса. */
-export function ChevronIcon({ direction }: { direction: "left" | "right" }) {
+export function ChevronIcon({ direction }: { direction: "left" | "right" | "up" | "down" }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {direction === "right" ? <path d="m9 5 7 7-7 7" /> : <path d="m15 5-7 7 7 7" />}
+      <path d={direction === "right" ? "m9 5 7 7-7 7" : direction === "left" ? "m15 5-7 7 7 7" : direction === "down" ? "m5 9 7 7 7-7" : "m5 15 7-7 7 7"} />
     </svg>
   );
 }
@@ -322,16 +340,6 @@ export function StarIcon({ filled = false }: { filled?: boolean }) {
       aria-hidden="true"
     >
       <path d="m12 3.6 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.8l5.9-.9z" />
-    </svg>
-  );
-}
-
-/** Значок проверки задержки — две встречные стрелки. */
-export function PingIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M7 20V7m0 0L3.5 10.5M7 7l3.5 3.5" />
-      <path d="M17 4v13m0 0 3.5-3.5M17 17l-3.5-3.5" />
     </svg>
   );
 }
@@ -393,9 +401,9 @@ export function SignalSelect({
   onChange: (value: string) => void;
   className?: string;
 }) {
-  return <label className={`signal-select universal-select ${className}`.trim()}>
-    {icon}<select aria-label={title} title={title} value={value} onChange={event => onChange(event.target.value)}>
+  return <div className={`signal-select universal-select nimbo-rail-select ${className}`.trim()}>
+    {icon}<NimboSelect aria-label={title} title={title} value={value} onChange={event => onChange(event.target.value)}>
       {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-    </select>
-  </label>;
+    </NimboSelect>
+  </div>;
 }

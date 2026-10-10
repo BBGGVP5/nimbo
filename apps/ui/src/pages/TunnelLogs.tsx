@@ -1,3 +1,4 @@
+import { NimboSelect } from '../components/NimboSelect';
 import { PageHeader, StatePanel, useSecondaryCopy } from "../components/Secondary";
 import { Surface } from "../components/Universal";
 import {
@@ -292,7 +293,7 @@ function LogFilterSelect<T extends string>({
   ariaLabel: string;
   className?: string;
 }) {
-  return <select className={className} aria-label={ariaLabel} value={value} onChange={e => onChange(e.target.value as T)}>{options.map(option => <option key={option.value} value={option.value}>{option.label}{option.meta !== undefined ? ` · ${option.meta}` : ""}</option>)}</select>;
+  return <NimboSelect className={className} aria-label={ariaLabel} value={value} onChange={e => onChange(e.target.value as T)}>{options.map(option => <option key={option.value} value={option.value}>{option.label}{option.meta !== undefined ? ` · ${option.meta}` : ""}</option>)}</NimboSelect>;
 }
 
 function SearchIcon() {

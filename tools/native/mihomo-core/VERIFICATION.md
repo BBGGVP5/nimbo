@@ -1,3 +1,86 @@
+# Windows protected native TUN checkpoint — 2026-10-03
+
+Windows x64 source now integrates native TUN with a separate LocalSystem broker,
+not the legacy NULL-DACL process-kill pipe. The new pipe is local-only, grants
+interactive clients specific data rights without FILE_CREATE_PIPE_INSTANCE, and
+validates the impersonated SID/session after each request. Administrative/system
+clients may use session zero. The client verifies the OS-provided pipe server PID
+against SCM and the protected fixed installed service image before transmitting a
+profile. The GUI itself is never elevated.
+
+The service installs under the Program Files Known Folder, refuses reparses,
+non-administrative ownership/write grants, and verifies the compiled native SHA
+before each launch. Private per-session homes contain provider/cache material.
+The child is assigned a kill-on-close Job before sending its startup frame; native
+TUN cannot begin before this frame. Cancelling startup drops the real pipe, EOF
+ends only that connection's lease, and normal stop joins native cleanup. Forced
+termination is an error and retains a failed in-memory owner; no broad adapter,
+DNS, route or WFP deletion is used. Windows hard-crash recovery is NOT claimed.
+
+A trusted, non-YAML option disables upstream adoption of an existing Wintun
+adapter. Constructor rollback closes the WFP dynamic session, Wintun session and
+adapter, including errors before readiness. DNS changes are on the newly owned
+adapter only; physical adapters are not rewritten by the application broker.
+
+Local checks: Windows IPC 9, Mihomo 33, service 4, desktop 130 unit tests pass;
+scoped Clippy, Rust formatting, frontend tests/build pass. The real cancellation
+unit test observes closure of a test pipe; the Job test observes death of only its
+owned child. These checks do not constitute live adapter/DNS acceptance.
+The live fixture is guarded by BOTH NIMBO_DISPOSABLE_WINDOWS=1 and
+GITHUB_ACTIONS=true, and deliberately refuses the user's PC. It exercises a real
+Rust session against the installed SCM broker, synthetic routed TCP4/6, UDP,
+DNS hijack, selector REJECT/restore, repeated stop/EOF and physical DNS/route
+snapshots. Its GitHub result remains a separate acceptance gate until confirmed.
+
+Windows x86/ARM64 have no pinned native Mihomo artifact and remain unavailable.
+Both mode and persistent firewall Kill Switch remain unavailable. Actual sleep,
+Wi-Fi/Ethernet roaming and whole-machine power loss still require hardware tests.
+
+References for the platform boundary:
+- https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights
+- https://learn.microsoft.com/en-us/windows/win32/ipc/impersonating-a-named-pipe-client
+- https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects
+
+The following checkpoints are historical evidence, not current release claims.
+
+# Desktop native TUN checkpoint — 2026-10-02
+
+Source-built pinned Linux/amd64 binary exercised in fresh WSL Linux network +
+mount namespaces, not the host namespace. Nine actual start/traffic/stop cycles
+passed: EOF, SIGTERM and generation-bound controller stop, each repeated three
+times. Each cycle validates TCPv4/TCPv6/UDP, DNS over UDP/TCP, native selection,
+REJECT without a direct fallback, resuming the selected group, stale generation
+and exact restoration of the pre-start route/rule snapshot. No public Internet,
+provider credentials, host DNS or physical host routes were used.
+
+Partial startup rollback (occupied controller after TUN construction) also passed:
+no retained interface or route/rule entries and the next owner acquired its lease.
+The fixture exposed asynchronous native interface retirement: Close now waits
+up to two seconds before releasing ownership. Cleanup failures propagate through
+the native API and produce a failed CLI exit rather than a success indication.
+
+Windows host Go suite with_gvisor: 182 passed test cases, zero failures; one
+private Android provider fixture deliberately skipped (no user secrets loaded).
+Default build tests and go vet passed. Pure iOS source gates: 9 packet contracts
+and 6 merged-source contracts passed; these are not C ABI or Apple compile tests.
+The prior full IPA at 98a6a59 passed separately (GitHub run 37028406362).
+
+An actual namespace fixture exposed and fixed two desktop socket bugs: the mobile
+hook suppressing native physical-interface selection (TUN loop), and rejection of
+the valid empty UDP wildcard host. Windows dual-stack UDP binds both families.
+No Windows TUN adapter/DNS runtime acceptance is claimed from host Go compilation.
+
+Remaining release gates: protected verified helper installation, authorized UID/SID
+IPC lease, GUI endpoint lifetime, service hard-crash route/DNS recovery, Windows
+adapter acceptance, explicit System Proxy backend on Linux, and firewall Kill Switch.
+These remain closed in desktop availability. Source-based CI tests both Linux CPU
+architectures and builds Windows; it creates internal artifacts, not public releases.
+
+The historical freeze below describes the narrower 2026-09-20 proxy milestone,
+not the current mobile or privileged TUN implementation.
+
+---
+
 # Native component freeze — 2026-09-20
 
 ## Executed evidence
@@ -70,3 +153,34 @@ the binary, toolchain, upstream commit, locks, pins, license manifest and allowl
 sourceFiles hashes. Source inputs are hashed before tests/build and checked again
 afterwards; a changed source aborts manifest publication. Freeze only after this
 final helper succeeds, then Dirac stages and reruns real Rust→helper IPC tests.
+
+
+## Linux native crash-rule recovery (3 October 2026)
+
+The root desktop owner writes a bounded, mode-0600 `/run/nimbo-mihomo-tun-rules.json`
+plan before the first kernel rule addition. It records boot ID, network namespace,
+PID/start time, exact selectors/actions and a random per-session fwmark with zero
+mask. The zero mask is metadata only, not an additional packet filter. The pinned
+sing-tun ownership patch routes cleanup through this exact plan; ordinary mobile
+and Windows construction leave those trusted callbacks unset. Callbacks are
+excluded from subscription YAML/JSON. The pinned netlink readback patch retains
+rule action and mark presence, so foreign action changes are not normalized away.
+
+`nimbo-mihomo recover-tun` is a fixed Linux-root CLI, not an Invoke operation or a
+client-selected path. It requires the exclusive ownership lock, same boot/netns,
+a dead journal process identity and a retired TUN. It only deletes exact marked
+planned rules; unknown marked rules and invalid/unsafe journals fail closed.
+Foreign routes, interfaces and same-priority rules are not deleted. A retained or
+unsafe WAL also reserves network ownership across helper restart, preventing
+legacy Xray/AWG from taking over unknown state; a failed down keeps its lease. Both normal
+close and abnormal-child broker cleanup verify rule retirement before deleting
+and fsyncing the journal. A later native start can replay a dead owner's WAL after
+both native and helper SIGKILL. Old unjournaled stale state is deliberately not
+adopted; broad migration cleanup is unsafe.
+
+Local opt-in tests ran in fresh network AND mount namespaces with private `/run`
+and installation roots. They exercised TCP4/6, UDP, UDP/TCP DNS, hot selection,
+ordinary shutdown, native/helper/both-process crashes, a partial installed WAL
+subset, foreign-rule retention and refusal of live-owner, wrong-identity,
+symlink, non-private, oversized and unknown-mark state. This does not verify
+physical-machine power loss, Windows TUN ownership or real-provider availability.

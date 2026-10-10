@@ -2,6 +2,16 @@ package com.danila.nimbo.utils
 
 enum class VpnPillState { CONNECTING, CONNECTED, WAITING_NETWORK, RECOVERING, PAUSED, ATTENTION }
 
+internal data class VpnNotificationPresentation(val promoted: Boolean, val shortCriticalText: String?)
+
+/** Changes presentation only; the same foreground notification stays posted when disabled. */
+internal fun vpnNotificationPresentation(
+    enabled: Boolean, state: VpnPillState, seconds: Int, english: Boolean
+): VpnNotificationPresentation = VpnNotificationPresentation(
+    promoted = enabled,
+    shortCriticalText = if (enabled) vpnPillText(state, seconds, english) else null
+)
+
 internal enum class VpnPillAvailability {
     UNSUPPORTED, APP_DISABLED, NOTIFICATIONS_BLOCKED, CHANNEL_BLOCKED,
     CHANNEL_MINIMIZED, SYSTEM_DISABLED, AVAILABLE, UNKNOWN
@@ -10,7 +20,7 @@ internal enum class VpnPillAvailability {
 /** Fixed public vocabulary only: never expose a location, subscription or URL in the chip. */
 internal fun vpnPillText(state: VpnPillState, seconds: Int, english: Boolean): String? = when (state) {
     VpnPillState.CONNECTING -> if (english) "Connect" else "Подкл."
-    VpnPillState.CONNECTED -> if (seconds < 6) "VPN" else null
+    VpnPillState.CONNECTED -> if (seconds < 6) "NIMBO" else null
     VpnPillState.WAITING_NETWORK -> if (english) "Network" else "Сеть"
     VpnPillState.RECOVERING -> if (english) "Retry" else "Повтор"
     VpnPillState.PAUSED -> if (english) "Paused" else "Пауза"
@@ -37,6 +47,6 @@ internal fun vpnPillAvailability(
  * its existing notification with the authoritative connection duration. */
 internal fun vpnLiveUpdateText(connected: Boolean, seconds: Int, recovering: Boolean): String? = when {
     recovering || !connected -> "…"
-    seconds < 6 -> "VPN"
+    seconds < 6 -> "NIMBO"
     else -> null
 }

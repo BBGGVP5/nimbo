@@ -1,0 +1,150 @@
+{
+  "created": "2026-10-08",
+  "ui_source_commit": "a1a16fa80fe4390274927cb80b6b7e4db8ffc12f",
+  "sample_data": true,
+  "android_origin": "User-supplied Beta 1 screenshots; image_gen privacy and status-bar edits; APK source revision not verified",
+  "system_chrome": "Presentation-only 9:41 signal/Wi-Fi/battery/NIMBO pill; not a live status capture",
+  "assets": [
+    {
+      "path": "docs/previews/1.3.0-beta.1/android-home.png",
+      "kind": "imagegen-screen-edit",
+      "device_screenshot": false,
+      "pixels": [
+        840,
+        1871
+      ],
+      "sha256": "da78281fe19f5e43ed0b2572a6931f85c1596a2e692625d19c77d8eebee0b52d"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/android-settings.png",
+      "kind": "imagegen-screen-edit",
+      "device_screenshot": false,
+      "pixels": [
+        840,
+        1871
+      ],
+      "sha256": "e1ad3fc5dad77f68e0b2fe9171d4a9d231bd83eec7b35b57ab317c98a245d63f"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/desktop-home.png",
+      "kind": "react-page-fixture",
+      "device_screenshot": false,
+      "pixels": [
+        1600,
+        900
+      ],
+      "sha256": "1b109ab7f02cced14bafcce4ab4843c3cffc520fa08f2ab7943fd330173f7e2f"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/desktop-mihomo.png",
+      "kind": "react-page-fixture",
+      "device_screenshot": false,
+      "pixels": [
+        1600,
+        900
+      ],
+      "sha256": "a528939b8a72e74492f3a4aebda9ba6f2f00309c8e9c5ebc4a8f78a004e45bf9"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/devices-home.png",
+      "kind": "code-native-device-mockup",
+      "device_screenshot": false,
+      "pixels": [
+        2700,
+        1650
+      ],
+      "sha256": "5596de749fb0963a1b6b808d8264c56714afed84e7d33380873ed540c7f38ba5"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/devices-settings.png",
+      "kind": "code-native-device-mockup",
+      "device_screenshot": false,
+      "pixels": [
+        2700,
+        1650
+      ],
+      "sha256": "ccfe0ff8736133048851010e5d62ff719e4fbbae48e045d4a8e7f5d4203c6356"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/ios-compose-home.png",
+      "kind": "shared-compose-jvm",
+      "device_screenshot": false,
+      "pixels": [
+        390,
+        844
+      ],
+      "sha256": "f07eac693145470187888fd23e0d385b5d6e2f83b813d6a0ce007e4054e0734f"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/ios-compose-settings.png",
+      "kind": "shared-compose-jvm",
+      "device_screenshot": false,
+      "pixels": [
+        390,
+        844
+      ],
+      "sha256": "179eb97b834dda3c190a0b6102918d52d431ca0c8d1d628ac615219630c36f3a"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/desktop-home-device.png",
+      "kind": "code-native-device-mockup",
+      "device_screenshot": false,
+      "pixels": [
+        2892,
+        2118
+      ],
+      "sha256": "8d6fc423bf34a5d5c7e1268352307e43940846927c20a78ad792615893a9fc87"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/desktop-mihomo-device.png",
+      "kind": "code-native-device-mockup",
+      "device_screenshot": false,
+      "pixels": [
+        2892,
+        2118
+      ],
+      "sha256": "0cc078e93537bbb5d2033248ea4dca8ee55a1d3aa4f1acfaf53603c88a8c6a55"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/android-home-device.png",
+      "kind": "code-native-device-mockup",
+      "device_screenshot": false,
+      "pixels": [
+        876,
+        2124
+      ],
+      "sha256": "6e6ed65677c7df346930212636e3535f246828b3933426ddfb4963a89b88d643"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/android-settings-device.png",
+      "kind": "code-native-device-mockup",
+      "device_screenshot": false,
+      "pixels": [
+        876,
+        2124
+      ],
+      "sha256": "9ced335bc9c634a8d30e46483a54a7aba78f8c4ea26f3288b94703038db1ec26"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/ios-home-device.png",
+      "kind": "code-native-device-mockup",
+      "device_screenshot": false,
+      "pixels": [
+        876,
+        2073
+      ],
+      "sha256": "0f92604d67702a28840503bf813e3a99ef3bea46ff19574c20b1a8ace9cac393"
+    },
+    {
+      "path": "docs/previews/1.3.0-beta.1/ios-settings-device.png",
+      "kind": "code-native-device-mockup",
+      "device_screenshot": false,
+      "pixels": [
+        876,
+        2073
+      ],
+      "sha256": "212005c3322499da6d1d413b5675011df2da3639ebf7d9f7c77fdd4c780e1583"
+    }
+  ],
+  "desktop_presentation": "Production pages rerendered at 1600x900 (16:9), thin-bezel modern monitor; no screenshot stretching"
+}

@@ -24,8 +24,18 @@ const DEFAULT_XRAY_TEMPLATE_KEY: &str = "default";
 const NIMBO_CLIENT_NAME: &str = "Nimbo";
 const NIMBO_CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The requested representation; it never changes subscription identity.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptionFormat {
+    #[default]
+    Auto,
+    Xray,
+    Mihomo,
+}
+
 #[derive(Debug, Clone)]
 pub struct FetchOptions {
+    pub format: SubscriptionFormat,
     pub timeout: Duration,
     pub user_agent: Option<String>,
     pub device: DeviceInfo,
@@ -34,6 +44,7 @@ pub struct FetchOptions {
 impl Default for FetchOptions {
     fn default() -> Self {
         Self {
+            format: SubscriptionFormat::Auto,
             timeout: Duration::from_secs(15),
             user_agent: None,
             device: device_info(),
@@ -73,6 +84,8 @@ pub enum FetchError {
     Http(String),
     #[error("status {status}: {body}")]
     Status { status: u16, body: String },
+    #[error("{0}")]
+    Contract(&'static str),
     #[error(transparent)]
     Parse(#[from] ParseError),
 }
@@ -134,26 +147,71 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
     );
     insert_header(&mut headers, "X-Nimbo-Device-Model", &opts.device.hostname);
 
+    validate_subscription_url(url)?;
+    let (user_agent, accept, core) = match opts.format {
+        SubscriptionFormat::Mihomo => (
+            format!("Mihomo/1.19.31 {app_user_agent}"),
+            "application/yaml, text/yaml, text/plain;q=0.8",
+            "mihomo",
+        ),
+        SubscriptionFormat::Xray => (
+            happ_compatible_user_agent(&app_user_agent),
+            "application/json, text/plain;q=0.9",
+            "xray",
+        ),
+        SubscriptionFormat::Auto => (happ_compatible_user_agent(&app_user_agent), "*/*", "auto"),
+    };
+    insert_header(&mut headers, "accept", accept);
+    insert_header(&mut headers, "x-nimbo-core", core);
     let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            let previous = attempt.previous();
+            if previous.len() >= 5
+                || previous
+                    .last()
+                    .is_some_and(|last| last.origin() != attempt.url().origin())
+                || validate_subscription_url(attempt.url().as_str()).is_err()
+            {
+                attempt.error("SOURCE_REDIRECT_BLOCKED")
+            } else {
+                attempt.follow()
+            }
+        }))
+        .connect_timeout(Duration::from_secs(5))
         .timeout(opts.timeout)
-        .user_agent(happ_compatible_user_agent(&app_user_agent))
+        .user_agent(user_agent)
         .default_headers(headers)
         .build()
-        .map_err(|e| FetchError::Http(e.to_string()))?;
+        .map_err(|_| FetchError::Contract("SOURCE_FETCH_FAILED"))?;
 
-    let resp = client
+    let mut resp = client
         .get(url)
         .send()
         .await
-        .map_err(|e| FetchError::Http(e.to_string()))?;
+        .map_err(subscription_request_error)?;
 
-    let status = resp.status();
-    for (name, value) in resp.headers() {
-        let value = value
-            .to_str()
-            .map(ToString::to_string)
-            .unwrap_or_else(|_| format!("{:?}", value.as_bytes()));
-        println!("subscription header: {}: {}", name.as_str(), value);
+    if !resp.status().is_success() {
+        return Err(FetchError::Contract("SOURCE_HTTP_ERROR"));
+    }
+    if resp
+        .content_length()
+        .is_some_and(|n| n > MAX_SUBSCRIPTION_BYTES as u64)
+    {
+        return Err(FetchError::Contract("SOURCE_TOO_LARGE"));
+    }
+    if resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|mime| {
+            mime.split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .eq_ignore_ascii_case("text/html")
+        })
+    {
+        return Err(FetchError::Contract("SOURCE_NOT_PROFILE"));
     }
 
     let info = resp
@@ -186,23 +244,36 @@ pub async fn fetch_subscription(url: &str, opts: &FetchOptions) -> Result<Fetche
         println!("subscription advertises {} mirror domain(s)", mirrors.len());
     }
 
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| FetchError::Http(e.to_string()))?;
-
-    if !status.is_success() {
-        return Err(FetchError::Status {
-            status: status.as_u16(),
-            body: truncate(&body, 200),
-        });
+    let mut bytes = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(subscription_request_error)? {
+        if chunk.len() > MAX_SUBSCRIPTION_BYTES - bytes.len() {
+            return Err(FetchError::Contract("SOURCE_TOO_LARGE"));
+        }
+        bytes.extend_from_slice(&chunk);
     }
-
-    let mut servers = parse_aggregate(&body)?;
-    let remnawave = merge_remnawave_info(
-        fetch_subscription_api_info(&client, url).await,
-        parse_subscription_json_info(&body),
-    );
+    // Do not normalize BOM, CRLF or provider YAML. Native inspection owns parsing.
+    let body = String::from_utf8(bytes).map_err(|_| FetchError::Contract("SOURCE_INVALID_UTF8"))?;
+    let prefix = body
+        .trim_start_matches('\u{feff}')
+        .trim_start()
+        .to_ascii_lowercase();
+    if prefix.starts_with("<!doctype html") || prefix.starts_with("<html") {
+        return Err(FetchError::Contract("SOURCE_NOT_PROFILE"));
+    }
+    let mut servers = if opts.format == SubscriptionFormat::Mihomo {
+        Vec::new()
+    } else {
+        parse_aggregate(&body).map_err(|_| FetchError::Contract("SUBSCRIPTION_CORE_UNSUPPORTED"))?
+    };
+    let remnawave = if opts.format == SubscriptionFormat::Mihomo {
+        // Headers are sufficient; don't probe Xray metadata endpoints with a YAML request.
+        RemnawaveInfo::default()
+    } else {
+        merge_remnawave_info(
+            fetch_subscription_api_info(&client, url).await,
+            parse_subscription_json_info(&body),
+        )
+    };
     let applied_server_descriptions =
         apply_server_descriptions(&mut servers, &remnawave.server_descriptions);
     if !remnawave.server_descriptions.is_empty() {
@@ -246,6 +317,45 @@ pub async fn fetch_subscription_with_mirrors(
     known_mirrors: &[String],
     preferred_url: Option<&str>,
 ) -> Result<Fetched, FetchError> {
+    tokio::time::timeout(
+        opts.timeout,
+        fetch_subscription_with_mirrors_inner(url, opts, known_mirrors, preferred_url),
+    )
+    .await
+    .map_err(|_| FetchError::Contract("SOURCE_FETCH_TIMEOUT"))?
+}
+
+const MAX_SUBSCRIPTION_BYTES: usize = 4 * 1024 * 1024;
+fn validate_subscription_url(input: &str) -> Result<(), FetchError> {
+    let parsed = url::Url::parse(input).map_err(|_| FetchError::Contract("INVALID_SOURCE_URL"))?;
+    if input.len() > 8192
+        || input.chars().any(|c| c.is_whitespace() || c.is_control())
+        || !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(FetchError::Contract("INVALID_SOURCE_URL"));
+    }
+    Ok(())
+}
+fn subscription_request_error(error: reqwest::Error) -> FetchError {
+    FetchError::Contract(if error.is_redirect() {
+        "SOURCE_REDIRECT_BLOCKED"
+    } else if error.is_timeout() {
+        "SOURCE_FETCH_TIMEOUT"
+    } else {
+        "SOURCE_FETCH_FAILED"
+    })
+}
+
+async fn fetch_subscription_with_mirrors_inner(
+    url: &str,
+    opts: &FetchOptions,
+    known_mirrors: &[String],
+    preferred_url: Option<&str>,
+) -> Result<Fetched, FetchError> {
     let candidates = crate::mirrors::candidates(url, known_mirrors, preferred_url);
     let mut primary_error: Option<FetchError> = None;
     let mut last_error: Option<FetchError> = None;
@@ -268,11 +378,7 @@ pub async fn fetch_subscription_with_mirrors(
                 return Ok(fetched);
             }
             Err(err) => {
-                println!(
-                    "subscription fetch failed on {}: {}",
-                    crate::mirrors::host_of(candidate).unwrap_or_default(),
-                    err
-                );
+                tracing::debug!("subscription candidate failed; trying known mirror");
                 if is_primary && primary_error.is_none() {
                     primary_error = Some(err);
                 } else {
@@ -434,6 +540,7 @@ pub fn build_subscription(url: &str, fetched: Fetched, name: Option<String>) -> 
         name: resolved_name,
         parser_revision: crate::CURRENT_SUBSCRIPTION_PARSER_REVISION,
         meta: SubscriptionMeta {
+            mihomo_profile_id: None,
             description: sanitize_name(description),
             support_url: sanitize_name(support_url),
             website_url: sanitize_name(website_url),

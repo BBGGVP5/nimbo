@@ -164,6 +164,7 @@ impl Drop for Resources {
 pub(crate) fn isolated_config(
     server: &Server,
     template: Option<&Value>,
+    probe_url: &str,
 ) -> Result<(PingRoute, Value), String> {
     let mut config = json!({
         "log": {"loglevel":"none"}, "inbounds": [],
@@ -173,7 +174,7 @@ pub(crate) fn isolated_config(
     let route = PingRoute::prepare(server, &mut config)?;
     if let Some(template) = template {
         if template.get("outbounds").is_some() {
-            config = crate::diagnostic_template::derive(server, template, &config)?;
+            config = crate::diagnostic_template::derive(server, template, &config, probe_url)?;
         } else {
             for key in ["dns", "policy", "transport"] {
                 if let Some(value) = template.get(key) {
@@ -331,7 +332,7 @@ async fn run(
 ) -> Result<u64, String> {
     resources.directory(parent)?;
     prepare_sidecar(resources, &mut server, &binaries).await?;
-    let (route, config) = isolated_config(&server, template.as_ref())?;
+    let (route, config) = isolated_config(&server, template.as_ref(), url)?;
     #[cfg(test)]
     let config = {
         let mut value = config;
@@ -349,11 +350,21 @@ async fn run(
     command.stdout(Stdio::inherit());
     resources.spawn(&mut command)?;
     ready(resources, route.port).await?;
-    let result = measure_http(&route, "nimbo", url, timeout_ms).await;
-    if !resources.alive() {
-        return Err("Diagnostic runtime exited during measurement".into());
+    // A new leastPing instance initially routes to deny until its observer has
+    // a healthy member. Retry the private route, not a participant or host route.
+    // The measure() owner includes all attempts/sleeps in ONE total deadline
+    // and drops this future immediately on cancellation before reaping children.
+    let health_startup = config.get("observatory").is_some();
+    loop {
+        let result = measure_http(&route, "nimbo", url, timeout_ms).await;
+        if !resources.alive() {
+            return Err("Diagnostic runtime exited during measurement".into());
+        }
+        if !health_startup || result.is_ok() {
+            return result;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    result
 }
 
 pub(crate) async fn measure(
@@ -429,8 +440,8 @@ mod tests {
 
     #[test]
     fn isolated_configs_have_distinct_routes_and_no_direct_or_active_state() {
-        let (a, ca) = isolated_config(&server("a", 23451), None).unwrap();
-        let (b, cb) = isolated_config(&server("b", 23452), None).unwrap();
+        let (a, ca) = isolated_config(&server("a", 23451), None, "https://probe.example").unwrap();
+        let (b, cb) = isolated_config(&server("b", 23452), None, "https://probe.example").unwrap();
         assert!(a != b);
         for (config, port) in [(ca, 23451), (cb, 23452)] {
             assert_eq!(config["inbounds"].as_array().unwrap().len(), 1);
@@ -451,7 +462,7 @@ mod tests {
             cfg.stream.security = nimbo_subscription::Security::Tls;
             cfg.stream.sni = Some("vpn.example".into());
         }
-        let (_, config) = isolated_config(&srv, None).unwrap();
+        let (_, config) = isolated_config(&srv, None, "https://probe.example").unwrap();
         let stream = &config["outbounds"][1]["streamSettings"];
         assert_eq!(stream["security"], "tls");
         assert_eq!(stream["tlsSettings"]["serverName"], "vpn.example");

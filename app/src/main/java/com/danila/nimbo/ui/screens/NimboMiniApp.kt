@@ -6,6 +6,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import com.danila.nimbo.ui.components.contrastingLabel
 
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.selection.selectableGroup
 
 import com.danila.nimbo.ui.components.NimboToolMetric
 
@@ -23,6 +24,9 @@ import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import com.danila.nimbo.ui.components.LocalFloatingNavHeight
 import androidx.compose.ui.layout.onSizeChanged
 import android.Manifest
@@ -384,6 +388,8 @@ import com.danila.nimbo.ui.components.nimboControlBorderColor
 import com.danila.nimbo.ui.components.nimboControlBorderWidth
 import com.danila.nimbo.ui.components.nimboControlContainer
 import com.danila.nimbo.ui.components.nimboControlShape
+import com.danila.nimbo.ui.components.NimboChoiceOption
+import com.danila.nimbo.ui.components.NimboExpandingChoiceCard
 import com.danila.nimbo.ui.theme.BackgroundPaletteMode
 import com.danila.nimbo.ui.theme.BackgroundStyleMode
 import com.danila.nimbo.ui.theme.DEFAULT_COLOR_THEME_INDEX
@@ -438,7 +444,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-private enum class MiniDestination {
+internal enum class MiniDestination {
     Home, Subscription, AppAccess, Settings,
     Theme, AppIcon, Language, PingSettings, About, Disclaimer, ConnectionId, Notifications, Updates, Logs,
     Routing, RoutingModules, Connections, Statistics, Firewall, WhitelistCheck, WhitelistPing,
@@ -828,7 +834,7 @@ fun NimboMiniApp(
         val activeServer = VpnManager.connectedServer.value
         val isDifferentServer = activeServer == null || !server.matchesSelection(activeServer)
         val displayName = serverUiTitle(preferencesManager, server)
-        if (vpnActive && preferencesManager.allowServerSwitchWhileConnected && isDifferentServer) {
+        if (com.danila.nimbo.utils.ServerSwitchPolicy.shouldSwitch(vpnActive, preferencesManager.allowServerSwitchWhileConnected, isDifferentServer)) {
             mainViewModel.showTopNotification(loc("Переключение на $displayName…", "Switching to $displayName…"))
             onConnect(server)
         }
@@ -938,7 +944,6 @@ fun NimboMiniApp(
     val onUpdatesClickRemembered = remember { { navigateTo(MiniDestination.Updates) } }
     val onLogsClickRemembered = remember { { navigateTo(MiniDestination.Logs) } }
     val onRoutingClickRemembered = remember { { navigateTo(MiniDestination.Routing) } }
-    val onConnectionsClickRemembered = remember { { navigateTo(MiniDestination.Connections) } }
     val onStatsClickRemembered = remember { { navigateTo(MiniDestination.Statistics) } }
     val onWhitelistClickRemembered = remember { { navigateTo(MiniDestination.WhitelistCheck) } }
     val onCrossSyncClickRemembered = remember { { navigateTo(MiniDestination.CrossPlatformSync) } }
@@ -1041,7 +1046,6 @@ fun NimboMiniApp(
                     onUpdatesClick = onUpdatesClickRemembered,
                     onLogsClick = onLogsClickRemembered,
                     onRoutingClick = onRoutingClickRemembered,
-                    onConnectionsClick = onConnectionsClickRemembered,
                     onStatsClick = onStatsClickRemembered,
                     onWhitelistClick = onWhitelistClickRemembered,
                     onCrossSyncClick = onCrossSyncClickRemembered,
@@ -1612,6 +1616,9 @@ private fun NimboHomeScreen(
         needsServerChoice -> t("Нажмите, чтобы выбрать сервер", "Tap to choose a server")
         else -> t("Нажмите, чтобы подключиться", "Tap to connect")
     }
+    NimboSubscriptionPullRefresh(profiles.any { it.isLoading }, profiles.isNotEmpty(), {
+        profiles.filterNot { it.isLoading }.forEach { onRefreshProfile(it.url) }
+    }) {
     Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp).padding(top = 12.dp, bottom = LocalFloatingNavHeight.current + 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1692,12 +1699,13 @@ private fun NimboHomeScreen(
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(t("Мои подписки", "My subscriptions"), Modifier.weight(1f),
+                Text(t("Мои подписки", "My subscriptions"), Modifier.weight(1f).alignByBaseline(),
                     color = colors.textPrimary, style = MaterialTheme.typography.titleSmall)
-                TextButton(if (mihomoHome) onOpenMihomoProfiles else onOpenProfiles) {
-                    Text(t("Все профили", "All profiles"), style = MaterialTheme.typography.labelSmall, color = colors.textSecondary)
-                    Spacer(Modifier.width(4.dp))
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(14.dp), tint = colors.textSecondary)
+                Box(Modifier.alignByBaseline().clip(RoundedCornerShape(10.dp))
+                    .clickable(role = Role.Button, onClick = if (mihomoHome) onOpenMihomoProfiles else onOpenProfiles)
+                    .padding(horizontal = 8.dp, vertical = 14.dp)) {
+                    Text(t("Все профили ↗", "All profiles ↗"), style = MaterialTheme.typography.labelSmall,
+                        color = colors.textSecondary)
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -1721,6 +1729,7 @@ private fun NimboHomeScreen(
                 MemoryUsageCard(memoryState.currentMb, memoryState.samples, Modifier.fillMaxWidth())
             }
         }
+    }
     }
 }
 
@@ -1832,7 +1841,7 @@ private fun SubscriptionOverviewPanel(
                             style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     }
                 })
-            SubscriptionDescription(displayProfile.announce, expanded)
+            SubscriptionDescription(displayProfile.announce)
             SubscriptionQuotaSummary(displayProfile)
             SubscriptionActionsRow(preferencesManager.getLastSubscriptionUpdateTime(
                 if (native) profile.mihomoSourceUrl ?: profile.url else profile.url),
@@ -1895,21 +1904,26 @@ private fun MihomoHomeSelectedServerBar(
     var liveSelection by remember(profile.url) {
         mutableStateOf<com.danila.nimbo.mihomo.MihomoActiveSelection?>(null)
     }
-    LaunchedEffect(profile.url, sourceHash, connected, lastChoice?.group) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(profile.url, sourceHash, connected, lastChoice?.group, lifecycle) {
         liveSelection = null
         if (!connected || sourceHash == null) return@LaunchedEffect
-        while (true) {
-            liveSelection = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching {
-                    val status = com.danila.nimbo.mihomo.MihomoBridge.response("status")
-                    if (status.data.get("state")?.asString != "running" ||
-                        status.data.get("sourceSHA256")?.asString != sourceHash) return@runCatching null
-                    val snapshot = com.danila.nimbo.mihomo.MihomoBridge.response("snapshot",
-                        generation = status.generation)
-                    com.danila.nimbo.mihomo.mihomoActiveSelection(snapshot.data, lastChoice?.group)
-                }.getOrNull()
-            }
-            delay(3000)
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            try {
+                while (true) {
+                    liveSelection = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching {
+                            val status = com.danila.nimbo.mihomo.MihomoBridge.response("status")
+                            if (status.data.get("state")?.asString != "running" ||
+                                status.data.get("sourceSHA256")?.asString != sourceHash) return@runCatching null
+                            val snapshot = com.danila.nimbo.mihomo.MihomoBridge.response("snapshot",
+                                generation = status.generation)
+                            com.danila.nimbo.mihomo.mihomoActiveSelection(snapshot.data, lastChoice?.group)
+                        }.getOrNull()
+                    }
+                    delay(3000)
+                }
+            } finally { liveSelection = null }
         }
     }
     val pingUrl by preferencesManager.pingUrlState
@@ -3715,8 +3729,11 @@ private fun WindowsProfilesList(
     val nebulaColors = LocalNebulaColors.current
     var pinnedServerKeys by remember(serverUiVersion) { mutableStateOf(preferencesManager.getPinnedServerKeys()) }
     val showSubscriptionLogo by preferencesManager.showSubscriptionLogoState
+    NimboSubscriptionPullRefresh(profiles.any { it.isLoading }, profiles.isNotEmpty() && query.isBlank(), {
+        profiles.filterNot { it.isLoading }.forEach { onRefreshProfile(it.url) }
+    }, modifier) {
     LazyColumn(
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = LocalFloatingNavHeight.current + 16.dp)
     ) {
         visibleProfiles.forEach { (profile, servers) ->
@@ -3850,6 +3867,7 @@ private fun WindowsProfilesList(
             }
         }
     }
+    }
 }
 
 // Expand/collapse state lives at process scope so it survives leaving and
@@ -3858,10 +3876,9 @@ private fun WindowsProfilesList(
 private val subscriptionCardExpanded = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
 
 @Composable
-private fun SubscriptionDescription(description: String?, expanded: Boolean) {
+internal fun SubscriptionDescription(description: String?) {
     description?.trim()?.takeIf { it.isNotEmpty() }?.let { text ->
         Text(text, style = MaterialTheme.typography.bodySmall, color = LocalNebulaColors.current.textSecondary,
-            maxLines = if (expanded) 8 else 3, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth())
     }
 }
@@ -3873,7 +3890,7 @@ private fun SubscriptionActionsRow(updated: Long, pinging: Boolean, refreshing: 
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(t("Обновлено: ", "Updated: ") + formatLastUpdateTime(updated), Modifier.weight(1f),
             style = MaterialTheme.typography.labelSmall, color = LocalNebulaColors.current.textSecondary)
-        com.danila.nimbo.ui.components.NimboIconAction(Icons.Default.SignalCellularAlt, pingLabel, pinging, onPing)
+        com.danila.nimbo.ui.components.NimboIconAction(Icons.Default.SignalCellularAlt, if (pinging) t("Остановить пинг", "Stop ping") else pingLabel, pinging, onPing, allowCancel = true)
         com.danila.nimbo.ui.components.NimboIconAction(Icons.Default.Refresh, t("Обновить подписку", "Refresh subscription"), refreshing, onRefresh)
     }
 }
@@ -3921,7 +3938,7 @@ private fun WindowsSubscriptionCard(
                         }
                     }
                 })
-            SubscriptionDescription(profile.announce, expanded)
+            SubscriptionDescription(profile.announce)
             SubscriptionQuotaSummary(profile)
             SubscriptionActionsRow(lastUpdateMs, isPinging, profile.isLoading, onPingAll, onRefresh)
             if (!profile.error.isNullOrBlank()) Text(sanitizeProfileErrorForUi(profile.error).orEmpty(),
@@ -3956,15 +3973,14 @@ private fun WindowsProfileServerLine(
     var hideConfirmOpen by remember { mutableStateOf(false) }
     com.danila.nimbo.ui.components.NimboServerRow(
         title = cleanServerName(displayName), subtitle = serverSubtitle(server), selected = selected,
-        flag = extractFlagEmoji(server.name), onSelect = onClick, onPing = onPing,
+        flag = extractFlagEmoji(server.name), onSelect = onClick, onOpenMenu = { menuExpanded = true },
         ping = { WindowsPingPill(server.ping ?: -1, isPinging, pingDisplayMode) },
         menu = {
-            Box {
-                IconButton({ menuExpanded = true }, Modifier.size(48.dp)) {
-                    Icon(Icons.Default.MoreVert, t("Действия с сервером", "Server actions"), tint = colors.textSecondary)
-                }
                 DropdownMenu(menuExpanded, { menuExpanded = false }, containerColor = colors.panelFill,
                     shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, colors.panelBorder)) {
+                    DropdownMenuItem(text = { Text(if (isPinging) t("Остановить пинг", "Stop ping") else t("Пинг сервера", "Ping server")) },
+                        leadingIcon = { Icon(if (isPinging) Icons.Default.Stop else Icons.Default.Speed, null) },
+                        onClick = { menuExpanded = false; onPing() })
                     DropdownMenuItem(text = { Text(if (isFavorite) t("Убрать из избранного", "Remove favorite") else t("В избранное", "Add favorite")) },
                         leadingIcon = { Icon(if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder, null) },
                         onClick = { menuExpanded = false; onToggleFavorite() })
@@ -3974,7 +3990,6 @@ private fun WindowsProfileServerLine(
                         leadingIcon = { Icon(Icons.Default.Delete, null, tint = colors.statusError) },
                         onClick = { menuExpanded = false; hideConfirmOpen = true })
                 }
-            }
         })
     if (showDivider) HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 12.dp))
     if (renameOpen) NimboRenameServerDialog(displayName, { renameOpen = false }) { name -> onRename(name); renameOpen = false }
@@ -4646,7 +4661,6 @@ private fun NimboSettingsScreen(
     onUpdatesClick: () -> Unit,
     onLogsClick: () -> Unit,
     onRoutingClick: () -> Unit,
-    onConnectionsClick: () -> Unit,
     onStatsClick: () -> Unit,
     onWhitelistClick: () -> Unit,
     onCrossSyncClick: () -> Unit,
@@ -4657,7 +4671,8 @@ private fun NimboSettingsScreen(
     var section by rememberSaveable { mutableStateOf(-1) }
     var developerUnlocked by rememberSaveable { mutableStateOf(false) }
     val tapGate = remember { com.danila.nimbo.utils.DeveloperTapGate() }
-    androidx.activity.compose.BackHandler(enabled = section >= 0) { section = -1 }
+    val settingsBack = { section = if (section == 5 || section == 6) 12 else -1 }
+    androidx.activity.compose.BackHandler(enabled = section >= 0, onBack = settingsBack)
     val motionEnabled = rememberMiniMotionEnabled()
     AnimatedContent(section, transitionSpec = {
         val duration = if (motionEnabled) 140 else 0
@@ -4675,11 +4690,13 @@ private fun NimboSettingsScreen(
         7 -> t("Резервная копия", "Backup")
         8 -> t("Ядро VPN", "VPN core")
         11 -> t("Разработчик", "Developer")
+        12 -> t("Подписки и серверы", "Subscriptions and servers")
+        13 -> t("Диагностика", "Diagnostics")
         else -> t("DNS и транспорт", "DNS and transport")
     }
     if (activeSection >= 0) {
         androidx.compose.runtime.key(activeSection) {
-            NimboSubPageScaffold(title, onBack = { section = -1 }) {
+            NimboSubPageScaffold(title, onBack = settingsBack) {
                 when (activeSection) {
                     0 -> GeneralSettingsSection(preferencesManager)
                     1 -> ThemeSettingsSection(preferencesManager, onAppIconClick)
@@ -4691,6 +4708,19 @@ private fun NimboSettingsScreen(
                     7 -> BackupSettingsSection(preferencesManager)
                     8 -> NimboCoreSettings(preferencesManager, onConnect, onOpenSubscription)
                     11 -> DeveloperSettingsSection()
+                    12 -> SettingsCompactCard {
+                        SettingsRow(Icons.Default.Refresh, t("Обновление подписок", "Subscription updates"),
+                            t("Интервал и обновление при запуске", "Interval and refresh on launch"), { section = 5 })
+                        SettingsRow(Icons.Default.Dns, t("Настройки серверов", "Server settings"),
+                            t("Сортировка, выбор и проверка", "Sorting, selection and testing"), { section = 6 }, false)
+                    }
+                    13 -> SettingsCompactCard {
+                        SettingsRow(Icons.Default.BarChart, t("Статистика", "Statistics"), null, onStatsClick)
+                        SettingsRow(Icons.Default.NetworkCheck, t("Проверка сети", "Network check"), null, onWhitelistClick)
+                        SettingsRow(Icons.AutoMirrored.Filled.Article, t("Журнал", "Logs"), null, onLogsClick)
+                        SettingsRow(Icons.Default.Notifications, t("Уведомления", "Notifications"), null, onNotificationsClick)
+                        SettingsRow(Icons.Default.Key, t("ID подключения", "Connection ID"), null, onConnectionIdClick, false)
+                    }
                     else -> AdvancedSettingsSection(preferencesManager)
                 }
             }
@@ -4699,15 +4729,11 @@ private fun NimboSettingsScreen(
     }
     Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp).padding(top = 20.dp, bottom = LocalFloatingNavHeight.current + 16.dp)) {
-        Box(Modifier.fillMaxWidth().clickable {
-            if (tapGate.tap(android.os.SystemClock.elapsedRealtime())) { developerUnlocked = true; section = 11 }
-        }) { com.danila.nimbo.ui.components.NimboBrandHeader() }
-        Spacer(Modifier.height(20.dp))
         Text(t("Настройки", "Settings"), style = MaterialTheme.typography.headlineMedium,
-            color = LocalNebulaColors.current.textPrimary, modifier = Modifier.semantics { heading() })
-        Text(t("Главное — рядом. Остальное — по необходимости.", "The essentials, close at hand."),
-            style = MaterialTheme.typography.bodySmall, color = LocalNebulaColors.current.textSecondary,
-            modifier = Modifier.padding(top = 6.dp, bottom = 24.dp))
+            color = LocalNebulaColors.current.textPrimary, modifier = Modifier.semantics { heading() }.clickable {
+                if (tapGate.tap(android.os.SystemClock.elapsedRealtime())) { developerUnlocked = true; section = 11 }
+            })
+        Spacer(Modifier.height(20.dp))
         SettingsGroupLabel(t("ПОДКЛЮЧЕНИЕ", "CONNECTION"))
         SettingsCompactCard {
             SettingsRow(Icons.Default.Dns, t("Ядро VPN", "VPN core"),
@@ -4729,21 +4755,12 @@ private fun NimboSettingsScreen(
             SettingsRow(Icons.Default.Backup, t("Резервная копия", "Backup"), t("Экспорт и восстановление", "Export and restore"), { section = 7 }, false)
         }
         Spacer(Modifier.height(20.dp))
-        SettingsGroupLabel(t("ПРОФИЛИ", "PROFILES"))
+        SettingsGroupLabel(t("ИНСТРУМЕНТЫ", "TOOLS"))
         SettingsCompactCard {
-            SettingsRow(Icons.Default.Layers, t("Мои подписки", "My subscriptions"), null, onOpenSubscription)
-            SettingsRow(Icons.Default.Refresh, t("Обновление подписок", "Subscription updates"), null, { section = 5 })
-            SettingsRow(Icons.Default.Dns, t("Настройки серверов", "Server settings"), null, { section = 6 }, false)
-        }
-        Spacer(Modifier.height(20.dp))
-        SettingsGroupLabel(t("ДИАГНОСТИКА", "DIAGNOSTICS"))
-        SettingsCompactCard {
-            SettingsRow(Icons.AutoMirrored.Filled.ShowChart, t("Активность", "Activity"), t("Соединения и сетевой экран", "Connections and network shield"), onConnectionsClick)
-            SettingsRow(Icons.Default.BarChart, t("Статистика", "Statistics"), null, onStatsClick)
-            SettingsRow(Icons.Default.NetworkCheck, t("Проверка сети", "Network check"), null, onWhitelistClick)
-            SettingsRow(Icons.AutoMirrored.Filled.Article, t("Журнал", "Logs"), null, onLogsClick)
-            SettingsRow(Icons.Default.Notifications, t("Уведомления", "Notifications"), null, onNotificationsClick)
-            SettingsRow(Icons.Default.Key, t("ID подключения", "Connection ID"), null, onConnectionIdClick, false)
+            SettingsRow(Icons.Default.Layers, t("Подписки и серверы", "Subscriptions and servers"),
+                t("Обновление и выбор серверов", "Refresh and server selection"), { section = 12 })
+            SettingsRow(Icons.Default.NetworkCheck, t("Диагностика", "Diagnostics"),
+                t("Проверка сети, журнал и уведомления", "Network checks, logs and notifications"), { section = 13 }, false)
         }
         Spacer(Modifier.height(20.dp))
         SettingsCompactCard {
@@ -4917,14 +4934,14 @@ private fun ColumnScope.GeneralSettingsSection(
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = t("Снять ограничение по памяти", "Remove memory limit"),
+                            text = t("Автоматический бюджет памяти", "Automatic memory budget"),
                             style = MaterialTheme.typography.bodyLarge,
                             color = nebulaColors.textPrimary,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            text = t("Для мощных устройств. Больше памяти повышает стабильность под нагрузкой.", "For powerful devices. More memory increases stability under load."),
+                            text = t("Мягкий бюджет общего Go-ядра; не лимит всей памяти приложения.", "Soft budget for the shared Go runtime, not total app memory."),
                             style = MaterialTheme.typography.bodyMedium,
                             color = nebulaColors.textSecondary
                         )
@@ -4950,9 +4967,9 @@ private fun ColumnScope.GeneralSettingsSection(
             Spacer(Modifier.height(14.dp))
             Text(
                 text = if (memoryLimitDisabled) {
-                    t("Лимит памяти: без ограничений", "Memory limit: unlimited")
+                    t("Бюджет ядра: автоматически · 96 MiB", "Core budget: automatic · 96 MiB")
                 } else {
-                    t("Лимит памяти: ${memoryLimitMb} MB", "Memory limit: ${memoryLimitMb} MB")
+                    t("Бюджет ядра: ${memoryLimitMb} MiB", "Core budget: ${memoryLimitMb} MiB")
                 },
                 style = MaterialTheme.typography.bodyLarge,
                 color = nebulaColors.textPrimary,
@@ -4961,9 +4978,9 @@ private fun ColumnScope.GeneralSettingsSection(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = if (memoryLimitDisabled) {
-                    t("Режим для мощных устройств и максимальной стабильности.", "Mode for powerful devices and maximum stability.")
+                    t("Go освобождает неиспользуемую память без постоянного принудительного GC.", "Go reclaims unused memory without repeated forced GC.")
                 } else {
-                    t("Ниже лимит — ниже расход памяти, выше лимит — стабильнее при высокой нагрузке.", "Lower limit — lower memory consumption, higher limit — more stable under high load.")
+                    t("Это мягкий бюджет: живые соединения не прерываются при превышении.", "A soft budget: live connections are not stopped if it is exceeded.")
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = nebulaColors.textSecondary
@@ -5691,22 +5708,7 @@ private fun ColumnScope.StatisticsSettingsSection(
 
     Spacer(Modifier.height(16.dp))
 
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        StatSpeedCard(
-            modifier = Modifier.weight(1f),
-            label = t("ОТПРАВЛЕНО", "SENT"),
-            icon = Icons.Default.ArrowUpward,
-            speed = uploadSpeed,
-            total = sessionUp
-        )
-        StatSpeedCard(
-            modifier = Modifier.weight(1f),
-            label = t("ПОЛУЧЕНО", "RECEIVED"),
-            icon = Icons.Default.ArrowDownward,
-            speed = downloadSpeed,
-            total = sessionDown
-        )
-    }
+    TrafficDashboard()
 
     // ── График скорости за последнюю минуту ────────────────────────────────
     val speedSamples = TrafficHistory.speedSamples
@@ -5862,6 +5864,10 @@ private fun ColumnScope.StatisticsSettingsSection(
 
     Spacer(Modifier.height(16.dp))
     StatGroupCard(title = t("ЗА ВСЁ ВРЕМЯ", "ALL TIME")) {
+        Text(t("История может содержать счётчики ядра, UID или всего устройства.",
+            "History may include core, app UID or device-wide counters."),
+            color = nebulaColors.textSecondary, style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(vertical = 8.dp))
         StatLine(t("Отправлено", "Sent"), formatBytesPrecise(allUp))
         StatLine(t("Получено", "Received"), formatBytesPrecise(allDown))
         StatLine(t("Суммарно", "Total"), formatBytesPrecise(allUp + allDown), emphasize = true, showDivider = false)
@@ -5891,8 +5897,8 @@ private fun ColumnScope.StatisticsSettingsSection(
                 java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(java.util.Date(sessionStart))
             } else "—"
         )
-        StatLine(t("TX пакеты", "TX packets"), txPackets.toString())
-        StatLine(t("RX пакеты", "RX packets"), rxPackets.toString(), showDivider = false)
+        StatLine(t("TX пакеты Android", "Android TX packets"), txPackets.toString())
+        StatLine(t("RX пакеты Android", "Android RX packets"), rxPackets.toString(), showDivider = false)
     }
 
     Spacer(Modifier.height(20.dp))
@@ -8228,28 +8234,16 @@ private fun AdvancedConnectionSettingsCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LogRetentionOptionGrid(labels: List<String>, values: List<Int>, selectedValue: Int, onSelect: (Int) -> Unit) {
-    val colors = LocalNebulaColors.current
-    var open by remember { mutableStateOf(false) }
     val selected = selectedValue.takeIf { it in values } ?: 24
-    Box(Modifier.fillMaxWidth()) {
-        Surface(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            color = colors.controlFill, shape = RoundedCornerShape(12.dp)) {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(labels.getOrElse(values.indexOf(selected)) { "—" }, Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium, color = colors.textPrimary)
-                Icon(Icons.Default.KeyboardArrowDown, t("Выбрать срок хранения", "Choose retention period"), tint = colors.textSecondary)
-            }
-        }
-        DropdownMenu(open, { open = false }, containerColor = colors.panelFill, shape = RoundedCornerShape(12.dp)) {
-            labels.zip(values).forEach { (label, value) ->
-                DropdownMenuItem(text = { Text(label) }, leadingIcon = {
-                    RadioButton(value == selected, onClick = null)
-                }, onClick = { onSelect(value); open = false })
-            }
-        }
-    }
+    NimboExpandingChoiceCard(
+        options = labels.zip(values).map { (label, value) -> NimboChoiceOption(value, label) },
+        selectedValue = selected,
+        onSelect = onSelect,
+        testTag = "log-retention"
+    )
 }
 
 @Composable
@@ -8630,7 +8624,7 @@ private fun Modifier.frostedBackdrop(
 }
 
 @Composable
-private fun BoxScope.NimboBottomControls(
+internal fun BoxScope.NimboBottomControls(
     onHeightMeasured: (Dp) -> Unit,
     backdropLayer: GraphicsLayer,
     destination: MiniDestination,
@@ -8652,40 +8646,48 @@ private fun BoxScope.NimboBottomControls(
         .padding(horizontal = 16.dp, vertical = 10.dp).widthIn(max = 520.dp).fillMaxWidth(),
         shape = RoundedCornerShape(28.dp), color = colors.controlFill,
         border = BorderStroke(1.dp, colors.panelBorder), tonalElevation = 0.dp) {
-        Row(Modifier.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            entries.forEach { (target, icon, label) ->
-                val selected = destination == target || (target == MiniDestination.Settings && destination == MiniDestination.AppAccess)
-                val interaction = remember(target) { MutableInteractionSource() }
-                val pressed by interaction.collectIsPressedAsState()
-                val fill by animateColorAsState(
-                    targetValue = when {
-                        selected -> colors.textPrimary.copy(alpha = .14f)
-                        pressed -> colors.textPrimary.copy(alpha = .07f)
-                        else -> Color.Transparent
-                    },
-                    animationSpec = if (navMotionEnabled) tween(160) else snap(),
-                    label = "bottom-nav-fill-${target.name}"
-                )
-                val scale by animateFloatAsState(
-                    targetValue = if (pressed) .96f else 1f,
-                    animationSpec = if (navMotionEnabled) tween(130) else snap(),
-                    label = "bottom-nav-press-${target.name}"
-                )
-                Box(modifier = Modifier.weight(1f).heightIn(min = 54.dp)
-                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                    .clip(RoundedCornerShape(20.dp)).background(fill)
-                    .clickable(interactionSource = interaction, indication = null) { onDestinationChange(target) }
-                    .semantics {
-                        this.selected = selected
-                        role = Role.Tab
-                    }, contentAlignment = Alignment.Center) {
-                    Column(Modifier.padding(horizontal = 2.dp, vertical = 6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(icon, null, Modifier.size(22.dp), tint = if (selected) colors.textPrimary else colors.textSecondary)
-                        Spacer(Modifier.height(4.dp))
-                        Text(label, style = MaterialTheme.typography.labelSmall,
-                            textAlign = TextAlign.Center, color = if (selected) colors.textPrimary else colors.textSecondary)
+        BoxWithConstraints(Modifier.padding(6.dp)) {
+            val columns = com.danila.nimbo.ui.navigation.navigationColumnCount(maxWidth.value, navDensity.fontScale)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                entries.chunked(columns).forEach { rowEntries ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        rowEntries.forEach { (target, icon, label) ->
+                            val selected = destination == target || (target == MiniDestination.Settings && destination == MiniDestination.AppAccess)
+                            val interaction = remember(target) { MutableInteractionSource() }
+                            val pressed by interaction.collectIsPressedAsState()
+                            val fill by animateColorAsState(
+                                targetValue = when {
+                                    selected -> colors.textPrimary.copy(alpha = .14f)
+                                    pressed -> colors.textPrimary.copy(alpha = .07f)
+                                    else -> Color.Transparent
+                                },
+                                animationSpec = if (navMotionEnabled) tween(160) else snap(),
+                                label = "bottom-nav-fill-${target.name}"
+                            )
+                            val scale by animateFloatAsState(
+                                targetValue = if (pressed) .96f else 1f,
+                                animationSpec = if (navMotionEnabled) tween(130) else snap(),
+                                label = "bottom-nav-press-${target.name}"
+                            )
+                            Box(modifier = Modifier.weight(1f).heightIn(min = 54.dp)
+                                .graphicsLayer { scaleX = scale; scaleY = scale }
+                                .clip(RoundedCornerShape(20.dp)).background(fill)
+                                .clickable(interactionSource = interaction, indication = null) { onDestinationChange(target) }
+                                .semantics {
+                                    this.selected = selected
+                                    role = Role.Tab
+                                }, contentAlignment = Alignment.Center) {
+                                Column(Modifier.padding(horizontal = 2.dp, vertical = 6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(icon, null, Modifier.size(22.dp), tint = if (selected) colors.textPrimary else colors.textSecondary)
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center, color = if (selected) colors.textPrimary else colors.textSecondary)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -10904,15 +10906,16 @@ private fun PingDisplayOption(display: PingDisplay, selected: Boolean, onClick: 
         PingDisplay.BOTH -> t("Числа и полоски", "Numbers and bars")
         PingDisplay.DOTS -> t("Точки", "Dots")
     }
-    Surface(onClick = onClick, modifier = modifier.heightIn(min = 67.dp).semantics {
+    Surface(onClick = onClick, modifier = modifier.heightIn(min = 48.dp).semantics {
         this.selected = selected; role = Role.RadioButton
     }, color = if (selected) colors.accent.copy(alpha = 0.13f) else colors.panelFill,
         border = BorderStroke(1.dp, if (selected) colors.accent else colors.panelBorder),
         shape = RoundedCornerShape(12.dp)) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(title, color = colors.textPrimary, style = MaterialTheme.typography.labelMedium,
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, Modifier.weight(1f), color = colors.textPrimary, style = MaterialTheme.typography.labelMedium,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
             PingValueContent(87, display.id, colors.accent)
         }
     }
@@ -14549,10 +14552,10 @@ private fun SubscriptionSettingsDialog(
             Pair(t("1 час", "1 hour"), 1), Pair(t("2 часа", "2 hours"), 2),
             Pair(t("6 часов", "6 hours"), 6), Pair(t("12 часов", "12 hours"), 12),
             Pair(t("24 часа", "24 hours"), 24), Pair(t("По умолчанию", "Default"), null))
-        NimboToolActions(minCellDp = 100f) {
+        NimboToolActions(minCellDp = 72f) {
             intervals.forEach { (label, hours) ->
-                NetworkSettingsChoice(label, selectedIntervalHours == hours,
-                    { selectedIntervalHours = hours }, Modifier.weight(1f))
+                com.danila.nimbo.ui.components.NetworkSettingsCompactChoice(label, selectedIntervalHours == hours,
+                    { selectedIntervalHours = hours })
             }
         }
         Text(t("URL подписки", "Subscription URL"), style = MaterialTheme.typography.titleSmall)
@@ -14885,3 +14888,21 @@ DOMAIN-SUFFIX,example.com,DIRECT
 DOMAIN-KEYWORD,analytics,REJECT
 GEOIP,ru,DIRECT
 """.trimIndent()
+
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun NimboSubscriptionPullRefresh(refreshing: Boolean, enabled: Boolean, onRefresh: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxSize(), content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+    val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+    var lastRequest by remember { mutableStateOf(0L) }
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = refreshing, state = pullState, modifier = modifier,
+        onRefresh = {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (enabled && !refreshing && now - lastRequest > 1500L) {
+                lastRequest = now
+                onRefresh()
+            }
+        }, content = content)
+}

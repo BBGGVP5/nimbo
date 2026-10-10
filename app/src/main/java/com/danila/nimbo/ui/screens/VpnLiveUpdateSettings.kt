@@ -3,6 +3,8 @@ package com.danila.nimbo.ui.screens
 import android.animation.ValueAnimator
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -57,7 +59,10 @@ internal fun VpnLiveUpdateSettings() {
     }
     Column {
         SettingsSwitch(Icons.Default.Cloud, t("Динамическая пилюля", "Live status pill"),
-            t("Статус рядом с часами, затем — облачко", "Brief status beside the clock, then the cloud"), enabled) {
+            if (enabled) t("Статус рядом с часами, затем — облачко. Выключите для обычного уведомления.",
+                "Brief status beside the clock, then the cloud. Turn off for a regular notification.")
+            else t("Обычное уведомление NIMBO. VPN продолжает работать.",
+                "Regular NIMBO notification. VPN keeps running."), enabled) {
             enabled = it
             preferences.vpnLiveUpdateEnabled = it
             snapshot = VpnLiveUpdatePlatform.snapshot(context)
@@ -67,7 +72,22 @@ internal fun VpnLiveUpdateSettings() {
             Column {
                 Text(t("Предпросмотр", "Preview"), style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                VpnPillPreview(enabled = enabled, resumed = resumed, english = preferences.appLanguage == "en")
+                if (enabled) {
+                    VpnPillPreview(enabled = true, resumed = resumed, english = preferences.appLanguage == "en")
+                } else {
+                    Row(Modifier.fillMaxWidth().padding(top = 6.dp)
+                        .clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
+                        .padding(12.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(painterResource(R.drawable.nimbo_cloud), null, Modifier.size(24.dp))
+                        Column {
+                            Text("NIMBO", style = MaterialTheme.typography.labelLarge)
+                            Text(t("Обычное VPN-уведомление", "Regular VPN notification"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
             }
         }
         SettingsNavigationItem(Icons.Default.Settings, t("Пилюля в Android", "Android Live Updates"),
@@ -83,7 +103,7 @@ internal fun VpnLiveUpdateSettings() {
 @Composable
 private fun pillAvailabilityLabel(snapshot: VpnPillSnapshot): String = when (snapshot.availability) {
     VpnPillAvailability.UNSUPPORTED -> t("Нужен Android 16 или новее", "Requires Android 16 or newer")
-    VpnPillAvailability.APP_DISABLED -> t("Выключена в Nimbo", "Disabled in Nimbo")
+    VpnPillAvailability.APP_DISABLED -> t("Обычное VPN-уведомление", "Regular VPN notification")
     VpnPillAvailability.NOTIFICATIONS_BLOCKED -> t("Разрешите уведомления Nimbo", "Allow Nimbo notifications")
     VpnPillAvailability.CHANNEL_BLOCKED -> t("Канал VPN отключён в Android", "VPN channel is disabled in Android")
     VpnPillAvailability.CHANNEL_MINIMIZED -> t("Канал VPN свёрнут — измените в Android", "VPN channel is minimized — change it in Android")
@@ -122,8 +142,10 @@ private fun VpnPillPreview(enabled: Boolean, resumed: Boolean, english: Boolean)
             Icon(painterResource(R.drawable.nimbo_cloud), t("Облачко Nimbo", "Nimbo cloud"),
                 Modifier.size(20.dp), tint = Color.White.copy(alpha = if (enabled) 1f else 0.4f))
             AnimatedContent(targetState = text, label = "vpn-pill-preview", transitionSpec = {
-                (fadeIn(tween(if (motionAllowed) 180 else 0)) togetherWith
-                    fadeOut(tween(if (motionAllowed) 140 else 0))).using(
+                ((fadeIn(tween(if (motionAllowed) 200 else 0)) +
+                    slideInVertically(tween(if (motionAllowed) 220 else 0)) { if (motionAllowed) it / 3 else 0 }) togetherWith
+                    (fadeOut(tween(if (motionAllowed) 140 else 0)) +
+                    slideOutVertically(tween(if (motionAllowed) 180 else 0)) { if (motionAllowed) -it / 3 else 0 })).using(
                     SizeTransform { _, _ -> tween(if (motionAllowed) 220 else 0) })
             }) { value ->
                 if (value != null) Text(value, color = Color.White, style = MaterialTheme.typography.labelLarge,

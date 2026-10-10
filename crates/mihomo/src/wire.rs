@@ -80,8 +80,79 @@ pub fn safe_code(code: &str) -> &str {
         | "DELAY_FAILED"
         | "LISTEN_FAILED"
         | "AMBIGUOUS_PROXY" => code,
+        "PROBE_TIMEOUT"
+        | "PROBE_CANCELLED"
+        | "PROBE_REQUIRES_SESSION"
+        | "PROBE_DIAL_FAILED"
+        | "PROBE_GET_FAILED"
+        | "PROBE_DNS_FAILED"
+        | "PROBE_HTTP_STATUS"
+        | "PROBE_REALITY_AUTH_FAILED"
+        | "PROBE_PROTECTION_FAILED" => code,
+        "AD_BLOCKING_REQUIRES_RULE_MODE" => code,
         _ => "NATIVE_FAILED",
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OfflineProbeResult {
+    pub delay_ms: u16,
+    #[serde(rename = "sourceSHA256")]
+    pub source_sha256: String,
+    pub scope: String,
+    pub vpn_started: bool,
+}
+
+pub fn offline_probe_request(
+    profile: &FullProfile,
+    name: &str,
+    url: &str,
+    timeout_ms: u64,
+) -> Result<Value, String> {
+    profile.verify().map_err(String::from)?;
+    if profile.kind != crate::ProfileKind::MihomoYaml {
+        return Err("UNSUPPORTED_CORE".into());
+    }
+    if name.is_empty() || name.len() > 1024 || name.contains('\0') {
+        return Err("INVALID_ENTITY_NAME".into());
+    }
+    let parsed = url::Url::parse(url).map_err(|_| "INVALID_DELAY_URL")?;
+    if url.len() > 8192
+        || !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err("INVALID_DELAY_URL".into());
+    }
+    if !(100..=30_000).contains(&timeout_ms) {
+        return Err("INVALID_DELAY_TIMEOUT".into());
+    }
+    Ok(
+        json!({"apiVersion":1,"requestId":uuid::Uuid::new_v4().to_string(),"generation":0,
+        "operation":"probeDesktop","yaml":profile.original_text,"name":name,"url":url,
+        "timeoutMs":timeout_ms,"expectedStatus":"200-299"}),
+    )
+}
+
+pub fn decode_offline_probe(
+    envelope: Envelope,
+    profile: &FullProfile,
+) -> Result<OfflineProbeResult, String> {
+    if envelope.generation != 0 {
+        return Err("INVALID_OFFLINE_PROBE".into());
+    }
+    let result: OfflineProbeResult =
+        serde_json::from_value(envelope.data).map_err(|_| "INVALID_OFFLINE_PROBE")?;
+    if result.source_sha256 != profile.source_digest
+        || result.vpn_started
+        || result.scope != "desktop-offline-probe"
+    {
+        return Err("INVALID_OFFLINE_PROBE".into());
+    }
+    Ok(result)
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -96,8 +167,33 @@ pub struct RuntimeInfo {
     pub core_version: String,
     pub core_commit: String,
     pub api_version: u32,
+    #[serde(default)]
+    pub tun_ready: bool,
 }
 impl RuntimeInfo {
+    pub fn validate_tun(&self, digest: &str, mixed: bool) -> Result<(), String> {
+        if self.state != "running"
+            || self.network_owner != "desktop-tun"
+            || !self.tun_ready
+            || self.source_sha256 != digest
+            || self.core_version != CORE_VERSION
+            || self.core_commit != CORE_COMMIT
+            || self.api_version != 1
+        {
+            return Err("INVALID_NATIVE_READINESS".into());
+        }
+        loopback_address(&self.controller_address)?;
+        if mixed {
+            loopback_address(&self.mixed_address)?;
+        } else if !self.mixed_address.is_empty() {
+            return Err("INVALID_NATIVE_READINESS".into());
+        }
+        if self.controller_address == self.mixed_address {
+            return Err("INVALID_NATIVE_READINESS".into());
+        }
+        Ok(())
+    }
+
     pub fn validate(&self, digest: &str) -> Result<(), String> {
         if self.state != "running"
             || self.network_owner != "desktop-proxy"
@@ -203,6 +299,20 @@ pub struct Snapshot {
     #[serde(default, rename = "ruleProviders")]
     pub rule_providers: std::collections::BTreeMap<String, Value>,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrafficTelemetry {
+    pub upload: u64,
+    pub download: u64,
+    pub proxy_upload: u64,
+    pub proxy_download: u64,
+    pub direct_upload: u64,
+    pub direct_download: u64,
+    pub route_available: bool,
+    pub tcp_connections: u64,
+    pub udp_connections: u64,
+}
 pub fn request(operation: &str, generation: u64) -> Value {
     json!({"apiVersion":1,"requestId":uuid::Uuid::new_v4().to_string(),"operation":operation,"generation":generation})
 }
@@ -233,6 +343,20 @@ pub fn fresh_secret() -> String {
 mod tests {
     use super::*;
     use crate::source_digest;
+    #[test]
+    fn tun_readiness_is_an_explicit_owner_with_native_device_not_a_proxy_flag() {
+        let mut value = json!({"state":"running","networkOwner":"desktop-tun","tunReady":true,"sourceSHA256":"source","coreVersion":CORE_VERSION,"coreCommit":CORE_COMMIT,"apiVersion":1,"controllerAddress":"127.0.0.1:9999","mixedAddress":""});
+        let info: RuntimeInfo = serde_json::from_value(value.clone()).unwrap();
+        assert!(info.validate_tun("source", false).is_ok());
+        assert!(info.validate("source").is_err());
+        assert!(info.validate_tun("different", false).is_err());
+        assert!(info.validate_tun("source", true).is_err());
+        value["tunReady"] = json!(false);
+        assert!(serde_json::from_value::<RuntimeInfo>(value)
+            .unwrap()
+            .validate_tun("source", false)
+            .is_err());
+    }
     #[test]
     fn readiness_refuses_lan_ipv6_zero_port_and_digest_substitution() {
         for bad in [

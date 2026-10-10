@@ -1,18 +1,18 @@
 {
   "name": "NaiveProxy",
-  "version": "v150.0.7871.63-1",
+  "version": "v154.0.8037.49-4",
   "source": "https://github.com/klzgrad/naiveproxy",
   "license": "Chromium BSD-style license",
   "bundled": {
     "arm64-v8a": {
       "file": "libnaive.so",
-      "sha256": "55b64adbda9fc09f4137800d74ac6772b797f96e224c12f69a8e001886bb82eb",
-      "upstream_apk_sha256": "733fbbbebb383a91f42036992c21cfd19b99e089ac3d15d7c077df79fc471a89"
+      "sha256": "31ff5d94fd2160fe2cf9ec5b80437ae05e8b77988e3b32ed594ade06a344f725",
+      "upstream_apk_sha256": "53d2ffd05fa13a8af22225bd738e5f59c7a499b369917c633a30c19c84f1f117"
     },
     "armeabi-v7a": {
       "file": "libnaive.so",
-      "sha256": "b848f96f0605c2e2e5b07280402fb86f109cdedeeb60bd5880ac7c5b5ff49f38",
-      "upstream_apk_sha256": "d52b01d0a55cd0807fe196e72abd5aa4859a783798b1bc1b3cf1bfa9ad8f7ae4"
+      "sha256": "cabb3e3dbfc572605aff3c64fd9f2770812136b3bd6a67fa18968fbcd77fa54b",
+      "upstream_apk_sha256": "175e0edcccf65c9e69ff9b2b3185b86474008d14c5ed7507bbb63a4bf3765797"
     }
   }
 }

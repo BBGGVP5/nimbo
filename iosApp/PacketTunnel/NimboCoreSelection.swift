@@ -18,7 +18,7 @@ enum NimboCorePreference: String, CaseIterable {
         }
     }
 
-    var isAvailable: Bool { self != .mihomo }
+    var isAvailable: Bool { true }
 
     /// Only an absent legacy value defaults to Auto. Corrupt/future IDs fail closed.
     static func decode(_ value: Any?) throws -> Self {
@@ -31,7 +31,7 @@ enum NimboCorePreference: String, CaseIterable {
 }
 
 enum NimboCoreProfile: String {
-    case xray, awg, mihomo
+    case xray, awg, mihomo, naive
 }
 
 enum NimboCoreAdmission {
@@ -41,8 +41,7 @@ enum NimboCoreAdmission {
         let selected = try NimboCorePreference.decode(preference)
         guard selected.isAvailable else { throw NimboCoreSelectionError.unavailable }
         let profile = try classify(data, declaredEngine: declaredEngine)
-        guard profile != .mihomo else { throw NimboCoreSelectionError.unavailable }
-        guard selected == .auto || selected.rawValue == profile.rawValue else {
+        guard selected == .auto || selected.rawValue == profile.rawValue || (profile == .naive && selected == .xray) else {
             throw NimboCoreSelectionError.incompatible
         }
         return profile
@@ -65,6 +64,10 @@ enum NimboCoreAdmission {
             declared = nil
         }
         let text = original.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{feff}")))
+        if try NimboNaiveConfiguration.parseIfPresent(text) != nil {
+            guard declared == nil || declared == .naive else { throw NimboCoreSelectionError.incompatible }
+            return .naive
+        }
         let detected: NimboCoreProfile
         if let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
             // Never feed a Mihomo JSON/YAML record or document through share-text conversion.
@@ -81,27 +84,37 @@ enum NimboCoreAdmission {
             if object["outbounds"] is [Any] {
                 // Native Xray documents remain Xray, including a WireGuard outbound.
                 detected = .xray
-            } else if let links = object["shareLinks"] as? [String], !links.isEmpty,
-                      links.allSatisfy({ isXrayShareText($0) }) {
+            } else if let links = object["shareLinks"] as? [String], !links.isEmpty {
+                try rejectUnsupportedShareProtocols(links.joined(separator: "\n"))
+                guard links.allSatisfy({ isXrayShareText($0) }) else { throw NimboCoreSelectionError.unsupportedProfile }
                 detected = .xray
             } else {
                 throw NimboCoreSelectionError.unsupportedProfile
             }
         } else if try NimboAWGConfiguration.parseIfPresent(text) != nil {
             detected = .awg
-        } else if isXrayShareText(text) {
-            detected = .xray
         } else {
-            // YAML and unrecognized inputs never fall through to Xray conversion.
-            throw NimboCoreSelectionError.unsupportedProfile
+            try rejectUnsupportedShareProtocols(text)
+            guard isXrayShareText(text) else { throw NimboCoreSelectionError.unsupportedProfile }
+            detected = .xray
         }
         guard declared == nil || declared == detected else { throw NimboCoreSelectionError.incompatible }
         return detected
     }
 
+    private static func rejectUnsupportedShareProtocols(_ text: String) throws {
+        for line in text.split(whereSeparator: \.isNewline) {
+            let scheme = line.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "://").first?.lowercased()
+            if scheme == "naive" || scheme == "naive+https" || scheme == "naive+quic" {
+                throw NimboCoreSelectionError.unsupportedProfile
+            }
+            if scheme == "tuic" || scheme == "mieru" { throw NimboCoreSelectionError.tuicRequiresMihomo }
+        }
+    }
+
     private static func isXrayShareText(_ text: String) -> Bool {
         let schemes: Set<String> = ["vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "hy2",
-                                    "hysteria", "tuic", "naive", "naive+https", "naive+quic", "socks", "socks5"]
+                                    "hysteria", "socks", "socks5"]
         let lines = text.split(whereSeparator: \.isNewline)
         return !lines.isEmpty && lines.allSatisfy { line in
             let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -112,14 +125,16 @@ enum NimboCoreAdmission {
 }
 
 enum NimboCoreSelectionError: LocalizedError {
-    case unknownPreference, unavailable, incompatible, unsupportedProfile, busy
+    case unknownPreference, unavailable, incompatible, unsupportedProfile, busy, tuicRequiresMihomo
 
     var errorDescription: String? {
         switch self {
+        case .tuicRequiresMihomo:
+            return "Для TUIC/Mieru импортируйте профиль Mihomo вашего провайдера и выберите ядро Auto или Mihomo (IOS_TUIC_REQUIRES_MIHOMO)."
         case .unknownPreference:
-            return "Неизвестное ядро VPN. Выберите Auto, Xray или AWG в настройках (IOS_CORE_UNKNOWN)."
+            return "Неизвестное ядро VPN. Выберите Auto, Xray, AWG или Mihomo в настройках (IOS_CORE_UNKNOWN)."
         case .unavailable:
-            return "Mihomo недоступно для VPN на iOS. Полная конфигурация не преобразуется в Xray (IOS_CORE_UNAVAILABLE)."
+            return "Связанный пакетный runtime Mihomo недоступен. Полная конфигурация не преобразуется в Xray (IOS_CORE_UNAVAILABLE)."
         case .incompatible:
             return "Выбранное ядро VPN несовместимо с профилем. Выберите Auto или совместимый профиль (IOS_CORE_INCOMPATIBLE)."
         case .unsupportedProfile:

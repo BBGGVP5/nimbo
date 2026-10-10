@@ -57,7 +57,9 @@ class CoreSelectionContracts(unittest.TestCase):
         self.assertLess(admission, body.index('await vpn.disconnect()'))
         self.assertLess(admission, body.index('NimboSubscriptionRepository.shared.select('))
         selection = function(ROOT, 'selectServer')
-        self.assertLess(selection.index('try vpn.validateCore('), selection.index('NimboSubscriptionRepository.shared.select('))
+        self.assertIn('try await vpn.selectServer(serverID)', selection)
+        central = function(CONTROLLER, 'selectServer')
+        self.assertLess(central.index('try validateCore(data:'), central.index('disconnect(invalidateSelection: false)'))
 
     def test_extension_rechecks_raw_wire_values_before_network_or_core(self):
         body = function(PROVIDER, 'startTunnelInternal')
@@ -87,19 +89,19 @@ class CoreSelectionContracts(unittest.TestCase):
 
     def test_reopening_app_observes_running_session_before_next_preference(self):
         body = function(CONTROLLER, 'prepare')
-        current = body.index('switch existing.connection.status')
+        current = body.index('switch observedSystemStatus')
         self.assertLess(current, body.index('try validateCore(data: stored)'))
         running = body[current:body.index('let stored =')]
         self.assertIn('case .connected, .connecting, .reasserting, .disconnecting:', running)
         self.assertIn('synchronizeStatus()\n                    return', running)
         self.assertNotIn('saveToPreferences', running)
 
-    def test_selector_is_reachable_on_live_settings_and_mihomo_disabled(self):
+    def test_selector_is_reachable_on_live_settings_and_mihomo_packet_flow_enabled(self):
         root = source(ROOT)
         self.assertIn('.sheet(isPresented: $showCoreSettings)', root)
         self.assertIn('NimboCoreSettingsView().environmentObject(vpn)', root)
         self.assertNotIn('NimboCoreSettingsEntry', root)
-        self.assertNotIn('.safeAreaInset(edge: .top', root)
+        self.assertNotIn('NimboCoreSettingsEntry()', root)
         ui = source('Nimbo/NimboCoreSettingsView.swift')
         self.assertIn('\nstruct NimboCoreSettingsView: View', ui)
         self.assertNotIn('private struct NimboCoreSettingsView', ui)
@@ -110,7 +112,7 @@ class CoreSelectionContracts(unittest.TestCase):
         self.assertIn('.disabled(!core.isAvailable', ui)
         self.assertIn('Text("Недоступно")', ui)
         self.assertIn('следующем подключении', ui)
-        self.assertIn('var isAvailable: Bool { self != .mihomo }', source(POLICY))
+        self.assertIn('var isAvailable: Bool { true }', source(POLICY))
 
     def test_shared_connection_row_only_exists_on_settings_index(self):
         settings = (COMMON_UI / 'NimboSettingsScreen.kt').read_text(encoding='utf-8-sig')
@@ -156,7 +158,7 @@ class CoreSelectionContracts(unittest.TestCase):
                 with self.subTest(name=name, method=method):
                     self.assertFalse(PARSER.parse(function(name, method).encode()).root_node.has_error)
         provider = function(PROVIDER, 'startTunnelInternal')
-        admission = provider[provider.index('try NimboCoreAdmission.validate('):provider.index('let routingOptions')]
+        admission = provider[provider.index('let engine = try NimboCoreAdmission.validate('):provider.index('let routingOptions')]
         self.assertFalse(PARSER.parse(('func check() throws {\n' + admission + '\n}').encode()).root_node.has_error)
         swift = source('Tests/CoreSelectionTests.swift')
         for scenario in ['compatibilityMatrix', 'unknownIDsFailClosed', 'fullDocumentIdentity',

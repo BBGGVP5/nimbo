@@ -87,6 +87,27 @@ internal fun mihomoSafeErrorCode(error: Throwable): String =
     (error as? MihomoException)?.code?.takeIf { it.matches(Regex("[A-Z][A-Z0-9_]{0,79}")) }
         ?: "START_FAILED"
 
+/** Inspect is read-only and runs during admission, before disconnecting an existing tunnel. */
+internal fun mihomoRequireAdBlockingRuleMode(enabled: Boolean, inspect: () -> JsonObject) {
+    if (!enabled) return
+    val graph = inspect()["declaredGraph"]
+    val mode = graph?.takeIf { it.isJsonObject }?.asJsonObject?.get("mode")
+        ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+    // Do not assume rule mode when an older bridge omits the inspection metadata.
+    if (!mode.equals("rule", ignoreCase = true)) throw MihomoException("AD_BLOCKING_REQUIRES_RULE_MODE")
+}
+
+internal fun mihomoAdBlockingModeFailure(error: Throwable, english: Boolean): ConnectionFailure? {
+    if ((error as? MihomoException)?.code != "AD_BLOCKING_REQUIRES_RULE_MODE") return null
+    return ConnectionFailure(
+        if (english) "Mihomo ad blocking requires rule mode."
+        else "Для блокировки рекламы в Mihomo нужен режим rule.",
+        if (english) "Use a Mihomo profile with mode: rule, or turn off Ad blocking before connecting."
+        else "Используйте профиль Mihomo с mode: rule или выключите блокировку рекламы перед подключением.",
+        "AD_BLOCKING_REQUIRES_RULE_MODE"
+    )
+}
+
 /** Keep native and subscription error text (which can include endpoints or credentials) out of the UI. */
 internal fun mihomoStartFailure(stage: MihomoStartStage, error: Throwable): String {
     return "Mihomo [${stage.name}]: ${mihomoSafeErrorCode(error)}"
@@ -136,10 +157,13 @@ object MihomoManager {
         Thread(runnable, "nimbo-mihomo-cancel").apply { isDaemon = true }
     }
     @Volatile private var pendingRequest: String? = null
+    private val telemetryPoller = MihomoTelemetryPoller()
     private var lease: MihomoFdLease? = null
     // Keep the callback strongly reachable through native stop, including failed startup cleanup.
     private var protector: DialerController? = null
     @Volatile var isConnected = false
+        private set
+    @Volatile var activeAdBlockingEnabled: Boolean? = null
         private set
     @Volatile var connectionError: String? = null
         private set
@@ -176,7 +200,10 @@ object MihomoManager {
                 @Suppress("DEPRECATION")
                 context.packageManager.getApplicationInfo(it, 0)
             }
-        return MihomoProfiles.source(context, server).also { MihomoBridge.preflight(it) }
+        return MihomoProfiles.source(context, server).also { yaml ->
+            mihomoRequireAdBlockingRuleMode(prefs.adBlockingEnabled) { MihomoBridge.inspect(yaml) }
+            MihomoBridge.preflight(yaml)
+        }
     }
 
     suspend fun connect(context: Context, yaml: String, service: VpnService, network: Network): Boolean =
@@ -234,9 +261,11 @@ object MihomoManager {
                         val owned = MihomoFdLease(tun)
                         lease = owned
                         stage = MihomoStartStage.NATIVE_START
+                        val adBlocking = prefs.adBlockingEnabled
                         val status = MihomoBridge.startAndroid(
                             yaml, dataDir.absolutePath, tun.fd.toLong(), requestId,
                             ipv6 = prefs.vpnIpType.equals("dual", ignoreCase = true),
+                            adBlocking = adBlocking,
                             physicalDns = service.getSystemService(android.net.ConnectivityManager::class.java)
                                 .getLinkProperties(network)?.dnsServers?.mapNotNull { it.hostAddress }.orEmpty()
                         )
@@ -256,6 +285,7 @@ object MihomoManager {
                         runCatching { com.danila.nimbo.utils.SupportDiagnosticStore.captureConfig(
                             context, "mihomo", MihomoBridge.call("diagnosticConfig").toString()) }
                         isConnected = true
+                        activeAdBlockingEnabled = adBlocking
                         true
                     } catch (error: Exception) {
                         connectionError = mihomoStartFailure(stage, error)
@@ -292,6 +322,8 @@ object MihomoManager {
 
     private fun stopLocked() {
         isConnected = false
+        activeAdBlockingEnabled = null
+        telemetryPoller.reset()
         lease?.let { owned ->
             // A failed/invalid start reply may not carry a generation. While holding the owner
             // lock, obtain one from status. If even status fails, retain FD/protector and fail closed.
@@ -328,6 +360,15 @@ object MihomoManager {
         temporaryMarker.writeText(version)
         if (marker.exists()) check(marker.delete()) { "Cannot replace Mihomo geodata marker" }
         check(temporaryMarker.renameTo(marker)) { "Cannot commit Mihomo geodata marker" }
+    }
+
+    /** Bounded read-only counters, called by the existing service timer, never by the UI. */
+    internal fun telemetry(): NativeTrafficTelemetry? = synchronized(lock) {
+        val generation = lease?.generation ?: return@synchronized null
+        if (!isConnected) return@synchronized null
+        val ticket = epoch.get()
+        val value = telemetryPoller.read(generation) { MihomoBridge.response("telemetry", generation = it) }
+        value.takeIf { ticket == epoch.get() }
     }
 
     fun ready(): Boolean = synchronized(lock) {

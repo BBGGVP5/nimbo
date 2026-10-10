@@ -2106,6 +2106,8 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tokio",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2113,14 +2115,17 @@ name = "nimbo-mihomo"
 version = "1.3.0-beta.1"
 dependencies = [
  "libc",
+ "nimbo-ipc",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha2",
+ "socket2",
  "tokio",
  "url",
  "uuid",
  "windows-sys 0.59.0",
+ "winreg",
 ]
 
 [[package]]
@@ -2149,8 +2154,11 @@ dependencies = [
  "nimbo-ipc",
  "serde",
  "serde_json",
+ "sha2",
+ "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
  "windows-service",
  "windows-sys 0.59.0",
 ]

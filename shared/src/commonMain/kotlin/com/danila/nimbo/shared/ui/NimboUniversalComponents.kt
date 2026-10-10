@@ -146,11 +146,13 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
     }
     val motion = rememberNimboConnectionMotion(connected, state.connectionBusy,
         pressed || clickFeedback, enabled = state.navIconMotion)
-    val actionLabel = if (connected) "Отключить" else if (state.connectionBusy) "Подождите…" else "Подключить"
+    val canCancel = state.vpnState == "connecting" || state.vpnState == "preparing"
+    val actionEnabled = !state.connectionBusy || canCancel
+    val actionLabel = if (canCancel) "Отменить подключение" else if (connected) "Отключить" else if (state.connectionBusy) "Подождите…" else "Подключить"
     val toggle = {
         clickFeedback = true
         clickFeedbackKey++
-        if (state.servers.isEmpty() && !connected) actions.onAddProfile() else actions.onToggleVpn()
+        if (state.servers.isEmpty() && !connected && !canCancel) actions.onAddProfile() else actions.onToggleVpn()
     }
     Column(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -174,6 +176,7 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
         Spacer(Modifier.height(5.dp))
         BasicText(when {
             connected -> "Ваш трафик идёт через выбранный сервер"
+            canCancel -> "Нажмите кнопку, чтобы отменить подключение"
             state.connectionBusy -> "Дождитесь завершения операции"
             state.vpnState == "failed" -> "Проверьте сеть или выберите другой сервер"
             else -> "Один шаг до подключения"
@@ -189,12 +192,12 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
                 }
                 .clip(RoundedCornerShape(20.dp)).background(fill)
                 .semantics { contentDescription = actionLabel }
-                .clickable(enabled = !state.connectionBusy, role = Role.Button,
+                .clickable(enabled = actionEnabled, role = Role.Button,
                     interactionSource = interactionSource, indication = null, onClick = toggle)
                 .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val ink = if (fill.luminance() > .5f) Color(0xFF202020) else Color.White
-                NimboIcon(state.connectionIcon, Modifier.size(24.dp), ink)
+                NimboConnectionGlyph(motion, ink, Modifier.size(24.dp))
                 BasicText(actionLabel, Modifier.weight(1f), style = NimboBodyStyle.copy(
                     color = ink, fontWeight = FontWeight.SemiBold, fontSize = 16.sp))
             }
@@ -209,11 +212,11 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
                 NimboConnectionHalo(motion, fill, Modifier.fillMaxSize())
                 Box(Modifier.fillMaxSize().padding(7.dp).clip(CircleShape).background(fill)
                     .semantics { contentDescription = actionLabel }
-                    .clickable(enabled = !state.connectionBusy, role = Role.Button,
+                    .clickable(enabled = actionEnabled, role = Role.Button,
                         interactionSource = interactionSource, indication = null, onClick = toggle), contentAlignment = Alignment.Center) {
-                    NimboIcon(state.connectionIcon, Modifier.size(if (connected) 56.dp else 34.dp)
+                    NimboConnectionGlyph(motion, if (fill.luminance() > .5f) Color(0xFF202020) else Color.White, Modifier.size(56.dp)
                         .graphicsLayer { scaleX = motion.iconScale.value; scaleY = motion.iconScale.value },
-                        tint = if (fill.luminance() > .5f) Color(0xFF202020) else Color.White)
+                    )
                 }
             }
         }
@@ -253,15 +256,33 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
     }
 }
 
+/** One persistent silhouette stack; true connected state controls its only animation target. */
+@Composable
+private fun NimboConnectionGlyph(motion: NimboConnectionMotion, ink: Color, modifier: Modifier = Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        NimboIcon(NimboIconName.POWER, Modifier.fillMaxSize(.7f).graphicsLayer {
+            val progress = motion.cloudProgress.value
+            alpha = 1f - progress
+            scaleX = 1f - .5f * progress; scaleY = scaleX
+            rotationZ = -45f * progress
+        }, ink)
+        NimboIcon(NimboIconName.CLOUD, Modifier.fillMaxSize().graphicsLayer {
+            val progress = motion.cloudProgress.value
+            alpha = progress; scaleX = .55f + .45f * progress; scaleY = scaleX
+            translationY = (1f - progress) * 3.dp.toPx()
+        }, ink)
+    }
+}
+
 internal fun serverCountLabel(count: Int): String {
     val unit = when { count % 100 in 11..14 -> "серверов"; count % 10 == 1 -> "сервер"; count % 10 in 2..4 -> "сервера"; else -> "серверов" }
     return "$count $unit"
 }
 
 @Composable
-private fun SubscriptionAction(icon: NimboIconName, text: String, enabled: Boolean = true, onClick: () -> Unit) {
+private fun SubscriptionAction(icon: NimboIconName, text: String, enabled: Boolean = true, description: String = icon.accessibleLabel, onClick: () -> Unit) {
     Row(Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(10.dp)).background(NimboPalette.Control)
-        .semantics { contentDescription = icon.accessibleLabel }
+        .semantics { contentDescription = description }
         .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
         NimboIcon(icon, Modifier.size(17.dp), NimboPalette.TextSecondary)
@@ -314,8 +335,11 @@ internal fun NimboSubscriptionHeader(state: NimboUiState, actions: NimboUiAction
                     if (remaining > 0f) Box(Modifier.fillMaxWidth(remaining).height(2.dp).background(NimboPalette.Accent.copy(alpha = .65f)))
                 }
             }
+            if (state.profileAnnounce.isNotBlank()) {
+                BasicText(state.profileAnnounce.trim(), style = NimboBodyStyle.copy(fontSize = 12.sp))
+            }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SubscriptionAction(NimboIconName.PING, if (state.pingInProgress) "Проверяем…" else "Пинг", enabled = !state.pingInProgress, onClick = actions.onPingAll)
+                SubscriptionAction(NimboIconName.PING, if (state.pingInProgress) "Остановить пинг" else "Пинг", description = if (state.pingInProgress) "Остановить пинг" else NimboIconName.PING.accessibleLabel, onClick = actions.onPingAll)
                 SubscriptionAction(NimboIconName.REFRESH, "Обновить", onClick = actions.onRefreshProfile)
             }
             if (state.profileUpdatedLabel.isNotBlank()) BasicText("Обновлено ${state.profileUpdatedLabel}", style = NimboBodyStyle.copy(fontSize = 11.sp))

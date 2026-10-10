@@ -38,6 +38,7 @@ jobs:
           cache-dependency-path: |
             iosApp/GoBridge/go.sum
             tools/native/awg-core/go.sum
+            tools/native/naive-core/go.sum
 
       - name: Verify pinned LibXray source and binary contracts
         run: python3 tools/release/check-libxray.py --apple-only
@@ -48,11 +49,35 @@ jobs:
       - name: Verify native ping methods and fail-closed route
         run: python3 iosApp/Tests/test_ping_contracts.py --swift
 
+      - name: Verify full-profile and offline backup storage
+        run: python3 iosApp/Tests/test_mihomo_storage_contracts.py --swift
+
+      - name: Verify traffic telemetry and ad blocking policies
+        run: python3 iosApp/Tests/test_traffic_statistics_contracts.py --swift
+
       - name: Verify iPad navigation source contracts
         run: python3 iosApp/Tests/test_ipad_navigation_contracts.py
 
+      - name: Verify profile selection ordering and screen contracts
+        run: python3 iosApp/Tests/test_profile_screen_contracts.py --swift
+
+      - name: Verify compact design and native Mihomo category projection
+        run: python3 iosApp/Tests/test_design_audit_contracts.py --swift
+
       - name: Verify native Live Activity policy and packaging
         run: python3 iosApp/Tests/test_live_activity_contracts.py --swift
+
+      - name: Verify on-demand policy and native memory contracts
+        run: python3 iosApp/Tests/test_on_demand_contracts.py --swift
+
+      - name: Verify Mihomo packet-flow source contracts
+        run: python3 scripts/ci/test-ios-packet-flow.py --swift
+
+      - name: Verify native Naive policy and DNS routing
+        run: python3 iosApp/Tests/test_naive_contracts.py --swift
+
+      - name: Verify reconnect startup and core admission policies
+        run: python3 scripts/ci/test-ios-reconnect.py
 
       - name: Install build tools
         run: brew install xcodegen ldid-procursus
