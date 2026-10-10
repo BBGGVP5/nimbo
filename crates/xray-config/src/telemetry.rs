@@ -110,12 +110,24 @@ mod tests {
         ]}"#;
         let t = parse_traffic_counters(output).unwrap();
         assert_eq!((t.upload, t.download), (128, 512));
-        assert_eq!(t.routes.unwrap(), RouteTraffic {
-            proxy_upload: 128, proxy_download: 512,
-            direct_upload: 0, direct_download: 0,
-        });
-        for raw in [serde_json::Value::Null, json!(false), json!("broken"), json!(-1)] {
-            let output = json!({"stat":[{"name":"outbound>>>proxy>>>traffic>>>uplink","value":raw}]}).to_string();
+        assert_eq!(
+            t.routes.unwrap(),
+            RouteTraffic {
+                proxy_upload: 128,
+                proxy_download: 512,
+                direct_upload: 0,
+                direct_download: 0,
+            }
+        );
+        for raw in [
+            serde_json::Value::Null,
+            json!(false),
+            json!("broken"),
+            json!(-1),
+        ] {
+            let output =
+                json!({"stat":[{"name":"outbound>>>proxy>>>traffic>>>uplink","value":raw}]})
+                    .to_string();
             assert!(parse_traffic_counters(&output).is_err());
         }
         assert!(parse_traffic_counters("{}").is_err());
