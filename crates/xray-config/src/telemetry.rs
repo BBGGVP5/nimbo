@@ -44,10 +44,13 @@ pub fn parse_traffic_counters(output: &str) -> Result<TrafficCounters, &'static 
         ) {
             continue;
         }
-        let n = stat
-            .get("value")
-            .and_then(value)
-            .ok_or("INVALID_TRAFFIC_COUNTER")?;
+        // Xray's CLI omits protobuf zero values (`omitempty`). A recognized
+        // named counter with no value is measured zero, not a failed response.
+        // Explicit null/negative/malformed values remain errors.
+        let n = match stat.get("value") {
+            None => 0,
+            Some(raw) => value(raw).ok_or("INVALID_TRAFFIC_COUNTER")?,
+        };
         let is_up = parts[3] == "uplink";
         match parts[0] {
             "inbound" => {
@@ -95,6 +98,28 @@ pub fn parse_traffic_counters(output: &str) -> Result<TrafficCounters, &'static 
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn cli_omitted_zero_counters_preserve_nonzero_traffic() {
+        let output = r#"{"stat":[
+            {"name":"inbound>>>socks>>>traffic>>>uplink","value":128},
+            {"name":"inbound>>>socks>>>traffic>>>downlink","value":512},
+            {"name":"outbound>>>proxy>>>traffic>>>uplink","value":128},
+            {"name":"outbound>>>proxy>>>traffic>>>downlink","value":512},
+            {"name":"outbound>>>direct>>>traffic>>>uplink"},
+            {"name":"outbound>>>direct>>>traffic>>>downlink"}
+        ]}"#;
+        let t = parse_traffic_counters(output).unwrap();
+        assert_eq!((t.upload, t.download), (128, 512));
+        assert_eq!(t.routes.unwrap(), RouteTraffic {
+            proxy_upload: 128, proxy_download: 512,
+            direct_upload: 0, direct_download: 0,
+        });
+        for raw in [serde_json::Value::Null, json!(false), json!("broken"), json!(-1)] {
+            let output = json!({"stat":[{"name":"outbound>>>proxy>>>traffic>>>uplink","value":raw}]}).to_string();
+            assert!(parse_traffic_counters(&output).is_err());
+        }
+        assert!(parse_traffic_counters("{}").is_err());
+    }
     #[test]
     fn excludes_api_and_never_double_counts_route_bytes() {
         let data = json!({"stat":[

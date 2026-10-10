@@ -41,7 +41,7 @@ class LiveActivityContracts(unittest.TestCase):
         self.assertNotIn("Timer.scheduledTimer", source)
         vpn = read("iosApp/Nimbo/VpnController.swift")
         self.assertIn("refreshLiveActivity()", vpn)
-        self.assertIn("manager?.connection.status", vpn)
+        self.assertIn("switch observedSystemStatus", vpn)
         root = read("iosApp/Nimbo/RootView.swift")
         self.assertIn("NimboLiveActivitySettingsView()", root)
         self.assertIn(".onChange(of: scenePhase)", root)

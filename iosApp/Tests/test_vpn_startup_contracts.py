@@ -47,7 +47,7 @@ class VpnStartupSourceRegressions(unittest.TestCase):
     def test_on_demand_started_during_save_arms_watchdog(self):
         body = function(CONTROLLER, 'connect')
         arm = body.index('startAttempt.requestedStart(for: attempt)')
-        self.assertLess(arm, body.index('switch manager.connection.status', arm))
+        self.assertLess(arm, body.index('switch observedSystemStatus', arm))
         self.assertGreater(arm, body.index('try await NimboOnDemandRules.persist'))
 
     def test_status_transition_does_not_reload_profiles_on_ui_thread(self):
@@ -64,6 +64,21 @@ class VpnStartupSourceRegressions(unittest.TestCase):
             self.assertIn('NimboVpnSystemCommands.stop(', code)
         self.assertIn('startCommandLease?.invalidate()', function(CONTROLLER, 'disconnect'))
         self.assertIn('startCommandLease?.invalidate()', function(CONTROLLER, 'scheduleStatusPollIfNeeded'))
+
+    def test_status_sampling_and_stop_cannot_hold_main_actor(self):
+        controller = source(CONTROLLER)
+        self.assertNotIn('.connection.status', controller)
+        self.assertNotIn('connection.status', controller)
+        self.assertNotIn('.connection.connectedDate', controller)
+        stop = function(CONTROLLER, 'disconnect')
+        self.assertLess(stop.index('await NimboVpnSystemCommands.stop('), stop.index('try await setOnDemand(false'))
+        self.assertIn('stopRequest.begin()', stop)
+        sync = function(CONTROLLER, 'synchronizeStatus')
+        self.assertLess(sync.index('if stopRequest.pending'), sync.index('switch status'))
+        self.assertIn('observationGate.finish(token)', function(CONTROLLER, 'refreshObservedSystemStatus'))
+        widget = function('Shared/NimboTunnelControl.swift', 'setEnabled')
+        stopping = widget.split('if !enabled {', 1)[1].split('switch manager.connection.status', 1)[0]
+        self.assertLess(stopping.index('NimboVpnSystemCommands.stop('), stopping.index('NimboOnDemandRules.persist('))
 
     def test_native_bar_overlays_content_with_measured_scroll_clearance(self):
         root = source("Nimbo/RootView.swift")
@@ -116,7 +131,7 @@ class VpnStartupSourceRegressions(unittest.TestCase):
         before = body[:failure]
         self.assertIn('startAttempt.acceptsDisconnectError(for: attempt)', before)
         self.assertIn('connection === manager?.connection', before)
-        self.assertIn('connection.status == .disconnected || connection.status == .invalid', before)
+        self.assertIn('observedSystemStatus == .disconnected || observedSystemStatus == .invalid', before)
         self.assertIn('synchronizeStatus()', before)
         self.assertIn('generation == token && phase == .reportingFailure', function(POLICY, 'acceptsDisconnectError'))
 
@@ -164,7 +179,7 @@ class VpnStartupSourceRegressions(unittest.TestCase):
     def test_profile_removal_waits_for_real_stop_without_creating_a_profile(self):
         body = function(CONTROLLER, 'clearConfiguration')
         self.assertNotIn('loadOrCreateManager', body)
-        self.assertLess(body.index('while manager.connection.status'), body.index('tunnelProtocol.providerConfiguration ='))
+        self.assertLess(body.index('while observedSystemStatus'), body.index('tunnelProtocol.providerConfiguration ='))
         self.assertIn('isStagingConfiguration = true', body)
         self.assertIn('try await setOnDemand(false, on: manager)', body)
         self.assertNotIn('try? await setOnDemand', body)
@@ -202,8 +217,11 @@ class VpnStartupSourceRegressions(unittest.TestCase):
         self.assertIn('NimboSigningReport.problem', function(CONTROLLER, 'prepare'))
 
     def test_notifications_are_filtered_to_the_owned_connection(self):
-        self.assertIn('notification.object as? NEVPNConnection', source(CONTROLLER))
-        self.assertIn('connection === self.manager?.connection', source(CONTROLLER))
+        self.assertIn('notification.object is NEVPNConnection', source(CONTROLLER))
+        self.assertIn('await self.refreshObservedSystemStatus(reloadPreferences: true)', source(CONTROLLER))
+        refresh = function(CONTROLLER, 'refreshObservedSystemStatus')
+        self.assertIn('NimboTunnelControl.manager()', refresh)
+        self.assertIn('original === manager', refresh)
 
     def test_portable_swift_regressions_are_present_and_parse(self):
         swift = source('Tests/VpnStartAttemptTests.swift')

@@ -79,6 +79,9 @@ fun rememberNimboConnectionMotion(
             while (isActive && coroutineContext[MotionDurationScale]?.scaleFactor != 0f) {
                 cycle.snapTo(0f)
                 cycle.animateTo(1f, tween(1600, easing = LinearEasing))
+                // Some system animation overrides make animateTo complete
+                // immediately. Keep the loop cooperative even in that case.
+                kotlinx.coroutines.delay(16)
             }
         }
     }

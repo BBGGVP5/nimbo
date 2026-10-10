@@ -889,7 +889,7 @@ struct RootView: View {
                 activeAdBlockingEnabled: reported?.activeAdBlockingEnabled.map { KotlinBoolean(bool: $0) }
             )
         }
-        let durationLabel: String? = vpn.manager?.connection.connectedDate.map { connectedAt in
+        let durationLabel: String? = vpn.observedConnectedDate.map { connectedAt in
             let elapsed = max(0, Int(Date().timeIntervalSince(connectedAt)))
             return String(format: "%02d:%02d:%02d", elapsed / 3600, (elapsed / 60) % 60, elapsed % 60)
         }

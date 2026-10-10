@@ -150,6 +150,30 @@ class NimboRedesignInteractionTest {
         }
     }
 
+    @Test fun connectionPreparationAndStartupRemainCancellable() {
+        for (style in listOf("classic", "compact")) {
+            for (phase in listOf("connecting", "preparing")) {
+                var cancels = 0
+                var imports = 0
+                ImageComposeScene(390, 844) {
+                    NimboAppShell(NimboScreen.HOME,
+                        NimboUiState(vpnState = phase, connectStyle = style),
+                        NimboUiActions(onToggleVpn = { cancels++ }, onAddProfile = { imports++ }),
+                        showBottomBar = false)
+                }.use { scene ->
+                    scene.settle()
+                    val cancel = scene.nodes().first {
+                        "Отменить подключение" in it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty()
+                    }
+                    assertTrue(cancel.config.getOrNull(SemanticsProperties.Disabled) == null)
+                    assertTrue(cancel.config[SemanticsActions.OnClick].action!!.invoke())
+                    assertEquals(1, cancels)
+                    assertEquals(0, imports)
+                }
+            }
+        }
+    }
+
     @Test fun subscriptionHeaderExpandsAndCollapsesWithoutConnecting() {
         var connects = 0
         val state = NimboUiState(profileCount = 1, serverCount = 1, activeProfileName = "Provider",

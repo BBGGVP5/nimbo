@@ -9,6 +9,17 @@ enum NimboVpnSystemCommands {
         var errorDescription: String? { "VPN меняет состояние. Дождитесь завершения и повторите действие." }
     }
     private static let worker = NimboVpnCommandQueue(label: "com.nimbo.vpn.commands")
+    private static let statusWorker = NimboVpnCommandQueue(label: "com.nimbo.vpn.status")
+
+    static func snapshot(_ connection: NEVPNConnection) async -> NimboVpnObservedConnection {
+        // These getters may contend with synchronous start/stop IPC. Never
+        // touch them from MainActor, including from UI timers and didSet.
+        let snapshot = try? await statusWorker.perform {
+            NimboVpnObservedConnection(rawStatus: connection.status.rawValue,
+                connectedDate: connection.connectedDate)
+        }
+        return snapshot ?? NimboVpnObservedConnection(rawStatus: -1, connectedDate: nil)
+    }
 
     static func start(_ connection: NEVPNConnection, lease: NimboVpnCommandLease) async throws {
         try await worker.perform(lease: lease) {

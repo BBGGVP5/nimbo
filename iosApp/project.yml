@@ -234,6 +234,7 @@ targets:
       - path: Shared/NimboTunnelControl.swift
       - path: Shared/NimboVpnCommandQueue.swift
       - path: Shared/NimboVpnSystemCommands.swift
+      - path: Shared/NimboVpnObservation.swift
       - path: Shared/NimboOnDemandPolicy.swift
       - path: Shared/NimboOnDemandRules.swift
       - path: Shared/NimboAWGConfiguration.swift

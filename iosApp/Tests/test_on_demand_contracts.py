@@ -50,7 +50,7 @@ def swift_tests():
         subprocess.run(["xcrun","swiftc","-parse-as-library","iosApp/Shared/NimboOnDemandPolicy.swift","iosApp/Tests/OnDemandPolicyTests.swift","-o",exe],cwd=ROOT,check=True)
         subprocess.run([exe],check=True)
         sdk=subprocess.check_output(["xcrun","--sdk","iphoneos","--show-sdk-path"],text=True).strip()
-        shared=["iosApp/Shared/NimboOnDemandPolicy.swift","iosApp/Shared/NimboOnDemandRules.swift", "iosApp/Shared/NimboVpnCommandQueue.swift", "iosApp/Shared/NimboVpnSystemCommands.swift"]
+        shared=["iosApp/Shared/NimboOnDemandPolicy.swift","iosApp/Shared/NimboOnDemandRules.swift", "iosApp/Shared/NimboVpnCommandQueue.swift", "iosApp/Shared/NimboVpnSystemCommands.swift", "iosApp/Shared/NimboVpnObservation.swift"]
         subprocess.run(["xcrun","swiftc","-typecheck","-parse-as-library","-target","arm64-apple-ios16.0","-sdk",sdk,*shared],cwd=ROOT,check=True)
         subprocess.run(["xcrun","swiftc","-typecheck","-parse-as-library","-application-extension","-target","arm64-apple-ios18.0","-sdk",sdk,*shared,"iosApp/Shared/NimboConstants.swift","iosApp/Shared/NimboAWGConfiguration.swift","iosApp/Shared/NimboNaiveConfiguration.swift","iosApp/Nimbo/NimboCoreSelection.swift","iosApp/Shared/NimboTunnelControl.swift"],cwd=ROOT,check=True)
         stub=pathlib.Path(directory)/"VpnController.swift"

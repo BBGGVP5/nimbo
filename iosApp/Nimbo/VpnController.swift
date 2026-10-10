@@ -16,9 +16,21 @@ final class VpnController: ObservableObject {
     }
 
     @Published private(set) var state: State = .idle {
-        didSet { refreshLiveActivity() }
+        didSet { if oldValue != state { refreshLiveActivity() } }
     }
-    @Published private(set) var manager: NETunnelProviderManager?
+    @Published private(set) var manager: NETunnelProviderManager? {
+        didSet {
+            if oldValue !== manager {
+                observationGate.invalidate()
+                observedSystemStatus = nil
+                observedConnectedDate = nil
+            }
+        }
+    }
+    private(set) var observedSystemStatus: NEVPNStatus?
+    private(set) var observedConnectedDate: Date?
+    private var observationGate = NimboVpnObservationGate()
+    private var stopRequest = NimboVpnStopRequest()
     @Published private(set) var isSavingCorePreference = false
     @Published private(set) var switchingServerID: String?
     private var selectionIntent = UUID()
@@ -33,7 +45,7 @@ final class VpnController: ObservableObject {
     /// Only observed NE state is published; a button press is not a connection.
     func refreshLiveActivity() {
         let phase: NimboLivePhase
-        switch manager?.connection.status {
+        switch observedSystemStatus {
         case .connected?: phase = .connected
         case .connecting?: phase = .connecting
         case .reasserting?: phase = .recovering
@@ -45,8 +57,37 @@ final class VpnController: ObservableObject {
 
     /// Reconcile missed status notifications after returning from Settings/background.
     func refreshSystemStatus() {
-        synchronizeStatus()
-        refreshLiveActivity()
+        Task { await refreshObservedSystemStatus(force: true, reloadPreferences: true) }
+    }
+
+    /// Read-only system snapshots arrive on MainActor, but the native getters
+    /// run off-main. Preference reloads replace stale NE connection objects.
+    private func refreshObservedSystemStatus(force: Bool = false, reloadPreferences: Bool = false) async {
+        synchronizeStatus() // Also runs the watchdog while a native read is pending.
+        guard force || (!isStagingConfiguration && !isSavingOnDemand && !isRestoring && !startAttempt.isPreparing) else { return }
+        guard let token = observationGate.begin(now: ProcessInfo.processInfo.systemUptime, force: force) else { return }
+        let original = manager
+        let canReload = reloadPreferences && !isStagingConfiguration && !isSavingOnDemand && !startAttempt.isPreparing
+        do {
+            let fresh: NETunnelProviderManager?
+            if canReload { fresh = try await NimboTunnelControl.manager() }
+            else { fresh = original }
+            guard let fresh else {
+                _ = observationGate.finish(token)
+                return
+            }
+            let sample = await NimboVpnSystemCommands.snapshot(fresh.connection)
+            guard observationGate.finish(token), original === manager else { return }
+            guard force || (!isStagingConfiguration && !isSavingOnDemand && !startAttempt.isPreparing) else { return }
+            manager = fresh
+            observedSystemStatus = NEVPNStatus(rawValue: sample.rawStatus)
+            observedConnectedDate = sample.connectedDate
+            stopRequest.observe(rawStatus: sample.rawStatus)
+            synchronizeStatus()
+            refreshLiveActivity()
+        } catch {
+            _ = observationGate.finish(token)
+        }
     }
 
     /// Called before any disconnect, profile selection, or NetworkExtension write.
@@ -115,10 +156,13 @@ final class VpnController: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let connection = notification.object as? NEVPNConnection else { return }
+            guard notification.object is NEVPNConnection else { return }
             Task { @MainActor in
-                guard let self, connection === self.manager?.connection else { return }
-                self.synchronizeStatus()
+                guard let self else { return }
+                // Status notifications may refer to a replacement NE connection.
+                // The reload filters the exact owned provider; foreign VPNs can
+                // trigger a read, but can never supply Nimbo's displayed state.
+                await self.refreshObservedSystemStatus(reloadPreferences: true)
             }
         }
     }
@@ -135,14 +179,15 @@ final class VpnController: ObservableObject {
         defer { isRestoring = false }
         do {
             manager = try await NimboTunnelControl.manager()
-            if manager != nil { synchronizeStatus() }
+            if manager != nil { await refreshObservedSystemStatus(force: true) }
         } catch {
             fail(code: "IOS_VPN_MANAGER_LOAD_FAILED", error: error)
         }
     }
 
     private func requireStoppedConnection() throws {
-        guard let status = manager?.connection.status else { return }
+        guard manager != nil else { return }
+        guard let status = observedSystemStatus else { throw NimboCoreSelectionError.busy }
         guard status == .disconnected || status == .invalid else {
             synchronizeStatus()
             throw NimboCoreSelectionError.busy
@@ -173,7 +218,9 @@ final class VpnController: ObservableObject {
             // an already running session or change that session's NE profile.
             let existing = try await NimboTunnelControl.manager()
             if let existing {
-                switch existing.connection.status {
+                manager = existing
+                await refreshObservedSystemStatus(force: true)
+                switch observedSystemStatus {
                 case .connected, .connecting, .reasserting, .disconnecting:
                     manager = existing
                     synchronizeStatus()
@@ -203,6 +250,7 @@ final class VpnController: ObservableObject {
     func stageConfiguration(data: Data) async throws {
         guard !data.isEmpty else { throw VpnControllerError.emptyConfiguration }
         guard data.count <= 15 * 1_024 * 1_024 else { throw VpnControllerError.configurationTooLarge }
+        await refreshObservedSystemStatus(force: true)
         try requireStoppedConnection()
         let profileEngine = try validateCore(data: data)
         let preference = try NimboCorePreference.decode(
@@ -212,8 +260,10 @@ final class VpnController: ObservableObject {
         isStagingConfiguration = true
         defer { isStagingConfiguration = false }
         if manager == nil { manager = try await NimboTunnelControl.manager() }
+        await refreshObservedSystemStatus(force: true)
         try requireStoppedConnection()
         if manager == nil { manager = try await loadOrCreateManager() }
+        await refreshObservedSystemStatus(force: true)
         try requireStoppedConnection()
         guard let manager,
               let tunnelProtocol = manager.protocolConfiguration as? NETunnelProviderProtocol else {
@@ -222,6 +272,7 @@ final class VpnController: ObservableObject {
         // Preserve NetworkExtension's physical-network exemption for sockets
         // created by the provider (including the encrypted AWG UDP endpoint).
         // The default IPv4/IPv6 routes still capture the device's app traffic.
+        observationGate.invalidate()
         tunnelProtocol.includeAllNetworks = false
         tunnelProtocol.providerConfiguration = [
             "schema": 2,
@@ -244,6 +295,7 @@ final class VpnController: ObservableObject {
         manager.protocolConfiguration = tunnelProtocol
         try await manager.saveToPreferences()
         try await manager.loadFromPreferences()
+        await refreshObservedSystemStatus(force: true)
         await NimboDiagnostics.shared.record(
             .info,
             stage: .config,
@@ -268,13 +320,15 @@ final class VpnController: ObservableObject {
         if manager == nil { manager = try await NimboTunnelControl.manager() }
         // Nothing installed: deleting an imported profile must not ask for VPN permission.
         guard let manager else { return }
-        if manager.connection.status != .disconnected && manager.connection.status != .invalid {
+        await refreshObservedSystemStatus(force: true)
+        if observedSystemStatus != .disconnected && observedSystemStatus != .invalid {
             await disconnect()
             let deadline = ProcessInfo.processInfo.systemUptime + 15
-            while manager.connection.status != .disconnected && manager.connection.status != .invalid {
+            while observedSystemStatus != .disconnected && observedSystemStatus != .invalid {
                 try Task.checkCancellation()
                 guard ProcessInfo.processInfo.systemUptime < deadline else { throw VpnControllerError.switchStopTimeout }
                 try await Task.sleep(nanoseconds: 100_000_000)
+                await refreshObservedSystemStatus()
             }
             synchronizeStatus()
         }
@@ -348,9 +402,9 @@ final class VpnController: ObservableObject {
     /// может отличить наш от системного, а память расширения ему недоступна.
     func tunnelMetrics(includeTelemetry: Bool = false) async -> NimboTunnelReport? {
         guard case .connected = state else { return nil }
-        let connectedAt = manager?.connection.connectedDate
+        let connectedAt = observedConnectedDate
         guard let response = try? await sendProviderCommand("metrics", fields: ["includeTelemetry": includeTelemetry]),
-              case .connected = state, manager?.connection.connectedDate == connectedAt else { return nil }
+              case .connected = state, observedConnectedDate == connectedAt else { return nil }
         return NimboTunnelReport.decode(response)
     }
 
@@ -387,8 +441,9 @@ final class VpnController: ObservableObject {
             // provider. Reconcile the real system state before any preference write.
             if manager == nil { manager = try await NimboTunnelControl.manager() }
             if let manager { try await manager.loadFromPreferences() }
+            await refreshObservedSystemStatus(force: true)
             guard startAttempt.isCurrent(attempt) else { return }
-            if let status = manager?.connection.status,
+            if let status = observedSystemStatus,
                status != .invalid && status != .disconnected {
                 startAttempt.invalidate()
                 synchronizeStatus()
@@ -451,6 +506,7 @@ final class VpnController: ObservableObject {
             // Explicit connect restores this owned profile before saving/reloading.
             manager.isEnabled = true
             try await NimboOnDemandRules.persist(NimboOnDemandSettings.load(), on: manager)
+            await refreshObservedSystemStatus(force: true)
             await recordConnectStep("on_demand_save_returned")
             if !startAttempt.isCurrent(attempt) {
                 // Success and a watchdog timeout also invalidate the attempt.
@@ -472,7 +528,7 @@ final class VpnController: ObservableObject {
             transitionStartedAt = startRequestedAt
             // Arming On Demand may already have started the same tunnel.
             // Do not issue a second start or turn a working session into failure.
-            switch manager.connection.status {
+            switch observedSystemStatus {
             case .connected, .connecting, .reasserting:
                 synchronizeStatus()
                 return
@@ -482,6 +538,7 @@ final class VpnController: ObservableObject {
             await recordConnectStep("system_start_begin")
             guard startAttempt.isCurrent(attempt) else { return }
             try await NimboVpnSystemCommands.start(manager.connection, lease: commandLease)
+            await refreshObservedSystemStatus(force: true, reloadPreferences: true)
             await recordConnectStep("system_start_returned")
             // Статус мог смениться прямо сейчас: уведомления об этом может уже
             // не быть, поэтому спрашиваем сами.
@@ -503,16 +560,21 @@ final class VpnController: ObservableObject {
     func disconnect(invalidateSelection: Bool = true) async {
         if invalidateSelection { selectionIntent = UUID() }
         // Осознанное отключение не должно выглядеть как сбой запуска.
+        observationGate.invalidate()
+        stopRequest.begin()
         startCommandLease?.invalidate()
         startAttempt.cancel()
         startTimeoutState = nil
         transitionStartedAt = nil
         stopTimedOut = false
         state = .disconnecting
+        scheduleStatusPollIfNeeded()
         // Менеджера может не быть: приложение перезапустили, а туннель поднят
         // системой. Без загрузки остановка не дошла бы до него, и кнопка
         // крутилась бы вечно.
         if manager == nil { manager = try? await NimboTunnelControl.manager() }
+        // Stop is issued before the queued preference save, which can stall.
+        if let manager { await NimboVpnSystemCommands.stop(manager.connection) }
         // Правило могло остаться от прежней версии: без снятия система
         // подняла бы туннель обратно через секунду, и кнопка выглядела бы
         // сломанной.
@@ -526,9 +588,9 @@ final class VpnController: ObservableObject {
                 return
             }
         }
-        guard let manager else { state = .idle; return }
+        guard let manager else { stopRequest.observe(rawStatus: 1); state = .idle; return }
         await NimboVpnSystemCommands.stop(manager.connection)
-        synchronizeStatus()
+        await refreshObservedSystemStatus(force: true, reloadPreferences: true)
         await NimboDiagnostics.shared.record(.info, stage: .stop, code: "IOS_TUNNEL_STOP_REQUESTED", message: "Остановка Packet Tunnel запрошена пользователем")
     }
 
@@ -548,9 +610,10 @@ final class VpnController: ObservableObject {
         let data = NimboStagingPayload.make(for: candidate, in: profile)
         // Incompatible selections must leave the current tunnel untouched.
         _ = try validateCore(data: data)
+        await refreshObservedSystemStatus(force: true)
         let wasActive = state == .connected || state == .connecting ||
-            manager?.connection.status == .connected || manager?.connection.status == .connecting ||
-            manager?.connection.status == .reasserting
+            observedSystemStatus == .connected || observedSystemStatus == .connecting ||
+            observedSystemStatus == .reasserting
         if wasActive, NimboConfigurationStore.shared.activeServerID == serverID, profile.selectedServer?.id == candidate.id,
            let proto = manager?.protocolConfiguration as? NETunnelProviderProtocol,
            proto.providerConfiguration?["configData"] as? Data == data {
@@ -568,11 +631,12 @@ final class VpnController: ObservableObject {
                 if case let .failed(_, message) = self.state { throw VpnControllerError.switchFailed(message) }
                 guard self.manager != nil else { throw VpnControllerError.managerUnavailable }
                 let deadline = ProcessInfo.processInfo.systemUptime + 15
-                while let status = self.manager?.connection.status, status != .disconnected && status != .invalid {
+                while let status = self.observedSystemStatus, status != .disconnected && status != .invalid {
                     guard self.selectionIntent == intent else { throw CancellationError() }
                     try Task.checkCancellation()
                     guard ProcessInfo.processInfo.systemUptime < deadline else { throw VpnControllerError.switchStopTimeout }
                     try await Task.sleep(nanoseconds: 100_000_000)
+                    await self.refreshObservedSystemStatus()
                 }
                 self.synchronizeStatus()
             },
@@ -639,7 +703,7 @@ final class VpnController: ObservableObject {
         try await NimboOnDemandRules.persist(settings, on: existing)
         UserDefaults.standard.set(encoded, forKey: NimboOnDemandSettings.preferenceKey)
         manager = existing
-        synchronizeStatus()
+        await refreshObservedSystemStatus(force: true)
     }
 
     /// Manual stop pauses system rules, but preserves saved opt-in for resume.
@@ -706,7 +770,7 @@ final class VpnController: ObservableObject {
     }
 
     private func synchronizeStatus() {
-        guard let status = manager?.connection.status else {
+        guard let status = observedSystemStatus else {
             // Менеджер ещё не загружен: подождём и спросим снова, иначе
             // состояние застынет на переходном.
             scheduleStatusPollIfNeeded()
@@ -734,6 +798,11 @@ final class VpnController: ObservableObject {
             }
         }
 
+        if stopRequest.pending {
+            if !stopTimedOut { state = .disconnecting }
+            scheduleStatusPollIfNeeded()
+            return
+        }
         switch status {
         case .invalid, .disconnected:
             if stopTimedOut {
@@ -803,7 +872,7 @@ final class VpnController: ObservableObject {
     private func scheduleStatusPollIfNeeded() {
         // Preparation has its own deadline. Never release write ownership when
         // it expires: an uncompleted NE save can still finish later.
-        let observedStatus = manager?.connection.status
+        let observedStatus = observedSystemStatus
         let observingTimedOutStart = startTimeoutState != nil &&
             (isStartingConnection || observedStatus == .connecting ||
              observedStatus == .reasserting || observedStatus == .disconnecting)
@@ -840,7 +909,7 @@ final class VpnController: ObservableObject {
                 Task {
                     await NimboDiagnostics.shared.record(.error, stage: .tunnelStart,
                         code: code, message: message,
-                        metadata: ["system_status": self.manager.map { Self.statusName($0.connection.status) } ?? "unloaded",
+                        metadata: ["system_status": self.observedSystemStatus.map(Self.statusName) ?? "unloaded",
                                    "preparing": String(preparing), "elapsed_seconds": String(Int(waited))])
                 }
             }
@@ -854,7 +923,7 @@ final class VpnController: ObservableObject {
                    !self.isStagingConfiguration, !self.isRestoring {
                     self.manager = try? await NimboTunnelControl.manager()
                 }
-                self.synchronizeStatus()
+                await self.refreshObservedSystemStatus(reloadPreferences: true)
             }
         }
         statusPollTimer = timer
@@ -893,7 +962,7 @@ final class VpnController: ObservableObject {
     private func applyDisconnectError(_ error: Error?, attempt: UInt64, connection: NEVPNConnection) {
         guard startAttempt.acceptsDisconnectError(for: attempt),
               connection === manager?.connection else { return }
-        guard connection.status == .disconnected || connection.status == .invalid else {
+        guard observedSystemStatus == .disconnected || observedSystemStatus == .invalid else {
             // A reconnect may beat its notification to the main queue.
             synchronizeStatus()
             return

@@ -25,6 +25,7 @@ enum NimboTunnelControl {
     @MainActor static func setEnabled(_ enabled: Bool) async throws {
         guard let manager = try await manager() else { throw ControlError.needsSetup }
         if !enabled {
+            await NimboVpnSystemCommands.stop(manager.connection)
             // Explicit stop must also disable legacy on-demand rules.
             if manager.isOnDemandEnabled {
                 do { try await NimboOnDemandRules.persist(NimboOnDemandSettings(), on: manager) }

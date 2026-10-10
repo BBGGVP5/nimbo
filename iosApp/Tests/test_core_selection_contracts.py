@@ -89,7 +89,7 @@ class CoreSelectionContracts(unittest.TestCase):
 
     def test_reopening_app_observes_running_session_before_next_preference(self):
         body = function(CONTROLLER, 'prepare')
-        current = body.index('switch existing.connection.status')
+        current = body.index('switch observedSystemStatus')
         self.assertLess(current, body.index('try validateCore(data: stored)'))
         running = body[current:body.index('let stored =')]
         self.assertIn('case .connected, .connecting, .reasserting, .disconnecting:', running)

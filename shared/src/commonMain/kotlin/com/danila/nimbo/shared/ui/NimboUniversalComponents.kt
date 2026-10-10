@@ -146,11 +146,13 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
     }
     val motion = rememberNimboConnectionMotion(connected, state.connectionBusy,
         pressed || clickFeedback, enabled = state.navIconMotion)
-    val actionLabel = if (connected) "Отключить" else if (state.connectionBusy) "Подождите…" else "Подключить"
+    val canCancel = state.vpnState == "connecting" || state.vpnState == "preparing"
+    val actionEnabled = !state.connectionBusy || canCancel
+    val actionLabel = if (canCancel) "Отменить подключение" else if (connected) "Отключить" else if (state.connectionBusy) "Подождите…" else "Подключить"
     val toggle = {
         clickFeedback = true
         clickFeedbackKey++
-        if (state.servers.isEmpty() && !connected) actions.onAddProfile() else actions.onToggleVpn()
+        if (state.servers.isEmpty() && !connected && !canCancel) actions.onAddProfile() else actions.onToggleVpn()
     }
     Column(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -174,6 +176,7 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
         Spacer(Modifier.height(5.dp))
         BasicText(when {
             connected -> "Ваш трафик идёт через выбранный сервер"
+            canCancel -> "Нажмите кнопку, чтобы отменить подключение"
             state.connectionBusy -> "Дождитесь завершения операции"
             state.vpnState == "failed" -> "Проверьте сеть или выберите другой сервер"
             else -> "Один шаг до подключения"
@@ -189,7 +192,7 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
                 }
                 .clip(RoundedCornerShape(20.dp)).background(fill)
                 .semantics { contentDescription = actionLabel }
-                .clickable(enabled = !state.connectionBusy, role = Role.Button,
+                .clickable(enabled = actionEnabled, role = Role.Button,
                     interactionSource = interactionSource, indication = null, onClick = toggle)
                 .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -209,7 +212,7 @@ internal fun NimboConnectionPanel(state: NimboUiState, actions: NimboUiActions) 
                 NimboConnectionHalo(motion, fill, Modifier.fillMaxSize())
                 Box(Modifier.fillMaxSize().padding(7.dp).clip(CircleShape).background(fill)
                     .semantics { contentDescription = actionLabel }
-                    .clickable(enabled = !state.connectionBusy, role = Role.Button,
+                    .clickable(enabled = actionEnabled, role = Role.Button,
                         interactionSource = interactionSource, indication = null, onClick = toggle), contentAlignment = Alignment.Center) {
                     NimboConnectionGlyph(motion, if (fill.luminance() > .5f) Color(0xFF202020) else Color.White, Modifier.size(56.dp)
                         .graphicsLayer { scaleX = motion.iconScale.value; scaleY = motion.iconScale.value },
