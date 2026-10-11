@@ -1,5 +1,7 @@
 # Android mobile Xray bootstrap DNS implementation plan
 
+> **Withdrawn from runtime on 2026-10-11:** the user reported worse connectivity after the signed APK replacement. The adapter had only JVM/compile verification, not carrier/device verification. Restore the pre-change Xray wiring; do not treat the earlier passing tests as evidence of mobile-network compatibility. Original implementation and tests remain recoverable in commit `d155a0b`.
+
 > **For agentic workers:** Execute this bounded fix task-by-task in the current workspace. Preserve existing platform work and release artifacts.
 
 **Goal:** Resolve Xray connection endpoints through the selected physical Android network without forcing public DNS, looping through the new VPN, or replacing subscription DNS.

@@ -37,8 +37,6 @@ object XrayManager {
 
     private var tunInterface: ParcelFileDescriptor? = null
 
-    private var bootstrapDns: BootstrapDnsServer? = null
-
     suspend fun connect(
         context: Context,
         server: Server,
@@ -51,18 +49,6 @@ object XrayManager {
             disconnect()
             val adBlocking = PreferencesManager(context).adBlockingEnabled
             NebulaGuardApplication.ensureXrayCoreLoaded()
-
-            // Go's Android resolver is separate from protected Xray dial sockets.
-            // Bridge it to the selected physical network BEFORE publishing VPN DNS.
-            // Do not force 1.1.1.1/8.8.8.8 or rewrite the subscription's root DNS.
-            val physicalNetwork = requireNotNull(underlyingNetwork) {
-                "Physical network unavailable for Xray bootstrap DNS"
-            }
-            val dns = BootstrapDnsServer(AndroidBootstrapDns(context, physicalNetwork))
-            bootstrapDns = dns
-            LibXray.setDNS(object : DialerController {
-                override fun protectFd(fd: Long): Boolean = vpnService.protect(fd.toInt())
-            }, dns.endpoint)
 
             val vpnFd = establishTun(vpnService, underlyingNetwork)
 
@@ -129,16 +115,7 @@ object XrayManager {
     fun disconnect() {
         activeAdBlockingEnabled = null
         HealthProxySessions.invalidate()
-        // Cancel platform requests first so native shutdown cannot wait on a DNS timeout.
-        // Leave the loopback listener alive until stop returns; it can answer SERVFAIL.
-        bootstrapDns?.stopResolving()
         runCatching { LibXray.invoke(XrayCoreProtocol.stopXray()) }
-        // Only restore the process resolver after the instance has stopped.
-        bootstrapDns?.let { dns ->
-            runCatching { LibXray.resetDNS() }
-            dns.close()
-        }
-        bootstrapDns = null
         runCatching { tunInterface?.close() }
         tunInterface = null
         isConnected = false
