@@ -1,4 +1,5 @@
 @file:Suppress("FunctionName", "unused")
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 
 package com.danila.nimbo.shared.ui
 
@@ -18,6 +19,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.encodeToString
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSUserDefaults
+import platform.Foundation.NSUUID
 import platform.UIKit.UIViewController
 
 private const val ToggleVpnAction = "com.nimbo.action.toggle-vpn"
@@ -472,7 +474,7 @@ private data class StoredNotification(
 
 private fun loadNotifications(): List<NimboNotification> {
     val raw = NSUserDefaults.standardUserDefaults.stringForKey(NotificationsDefaultsKey) ?: return emptyList()
-    return runCatching { iosJson.decodeFromString<List<StoredNotification>>(raw) }
+    return normalizeNotificationIds(runCatching { iosJson.decodeFromString<List<StoredNotification>>(raw) }
         .getOrDefault(emptyList())
         .map {
             NimboNotification(
@@ -483,7 +485,7 @@ private fun loadNotifications(): List<NimboNotification> {
                 timestampSeconds = it.timestampSeconds,
                 timeLabel = it.timeLabel
             )
-        }
+        })
 }
 
 private fun storeNotifications(items: List<NimboNotification>) {
@@ -519,7 +521,7 @@ fun NimboPushIosNotification(
     timestampSeconds: Long
 ) {
     val notification = NimboNotification(
-        id = "n-" + timestampSeconds.toString() + "-" + message.hashCode().toString(36),
+        id = "n-" + NSUUID().UUIDString,
         title = NimboNotificationKind.fromWireName(kind).title,
         message = message,
         kind = NimboNotificationKind.fromWireName(kind),
@@ -547,6 +549,15 @@ fun NimboPushIosBurst(trigger: String) {
 /** Скрыть всплывающую полосу: историю это не трогает. */
 fun NimboDismissIosToast() {
     iosUiState.value = iosUiState.value.copy(toast = null)
+}
+
+fun NimboCurrentIosToastId(): String? = iosUiState.value.toast?.id
+
+fun NimboIosNotificationTimeoutMillis(kind: String): Long =
+    notificationTimeoutMillis(NimboNotificationKind.fromWireName(kind))
+
+fun NimboDismissIosToastIfCurrent(id: String) {
+    if (shouldDismissNotification(iosUiState.value.toast, id)) NimboDismissIosToast()
 }
 
 private fun deleteNotification(id: String) {

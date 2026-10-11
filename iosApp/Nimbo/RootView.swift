@@ -40,6 +40,9 @@ struct RootView: View {
     @State private var retiringPingTask: Task<Void, Never>?
     @State private var pingRunID: UUID?
     @State private var pingTargetID: String?
+    @State private var profilePresentationTask: Task<Void, Never>?
+    @State private var profilePresentationGeneration: UInt64 = 0
+    @State private var toastDismissTask: Task<Void, Never>?
     /// Когда в последний раз записывали «трафик не пошёл»: чаще раза в пять
     /// минут засорять журнал незачем.
     @State private var lastSelfHealAt: Date?
@@ -335,8 +338,8 @@ struct RootView: View {
               vpn.state != .preparing, vpn.state != .disconnecting,
               !isRefreshingSubscription,
               !didCheckLaunchSubscription,
-              refreshOnLaunch,
-              (try? NimboConfigurationStore.shared.loadSource()) ?? nil != nil else { return }
+              refreshOnLaunch else { return }
+        guard (try? await NimboSubscriptionRepository.shared.readRefreshSource()) != nil else { return }
         didCheckLaunchSubscription = true
         await refreshSubscription(manual: false)
     }
@@ -357,6 +360,7 @@ struct RootView: View {
     }
 
     @MainActor private func startPing(serverID: String?) {
+        guard !isRefreshingSubscription, !NimboSubscriptionRepository.shared.isWorking else { return }
         let previous = pingTask ?? retiringPingTask
         retiringPingTask = nil
         previous?.cancel()
@@ -387,7 +391,8 @@ struct RootView: View {
     }
 
     @MainActor private func measurePings(runID: UUID) async {
-        guard let profile = try? NimboSubscriptionRepository.shared.loadProfile() else { return }
+        guard let profile = try? await NimboSubscriptionRepository.shared.readProfile(),
+              !Task.isCancelled, pingRunID == runID else { return }
         let targets = profile.servers
             .map { (id: $0.id, host: $0.host, port: $0.port) }
         guard !targets.isEmpty else { return }
@@ -429,20 +434,36 @@ struct RootView: View {
             timeLabel: formatter.string(from: Date()),
             timestampSeconds: Int64(Date().timeIntervalSince1970)
         )
-        // Полоса не должна висеть: на Android она гаснет сама через несколько
-        // секунд, история при этом остаётся.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-            IosComposeControllerKt.NimboDismissIosToast()
+        guard let toastID = IosComposeControllerKt.NimboCurrentIosToastId() else { return }
+        toastDismissTask?.cancel()
+        let base = IosComposeControllerKt.NimboIosNotificationTimeoutMillis(kind: kind)
+        let duration = UIAccessibility.isVoiceOverRunning ? max(base, 12_000) : base
+        toastDismissTask = Task { @MainActor in
+            do { try await Task.sleep(nanoseconds: UInt64(duration) * 1_000_000) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            // A delayed old timer must never remove a newer message.
+            IosComposeControllerKt.NimboDismissIosToastIfCurrent(id: toastID)
         }
     }
 
     /// Импорт подписки из строки: ссылка, конфигурация или содержимое QR.
     private func importSubscription(_ source: String) async {
+        guard !isRefreshingSubscription else { return }
+        isRefreshingSubscription = true
+        var imported = false
+        IosComposeControllerKt.NimboUpdateIosSubscriptionRefreshing(refreshing: true)
+        defer {
+            isRefreshingSubscription = false
+            IosComposeControllerKt.NimboUpdateIosSubscriptionRefreshing(refreshing: false)
+            if imported { Task { await measurePings() } }
+        }
         do {
+            try await retirePingsForSubscriptionChange()
             let profile = try await NimboSubscriptionImporter.importProfile(source)
+            imported = true
             synchronizeComposeState()
             notify("success", "Подписка добавлена: \(profile.servers.count) серверов")
-            await measurePings()
         } catch {
             notify("error", NimboRedactor.redact(error.localizedDescription))
             await NimboDiagnostics.shared.record(
@@ -469,7 +490,7 @@ struct RootView: View {
     /// Замер по одному серверу: нажали на плашку — перемеряли только его.
     /// Гонять весь список ради одной строки долго и незачем.
     @MainActor private func measurePing(_ serverID: String, runID: UUID) async {
-        guard let profile = try? NimboSubscriptionRepository.shared.loadProfile(),
+        guard let profile = try? await NimboSubscriptionRepository.shared.readProfile(),
               let server = profile.servers.first(where: { $0.id == serverID }) else { return }
 
         IosComposeControllerKt.NimboBeginIosPings(serverIds: [serverID])
@@ -603,7 +624,8 @@ struct RootView: View {
     /// Select a persistent Xray leastPing balancer. The Packet Tunnel owns its
     /// observations, so it can change the outbound while the app is closed.
     private func connectFastest() async {
-        guard let profile = try? NimboSubscriptionRepository.shared.loadProfile(migratingLegacy: false),
+        guard !isRefreshingSubscription, !NimboSubscriptionRepository.shared.isWorking,
+              let profile = try? await NimboSubscriptionRepository.shared.readProfile(),
               let candidate = NimboStagingPayload.automaticServer(in: profile) else {
             notify("error", "Для Авто нужны хотя бы два совместимых сервера Xray")
             return
@@ -690,14 +712,14 @@ struct RootView: View {
     /// следующем.
     private func restageConfiguration() async {
         do {
-            if let full = try NimboConfigurationStore.shared.loadFullConfiguration() {
+            let snapshot = try await NimboSubscriptionRepository.shared.readPresentation()
+            if let full = snapshot.full {
                 try await vpn.stageConfiguration(data: full.sourceData)
                 return
             }
-            guard let profile = try NimboSubscriptionRepository.shared.loadProfile(),
-                  let selected = profile.selectedServer else { return }
+            guard let profile = snapshot.profile, let selected = snapshot.selected else { return }
             try await vpn.stageConfiguration(
-                data: NimboSubscriptionRepository.shared.stagingData(for: selected)
+                data: NimboStagingPayload.make(for: selected, in: profile)
             )
         } catch {
             await NimboDiagnostics.shared.record(
@@ -721,17 +743,20 @@ struct RootView: View {
             return
         }
         isRefreshingSubscription = true
+        var pingRestoredProfile = false
         IosComposeControllerKt.NimboUpdateIosSubscriptionRefreshing(refreshing: true)
         defer {
             isRefreshingSubscription = false
             IosComposeControllerKt.NimboUpdateIosSubscriptionRefreshing(refreshing: false)
+            if pingRestoredProfile { Task { await measurePings() } }
         }
         do {
+            try await retirePingsForSubscriptionChange()
             if let source = try NimboBackup.restore(from: url) {
                 _ = try await NimboSubscriptionRepository.shared.importRemote(source)
             }
             synchronizeComposeState()
-            if try NimboConfigurationStore.shared.loadFullConfiguration() == nil { await measurePings() }
+            pingRestoredProfile = (try await NimboSubscriptionRepository.shared.readPresentation()).full == nil
             notify("success", "Резервная копия восстановлена")
         } catch {
             notify("error", NimboRedactor.redact(error.localizedDescription))
@@ -930,21 +955,38 @@ struct RootView: View {
     /// Profile reads/decoding belong to explicit profile refreshes. A tunnel
     /// transition must not synchronously reload Keychain or inspect native YAML.
     private func refreshComposeProfile(state: VpnController.State) {
+        profilePresentationGeneration &+= 1
+        let generation = profilePresentationGeneration
+        profilePresentationTask?.cancel()
+        profilePresentationTask = Task { @MainActor in
+            do {
+                let snapshot = try await NimboSubscriptionRepository.shared.readPresentation()
+                guard !Task.isCancelled, profilePresentationGeneration == generation else { return }
+                applyComposeProfile(snapshot, state: vpn.state)
+                profilePresentationTask = nil
+            } catch {
+                guard !Task.isCancelled, profilePresentationGeneration == generation else { return }
+                profilePresentationTask = nil
+                await NimboDiagnostics.shared.record(.warning, stage: .config,
+                    code: "IOS_PROFILE_PRESENTATION_FAILED", message: NimboRedactor.redact(error.localizedDescription))
+            }
+        }
+    }
+
+    private func applyComposeProfile(_ snapshot: NimboSubscriptionPresentationSnapshot, state: VpnController.State) {
         let presentation = state.composePresentation
-        let full = try? NimboConfigurationStore.shared.loadFullConfiguration()
-        if fullConfiguration?.sourceSHA256 != full?.sourceSHA256 {
+        let full = snapshot.full
+        if fullConfiguration != full {
             fullConfiguration = full
         }
-        let graph = full.flatMap { NimboMihomoControl.cachedInspection($0)?["declaredGraph"] as? [String: Any] }
-        fullServerCount = (graph?["proxies"] as? [Any])?.count ?? 0
-        let profile = try? NimboSubscriptionRepository.shared.loadProfile()
-        let selected = profile?.selectedServer
-        let profileJson = NimboSubscriptionRepository.shared.rawProfileJSON()
+        fullServerCount = snapshot.fullServerCount
+        let profile = snapshot.profile
+        let selected = snapshot.selected
         IosComposeControllerKt.NimboUpdateIosUiState(
             vpnState: presentation.state,
             errorCode: presentation.code,
             errorMessage: presentation.message,
-            activeProfileName: NimboSubscriptionMetaStore.current.title
+            activeProfileName: snapshot.meta.title
                 ?? profile?.title
                 ?? "Подписка не добавлена",
             activeServerName: full.map { $0.groupSelections.sorted(by: { $0.key < $1.key }).first?.value ?? "Mihomo · Авто" } ?? selected?.name ?? "Выберите сервер",
@@ -953,11 +995,11 @@ struct RootView: View {
             deviceName: NimboPlatformInfo.device,
             systemName: NimboPlatformInfo.system,
             appVersion: NimboPlatformInfo.displayVersion,
-            profileJson: profileJson,
-            activeServerId: NimboConfigurationStore.shared.activeServerID
+            profileJson: snapshot.profileJSON,
+            activeServerId: snapshot.activeServerID
         )
 
-        let meta = NimboSubscriptionMetaStore.current
+        let meta = snapshot.meta
         IosComposeControllerKt.NimboUpdateIosProfileMeta(
             title: meta.title,
             trafficLabel: meta.trafficLabel,
@@ -981,15 +1023,18 @@ struct RootView: View {
             return
         }
         isRefreshingSubscription = true
+        var refreshed = false
         IosComposeControllerKt.NimboUpdateIosSubscriptionRefreshing(refreshing: true)
         defer {
             isRefreshingSubscription = false
             IosComposeControllerKt.NimboUpdateIosSubscriptionRefreshing(refreshing: false)
+            if refreshed && pingAfterRefresh { Task { await measurePings() } }
         }
         if manual { notify("info", "Обновление подписки…") }
         do {
+            try await retirePingsForSubscriptionChange()
             let profile = try await NimboSubscriptionRepository.shared.refresh()
-            if pingAfterRefresh { Task { await measurePings() } }
+            refreshed = true
             // Обновление не требует прав VPN. Свежая конфигурация передаётся
             // расширению непосредственно перед подключением.
             synchronizeComposeState()
@@ -1012,6 +1057,23 @@ struct RootView: View {
                 code: "IOS_SUBSCRIPTION_REFRESH_FAILED",
                 message: NimboRedactor.redact(error.localizedDescription)
             )
+        }
+    }
+
+    /// No native call or task.value wait on MainActor. A stuck probe keeps real
+    /// ownership and produces a bounded busy error instead of a UI deadlock.
+    private func retirePingsForSubscriptionChange() async throws {
+        let previous = pingTask ?? retiringPingTask
+        pingRunID = nil
+        pingTargetID = nil
+        pingTask = nil
+        retiringPingTask = previous
+        previous?.cancel()
+        IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)
+        await NimboDiagnostics.shared.record(.info, stage: .config,
+            code: "IOS_SUBSCRIPTION_PING_RETIRE", message: "Останавливаем диагностику перед изменением профиля")
+        guard await NimboDiagnosticProbe.waitUntilIdle(timeout: 3) else {
+            throw NimboSubscriptionRepositoryError.diagnosticStillRunning
         }
     }
 

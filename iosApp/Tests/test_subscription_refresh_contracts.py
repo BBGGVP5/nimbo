@@ -4,6 +4,39 @@ from test_vpn_startup_contracts import function, source
 
 
 class SubscriptionRefreshContracts(unittest.TestCase):
+    def test_ui_profile_snapshot_is_read_and_compacted_on_worker(self):
+        apply = function('Nimbo/RootView.swift', 'applyComposeProfile')
+        for forbidden in ['loadProfile(', 'loadFullConfiguration(', 'rawProfileJSON(', 'NimboConfigurationStore.shared']:
+            self.assertNotIn(forbidden, apply)
+        read = function('Nimbo/NimboSubscriptionRepository.swift', 'readPresentation')
+        self.assertIn('workQueue.perform(lease:', read)
+        self.assertIn('NimboProfilePresentationJSON.make', read)
+        refresh = function('Nimbo/RootView.swift', 'refreshComposeProfile')
+        self.assertIn('await NimboSubscriptionRepository.shared.readPresentation()', refresh)
+        self.assertIn('profilePresentationGeneration == generation', refresh)
+
+    def test_refresh_retires_diagnostics_before_profile_mutation(self):
+        refresh = function('Nimbo/RootView.swift', 'refreshSubscription')
+        self.assertLess(refresh.index('retirePingsForSubscriptionChange()'), refresh.index('NimboSubscriptionRepository.shared.refresh()'))
+        retire = function('Nimbo/RootView.swift', 'retirePingsForSubscriptionChange')
+        self.assertIn('previous?.cancel()', retire)
+        self.assertIn('NimboDiagnosticProbe.waitUntilIdle(timeout: 3)', retire)
+        self.assertIn('diagnosticStillRunning', retire)
+        self.assertNotIn('await previous?.value', retire)
+
+    def test_ping_settings_reads_do_not_hold_the_lease_lock(self):
+        ping = source('Nimbo/NimboPingService.swift')
+        valid = ping.split('var valid: Bool {', 1)[1].split('deinit', 1)[0]
+        self.assertLess(valid.index('Settings.current'), valid.index('lock.lock()'))
+
+    def test_notifications_have_unique_ids_and_identity_scoped_expiry(self):
+        bridge = (source('Nimbo/RootView.swift'))
+        notify = function('Nimbo/RootView.swift', 'notify')
+        self.assertIn('toastDismissTask?.cancel()', notify)
+        self.assertIn('NimboDismissIosToastIfCurrent', notify)
+        self.assertNotIn('DispatchQueue.main.asyncAfter', notify)
+        self.assertIn('NimboCurrentIosToastId()', notify)
+
     def test_owned_profile_is_reloaded_and_enabled_before_start(self):
         connect = function('Nimbo/VpnController.swift', 'connect')
         self.assertLess(connect.index('manager.loadFromPreferences()'), connect.index('status != .invalid'))

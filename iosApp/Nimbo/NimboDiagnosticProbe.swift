@@ -14,8 +14,13 @@ enum NimboDiagnosticProbe {
 
     // One native lifetime through cleanup; single-row requests cannot overlap a batch.
     private static let queue = DispatchQueue(label: "com.nimbo.ping.diagnostic", qos: .utility)
+    private static let activity = NimboWorkerActivity()
     private static let maximumConfigBytes = 1024 * 1024
     private static let maximumResponseBytes = 64 * 1024
+
+    static func waitUntilIdle(timeout: TimeInterval) async -> Bool {
+        await activity.waitUntilIdle(timeout: timeout)
+    }
 
     static func measure(serverID: String, configuration: String, url: URL, timeout: TimeInterval) async -> Int {
         await measure(serverID: serverID, configuration: configuration, url: url, timeout: timeout, transport: live)
@@ -36,10 +41,11 @@ enum NimboDiagnosticProbe {
         let state = Cancellation(transport: transport, request: cancelData)
         return await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
+                activity.begin()
                 let timer = DispatchWorkItem { state.cancel() }
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: timer)
                 queue.async {
-                    defer { timer.cancel() }
+                    defer { timer.cancel(); activity.finish() }
                     let remaining = deadline - ProcessInfo.processInfo.systemUptime
                     guard !state.isCancelled, remaining > 0,
                           let request = try? JSONSerialization.data(withJSONObject: [

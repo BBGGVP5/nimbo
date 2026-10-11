@@ -167,6 +167,26 @@ enum PingDiagnosticTests {
         let cancelled = await task.value
         precondition(cancelled == -1 && backend.active == 0, "Task cancellation must await native cleanup")
 
+        let blockedEntered = NimboPingCompletion<Bool>()
+        let unblockNative = DispatchSemaphore(value: 0)
+        let unresponsive = NimboDiagnosticProbe.Transport(run: { _ in
+            blockedEntered.finish(true)
+            _ = unblockNative.wait(timeout: .now() + 2)
+            return nil
+        }, cancel: { _ in }) // Simulate a native operation ignoring Cancel.
+        let blocked = Task {
+            await NimboDiagnosticProbe.measure(serverID: "blocked", configuration: "fixture", url: url,
+                timeout: 1, transport: unresponsive)
+        }
+        _ = await withCheckedContinuation { continuation in blockedEntered.install { continuation.resume(returning: $0) } }
+        blocked.cancel()
+        let didRetire = await NimboDiagnosticProbe.waitUntilIdle(timeout: 0.04)
+        precondition(!didRetire, "Refresh must not falsely admit profile mutation before native cleanup")
+        unblockNative.signal()
+        _ = await blocked.value
+        let realRetirement = await NimboDiagnosticProbe.waitUntilIdle(timeout: 1)
+        precondition(realRetirement)
+
         let gate = NimboPingCompletion<Int>()
         let started = NimboPingCompletion<Bool>()
         let staleProgress = Clock()

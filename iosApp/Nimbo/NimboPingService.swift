@@ -57,9 +57,12 @@ actor NimboPingService {
         }
 
         var valid: Bool {
+            // Defaults notifications may execute synchronously on a writer thread.
+            // Never invert its lock order by reading defaults under our lease lock.
+            let current = Settings.current
             lock.lock()
             defer { lock.unlock() }
-            return !invalidated && settings == .current
+            return !invalidated && settings == current
         }
 
         deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }

@@ -21,6 +21,17 @@ extension NimboSubscriptionProfile {
     }
 }
 
+/// Built on the repository worker; MainActor only publishes its display fields.
+struct NimboSubscriptionPresentationSnapshot: @unchecked Sendable {
+    let full: NimboFullConfiguration?
+    let fullServerCount: Int
+    let profile: NimboSubscriptionProfile?
+    let selected: NimboSubscriptionServer?
+    let profileJSON: String?
+    let activeServerID: String?
+    let meta: NimboSubscriptionMeta
+}
+
 final class NimboSubscriptionRepository: @unchecked Sendable {
     static let shared = NimboSubscriptionRepository()
 
@@ -46,6 +57,31 @@ final class NimboSubscriptionRepository: @unchecked Sendable {
     private let maximumInputBytes = 15 * 1_024 * 1_024
 
     private init() {}
+
+    func readProfile() async throws -> NimboSubscriptionProfile? {
+        let lease = NimboVpnCommandLease()
+        return try await Self.workQueue.perform(lease: lease) { try self.loadProfile(migratingLegacy: false) }
+    }
+
+    func readRefreshSource() async throws -> String? {
+        let lease = NimboVpnCommandLease()
+        return try await Self.workQueue.perform(lease: lease) { try self.refreshSource() }
+    }
+
+    func readPresentation() async throws -> NimboSubscriptionPresentationSnapshot {
+        let lease = NimboVpnCommandLease()
+        return try await Self.workQueue.perform(lease: lease) {
+            let full = try NimboConfigurationStore.shared.loadFullConfiguration()
+            let graph = full.flatMap { NimboMihomoControl.cachedInspection($0)?["declaredGraph"] as? [String: Any] }
+            let profile = try self.loadProfile(migratingLegacy: false)
+            let display = try NimboProfilePresentationJSON.make(full == nil ? NimboConfigurationStore.shared.loadProfile() : nil)
+            return NimboSubscriptionPresentationSnapshot(full: full,
+                fullServerCount: (graph?["proxies"] as? [Any])?.count ?? 0,
+                profile: profile, selected: profile?.selectedServer, profileJSON: display,
+                activeServerID: NimboConfigurationStore.shared.activeServerID,
+                meta: NimboSubscriptionMetaStore.current)
+        }
+    }
 
     func importPayload(_ data: Data, source: String?, title: String? = nil, lease: NimboVpnCommandLease? = nil) throws -> NimboSubscriptionProfile {
         guard !data.isEmpty, data.count <= maximumInputBytes else {
@@ -358,6 +394,7 @@ enum NimboSubscriptionRepositoryError: LocalizedError {
     case noSupportedServers(String?)
     case serverNotFound
     case sourceUnavailable
+    case diagnosticStillRunning
     case http(Int)
 
     var errorDescription: String? {
@@ -374,6 +411,8 @@ enum NimboSubscriptionRepositoryError: LocalizedError {
             "Выбранный сервер больше не найден в подписке (IOS_SERVER_NOT_FOUND)."
         case .sourceUnavailable:
             "У профиля нет адреса для обновления (IOS_SUBSCRIPTION_SOURCE_MISSING)."
+        case .diagnosticStillRunning:
+            "Пинг ещё останавливается. Подписка не изменена; повторите обновление через несколько секунд (IOS_SUBSCRIPTION_PING_BUSY)."
         case let .http(code):
             "Сервис подписки вернул HTTP \(code) (IOS_SUBSCRIPTION_HTTP)."
         }

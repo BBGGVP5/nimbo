@@ -3,6 +3,7 @@ package com.danila.nimbo.shared.ui
 import com.danila.nimbo.shared.updates.ReleaseDefaults
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -38,6 +39,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -387,14 +389,17 @@ fun NimboAppShell(
 
             // Сообщение висит поверх содержимого и над панелью: на Android оно
             // тоже перекрывает экран, иначе его не замечают.
-            state.toast?.let { toast ->
+            var displayedToast by remember { mutableStateOf(state.toast) }
+            LaunchedEffect(state.toast) { state.toast?.let { displayedToast = it } }
+            AnimatedVisibility(visible = state.toast != null,
+                enter = fadeIn(tween(140)), exit = fadeOut(tween(100)),
+                modifier = Modifier.align(Alignment.TopCenter)) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 52.dp)
+                        .padding(top = LocalNimboContentTop.current + 8.dp)
                         .nimboScreenPadding()
                 ) {
-                    NimboToast(toast, onDismiss = actions.onDismissToast)
+                    displayedToast?.let { NimboToast(it, onDismiss = actions.onDismissToast) }
                 }
             }
 

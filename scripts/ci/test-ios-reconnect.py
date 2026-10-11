@@ -12,6 +12,8 @@ with tempfile.TemporaryDirectory(prefix="nimbo-reconnect-") as directory:
         ("subscription", ["Shared/NimboVpnCommandQueue.swift", "Shared/NimboSubscriptionOperationGate.swift",
                           "Shared/NimboSelectedServerRecovery.swift", "Tests/SubscriptionOperationTests.swift"]),
         ("cache", ["Nimbo/NimboSubscriptionModels.swift", "Tests/SubscriptionCacheTests.swift"]),
+        ("presentation", ["Shared/NimboProfilePresentationJSON.swift", "Tests/ProfilePresentationTests.swift"]),
+        ("retirement", ["Shared/NimboWorkerActivity.swift", "Tests/WorkerActivityTests.swift"]),
         ("core", ["Shared/NimboAWGConfiguration.swift", "Shared/NimboNaiveConfiguration.swift",
                   "Nimbo/NimboCoreSelection.swift", "Tests/CoreSelectionTests.swift"]),
     ]:

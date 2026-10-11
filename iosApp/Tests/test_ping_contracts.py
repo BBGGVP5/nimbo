@@ -21,6 +21,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCES = [
     "iosApp/Shared/NimboPingPolicy.swift",
     "iosApp/Shared/NimboPingCompletion.swift",
+    "iosApp/Shared/NimboWorkerActivity.swift",
     "iosApp/Shared/NimboHTTPProbe.swift",
     "iosApp/Shared/NimboSOCKSTunnel.swift",
     "iosApp/Shared/NimboRoutingOptions.swift",

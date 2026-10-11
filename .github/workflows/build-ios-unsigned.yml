@@ -79,6 +79,9 @@ jobs:
       - name: Verify reconnect startup and core admission policies
         run: python3 scripts/ci/test-ios-reconnect.py
 
+      - name: Verify subscription worker and notification lifecycle wiring
+        run: python3 -m unittest discover -s iosApp/Tests -p test_subscription_refresh_contracts.py
+
       - name: Install build tools
         run: brew install xcodegen ldid-procursus
 

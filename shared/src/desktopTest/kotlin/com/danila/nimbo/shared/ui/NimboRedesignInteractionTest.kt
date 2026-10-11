@@ -12,6 +12,28 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NimboRedesignInteractionTest {
+    @Test fun compactToastMatchesAndroidAndHasAccessibleDismiss() {
+        var dismissed = false
+        val notification = NimboNotification("one", "Активность", "Обновление подписки…",
+            NimboNotificationKind.ACTIVITY, 1, "12:00")
+        ImageComposeScene(390, 844) { NimboToast(notification) { dismissed = true } }.use { scene ->
+            scene.settle()
+            assertTrue("Обновление подписки…" in scene.texts())
+            assertFalse("Активность" in scene.texts(), "The transient banner must not repeat its category as a title")
+            val close = scene.nodes().first {
+                "Закрыть уведомление" in it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty()
+            }
+            assertTrue(close.boundsInRoot.width >= 48f && close.boundsInRoot.height >= 48f)
+            assertTrue(close.config[SemanticsActions.OnClick].action!!.invoke())
+            assertTrue(dismissed)
+            scene.render(1_000_000_000L).use { rendered ->
+                rendered.encodeToData()?.use { data ->
+                    java.io.File(System.getProperty("java.io.tmpdir"), "nimbo-notification-preview.png").writeBytes(data.bytes)
+                }
+            }
+        }
+    }
+
     private fun ImageComposeScene.nodes() = semanticsOwners.flatMap { it.getAllSemanticsNodes(mergingEnabled = true) }
     private fun ImageComposeScene.texts() = nodes().flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty() }.map { it.text }
     private fun ImageComposeScene.settle() { render(0).close(); render(1_000_000_000L).close() }
