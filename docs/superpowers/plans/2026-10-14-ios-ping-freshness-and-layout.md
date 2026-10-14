@@ -36,3 +36,12 @@
 - [ ] Check diff/whitespace and protected changes, then push the focused commit and dispatch the private Apple build for compiled Swift/iOS validation.
 - [ ] Do not replace public Beta assets in this turn: user requested investigation/fixes, not a new publication.
 - [ ] Report evidence and limitations: no carrier white-list or physical-iPhone test, a successful HTTP probe only proves this target works on the current route at that instant.
+
+## Execution evidence (14 October 2026)
+
+- Implemented in `3d144bf849878d9f2c0586b84aea5a2b8f9d93f9`; native Go, DNS and VPN startup code unchanged.
+- 40 targeted Python source checks passed (ping 20, profile screen 6, refresh 7, design 4, iPad 3).
+- 21 executed Kotlin/Compose tests passed across ping presentation, 36 layout variants, server context actions, mobile feedback and redesign interactions. Rendered 390px/100% and 320px/200% outputs were inspected.
+- Primary workspace synchronisation verified; its pre-existing source-runner variant retained and augmented rather than overwritten. Protected unrelated LICENSE hash unchanged.
+- Private Apple compilation/build dispatched: https://github.com/BBGGVP5/nimbo/actions/runs/38562413747. Its result remains pending until reported below. Public release assets not replaced.
+- A positive result proves one HTTP control request through the selected outbound on the current route, not that every website works. A connected system VPN can change that route; no physical-device/white-list carrier test is claimed.
