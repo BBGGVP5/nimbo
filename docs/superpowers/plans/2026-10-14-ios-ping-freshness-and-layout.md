@@ -45,3 +45,8 @@
 - Primary workspace synchronisation verified; its pre-existing source-runner variant retained and augmented rather than overwritten. Protected unrelated LICENSE hash unchanged.
 - Private Apple compilation/build dispatched: https://github.com/BBGGVP5/nimbo/actions/runs/38562413747. Its result remains pending until reported below. Public release assets not replaced.
 - A positive result proves one HTTP control request through the selected outbound on the current route, not that every website works. A connected system VPN can change that route; no physical-device/white-list carrier test is claimed.
+
+### Apple Swift verification
+- Passed on macOS: https://github.com/BBGGVP5/nimbo/actions/runs/38564061831. The registered build workflow now has an optional `ping_only` job; its full-build default is unchanged.
+- Executed actual production Swift policy/service/adapter code with local HTTP/SOCKS/TLS and injected native ABI fixtures, including eight-way rejection-only preflight and cancellation. Native diagnostics still run one at a time.
+- Full IPA run 38562413747 passed the Swift source/transport gates and continues packaging separately; public assets remain untouched.
