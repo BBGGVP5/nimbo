@@ -129,6 +129,7 @@ final class VpnController: ObservableObject {
     private func requireCurrentPreparation(_ prepared: NimboPreparedVpnProfile) throws {
         try Task.checkCancellation()
         guard prepared.storeRevision == NimboConfigurationStore.shared.revision,
+              prepared.adBlockingEnabled == NimboRoutingSettings.current.adBlockingEnabled,
               prepared.preference == (try NimboCorePreference.decode(UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey))) else {
             throw NimboFullConfigurationError.staleRefresh
         }

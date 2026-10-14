@@ -4,6 +4,7 @@ struct NimboPreparedVpnProfile: Sendable {
     let data: Data
     let preference: NimboCorePreference
     let engine: NimboCoreProfile
+    let adBlockingEnabled: Bool
     let mihomoSelections: [String: String]
     let pingServerID: String?
     let storeRevision: UInt64
@@ -39,13 +40,13 @@ enum NimboVpnProfilePreparation {
             try NimboMihomoControl.preflight(data)
         }
         var pingServerID: String?
-        if let profile = try? NimboSubscriptionRepository.shared.loadProfile(migratingLegacy: false),
+        if full == nil, let profile = try? NimboSubscriptionRepository.shared.loadProfile(migratingLegacy: false),
            let selected = profile.selectedServer,
            NimboStagingPayload.make(for: selected, in: profile) == data {
             pingServerID = selected.id
         }
         guard store.revision == revision else { throw NimboFullConfigurationError.staleRefresh }
-        return NimboPreparedVpnProfile(data: data, preference: preference, engine: engine,
+        return NimboPreparedVpnProfile(data: data, preference: preference, engine: engine, adBlockingEnabled: adBlockingEnabled,
             mihomoSelections: full?.groupSelections ?? [:], pingServerID: pingServerID, storeRevision: revision)
     }
 }

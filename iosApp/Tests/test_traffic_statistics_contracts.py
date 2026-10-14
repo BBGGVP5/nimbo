@@ -91,7 +91,12 @@ class TrafficStatisticsContracts(unittest.TestCase):
     def test_rule_mode_is_preflighted_and_domain_sniffing_is_runtime_only(self):
         controller = read("iosApp/Nimbo/VpnController.swift")
         admission = controller.split("func validateCore", 1)[1].split("func setCorePreference", 1)[0]
-        self.assertIn("NimboMihomoControl.validateAdBlocking(full, enabled: NimboRoutingSettings.current.adBlockingEnabled)", admission)
+        self.assertIn("let adBlockingEnabled = NimboRoutingSettings.current.adBlockingEnabled", admission)
+        self.assertIn("adBlockingEnabled: adBlockingEnabled", admission)
+        self.assertIn("prepared.adBlockingEnabled == NimboRoutingSettings.current.adBlockingEnabled", admission)
+        preparation = read("iosApp/Nimbo/NimboVpnProfilePreparation.swift")
+        self.assertLess(preparation.index("NimboMihomoControl.validateAdBlocking(document, enabled: adBlockingEnabled)"),
+                        preparation.index("NimboMihomoControl.preflight(data)"))
         selection = controller.split("func selectServer", 1)[1]
         self.assertLess(selection.index("validateCore(data: data)"), selection.index("await self.disconnect"))
         control = read("iosApp/Nimbo/NimboMihomoControl.swift")
