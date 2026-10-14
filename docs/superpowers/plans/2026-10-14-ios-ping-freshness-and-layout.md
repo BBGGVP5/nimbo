@@ -1,0 +1,38 @@
+# iOS ping freshness, blocked-network preflight and layout implementation plan
+
+> **For agentic workers:** Execute this plan inline. No delegation or worktree creation is needed; reuse the existing checkout and preserve unrelated native-resource edits.
+
+**Goal:** Reduce time spent on unreachable TCP endpoints, remove stale successful ping values and keep latency clear of server names.
+
+**Architecture:** Keep native diagnostic lifetimes serialized because Xray has process globals. A bounded eight-request TCP preflight can only reject a proven TCP endpoint; it can never produce a successful latency. The immutable configuration remains authoritative, with unknown/UDP/QUIC/chained configurations bypassing preflight. Clear requested cached measurements when a new run begins, and clear/cancel all measurements when the observed network or VPN context changes. Render names and latency in disjoint rows.
+
+**Tech Stack:** Swift concurrency, Network framework, Kotlin/Compose Multiplatform, Python source contracts, Apple CI.
+
+---
+
+### Task 1: Conservative preflight
+**Files:** `iosApp/Shared/NimboPingPolicy.swift`, `iosApp/Nimbo/NimboPingService.swift`, `iosApp/Tests/PingPolicyTests.swift`, `iosApp/Tests/PingDiagnosticTests.swift`, `iosApp/Tests/test_ping_contracts.py`.
+- [ ] Add endpoint-policy fixtures for explicit TCP VLESS/SS, JSON host/port identity, unknown transports, QUIC and alternate download routes.
+- [ ] Inject an async endpoint reachability probe. Test eight-way bounded scheduling, rejected-only failure publication, unchanged per-server HTTP proof, cancellation and settings invalidation.
+- [ ] Implement conservative endpoint eligibility and sliding-window negative preflight. Keep serial native work and full configured per-attempt timeout.
+- [ ] Run `python iosApp/Tests/test_ping_contracts.py`; compile/execute production Swift through the existing `--swift` Apple workflow.
+
+### Task 2: Freshness
+**Files:** `shared/src/commonMain/kotlin/com/danila/nimbo/shared/ui/NimboPingPresentation.kt`, `shared/src/iosMain/kotlin/com/danila/nimbo/shared/ui/IosComposeController.kt`, `iosApp/Nimbo/NimboPingNetworkMonitor.swift`, `iosApp/Nimbo/RootView.swift`, ping unit/source tests.
+- [ ] Test `invalidatingPingIds(mapOf("a" to 10, "b" to 20), setOf("a")) == mapOf("b" to 20)` and cancellation keeping an unattempted row unknown, not restoring a previous success.
+- [ ] Remove requested old samples from memory and persisted ranking data before beginning a run. Provide `NimboClearIosPings()` for network invalidation.
+- [ ] Observe a deduplicated NWPath signature off-main; invalidate Root run identity and shared samples on network/VPN transitions. First monitor event establishes a baseline, not a false change.
+- [ ] Run shared ping tests and subscription-refresh/source contracts to protect prior deadlock repairs.
+
+### Task 3: Separate name and latency
+**Files:** `shared/src/commonMain/kotlin/com/danila/nimbo/shared/ui/NimboProfilesScreen.kt`, `shared/src/desktopTest/kotlin/com/danila/nimbo/shared/ui/NimboServerPingLayoutTest.kt`.
+- [ ] Render real ProfileServerCard at 320/390/430px and font scales 1.0/1.5/2.0 with long server labels and all badge modes.
+- [ ] Assert text layout stays bounded, name/ping rectangles do not intersect and favourite hit target remains >=44dp.
+- [ ] Use a name/favourite header and a distinct description/latency footer; stack the footer at narrow widths/large fonts. Do not reduce touch targets.
+- [ ] Run `gradlew.bat :shared:desktopTest --tests *NimboServerPingLayoutTest --tests *NimboPingPresentationTest`; inspect rendered PNGs.
+
+### Verification and delivery
+- [ ] Copy only changed app source/tests into the primary Android Studio workspace after verifying originals match (preserve its pre-existing ping-contract variant).
+- [ ] Check diff/whitespace and protected changes, then push the focused commit and dispatch the private Apple build for compiled Swift/iOS validation.
+- [ ] Do not replace public Beta assets in this turn: user requested investigation/fixes, not a new publication.
+- [ ] Report evidence and limitations: no carrier white-list or physical-iPhone test, a successful HTTP probe only proves this target works on the current route at that instant.

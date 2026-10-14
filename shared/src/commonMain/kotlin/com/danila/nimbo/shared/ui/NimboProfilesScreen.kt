@@ -9,6 +9,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -195,38 +199,61 @@ internal fun ProfileServerCard(
     val shape = nimboStyledShape(14.dp)
     var menuExpanded by remember(server.id) { mutableStateOf(false) }
     val interaction = remember { MutableInteractionSource() }
-    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).nimboPressFeedback(interaction).clip(shape)
+    Column(Modifier.fillMaxWidth().heightIn(min = 72.dp).nimboPressFeedback(interaction).clip(shape)
         .background(if (server.selected) NimboPalette.Accent.copy(alpha = .22f) else NimboPalette.Surface)
         .border(if (server.selected) 2.dp else 1.dp, if (server.selected) NimboPalette.Accent else NimboPalette.Border, shape)
         .combinedClickable(interactionSource = interaction, indication = null,
             onClick = { if (!server.selected) onSelect(server.id) },
             onLongClick = { menuExpanded = true }, onLongClickLabel = "Действия с сервером")
         .semantics { selected = server.selected }
-        .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Column(Modifier.weight(1f).heightIn(min = 48.dp),
-            verticalArrangement = Arrangement.Center) {
-            if (server.selected) BasicText("✓ Выбран", style = NimboBodyStyle.copy(
-                color = NimboPalette.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold))
-            Box {
-                BasicText(withoutFlagEmoji(server.name), maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    style = NimboBodyStyle.copy(color = NimboPalette.Text, fontWeight = FontWeight.Medium))
-                DropdownMenu(menuExpanded, { menuExpanded = false }, containerColor = NimboPalette.Surface) {
-                    DropdownMenuItem(text = { BasicText(if (server.pingInProgress) "Остановить пинг" else "Пинг сервера", style = NimboBodyStyle.copy(color = NimboPalette.Text)) },
-                        onClick = { menuExpanded = false; onPing(server.id) })
-                    DropdownMenuItem(text = { BasicText(if (favorite) "Убрать из избранного" else "В избранное", style = NimboBodyStyle.copy(color = NimboPalette.Text)) },
-                        onClick = { menuExpanded = false; onToggleFavorite(server.id) })
+        .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Latency never competes with the name. Emoji glyphs are clipped to the
+        // measured text column too, including iOS fallback-font overhang.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.weight(1f).clipToBounds(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                if (server.selected) BasicText("✓ Выбран", style = NimboBodyStyle.copy(
+                    color = NimboPalette.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold))
+                Box(Modifier.fillMaxWidth()) {
+                    BasicText(withoutFlagEmoji(server.name), Modifier.fillMaxWidth().testTag("server-name-${server.id}"),
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        style = NimboBodyStyle.copy(color = NimboPalette.Text, fontWeight = FontWeight.Medium))
+                    DropdownMenu(menuExpanded, { menuExpanded = false }, containerColor = NimboPalette.Surface) {
+                        DropdownMenuItem(text = { BasicText(if (server.pingInProgress) "Остановить пинг" else "Пинг сервера", style = NimboBodyStyle.copy(color = NimboPalette.Text)) },
+                            onClick = { menuExpanded = false; onPing(server.id) })
+                        DropdownMenuItem(text = { BasicText(if (favorite) "Убрать из избранного" else "В избранное", style = NimboBodyStyle.copy(color = NimboPalette.Text)) },
+                            onClick = { menuExpanded = false; onToggleFavorite(server.id) })
+                    }
                 }
             }
-            BasicText(server.description.ifBlank { server.connectionLabel }, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            NimboIconButton(if (favorite) NimboIconName.FAVORITE else NimboIconName.FAVORITE_OFF,
+                Modifier.size(44.dp).testTag("server-favorite-${server.id}"), selected = favorite,
+                onClick = { onToggleFavorite(server.id) })
+        }
+        val description: @Composable (Modifier) -> Unit = { modifier ->
+            BasicText(server.description.ifBlank { server.connectionLabel }, modifier.clipToBounds(),
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
                 style = NimboBodyStyle.copy(fontSize = 11.sp, lineHeight = 15.sp))
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            NimboPingBadge(server, selected = server.selected)
-            Row {
-                NimboIconButton(if (favorite) NimboIconName.FAVORITE else NimboIconName.FAVORITE_OFF,
-                    Modifier.size(44.dp), selected = favorite, onClick = { onToggleFavorite(server.id) })
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val stackFooter = maxWidth < (280 * LocalDensity.current.fontScale).dp
+            val latency: @Composable () -> Unit = {
+                Box(Modifier.testTag("server-latency-${server.id}")) {
+                    NimboPingBadge(server, selected = server.selected)
+                }
+            }
+            if (stackFooter) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    description(Modifier.fillMaxWidth())
+                    latency()
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    description(Modifier.weight(1f))
+                    latency()
+                }
             }
         }
     }

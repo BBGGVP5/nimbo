@@ -29,6 +29,7 @@ SOURCES = [
     "iosApp/Nimbo/NimboICMPProbe.swift",
     "iosApp/Nimbo/NimboActiveRouteProbe.swift",
     "iosApp/Nimbo/NimboPingService.swift",
+    "iosApp/Nimbo/NimboPingNetworkMonitor.swift",
     "iosApp/Nimbo/NimboDiagnosticProbe.swift",
     "iosApp/PacketTunnel/NimboPingRoute.swift",
     "iosApp/Shared/NimboNaiveConfiguration.swift", "iosApp/PacketTunnel/XrayConfiguration.swift",
@@ -134,8 +135,29 @@ class PingContracts(unittest.TestCase):
         self.assertIn('guard !Task.isCancelled, pingRunID == runID else { return }', s)
         shared = read('shared/src/iosMain/kotlin/com/danila/nimbo/shared/ui/IosComposeController.kt')
         begin = shared.split('fun NimboBeginIosPings(', 1)[1].split('fun NimboUpdateIosPings(', 1)[0]
-        self.assertNotIn('iosPings.value =', begin)
-        self.assertNotIn('setObject', begin)
+        self.assertIn('invalidatingPingIds(iosPings.value, serverIds.toSet())', begin)
+        self.assertIn('persistIosPings()', begin)
+
+    def test_preflight_can_only_publish_failure_and_native_lifetimes_stay_serial(self):
+        service = read('iosApp/Nimbo/NimboPingService.swift')
+        self.assertIn('preflightParallelism = 8', service)
+        self.assertIn('NimboPingPolicy.canPreflight', service)
+        self.assertIn('progress?(id, -1)', service)
+        self.assertIn('rejected.contains(target.id)', service)
+        self.assertIn('for target in targets', service)
+        self.assertIn('private static let queue = DispatchQueue(label:', read('iosApp/Nimbo/NimboDiagnosticProbe.swift'))
+        tests = read('iosApp/Tests/PingDiagnosticTests.swift')
+        self.assertIn('await preflightTests()', tests)
+
+    def test_network_context_cancels_and_discards_stale_successes(self):
+        root = read('iosApp/Nimbo/RootView.swift')
+        self.assertIn('.nimboPingNetworkChanged', root)
+        self.assertIn('IosComposeControllerKt.NimboClearIosPings()', root)
+        monitor = read('iosApp/Nimbo/NimboPingNetworkMonitor.swift')
+        self.assertIn('NWPathMonitor()', monitor)
+        self.assertIn('guard let previous, previous != signature', monitor)
+        shared = read('shared/src/iosMain/kotlin/com/danila/nimbo/shared/ui/IosComposeController.kt')
+        self.assertIn('fun NimboClearIosPings()', shared)
 
     def test_provider_identity_generation_method_and_health(self):
         s = read("iosApp/PacketTunnel/PacketTunnelProvider.swift")

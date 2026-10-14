@@ -1,6 +1,70 @@
 import Foundation
 
 enum PingDiagnosticTests {
+    final class PreflightBackend: @unchecked Sendable {
+        private let lock = NSLock()
+        private var active = 0
+        private var maximum = 0
+        private var nativeVisits: [String] = []
+        private var publications: [String: Int] = [:]
+        var maximumActive: Int { lock.lock(); defer { lock.unlock() }; return maximum }
+        var visits: [String] { lock.lock(); defer { lock.unlock() }; return nativeVisits }
+        var progress: [String: Int] { lock.lock(); defer { lock.unlock() }; return publications }
+        func enter() { lock.lock(); active += 1; maximum = max(maximum, active); lock.unlock() }
+        func leave() { lock.lock(); active -= 1; lock.unlock() }
+        func diagnostic(_ id: String) -> Int {
+            lock.lock(); defer { lock.unlock() }
+            nativeVisits.append(id)
+            return id == "node-39" ? -1 : 210 // TCP-ready does not mean the proxy authenticates.
+        }
+        func publish(_ id: String, value: Int) {
+            lock.lock(); defer { lock.unlock() }
+            precondition(publications[id] == nil, "Each completed sample publishes only once")
+            publications[id] = value
+        }
+    }
+
+    static func preflightTests() async {
+        let targets = (1...40).map { (id: "node-\($0)", host: "proxy.example", port: $0) }
+        let configs = Dictionary(uniqueKeysWithValues: targets.map {
+            ($0.id, "vless://fixture@proxy.example:\($0.port)?type=tcp")
+        })
+        let backend = PreflightBackend()
+        let service = NimboPingService(diagnosticProbe: { id, _, _, timeout in
+            precondition(timeout == 3)
+            return backend.diagnostic(id)
+        }, endpointProbe: { _, port, timeout in
+            precondition(timeout == 3, "Preflight must not replace the configured timeout with an aggressive cutoff")
+            backend.enter()
+            defer { backend.leave() }
+            try? await Task.sleep(nanoseconds: 3_000_000)
+            return port >= 33
+        })
+        let result = await service.measureAll(targets, configurations: configs, progress: { backend.publish($0, value: $1) })
+        precondition(backend.maximumActive > 1 && backend.maximumActive <= 8, "Unreachable endpoints should run in bounded parallel waves")
+        precondition(backend.visits == (33...40).map { "node-\($0)" }, "Native lifetimes remain serial and unreachable TCP endpoints are skipped")
+        precondition(result?.count == 40 && backend.progress == result!)
+        precondition((1...32).allSatisfy { result?["node-\($0)"] == -1 })
+        precondition(result?["node-39"] == -1 && result?["node-40"] == 210, "Only authenticated per-server HTTP can produce success")
+
+        let entered = NimboPingCompletion<Bool>()
+        let cancelledProgress = PreflightBackend()
+        let cancelledService = NimboPingService(diagnosticProbe: { _, _, _, _ in
+            preconditionFailure("Cancelled preflight must never enter native")
+        }, endpointProbe: { _, _, _ in
+            entered.finish(true)
+            do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch {}
+            return false
+        })
+        let task = Task { await cancelledService.measureAll(targets, configurations: configs,
+            progress: { cancelledProgress.publish($0, value: $1) }) }
+        _ = await withCheckedContinuation { continuation in entered.install { continuation.resume(returning: $0) } }
+        task.cancel()
+        let cancelled = await task.value
+        precondition(cancelled == nil && cancelledProgress.progress.isEmpty, "Cancelled TCP attempts must not publish failure placeholders")
+        print("PASS: bounded negative-only preflight, real per-node HTTP proof and cancelled preflight retirement")
+    }
+
     /// No wall-clock sleeps: each attempted target consumes its configured timeout.
     final class Clock: @unchecked Sendable {
         private let lock = NSLock()
@@ -120,6 +184,7 @@ enum PingDiagnosticTests {
         defaults.set("nimbo", forKey: keys[0])
         defaults.set("https://example.invalid/probe?q=1", forKey: keys[1])
         defaults.set(3000, forKey: keys[2])
+        await preflightTests()
         await batchBudgetTests()
         let backend = Backend()
         let service = NimboPingService(routeProbe: { _, _, _, _, _, _ in

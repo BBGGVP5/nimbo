@@ -6,19 +6,26 @@ import NetworkExtension
 actor NimboPingService {
     typealias RouteProbe = (NETunnelProviderSession?, [String], URL, TimeInterval, String, Bool) async -> (id: String, latency: Int)
     typealias DiagnosticProbe = (String, String, URL, TimeInterval) async -> Int
+    typealias EndpointProbe = (String, Int, TimeInterval) async -> Bool
     static let shared = NimboPingService()
     private let routeProbe: RouteProbe
     private let diagnosticProbe: DiagnosticProbe
     private let diagnosticClock: () -> TimeInterval
+    private let endpointProbe: EndpointProbe
     private let parallelism = 16
+    private let preflightParallelism = 8
     private var inFlight = false
 
     init(routeProbe: @escaping RouteProbe = NimboActiveRouteProbe.measure,
          diagnosticProbe: @escaping DiagnosticProbe = NimboDiagnosticProbe.measure,
-         diagnosticClock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+         diagnosticClock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         endpointProbe: @escaping EndpointProbe = { host, port, timeout in
+             (await NimboPingService.measure(host: host, port: port, timeout: timeout)).latency >= 0
+         }) {
         self.routeProbe = routeProbe
         self.diagnosticProbe = diagnosticProbe
         self.diagnosticClock = diagnosticClock
+        self.endpointProbe = endpointProbe
     }
 
     /// Serial diagnostics need a per-node budget. Allow one second per node for
@@ -100,7 +107,11 @@ actor NimboPingService {
             guard let url = NimboPingPolicy.checkedURL(settings.rawURL) else { return unavailable }
             results = [:] // Unattempted targets are not failed measurements.
             let deadline = diagnosticClock() + Self.diagnosticBatchBudget(count: targets.count, timeout: settings.timeout)
+            guard let rejected = await preflight(targets, configurations: configurations, lease: lease,
+                                                 deadline: deadline, progress: progress) else { return nil }
+            for id in rejected { results[id] = -1 }
             for target in targets {
+                if rejected.contains(target.id) { continue }
                 let remaining = deadline - diagnosticClock()
                 guard !Task.isCancelled, lease.valid, remaining > 0 else { break }
                 let value: Int
@@ -141,6 +152,46 @@ actor NimboPingService {
             }
         }
         return !Task.isCancelled && lease.valid ? results : unavailable
+    }
+
+    /// Sliding window rejects closed/unreachable TCP endpoints in parallel. A
+    /// reachable endpoint earns NO latency: it still needs the serial, forced
+    /// per-server HTTP diagnostic. No extra Xray instances or DNS hooks are used.
+    private func preflight(_ targets: [(id: String, host: String, port: Int)],
+                           configurations: [String: String], lease: SettingsLease, deadline: TimeInterval,
+                           progress: (@MainActor (String, Int) -> Void)?) async -> Set<String>? {
+        let eligible = targets.filter { target in
+            guard let configuration = configurations[target.id] else { return false }
+            return NimboPingPolicy.canPreflight(configuration: configuration, host: target.host, port: target.port)
+        }
+        let probe = endpointProbe
+        let clock = diagnosticClock
+        var rejected = Set<String>()
+        await withTaskGroup(of: (String, Bool).self) { group in
+            var next = 0
+            func enqueue() {
+                guard next < eligible.count, !Task.isCancelled, lease.valid else { return }
+                let remaining = deadline - clock()
+                guard remaining > 0 else { return }
+                let target = eligible[next]
+                next += 1
+                let timeout = min(lease.settings.timeout, remaining)
+                group.addTask { (target.id, await probe(target.host, target.port, timeout)) }
+            }
+            for _ in 0..<preflightParallelism { enqueue() }
+            for await (id, reachable) in group {
+                guard !Task.isCancelled, lease.valid else { group.cancelAll(); break }
+                if !reachable {
+                    rejected.insert(id)
+                    await MainActor.run {
+                        guard !Task.isCancelled, lease.valid else { return }
+                        progress?(id, -1)
+                    }
+                }
+                enqueue()
+            }
+        }
+        return !Task.isCancelled && lease.valid ? rejected : nil
     }
 
     private static func probe(host: String, port: Int, settings: Settings, timeout: TimeInterval) async -> Int {

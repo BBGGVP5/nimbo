@@ -128,8 +128,17 @@ struct RootView: View {
         interfaceLayer
             .onAppear(perform: synchronizeComposeState)
             .onAppear(perform: publishSessions)
+            .onAppear {
+                NimboPingNetworkMonitor.shared.start()
+                // Persisted ranking belongs to the previous launch/network.
+                IosComposeControllerKt.NimboClearIosPings()
+            }
             .onChange(of: scenePhase) { phase in
+                invalidatePingsForNetworkChange()
                 if phase == .active { vpn.refreshSystemStatus() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboPingNetworkChanged)) { _ in
+                invalidatePingsForNetworkChange()
             }
             .task(id: scenePhase) {
                 guard scenePhase == .active else { return }
@@ -356,7 +365,21 @@ struct RootView: View {
             IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)
             return
         }
+        if vpn.state == .connected {
+            notify("info", "Проверка идёт через текущую сеть и VPN. Для проверки обхода белых списков сначала отключите VPN.")
+        }
         startPing(serverID: serverID)
+    }
+
+    @MainActor private func invalidatePingsForNetworkChange() {
+        pingRunID = nil
+        if let task = pingTask {
+            task.cancel()
+            retiringPingTask = task // A later run still waits for real native cleanup.
+        }
+        pingTask = nil
+        pingTargetID = nil
+        IosComposeControllerKt.NimboClearIosPings()
     }
 
     @MainActor private func startPing(serverID: String?) {
@@ -491,7 +514,8 @@ struct RootView: View {
     /// Гонять весь список ради одной строки долго и незачем.
     @MainActor private func measurePing(_ serverID: String, runID: UUID) async {
         guard let profile = try? await NimboSubscriptionRepository.shared.readProfile(),
-              let server = profile.servers.first(where: { $0.id == serverID }) else { return }
+              let server = profile.servers.first(where: { $0.id == serverID }),
+              !Task.isCancelled, pingRunID == runID else { return }
 
         IosComposeControllerKt.NimboBeginIosPings(serverIds: [serverID])
         defer {
@@ -511,6 +535,7 @@ struct RootView: View {
     /// Смена состояния туннеля: новая сессия обнуляет счётчики, завершённая —
     /// записывается в историю.
     private func handleVpnState(_ state: VpnController.State) {
+        invalidatePingsForNetworkChange()
         metricsGeneration &+= 1
         if state != .connected { IosComposeControllerKt.NimboClearIosTrafficTelemetry() }
         // `failed` несёт код и сообщение, поэтому сравнивать его через `==`

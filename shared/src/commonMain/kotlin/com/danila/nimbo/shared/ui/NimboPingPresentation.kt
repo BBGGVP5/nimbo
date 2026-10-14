@@ -49,6 +49,10 @@ internal fun normalizePingDisplay(value: String): String = when (value) {
 internal fun remainingPingIds(pending: Set<String>, completed: List<String>, running: Boolean): Set<String> =
     if (running) pending - completed.toSet() else emptySet()
 
+/** A new attempt cannot resurrect yesterday's success if cancelled before completion. */
+internal fun invalidatingPingIds(samples: Map<String, Int>, requested: Set<String>): Map<String, Int> =
+    samples.filterKeys { it !in requested }
+
 internal fun pingSignalLevel(value: Int?, running: Boolean): Int = when {
     running || value == null || value < 0 -> 0
     value < 100 -> 4

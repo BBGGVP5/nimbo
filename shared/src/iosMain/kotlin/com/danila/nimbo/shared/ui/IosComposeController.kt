@@ -819,8 +819,23 @@ private val iosPendingPingIds = mutableStateOf<Set<String>>(emptySet())
 
 /** Start only the requested rows; a completed row must not spin until the batch ends. */
 fun NimboBeginIosPings(serverIds: List<String>) {
+    iosPings.value = invalidatingPingIds(iosPings.value, serverIds.toSet())
+    persistIosPings()
     iosPendingPingIds.value = serverIds.toSet()
     NimboUpdateIosPings(emptyList(), emptyList(), serverIds.isNotEmpty())
+}
+
+/** Measurements belong to one observed network/VPN context, not the subscription forever. */
+fun NimboClearIosPings() {
+    iosPings.value = emptyMap()
+    iosPendingPingIds.value = emptySet()
+    persistIosPings()
+    NimboUpdateIosPings(emptyList(), emptyList(), false)
+}
+
+private fun persistIosPings() {
+    if (iosPings.value.isEmpty()) NSUserDefaults.standardUserDefaults.removeObjectForKey(PingResultsKey)
+    else NSUserDefaults.standardUserDefaults.setObject(iosJson.encodeToString(iosPings.value), PingResultsKey)
 }
 
 fun NimboUpdateIosPings(serverIds: List<String>, values: List<Int>, inProgress: Boolean) {
@@ -834,10 +849,7 @@ fun NimboUpdateIosPings(serverIds: List<String>, values: List<Int>, inProgress: 
         iosPings.value = merged
         // Замеры нужны и за пределами экрана: по ним отбираются узлы для
         // балансировщика, а собирается он в Swift при передаче конфигурации.
-        NSUserDefaults.standardUserDefaults.setObject(
-            iosJson.encodeToString(merged),
-            PingResultsKey
-        )
+        persistIosPings()
     }
     iosPingInProgress.value = inProgress
     val current = iosUiState.value
