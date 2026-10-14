@@ -21,10 +21,13 @@ class DesignAuditContracts(unittest.TestCase):
 
     def test_ios_operations_use_current_source_and_discard_cancelled_replies(self):
         card = read("iosApp/Nimbo/NimboMihomoProfileCard.swift")
-        for token in ["currentFull", "pingRunID", "refreshRunID == runID", "connection?.status == status", "invalidatePing()", "!Task.isCancelled", "sourceSHA256 == request.sourceSHA256", "session.status == .connected", "onDisappear"]:
+        for token in ["currentFull", "pingRunID", "refreshRunID == runID", "vpn.observedSystemStatus == status", "invalidatePing()", "!Task.isCancelled", "sourceSHA256 == request.sourceSHA256", "vpn.observedSystemStatus == .connected", "onDisappear"]:
             self.assertIn(token, card)
         self.assertNotIn("NimboMihomoControl.select(group: group, member: member, full: full,", card)
         self.assertNotIn("NimboMihomoPingCache.values(sourceSHA256: full.sourceSHA256", card)
+        self.assertIn("vpn.manager?.connection === connection", card)
+        self.assertIn("NimboConfigurationStore.shared.revision == declaration.storeRevision", card)
+        self.assertNotIn("session.status", card)
         self.assertIn("NimboMihomoGroup.declared", read("iosApp/Nimbo/NimboMihomoControl.swift"))
 
     def test_android_home_native_polling_observes_visible_lifecycle(self):

@@ -38,7 +38,7 @@ class ProfileScreenContracts(unittest.TestCase):
         self.assertLess(selection.index("try await vpn.selectServer"), selection.index('resultMessage = "') if 'resultMessage = "' in selection else selection.index("resultMessage = selection.reconnecting"))
         controller = (ROOT / "iosApp/Nimbo/VpnController.swift").read_text(encoding="utf-8")
         central = controller.split("func selectServer(_ serverID:", 1)[1].split("/// Reading settings", 1)[0]
-        self.assertLess(central.index("try validateCore(data:"), central.index("disconnect(invalidateSelection: false)"))
+        self.assertLess(central.index("try await validateCore(data:"), central.index("disconnect(invalidateSelection: false)"))
         for token in ["switchingServerID == nil", "selectionIntent == intent", "status != .disconnected",
                       "switchStopTimeout", "restart:", "await self.connect(selectionOwner: intent)"]:
             self.assertIn(token, central)

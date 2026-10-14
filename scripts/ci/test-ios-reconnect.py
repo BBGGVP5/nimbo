@@ -14,6 +14,12 @@ with tempfile.TemporaryDirectory(prefix="nimbo-reconnect-") as directory:
         ("cache", ["Nimbo/NimboSubscriptionModels.swift", "Tests/SubscriptionCacheTests.swift"]),
         ("presentation", ["Shared/NimboProfilePresentationJSON.swift", "Tests/ProfilePresentationTests.swift"]),
         ("retirement", ["Shared/NimboWorkerActivity.swift", "Tests/WorkerActivityTests.swift"]),
+        ("validation-worker", ["Shared/NimboPingCompletion.swift", "Shared/NimboCoreValidationWorker.swift",
+                               "Tests/CoreValidationWorkerTests.swift"]),
+        ("profile-preparation", ["Shared/NimboAWGConfiguration.swift", "Shared/NimboNaiveConfiguration.swift",
+                  "Nimbo/NimboCoreSelection.swift", "Nimbo/NimboFullConfiguration.swift",
+                  "Nimbo/NimboSubscriptionModels.swift", "Nimbo/NimboStagingPayload.swift", "Shared/NimboPingPolicy.swift",
+                  "Nimbo/NimboVpnProfilePreparation.swift", "Tests/VpnProfilePreparationTests.swift"]),
         ("core", ["Shared/NimboAWGConfiguration.swift", "Shared/NimboNaiveConfiguration.swift",
                   "Nimbo/NimboCoreSelection.swift", "Tests/CoreSelectionTests.swift"]),
     ]:

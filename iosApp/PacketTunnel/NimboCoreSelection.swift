@@ -2,7 +2,7 @@ import Foundation
 
 // Kept byte-identical in Nimbo and PacketTunnel; source tests enforce parity.
 // Each target already includes its own directory. No shared/native build changes.
-enum NimboCorePreference: String, CaseIterable {
+enum NimboCorePreference: String, CaseIterable, Sendable {
     case auto, xray, awg, mihomo
 
     static let defaultsKey = "com.nimbo.connection.vpnCore"
@@ -30,7 +30,7 @@ enum NimboCorePreference: String, CaseIterable {
     }
 }
 
-enum NimboCoreProfile: String {
+enum NimboCoreProfile: String, Sendable {
     case xray, awg, mihomo, naive
 }
 

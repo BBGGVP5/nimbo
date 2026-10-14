@@ -656,7 +656,7 @@ struct RootView: View {
             return
         }
         do {
-            try vpn.validateCore(data: NimboStagingPayload.make(for: candidate, in: profile))
+            try await vpn.validateCore(data: NimboStagingPayload.make(for: candidate, in: profile))
         } catch {
             notify("error", NimboRedactor.redact(error.localizedDescription))
             return

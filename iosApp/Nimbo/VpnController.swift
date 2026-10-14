@@ -32,6 +32,9 @@ final class VpnController: ObservableObject {
     private var observationGate = NimboVpnObservationGate()
     private var stopRequest = NimboVpnStopRequest()
     @Published private(set) var isSavingCorePreference = false
+    @Published private(set) var isValidatingCore = false
+    private static let preparationWorker = NimboCoreValidationWorker(label: "com.nimbo.core.preparation")
+    private var coreValidationWorker: NimboCoreValidationWorker { Self.preparationWorker }
     @Published private(set) var switchingServerID: String?
     private var selectionIntent = UUID()
     private var isStartingConnection = false
@@ -92,24 +95,49 @@ final class VpnController: ObservableObject {
 
     /// Called before any disconnect, profile selection, or NetworkExtension write.
     @discardableResult
-    func validateCore(data: Data) throws -> NimboCoreProfile {
+    func validateCore(data: Data) async throws -> NimboCoreProfile {
+        (try await validatePreparedProfile(data: data)).engine
+    }
+
+    private func prepareOffMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
         guard !NimboSubscriptionRepository.shared.isWorking else { throw NimboSubscriptionOperationGate.GateError.busy }
-        guard !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { throw NimboCoreSelectionError.busy }
-        let preference = UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey)
-        if let full = try NimboConfigurationStore.shared.loadFullConfiguration() {
-            let engine = try NimboCoreAdmission.validate(preference: preference, data: full.sourceData,
-                                                   declaredEngine: full.coreId)
-            try NimboMihomoControl.validateAdBlocking(full, enabled: NimboRoutingSettings.current.adBlockingEnabled)
-            try NimboMihomoControl.preflight(full.sourceData)
-            return engine
+        guard !isValidatingCore, !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else {
+            throw NimboCoreSelectionError.busy
         }
-        return try NimboCoreAdmission.validate(preference: preference, data: data)
+        isValidatingCore = true
+        defer { isValidatingCore = false }
+        let value = try await coreValidationWorker.perform(work)
+        try Task.checkCancellation()
+        guard !NimboSubscriptionRepository.shared.isWorking else { throw NimboSubscriptionOperationGate.GateError.busy }
+        return value
+    }
+
+    private func readConnectionConfiguration(fallback: Data? = nil) async throws -> Data? {
+        try await prepareOffMain { try NimboVpnProfilePreparation.configuration(fallback: fallback) }
+    }
+
+    private func validatePreparedProfile(data: Data) async throws -> NimboPreparedVpnProfile {
+        let preference = try NimboCorePreference.decode(UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey))
+        let adBlockingEnabled = NimboRoutingSettings.current.adBlockingEnabled
+        let prepared = try await prepareOffMain {
+            try NimboVpnProfilePreparation.prepare(data: data, preference: preference, adBlockingEnabled: adBlockingEnabled)
+        }
+        try requireCurrentPreparation(prepared)
+        return prepared
+    }
+
+    private func requireCurrentPreparation(_ prepared: NimboPreparedVpnProfile) throws {
+        try Task.checkCancellation()
+        guard prepared.storeRevision == NimboConfigurationStore.shared.revision,
+              prepared.preference == (try NimboCorePreference.decode(UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey))) else {
+            throw NimboFullConfigurationError.staleRefresh
+        }
     }
 
     /// Saves the next-start choice only. The active provider receives no command.
     func setCorePreference(_ preference: NimboCorePreference) async throws {
         guard preference.isAvailable else { throw NimboCoreSelectionError.unavailable }
-        guard !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand,
+        guard !isValidatingCore, !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand,
               state != .preparing, state != .connecting, state != .disconnecting else {
             throw NimboCoreSelectionError.busy
         }
@@ -228,8 +256,8 @@ final class VpnController: ObservableObject {
                 default: break
                 }
             }
-            let stored = try NimboConfigurationStore.shared.loadConfiguration()
-            if let stored { try validateCore(data: stored) }
+            let stored = try await readConnectionConfiguration()
+            if let stored { try await validateCore(data: stored) }
             manager = try await loadOrCreateManager()
             if !hasStagedConfiguration, let stored {
                 try await stageConfiguration(data: stored)
@@ -252,16 +280,21 @@ final class VpnController: ObservableObject {
         guard data.count <= 15 * 1_024 * 1_024 else { throw VpnControllerError.configurationTooLarge }
         await refreshObservedSystemStatus(force: true)
         try requireStoppedConnection()
-        let profileEngine = try validateCore(data: data)
-        let preference = try NimboCorePreference.decode(
-            UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey)
-        )
+        let cancellation = startAttempt.cancellationGeneration
+        let lease = startCommandLease
+        let prepared = try await validatePreparedProfile(data: data)
+        try requireCurrentPreparation(prepared)
+        guard startAttempt.cancellationGeneration == cancellation, lease?.isActive != false else { throw CancellationError() }
+        let profileEngine = prepared.engine
+        let preference = prepared.preference
         guard !isSavingCorePreference, !isStagingConfiguration, !isSavingOnDemand else { throw NimboCoreSelectionError.busy }
         isStagingConfiguration = true
         defer { isStagingConfiguration = false }
         if manager == nil { manager = try await NimboTunnelControl.manager() }
         await refreshObservedSystemStatus(force: true)
         try requireStoppedConnection()
+        try requireCurrentPreparation(prepared)
+        guard startAttempt.cancellationGeneration == cancellation, lease?.isActive != false else { throw CancellationError() }
         if manager == nil { manager = try await loadOrCreateManager() }
         await refreshObservedSystemStatus(force: true)
         try requireStoppedConnection()
@@ -269,6 +302,8 @@ final class VpnController: ObservableObject {
               let tunnelProtocol = manager.protocolConfiguration as? NETunnelProviderProtocol else {
             throw VpnControllerError.managerUnavailable
         }
+        try requireCurrentPreparation(prepared)
+        guard startAttempt.cancellationGeneration == cancellation, lease?.isActive != false else { throw CancellationError() }
         // Preserve NetworkExtension's physical-network exemption for sockets
         // created by the provider (including the encrypted AWG UDP endpoint).
         // The default IPv4/IPv6 routes still capture the device's app traffic.
@@ -278,11 +313,11 @@ final class VpnController: ObservableObject {
             "schema": 2,
             NimboOnDemandRules.providerKey: try JSONEncoder().encode(NimboOnDemandSettings.load()),
             "configData": data,
-            "mihomoSelections": (try NimboConfigurationStore.shared.loadFullConfiguration())?.groupSelections ?? [:],
+            "mihomoSelections": prepared.mihomoSelections,
             NimboCorePreference.providerKey: preference.rawValue,
             NimboCorePreference.profileEngineKey: profileEngine.rawValue,
             // Attribute only bytes that actually belong to the selected profile entry.
-            "pingServerID": verifiedPingServerID(for: data) ?? "",
+            "pingServerID": prepared.pingServerID ?? "",
             // Маршрутизация едет отдельным ключом: конфигурацию ядра она не
             // трогает, зато нужна расширению для системных настроек туннеля.
             "routing": NimboRoutingSettings.current.providerValue,
@@ -304,7 +339,7 @@ final class VpnController: ObservableObject {
             metadata: [
                 "bytes": "\(data.count)",
                 "schema": "2",
-                "selected_server_id_present": NimboConfigurationStore.shared.activeServerID == nil ? "false" : "true"
+                "selected_server_id_present": prepared.pingServerID == nil ? "false" : "true"
             ]
         )
     }
@@ -343,13 +378,6 @@ final class VpnController: ObservableObject {
         manager.protocolConfiguration = tunnelProtocol
         try await manager.saveToPreferences()
         try await manager.loadFromPreferences()
-    }
-
-    private func verifiedPingServerID(for data: Data) -> String? {
-        guard let profile = try? NimboSubscriptionRepository.shared.loadProfile(),
-              let server = profile.selectedServer,
-              NimboSubscriptionRepository.shared.stagingData(for: server) == data else { return nil }
-        return server.id
     }
 
     func providerStatus() async throws -> [String: Any] {
@@ -452,31 +480,15 @@ final class VpnController: ObservableObject {
             stopTimedOut = false
             await recordConnectStep("configuration_stage_begin")
             guard startAttempt.isCurrent(attempt) else { return }
-            // Full documents take precedence over retained legacy server records.
-            // Admission runs before loadOrCreateManager can change NE preferences.
-            if let full = try NimboConfigurationStore.shared.loadFullConfiguration() {
-                try validateCore(data: full.sourceData)
-            }
-            // Подписка сохраняется независимо от VPN permissions. Перед
-            // запуском используем актуальный, а не ранее переданный профиль.
-            if let profile = try NimboSubscriptionRepository.shared.loadProfile(migratingLegacy: false),
-               let selected = profile.selectedServer {
-                try await stageConfiguration(
-                    data: NimboSubscriptionRepository.shared.stagingData(for: selected)
-                )
-            } else if let stored = try NimboConfigurationStore.shared.loadConfiguration() {
-                try await stageConfiguration(data: stored)
-            } else if let proto = manager?.protocolConfiguration as? NETunnelProviderProtocol,
-                      let staged = proto.providerConfiguration?["configData"] as? Data {
-                try NimboCoreAdmission.validate(
-                    preference: UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey),
-                    data: staged,
-                    declaredEngine: proto.providerConfiguration?[NimboCorePreference.profileEngineKey]
-                )
-                try await stageConfiguration(data: staged)
-            } else {
+            // Read the authoritative full document / selected entry off-main.
+            // A rejected Mihomo preference must not create or rewrite a NE profile.
+            let stagedFallback = (manager?.protocolConfiguration as? NETunnelProviderProtocol)?
+                .providerConfiguration?["configData"] as? Data
+            guard let configuration = try await readConnectionConfiguration(fallback: stagedFallback) else {
                 throw VpnControllerError.missingConfiguration
             }
+            guard startAttempt.isCurrent(attempt) else { return }
+            try await stageConfiguration(data: configuration)
             await recordConnectStep("configuration_stage_returned")
             guard startAttempt.isCurrent(attempt) else { return }
             if manager == nil {
@@ -563,6 +575,7 @@ final class VpnController: ObservableObject {
         observationGate.invalidate()
         stopRequest.begin()
         startCommandLease?.invalidate()
+        coreValidationWorker.cancelCurrent()
         startAttempt.cancel()
         startTimeoutState = nil
         transitionStartedAt = nil
@@ -609,7 +622,7 @@ final class VpnController: ObservableObject {
         }
         let data = NimboStagingPayload.make(for: candidate, in: profile)
         // Incompatible selections must leave the current tunnel untouched.
-        _ = try validateCore(data: data)
+        _ = try await validateCore(data: data)
         await refreshObservedSystemStatus(force: true)
         let wasActive = state == .connected || state == .connecting ||
             observedSystemStatus == .connected || observedSystemStatus == .connecting ||
@@ -624,7 +637,7 @@ final class VpnController: ObservableObject {
         let intent = selectionIntent
         defer { switchingServerID = nil }
         let selected = try await NimboProfileSelection.apply(
-            validate: { _ = try self.validateCore(data: data) },
+            validate: { _ = try await self.validateCore(data: data) },
             stop: {
                 guard wasActive else { return }
                 await self.disconnect(invalidateSelection: false)
@@ -898,6 +911,7 @@ final class VpnController: ObservableObject {
             if NimboVpnStartAttempt.deadlineExceeded(elapsed: waited, preparing: preparing),
                !stopTimedOut, startTimeoutState == nil {
                 startCommandLease?.invalidate()
+                coreValidationWorker.cancelCurrent()
                 startAttempt.invalidate()
                 let code = preparing ? "IOS_VPN_PREPARATION_TIMEOUT" : "IOS_VPN_START_TIMEOUT"
                 let message = preparing

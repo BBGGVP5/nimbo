@@ -34,32 +34,37 @@ class CoreSelectionContracts(unittest.TestCase):
         body = function(CONTROLLER, 'stageConfiguration')
         # First overload forwards JSON; inspect the Data overload directly.
         body = source(CONTROLLER).split('func stageConfiguration(data: Data)', 1)[1].split('func clearConfiguration', 1)[0]
-        self.assertLess(body.index('try validateCore(data: data)'), body.index('loadOrCreateManager()'))
+        self.assertLess(body.index('try await validatePreparedProfile(data: data)'), body.index('loadOrCreateManager()'))
         self.assertIn('"configData": data', body)
         self.assertIn('NimboCorePreference.providerKey: preference.rawValue', body)
         self.assertIn('NimboCorePreference.profileEngineKey: profileEngine.rawValue', body)
 
     def test_full_record_has_precedence_before_profile_or_manager(self):
         body = function(CONTROLLER, 'connect')
-        self.assertLess(body.index('loadFullConfiguration()'), body.index('loadProfile('))
-        self.assertLess(body.index('try validateCore(data: full.sourceData)'), body.index('try await stageConfiguration'))
-        self.assertLess(body.index('try validateCore(data: full.sourceData)'), body.index('try await loadOrCreateManager()'))
-        validation = function(CONTROLLER, 'validateCore')
-        self.assertIn('declaredEngine: full.coreId', validation)
-        self.assertIn('object(forKey: NimboCorePreference.defaultsKey)', validation)
-        self.assertNotIn('try?', validation)
+        reading = function('Nimbo/NimboVpnProfilePreparation.swift', 'configuration')
+        self.assertLess(reading.index('loadFullConfiguration()'), reading.index('loadProfile('))
+        self.assertLess(body.index('try await readConnectionConfiguration('), body.index('try await stageConfiguration'))
+        self.assertLess(body.index('try await stageConfiguration'), body.index('try await loadOrCreateManager()'))
+        staging = source(CONTROLLER).split('func stageConfiguration(data: Data)', 1)[1].split('func clearConfiguration', 1)[0]
+        self.assertLess(staging.index('try await validatePreparedProfile('), staging.index('loadOrCreateManager()'))
+        validation = function('Nimbo/NimboVpnProfilePreparation.swift', 'prepare')
+        self.assertIn('declaredEngine: full?.coreId', validation)
+        self.assertIn('full.sourceData != data', validation)
+        policy = function(CONTROLLER, 'validatePreparedProfile')
+        self.assertIn('object(forKey: NimboCorePreference.defaultsKey)', policy)
+        self.assertNotIn('try?', policy)
         prepare = function(CONTROLLER, 'prepare')
-        self.assertLess(prepare.index('try validateCore(data: stored)'), prepare.index('try await loadOrCreateManager()'))
+        self.assertLess(prepare.index('try await validateCore(data: stored)'), prepare.index('try await loadOrCreateManager()'))
 
     def test_quick_connect_admits_before_disconnect_and_selection(self):
         body = function(ROOT, 'connectFastest')
-        admission = body.index('try vpn.validateCore(')
+        admission = body.index('try await vpn.validateCore(')
         self.assertLess(admission, body.index('await vpn.disconnect()'))
         self.assertLess(admission, body.index('NimboSubscriptionRepository.shared.select('))
         selection = function(ROOT, 'selectServer')
         self.assertIn('try await vpn.selectServer(serverID)', selection)
         central = function(CONTROLLER, 'selectServer')
-        self.assertLess(central.index('try validateCore(data:'), central.index('disconnect(invalidateSelection: false)'))
+        self.assertLess(central.index('try await validateCore(data:'), central.index('disconnect(invalidateSelection: false)'))
 
     def test_extension_rechecks_raw_wire_values_before_network_or_core(self):
         body = function(PROVIDER, 'startTunnelInternal')
@@ -90,7 +95,7 @@ class CoreSelectionContracts(unittest.TestCase):
     def test_reopening_app_observes_running_session_before_next_preference(self):
         body = function(CONTROLLER, 'prepare')
         current = body.index('switch observedSystemStatus')
-        self.assertLess(current, body.index('try validateCore(data: stored)'))
+        self.assertLess(current, body.index('try await validateCore(data: stored)'))
         running = body[current:body.index('let stored =')]
         self.assertIn('case .connected, .connecting, .reasserting, .disconnecting:', running)
         self.assertIn('synchronizeStatus()\n                    return', running)

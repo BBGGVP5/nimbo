@@ -1,7 +1,7 @@
 import Foundation
 
 /// Sanitized category projection only: no source credentials, native calls or saved-state writes.
-struct NimboMihomoGroup: Identifiable {
+struct NimboMihomoGroup: Identifiable, Sendable {
     let name: String
     let type: String
     let members: [String]

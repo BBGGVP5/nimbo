@@ -24,7 +24,7 @@ struct NimboCoreSettingsView: View {
                                 }
                             }
                         }
-                        .disabled(!core.isAvailable || vpn.isSavingCorePreference ||
+                        .disabled(!core.isAvailable || vpn.isValidatingCore || vpn.isSavingCorePreference ||
                                   vpn.state == .preparing || vpn.state == .connecting || vpn.state == .disconnecting)
                         .accessibilityLabel(core.title + (core.isAvailable ? "" : " — недоступно"))
                         .accessibilityValue(storedCore == core.rawValue ? "Выбрано" : "")

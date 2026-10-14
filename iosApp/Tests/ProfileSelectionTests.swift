@@ -84,6 +84,23 @@ struct ProfileSelectionTests {
             fatalError("Failed stage must not restart")
         } catch Failure.stage {}
         precondition(steps == ["validate", "stop", "persist", "stage"])
-        print("Profile selection: 8 behavioral tests passed")
+        steps = []
+        let cancelled = Task {
+            let _: Int = try await NimboProfileSelection.apply(
+                validate: {
+                    steps.append("validate")
+                    // Simulate native work that can return after caller cancellation.
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                },
+                stop: { steps.append("stop") },
+                persist: { steps.append("persist"); return 7 },
+                stage: { _ in steps.append("stage") })
+        }
+        while steps.isEmpty { await Task.yield() }
+        cancelled.cancel()
+        do { try await cancelled.value; preconditionFailure("Late validation admitted cancelled selection") }
+        catch is CancellationError {}
+        precondition(steps == ["validate"])
+        print("Profile selection: 9 behavioral tests passed")
     }
 }

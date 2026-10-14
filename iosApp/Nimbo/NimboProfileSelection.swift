@@ -5,13 +5,14 @@ import Foundation
 @MainActor
 enum NimboProfileSelection {
     static func apply<Selection>(
-        validate: () throws -> Void,
+        validate: () async throws -> Void,
         stop: () async throws -> Void = {},
         persist: () throws -> Selection,
         stage: (Selection) async throws -> Void,
         restart: () async throws -> Void = {}
     ) async throws -> Selection {
-        try validate()
+        try await validate()
+        try Task.checkCancellation()
         try await stop()
         let selected = try persist()
         try await stage(selected)

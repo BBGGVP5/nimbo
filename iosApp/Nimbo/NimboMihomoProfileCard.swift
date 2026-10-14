@@ -7,6 +7,7 @@ struct NimboMihomoProfileCard: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let full: NimboFullConfiguration
     @State private var currentFull: NimboFullConfiguration?
+    @State private var declarationRevision: UInt64?
     @State private var groups: [NimboMihomoControl.Group] = []
     @State private var category: String?
     @State private var types: [String: String] = [:]
@@ -47,7 +48,7 @@ struct NimboMihomoProfileCard: View {
             } else { Text("Нет категорий").nimboFont(12).foregroundStyle(NimboNative.secondary) }
         }
         .nimboCard()
-        .task(id: full.sourceSHA256 + ":" + String(vpn.manager?.connection.status.rawValue ?? 0)) {
+        .task(id: full.sourceSHA256 + ":" + String(vpn.observedSystemStatus?.rawValue ?? 0)) {
             invalidatePing()
             await refresh()
         }
@@ -128,27 +129,25 @@ struct NimboMihomoProfileCard: View {
         guard !selecting else { return }
         let runID = UUID(); refreshRunID = runID
         let connection = vpn.manager?.connection
-        let status = connection?.status
+        let status = vpn.observedSystemStatus
         defer { if refreshRunID == runID { refreshRunID = nil } }
         do {
-            let request = try NimboConfigurationStore.shared.loadFullConfiguration() ?? full
-            if currentFull?.sourceSHA256 != request.sourceSHA256 { groups = []; delays = [:]; category = nil; types = [:] }
-            currentFull = request
-            let declared = try NimboMihomoControl.declaredGroups(request)
+            let declaration = try await NimboMihomoControl.readDeclared(full)
+            let request = declaration.full
+            let declared = declaration.groups
             let next: [NimboMihomoControl.Group]
             if vpn.state == .connected, let session = vpn.manager?.connection as? NETunnelProviderSession {
-                next = try await NimboMihomoControl.liveGroups(request, session: session)
+                next = try await NimboMihomoControl.liveGroups(request, session: session, declaredOrder: declared.map(\.name))
             } else { next = declared }
             guard !Task.isCancelled, refreshRunID == runID,
-                  vpn.manager?.connection === connection, connection?.status == status,
-                  (try NimboConfigurationStore.shared.loadFullConfiguration())?.sourceSHA256 == request.sourceSHA256 else { return }
+                  vpn.manager?.connection === connection, vpn.observedSystemStatus == status,
+                  NimboConfigurationStore.shared.revision == declaration.storeRevision,
+                  full.sourceSHA256 == request.sourceSHA256 else { return }
+            if currentFull?.sourceSHA256 != request.sourceSHA256 { delays = [:]; category = nil }
+            currentFull = request
             groups = next
-            let graph = try NimboMihomoControl.inspection(request)["declaredGraph"] as? [String: Any]
-            types = [:]
-            for node in graph?["proxies"] as? [[String: Any]] ?? [] {
-                if let name = node["name"] as? String, let type = node["type"] as? String { types[name] = type }
-            }
-            types["DIRECT"] = "Direct"; types["REJECT"] = "Reject"
+            types = declaration.types
+            declarationRevision = declaration.storeRevision
             delays = NimboMihomoPingCache.values(sourceSHA256: request.sourceSHA256, names: groups.flatMap(\.members))
             error = nil
         } catch {
@@ -162,10 +161,11 @@ struct NimboMihomoProfileCard: View {
         guard !busy, group.selectable else { return }
         invalidatePing(); refreshRunID = nil; selecting = true
         do {
-            let request = try NimboConfigurationStore.shared.loadFullConfiguration() ?? full
+            let declaration = try await NimboMihomoControl.readDeclared(configuration)
+            let request = declaration.full
             guard request.sourceSHA256 == configuration.sourceSHA256 else { throw NimboFullConfigurationError.staleRefresh }
             try await NimboMihomoControl.select(group: group, member: member, full: request,
-                session: vpn.manager?.connection as? NETunnelProviderSession)
+                session: vpn.manager?.connection as? NETunnelProviderSession, observedStatus: vpn.observedSystemStatus)
             error = nil
         } catch { self.error = NimboRedactor.redact(error.localizedDescription) }
         selecting = false
@@ -173,9 +173,10 @@ struct NimboMihomoProfileCard: View {
     }
 
     @MainActor private func ping(_ names: [String]) {
-        guard pingTask == nil, !busy, let request = try? NimboConfigurationStore.shared.loadFullConfiguration(),
-              request.sourceSHA256 == configuration.sourceSHA256,
+        guard pingTask == nil, !busy, let revision = declarationRevision,
+              revision == NimboConfigurationStore.shared.revision,
               let session = vpn.manager?.connection as? NETunnelProviderSession, vpn.state == .connected else { return }
+        let request = configuration
         let defaults = UserDefaults.standard
         let mode = NimboPingProtocol(stored: defaults.string(forKey: "com.nimbo.ping.protocol"))
         guard let method = mode.httpMethod else { error = "Для Mihomo выберите Nimbo Ping или HTTP."; return }
@@ -189,13 +190,13 @@ struct NimboMihomoProfileCard: View {
         let runID = UUID(); pingRunID = runID; error = nil
         pingTask = Task {
             for name in unique {
-                guard !Task.isCancelled, pingRunID == runID, session.status == .connected,
-                      (try? NimboConfigurationStore.shared.loadFullConfiguration())?.sourceSHA256 == request.sourceSHA256 else { break }
+                guard !Task.isCancelled, pingRunID == runID, vpn.observedSystemStatus == .connected, vpn.manager?.connection === session,
+                      NimboConfigurationStore.shared.revision == revision, configuration.sourceSHA256 == request.sourceSHA256 else { break }
                 pingName = name
                 let reply = try? await NimboMihomoControl.rpc("mihomoDelay", full: request, session: session,
                     fields: ["name": name, "url": url, "timeoutMs": timeout, "httpMethod": method, "expectedStatus": "200-299"])
-                guard !Task.isCancelled, pingRunID == runID, session.status == .connected,
-                      (try? NimboConfigurationStore.shared.loadFullConfiguration())?.sourceSHA256 == request.sourceSHA256 else { break }
+                guard !Task.isCancelled, pingRunID == runID, vpn.observedSystemStatus == .connected, vpn.manager?.connection === session,
+                      NimboConfigurationStore.shared.revision == revision, configuration.sourceSHA256 == request.sourceSHA256 else { break }
                 let ms = (reply?["data"] as? [String: Any])?["delayMs"] as? Int ?? -1
                 let latency = ms >= 0 && ms <= 65535 ? ms : -1
                 delays[name] = latency

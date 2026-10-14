@@ -4,6 +4,14 @@ import NetworkExtension
 
 enum NimboMihomoControl {
     typealias Group = NimboMihomoGroup
+    struct DeclaredSnapshot: Sendable {
+        let full: NimboFullConfiguration
+        let storeRevision: UInt64
+        let groups: [Group]
+        let types: [String: String]
+    }
+    private static let inspectionWorker = NimboCoreValidationWorker(label: "com.nimbo.mihomo.inspection")
+    private static let selectionQueue = NimboVpnCommandQueue(label: "com.nimbo.mihomo.selection")
     private static let inspectionCache: NSCache<NSString, NSDictionary> = {
         let cache = NSCache<NSString, NSDictionary>()
         cache.countLimit = 2
@@ -54,33 +62,56 @@ enum NimboMihomoControl {
         try NimboAdBlocking.requireMihomoRuleMode(graph?["mode"] as? String, enabled: enabled)
     }
 
-    static func declaredGroups(_ full: NimboFullConfiguration) throws -> [Group] {
+    private static func declaredGroups(_ full: NimboFullConfiguration) throws -> [Group] {
         let graph = try inspection(full)["declaredGraph"] as? [String: Any]
         return NimboMihomoGroup.declared(graph?["groups"] as? [[String: Any]] ?? [], selections: full.groupSelections)
     }
 
-    static func liveGroups(_ full: NimboFullConfiguration, session: NETunnelProviderSession) async throws -> [Group] {
+    static func readDeclared(_ fallback: NimboFullConfiguration) async throws -> DeclaredSnapshot {
+        try await inspectionWorker.perform {
+            let store = NimboConfigurationStore.shared
+            let revision = store.revision
+            guard let full = try store.loadFullConfiguration(), full.sourceSHA256 == fallback.sourceSHA256 else {
+                throw NimboFullConfigurationError.staleRefresh
+            }
+            let graph = try inspection(full)["declaredGraph"] as? [String: Any]
+            let groups = try declaredGroups(full)
+            var types: [String: String] = ["DIRECT": "Direct", "REJECT": "Reject"]
+            for node in graph?["proxies"] as? [[String: Any]] ?? [] {
+                if let name = node["name"] as? String, let type = node["type"] as? String { types[name] = type }
+            }
+            guard store.revision == revision else { throw NimboFullConfigurationError.staleRefresh }
+            return DeclaredSnapshot(full: full, storeRevision: revision, groups: groups, types: types)
+        }
+    }
+
+    static func liveGroups(_ full: NimboFullConfiguration, session: NETunnelProviderSession,
+                           declaredOrder: [String]) async throws -> [Group] {
         let reply = try await rpc("mihomoSnapshot", full: full, session: session)
         let data = reply["data"] as? [String: Any]
         let groups = data?["groups"] as? [String: [String: Any]] ?? [:]
-        return NimboMihomoGroup.live(groups, declaredOrder: try declaredGroups(full).map(\.name))
+        return NimboMihomoGroup.live(groups, declaredOrder: declaredOrder)
     }
 
     @MainActor static func select(group: Group, member: String, full: NimboFullConfiguration,
-                                 session: NETunnelProviderSession?) async throws {
+                                 session: NETunnelProviderSession?, observedStatus: NEVPNStatus?) async throws {
         guard group.selectable, group.members.contains(member) else { throw NimboCoreSelectionError.incompatible }
-        if let session, session.status == .connected {
+        if let session, observedStatus == .connected {
             let reply = try await rpc("mihomoSelect", full: full, session: session, fields: ["group": group.name, "name": member])
             let groups = (reply["data"] as? [String: Any])?["groups"] as? [String: [String: Any]]
             guard groups?[group.name]?["now"] as? String == member else { throw NimboFullConfigurationError.staleRefresh }
-        } else if let session, [.connecting, .reasserting, .disconnecting].contains(session.status) {
+        } else if session != nil && observedStatus != .disconnected && observedStatus != .invalid {
             throw NimboCoreSelectionError.busy
         }
-        guard let current = try NimboConfigurationStore.shared.loadFullConfiguration(), current.sourceSHA256 == full.sourceSHA256 else {
-            throw NimboFullConfigurationError.staleRefresh
+        let lease = NimboVpnCommandLease()
+        try await selectionQueue.perform(lease: lease) {
+            guard let current = try NimboConfigurationStore.shared.loadFullConfiguration(), current.sourceSHA256 == full.sourceSHA256 else {
+                throw NimboFullConfigurationError.staleRefresh
+            }
+            let updated = try current.recordingSelection(group: group.name, member: member, expectedSourceSHA256: full.sourceSHA256)
+            guard lease.isActive else { throw CancellationError() }
+            try NimboConfigurationStore.shared.saveFullConfiguration(updated, expected: current)
         }
-        let updated = try current.recordingSelection(group: group.name, member: member, expectedSourceSHA256: full.sourceSHA256)
-        try NimboConfigurationStore.shared.saveFullConfiguration(updated, expected: current)
     }
 
     private static func native(_ operation: String, source: Data) throws -> [String: Any] {

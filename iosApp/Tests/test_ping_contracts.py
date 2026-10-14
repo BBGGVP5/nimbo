@@ -166,8 +166,8 @@ class PingContracts(unittest.TestCase):
                      'socks: route.socks', '"nimboPing" ? "GET"', 'invalidatePingSamples()']:
             self.assertIn(text, s)
         app = read("iosApp/Nimbo/VpnController.swift")
-        self.assertIn('stagingData(for: server) == data', app)
-        self.assertIn('"pingServerID": verifiedPingServerID(for: data)', app)
+        self.assertIn('NimboStagingPayload.make(for: selected, in: profile) == data', read('iosApp/Nimbo/NimboVpnProfilePreparation.swift'))
+        self.assertIn('"pingServerID": prepared.pingServerID', app)
 
     def test_disconnected_ipc_never_probes_direct(self):
         s = read("iosApp/Nimbo/NimboActiveRouteProbe.swift")

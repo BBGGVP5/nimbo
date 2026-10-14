@@ -8,6 +8,19 @@ final class NimboConfigurationStore {
     static let shared = NimboConfigurationStore()
 
     private let fullRecordLock = NSRecursiveLock()
+    // Tiny read-only identity check for MainActor; never acquire the Keychain/
+    // JSON-decoding lock just to reject an obsolete background preparation.
+    private let revisionLock = NSLock()
+    private var currentRevision: UInt64 = 0
+
+    var revision: UInt64 {
+        revisionLock.lock(); defer { revisionLock.unlock() }
+        return currentRevision
+    }
+
+    private func markChanged() {
+        revisionLock.lock(); currentRevision &+= 1; revisionLock.unlock()
+    }
 
     private let service = "com.nimbo.resignable.configuration"
     private let configurationAccount = "active-configuration"
@@ -155,7 +168,7 @@ final class NimboConfigurationStore {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
         let status = SecItemUpdate(base as CFDictionary, updates as CFDictionary)
-        if status == errSecSuccess { return }
+        if status == errSecSuccess { markChanged(); return }
         if status != errSecItemNotFound { throw NimboConfigurationStoreError.keychain(status) }
 
         var item = base
@@ -164,6 +177,7 @@ final class NimboConfigurationStore {
         guard addStatus == errSecSuccess else {
             throw NimboConfigurationStoreError.keychain(addStatus)
         }
+        markChanged()
     }
 
     private func read(account: String) throws -> Data? {
@@ -193,6 +207,7 @@ final class NimboConfigurationStore {
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw NimboConfigurationStoreError.keychain(status)
         }
+        if status == errSecSuccess { markChanged() }
     }
 }
 
