@@ -175,5 +175,50 @@ class DnsTests(unittest.TestCase):
             self.assertEqual(fixture.socks_address(Input(data)), (3, expected, 18080))
 
 
+class RepeatedRoundsTests(unittest.TestCase):
+    def test_bounded_round_counts(self):
+        for value in (1, 2, 4, 8, '1', '2', '4', '8'):
+            self.assertEqual(fixture.fixture_round_count(value), int(value))
+        for value in (0, 3, 9, -1, True, 'x', '1.5', 1.5):
+            with self.subTest(value=value), self.assertRaises((ValueError, TypeError)):
+                fixture.fixture_round_count(value)
+
+    def test_default_runs_original_order_once(self):
+        with patch.object(fixture.subprocess, 'run') as run:
+            fixture.run_driver_rounds(Path('driver'), {'fixture': 'only'}, lambda *_: None, lambda *_: None)
+        self.assertEqual([call.args[0][3] for call in run.call_args_list], [
+            'actual_windows_broker_session_tcp_udp_dns_selection_and_cleanup',
+            'actual_both_kill_switch_denies_physical_bypass_and_survives_native_death'])
+
+    def test_rounds_preserve_order_deadline_and_callbacks(self):
+        events = []
+        with patch.object(fixture.subprocess, 'run', side_effect=lambda argv, **kw: events.append(('run', argv[3], kw))) as run:
+            fixture.run_driver_rounds(Path('driver'), {'fixture': 'only'},
+                lambda r, c: events.append(('before', r, c)), lambda r, c: events.append(('after', r, c)), rounds=4)
+        self.assertEqual(run.call_count, 8)
+        for index in range(8):
+            before, call, after = events[index * 3:index * 3 + 3]
+            self.assertEqual(before, ('before', index // 2, fixture.MANDATORY_CASES[index % 2]))
+            self.assertEqual(after, ('after', index // 2, fixture.MANDATORY_CASES[index % 2]))
+            self.assertEqual(call[2], dict(env={'fixture': 'only'}, check=True, timeout=240))
+
+    def test_first_failure_stops_all_later_cases_and_rounds(self):
+        original = subprocess.CalledProcessError(101, ['driver'])
+        before, after = [], []
+        with patch.object(fixture.subprocess, 'run', side_effect=[None, original]) as run:
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                fixture.run_driver_rounds(Path('driver'), {}, lambda *x: before.append(x), lambda *x: after.append(x), rounds=8)
+        self.assertIs(raised.exception, original)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(len(before), 2)
+        self.assertEqual(len(after), 1)
+
+    def test_invalid_round_count_never_executes_driver(self):
+        with patch.object(fixture.subprocess, 'run') as run:
+            with self.assertRaises(ValueError):
+                fixture.run_driver_rounds(Path('driver'), {}, lambda *_: None, lambda *_: None, rounds=3)
+        run.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

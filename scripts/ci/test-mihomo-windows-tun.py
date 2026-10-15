@@ -15,6 +15,32 @@ import time
 from collections import deque
 from pathlib import Path
 
+MANDATORY_CASES = (
+    'actual_windows_broker_session_tcp_udp_dns_selection_and_cleanup',
+    'actual_both_kill_switch_denies_physical_bypass_and_survives_native_death',
+)
+
+
+def fixture_round_count(value):
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise ValueError('fixture rounds must be 1, 2, 4 or 8')
+    result = int(value)
+    if result not in (1, 2, 4, 8):
+        raise ValueError('fixture rounds must be 1, 2, 4 or 8')
+    return result
+
+
+def run_driver_rounds(driver, environment, before_case, after_case, rounds=1):
+    for round_index in range(fixture_round_count(rounds)):
+        for case in MANDATORY_CASES:
+            before_case(round_index, case)
+            # Never retry a failed round: the first failure preserves the
+            # original driver error and immediately enters failure diagnostics.
+            subprocess.run([str(driver), '--ignored', '--exact', case,
+                            '--test-threads=1', '--nocapture'],
+                           env=environment, check=True, timeout=240)
+            after_case(round_index, case)
+
 
 def ps(code, timeout=10):
     return subprocess.check_output(['powershell', '-NoProfile', '-NonInteractive', '-Command', code],
@@ -263,6 +289,7 @@ def main():
     parser.add_argument('--native', type=Path, required=True)
     parser.add_argument('--helper', type=Path, required=True)
     parser.add_argument('--rust-test', type=Path, required=True)
+    parser.add_argument('--rounds', type=fixture_round_count, default=1)
     args = parser.parse_args()
     native, helper, driver = args.native.resolve(), args.helper.resolve(), args.rust_test.resolve()
     manifest = json.loads((native / 'build-manifest.json').read_text())
@@ -313,16 +340,17 @@ rules: ["MATCH,FixtureChoice"]
             # earlier Both failure produces a misleading second failure in TUN
             # preflight (RESET_REQUIRED). Every original acceptance case stays
             # mandatory; emergency reset is only the explicit finally cleanup.
-            for case in ('actual_windows_broker_session_tcp_udp_dns_selection_and_cleanup',
-                         'actual_both_kill_switch_denies_physical_bypass_and_survives_native_death'):
-                print('Mandatory Windows gate: ' + case, flush=True)
+            def before_case(round_index, case):
+                print(f'Mandatory Windows round {round_index + 1}/{args.rounds}: ' + case, flush=True)
                 print('Public fixture phase before ' + case + ': ' +
                       json.dumps(fixture.trace.snapshot()['counts'], separators=(',', ':')), flush=True)
-                subprocess.run([str(driver), '--ignored', '--exact', case, '--test-threads=1', '--nocapture'],
-                               env=environment, check=True, timeout=240)
+
+            def after_case(round_index, case):
                 print('Public fixture phase after ' + case + ': ' +
                       json.dumps(fixture.trace.snapshot()['counts'], separators=(',', ':')), flush=True)
-            assert fixture.tcp_count >= 6 and fixture.udp_count >= 2 and fixture.dns_count >= 1, 'native fixture traffic absent'
+
+            run_driver_rounds(driver, environment, before_case, after_case, rounds=args.rounds)
+            assert fixture.tcp_count >= 6 * args.rounds and fixture.udp_count >= 2 * args.rounds and fixture.dns_count >= args.rounds, 'native fixture traffic absent'
         except BaseException as error:
             primary = error
             # This entry is guarded at main() by BOTH explicit disposable-VM
