@@ -159,14 +159,17 @@ class FinalNativeRoutes(unittest.TestCase):
         self.assertLess(storage.index('importFullConfiguration(fullConfiguration)'), storage.index('for (key, raw) in payload.settings'))
         self.assertIn('guard settingKeys.contains(key) else { continue }', storage)
 
-    def test_glass_only_on_navigation_and_opaque_fallback_retained(self):
-        glass_files = {p.name for p in (IOS/'Nimbo').glob('*.swift') if '.glassEffect(' in p.read_text(encoding='utf-8-sig') or '.regularMaterial' in p.read_text(encoding='utf-8-sig')}
-        self.assertEqual(glass_files, {'NimboTabBar.swift'})
+    def test_navigation_keeps_material_and_opaque_fallback_without_liquid_glass(self):
+        sources = {p.name: p.read_text(encoding='utf-8-sig') for p in (IOS/'Nimbo').glob('*.swift')}
+        self.assertEqual({name for name, text in sources.items() if '.regularMaterial' in text}, {'NimboTabBar.swift'})
+        self.assertFalse(any('.glassEffect(' in text for text in sources.values()),
+                         'Avoid the optional Liquid Glass graph implicated by the first-scene watchdog sample')
         nav = read('Nimbo/NimboTabBar.swift')
-        for guard in ['reduceTransparency || contrast == .increased', '#available(iOS 26.0, *)', '.regularMaterial']:
+        for guard in ['reduceTransparency || contrast == .increased', '.regularMaterial']:
             self.assertIn(guard, nav)
         background = nav.split('private var barBackground:', 1)[1].split('/// Wide iPad', 1)[0]
-        self.assertLess(background.index('shape.fill(NimboNative.panel)'), background.index('.glassEffect('))
+        self.assertLess(background.index('shape.fill(NimboNative.panel)'), background.index('.regularMaterial'))
+        self.assertIn('shape.strokeBorder(NimboNative.border, lineWidth: 1)', background)
         self.assertNotIn('refraction', nav, 'The retired preference must not control accessibility fallback')
 
     def test_changed_sources_parse(self):

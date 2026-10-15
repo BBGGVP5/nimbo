@@ -120,9 +120,10 @@ struct NimboTabBar: View {
         if reduceTransparency || contrast == .increased {
             shape.fill(NimboNative.panel)
                 .overlay(shape.strokeBorder(NimboNative.border, lineWidth: 1))
-        } else if #available(iOS 26.0, *) {
-            shape.fill(.clear).glassEffect(.regular, in: shape)
         } else {
+            // Keep the floating material without Liquid Glass's dynamic graph.
+            // The iOS 27.2 launch watchdog sample stopped in that graph; this is
+            // a compatibility fallback, not proof of the phone's root cause.
             shape.fill(.regularMaterial)
                 .overlay(shape.strokeBorder(NimboNative.border, lineWidth: 1))
         }

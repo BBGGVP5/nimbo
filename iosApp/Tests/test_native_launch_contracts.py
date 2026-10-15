@@ -11,6 +11,18 @@ def source(path):
 
 
 class NativeLaunchContracts(unittest.TestCase):
+    def test_bootstrap_marks_log_boundary_before_any_await(self):
+        owner = source('iosApp/Nimbo/NimboRootOwnerView.swift')
+        task = owner.split('.task {', 1)[1]
+        self.assertLess(task.index('guard launch.claimBootstrap(attempt)'),
+                        task.index('launch.mark(.recordingAppStart, attempt: attempt)'))
+        self.assertLess(task.index('launch.mark(.recordingAppStart, attempt: attempt)'),
+                        task.index('await NimboDiagnostics.shared.record'))
+        self.assertLess(task.index('await NimboDiagnostics.shared.record'),
+                        task.index('launch.mark(.migratingProfile, attempt: attempt)'))
+        self.assertIn('case recordingAppStart = "RECORDING_APP_START"',
+                      source('iosApp/Nimbo/NimboLaunchModel.swift'))
+
     def test_app_entry_has_only_native_launch_view(self):
         app = source('iosApp/Nimbo/NimboApp.swift')
         self.assertIn('WindowGroup { NimboLaunchView() }', app)

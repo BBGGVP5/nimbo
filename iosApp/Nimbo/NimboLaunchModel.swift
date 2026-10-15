@@ -13,6 +13,7 @@ enum NimboLaunchPhase: String, Codable, Sendable {
     case creatingComposeController = "CREATING_COMPOSE_CONTROLLER"
     case composeControllerReturned = "COMPOSE_CONTROLLER_RETURNED"
     case rootOwnerAppeared = "ROOT_OWNER_APPEARED"
+    case recordingAppStart = "RECORDING_APP_START"
     case migratingProfile = "MIGRATING_PROFILE"
     case migrationFailed = "MIGRATION_FAILED"
     case observingVPN = "OBSERVING_VPN"

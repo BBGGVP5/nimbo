@@ -27,6 +27,7 @@ struct NimboRootOwnerView: View {
             }
             .task {
                 guard launch.claimBootstrap(attempt) else { return }
+                launch.mark(.recordingAppStart, attempt: attempt)
                 await NimboDiagnostics.shared.record(.info, stage: .app,
                     code: "IOS_APP_STARTED", message: "Nimbo iOS запущен")
                 launch.mark(.migratingProfile, attempt: attempt)
