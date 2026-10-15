@@ -15,6 +15,16 @@ on:
         type: boolean
         required: false
         default: false
+      build_number:
+        description: Private IPA build number from 171 to 9999
+        type: string
+        required: false
+        default: '181'
+      launch_diagnostics:
+        description: Keep the first native screen gated for launch diagnosis
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -36,6 +46,7 @@ jobs:
       - name: Execute startup cancellation, bounded validation and source admission
         run: |
           python3 scripts/ios/test_startup_safety.py
+          python3 scripts/ios/test_native_launch_recovery.py
           python3 scripts/ci/test-ios-reconnect.py
           python3 iosApp/Tests/test_profile_screen_contracts.py --swift
           python3 iosApp/Tests/test_design_audit_contracts.py --swift
@@ -109,6 +120,7 @@ jobs:
       - name: Verify reconnect startup and core admission policies
         run: |
           python3 scripts/ios/test_startup_safety.py
+          python3 scripts/ios/test_native_launch_recovery.py
           python3 scripts/ci/test-ios-reconnect.py
           python3 iosApp/Tests/test_mihomo_start_responsiveness.py
 
@@ -121,13 +133,28 @@ jobs:
       - name: Install build tools
         run: brew install xcodegen ldid-procursus
 
+      - name: Verify native first-frame and explicit lazy gate in simulator
+        run: |
+          python3 scripts/ios/test_native_launch_ui_contracts.py
+          python3 scripts/ios/test_native_launch_ui.py
+
+      - name: Keep native simulator smoke evidence (not full app acceptance)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-native-launch-ui
+          path: artifacts/ios-native-launch-ui/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Prepare executable build scripts
         run: chmod +x gradlew scripts/ci/build-unsigned-ios.sh scripts/ci/prepare-libxray-apple.sh scripts/ios/resign-ipa.sh
 
       - name: Build re-signable IPA
         env:
           NIMBO_WITH_CONTROL_WIDGET: '1'
-          NIMBO_BUILD_NUMBER: '181'
+          NIMBO_BUILD_NUMBER: ${{ inputs.build_number || '181' }}
+          NIMBO_LAUNCH_DIAGNOSTICS: ${{ inputs.launch_diagnostics && '1' || '0' }}
           NIMBO_VERSION: ${{ inputs.version || '1.3.0-beta.2' }}
         run: bash scripts/ci/build-unsigned-ios.sh
 

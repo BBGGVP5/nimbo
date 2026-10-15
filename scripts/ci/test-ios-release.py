@@ -18,6 +18,19 @@ if pathlib.Path("C:/Program Files/Git/bin/bash.exe").exists():
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_diagnostic_mode_is_explicit_validated_and_forwarded(self):
+        self.assertIn('LAUNCH_DIAGNOSTICS="${NIMBO_LAUNCH_DIAGNOSTICS:-0}"', BUILD)
+        self.assertIn('NIMBO_LAUNCH_DIAGNOSTICS="${LAUNCH_DIAGNOSTICS}"', BUILD)
+        with tempfile.TemporaryDirectory() as directory:
+            script = pathlib.Path(directory) / 'preflight.sh'
+            script.write_text(BUILD.split('APP_BUNDLE_ID=', 1)[0], encoding='utf-8', newline='\n')
+            for value in ('0', '1', '2', 'YES', '$(touch invalid)'):
+                with self.subTest(value=value):
+                    result = subprocess.run([BASH, '-c', 'uname() { echo Darwin; }; source "$1"; printf "%s" "$LAUNCH_DIAGNOSTICS"', 'preflight', script.as_posix()],
+                        env=dict(os.environ, NIMBO_VERSION='1.3.0-beta.2', NIMBO_BUILD_NUMBER='182', NIMBO_LAUNCH_DIAGNOSTICS=value), capture_output=True, text=True, cwd=ROOT)
+                    self.assertEqual(result.returncode, 0 if value in ('0','1') else 2)
+                    if result.returncode == 0: self.assertEqual(result.stdout, value)
+
     def test_each_process_links_one_combined_go_runtime(self):
         spec = importlib.util.spec_from_file_location("ios_awg_contract", ROOT / "scripts/ci/check-ios-awg.py")
         module = importlib.util.module_from_spec(spec)

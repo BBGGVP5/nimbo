@@ -186,7 +186,10 @@ class VpnStartupSourceRegressions(unittest.TestCase):
 
     def test_launch_is_read_only_and_has_no_automatic_diagnostics_sheet(self):
         app = source('Nimbo/NimboApp.swift')
-        self.assertIn('await vpnController.restore()', app)
+        self.assertIn('NimboLaunchView()', app)
+        owner = source('Nimbo/NimboRootOwnerView.swift')
+        self.assertIn('await vpnController.restore()', owner)
+        self.assertNotIn('stageConfiguration', owner)
         self.assertNotIn('stageConfiguration', app)
         restore = function(CONTROLLER, 'restore')
         self.assertIn('NimboTunnelControl.manager()', restore)

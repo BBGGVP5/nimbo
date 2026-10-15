@@ -12,17 +12,23 @@ def source(name):
 
 
 class AppStartupContracts(unittest.TestCase):
-    def test_active_app_constructs_root_before_async_storage_and_vpn_restore(self):
+    def test_active_app_defers_root_state_to_native_gate_and_retains_bootstrap(self):
         app = source('iosApp/Nimbo/NimboApp.swift')
         self.assertRegex(app, r'@main\s+struct NimboApp: App')
-        self.assertIn('@StateObject private var vpnController = VpnController()', app)
-        body = app.split('var body: some Scene', 1)[1]
+        self.assertIn('WindowGroup { NimboLaunchView() }', app)
+        self.assertNotIn('RootView()', app)
+        self.assertNotIn('VpnController()', app)
+        owner = source('iosApp/Nimbo/NimboRootOwnerView.swift')
+        self.assertIn('@StateObject private var vpnController = VpnController()', owner)
+        body = owner.split('var body: some View', 1)[1]
         self.assertLess(body.index('RootView()'), body.index('.task {'))
         self.assertIn('.environmentObject(vpnController)', body)
         task = body.split('.task {', 1)[1]
         self.assertLess(task.index('code: "IOS_APP_STARTED"'), task.index('migrateStoredProfileIfNeeded()'))
         self.assertIn('await vpnController.restore()', task)
-        self.assertNotIn('if ', body.split('.task {', 1)[0], 'Root construction must not wait for a storage/VPN readiness condition')
+        view = source('iosApp/Nimbo/NimboLaunchView.swift')
+        self.assertIn('if let attempt = launch.rootToken', view)
+        self.assertIn('NimboRootOwnerView(attempt: attempt, launch: launch)', view)
 
     def test_home_constructs_the_real_compose_controller_and_native_navigation(self):
         root = source('iosApp/Nimbo/RootView.swift')
@@ -38,13 +44,14 @@ class AppStartupContracts(unittest.TestCase):
         self.assertIn('ComposeUIViewController {', controller)
         self.assertIn('NimboSharedScreen(', controller)
 
-    def test_shortcut_indexing_is_gated_and_deferred_until_after_root_construction(self):
+    def test_shortcut_indexing_is_gated_after_native_root_host_display_acknowledgement(self):
         app = source('iosApp/Nimbo/NimboApp.swift')
-        initializer = app.split('init() {', 1)[1].split('@StateObject', 1)[0]
-        self.assertNotIn('updateAppShortcutParameters()', initializer)
-        body = app.split('var body: some Scene', 1)[1]
-        self.assertLess(body.index('RootView()'), body.index('.task {'))
-        task = body.split('.task {', 1)[1]
+        self.assertNotIn('updateAppShortcutParameters()', app)
+        owner = source('iosApp/Nimbo/NimboRootOwnerView.swift')
+        self.assertIn('.task(id: launch.gate.completed)', owner)
+        self.assertIn('if launch.gate.completed { await registerOptionalShortcuts() }', owner)
+        task = owner.split('private func registerOptionalShortcuts()', 1)[1]
+        self.assertIn('launch.gate.completed', task)
         self.assertIn('Bundle.main.url(forResource: "extract", withExtension: "actionsdata",', task)
         self.assertIn('subdirectory: "Metadata.appintents") != nil', task)
         self.assertRegex(task, r'await NimboShortcutRegistration\.shared\.refreshIfAvailable\(hasMetadata: hasMetadata\)\s*\{\s*NimboShortcuts\.updateAppShortcutParameters\(\)')
@@ -57,7 +64,9 @@ class AppStartupContracts(unittest.TestCase):
                     for weight in ('regular', 'medium', 'semibold', 'bold')} | {'manrope_extrabold'}
         self.assertEqual(set(names), expected)
         self.assertIn('Bundle.main.url(forResource: name, withExtension: "ttf")', native)
-        self.assertIn('NimboNativeFonts.register()', source('iosApp/Nimbo/NimboApp.swift'))
+        coordinator = source('iosApp/Nimbo/NimboLaunchCoordinator.swift')
+        self.assertIn('NimboNativeFonts.register()', coordinator)
+        self.assertLess(coordinator.index('await journal.save('), coordinator.index('NimboNativeFonts.register()'))
         ios_typography = source('shared/src/iosMain/kotlin/com/danila/nimbo/shared/ui/NimboPlatformTypography.kt')
         for token in ['NSBundle.mainBundle', 'bundle.pathForResource(file, "ttf")',
                       'bundle.pathForResource(file, "ttf", "Fonts")', 'contentsAtPath(path)',

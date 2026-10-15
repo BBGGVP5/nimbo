@@ -36,6 +36,10 @@
 	<string>$(NIMBO_PACKET_TUNNEL_BUNDLE_ID)</string>
 	<key>NimboDisplayVersion</key>
 	<string>$(NIMBO_DISPLAY_VERSION)</string>
+    <key>NimboBuildRevision</key>
+    <string>$(NIMBO_BUILD_REVISION)</string>
+    <key>NimboLaunchDiagnostics</key>
+    <string>$(NIMBO_LAUNCH_DIAGNOSTICS)</string>
     <key>UILaunchScreen</key>
     <dict>
         <key>UIColorName</key>

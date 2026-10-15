@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VERSION="${NIMBO_VERSION:-1.3.0-beta.2}"
 MARKETING_VERSION="${VERSION%%-*}"
 BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-181}"
+LAUNCH_DIAGNOSTICS="${NIMBO_LAUNCH_DIAGNOSTICS:-0}"
 RELEASE_CHANNEL=stable
 # Keep Apple marketing versions numeric; the display/filename retain prerelease.
 if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]*)?$ ]]; then
@@ -14,6 +15,10 @@ fi
 [[ "${VERSION}" != *-beta.* ]] || RELEASE_CHANNEL=beta
 if [[ ! "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,3}$ ]] || (( BUILD_NUMBER <= 170 )); then
   echo 'NIMBO_BUILD_NUMBER must be an integer from 171 to 9999 (default: 181)' >&2
+  exit 2
+fi
+if [[ "${LAUNCH_DIAGNOSTICS}" != 0 && "${LAUNCH_DIAGNOSTICS}" != 1 ]]; then
+  echo 'NIMBO_LAUNCH_DIAGNOSTICS must be 0 or 1 (default: 0)' >&2
   exit 2
 fi
 [[ "$(uname -s)" == Darwin ]] || { echo 'IPA builds require macOS and Xcode' >&2; exit 2; }
@@ -131,6 +136,7 @@ xcodebuild \
   NIMBO_PACKET_TUNNEL_BUNDLE_ID="${TUNNEL_BUNDLE_ID}" \
   NIMBO_DISPLAY_VERSION="${VERSION}" \
   NIMBO_BUILD_REVISION="$(git -C "${ROOT_DIR}" rev-parse --short=12 HEAD)" \
+  NIMBO_LAUNCH_DIAGNOSTICS="${LAUNCH_DIAGNOSTICS}" \
   MARKETING_VERSION="${MARKETING_VERSION}" \
   CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
   CODE_SIGNING_ALLOWED=NO \
@@ -185,6 +191,7 @@ assert_plist "${APP_PATH}/Info.plist" "CFBundleShortVersionString" "${MARKETING_
 assert_plist "${APP_PATH}/Info.plist" "CFBundleVersion" "${BUILD_NUMBER}"
 assert_plist "${APP_PATH}/Info.plist" "CADisableMinimumFrameDurationOnPhone" "true"
 assert_plist "${APP_PATH}/Info.plist" "NimboDisplayVersion" "${VERSION}"
+assert_plist "${APP_PATH}/Info.plist" "NimboLaunchDiagnostics" "${LAUNCH_DIAGNOSTICS}"
 assert_plist "${APP_PATH}/Info.plist" "NimboPacketTunnelBundleIdentifier" "${TUNNEL_BUNDLE_ID}"
 assert_plist "${TUNNEL_PATH}/Info.plist" "CFBundleIdentifier" "${TUNNEL_BUNDLE_ID}"
 assert_plist "${TUNNEL_PATH}/Info.plist" "NSExtension:NSExtensionPointIdentifier" "com.apple.networkextension.packet-tunnel"
@@ -375,6 +382,7 @@ name=${OUTPUT_NAME}
 version=${VERSION}
 build_number=${BUILD_NUMBER}
 channel=${RELEASE_CHANNEL}
+launch_diagnostics=${LAUNCH_DIAGNOSTICS}
 main_bundle_id=${APP_BUNDLE_ID}
 packet_tunnel_bundle_id=${TUNNEL_BUNDLE_ID}
 signed=adhoc-ldid

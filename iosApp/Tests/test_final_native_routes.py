@@ -96,7 +96,8 @@ class FinalNativeRoutes(unittest.TestCase):
         self.assertIn('NimboProfileInfoView(', read('Nimbo/ProfilesContainerView.swift'))
         self.assertIn('NimboQrScannerView(purpose: .sync)', read('Nimbo/NimboSyncView.swift'))
         self.assertIn('ReadinessView().environmentObject(vpn)', read('Nimbo/DiagnosticsView.swift'))
-        self.assertIn('RootView()', read('Nimbo/NimboApp.swift'))
+        self.assertIn('NimboLaunchView()', read('Nimbo/NimboApp.swift'))
+        self.assertIn('RootView()', read('Nimbo/NimboRootOwnerView.swift'))
         for name in ['HomeContainerView', 'SettingsContainerView', 'LegacyComposeShell', 'LiquidGlassTabShell']:
             self.assertNotIn(name + '(', root)
 
