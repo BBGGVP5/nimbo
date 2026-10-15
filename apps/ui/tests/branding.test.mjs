@@ -4,12 +4,12 @@ import fs from 'node:fs';
 const root = new URL('../../../', import.meta.url);
 const read = p => fs.readFileSync(new URL(p,root));
 const text = p => read(p).toString('utf8');
-test('Beta1 versions agree across desktop app and installer metadata',()=>{
+test('Beta2 versions agree across desktop app and installer metadata',()=>{
  for(const app of ['ui','installer']) for(const file of ['package.json','package-lock.json','src-tauri/tauri.conf.json']){
-  const data=JSON.parse(text(`apps/${app}/${file}`));assert.equal(data.version,'1.3.0-beta.1');
-  if(data.packages)assert.equal(data.packages[''].version,'1.3.0-beta.1');
+  const data=JSON.parse(text(`apps/${app}/${file}`));assert.equal(data.version,'1.3.0-beta.2');
+  if(data.packages)assert.equal(data.packages[''].version,'1.3.0-beta.2');
  }
- assert.match(text('Cargo.toml'),/\[workspace.package\]\s+version = "1.3.0-beta.1"/);
+ assert.match(text('Cargo.toml'),/\[workspace.package\]\s+version = "1.3.0-beta.2"/);
 });
 test('Packaged app and tray icons are RGBA PNGs with valid dimensions',()=>{
  for(const [name,size] of [['32x32.png',32],['128x128.png',128],['128x128@2x.png',256],['tray.png',128]]){

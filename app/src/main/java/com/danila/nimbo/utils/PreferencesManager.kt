@@ -27,6 +27,11 @@ import java.util.UUID
 class PreferencesManager(context: Context) {
     val sharedPreferences: SharedPreferences =
         context.applicationContext.getSharedPreferences("nebulaguard_prefs", Context.MODE_PRIVATE)
+    /** Only changes settings navigation; does not reconfigure or restart VPN. */
+    var settingsAdvanced: Boolean
+        get() = sharedPreferences.getBoolean("settings_advanced", false)
+        set(value) { sharedPreferences.edit().putBoolean("settings_advanced", value).apply() }
+
     private val gson = Gson()
     private val profilesFile = File(context.filesDir, "profiles_v3.json")
     private val profilesBackupFile = File(context.filesDir, "profiles_v3.bak.json")

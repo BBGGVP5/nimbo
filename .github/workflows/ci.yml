@@ -20,10 +20,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Verify opt-in native sticky policy and staging guards
+        run: |
+          go test -race -count=1 tools/native/xray-apple-sticky/policy.go tools/native/xray-apple-sticky/policy_test.go
+          python3 scripts/ci/test_xray_sticky.py
+          python3 tools/native/xray-apple-tun/test_patch.py
       - name: Verify full-profile and offline backup storage
         run: python3 iosApp/Tests/test_mihomo_storage_contracts.py --swift
       - name: Execute production Swift admission, ping cache and path ownership policies
         run: python3 scripts/ci/test-ios-packet-flow.py --swift
+      - name: Verify network-scoped auto selection evidence
+        run: python3 iosApp/Tests/test_auto_selection_contracts.py --swift
       - name: Verify generation-safe provider and existing native ping contracts
         run: |
           python3 iosApp/Tests/test_design_audit_contracts.py --swift

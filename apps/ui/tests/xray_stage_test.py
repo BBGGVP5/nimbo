@@ -16,7 +16,7 @@ spec.loader.exec_module(stage)
 class XrayStagingTests(unittest.TestCase):
     def test_manifest_has_reviewed_six_platforms(self):
         manifest = json.loads(stage.MANIFEST.read_text())
-        self.assertEqual(manifest["version"], "26.9.9")
+        self.assertEqual(manifest["version"], "26.10.10")
         self.assertEqual(len(manifest["assets"]), 6)
         self.assertEqual(len({a["target"] for a in manifest["assets"]}), 6)
         for asset in manifest["assets"]:
@@ -30,7 +30,7 @@ class XrayStagingTests(unittest.TestCase):
             for name, data in files.items():
                 archive.writestr(name, data)
         payload = buffer.getvalue()
-        manifest = {"version": "26.9.9", "tag": "v26.9.9", "assets": [{
+        manifest = {"version": "26.10.10", "tag": "v26.10.10", "assets": [{
             "target": "test", "os": "windows", "archive": "test.zip",
             "sha256": hashlib.sha256(payload).hexdigest(),
             "files": {name: hashlib.sha256(data).hexdigest() for name, data in files.items()},
@@ -43,7 +43,7 @@ class XrayStagingTests(unittest.TestCase):
             with patch.object(stage, "MANIFEST", pin), patch.object(stage.urllib.request, "urlopen", return_value=io.BytesIO(payload)) as network:
                 # Fresh staging downloads exact tag and verifies all three files.
                 stage.stage("test", directory)
-                self.assertIn("/v26.9.9/", network.call_args.args[0])
+                self.assertIn("/v26.10.10/", network.call_args.args[0])
                 self.assertTrue(stage.verify(directory, manifest["assets"][0]))
                 network.reset_mock()
                 stage.stage("test", directory)

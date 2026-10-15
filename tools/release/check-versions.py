@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("tag", nargs="?", default=os.environ.get("TAG", "v1.3.0-beta.1"))
+    parser.add_argument("tag", nargs="?", default=os.environ.get("TAG", "v1.3.0-beta.2"))
     parser.add_argument("--desktop-root", type=Path, default=ROOT)
     args = parser.parse_args()
     tag = args.tag
@@ -50,11 +50,11 @@ def main():
         code = int(re.search(r"versionCode\s*=\s*(\d+)", android).group(1))
         if code <= 16:
             raise SystemExit("Stable Android versionCode must exceed Beta 5 (16)")
-    if version == "1.3.0-beta.1":
+    if version == "1.3.0-beta.2":
         code = int(re.search(r"versionCode\s*=\s*(\d+)", android).group(1))
         build = int(re.search(r"(?m)^    CURRENT_PROJECT_VERSION: (\d+)$", ios).group(1))
-        if code != 18 or build != 180:
-            raise SystemExit("Beta 1 requires Android code18 / iOS build180, above stable17 / 170")
+        if code != 19 or build != 181:
+            raise SystemExit("Beta 2 requires Android code19 / iOS build181, above Beta 1 code18 / build180")
     print(f"Verified {len(versions)} product version fields: {version}")
 
 

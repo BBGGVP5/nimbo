@@ -476,7 +476,7 @@ dependencies = [
 
 [[package]]
 name = "nimbo-mihomo"
-version = "1.3.0-beta.1"
+version = "1.3.0-beta.2"
 dependencies = [
  "reqwest",
  "serde",

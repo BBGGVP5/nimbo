@@ -1,44 +1,142 @@
-name: Export Apple dependencies for local xtool
+name: Build private re-signable iOS IPA
+
 on:
+  push:
+    branches:
+      - codex/ios-unsigned-build
   workflow_dispatch:
     inputs:
       version:
-        description: App version
+        description: Version embedded in the IPA filename
         required: true
         default: 1.3.0-beta.2
       ping_only:
-        description: Unused compatibility input
+        description: Execute Swift ping, startup and profile contracts without native packaging
         type: boolean
+        required: false
         default: false
+
 permissions:
   contents: read
+
 jobs:
-  dependencies:
+  ping_checks:
+    if: ${{ inputs.ping_only }}
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      # Production Swift, loopback HTTP/SOCKS/TLS and the injected native ABI
+      # seam. No Go download, core rebuild, signing or release upload.
+      - name: Execute production Swift ping policies and transport contracts
+        run: python3 iosApp/Tests/test_ping_contracts.py --swift
+      - name: Verify network-scoped auto selection evidence
+        run: python3 iosApp/Tests/test_auto_selection_contracts.py --swift
+      - name: Execute startup cancellation, bounded validation and source admission
+        run: |
+          python3 scripts/ci/test-ios-reconnect.py
+          python3 iosApp/Tests/test_profile_screen_contracts.py --swift
+          python3 iosApp/Tests/test_design_audit_contracts.py --swift
+          python3 iosApp/Tests/test_mihomo_start_responsiveness.py
+
+  build:
+    if: ${{ !inputs.ping_only }}
     runs-on: macos-26
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-      - uses: gradle/actions/setup-gradle@v4
-      - uses: actions/setup-go@v5
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up pinned Go for the combined Xray and AWG runtime
+        uses: actions/setup-go@v5
         with:
           go-version: '1.27.1'
           cache-dependency-path: |
             iosApp/GoBridge/go.sum
             tools/native/awg-core/go.sum
             tools/native/naive-core/go.sum
-      - name: Export source-pinned iPhone frameworks and resources
+
+      - name: Verify pinned LibXray source and binary contracts
+        run: python3 tools/release/check-libxray.py --apple-only
+
+      - name: Verify iOS AWG contracts
+        run: python3 scripts/ci/check-ios-awg.py --swift
+
+      - name: Verify native ping methods and fail-closed route
+        run: python3 iosApp/Tests/test_ping_contracts.py --swift
+
+      - name: Verify network-scoped auto selection evidence
+        run: python3 iosApp/Tests/test_auto_selection_contracts.py --swift
+
+      - name: Verify full-profile and offline backup storage
+        run: python3 iosApp/Tests/test_mihomo_storage_contracts.py --swift
+
+      - name: Verify traffic telemetry and ad blocking policies
+        run: python3 iosApp/Tests/test_traffic_statistics_contracts.py --swift
+
+      - name: Verify iPad navigation source contracts
+        run: python3 iosApp/Tests/test_ipad_navigation_contracts.py
+
+      - name: Verify profile selection ordering and screen contracts
+        run: python3 iosApp/Tests/test_profile_screen_contracts.py --swift
+
+      - name: Verify compact design and native Mihomo category projection
+        run: python3 iosApp/Tests/test_design_audit_contracts.py --swift
+
+      - name: Verify native Live Activity policy and packaging
+        run: python3 iosApp/Tests/test_live_activity_contracts.py --swift
+
+      - name: Verify on-demand policy and native memory contracts
+        run: python3 iosApp/Tests/test_on_demand_contracts.py --swift
+
+      - name: Verify Mihomo packet-flow source contracts
+        run: python3 scripts/ci/test-ios-packet-flow.py --swift
+
+      - name: Verify native Naive policy and DNS routing
+        run: python3 iosApp/Tests/test_naive_contracts.py --swift
+
+      - name: Verify reconnect startup and core admission policies
+        run: |
+          python3 scripts/ci/test-ios-reconnect.py
+          python3 iosApp/Tests/test_mihomo_start_responsiveness.py
+
+      - name: Verify subscription worker and notification lifecycle wiring
+        run: |
+          python3 -m venv "$RUNNER_TEMP/nimbo-source-contracts"
+          "$RUNNER_TEMP/nimbo-source-contracts/bin/python" -m pip install -r iosApp/Tests/requirements-source-contracts.txt
+          "$RUNNER_TEMP/nimbo-source-contracts/bin/python" -m unittest discover -s iosApp/Tests -p test_subscription_refresh_contracts.py
+
+      - name: Install build tools
+        run: brew install xcodegen ldid-procursus
+
+      - name: Prepare executable build scripts
+        run: chmod +x gradlew scripts/ci/build-unsigned-ios.sh scripts/ci/prepare-libxray-apple.sh scripts/ios/resign-ipa.sh
+
+      - name: Build re-signable IPA
         env:
-          NIMBO_VERSION: ${{ inputs.version }}
+          NIMBO_WITH_CONTROL_WIDGET: '1'
           NIMBO_BUILD_NUMBER: '181'
-        run: bash scripts/ci/export-ios-xtool-dependencies.sh
-      - name: Upload local-build dependencies
+          NIMBO_VERSION: ${{ inputs.version || '1.3.0-beta.2' }}
+        run: bash scripts/ci/build-unsigned-ios.sh
+
+      - name: Upload private temporary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nimbo-xtool-dependencies-${{ github.sha }}
-          path: artifacts/ios-xtool-dependencies/
+          name: Nimbo_v${{ inputs.version || '1.3.0-beta.2' }}_ios_resignable
+          path: |
+            artifacts/ios/Nimbo_v${{ inputs.version || '1.3.0-beta.2' }}_ios_resignable.ipa
+            artifacts/ios/Nimbo_v${{ inputs.version || '1.3.0-beta.2' }}_ios_resignable.ipa.sha256
+            artifacts/ios/build-manifest.txt
+            artifacts/ios/codesign-entitlements/*.plist
           if-no-files-found: error
           retention-days: 7

@@ -37,9 +37,9 @@ android {
         minSdk = 29
         targetSdk = 37
         // Beta 1.3.0 installs over published stable 1.2.0 (17).
-        versionCode = 18
-        versionName = "1.3.0-beta.1"
-        buildConfigField("String", "LIBXRAY_VERSION", "\"26.9.30\"")
+        versionCode = 19
+        versionName = "1.3.0-beta.2"
+        buildConfigField("String", "LIBXRAY_VERSION", "\"26.10.10\"")
 
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

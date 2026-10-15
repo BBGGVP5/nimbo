@@ -4646,6 +4646,11 @@ private fun MiniModeSwitch(
     )
 }
 
+private data class MiniSettingsDestination(
+    val group: String, val title: String, val icon: ImageVector,
+    val detail: String?, val advanced: Boolean = false, val keywords: String = "", val open: () -> Unit
+)
+
 @Composable
 private fun NimboSettingsScreen(
     preferencesManager: PreferencesManager,
@@ -4668,10 +4673,12 @@ private fun NimboSettingsScreen(
     onShowTvQr: (String) -> Unit,
     onConnect: (Server) -> Unit
 ) {
+    var advanced by rememberSaveable { mutableStateOf(preferencesManager.settingsAdvanced) }
+    var query by rememberSaveable { mutableStateOf("") }
     var section by rememberSaveable { mutableStateOf(-1) }
     var developerUnlocked by rememberSaveable { mutableStateOf(false) }
     val tapGate = remember { com.danila.nimbo.utils.DeveloperTapGate() }
-    val settingsBack = { section = if (section == 5 || section == 6) 12 else -1 }
+    val settingsBack = { section = when (section) { 5, 6 -> 12; 14 -> 13; else -> -1 } }
     androidx.activity.compose.BackHandler(enabled = section >= 0, onBack = settingsBack)
     val motionEnabled = rememberMiniMotionEnabled()
     AnimatedContent(section, transitionSpec = {
@@ -4692,6 +4699,7 @@ private fun NimboSettingsScreen(
         11 -> t("Разработчик", "Developer")
         12 -> t("Подписки и серверы", "Subscriptions and servers")
         13 -> t("Диагностика", "Diagnostics")
+        14 -> t("Отчёт для поддержки", "Support report")
         else -> t("DNS и транспорт", "DNS and transport")
     }
     if (activeSection >= 0) {
@@ -4715,12 +4723,15 @@ private fun NimboSettingsScreen(
                             t("Сортировка, выбор и проверка", "Sorting, selection and testing"), { section = 6 }, false)
                     }
                     13 -> SettingsCompactCard {
+                        SettingsRow(Icons.AutoMirrored.Filled.Article, t("Отчёт для поддержки", "Support report"),
+                            t("Просмотреть и отправить обезличенный отчёт", "Preview and share a redacted report"), { section = 14 })
                         SettingsRow(Icons.Default.BarChart, t("Статистика", "Statistics"), null, onStatsClick)
                         SettingsRow(Icons.Default.NetworkCheck, t("Проверка сети", "Network check"), null, onWhitelistClick)
                         SettingsRow(Icons.AutoMirrored.Filled.Article, t("Журнал", "Logs"), null, onLogsClick)
                         SettingsRow(Icons.Default.Notifications, t("Уведомления", "Notifications"), null, onNotificationsClick)
                         SettingsRow(Icons.Default.Key, t("ID подключения", "Connection ID"), null, onConnectionIdClick, false)
                     }
+                    14 -> SupportReportSection()
                     else -> AdvancedSettingsSection(preferencesManager)
                 }
             }
@@ -4733,41 +4744,75 @@ private fun NimboSettingsScreen(
             color = LocalNebulaColors.current.textPrimary, modifier = Modifier.semantics { heading() }.clickable {
                 if (tapGate.tap(android.os.SystemClock.elapsedRealtime())) { developerUnlocked = true; section = 11 }
             })
-        Spacer(Modifier.height(20.dp))
-        SettingsGroupLabel(t("ПОДКЛЮЧЕНИЕ", "CONNECTION"))
-        SettingsCompactCard {
-            SettingsRow(Icons.Default.Dns, t("Ядро VPN", "VPN core"),
-                com.danila.nimbo.vpn.VpnCoreChoice.fromId(preferencesManager.vpnCoreState.value)?.let {
-                    if (it == com.danila.nimbo.vpn.VpnCoreChoice.AUTO) t("Авто · по протоколу сервера", "Auto · by server protocol") else it.title
-                } ?: t("Выберите ядро", "Choose a core"), { section = 8 })
-            SettingsRow(Icons.Default.Speed, t("Пинг серверов", "Server ping"), currentPingSettingsLabel(preferencesManager), { section = 2 })
-            SettingsRow(Icons.Default.Route, t("Маршрутизация", "Routing"), t("Сайты, правила и исключения", "Sites, rules and exceptions"), onRoutingClick)
-            SettingsRow(Icons.Default.Apps, t("Приложения", "Applications"), t("Какие приложения используют VPN", "Choose which apps use VPN"), onOpenAppAccess)
-            SettingsRow(Icons.Default.Dns, t("DNS и транспорт", "DNS and transport"), t("DNS, TLS и параметры соединения", "DNS, TLS and connection parameters"), { section = 10 })
-            SettingsRow(Icons.Default.PowerSettingsNew, t("Общие", "General"), t("Автоподключение, память и отклик", "Auto-connect, memory and haptics"), { section = 0 }, false)
+        Spacer(Modifier.height(16.dp))
+        MiniSegmented(t("Простой", "Simple"), t("Расширенный", "Advanced"), !advanced,
+            { advanced = false; preferencesManager.settingsAdvanced = false },
+            { advanced = true; preferencesManager.settingsAdvanced = true })
+        Spacer(Modifier.height(8.dp))
+        Text(t("Меняется только список разделов, не параметры VPN. Поиск — по всем разделам.",
+            "Only the section list changes, not VPN settings. Search covers all sections."),
+            style = MaterialTheme.typography.bodySmall, color = LocalNebulaColors.current.textSecondary)
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true,
+            modifier = Modifier.fillMaxWidth(), label = { Text(t("Поиск настроек", "Search settings")) },
+            leadingIcon = { Icon(Icons.Default.Search, null) }, shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = LocalNebulaColors.current.textPrimary,
+                unfocusedTextColor = LocalNebulaColors.current.textPrimary,
+                focusedBorderColor = LocalNebulaColors.current.accent,
+                unfocusedBorderColor = LocalNebulaColors.current.panelBorder,
+                focusedLabelColor = LocalNebulaColors.current.textSecondary,
+                unfocusedLabelColor = LocalNebulaColors.current.textSecondary,
+                cursorColor = LocalNebulaColors.current.accent))
+        val connectionGroup = t("ПОДКЛЮЧЕНИЕ", "CONNECTION")
+        val appGroup = t("ПРИЛОЖЕНИЕ", "APPLICATION")
+        val toolsGroup = t("ИНСТРУМЕНТЫ", "TOOLS")
+        val aboutGroup = t("О ПРИЛОЖЕНИИ", "ABOUT")
+        val destinations = buildList {
+            add(MiniSettingsDestination(connectionGroup, t("Ядро VPN", "VPN core"), Icons.Default.Dns,
+                com.danila.nimbo.vpn.VpnCoreChoice.fromId(preferencesManager.vpnCoreState.value)?.title,
+                advanced = true, keywords = "Xray Mihomo AWG Naive") { section = 8 })
+            add(MiniSettingsDestination(connectionGroup, t("Пинг серверов", "Server ping"), Icons.Default.Speed,
+                currentPingSettingsLabel(preferencesManager), keywords = "timeout таймаут URL") { section = 2 })
+            add(MiniSettingsDestination(connectionGroup, t("Маршрутизация", "Routing"), Icons.Default.Route,
+                t("Сайты, правила и исключения", "Sites, rules and exceptions"), keywords = "блокировка рекламы ad blocking", open = onRoutingClick))
+            add(MiniSettingsDestination(connectionGroup, t("Приложения", "Applications"), Icons.Default.Apps,
+                t("Какие приложения используют VPN", "Choose which apps use VPN"), open = onOpenAppAccess))
+            add(MiniSettingsDestination(connectionGroup, t("DNS и транспорт", "DNS and transport"), Icons.Default.Dns,
+                t("DNS, TLS и параметры соединения", "DNS, TLS and connection parameters"), advanced = true) { section = 10 })
+            add(MiniSettingsDestination(connectionGroup, t("Общие", "General"), Icons.Default.PowerSettingsNew,
+                t("Автоподключение, память и отклик", "Auto-connect, memory and haptics"), keywords = "kill switch фон батарея уведомления") { section = 0 })
+            add(MiniSettingsDestination(appGroup, t("Внешний вид", "Appearance"), Icons.Default.Palette,
+                t("Тема, цвет и доступность", "Theme, color and accessibility")) { section = 1 })
+            add(MiniSettingsDestination(appGroup, t("Язык", "Language"), Icons.Default.Language, currentLanguageLabel(), open = onLanguageClick))
+            add(MiniSettingsDestination(appGroup, t("Синхронизация", "Sync"), Icons.Default.Sync,
+                t("Ваши устройства", "Your devices"), open = onCrossSyncClick))
+            add(MiniSettingsDestination(appGroup, t("Резервная копия", "Backup"), Icons.Default.Backup,
+                t("Экспорт и восстановление", "Export and restore")) { section = 7 })
+            add(MiniSettingsDestination(toolsGroup, t("Подписки и серверы", "Subscriptions and servers"), Icons.Default.Layers,
+                t("Обновление и выбор серверов", "Refresh and server selection"), keywords = "сортировка") { section = 12 })
+            add(MiniSettingsDestination(toolsGroup, t("Диагностика", "Diagnostics"), Icons.Default.NetworkCheck,
+                t("Проверка сети, журнал и уведомления", "Network checks, logs and notifications"), keywords = "отчёт report logs") { section = 13 })
+            add(MiniSettingsDestination(aboutGroup, t("Обновления", "Updates"), Icons.Default.SystemUpdate,
+                "Nimbo v${BuildConfig.VERSION_NAME}", keywords = "beta бета", open = onUpdatesClick))
+            add(MiniSettingsDestination(aboutGroup, t("О приложении", "About"), Icons.Default.Info,
+                "Nimbo v${BuildConfig.VERSION_NAME}", open = onAboutClick))
+            add(MiniSettingsDestination(aboutGroup, t("Условия использования", "Terms of use"), Icons.Default.Policy, null, open = onDisclaimerClick))
+            if (developerUnlocked) add(MiniSettingsDestination(aboutGroup, t("Разработчик", "Developer"), Icons.Default.Build, null, advanced = true) { section = 11 })
+        }.filter { com.danila.nimbo.shared.ui.matchesSettingsEntry(query, "${it.title} ${it.detail.orEmpty()} ${it.keywords}", it.advanced, advanced) }
+        if (destinations.isEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Text(t("Ничего не найдено. Попробуйте другое название.", "No results. Try another name."),
+                color = LocalNebulaColors.current.textSecondary)
         }
-        Spacer(Modifier.height(20.dp))
-        SettingsGroupLabel(t("ПРИЛОЖЕНИЕ", "APPLICATION"))
-        SettingsCompactCard {
-            SettingsRow(Icons.Default.Palette, t("Внешний вид", "Appearance"), t("Тема, цвет и доступность", "Theme, color and accessibility"), { section = 1 })
-            SettingsRow(Icons.Default.Language, t("Язык", "Language"), currentLanguageLabel(), onLanguageClick)
-            SettingsRow(Icons.Default.Sync, t("Синхронизация", "Sync"), t("Ваши устройства", "Your devices"), onCrossSyncClick)
-            SettingsRow(Icons.Default.Backup, t("Резервная копия", "Backup"), t("Экспорт и восстановление", "Export and restore"), { section = 7 }, false)
-        }
-        Spacer(Modifier.height(20.dp))
-        SettingsGroupLabel(t("ИНСТРУМЕНТЫ", "TOOLS"))
-        SettingsCompactCard {
-            SettingsRow(Icons.Default.Layers, t("Подписки и серверы", "Subscriptions and servers"),
-                t("Обновление и выбор серверов", "Refresh and server selection"), { section = 12 })
-            SettingsRow(Icons.Default.NetworkCheck, t("Диагностика", "Diagnostics"),
-                t("Проверка сети, журнал и уведомления", "Network checks, logs and notifications"), { section = 13 }, false)
-        }
-        Spacer(Modifier.height(20.dp))
-        SettingsCompactCard {
-            SettingsRow(Icons.Default.SystemUpdate, t("Обновления", "Updates"), "Nimbo v${BuildConfig.VERSION_NAME}", onUpdatesClick)
-            SettingsRow(Icons.Default.Info, t("О приложении", "About"), "Nimbo v${BuildConfig.VERSION_NAME}", onAboutClick)
-            SettingsRow(Icons.Default.Policy, t("Условия использования", "Terms of use"), null, onDisclaimerClick, false)
-            if (developerUnlocked) SettingsRow(Icons.Default.Build, t("Разработчик", "Developer"), null, { section = 11 }, false)
+        destinations.groupBy { it.group }.forEach { (group, entries) ->
+            Spacer(Modifier.height(20.dp))
+            SettingsGroupLabel(group)
+            SettingsCompactCard {
+                entries.forEachIndexed { index, entry ->
+                    SettingsRow(entry.icon, entry.title, entry.detail, entry.open, index < entries.lastIndex)
+                }
+            }
         }
     }
     }

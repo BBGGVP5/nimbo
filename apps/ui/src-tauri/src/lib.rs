@@ -18,6 +18,8 @@ mod recovery_policy;
 pub mod state;
 pub mod tray;
 pub mod updater;
+#[cfg(windows)]
+mod window_activation;
 mod xray_release;
 
 use crate::commands::{
@@ -285,7 +287,25 @@ fn wait_for_parent_relaunch() {}
 pub fn run() {
     wait_for_parent_relaunch();
     logging::init();
-    tracing::info!(version = env!("CARGO_PKG_VERSION"), "nimbo-ui starting");
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        pid = std::process::id(),
+        executable = ?std::env::current_exe().ok(),
+        "nimbo-ui starting"
+    );
+
+    // Open before claiming the mutex so even a duplicate arriving while the
+    // first process is loading state can leave a pending reveal request. The
+    // Local namespace matches the singleton's Windows session boundary.
+    #[cfg(windows)]
+    let mut reveal_signal =
+        match window_activation::WindowActivation::open("Local\\Nimbo.Ui.Reveal") {
+            Ok(signal) => Some(signal),
+            Err(error) => {
+                tracing::warn!(?error, "failed to open window reveal signal");
+                None
+            }
+        };
 
     let cli_run_through = run_through_cli_path();
 
@@ -294,10 +314,19 @@ pub fn run() {
             if let Err(error) = queue_run_through_request(path) {
                 tracing::error!(?error, "failed to forward protected-launch request");
             }
+        } else {
+            #[cfg(windows)]
+            if let Some(signal) = reveal_signal.as_ref() {
+                match signal.request() {
+                    Ok(()) => tracing::info!("existing nimbo-ui window reveal requested"),
+                    Err(error) => tracing::warn!(?error, "failed to request window reveal"),
+                }
+            }
         }
         tracing::info!("duplicate nimbo-ui instance rejected");
         return;
     };
+    tracing::info!(phase = "singleton_acquired", "nimbo-ui startup");
     let app_state = match AppState::load() {
         Ok(state) => state,
         Err(error) => {
@@ -342,6 +371,7 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            tracing::info!(phase = "setup_started", "nimbo-ui startup");
             #[cfg(any(windows, target_os = "linux"))]
             {
                 app.deep_link().register_all()?;
@@ -374,6 +404,32 @@ pub fn run() {
                 // Let the WebView subscribe before delivering the first request.
                 tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
                 loop {
+                    #[cfg(windows)]
+                    if let Some(signal) = reveal_signal.as_ref() {
+                        match signal.take_request() {
+                            Ok(true) => {
+                                let reveal_handle = protected_launch_handle.clone();
+                                if let Err(error) =
+                                    protected_launch_handle.run_on_main_thread(move || {
+                                        // Serialize with shutdown's hide/cleanup on the UI thread.
+                                        if !EXIT_CLEANUP_DONE
+                                            .load(std::sync::atomic::Ordering::SeqCst)
+                                        {
+                                            tracing::info!("revealing existing nimbo-ui window");
+                                            tray::show_main_window(&reveal_handle);
+                                        }
+                                    })
+                                {
+                                    tracing::warn!(?error, "failed to dispatch window reveal");
+                                }
+                            }
+                            Ok(false) => {}
+                            Err(error) => {
+                                tracing::warn!(?error, "window reveal listener stopped");
+                                reveal_signal = None;
+                            }
+                        }
+                    }
                     for executable_path in drain_run_through_requests() {
                         if let Some(window) = protected_launch_handle.get_webview_window("main") {
                             let _ = window.show();
@@ -407,6 +463,7 @@ pub fn run() {
                 });
             }
 
+            tracing::info!(phase = "setup_completed", "nimbo-ui startup");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -527,12 +584,17 @@ pub fn run() {
     let app = match app {
         Ok(app) => app,
         Err(error) => {
-            tracing::error!(?error, "failed to build tauri application");
+            tracing::error!(
+                phase = "app_build_failed",
+                ?error,
+                "failed to build tauri application"
+            );
             return;
         }
     };
 
     crate::commands::start_resume_monitor(app.handle().clone());
+    tracing::info!(phase = "event_loop_started", "nimbo-ui startup");
     app.run(|app_handle, event| match event {
         RunEvent::ExitRequested { .. } | RunEvent::Exit => {
             cleanup_once(app_handle);

@@ -3036,6 +3036,10 @@ pub fn cancel_pings() {
     PING_CANCEL.send_replace(revision);
 }
 
+pub(crate) fn ping_generation() -> u64 {
+    PING_INTENT.load(Ordering::SeqCst)
+}
+
 fn same_latency_settings(a: &AppPreferences, b: &AppPreferences) -> bool {
     a.latency_protocol == b.latency_protocol
         && a.latency_test_url == b.latency_test_url
@@ -3058,7 +3062,11 @@ fn verified_ping_route(
     if CONNECTION_OPERATION.try_lock().is_err() {
         return None;
     }
+    let config = find_server(snap, server_id).and_then(|node| diagnostic_identity(snap, &node))?;
     state.runtime(|runtime| {
+        if runtime.ping_config_identity != Some(config) {
+            return None;
+        }
         let route = runtime.ping_route.as_ref()?;
         if !route.accepts(snap.connected, snap.active_server_id.as_deref(), server_id) {
             return None;
@@ -3089,6 +3097,8 @@ async fn measure_server_latency(
     // Keep the last completed sample while pending; cancellation is not a failed measurement.
     let intent = CONNECTION_INTENT.load(Ordering::SeqCst);
     let ping_intent = PING_INTENT.load(Ordering::SeqCst);
+    let context = crate::auto_route::probe_context(state, snap);
+    let config = diagnostic_identity(snap, server);
     let protocol = normalize_latency_protocol(&snap.preferences.latency_protocol);
     let timeout_ms = normalize_latency_timeout_ms(snap.preferences.latency_timeout_ms);
     let is_nimbo = protocol == "nimbo";
@@ -3098,7 +3108,7 @@ async fn measure_server_latency(
     } else {
         None
     };
-    let mut result = if is_nimbo {
+    let result = if is_nimbo {
         let parent = match nimbo_data_dir() {
             Ok(path) => path.join("diagnostics"),
             Err(_) => return ping_failure(&server.id, "Diagnostic directory unavailable"),
@@ -3120,11 +3130,14 @@ async fn measure_server_latency(
         }
         let identity = serde_json::to_value(server).ok();
         let valid = || {
-            if PING_INTENT.load(Ordering::SeqCst) != ping_intent {
+            if PING_INTENT.load(Ordering::SeqCst) != ping_intent
+                || CONNECTION_INTENT.load(Ordering::SeqCst) != intent
+            {
                 return false;
             }
             let current = state.snapshot();
-            same_latency_settings(&current.preferences, &snap.preferences)
+            crate::auto_route::probe_context(state, &current) == context
+                && same_latency_settings(&current.preferences, &snap.preferences)
                 && find_server(&current, &server.id)
                     .is_some_and(|value| serde_json::to_value(&value).ok() == identity)
                 && same_diagnostic_config(&current, snap, server)
@@ -3175,6 +3188,10 @@ async fn measure_server_latency(
                         let current = state.snapshot();
                         CONNECTION_INTENT.load(Ordering::SeqCst) == intent
                             && PING_INTENT.load(Ordering::SeqCst) == ping_intent
+                            && crate::auto_route::probe_context(state, &current) == context
+                            && find_server(&current, &server.id)
+                                .and_then(|node| diagnostic_identity(&current, &node))
+                                == config
                             && same_latency_settings(&current.preferences, &snap.preferences)
                             && verified_ping_route(state, &current, &server.id).as_ref()
                                 == Some(route)
@@ -3202,7 +3219,11 @@ async fn measure_server_latency(
         }
     };
     let current = state.snapshot();
-    let stale = (!is_nimbo && CONNECTION_INTENT.load(Ordering::SeqCst) != intent)
+    let stale = CONNECTION_INTENT.load(Ordering::SeqCst) != intent
+        || crate::auto_route::probe_context(state, &current) != context
+        || config.is_none()
+        || find_server(&current, &server.id).and_then(|node| diagnostic_identity(&current, &node))
+            != config
         || PING_INTENT.load(Ordering::SeqCst) != ping_intent
         || !same_latency_settings(&current.preferences, &snap.preferences)
         || (is_nimbo
@@ -3213,19 +3234,38 @@ async fn measure_server_latency(
             && route.is_some()
             && verified_ping_route(state, &current, &server.id) != route);
     if stale {
-        result = ping_failure(
+        // Cancellation/context replacement is not a negative route observation.
+        return ping_failure(
             &server.id,
             "VPN route or ping settings changed; run the check again",
         );
     }
+    if is_nimbo || (is_http && route.is_some()) {
+        if let Some(config) = config {
+            state.runtime(|runtime| {
+                if CONNECTION_INTENT.load(Ordering::SeqCst) == intent
+                    && PING_INTENT.load(Ordering::SeqCst) == ping_intent
+                {
+                    crate::auto_route::evidence::record(
+                        &mut runtime.auto_route_evidence,
+                        server.id.clone(),
+                        crate::auto_route::evidence::Sample {
+                            context,
+                            config,
+                            at: std::time::Instant::now(),
+                            latency_ms: result.latency_ms,
+                        },
+                    );
+                }
+            });
+        }
+    }
     let _ = state.mutate(|saved| {
         if same_latency_settings(&saved.preferences, &snap.preferences)
-            && (is_nimbo || CONNECTION_INTENT.load(Ordering::SeqCst) == intent)
+            && CONNECTION_INTENT.load(Ordering::SeqCst) == intent
             && PING_INTENT.load(Ordering::SeqCst) == ping_intent
-            && (!is_nimbo
-                || (find_server(saved, &server.id).is_some_and(|value| {
-                    serde_json::to_value(&value).ok() == serde_json::to_value(server).ok()
-                }) && same_diagnostic_config(saved, snap, server)))
+            && find_server(saved, &server.id).and_then(|node| diagnostic_identity(saved, &node))
+                == config
         {
             if let Some(ms) = result.latency_ms {
                 saved.server_pings.insert(server.id.clone(), ms);
@@ -6496,6 +6536,8 @@ async fn connect_system_proxy(
     server: Server,
     snapshot: &PersistedState,
 ) -> Result<(), String> {
+    // Capture the original endpoint before AWG/Naive replace it with a local hop.
+    let ping_config_identity = diagnostic_identity(snapshot, &server);
     stop_runtime(state)?;
 
     let ports = ProxyPorts::default();
@@ -6562,6 +6604,7 @@ async fn connect_system_proxy(
 
     state.runtime(|runtime| {
         runtime.ping_route = ping_route;
+        runtime.ping_config_identity = ping_config_identity;
         runtime.ad_blocking_active = snapshot.preferences.ad_blocking_enabled;
         runtime.xray = Some(child);
         runtime.naive = naive;
@@ -6624,6 +6667,8 @@ async fn connect_tun(
     snapshot: &PersistedState,
     _status: TunInstallStatus,
 ) -> Result<(), String> {
+    // Capture the original endpoint before AWG/Naive replace it with a local hop.
+    let ping_config_identity = diagnostic_identity(snapshot, &server);
     stop_runtime(state)?;
 
     let ports = ProxyPorts::default();
@@ -6716,7 +6761,10 @@ async fn connect_tun(
 
         if !linux_helper_core_matches_pin() {
             stop_child(&mut naive);
-            return Err("The Linux helper kernel does not match verified Xray 26.9.30".into());
+            return Err(format!(
+                "The Linux helper kernel does not match verified Xray {}",
+                crate::xray_release::release().version
+            ));
         }
         let config = match std::fs::read_to_string(&config_path) {
             Ok(config) => config,
@@ -6741,6 +6789,7 @@ async fn connect_tun(
         };
         state.runtime(|runtime| {
             runtime.ping_route = ping_route;
+            runtime.ping_config_identity = ping_config_identity;
             runtime.ad_blocking_active = snapshot.preferences.ad_blocking_enabled;
             runtime.tun_session = Some(session);
             runtime.naive = naive.take();
@@ -6812,6 +6861,7 @@ async fn connect_tun(
 
         state.runtime(|runtime| {
             runtime.ping_route = ping_route;
+            runtime.ping_config_identity = ping_config_identity;
             runtime.ad_blocking_active = snapshot.preferences.ad_blocking_enabled;
             runtime.xray = Some(xray);
             runtime.naive = naive;
@@ -7417,6 +7467,17 @@ fn effective_probe_fragmentation(snapshot: &PersistedState, server: &Server) -> 
         .find(|sub| sub.servers.iter().any(|node| node.id == server.id))
         .and_then(|sub| sub.meta.tls_fragment.as_ref());
     tls_fragmentation_config(&snapshot.preferences, provider)
+}
+
+// Used only in memory: neither serialized configuration nor its digest is logged.
+pub(crate) fn diagnostic_identity(snapshot: &PersistedState, server: &Server) -> Option<[u8; 32]> {
+    let bytes = serde_json::to_vec(&(
+        &server.protocol,
+        diagnostic_transport_template(snapshot, server),
+        snapshot.core_profiles.preferred_core,
+    ))
+    .ok()?;
+    Some(Sha256::digest(bytes).into())
 }
 
 fn same_diagnostic_config(a: &PersistedState, b: &PersistedState, server: &Server) -> bool {
@@ -8512,6 +8573,7 @@ pub(crate) fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
             Ok(())
         };
         runtime.ping_route = None;
+        runtime.ping_config_identity = None;
         runtime.traffic_samples.clear();
         runtime.ad_blocking_active = false;
         // Сессия хелпера закрывается первой: он сам погасит ядро и вернёт

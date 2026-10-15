@@ -1,0 +1,6 @@
+.support-report-dialog { width: min(640px, calc(100vw - 24px)); }
+.support-report-privacy { color: var(--text-secondary); line-height: 1.6; }
+.support-report-topic { display: grid; gap: 8px; margin: 20px 0; }
+.support-report-preview { max-height: 38vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; border: 1px solid var(--border); border-radius: 16px; font: 12px/1.65 ui-monospace, monospace; user-select: text; }
+.support-report-dialog .universal-dialog-footer { flex-wrap: wrap; }
+@media (max-width: 480px) { .support-report-dialog .universal-dialog-footer > button { flex: 1 1 100%; } }

@@ -1,3 +1,4 @@
+import { SupportReport } from "../components/SupportReport";
 import { NimboSelect } from '../components/NimboSelect';
 import { PageHeader, StatePanel, useSecondaryCopy } from "../components/Secondary";
 import { Surface } from "../components/Universal";
@@ -159,6 +160,7 @@ export function TunnelLogs() {
             ))}
           </div>
         <div className="tunnel-logs-actions">
+          <SupportReport />
           <div className="tunnel-logs-search">
             <SearchIcon />
             <input

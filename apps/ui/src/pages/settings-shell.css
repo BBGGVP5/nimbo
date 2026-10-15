@@ -27,3 +27,12 @@ body[data-ui-style] .settings-page .parity-settings-detail .settings-row-title {
   .settings-page .parity-radio-list label { min-height: 56px; padding-block: 10px; }
   .settings-page .settings-row { gap: 10px; }
 }
+
+.settings-discovery { display: grid; gap: 12px; margin: 12px 0 24px; max-width: 760px; }
+.settings-discovery p { color: var(--color-text-dim); font-size: 13px; line-height: 1.5; margin: 0; }
+.settings-mode { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--color-border); border-radius: 16px; width: fit-content; max-width: 100%; }
+.settings-mode button { min-height: 44px; padding: 8px 16px; border: 0; border-radius: 12px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.settings-mode button[aria-pressed="true"] { background: var(--color-text); color: var(--color-bg); }
+.settings-mode button:focus-visible, .settings-search input:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.settings-search { display: grid; gap: 6px; font-size: 13px; }
+.settings-search input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 48px; padding: 12px; border: 1px solid var(--color-border); border-radius: 14px; background: transparent; color: inherit; font: inherit; }

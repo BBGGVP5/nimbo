@@ -29,6 +29,25 @@ try {
     });
     const url=`http://127.0.0.1:5198/tests/browser/settings-polish.html?theme=${theme}&style=${style}`;
     await page.goto(url);await page.locator('.parity-settings-group').first().waitFor();
+    const advanced = page.getByRole('button', {name:'Расширенный', exact:true});
+    const simple = page.getByRole('button', {name:'Простой', exact:true});
+    const search = page.getByRole('searchbox', {name:'Поиск настроек', exact:true});
+    assert.equal(await simple.getAttribute('aria-pressed'),'true');
+    if(artifacts && style==='signal' && [1100,360].includes(viewport.width))await page.screenshot({path:resolve(artifacts,`settings-simple-${theme}-${viewport.width}.png`),fullPage:true});
+    assert.equal(await page.getByRole('button', {name:/DNS · TLS · MTU/}).count(),0);
+    await search.fill('  dNs  TLS ');
+    assert.equal(await page.getByRole('button', {name:/DNS · TLS · MTU/}).count(),1);
+    if(artifacts && style==='signal' && viewport.width===360)await page.screenshot({path:resolve(artifacts,`settings-search-${theme}-360.png`),fullPage:true});
+    assert.equal(await simple.getAttribute('aria-pressed'),'true');
+    await search.fill('неттакойнастройки');
+    assert((await page.getByRole('status').innerText()).includes('Ничего не найдено'));
+    await search.fill('');
+    await advanced.click();
+    assert.equal(await advanced.getAttribute('aria-pressed'),'true');
+    await page.reload(); await page.locator('.parity-settings-group').first().waitFor();
+    assert.equal(await advanced.getAttribute('aria-pressed'),'true');
+    assert.deepEqual(await page.evaluate(()=>window.__settingsCalls),[], 'mode/search must not change native preferences');
+    assert.deepEqual(await page.evaluate(()=>window.__unexpectedSettingsCalls),[]);
     const overview=await page.evaluate(()=>{
       const groups=[...document.querySelectorAll('.parity-settings-group')].map(g=>{const r=g.getBoundingClientRect();return {top:r.top,bottom:r.bottom};});
       const rows=[...document.querySelectorAll('.parity-setting-link')].map(r=>r.getBoundingClientRect().height).filter(h=>h>0);

@@ -646,6 +646,9 @@ pub struct RuntimeState {
     pub ad_blocking_active: bool,
     pub mihomo: Option<nimbo_mihomo::process::Session>,
     pub(crate) ping_route: Option<crate::latency::PingRoute>,
+    pub(crate) ping_config_identity: Option<[u8; 32]>,
+    pub(crate) auto_route_evidence:
+        HashMap<String, crate::auto_route::evidence::Sample<crate::auto_route::ProbeContext>>,
     /// Живое соединение с привилегированным хелпером, пока поднят TUN.
     /// Обрыв соединения — сигнал хелперу погасить туннель, поэтому сессия
     /// живёт ровно столько же, сколько подключение.

@@ -1,0 +1,20 @@
+import {createRoot} from 'react-dom/client';
+import {SupportReport} from '../../src/components/SupportReport';
+import {api, defaultAppPreferences} from '../../src/lib/api';
+import {coreApi} from '../../src/lib/coreApi';
+import {useAppStore} from '../../src/store';
+import '../../src/styles.css';
+import '../../src/universal.css';
+import '../../src/secondary.css';
+const params=new URLSearchParams(location.search);
+document.body.dataset.theme=params.get('theme')??'dark'; document.body.dataset.uiStyle='signal';
+useAppStore.setState({preferences:{...defaultAppPreferences,language:'ru',theme_mode:params.get('theme')==='light'?'light':'dark'},hydrate:async()=>{}});
+const state={calls:[] as string[],copies:[] as string[]}; Object.assign(window,{supportFixture:state});
+async function read<T>(name:string,value:T):Promise<T>{state.calls.push(name);if(params.has('delay'))await new Promise(resolve=>setTimeout(resolve,300));if(params.has('fail'))throw Error('SECRET-error');return value;}
+api.getAppVersion=()=>read('version','1.3.0-beta.1');
+api.getStatus=()=>read('status',{state:'connected',connection_mode:'tun',server_count:74,subscription_count:1,socks_password:'SECRET-password'} as Awaited<ReturnType<typeof api.getStatus>>);
+api.getDeviceInfo=()=>read('device',{os:'Windows',os_version:'10.0.26100',hostname:'SECRET-host',hwid:'SECRET-id',user_agent:'SECRET-agent'});
+coreApi.profiles=()=>read('profiles',{preferred_core:'auto',active_profile_id:null,profiles:[]});
+api.getTunnelLogs=()=>read('logs',[{level:'error',source:'SECRET-source',timestamp:null,message:'SECRET-key'}]);
+api.writeClipboardText=async(text)=>{if(params.has('clipboardFail'))throw Error('SECRET-error');state.copies.push(text);};
+createRoot(document.getElementById('root')!).render(<main style={{padding:24}}><SupportReport/></main>);

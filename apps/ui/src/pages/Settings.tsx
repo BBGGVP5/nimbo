@@ -1,3 +1,4 @@
+import { matchesSettingsEntry, readSettingsAdvanced, writeSettingsAdvanced } from "../lib/settingsDiscovery";
 import { AppearanceThemePreview } from "../components/AppearanceThemePreview";
 import { OnDemandSetting } from "../components/OnDemandSetting";
 import { CorePreferenceSetting } from "../components/CorePreferenceSetting";
@@ -429,32 +430,70 @@ export function Settings() {
 function SettingsOverview({ preferences, version, onSelect }: { preferences: AppPreferences; version: string; onSelect: (section: SettingsSection) => void }) {
   const m = useMessages();
   const ru = m.common.locale.startsWith("ru");
+  const [advanced, setAdvanced] = useState(readSettingsAdvanced);
+  const [query, setQuery] = useState("");
   const core = useCoreStore(s => s.data?.preferred_core ?? null);
   const coreLabel = core === "auto" ? ru ? "Авто" : "Auto" : core === "xray" ? "Xray" : core === "mihomo" ? "Mihomo" : core === "awg" ? "AWG" : ru ? "Выбор ядра" : "Core selection";
-  const row = (id: SettingsSection, detail?: string) => {
+  type Entry = { id: string; title: string; detail?: string; icon: ReactNode; section?: SettingsSection; to?: string; advanced?: boolean; keywords?: string; narrow?: boolean };
+  const row = (id: SettingsSection, detail?: string, advanced = false, keywords = ""): Entry => {
     const item = sectionItems.find(item => item.id === id)!;
-    return <button type="button" className="parity-setting-link" key={id} onClick={() => onSelect(id)}><span className="parity-setting-icon">{item.icon}</span><span><strong>{m.settings[item.labelKey]}</strong>{detail && <small>{detail}</small>}</span><span aria-hidden="true">›</span></button>;
+    return { id, title: m.settings[item.labelKey], detail, icon: item.icon, section: id, advanced, keywords };
   };
-  const link = (to: string, title: string, icon: ReactNode, detail?: string, narrowOnly = false) => <Link className={`parity-setting-link${narrowOnly ? " settings-narrow-destination" : ""}`} to={to}><span className="parity-setting-icon">{icon}</span><span><strong>{title}</strong>{detail && <small>{detail}</small>}</span><span aria-hidden="true">›</span></Link>;
-  return <div className="parity-settings-overview">
-    <section className="parity-settings-group"><h2>{m.settings.connection}</h2><div className="parity-settings-list">
-      {row("tunnel", "DNS · TLS · MTU")}{row("connection", `${ru ? "Ядро" : "Core"}: ${coreLabel} · TUN · Kill Switch`)}{row("lan", ru ? "Доступ к локальной сети" : "Local network access")}
-      {link("/routing", m.app.routing, <RouteIcon />, ru ? "Правила и модули" : "Rules and modules", true)}
-      {link("/routing/modules", m.app.modules, <ListIcon />, undefined, true)}
-      {link("/apps", m.app.apps, <ConnectionsIcon />, ru ? "Правила для приложений" : "Application rules", true)}
-    </div></section>
-    <section className="parity-settings-group"><h2>{m.settings.subscriptions}</h2><div className="parity-settings-list">
-      {row("subscriptions", ru ? "Обновление и импорт" : "Refresh and import")}{row("servers", ru ? "Сортировка и отображение" : "Sorting and display")}{link("/sync", m.app.sync, <RefreshIcon />, ru ? "Обмен между устройствами" : "Device sync", true)}{row("backup", ru ? "Экспорт и восстановление" : "Export and restore")}
-    </div></section><section className="parity-settings-group"><h2>{ru ? "Диагностика" : "Diagnostics"}</h2><div className="parity-settings-list">
-      {row("latency", preferences.latency_protocol === "nimbo" ? "Nimbo Ping" : ({ tcp_connect: "TCP Connect", http_get: "HTTP GET", http_head: "HTTP HEAD", icmp: "ICMP" }[preferences.latency_protocol] ?? preferences.latency_protocol))}
-      {link("/connections", m.app.connections, <ConnectionsIcon />, ru ? "Активные соединения" : "Active connections")}{link("/tunnel-logs", m.app.tunnelLogs, <LogsIcon />, ru ? "Журнал ядра" : "Core log")}
-    </div></section>
-    <section className="parity-settings-group"><h2>{ru ? "Приложение" : "Application"}</h2><div className="parity-settings-list">
-      {row("appearance", ru ? "Тема, цвет и язык" : "Theme, colour and language")}{row("general", ru ? "Запуск и поведение" : "Startup and behaviour")}
-      {link("/notifications", m.app.notifications, <InfoIcon />, ru ? "События и сообщения" : "Events and messages", true)}
-      {row("updates", `v${version}`)}{row("about", `Nimbo · ${version}`)}
-    </div></section>
-  </div>;
+  const link = (to: string, title: string, icon: ReactNode, detail?: string, narrow = false, advanced = false): Entry => ({id: to, to, title, icon, detail, narrow, advanced});
+  const groups = [
+    {title: m.settings.connection, entries: [
+      row("connection", `${ru ? "Ядро" : "Core"}: ${coreLabel} · TUN · Kill Switch`, false, "Xray Mihomo AWG SOCKS proxy прокси"),
+      row("tunnel", "DNS · TLS · MTU", true), row("lan", ru ? "Доступ к локальной сети" : "Local network access", true),
+      link("/routing", m.app.routing, <RouteIcon />, ru ? "Правила и модули · блокировка рекламы" : "Rules and modules · ad blocking", true),
+      link("/routing/modules", m.app.modules, <ListIcon />, undefined, true, true),
+      link("/apps", m.app.apps, <ConnectionsIcon />, ru ? "Правила для приложений" : "Application rules", true)
+    ]},
+    {title: m.settings.subscriptions, entries: [
+      row("subscriptions", ru ? "Обновление и импорт" : "Refresh and import", false, "user agent UA заголовки"),
+      row("servers", ru ? "Сортировка и отображение" : "Sorting and display", true),
+      link("/sync", m.app.sync, <RefreshIcon />, ru ? "Обмен между устройствами" : "Device sync", true),
+      row("backup", ru ? "Экспорт и восстановление" : "Export and restore")
+    ]},
+    {title: ru ? "Диагностика" : "Diagnostics", entries: [
+      row("latency", preferences.latency_protocol === "nimbo" ? "Nimbo Ping" : preferences.latency_protocol, false, "пинг ping timeout таймаут URL"),
+      link("/connections", m.app.connections, <ConnectionsIcon />, ru ? "Активные соединения" : "Active connections", false, true),
+      link("/tunnel-logs", m.app.tunnelLogs, <LogsIcon />, ru ? "Отчёт об ошибке · журнал ядра" : "Error report · core log")
+    ]},
+    {title: ru ? "Приложение" : "Application", entries: [
+      row("appearance", ru ? "Тема, цвет и язык" : "Theme, colour and language"),
+      row("general", ru ? "Запуск и поведение" : "Startup and behaviour"),
+      link("/notifications", m.app.notifications, <InfoIcon />, ru ? "События и сообщения" : "Events and messages", true),
+      row("updates", `v${version}`), row("about", `Nimbo · ${version}`)
+    ]}
+  ].map(group => ({...group, entries: group.entries.filter(entry => matchesSettingsEntry(query,
+    `${entry.title} ${entry.detail ?? ""} ${entry.keywords ?? ""}`, !!entry.advanced, advanced))})).filter(group => group.entries.length);
+  function changeMode(value: boolean) {
+    setAdvanced(value);
+    if (!writeSettingsAdvanced(value)) notifyInfo(ru ? "Режим изменён только на этот сеанс: хранилище недоступно." : "Mode changed for this session only: storage is unavailable.");
+  }
+  return <>
+    <div className="settings-discovery">
+      <div className="settings-mode" role="group" aria-label={ru ? "Режим настроек" : "Settings mode"}>
+        <button type="button" aria-pressed={!advanced} onClick={() => changeMode(false)}>{ru ? "Простой" : "Simple"}</button>
+        <button type="button" aria-pressed={advanced} onClick={() => changeMode(true)}>{ru ? "Расширенный" : "Advanced"}</button>
+      </div>
+      <p>{ru ? "Меняется только список разделов, не параметры VPN. Поиск доступен по всем разделам." : "Only the section list changes, not VPN settings. Search covers all sections."}</p>
+      <label className="settings-search"><span>{ru ? "Поиск настроек" : "Search settings"}</span>
+        <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={ru ? "Например, DNS, ядро или тема" : "For example, DNS, core or theme"}/>
+      </label>
+    </div>
+    {groups.length === 0 && <p role="status">{ru ? "Ничего не найдено. Попробуйте другое название." : "No results. Try another name."}</p>}
+    <div className="parity-settings-overview">
+      {groups.map(group => <section className="parity-settings-group" key={group.title}><h2>{group.title}</h2><div className="parity-settings-list">
+        {group.entries.map(entry => {
+          const content = <><span className="parity-setting-icon">{entry.icon}</span><span><strong>{entry.title}</strong>{entry.detail && <small>{entry.detail}</small>}</span><span aria-hidden="true">›</span></>;
+          const className = `parity-setting-link${entry.narrow && !query.trim() ? " settings-narrow-destination" : ""}`;
+          return entry.to ? <Link key={entry.id} className={className} to={entry.to}>{content}</Link> :
+            <button key={entry.id} type="button" className={className} onClick={() => onSelect(entry.section!)}>{content}</button>;
+        })}
+      </div></section>)}
+    </div>
+  </>;
 }
 
 function GeneralSection({
