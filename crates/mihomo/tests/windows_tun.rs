@@ -13,6 +13,8 @@ use std::{
 };
 #[path = "support/windows_proxy_guard.rs"]
 mod fixture_guard;
+#[path = "support/windows_dns_reauthorization.rs"]
+mod dns_reauthorization;
 
 fn stage(case: u8, current: &Cell<&'static str>, name: &'static str) {
     current.set(name);

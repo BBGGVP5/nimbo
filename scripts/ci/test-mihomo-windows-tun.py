@@ -19,6 +19,7 @@ MANDATORY_CASES = (
     'actual_windows_broker_session_tcp_udp_dns_selection_and_cleanup',
     'actual_both_kill_switch_denies_physical_bypass_and_survives_native_death',
 )
+REAUTHORIZE_CASE = 'dns_reauthorization::actual_dns_reply_survives_policy_change_reauthorization'
 
 
 def fixture_round_count(value):
@@ -30,16 +31,21 @@ def fixture_round_count(value):
     return result
 
 
-def run_driver_rounds(driver, environment, before_case, after_case, rounds=1):
-    for round_index in range(fixture_round_count(rounds)):
+def run_driver_rounds(driver, environment, before_case, after_case, rounds=1, reauthorize=False):
+    rounds = fixture_round_count(rounds)
+    def run_one(round_index, case):
+        before_case(round_index, case)
+        subprocess.run([str(driver), '--ignored', '--exact', case,
+                        '--test-threads=1', '--nocapture'],
+                       env=environment, check=True, timeout=240)
+        after_case(round_index, case)
+    if reauthorize:
+        run_one(0, REAUTHORIZE_CASE)
+    for round_index in range(rounds):
         for case in MANDATORY_CASES:
-            before_case(round_index, case)
             # Never retry a failed round: the first failure preserves the
             # original driver error and immediately enters failure diagnostics.
-            subprocess.run([str(driver), '--ignored', '--exact', case,
-                            '--test-threads=1', '--nocapture'],
-                           env=environment, check=True, timeout=240)
-            after_case(round_index, case)
+            run_one(round_index, case)
 
 
 def ps(code, timeout=10):
@@ -75,15 +81,36 @@ class FixtureTrace:
                     "dropped": self.total - len(self.events)}
 
 
+def fixture_dns_question(data):
+    for label, name in (('fixture', b'\x07fixture\x07invalid\x00'),
+                        ('reauth4', b'\x07reauth4\x07fixture\x07invalid\x00'),
+                        ('reauth6', b'\x07reauth6\x07fixture\x07invalid\x00')):
+        end = 12 + len(name)
+        if len(data) >= end + 4 and data[12:end] == name:
+            return label, data[12:end+4], end+4
+    raise ValueError('invalid synthetic DNS question')
+
+
 def fixture_dns_reply(data):
-    # Same synthetic A response as the live fixture, with safe length checks.
-    name = b'\x07fixture\x07invalid\x00'
-    end = 12 + len(name)
-    if len(data) < end + 4 or data[12:end] != name:
-        raise ValueError('invalid synthetic DNS question')
-    question = data[12:end + 4]
+    _, question, _ = fixture_dns_question(data)
     return (data[:2] + b'\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00' + question +
             b'\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x1e\x00\x04\xc0\x00\x02\x7b')
+
+
+class SyntheticDnsBarrier:
+    def __init__(self, root, closed, clock=time.monotonic, sleep=time.sleep):
+        self.root, self.closed, self.clock, self.sleep = root, closed, clock, sleep
+
+    def before_reply(self, label):
+        if label not in ('reauth4', 'reauth6'):
+            raise ValueError('not a named reauthorization question')
+        with (self.root / (label + '.ready')).open('xb') as stream:
+            stream.write(b'synthetic request received; response held\n')
+        deadline = self.clock() + 5
+        while not (self.root / (label + '.release')).is_file():
+            if self.closed.is_set() or self.clock() >= deadline:
+                raise TimeoutError('synthetic DNS reply release absent')
+            self.sleep(.01)
 
 
 def finish_with_cleanup(primary, steps):
@@ -169,6 +196,7 @@ class Fixture:
     def __init__(self):
         self.closed = threading.Event()
         self.trace = FixtureTrace()
+        self.dns_barrier = None
         self.tcp = socket.socket()
         self.tcp.bind(('127.0.0.1', 0))
         self.tcp.listen()
@@ -265,10 +293,15 @@ class Fixture:
                 self.trace.record('dns-request', bytes=len(data), peer=str(address),
                                   txid=int.from_bytes(data[:2], 'big'))
                 reply = fixture_dns_reply(data)
+                label, _, end = fixture_dns_question(data)
+                if self.dns_barrier is not None and label != 'fixture':
+                    self.trace.record('dns-response-held', target=label)
+                    self.dns_barrier.before_reply(label)
+                    self.trace.record('dns-response-released', target=label)
                 self.dns.sendto(reply, address)
                 self.trace.record('dns-response', increment='dns', bytes=len(reply), peer=str(address),
                                   txid=int.from_bytes(data[:2], 'big'),
-                                  qtype=int.from_bytes(reply[29:31], 'big'))
+                                  qtype=int.from_bytes(data[end-4:end-2], 'big'))
             except socket.timeout:
                 continue
             except (OSError, ValueError, AssertionError) as error:
@@ -290,6 +323,7 @@ def main():
     parser.add_argument('--helper', type=Path, required=True)
     parser.add_argument('--rust-test', type=Path, required=True)
     parser.add_argument('--rounds', type=fixture_round_count, default=1)
+    parser.add_argument('--reauthorize-dns', action='store_true')
     args = parser.parse_args()
     native, helper, driver = args.native.resolve(), args.helper.resolve(), args.rust_test.resolve()
     manifest = json.loads((native / 'build-manifest.json').read_text())
@@ -330,6 +364,11 @@ proxy-groups:
 rules: ["MATCH,FixtureChoice"]
 ''', encoding='utf-8', newline='\n')
         environment = os.environ.copy()
+        if args.reauthorize_dns:
+            barrier = directory / 'dns-reauthorize'
+            barrier.mkdir()
+            fixture.dns_barrier = SyntheticDnsBarrier(barrier, fixture.closed)
+            environment['NIMBO_TEST_DNS_REAUTH_BARRIER'] = str(barrier)
         installed = False
         primary = None
         try:
@@ -349,7 +388,7 @@ rules: ["MATCH,FixtureChoice"]
                 print('Public fixture phase after ' + case + ': ' +
                       json.dumps(fixture.trace.snapshot()['counts'], separators=(',', ':')), flush=True)
 
-            run_driver_rounds(driver, environment, before_case, after_case, rounds=args.rounds)
+            run_driver_rounds(driver, environment, before_case, after_case, rounds=args.rounds, reauthorize=args.reauthorize_dns)
             assert fixture.tcp_count >= 6 * args.rounds and fixture.udp_count >= 2 * args.rounds and fixture.dns_count >= args.rounds, 'native fixture traffic absent'
         except BaseException as error:
             primary = error

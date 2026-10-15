@@ -176,6 +176,10 @@ class DnsTests(unittest.TestCase):
 
 
 class RepeatedRoundsTests(unittest.TestCase):
+    def test_optional_kernel_regression_precedes_original_cases(self):
+        with patch.object(fixture.subprocess, 'run') as run:
+            fixture.run_driver_rounds(Path('driver'), {}, lambda *_: None, lambda *_: None, reauthorize=True)
+        self.assertEqual([x.args[0][3] for x in run.call_args_list], [fixture.REAUTHORIZE_CASE, *fixture.MANDATORY_CASES])
     def test_bounded_round_counts(self):
         for value in (1, 2, 4, 8, '1', '2', '4', '8'):
             self.assertEqual(fixture.fixture_round_count(value), int(value))
@@ -218,6 +222,39 @@ class RepeatedRoundsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 fixture.run_driver_rounds(Path('driver'), {}, lambda *_: None, lambda *_: None, rounds=3)
         run.assert_not_called()
+
+
+class ReauthorizationBarrierTests(unittest.TestCase):
+    def test_only_named_synthetic_questions_can_use_barrier(self):
+        for label in ('reauth4', 'reauth6'):
+            query = DnsTests.query[:12] + b'\x07' + label.encode() + DnsTests.query[12:]
+            actual, question, end = fixture.fixture_dns_question(query)
+            self.assertEqual(actual, label)
+            self.assertEqual(question, query[12:])
+            self.assertEqual(end, len(query))
+            self.assertEqual(fixture.fixture_dns_reply(query)[-4:], bytes([192,0,2,123]))
+        with self.assertRaises(ValueError):
+            fixture.fixture_dns_question(DnsTests.query[:12] + b'\x07foreign' + DnsTests.query[12:])
+
+    def test_ready_precedes_one_explicit_release(self):
+        import tempfile
+        import threading
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            def release(_):
+                self.assertTrue((root/'reauth4.ready').is_file())
+                (root/'reauth4.release').write_bytes(b'release')
+            barrier = fixture.SyntheticDnsBarrier(root, threading.Event(), sleep=release)
+            barrier.before_reply('reauth4')
+            self.assertEqual(sorted(x.name for x in root.iterdir()), ['reauth4.ready','reauth4.release'])
+
+    def test_missing_release_and_foreign_label_remain_fatal(self):
+        import tempfile
+        import threading
+        with tempfile.TemporaryDirectory() as temp:
+            barrier = fixture.SyntheticDnsBarrier(Path(temp), threading.Event(), clock=Mock(side_effect=[0,6]))
+            with self.assertRaises(TimeoutError): barrier.before_reply('reauth6')
+            with self.assertRaises(ValueError): barrier.before_reply('foreign')
 
 
 if __name__ == "__main__":

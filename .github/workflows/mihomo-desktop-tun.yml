@@ -8,6 +8,10 @@ on:
         type: choice
         options: ['1', '2', '4', '8']
         default: '1'
+      windows_reauthorize_dns:
+        description: Controlled DNS policy-change regression before the complete gate
+        type: boolean
+        default: false
   push:
     branches: ['codex/ondemand-memory-20260930']
     paths:
@@ -90,6 +94,7 @@ jobs:
         env:
           NIMBO_DISPOSABLE_WINDOWS: '1'
           NIMBO_WINDOWS_FIXTURE_ROUNDS: ${{ inputs.windows_rounds || '1' }}
+          NIMBO_WINDOWS_REAUTHORIZE_DNS: ${{ inputs.windows_reauthorize_dns || 'false' }}
         run: |
           # Select only the artifact for this exact Cargo invocation, never a
           # stale hashed executable restored by the build cache.
@@ -100,7 +105,9 @@ jobs:
           }
           $driver = @($artifacts | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.target.name -eq 'windows_tun' -and $_.executable })
           if ($driver.Count -ne 1) { throw 'Windows native acceptance driver missing or ambiguous' }
-          python scripts/ci/test-mihomo-windows-tun.py --native 'native-desktop/${{ matrix.artifact }}' --helper target/debug/nimbo-svc.exe --rust-test $driver[0].executable --rounds $env:NIMBO_WINDOWS_FIXTURE_ROUNDS
+          $reauthorize = @()
+          if ($env:NIMBO_WINDOWS_REAUTHORIZE_DNS -eq 'true') { $reauthorize = @('--reauthorize-dns') }
+          python scripts/ci/test-mihomo-windows-tun.py --native 'native-desktop/${{ matrix.artifact }}' --helper target/debug/nimbo-svc.exe --rust-test $driver[0].executable --rounds $env:NIMBO_WINDOWS_FIXTURE_ROUNDS @reauthorize
           if ($LASTEXITCODE) { throw 'Windows native TUN acceptance failed' }
       - name: Actual proxy provider refresh and cancelled startup
         if: runner.os == 'Linux'

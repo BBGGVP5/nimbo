@@ -48,6 +48,14 @@ def run_driver_rounds(driver, environment, rounds, before_case, after_case):
 
 ## Task 3: Repair and verify the identified path
 
+### Narrowed candidate selected after source review
+
+Microsoft documents EMPTY next-hop metadata when an outbound flow is reauthorized on its inbound reply. Nimbo's sole TUN permit currently requires a nonempty next-hop LUID. This is a concrete policy coverage gap, but has not yet been attributed to the historical timeout.
+
+- Service write set: `apps/service/src/mihomo_firewall.rs`, optional `apps/service/src/mihomo_firewall/reauthorize_tests.rs`. Add an ephemeral soft role7 permit requiring ALL of REAUTHORIZE, EMPTY next-hop and the exact current owned arrival LUID. Keep role4 outbound permit and physical blocks. Journalv3 authorizes/retires exact role counts1=5,2=7,3=8; provider cleanup remains required for versions2/3. Roles5/6 alone use transport layers.
+- VM reproducer write set: `crates/mihomo/tests/support/windows_dns_reauthorization.rs`, one module registration in `crates/mihomo/tests/windows_tun.rs`, Python fixture/parser/barrier and pure tests. Hold a named synthetic DNS response until the driver commits a separate ephemeral low-weight DNS block in the owned sublayer, causing policy-change reauthorization without changing the prevailing decision. Release one reply, retain the same three-second receive deadline, and capture before session/filter cleanup if it fails.
+- Run the kernel reproducer first with the old productionv2 source; snapshot only the new test files. Then run identical test contents with the scoped productionv3 correction. Keep the original untraced full cases0–4 and all physical bypass denials mandatory. Passing only a descriptor model is not kernel proof.
+
 - [ ] Update this plan with the exact narrowed production/test write set once the defect is established. Avoid unrelated UI, iOS, Android or core-version changes.
 - [ ] Apply the smallest evidence-backed change. Existing explicit DNS upstream policy and fail-closed ownership must remain intact; no longer DNS timeout, hidden retry, direct/system resolver fallback or disabled protection.
 - [ ] Run the new deterministic regression, existing pure/native Go or Rust suites relevant to the edit, source pin/license gates, and full disposable Windows acceptance with repeated connect/crash/reset cycles. Require the original untraced fixture as well as any traced diagnostic run.
