@@ -19,7 +19,7 @@ object SubscriptionPayloadParser {
     }
 
     private val supportedSchemes = setOf(
-        "vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "hy2", "tuic",
+        "vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "hy2", "tuic", "mieru",
         "naive", "naive+https", "naive+quic", "wg", "wireguard", "awg", "amneziawg"
     )
 
@@ -149,7 +149,7 @@ object SubscriptionPayloadParser {
         val authority = beforeFragment.substringBefore('?')
         val hostPort = authority.substringAfterLast('@', authority)
         val host = parseHost(hostPort)
-        val port = parsePort(hostPort)
+        val port = parsePort(hostPort).let { if (it == 0 && (scheme.startsWith("naive") || scheme == "tuic")) 443 else it }
         val params = parseQuery(queryRaw)
         val canonicalProtocol = when (scheme) {
             "hy2" -> "hysteria2"
@@ -162,10 +162,13 @@ object SubscriptionPayloadParser {
         val fragment = splitFragment(fragmentRaw)
         val name = fragment.first.ifBlank { fallbackName }
         val transport = when {
+            scheme == "tuic" -> "quic"
+            scheme == "naive" -> "https"
             scheme.startsWith("naive+") -> scheme.substringAfter('+')
             else -> params["type"] ?: params["network"] ?: params["net"] ?: ""
         }
         val security = params["security"] ?: params["tls"] ?: when {
+            scheme.startsWith("naive") || scheme == "tuic" -> "tls"
             params.containsKey("pbk") || params.containsKey("publickey") -> "reality"
             else -> ""
         }
@@ -241,11 +244,7 @@ object SubscriptionPayloadParser {
     }
 
     private fun extractShareLinks(raw: String): List<String> {
-        val pattern = Regex("(?i)(?:vless|vmess|trojan|ss|ssr|hysteria2|hy2|tuic|naive(?:\\+https|\\+quic)?|wg|wireguard|awg|amneziawg)://[^\\s<>\\\"]+")
-        return pattern.findAll(raw)
-            .map { it.value.trim().trimEnd(',', ';', '\'', ')', ']') }
-            .distinct()
-            .toList()
+        return SubscriptionShareLinks.extract(raw)
     }
 
     /**

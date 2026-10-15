@@ -14,6 +14,11 @@ on:
         required: false
         default: false
         type: boolean
+      platform:
+        description: "Платформы для сборки артефактов"
+        default: all
+        type: choice
+        options: [all, windows, linux]
 
 env:
   NIMBO_AWG_CORE_DIR: ${{ github.workspace }}/tools/native/awg-core
@@ -23,7 +28,8 @@ permissions:
 
 jobs:
   windows:
-    name: Windows x64
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'linux'
+    name: Windows x64 / x86 / ARM64
     runs-on: windows-latest
 
     steps:
@@ -38,7 +44,10 @@ jobs:
       - name: Проверить версии выпуска
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
-        run: python tools/release/check-versions.py
+        run: |
+          python tools/release/check-versions.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/release/test_stage_github_release.py
 
       - name: Установить Go для AmneziaWG
         uses: actions/setup-go@v5
@@ -49,6 +58,14 @@ jobs:
       - name: Проверить зашифрованный обмен AWG
         working-directory: tools/native/awg-core
         run: go test ./... -timeout 90s
+
+      - name: Собрать и проверить Mihomo из закреплённых исходников
+        shell: pwsh
+        run: |
+          $goRoot = go env GOROOT
+          if ($LASTEXITCODE) { throw 'Cannot locate the pinned Go toolchain' }
+          & ./scripts/ci/build-mihomo-core.ps1 -GoRoot $goRoot -Python (Get-Command python).Source
+          & ./apps/ui/src-tauri/native/stage-mihomo.ps1 -CoreSource ./tools/native/mihomo-core
 
       - name: Установить Rust
         uses: dtolnay/rust-toolchain@stable
@@ -81,6 +98,15 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File apps/installer/build-custom-installer.ps1 -All
 
+      - name: Проверить разметку установщика без установки на runner
+        working-directory: apps/installer
+        run: |
+          npx playwright install chromium
+          npm run test:layout
+
+      - name: Проверить откат файлов установщика
+        run: cargo test --locked -p nimbo-installer --bin nimbo-installer
+
       - name: Проверить встроенные ядра в установщиках
         run: python tools/release/check-custom-payload.py windows-x64 windows-x86 windows-arm64
 
@@ -92,6 +118,7 @@ jobs:
           if-no-files-found: error
 
   linux:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
     name: Linux ${{ matrix.asset_arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -100,8 +127,10 @@ jobs:
         include:
           - runner: ubuntu-22.04
             asset_arch: x64
+            target: x86_64-unknown-linux-gnu
           - runner: ubuntu-22.04-arm
             asset_arch: arm64
+            target: aarch64-unknown-linux-gnu
 
     steps:
       - name: Получить исходники
@@ -112,7 +141,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential file patchelf pkg-config rpm xdg-utils \
+            build-essential file patchelf pkg-config rpm xdg-utils squashfs-tools policykit-1 libarchive-tools \
             libwebkit2gtk-4.1-dev libssl-dev \
             libayatana-appindicator3-dev librsvg2-dev
 
@@ -157,6 +186,14 @@ jobs:
           npm ci
           npm run build:linux
 
+      - name: Проверить helper во всех Linux-пакетах
+        run: |
+          python tools/release/test_linux_payload.py
+          python tools/release/check_linux_payload.py --target '${{ matrix.target }}' --report 'release-normalized/helper-verification-${{ matrix.asset_arch }}.json'
+
+      - name: Проверить установку и постоянный путь службы на временном runner
+        run: python tools/release/test-linux-helper-install.py --target '${{ matrix.target }}'
+
       - name: Собрать фирменный Linux-установщик
         if: matrix.asset_arch == 'x64'
         shell: bash
@@ -197,7 +234,7 @@ jobs:
     name: Прикрепить файлы к GitHub Release
     needs: [windows, linux]
     # Публикация только по явному запросу; сборка тега не публикует неполный релиз.
-    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && inputs.platform == 'all'
     runs-on: ubuntu-latest
 
     steps:
@@ -212,18 +249,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            if [[ "$TAG" =~ -(alpha|beta|rc)(\.|-)?[0-9]*$ ]]; then
-              gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --prerelease --generate-notes
-            else
-              gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --generate-notes
-            fi
-          fi
-          while IFS= read -r -d '' file; do
-            hash="$(sha256sum "$file" | awk '{print $1}')"
-            printf '%s  %s\n' "$hash" "$(basename "$file")" > "${file}.sha256"
-          done < <(find release-assets -type f ! -name '*.sha256' -print0)
-          find release-assets -type f -print0 | xargs -0 gh release upload "$TAG" -R "$GITHUB_REPOSITORY"
+        run: python tools/release/stage_github_release.py --assets release-assets

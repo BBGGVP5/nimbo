@@ -243,6 +243,7 @@ pub async fn connect_auto_server(
                         ));
                 })
                 .map_err(|error| format!("Не удалось сохранить режим Авто: {error}"))?;
+            crate::on_demand::manual_connected(&state, ticket)?;
             let _ = crate::tray::refresh_tray_menu(&app);
             return Ok(state.snapshot());
         }
@@ -267,6 +268,9 @@ pub fn start_monitor(app: AppHandle) {
             // check invalidates that observation even for the same server ID.
             let ticket = CONNECTION_INTENT.load(Ordering::SeqCst);
             let snap = state.session_snapshot();
+            if !crate::on_demand::permits_recovery(&snap) {
+                continue;
+            }
             let checked_route = state.runtime(|runtime| runtime.ping_route.clone());
             let Some(url) = snap.auto_subscription_url.clone() else {
                 health = RouteHealthHistory::new(Instant::now());
@@ -315,6 +319,7 @@ pub fn start_monitor(app: AppHandle) {
             let _operation = CONNECTION_OPERATION.lock().await;
             let current = state.session_snapshot();
             if ticket != CONNECTION_INTENT.load(Ordering::SeqCst)
+                || !crate::on_demand::permits_recovery(&current)
                 || !same_auto_context(
                     &snap,
                     &current,

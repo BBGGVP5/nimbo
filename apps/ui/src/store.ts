@@ -153,7 +153,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   recordAppTraffic: (connections) =>
     set((state) => {
       const stats = state.trafficStats;
-      if (!stats || state.status?.state !== "connected") return {};
+      if (!stats || stats.session_available === false || state.status?.state !== "connected") return {};
 
       const mark = state.appTrafficMark;
       const deltaDown = Math.max(0, stats.session_download - mark.download);
@@ -199,18 +199,19 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         };
       }
 
+      const speedAvailable = stats.session_available !== false && stats.speed_available;
       const trafficSpeed = {
         upload: stats.upload_speed,
         download: stats.download_speed,
       };
-      const trafficHistory = stats.speed_available
+      const trafficHistory = speedAvailable
         ? [...state.trafficHistory, { ...trafficSpeed, at }].slice(-60)
         : state.trafficHistory;
       return {
         trafficStats: stats,
         trafficSpeed,
         trafficHistory,
-        trafficMonitoringAvailable: stats.speed_available,
+        trafficMonitoringAvailable: speedAvailable,
       };
     }),
   setTrafficMonitoringAvailable: (trafficMonitoringAvailable) =>
@@ -355,7 +356,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   setActiveServer: async (serverId) => {
-    const { status, activeServerId } = get();
+    const { status, activeServerId, switchingServerId, connectingServerId, disconnecting } = get();
+    if (switchingServerId || connectingServerId || disconnecting) {
+      throw new Error("Дождитесь завершения переключения сервера");
+    }
     if (status?.state === "connected") {
       if (!serverId || serverId === activeServerId) return;
       set({ switchingServerId: serverId, error: null });
@@ -686,7 +690,7 @@ function closeSession(state: {
 }): SessionRecord[] {
   const startedAt = state.sessionStartedAt;
   const stats = state.trafficStats;
-  if (!startedAt || !stats) return state.sessionHistory;
+  if (!startedAt || !stats || stats.session_available === false) return state.sessionHistory;
 
   const download = stats.session_download;
   const upload = stats.session_upload;

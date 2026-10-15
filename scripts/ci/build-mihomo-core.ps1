@@ -1,6 +1,5 @@
-param([string]$GoRoot, [switch]$PrepareOnly, [switch]$Resolve)
+param([string]$GoRoot, [string]$Python = 'python', [switch]$PrepareOnly, [switch]$Resolve)
 $ErrorActionPreference = 'Stop'
-$Python = "$env:LOCALAPPDATA/Programs/Python/Python311/python.exe"
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../tools/native/mihomo-core'))
 if (!$GoRoot) { $GoRoot = Join-Path $env:USERPROFILE 'go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64' }
 $go = Join-Path $GoRoot 'bin/go.exe'
@@ -59,23 +58,23 @@ try {
   $stage=Join-Path $root ('.build/mihomo-patched-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $stage -Force | Out-Null
   $stagedModule=Join-Path $stage 'dependencies'
-  $patchManifest=& $Python (Join-Path $PSScriptRoot 'prepare-mihomo-merged.py') --stage-only --source-dir $mihomoSource --dependency-dir $stagedModule --native-dir $root
+  $patchManifest=& $Python (Join-Path $PSScriptRoot 'prepare-mihomo-merged.py') --stage-only --source-dir $mihomoSource --dependency-dir $stagedModule --native-dir $root --go $go
   if ($LASTEXITCODE) { throw 'Could not stage the pinned Mihomo lifecycle patch.' }
   $patchManifest | Set-Content -LiteralPath (Join-Path $stage 'mihomo-patch-manifest.json') -Encoding utf8
   $modfile=Join-Path $stage 'mihomo-core.mod'
   Copy-Item -LiteralPath (Join-Path $root 'go.mod') -Destination $modfile
   Copy-Item -LiteralPath (Join-Path $root 'go.sum') -Destination ([IO.Path]::ChangeExtension($modfile,'.sum'))
   $stagedMihomo=(Join-Path $stagedModule 'mihomo').Replace('\','/')
-  & $go mod edit "-modfile=$modfile" "-replace=github.com/metacubex/mihomo=$stagedMihomo"
+  & $go mod edit "-modfile=$modfile" "-replace=github.com/metacubex/mihomo=$stagedMihomo" "-replace=github.com/metacubex/sing-tun=$((Join-Path $stagedModule 'sing-tun').Replace('\','/'))" "-replace=github.com/sagernet/netlink=$((Join-Path $stagedModule 'netlink').Replace('\','/'))"
   if ($LASTEXITCODE) { throw 'Could not set the verified Mihomo lifecycle source replacement.' }
   $sourcePaths=@((Get-ChildItem -LiteralPath $root -Filter '*.go' -File).FullName)+@((Get-ChildItem -LiteralPath (Join-Path $root 'cmd') -Filter '*.go' -Recurse -File).FullName)
-  foreach($p in @('API.md','README.md','VERIFICATION.md','go.mod','go.sum','pins.json','protobuf-directive.patch','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','testdata/inspect-source.yaml','testdata/inspect-wire-v1.json')) {if(Test-Path -LiteralPath (Join-Path $root $p)){$sourcePaths+=Join-Path $root $p}}
+  foreach($p in @('API.md','README.md','VERIFICATION.md','go.mod','go.sum','pins.json','protobuf-directive.patch','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','mihomo-rule-journal.patch','mihomo-traffic-counters.patch','sing-tun-rule-journal.patch','netlink-rule-identity.patch','testdata/inspect-source.yaml','testdata/inspect-wire-v1.json')) {if(Test-Path -LiteralPath (Join-Path $root $p)){$sourcePaths+=Join-Path $root $p}}
   $sourceFiles=@($sourcePaths | Sort-Object -Unique | ForEach-Object {[ordered]@{path=([IO.Path]::GetRelativePath($root,$_)).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()}})
   & $go test '-tags=no_tailscale,no_zerotier,no_easytier' "-modfile=$modfile" -mod=readonly -count=1 -timeout=180s ./... 2>&1 | Tee-Object '.build/tests.log'
   if ($LASTEXITCODE) { throw 'Native tests failed' }
-  & (Join-Path $PSScriptRoot 'collect-mihomo-source-manifest.ps1') -Go $go
+  & (Join-Path $PSScriptRoot 'collect-mihomo-source-manifest.ps1') -Go $go -ModFile $modfile
   & $go build '-tags=no_tailscale,no_zerotier,no_easytier' "-modfile=$modfile" -mod=readonly -trimpath -buildvcs=false -o .build/bin/nimbo-mihomo.exe ./cmd/nimbo-mihomo
   if ($LASTEXITCODE) { throw 'Source build failed' }
   foreach($s in $sourceFiles){if((Get-FileHash -LiteralPath (Join-Path $root $s.path)).Hash.ToLowerInvariant() -ne $s.sha256){throw "Source changed during build: $($s.path); no manifest published"}}
-  [ordered]@{apiVersion=1;coreVersion=$pins.version;coreCommit=$pins.commit;toolchain=(& $go version);target='windows/amd64';sha256=(Get-FileHash '.build/bin/nimbo-mihomo.exe').Hash.ToLowerInvariant();goModSHA256=(Get-FileHash 'go.mod').Hash.ToLowerInvariant();goSumSHA256=(Get-FileHash 'go.sum').Hash.ToLowerInvariant();effectiveModSHA256=(Get-FileHash $modfile).Hash.ToLowerInvariant();lifecyclePatchSHA256=(Get-FileHash (Join-Path $root 'mihomo-session-lifecycle.patch')).Hash.ToLowerInvariant();realityPatchSHA256=(Get-FileHash (Join-Path $root 'mihomo-reality-client-version.patch')).Hash.ToLowerInvariant();pinsSHA256=(Get-FileHash 'pins.json').Hash.ToLowerInvariant();sourceLicenseManifestSHA256=(Get-FileHash 'source-license-manifest.json').Hash.ToLowerInvariant();sourceFiles=$sourceFiles} | ConvertTo-Json -Depth 5 | Set-Content '.build/bin/build-manifest.json' -Encoding utf8
+  [ordered]@{apiVersion=1;coreVersion=$pins.version;coreCommit=$pins.commit;toolchain=(& $go version);target='windows/amd64';windowsTunOwnership='exclusive-adapter-rollback-v1';sha256=(Get-FileHash '.build/bin/nimbo-mihomo.exe').Hash.ToLowerInvariant();goModSHA256=(Get-FileHash 'go.mod').Hash.ToLowerInvariant();goSumSHA256=(Get-FileHash 'go.sum').Hash.ToLowerInvariant();effectiveModSHA256=(Get-FileHash $modfile).Hash.ToLowerInvariant();lifecyclePatchSHA256=(Get-FileHash (Join-Path $root 'mihomo-session-lifecycle.patch')).Hash.ToLowerInvariant();realityPatchSHA256=(Get-FileHash (Join-Path $root 'mihomo-reality-client-version.patch')).Hash.ToLowerInvariant();pinsSHA256=(Get-FileHash 'pins.json').Hash.ToLowerInvariant();sourceLicenseManifestSHA256=(Get-FileHash 'source-license-manifest.json').Hash.ToLowerInvariant();sourceFiles=$sourceFiles} | ConvertTo-Json -Depth 5 | Set-Content '.build/bin/build-manifest.json' -Encoding utf8
 } finally { Pop-Location }

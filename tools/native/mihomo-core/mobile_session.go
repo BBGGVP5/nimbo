@@ -191,13 +191,15 @@ func (m *mobileSession) NewConnection(_ context.Context, conn net.Conn, md M.Met
 				return net.ErrClosed
 			}
 			defer m.untrack(remote)
+			// Selection protects route lookup/dial/registration, not the lifetime
+			// of an established relay. Holding this during Copy blocked live select.
+			m.graph.RUnlock()
 			done := make(chan struct{})
 			go func() { _, _ = io.Copy(remote, conn); _ = remote.Close(); _ = conn.Close(); close(done) }()
 			_, _ = io.Copy(conn, remote)
 			_ = conn.Close()
 			_ = remote.Close()
 			<-done
-			m.graph.RUnlock()
 			return nil
 		}
 		err = dialErr
@@ -346,12 +348,14 @@ func (m *mobileSession) runFlow(key string, f *mobileFlow, md M.Metadata) {
 		return
 	}
 	pc, err := proxy.ListenPacketContext(ctx, mobileMetadata(md, C.UDP))
+	// Register under the graph lock so a switch cannot miss an old-route flow.
+	tracked := err == nil && m.track(pc)
 	m.graph.RUnlock()
 	cancel()
 	if err != nil {
 		return
 	}
-	if !m.track(pc) {
+	if !tracked {
 		return
 	}
 	defer m.untrack(pc)

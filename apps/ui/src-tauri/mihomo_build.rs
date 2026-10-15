@@ -7,6 +7,8 @@ pub fn prepare() {
     // built and recorded their own artifact; never reuse Windows x64 elsewhere.
     let platform = match target.as_str() {
         "x86_64-pc-windows-msvc" => "windows-x64",
+        "x86_64-unknown-linux-gnu" => "linux-x64",
+        "aarch64-unknown-linux-gnu" => "linux-arm64",
         _ => {
             println!("cargo:rustc-env=NIMBO_MIHOMO_SHA256=");
             println!("cargo:rustc-env=NIMBO_MIHOMO_PLATFORM=");
@@ -15,7 +17,11 @@ pub fn prepare() {
     };
     println!("cargo:rustc-env=NIMBO_MIHOMO_PLATFORM={platform}");
     let dir = Path::new("resources/mihomo").join(platform);
-    let binary = dir.join("nimbo-mihomo.exe");
+    let binary = dir.join(if platform == "windows-x64" {
+        "nimbo-mihomo.exe"
+    } else {
+        "nimbo-mihomo"
+    });
     let manifest = dir.join("build-manifest.json");
     for p in [&binary, &manifest] {
         println!("cargo:rerun-if-changed={}", p.display());
@@ -34,6 +40,14 @@ pub fn prepare() {
         .unwrap_or(&manifest_bytes);
     let metadata: serde_json::Value =
         serde_json::from_slice(bytes).expect("invalid Mihomo manifest");
+    // The portable builder declares its own per-platform source snapshot.
+    // PowerShell Windows staging owns top-level provenance instead. An old
+    // directory merely existing must never override the current build layout.
+    let provenance = if platform == "windows-x64" && metadata["builderSHA256"].as_str().is_none() {
+        Path::new("resources/mihomo").to_path_buf()
+    } else {
+        dir.clone()
+    };
     if std::env::var("PROFILE").as_deref() == Ok("release") {
         assert!(
             metadata["sourceFiles"]
@@ -49,7 +63,7 @@ pub fn prepare() {
                     .all(|c| matches!(c, std::path::Component::Normal(_))),
                 "unsafe Mihomo source manifest path"
             );
-            let path = Path::new("resources/mihomo/adapter-source").join(relative);
+            let path = provenance.join("adapter-source").join(relative);
             println!("cargo:rerun-if-changed={}", path.display());
             let hash = format!(
                 "{:x}",
@@ -61,7 +75,7 @@ pub fn prepare() {
                 "frozen Mihomo source differs from built revision"
             );
         }
-        let licenses = std::fs::read("resources/mihomo/notices/source-license-manifest.json")
+        let licenses = std::fs::read(provenance.join("notices/source-license-manifest.json"))
             .expect("Mihomo transitive notices missing");
         let hash = format!("{:x}", Sha256::digest(licenses));
         assert_eq!(
@@ -79,17 +93,21 @@ pub fn prepare() {
     );
     assert_eq!(
         metadata["coreVersion"].as_str(),
-        Some("v1.19.31"),
+        Some("v1.19.32"),
         "Mihomo pin mismatch"
     );
     assert_eq!(
         metadata["coreCommit"].as_str(),
-        Some("ab405bad5beeeac8b003bb01f60f134f6df54471"),
+        Some("88dcbf7f1614a67c3b36b848ee3592dfa92ada36"),
         "Mihomo commit mismatch"
     );
     assert_eq!(
         metadata["target"].as_str(),
-        Some("windows/amd64"),
+        Some(match platform {
+            "linux-x64" => "linux/amd64",
+            "linux-arm64" => "linux/arm64",
+            _ => "windows/amd64",
+        }),
         "Mihomo target mismatch"
     );
     assert!(

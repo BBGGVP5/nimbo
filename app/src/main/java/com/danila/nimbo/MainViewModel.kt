@@ -25,6 +25,7 @@ import com.danila.nimbo.ui.screens.SubscriptionProfileMetadata
 import com.danila.nimbo.ui.screens.toMetadata
 import com.danila.nimbo.ui.i18n.serverCountEn
 import com.danila.nimbo.ui.i18n.serverCountRu
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
@@ -594,6 +595,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         type: com.danila.nimbo.ui.components.NotificationType = com.danila.nimbo.ui.components.NotificationType.PING,
         silent: Boolean = false
     ) {
+        if (!silent && pingJob?.isActive == true) { cancelActivePing(); return }
         launchPing(targetServers = null, customStartMessage = customStartMessage, type = type, silent = silent)
     }
 
@@ -605,6 +607,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         servers: List<Server>,
         silent: Boolean = false
     ) {
+        if (!silent && pingJob?.isActive == true) { cancelActivePing(); return }
         if (servers.isEmpty()) return
         launchPing(
             targetServers = servers,
@@ -825,6 +828,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun pingSingleServer(server: Server, silent: Boolean = true) {
+        // A repeat action cancels the current check; completed cache values stay intact.
+        if (pingJob?.isActive == true && server.pingMeasurementKey() in _activePingKeys.value) {
+            cancelActivePing()
+            return
+        }
         if (MihomoProfiles.isMihomo(server)) {
             if (!silent) showTopNotification(userText("Пинг узлов Mihomo доступен в разделе ядра после подключения", "Mihomo node delay is available in VPN core settings after connection"))
             return
@@ -875,6 +883,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         } ?: -1
                     }.getOrDefault(-1)
                 }
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 if (isCurrentPingRun(runId)) {
                     updateServersPings(mapOf(server.pingMeasurementKey() to pingValue))
                     maybePersistPingCache()

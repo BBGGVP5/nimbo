@@ -14,7 +14,10 @@ static inline int nimboMihomoProtectV1(NimboMihomoSocketProtectorV1 callback, in
 */
 import "C"
 
-import "unsafe"
+import (
+	mihomocore "nimbo/mihomocore"
+	"unsafe"
+)
 
 // All non-NULL results are malloc-owned strings released once by CGoFree or
 // NimboMihomoFreeV1. Existing API3/AWG/diagnostic symbols and ABI are unchanged.
@@ -38,6 +41,36 @@ func NimboMihomoCancelV1(input *C.char) *C.char {
 //export NimboMihomoStartIOSV1
 func NimboMihomoStartIOSV1(input *C.char, borrowedFD C.int64_t) *C.char {
 	return C.CString(mihomoStartIOSJSON(mihomoCInput(input), int64(borrowedFD)))
+}
+
+//export NimboMihomoStartIOSPacketFlowV1
+func NimboMihomoStartIOSPacketFlowV1(input *C.char) *C.char {
+	return C.CString(mihomocore.StartIOSPacketFlow(mihomoCInput(input)))
+}
+
+// Raw IP, no Darwin family prefix. Caller owns bytes throughout the call only.
+//
+//export NimboMihomoWriteIOSPacketV1
+func NimboMihomoWriteIOSPacketV1(generation C.uint64_t, input unsafe.Pointer, length C.int) C.int {
+	if input == nil || length < 20 || length > 1500 {
+		return -2
+	}
+	return C.int(mihomocore.WriteIOSPacket(uint64(generation), C.GoBytes(input, length)))
+}
+
+// Capacity must hold a full MTU; no malloc, base64 or JSON per packet. Stop wakes
+// this call, and stale generation cannot copy an old packet into a new owner.
+//
+//export NimboMihomoReadIOSPacketV1
+func NimboMihomoReadIOSPacketV1(generation C.uint64_t, output unsafe.Pointer, capacity C.int, timeoutMs C.int) C.int {
+	if output == nil || capacity < 1500 || capacity > 65536 {
+		return -2
+	}
+	raw, n := mihomocore.ReadIOSPacket(uint64(generation), int(timeoutMs))
+	if n > 0 {
+		C.memcpy(output, unsafe.Pointer(&raw[0]), C.size_t(n))
+	}
+	return C.int(n)
 }
 
 //export NimboMihomoSetSocketProtectorV1

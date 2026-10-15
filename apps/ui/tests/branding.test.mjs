@@ -16,7 +16,8 @@ test('Packaged app and tray icons are RGBA PNGs with valid dimensions',()=>{
   const b=read(`apps/ui/src-tauri/icons/${name}`);assert.equal(b.readUInt32BE(16),size);assert.equal(b.readUInt32BE(20),size);
   assert.equal(b[25],6,`${name} is RGBA for Tauri packaging`);
  }
- const ico=read('apps/ui/src-tauri/icons/icon.ico');assert.equal(ico.readUInt16LE(2),1);assert.equal(ico.readUInt16LE(4),7);
+ const ico=read('apps/ui/src-tauri/icons/icon.ico');assert.equal(ico.readUInt16LE(2),1);assert.equal(ico.readUInt16LE(4),10);
+ assert.deepEqual(Array.from({length:10},(_,i)=>ico[6+16*i]||256),[256,128,96,64,48,40,32,24,20,16]);
  const icns=read('apps/ui/src-tauri/icons/icon.icns');assert.equal(icns.toString('ascii',0,4),'icns');assert.equal(icns.readUInt32BE(4),icns.length);
  assert.deepEqual(ico,read('nimbo.ico'));
 });

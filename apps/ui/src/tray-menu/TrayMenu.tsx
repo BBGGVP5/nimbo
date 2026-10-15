@@ -29,6 +29,7 @@ interface TrayServer {
 export interface TrayState {
   connected: boolean;
   activeServerId: string | null;
+  activeProfileName?: string | null;
   autoSelected: boolean;
   connectionMode: ConnectionMode;
   subscriptionCount: number;
@@ -235,19 +236,6 @@ export function TrayMenu({ previewState }: { previewState?: TrayState } = {}) {
     return () => window.removeEventListener("storage", read);
   }, [openNonce, previewState]);
 
-  // Maintenance actions keep the flyout open: show a live status and let the
-  // backend report the result via `tray-menu:action-done`.
-  const runMaintenance = useCallback(
-    (kind: MaintenanceAction) => {
-      clearTaskTimers();
-      setTask({ kind, status: "running" });
-      act(kind);
-      // Safety net: clear a stuck spinner if the backend never reports back.
-      taskTimers.current.push(window.setTimeout(() => setTask(null), 40000));
-    },
-    [act, clearTaskTimers],
-  );
-
   useEffect(() => {
     if (previewState) return;
     void load();
@@ -408,11 +396,9 @@ export function TrayMenu({ previewState }: { previewState?: TrayState } = {}) {
     () => servers.find((server) => server.id === activeId) ?? null,
     [activeId, servers],
   );
-  const activeServerName = activeServer ? displayServerName(activeServer) : t.noActive;
+  const activeServerName = state?.activeProfileName || (activeServer ? displayServerName(activeServer) : t.noActive);
   const connectionMode = state?.connectionMode ?? "tun";
-  const subscriptionCount = state?.subscriptionCount ?? 0;
-  const serverCount = state?.serverCount ?? servers.length;
-  const canConnect = !connected && activeId != null;
+  const canConnect = !connected && (activeId != null || !!state?.activeProfileName);
   const canDisconnect = connected;
   const canToggle = canConnect || canDisconnect;
   // Show the admin banner proactively (mode needs TUN but the app is not
@@ -473,7 +459,6 @@ export function TrayMenu({ previewState }: { previewState?: TrayState } = {}) {
     }, 30000);
   };
 
-  const taskBusy = task?.status === "running";
   const taskLabel = task ? describeTask(task, t, state?.visualPreferences?.latency_protocol) : null;
   const taskEstimate = latencyPresentation(task?.best, state?.visualPreferences?.latency_protocol);
   const taskExplanation = task?.kind === "ping_servers" && taskEstimate.approximate
@@ -587,45 +572,6 @@ export function TrayMenu({ previewState }: { previewState?: TrayState } = {}) {
           </div>
         </section>
 
-        <nav className="tray-utility-grid" aria-label={t.quick}>
-          <button type="button" onClick={() => act("routing")}><ConnectionsIcon /><span>{t.routing}</span></button>
-          <button type="button" onClick={() => act("sync")}><RefreshIcon /><span>{t.sync}</span></button>
-          <button type="button" onClick={() => act("apps")}><SettingsIcon /><span>{t.apps}</span></button>
-          <button type="button" onClick={() => act("connections")}><ConnectionsIcon /><span>{t.connections}</span></button>
-          <button type="button" onClick={() => act("statistics")}><RadarIcon /><span>{t.statistics}</span></button>
-          <button type="button" onClick={() => act("settings")}><SettingsIcon /><span>{t.settings}</span></button>
-          <button type="button" onClick={() => act("logs")}><ConnectionsIcon /><span>{t.logs}</span></button>
-        </nav>
-
-        <details className="tray-maintenance">
-          <summary>{t.maintenance}</summary>
-
-        <div className="tray-utility-grid" aria-label={t.maintenance}>
-          <button
-            type="button"
-            disabled={connected || subscriptionCount === 0 || taskBusy}
-            className={connected || subscriptionCount === 0 || taskBusy ? "is-disabled" : ""}
-            title={connected ? (lang === "ru" ? "Сначала отключите VPN" : "Disconnect VPN first") : t.refresh}
-            onClick={() =>
-              !connected && subscriptionCount > 0 && !taskBusy && runMaintenance("refresh_subscriptions")
-            }
-          >
-            <RefreshIcon />
-            <span>{t.refresh}</span>
-          </button>
-          <button
-            type="button"
-            disabled={serverCount === 0 || taskBusy}
-            className={serverCount === 0 || taskBusy ? "is-disabled" : ""}
-            onClick={() => serverCount > 0 && !taskBusy && runMaintenance("ping_servers")}
-          >
-            <RadarIcon />
-            <span>{t.ping}</span>
-          </button>
-        </div>
-
-        </details>
-
         {task && taskLabel ? (
           <div className={`tray-task is-${task.status}`} role="status" aria-live="polite">
             {task.status === "running" ? (
@@ -711,15 +657,6 @@ function describeTask(task: TrayTask, t: Labels, protocol?: LatencyProtocol): st
     : t.refreshDone;
 }
 
-function ConnectionsIcon() {
-  return (
-    <svg {...svgProps}>
-      <path d="M4 7h10M4 12h16M4 17h8" />
-      <circle cx="17" cy="7" r="2" />
-      <circle cx="15" cy="17" r="2" />
-    </svg>
-  );
-}
 
 function TaskDoneIcon() {
   return (
@@ -775,39 +712,7 @@ function QuitIcon() {
   );
 }
 
-function SettingsIcon() {
-  return (
-    <svg {...svgProps} viewBox="-1 -1 26 26">
-      <path d="M12 15.4a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Z" />
-      <path d="M19.2 14.8a1.7 1.7 0 0 0 .34 1.86l.04.04a2 2 0 1 1-2.84 2.84l-.04-.04a1.7 1.7 0 0 0-1.86-.34 1.7 1.7 0 0 0-1.04 1.57V21a2 2 0 0 1-4 0v-.06a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.86.34l-.04.04a2 2 0 1 1-2.84-2.84l.04-.04a1.7 1.7 0 0 0 .34-1.86 1.7 1.7 0 0 0-1.57-1.04H2a2 2 0 0 1 0-4h.06A1.7 1.7 0 0 0 3.62 8.8a1.7 1.7 0 0 0-.34-1.86l-.04-.04A2 2 0 1 1 6.08 4.06l.04.04a1.7 1.7 0 0 0 1.86.34A1.7 1.7 0 0 0 9.02 2.9V2.8a2 2 0 0 1 4 0v.06a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.86-.34l.04-.04a2 2 0 1 1 2.84 2.84l-.04.04a1.7 1.7 0 0 0-.34 1.86 1.7 1.7 0 0 0 1.57 1.04H20a2 2 0 0 1 0 4h-.06a1.7 1.7 0 0 0-1.56 1.02Z" />
-    </svg>
-  );
-}
 
-function RefreshIcon() {
-  return (
-    <svg {...svgProps}>
-      <path d="M20 11a8 8 0 0 0-14.2-4.9L4 8" />
-      <path d="M4 4v4h4" />
-      <path d="M4 13a8 8 0 0 0 14.2 4.9L20 16" />
-      <path d="M20 20v-4h-4" />
-    </svg>
-  );
-}
-
-function RadarIcon() {
-  return (
-    <svg {...svgProps}>
-      <circle cx="12" cy="12" r="8.5" />
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 12 18 6" />
-      <path d="M12 3.5v2" />
-      <path d="M12 18.5v2" />
-      <path d="M3.5 12h2" />
-      <path d="M18.5 12h2" />
-    </svg>
-  );
-}
 
 function CloseIcon() {
   return (

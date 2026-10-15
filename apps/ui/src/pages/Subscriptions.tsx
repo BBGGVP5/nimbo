@@ -1,3 +1,5 @@
+import { useCoreStore } from '../coreStore';
+import { isTauriRuntime } from '../lib/api';
 import { AutoFastestLine } from "../components/AutoFastestLine";
 import { SubscriptionInfo } from "../components/SubscriptionInfo";
 import { Dialog } from "../components/Universal";
@@ -13,10 +15,13 @@ import {
   useServerUiOverrides,
   type ServerUiOverrides,
 } from "../lib/serverUiOverrides";
-import { pingServersProgressively } from "../lib/ping";
+import { usePingActions } from "../lib/usePingActions";
+import { ServerContextMenu } from "../components/ServerContextMenu";
 import { useCachedSubscriptionLogo } from "../lib/subscriptionLogo";
 import { useAppStore } from "../store";
 import { SignalProfiles } from "./profiles/SignalProfiles";
+import { ProviderAnnouncement } from "./profiles/ProviderAnnouncement";
+import { RefreshFeedback, useSubscriptionRefresh } from "./home/useSubscriptionRefresh";
 import {
   api,
   formatBytes,
@@ -63,6 +68,8 @@ function useFavoriteServers() {
 
 export function Subscriptions() {
   const m = useMessages();
+  const core = useCoreStore();
+  useEffect(() => { if (isTauriRuntime()) void core.refresh(); }, [core.refresh]);
   const subs = useAppStore((s) => s.subscriptions);
   const activeId = useAppStore((s) => s.activeServerId);
   const serverPings = useAppStore((s) => s.serverPings);
@@ -80,8 +87,8 @@ export function Subscriptions() {
   const [query, setQuery] = useState("");
   const [showFavOnly, setShowFavOnly] = useState(false);
   const preferences = useAppStore((s) => s.preferences);
-  const [refreshingUrl, setRefreshingUrl] = useState<string | null>(null);
-  const [pingingUrl, setPingingUrl] = useState<string | null>(null);
+  const pagePing = usePingActions();
+  const pingingUrl = subs.find(sub => sub.servers.some(server => pagePing.pending.has(server.id)))?.url ?? null;
   const [signalSettingsUrl, setSignalSettingsUrl] = useState<string | null>(null);
   const [signalRemoveUrl, setSignalRemoveUrl] = useState<string | null>(null);
   const [signalRenameServerId, setSignalRenameServerId] = useState<string | null>(null);
@@ -95,6 +102,8 @@ export function Subscriptions() {
     hiddenCount,
   } = useServerUiOverrides();
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
+  const subscriptionRefresh = useSubscriptionRefresh(subs.map(sub => sub.url), refreshSubscription,
+    importOpen || adminDialogOpen || !!signalSettingsUrl || !!signalRemoveUrl || !!signalRenameServerId || !!signalHideServerId);
   const serverCount = subs.reduce((sum, sub) => sum + sub.servers.length, 0);
 
   const filteredSubs = useMemo(() => {
@@ -224,39 +233,21 @@ export function Subscriptions() {
   const pingSubscriptionServers = async (url: string) => {
     const sub = subs.find((item) => item.url === url);
     if (!sub) return;
-    sub.servers.forEach(server => setPageServerPing(server.id, null));
-    setPingingUrl(url);
     try {
-      await pingServersProgressively(
-        sub.servers.map((server) => server.id),
-        (result) => {
-          setPageServerPing(result.server_id, result.latency_ms ?? null);
-        },
-      );
-    } catch (e) {
-      notifyError(String(e));
-    } finally {
-      setPingingUrl(null);
-    }
+      await pagePing.toggle(sub.servers.map(server => server.id), result => setPageServerPing(result.server_id, result.latency_ms ?? null));
+    } catch (error) { notifyError(String(error)); }
   };
 
-  /** Пинг одного сервера из таблицы. */
   const pingSingleServer = async (serverId: string) => {
-    setPageServerPing(serverId, null);
-    try {
-      await pingServersProgressively([serverId], (result) => {
-        setPageServerPing(result.server_id, result.latency_ms ?? null);
-      });
-    } catch (e) {
-      notifyError(String(e));
-    }
+    try { await pagePing.toggle([serverId], result => setPageServerPing(result.server_id, result.latency_ms ?? null)); }
+    catch (error) { notifyError(String(error)); }
   };
 
   // ── Signal ────────────────────────────────────────────────────
   // Профили — полноценными карточками (трафик, срок, описание, ссылки,
   // порядок, настройки и удаление), серверы — общей таблицей ниже.
   // Старый список карточек не дублируется.
-  if (preferences.ui_style === "signal") {
+  if (preferences.ui_style === "signal" || core.data?.preferred_core === "mihomo") {
     const settingsSub = signalSettingsUrl ? subs.find((item) => item.url === signalSettingsUrl) ?? null : null;
     const removeSub = signalRemoveUrl ? subs.find((item) => item.url === signalRemoveUrl) ?? null : null;
     const allServers = subs.flatMap((item) => item.servers);
@@ -267,7 +258,8 @@ export function Subscriptions() {
       ? allServers.find((item) => item.id === signalHideServerId) ?? null
       : null;
     return (
-      <div className="page-view page-view-wide">
+      <div className="page-view page-view-wide nimbo-home-profile" {...subscriptionRefresh.gestureProps}>
+        <RefreshFeedback progress={subscriptionRefresh.progress} refreshing={subscriptionRefresh.refreshing} locale={m.common.locale}/>
         {subs.length === 0 ? (
           <>
             {pageHead}
@@ -287,6 +279,7 @@ export function Subscriptions() {
             serverOverrides={serverOverrides}
             onRenameServer={(id) => setSignalRenameServerId(id)}
             onHideServer={(id) => setSignalHideServerId(id)}
+            pingingServerIds={pagePing.pending}
             onPingServer={(id) => void pingSingleServer(id)}
             query={query}
             head={
@@ -296,15 +289,12 @@ export function Subscriptions() {
               </>
             }
             order={subs.map((item) => item.url)}
-            onRefreshSubscription={(url) => {
-              setRefreshingUrl(url);
-              void refreshSubscription(url).catch(error => notifyError(String(error))).finally(() => setRefreshingUrl(null));
-            }}
+            onRefreshSubscription={url => void subscriptionRefresh.refresh([url])}
             onPingSubscription={(url) => void pingSubscriptionServers(url)}
             onOpenSettings={(url) => setSignalSettingsUrl(url)}
             onDeleteSubscription={(url) => setSignalRemoveUrl(url)}
             onMoveSubscription={(url, direction) => moveSubscription(url, direction)}
-            refreshingUrl={refreshingUrl}
+            refreshingUrls={subscriptionRefresh.refreshingUrls}
             pingingUrl={pingingUrl}
             updatedLabel={(sub) => formatFetchedAt(sub.fetched_at, m)}
             supportUrl={(sub) => sub.meta?.support_url?.trim() || "https://t.me/nebulaguard_channel"}
@@ -384,7 +374,8 @@ export function Subscriptions() {
   }
 
   return (
-    <div className="page-view page-view-wide">
+    <div className="page-view page-view-wide nimbo-home-profile" {...subscriptionRefresh.gestureProps}>
+      <RefreshFeedback progress={subscriptionRefresh.progress} refreshing={subscriptionRefresh.refreshing} locale={m.common.locale}/>
       <div className="mb-7 flex items-start justify-between gap-4 mobile-column">
         <div>
           <h1 className="page-title">{m.profiles.title}</h1>
@@ -460,7 +451,7 @@ export function Subscriptions() {
               onToggleFavorite={toggleFavorite}
               onRenameServer={renameServer}
               onHideServer={hideServer}
-              onRefresh={() => refreshSubscription(sub.url)}
+              onRefresh={() => subscriptionRefresh.refresh([sub.url])}
               onUpdate={(settings) => updateSubscriptionSettings(sub.url, settings)}
               onRemove={() => removeSubscription(sub.url)}
               onMoveUp={() => moveSubscription(sub.url, -1)}
@@ -575,8 +566,9 @@ function ProfileCard({
   const updatedAt = formatFetchedAt(sub.fetched_at, m);
   const [refreshing, setRefreshing] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const [pinging, setPinging] = useState(false);
-  const [pingingServerIds, setPingingServerIds] = useState<Set<string>>(() => new Set());
+  const cardPing = usePingActions();
+  const pinging = sub.servers.some(server => cardPing.pending.has(server.id));
+  const pingingServerIds = cardPing.pending;
   const [expanded, setExpanded] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -624,45 +616,13 @@ function ProfileCard({
   };
 
   const onPingClick = async () => {
-    const serverIds = sub.servers.map((server) => server.id);
-    setPinging(true);
-    serverIds.forEach(id => setServerPing(id, null));
-    setPingingServerIds(new Set(serverIds));
-    try {
-      await pingServersProgressively(serverIds, (result) => {
-        setPingingServerIds((current) => {
-          const next = new Set(current);
-          next.delete(result.server_id);
-          return next;
-        });
-        setServerPing(result.server_id, result.latency_ms ?? null);
-      });
-    } finally {
-      setPinging(false);
-      setPingingServerIds(new Set());
-    }
+    try { await cardPing.toggle(sub.servers.map(server => server.id), result => setServerPing(result.server_id, result.latency_ms ?? null)); }
+    catch (error) { notifyError(String(error)); }
   };
 
   const onPingServerClick = async (serverId: string) => {
-    setPingingServerIds((current) => {
-      const next = new Set(current);
-      next.add(serverId);
-      return next;
-    });
-    try {
-      setServerPing(serverId, null);
-      const result = await api.pingServer(serverId);
-      if (result.error) notifyError(result.error);
-      setServerPing(result.server_id, result.latency_ms ?? null);
-    } catch (e) {
-      notifyError(String(e));
-    } finally {
-      setPingingServerIds((current) => {
-        const next = new Set(current);
-        next.delete(serverId);
-        return next;
-      });
-    }
+    try { await cardPing.toggle([serverId], result => setServerPing(result.server_id, result.latency_ms ?? null)); }
+    catch (error) { notifyError(String(error)); }
   };
 
   return (
@@ -767,14 +727,7 @@ function ProfileCard({
           <MiniStat label={m.profiles.updated} value={updatedAt} />
         </div>
 
-        <div className="subscription-description mb-3 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-accent-panel)] px-3 py-3">
-          <div className="mb-1 text-[9px] uppercase tracking-wider text-[var(--color-text-faint)]">
-            {m.common.description}
-          </div>
-          <div className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-text-dim)]">
-            {visibleDescription || m.common.noDescription}
-          </div>
-        </div>
+        <ProviderAnnouncement description={visibleDescription} labels={m}/>
 
         <div className="mobile-wrap flex gap-2">
           <a
@@ -905,13 +858,17 @@ function ServerLine({
   const m = useMessages();
   const label = displayName;
   const description = serverCustomDescription(server);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [confirmHideOpen, setConfirmHideOpen] = useState(false);
   void servers;
 
   return (
-    <div
+    <ServerContextMenu
+      label={m.profiles.serverMenu} actions={[
+        { label: pinging ? (m.common.locale.startsWith("ru") ? "Остановить пинг" : "Stop ping") : m.profiles.testLatency, onClick: onPing },
+        { label: m.profiles.renameServer, onClick: () => setRenameOpen(true) },
+        { label: m.profiles.deleteServer, onClick: () => setConfirmHideOpen(true), danger: true },
+      ]}
       role="button"
       aria-pressed={active}
       tabIndex={0}
@@ -939,7 +896,7 @@ function ServerLine({
       </div>
       <div className="server-profile-main">
         <div className="server-profile-title-line">
-          <div className="server-profile-title">{label}</div>
+          <div className="server-profile-title" data-server-menu-anchor>{label}</div>
           {active && !connecting && <span className="server-selection-badge">
             ✓ {m.common.locale.startsWith("ru") ? "Выбран" : "Selected"}
           </span>}
@@ -973,59 +930,7 @@ function ServerLine({
         >
           <HeartIcon filled={favorite} />
         </button>
-        <div className="server-row-menu-wrap">
-          <button
-            type="button"
-            title={m.profiles.serverMenu}
-            aria-label={m.profiles.serverMenu}
-            aria-expanded={menuOpen}
-            onClick={(event) => {
-              event.stopPropagation();
-              setMenuOpen((value) => !value);
-            }}
-            className="server-row-icon-button server-row-dots-button"
-          >
-            <DotsIcon />
-          </button>
-          {menuOpen && (
-            <div
-              className="server-row-menu"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  void onPing();
-                }}
-              >
-                <SignalIcon pulse={pinging} small />
-                {m.profiles.testLatency}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setRenameOpen(true);
-                }}
-              >
-                <EditIcon />
-                {m.profiles.renameServer}
-              </button>
-              <button
-                type="button"
-                className="server-row-menu-danger"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setConfirmHideOpen(true);
-                }}
-              >
-                <TrashIcon />
-                {m.profiles.deleteServer}
-              </button>
-            </div>
-          )}
-        </div>
+
       </div>
 
       {renameOpen && (
@@ -1054,7 +959,7 @@ function ServerLine({
           onClose={() => setConfirmHideOpen(false)}
         />
       )}
-    </div>
+    </ServerContextMenu>
   );
 }
 
@@ -1594,14 +1499,6 @@ function SettingsIcon({ large = false }: { large?: boolean }) {
   );
 }
 
-function EditIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5Z" />
-    </svg>
-  );
-}
 
 function SignalIcon({ pulse = false, small = false }: { pulse?: boolean; small?: boolean }) {
   return (

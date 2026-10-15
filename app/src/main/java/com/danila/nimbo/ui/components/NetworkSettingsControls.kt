@@ -95,6 +95,24 @@ internal fun NetworkSettingsChoice(title: String, selected: Boolean, onClick: ()
     }
 }
 
+/** Content-fitting timing chips, with a full 48dp touch target and no fixed-width empty tile. */
+@Composable
+internal fun NetworkSettingsCompactChoice(title: String, selected: Boolean, onClick: () -> Unit,
+    modifier: Modifier = Modifier) {
+    val colors = LocalNebulaColors.current
+    Surface(onClick = onClick, modifier = modifier.heightIn(min = 48.dp).semantics {
+        this.selected = selected; role = Role.RadioButton
+    }, color = if (selected) colors.controlFill else colors.panelFill,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, if (selected) colors.accent else colors.panelBorder)) {
+        Box(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+            Text(title, color = colors.textPrimary, style = MaterialTheme.typography.labelLarge,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
+        }
+    }
+}
+
 @Composable
 internal fun NetworkSettingsChoices(items: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier) {

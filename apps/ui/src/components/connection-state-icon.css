@@ -1,0 +1,21 @@
+.connection-state-morph { position: relative; display: inline-grid; width: 28px; height: 28px; flex: none; vertical-align: middle; }
+.connection-state-morph .connection-state-layer { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; pointer-events: none; transform-origin: 50% 50%; transition: opacity 240ms ease, transform 440ms cubic-bezier(.22,.9,.24,1); }
+.connection-state-power { opacity: 1; transform: scale(1) rotate(0); }
+.connection-state-cloud { opacity: 0; transform: translateY(3px) scale(.55); }
+.connection-state-wait { opacity: 0; transform: scale(.7); display: grid; place-items: center; }
+.connection-state-wait .connection-state-loader { width: 80%; height: 80%; margin: 0; box-sizing: border-box; }
+[data-connection-icon="cloud"] > .connection-state-power { opacity: 0; transform: scale(.45) rotate(-45deg); }
+[data-connection-icon="cloud"] > .connection-state-cloud { opacity: 1; transform: translateY(0) scale(1); }
+[data-connection-icon="loading"] > .connection-state-power { opacity: 0; transform: scale(.6) rotate(45deg); }
+[data-connection-icon="loading"] > .connection-state-wait { opacity: 1; transform: scale(1); }
+.nimbo-connect-action[data-variant="round"] .connection-state-morph { width: 56px; height: 56px; }
+.nimbo-connect-action[data-variant="compact"] .connection-state-morph { width: 23px; height: 23px; }
+.nimbo-connect-action .connection-state-morph .connection-state-layer { width: 100%; height: 100%; }
+.signal-rail-mark .connection-state-morph { width: 26px; height: 26px; }
+.connection-state-morph[data-motion="off"] .connection-state-layer { transition: none; }
+.connection-state-morph[data-motion="off"] .connection-state-loader { animation: none; }
+@media (max-width: 600px) { .nimbo-connect-action[data-variant="round"] .connection-state-morph { width: 48px; height: 48px; } }
+@media (prefers-reduced-motion: reduce) {
+  .connection-state-morph .connection-state-layer { transition: none; }
+  .connection-state-morph .connection-state-loader { animation: none; }
+}

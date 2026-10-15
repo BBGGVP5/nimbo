@@ -88,11 +88,11 @@ class NimboStatsCompletionTest {
             scene.render(0).close(); scene.render(1_000_000_000L).close()
             val nodes = scene.semanticsOwners.flatMap { it.getAllSemanticsNodes(mergingEnabled = true) }
             val refresh = nodes.first { "Обновить подписку" in it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
-            val ping = nodes.first { "Проверить пинг" in it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
+            val ping = nodes.first { "Остановить пинг" in it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
             assertTrue(refresh.boundsInRoot.right <= 320)
             assertTrue(refresh.boundsInRoot.left >= 0)
             assertTrue(refresh.boundsInRoot.width >= 44)
-            assertNotNull(ping.config.getOrNull(SemanticsProperties.Disabled))
+            assertNull(ping.config.getOrNull(SemanticsProperties.Disabled))
             assertNull(refresh.config.getOrNull(SemanticsProperties.Disabled))
         }
     }

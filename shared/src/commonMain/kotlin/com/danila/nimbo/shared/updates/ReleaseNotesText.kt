@@ -24,6 +24,26 @@ object ReleaseNotesText {
         }.joinToString("\n").trim()
     }
 
+    /** Strip release-page media/download chrome, preserving features and known limitations. */
+    fun forApp(body: String): String {
+        val chrome = setOf("превью нового дизайна", "design preview", "screenshots", "скачать", "downloads", "файлы", "files", "сборки", "assets")
+        var skipLevel: Int? = null
+        var fence = false
+        return withoutPlatformHeading(body).lineSequence().filter { line ->
+            val text = line.trim()
+            if (text.startsWith("```") || text.startsWith("~~~")) fence = !fence
+            if (fence) return@filter skipLevel == null
+            val heading = Regex("^(#{1,6})\\s+(.+)$").find(text)
+            if (heading != null) {
+                val level = heading.groupValues[1].length
+                if (skipLevel != null && level <= skipLevel!!) skipLevel = null
+                val title = heading.groupValues[2].lowercase().trim().trim('#').trim()
+                if (title in chrome) skipLevel = level
+            }
+            skipLevel == null && !text.startsWith("<") && !text.startsWith("![")
+        }.joinToString("\n").trim()
+    }
+
     private fun isPlatformHeading(line: String): Boolean {
         // Do not mistake list items for wrapper titles, including "- Android".
         if (Regex("^(?:[-+*] |[0-9]+[.)] )").containsMatchIn(line)) return false
@@ -39,11 +59,11 @@ object ReleaseNotesText {
 
     /** A release without this tagged platform must not display another platform's notes. */
     fun forPlatform(body: String, platform: String): String {
-        val marker = Regex("<!--\\s*nimbo:${Regex.escape(platform)}:start\\s*-->(.*?)<!--\\s*nimbo:${Regex.escape(platform)}:end\\s*-->",
-            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val marker = Regex("<!--\\s*nimbo:${Regex.escape(platform)}:start\\s*-->([\\s\\S]*?)<!--\\s*nimbo:${Regex.escape(platform)}:end\\s*-->",
+            RegexOption.IGNORE_CASE)
         val selected = marker.find(body)?.groupValues?.get(1)
         val hasPlatformSections = Regex("<!--\\s*nimbo:[a-z]+:start\\s*-->", RegexOption.IGNORE_CASE).containsMatchIn(body)
         if (selected == null && hasPlatformSections) return ""
-        return withoutPlatformHeading((selected ?: body).replace(Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL), ""))
+        return withoutPlatformHeading((selected ?: body).replace(Regex("<!--[\\s\\S]*?-->"), ""))
     }
 }

@@ -24,3 +24,17 @@ node scripts/check-brand-master.cjs
 JSON. `generate-brand-master.cjs` and `package-brand-root.cjs` regenerate assets;
 do not run them merely to validate a checkout. `sync-brand-assets.cjs` requires
 explicit desktop and website workspace paths and does not publish either app.
+
+## Windows taskbar and installer
+
+`app-icon-windows.svg` is a Windows-only rounded, transparent-corner derivative
+of the approved vector. The cloud contour and Apple/Android master are unchanged.
+`scripts/package-windows-icons.cjs` supersamples each icon size from this vector
+and generates the shared app/installer assets under `apps/ui/src-tauri/icons`.
+The ICO stores `[256,128,96,64,48,40,32,24,20,16]` in descending order: Tauri
+codegen takes entry zero for its window icon, so 16px-first causes severe taskbar
+pixelation even when the ICO also contains larger images. Explorer/shortcuts still
+have small/high-DPI alternatives. The separate alpha tray glyph stays unchanged.
+Validate with `node --test scripts/tests/windows-icons.test.cjs` using the same
+isolated Sharp tooling as above. Do not regenerate the Apple master to change
+Windows shape, and do not clear user icon caches or restart Explorer as a test.

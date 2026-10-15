@@ -490,58 +490,9 @@ fun CrossPlatformSyncScreen(
             SyncGlassCard {
                 Text(t("Тип синхронизации", "Sync transport type"), color = colors.textPrimary, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val isWifi = transportMode == "wifi"
-                    val isBt = transportMode == "bluetooth"
-                    val isBoth = transportMode == "both"
-
-                    OutlinedButton(
-                        onClick = {
-                            transportMode = "wifi"
-                            preferencesManager.crossSyncTransportMode = "wifi"
-                        },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        shape = nimboControlShape(12.dp, 2.dp),
-                        border = BorderStroke(1.dp, if (isWifi) colors.accent else colors.divider),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (isWifi) colors.accent.copy(alpha = 0.15f) else Color.Transparent
-                        )
-                    ) {
-                        Text("Wi-Fi", color = if (isWifi) colors.accent else colors.textSecondary, fontWeight = if (isWifi) FontWeight.Bold else FontWeight.Normal)
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            transportMode = "bluetooth"
-                            preferencesManager.crossSyncTransportMode = "bluetooth"
-                        },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        shape = nimboControlShape(12.dp, 2.dp),
-                        border = BorderStroke(1.dp, if (isBt) colors.accent else colors.divider),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (isBt) colors.accent.copy(alpha = 0.15f) else Color.Transparent
-                        )
-                    ) {
-                        Text("Bluetooth", color = if (isBt) colors.accent else colors.textSecondary, fontWeight = if (isBt) FontWeight.Bold else FontWeight.Normal)
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            transportMode = "both"
-                            preferencesManager.crossSyncTransportMode = "both"
-                        },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        shape = nimboControlShape(12.dp, 2.dp),
-                        border = BorderStroke(1.dp, if (isBoth) colors.accent else colors.divider),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (isBoth) colors.accent.copy(alpha = 0.15f) else Color.Transparent
-                        )
-                    ) {
-                        Text(t("Оба (Авто)", "Both (Auto)"), color = if (isBoth) colors.accent else colors.textSecondary, fontWeight = if (isBoth) FontWeight.Bold else FontWeight.Normal)
-                    }
+                SyncTransportSelector(transportMode) {
+                    transportMode = it
+                    preferencesManager.crossSyncTransportMode = it
                 }
             }
         }

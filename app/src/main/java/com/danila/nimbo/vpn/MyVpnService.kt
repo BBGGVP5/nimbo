@@ -290,6 +290,7 @@ class MyVpnService : VpnService() {
     private var autoHealthJob: Job? = null
     @Volatile
     private var autoAvoidCandidateKey: String? = null
+    private var appliedRuntimeMemoryMb: Int? = null
     private var autoConnectedAtMs: Long = 0L
     private var networkDebounceJob: Job? = null
     private var networkHandoffJob: Job? = null
@@ -331,6 +332,7 @@ class MyVpnService : VpnService() {
         Log.d(TAG, "Service created")
 
         preferencesManager = PreferencesManager(this)
+        enforceSoftMemoryLimitIfNeeded()
         preferencesManager.sharedPreferences.registerOnSharedPreferenceChangeListener(liveUpdatePreferencesListener)
         sessionCoreId = if (preferencesManager.vpnConnectionDesired) preferencesManager.activeVpnCore
             else preferencesManager.vpnCore
@@ -838,6 +840,11 @@ class MyVpnService : VpnService() {
                     currentProfileName = finalProfileName
                     connectionStatusOverride = null
                     VpnManager.state.value = VpnState.CONNECTED
+                    VpnManager.activeAdBlockingEnabled.value = when {
+                        VpnCorePolicy.isMihomo(finalServer) -> MihomoManager.activeAdBlockingEnabled
+                        finalServer.usesAwgEngine() -> null
+                        else -> XrayManager.activeAdBlockingEnabled
+                    }
                     // Журнал сессий: с этого момента считаем трафик текущего подключения.
                     TrafficHistory.startSession(finalServer.name)
                     performConnectionSuccessHaptic(
@@ -947,6 +954,8 @@ class MyVpnService : VpnService() {
         connectionTimeoutRunnable = null
         timerJob?.cancel()
         timerJob = null
+
+        VpnManager.clearLiveTelemetry()
 
         val previousJob = connectionJob
         connectionJob = null
@@ -1164,6 +1173,7 @@ class MyVpnService : VpnService() {
         isConnected = false
         isConnecting = false
         VpnManager.state.value = VpnState.DISCONNECTED
+        VpnManager.clearLiveTelemetry()
         VpnManager.connectedServer.value = null
         VpnManager.connectedSeconds.value = 0
         notifyQuickSettingsTiles()
@@ -1176,11 +1186,12 @@ class MyVpnService : VpnService() {
             MihomoManager.prepare(this, server)
             true
         } catch (error: Exception) {
+            val modeFailure = mihomoAdBlockingModeFailure(error, preferencesManager.appLanguage == "en")
             val conflicts = MihomoManager.options(preferencesManager).conflicts()
-            val message = if (conflicts.isNotEmpty())
+            val message = modeFailure?.reason ?: if (conflicts.isNotEmpty())
                 "Mihomo: unsupported settings: ${conflicts.joinToString()}. Disable them explicitly before connecting."
             else "Mihomo Android profile admission failed. Check the original YAML and adapter availability."
-            VpnManager.lastConnectionError.value = ConnectionFailure(message,
+            VpnManager.lastConnectionError.value = modeFailure ?: ConnectionFailure(message,
                 if (preferencesManager.appLanguage == "en") "Settings → VPN core" else "Настройки → Ядро VPN",
                 "MIHOMO_ADMISSION")
             Logger.w(TAG, message)
@@ -1905,8 +1916,8 @@ class MyVpnService : VpnService() {
         }
 
         timerJob = serviceScope.launch {
-            // Existing UID estimate, including core/control-plane traffic. Mihomo exposes
-            // no native traffic counters; these values are not native tunnel accounting.
+            // UID/device counters include control-plane traffic. Only native Mihomo
+            // counters can provide measured per-route bytes and active protocol counts.
             // Device-wide TrafficStats double-counts every byte (once on the tun interface,
             // once on the underlying socket) and folds in other apps' traffic — that's why
             // the speed graph read roughly 2x inflated and "fake". Fall back to device-wide
@@ -1919,6 +1930,18 @@ class MyVpnService : VpnService() {
             fun rxPackets(): Long = if (useUidStats) TrafficStats.getUidRxPackets(myUid) else TrafficStats.getTotalRxPackets()
             fun txPackets(): Long = if (useUidStats) TrafficStats.getUidTxPackets(myUid) else TrafficStats.getTotalTxPackets()
             Log.i(TAG, "Traffic source: ${if (useUidStats) "per-UID ($myUid)" else "device-wide (UID stats unsupported)"}")
+
+            val initialTelemetry = if (currentServer?.let(VpnCorePolicy::isMihomo) == true)
+                MihomoManager.telemetry() else null
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            // Choose once per session so native payload counters and OS socket counters
+            // cannot be mixed. Old bridges fall back without adding another polling loop.
+            val nativeWindow = initialTelemetry?.let { TrafficTelemetryWindow(it.generation) }
+            VpnManager.trafficMeasurementScope.value = when {
+                nativeWindow != null -> TrafficMeasurementScope.MIHOMO
+                useUidStats -> TrafficMeasurementScope.APP_UID
+                else -> TrafficMeasurementScope.DEVICE
+            }
 
             var lastTime = System.currentTimeMillis()
             var lastRxBytes = rxBytes()
@@ -1985,15 +2008,26 @@ class MyVpnService : VpnService() {
                     lastRxPackets = currentRxPackets
                     lastTxPackets = currentTxPackets
 
-                    VpnManager.updateSpeeds(txDelta, rxDelta, timeDelta)
+                    val telemetry = if (nativeWindow != null) MihomoManager.telemetry() else null
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    val nativeDelta = telemetry?.let { nativeWindow?.sample(it) }
+                    VpnManager.nativeTrafficTelemetry.value = telemetry.takeIf { nativeDelta != null }
+                    val uploaded = if (nativeWindow != null) nativeDelta?.upload ?: 0L else txDelta
+                    val downloaded = if (nativeWindow != null) nativeDelta?.download ?: 0L else rxDelta
+                    if (nativeWindow == null || nativeDelta != null) {
+                        VpnManager.updateSpeeds(uploaded, downloaded, timeDelta)
+                    } else {
+                        // Keep session totals, but do not fabricate a zero speed chart sample.
+                        VpnManager.clearLiveSpeeds()
+                    }
                     VpnManager.updatePackets(txPacketDelta, rxPacketDelta)
-                    evaluateTrafficBudgets(txDelta + rxDelta, currentTime)
+                    evaluateTrafficBudgets(uploaded + downloaded, currentTime)
 
                     if (notificationUpdateTick >= NOTIFICATION_UPDATE_INTERVAL_TICKS) {
                         notificationUpdateTick = 0
                         Log.d(
                             TAG,
-                            "Traffic(real) - Up: ${formatBytes(txDelta)}/s, Down: ${formatBytes(rxDelta)}/s"
+                            "Traffic(${VpnManager.trafficMeasurementScope.value}) - Up: ${formatBytes(uploaded)}/tick, Down: ${formatBytes(downloaded)}/tick"
                         )
                         handler.post {
                             startForeground(
@@ -2092,20 +2126,16 @@ class MyVpnService : VpnService() {
     }
 
     private fun enforceSoftMemoryLimitIfNeeded() {
-        if (preferencesManager.memoryLimitDisabled) return
-
-        val limitMb = preferencesManager.memoryLimitMb
-        val usedMb = currentProcessMemoryMb()
-        if (usedMb <= limitMb) return
-
-        Log.w(TAG, "Soft memory limit exceeded: used=${usedMb}MB, limit=${limitMb}MB. Triggering GC.")
-        Runtime.getRuntime().gc()
-        Runtime.getRuntime().runFinalization()
-        val afterGcMb = currentProcessMemoryMb()
-
-        if (afterGcMb > limitMb + 30) {
-            Log.w(TAG, "Memory still high after GC: ${afterGcMb}MB (limit=${limitMb}MB)")
-        }
+        // JVM GC cannot enforce the native Go heap budget. Configure the shared
+        // runtime once/change; Go's pacer handles pressure without a GC timer.
+        val limitMb = if (preferencesManager.memoryLimitDisabled) 96 else preferencesManager.memoryLimitMb
+        if (appliedRuntimeMemoryMb == limitMb) return
+        runCatching {
+            com.danila.nimbo.NebulaGuardApplication.ensureXrayCoreLoaded()
+            val response = org.json.JSONObject(libXray.LibXray.nimboConfigureRuntimeMemory(limitMb.toLong()))
+            check(response.optBoolean("success")) { "Native memory policy rejected" }
+            appliedRuntimeMemoryMb = limitMb
+        }.onFailure { Logger.w(TAG, "Could not apply native memory policy") }
     }
 
     private fun currentProcessMemoryMb(): Long {

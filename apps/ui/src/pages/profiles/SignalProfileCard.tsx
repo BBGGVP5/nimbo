@@ -7,6 +7,10 @@ import { useAppStore } from "../../store";
 import { ChevronIcon, DotsIcon, PingIcon, RefreshIcon } from "../home/SignalServerRail";
 import { ActionMenu, InfoIcon } from "../../components/Universal";
 import { SubscriptionInfo } from "../../components/SubscriptionInfo";
+import { ProviderAnnouncement } from "./ProviderAnnouncement";
+import { CoreSubscriptionControl } from "../../components/CoreSubscriptionControl";
+import { useCoreStore } from "../../coreStore";
+import { useMihomoPing } from "../../components/useMihomoPing";
 
 export interface SignalProfileCardProps {
   children?: ReactNode;
@@ -34,6 +38,8 @@ export function SignalProfileCard({ labels: m, sub, serverCount, onRefresh, onPi
   onMoveUp, onMoveDown, canMoveUp, canMoveDown, refreshing, pinging, collapsed, onToggleCollapsed,
   updatedLabel, supportUrl, siteUrl, children }: SignalProfileCardProps) {
   const [infoOpen, setInfoOpen] = useState(false);
+  const mihomo = useCoreStore(state => state.data?.preferred_core === 'mihomo');
+  const corePing = useMihomoPing(sub.meta?.mihomo_profile_id??undefined, sub.url, mihomo);
   const id = useId();
   const showLogo = useAppStore(state => state.preferences.show_subscription_logo);
   const logo = useCachedSubscriptionLogo(sub, showLogo);
@@ -53,8 +59,8 @@ export function SignalProfileCard({ labels: m, sub, serverCount, onRefresh, onPi
       <button type="button" className="universal-subscription-toggle" onClick={onToggleCollapsed} aria-expanded={!collapsed} aria-controls={id}>
         <span className="signal-sub-logo">{logo ? <img src={logo} alt=""/> : name.slice(0, 2).toUpperCase()}</span>
         <span className="signal-profile-copy"><span className="signal-profile-name">{name}</span><span className="signal-sub-meta">{serverCount} {m.common.locale.startsWith("ru") ? (serverCount % 100 >= 11 && serverCount % 100 <= 14 ? "серверов" : serverCount % 10 === 1 ? "сервер" : serverCount % 10 >= 2 && serverCount % 10 <= 4 ? "сервера" : "серверов") : serverCount === 1 ? "server" : "servers"}</span></span>
-        <span className={`signal-collapse-btn${collapsed ? " is-collapsed" : ""}`}><ChevronIcon direction="right"/></span>
       </button>
+      <button type="button" className="signal-icon-btn nimbo-profile-disclosure" onClick={onToggleCollapsed} aria-label={`${name}: ${collapsed ? m.common.locale.startsWith("ru") ? "раскрыть" : "expand" : m.common.locale.startsWith("ru") ? "свернуть" : "collapse"}`} aria-expanded={!collapsed} aria-controls={id}><ChevronIcon direction={collapsed ? "down" : "up"}/></button>
       <button type="button" className="signal-icon-btn" aria-label={`${m.common.description}: ${name}`} title={m.common.description} onClick={() => setInfoOpen(true)}><InfoIcon/></button>
       {onSettings && onDelete && onMoveUp && onMoveDown && <ActionMenu label={m.profiles.subscriptionMenu} actions={[
         { label: m.profiles.subscriptionSettings, onClick: onSettings },
@@ -65,12 +71,19 @@ export function SignalProfileCard({ labels: m, sub, serverCount, onRefresh, onPi
     </header>
     <div className="universal-subscription-summary"><span><HomeMetaIcon kind="traffic" />{sub.info ? total ? `${formatBytes(Math.max(0,total-used))} / ${formatBytes(total)}` : "∞" : "—"}</span><span><HomeMetaIcon kind="calendar" />{sub.info ? formatSubscriptionTerm(sub.info, expireLabels(m)) : "—"}</span></div>
     {total ? <div className="signal-quota" aria-label={m.profiles.traffic}><i style={{width: `${Math.min(100, used / total * 100)}%`}}/></div> : null}
+    <ProviderAnnouncement description={sub.meta?.description} labels={m}/>
     <footer className="universal-subscription-footer">
-      <button type="button" className="signal-btn signal-btn--sm signal-btn--ghost" onClick={onPing} disabled={pinging} title={m.profiles.testLatency} aria-label={m.profiles.testLatency}><PingIcon/>{m.signal.columnPing}</button>
+      <button type="button" className={`signal-btn signal-btn--sm signal-btn--ghost${mihomo ? ' core-proxy-ping-all' : ''}`}
+        disabled={mihomo&&!corePing.running&&!corePing.available} aria-busy={mihomo?corePing.running:pinging}
+        onClick={mihomo?()=>corePing.running?corePing.cancel():corePing.runAll():onPing}
+        title={mihomo?(corePing.running?m.common.cancel:(m.common.locale.startsWith('ru')?'Пинг серверов подписки':'Ping subscription servers')):(pinging?m.common.cancel:m.profiles.testLatency)}
+        aria-label={mihomo?(corePing.running?(m.common.locale.startsWith('ru')?'Остановить пинг':'Stop ping'):(m.common.locale.startsWith('ru')?'Пинг подписки':'Ping subscription')):(pinging?m.common.cancel:m.profiles.testLatency)}>
+        <PingIcon/>{(mihomo?corePing.running:pinging)?m.common.cancel:m.signal.columnPing}
+      </button>
       <button type="button" className="signal-btn signal-btn--sm signal-btn--ghost" onClick={onRefresh} disabled={refreshing} title={m.home.refreshSubscription} aria-label={m.home.refreshSubscription}><RefreshIcon/>{m.common.refresh}</button>
       <span>{updatedLabel}</span>
     </footer>
-    <div id={id} hidden={collapsed} className="universal-subscription-servers" data-no-toggle>{children}</div>
+    <div id={id} hidden={collapsed} className="universal-subscription-servers" data-no-toggle>{mihomo ? <CoreSubscriptionControl sub={sub} ping={corePing}/> : children}</div>
     {infoOpen && <SubscriptionInfo sub={sub} labels={m} onClose={() => setInfoOpen(false)} supportUrl={supportUrl} siteUrl={siteUrl}/>}
   </article>;
 }

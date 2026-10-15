@@ -10,6 +10,9 @@ struct NimboVpnStartAttempt {
     }
 
     private(set) var generation: UInt64 = 0
+    /// Only an explicit stop changes this epoch; success/timeout invalidate
+    /// pending callbacks too, but must not trigger cancellation cleanup.
+    private(set) var cancellationGeneration: UInt64 = 0
     private(set) var phase: Phase = .inactive
 
     var isPreparing: Bool { phase == .preparing }
@@ -61,5 +64,14 @@ struct NimboVpnStartAttempt {
     mutating func invalidate() {
         generation &+= 1
         phase = .inactive
+    }
+
+    mutating func cancel() {
+        cancellationGeneration &+= 1
+        invalidate()
+    }
+
+    static func deadlineExceeded(elapsed: Double, preparing: Bool) -> Bool {
+        elapsed >= (preparing ? 60 : 30)
     }
 }

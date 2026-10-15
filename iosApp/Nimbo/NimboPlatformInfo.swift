@@ -82,16 +82,22 @@ enum NimboNetworkSession {
         return URLSession(configuration: configuration)
     }()
 
-    static func subscriptionRequest(url: URL, timeout: TimeInterval = 25) -> URLRequest {
+    static func subscriptionRequest(url: URL, timeout: TimeInterval = 25, core: NimboCorePreference? = nil) throws -> URLRequest {
+        let requestedCore = try core ?? NimboCorePreference.decode(UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey))
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         request.setValue("no-cache", forHTTPHeaderField: "Pragma")
-        request.setValue("text/plain, application/json;q=0.9, application/octet-stream;q=0.8, */*;q=0.5", forHTTPHeaderField: "Accept")
+        request.setValue(requestedCore == .mihomo
+            ? "application/yaml, text/yaml, text/plain;q=0.8"
+            : "text/plain, application/json;q=0.9, application/octet-stream;q=0.8, */*;q=0.5", forHTTPHeaderField: "Accept")
+        request.setValue(requestedCore.rawValue, forHTTPHeaderField: "X-Nimbo-Core")
         // Те же заголовки, что шлёт Android. По ним панель узнаёт клиента и
         // отдаёт готовый профиль с правилами, а не голый список ссылок.
-        request.setValue(NimboPlatformInfo.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(requestedCore == .mihomo
+            ? "Mihomo/1.19.31 \(NimboPlatformInfo.userAgent)" : NimboPlatformInfo.userAgent,
+            forHTTPHeaderField: "User-Agent")
         request.setValue(NimboPlatformInfo.hardwareId, forHTTPHeaderField: "x-hwid")
         request.setValue(NimboPlatformInfo.hardwareId, forHTTPHeaderField: "x-device-id")
         request.setValue("iOS", forHTTPHeaderField: "x-device-os")

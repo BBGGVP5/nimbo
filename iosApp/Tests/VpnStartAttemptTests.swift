@@ -10,7 +10,40 @@ enum VpnStartAttemptTests {
         cancelAndRetryInvalidateOldWork()
         recoveredTransitionInvalidatesOldError()
         preflightStatusDoesNotPretendStartWasRequested()
-        print("PASS: 6 VPN startup policy regression scenarios")
+        successfulOnDemandIsNotCancellation()
+        preparationAndStartupHaveBoundedDeadlines()
+        print("PASS: 8 VPN startup policy regression scenarios")
+    }
+
+    static func successfulOnDemandIsNotCancellation() {
+        var attempt = NimboVpnStartAttempt()
+        let token = attempt.begin()
+        let cancellation = attempt.cancellationGeneration
+        attempt.invalidate() // Connected while saveToPreferences is still awaiting.
+        precondition(!attempt.isCurrent(token))
+        precondition(attempt.cancellationGeneration == cancellation) // Must NOT stop.
+        attempt.cancel() // An explicit user stop must win over that same save.
+        precondition(attempt.cancellationGeneration != cancellation)
+        let firstCancel = attempt.cancellationGeneration
+        attempt.cancel()
+        precondition(attempt.cancellationGeneration != firstCancel)
+        let retry = attempt.begin()
+        precondition(attempt.isCurrent(retry))
+        precondition(!attempt.isCurrent(token))
+    }
+
+    static func preparationAndStartupHaveBoundedDeadlines() {
+        precondition(!NimboVpnStartAttempt.deadlineExceeded(elapsed: 59.9, preparing: true))
+        precondition(NimboVpnStartAttempt.deadlineExceeded(elapsed: 60, preparing: true))
+        precondition(!NimboVpnStartAttempt.deadlineExceeded(elapsed: 29.9, preparing: false))
+        precondition(NimboVpnStartAttempt.deadlineExceeded(elapsed: 30, preparing: false))
+        var attempt = NimboVpnStartAttempt()
+        let token = attempt.begin()
+        let cancellation = attempt.cancellationGeneration
+        attempt.invalidate() // Preparation watchdog fires with save outstanding.
+        attempt.requestedStart(for: token)
+        precondition(!attempt.isPending) // Late save cannot resurrect this start.
+        precondition(attempt.cancellationGeneration == cancellation)
     }
 
     static func staleDisconnectedDoesNotMeanFailure() {

@@ -31,6 +31,23 @@ jobs:
       - name: Проверить исходники объединённого Mihomo
         run: python3 scripts/ci/test-ios-mihomo-source.py
 
+      - name: Проверить контракты экрана профилей iOS
+        run: python3 iosApp/Tests/test_profile_screen_contracts.py
+
+      - name: Проверить контракты компактного дизайна и мониторинга
+        run: |
+          python3 iosApp/Tests/test_design_audit_contracts.py
+          python3 tools/release/test_mihomo_runtime_pins.py
+
+      - name: Проверить контракты статистики и блокировки рекламы
+        run: python3 iosApp/Tests/test_traffic_statistics_contracts.py
+
+      - name: Проверить раскладку синхронизации и отсутствие дублей навигации
+        run: python3 scripts/ci/test-sync-settings-layout.py
+
+      - name: Проверить привязку выпадающих списков к полям
+        run: python3 scripts/ci/test-dropdown-alignment.py
+
       # The root Android project needs the pinned ~191 MB libxray.aar. It is
       # intentionally not committed; this job validates checked-in sources,
       # not an APK built against a missing native artifact.

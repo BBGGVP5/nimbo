@@ -21,7 +21,6 @@ import (
 )
 
 const diagnosticMaxRequest = 2 * 1024 * 1024
-const diagnosticTag = "nimbo-diagnostic-proxy"
 
 type diagnosticRequest struct {
 	APIVersion int    `json:"apiVersion"`
@@ -185,8 +184,8 @@ func runDiagnosticJSON(text string, extension bool) (result diagnosticResult) {
 	return
 }
 
-func diagnosticOutbound(request diagnosticRequest) (conf.OutboundDetourConfig, string) {
-	var empty conf.OutboundDetourConfig
+func diagnosticOutbounds(request diagnosticRequest) ([]conf.OutboundDetourConfig, string) {
+	var empty []conf.OutboundDetourConfig
 	raw := []byte(request.Config)
 	switch request.Format {
 	case "awg":
@@ -216,59 +215,26 @@ func diagnosticOutbound(request diagnosticRequest) (conf.OutboundDetourConfig, s
 	if json.Unmarshal(raw, &document) != nil || len(document.Outbounds) == 0 || len(document.Outbounds) > 64 {
 		return empty, "DIAGNOSTIC_CONFIG"
 	}
-	var selected []conf.OutboundDetourConfig
-	for _, rawOutbound := range document.Outbounds {
-		var outbound conf.OutboundDetourConfig
-		if json.Unmarshal(rawOutbound, &outbound) != nil {
+	projected, code := diagnosticRawOutbounds(document.Outbounds)
+	if code != "" {
+		return empty, code
+	}
+	selected := make([]conf.OutboundDetourConfig, len(projected))
+	for index, rawOutbound := range projected {
+		if json.Unmarshal(rawOutbound, &selected[index]) != nil {
 			return empty, "DIAGNOSTIC_CONFIG"
 		}
-		switch outbound.Protocol {
-		case "freedom", "blackhole", "dns":
-			continue
-		case "vmess", "vless", "trojan", "shadowsocks", "socks", "http":
-		default:
-			return empty, "DIAGNOSTIC_UNSUPPORTED"
-		}
-		var fields any
-		if json.Unmarshal(rawOutbound, &fields) != nil || diagnosticUnsafeFields(fields) || outbound.ProxySettings != nil {
-			return empty, "DIAGNOSTIC_UNSAFE_ROUTE"
-		}
-		// sendThrough is a native source bind address in pinned libXray. We
-		// cannot promise equivalent app-process binding, so reject it explicitly.
-		if outbound.SendThrough != nil && *outbound.SendThrough != "" {
-			return empty, "DIAGNOSTIC_UNSUPPORTED_BIND"
-		}
-		outbound.Tag = diagnosticTag
-		selected = append(selected, outbound)
 	}
-	if len(selected) != 1 {
-		return empty, "DIAGNOSTIC_AMBIGUOUS_ROUTE"
-	}
-	return selected[0], ""
+	return selected, ""
 }
 
-func diagnosticUnsafeFields(value any) bool {
-	switch v := value.(type) {
-	case map[string]any:
-		for key, child := range v {
-			switch strings.ToLower(key) {
-			case "certificatefile", "keyfile", "masterkeylog", "secretslog", "dialerproxy", "interface":
-				if child != nil && child != "" {
-					return true
-				}
-			}
-			if diagnosticUnsafeFields(child) {
-				return true
-			}
-		}
-	case []any:
-		for _, child := range v {
-			if diagnosticUnsafeFields(child) {
-				return true
-			}
-		}
+// Single-proxy inspection remains available to request-contract tests.
+func diagnosticOutbound(request diagnosticRequest) (conf.OutboundDetourConfig, string) {
+	outbounds, code := diagnosticOutbounds(request)
+	if code != "" {
+		return conf.OutboundDetourConfig{}, code
 	}
-	return false
+	return outbounds[1], ""
 }
 
 type diagnosticConnections struct {
@@ -288,8 +254,22 @@ func (c *diagnosticConnections) close() {
 	c.items = nil
 }
 
+// Optional in-process transport projection, registered only by native builds.
+// Its cleanup runs after the temporary Xray instance and all HTTP sockets close.
+var prepareDiagnosticTransport func(context.Context, diagnosticRequest) (diagnosticRequest, func(), string)
+
 func executeDiagnostic(ctx context.Context, request diagnosticRequest) (int64, string) {
-	outbound, code := diagnosticOutbound(request)
+	if prepareDiagnosticTransport != nil {
+		prepared, cleanup, code := prepareDiagnosticTransport(ctx, request)
+		if cleanup != nil {
+			defer cleanup()
+		}
+		if code != "" {
+			return -1, code
+		}
+		request = prepared
+	}
+	outbounds, code := diagnosticOutbounds(request)
 	if code != "" {
 		return -1, code
 	}
@@ -298,7 +278,7 @@ func executeDiagnostic(ctx context.Context, request diagnosticRequest) (int64, s
 	}
 	// Build a fresh projection, never the user's root Config: Env, TUN,
 	// listeners, DNS, routing, metrics and logging cannot affect this process.
-	config, err := (&conf.Config{OutboundConfigs: []conf.OutboundDetourConfig{outbound},
+	config, err := (&conf.Config{OutboundConfigs: outbounds,
 		LogConfig: &conf.LogConfig{LogLevel: "none"}}).Build()
 	if err != nil {
 		return -1, "DIAGNOSTIC_CONFIG"

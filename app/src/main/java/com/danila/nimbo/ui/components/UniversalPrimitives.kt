@@ -5,6 +5,7 @@ package com.danila.nimbo.ui.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.getValue
@@ -51,6 +53,10 @@ import com.danila.nimbo.ui.theme.LocalBackgroundAnimationEnabled
 import com.danila.nimbo.ui.theme.LocalReducedTransparencyEnabled
 import com.danila.nimbo.shared.ui.NimboConnectionHalo
 import com.danila.nimbo.shared.ui.rememberNimboConnectionMotion
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.FastOutSlowInEasing
 
 /** Measured floating navigation extent, including system inset and scaled labels. */
 val LocalFloatingNavHeight = compositionLocalOf { 132.dp }
@@ -89,12 +95,19 @@ internal fun usesConnectedCloud(connected: Boolean, connecting: Boolean, disconn
 fun NimboConnectionIcon(connected: Boolean, connecting: Boolean, modifier: Modifier = Modifier,
     disconnecting: Boolean = false, tint: Color = LocalContentColor.current,
     contentDescription: String? = null) {
-    if (usesConnectedCloud(connected, connecting, disconnecting)) {
-        Icon(painterResource(R.drawable.nimbo_cloud), contentDescription,
-            modifier.testTag("connection-cloud"), tint = tint)
-    } else {
-        Icon(Icons.Default.PowerSettingsNew, contentDescription,
-            modifier.testTag("connection-power"), tint = tint)
+    val showCloud = usesConnectedCloud(connected, connecting, disconnecting)
+    val enabled = LocalBackgroundAnimationEnabled.current && !LocalReducedTransparencyEnabled.current
+    val progress by animateFloatAsState(if (showCloud) 1f else 0f,
+        animationSpec = if (enabled) tween(420, easing = FastOutSlowInEasing) else snap(), label = "connection-cloud-transform")
+    Box(modifier.semantics { if (contentDescription != null) this.contentDescription = contentDescription }, contentAlignment = Alignment.Center) {
+        Icon(Icons.Default.PowerSettingsNew, null,
+            Modifier.fillMaxSize(.78f).testTag(if (showCloud) "connection-power-layer" else "connection-power").graphicsLayer {
+                alpha = 1f - progress; scaleX = 1f - .5f * progress; scaleY = scaleX; rotationZ = -45f * progress
+            }, tint = tint)
+        Icon(painterResource(R.drawable.nimbo_cloud), null,
+            Modifier.fillMaxSize().testTag(if (showCloud) "connection-cloud" else "connection-cloud-layer").graphicsLayer {
+                alpha = progress; scaleX = .55f + .45f * progress; scaleY = scaleX; translationY = (1f - progress) * 3.dp.toPx()
+            }, tint = tint)
     }
 }
 
@@ -208,36 +221,41 @@ fun NimboSubscriptionHeader(title: String, subtitle: String, expanded: Boolean,
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun NimboServerRow(title: String, subtitle: String, selected: Boolean,
-    onSelect: () -> Unit, onPing: () -> Unit,
+    onSelect: () -> Unit, onOpenMenu: () -> Unit,
     menu: @Composable () -> Unit, ping: @Composable () -> Unit, flag: String = "") {
     val colors = LocalNebulaColors.current
-    val pingLabel = t("Проверить пинг", "Check ping")
-    Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+    val shape = RoundedCornerShape(12.dp)
+    Row(Modifier.fillMaxWidth()
+        .border(if (selected) 2.dp else 0.dp, if (selected) colors.accent else Color.Transparent, shape)
+        .combinedClickable(onClick = onSelect, onLongClick = onOpenMenu,
+            onLongClickLabel = t("Действия с сервером", "Server actions"))
+        .semantics { this.selected = selected; role = Role.RadioButton }
+        .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Surface(onClick = onSelect, modifier = Modifier.weight(1f).heightIn(min = 56.dp)
-            .semantics { this.selected = selected }, color = Color.Transparent) {
+        Surface(modifier = Modifier.weight(1f).heightIn(min = 56.dp), color = Color.Transparent) {
             Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 NimboServerFlag(flag)
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleSmall,
-                        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (selected) colors.accent else colors.textPrimary)
+                    Box {
+                        Text(title, style = MaterialTheme.typography.titleSmall,
+                            maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) colors.accent else colors.textPrimary)
+                        menu()
+                    }
                     Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary,
                         maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
             }
         }
-        Surface(onClick = onPing, color = Color.Transparent, shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp).testTag("server-ping").semantics {
-                contentDescription = pingLabel
-            }) {
+        Surface(color = Color.Transparent, shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp)) {
             Box(Modifier.padding(horizontal = 6.dp, vertical = 8.dp), contentAlignment = Alignment.Center) { ping() }
         }
-        menu()
     }
 }
 
@@ -392,9 +410,10 @@ fun NimboSubscriptionPanel(expanded: Boolean, onToggle: () -> Unit,
 
 @Composable
 fun NimboIconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String,
-    busy: Boolean = false, onClick: () -> Unit) {
-    IconButton(onClick, enabled = !busy, modifier = Modifier.size(48.dp).semantics { contentDescription = label }) {
-        if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = LocalNebulaColors.current.accent)
+    busy: Boolean = false, onClick: () -> Unit, allowCancel: Boolean = false) {
+    IconButton(onClick, enabled = !busy || allowCancel, modifier = Modifier.size(48.dp).semantics { contentDescription = label }) {
+        if (busy && allowCancel) Icon(Icons.Default.Stop, null, Modifier.size(22.dp), tint = LocalNebulaColors.current.accent)
+        else if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = LocalNebulaColors.current.accent)
         else Icon(icon, null, Modifier.size(22.dp), tint = LocalNebulaColors.current.textSecondary)
     }
 }

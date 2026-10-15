@@ -6,7 +6,14 @@ struct AboutView: View {
     var body: some View {
         NavigationStack {
             NimboPage {
-                NimboBrand().padding(.vertical, 8)
+                HStack(spacing: 14) {
+                    Image("NimboCloudSymbol")
+                        .resizable().scaledToFit().frame(width: 48, height: 48)
+                        .accessibilityHidden(true)
+                    NimboBrand()
+                }
+                .padding(.vertical, 8)
+                .accessibilityElement(children: .combine)
                 NimboSection(title: "ПРИЛОЖЕНИЕ") {
                     AboutRow(title: "Версия", value: NimboPlatformInfo.displayVersion)
                     Divider()

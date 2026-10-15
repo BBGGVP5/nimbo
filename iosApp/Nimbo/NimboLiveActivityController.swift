@@ -42,7 +42,8 @@ private final class NimboLiveActivityController {
 
     private func apply(_ phase: NimboLivePhase, enabled: Bool, token: UInt64) async {
         let activities = Activity<NimboLiveActivityAttributes>.activities
-        if !phase.isOngoing || !enabled || !ActivityAuthorizationInfo().areActivitiesEnabled {
+        if NimboLiveActivityPolicy.shouldEnd(phase: phase, enabled: enabled,
+            authorized: ActivityAuthorizationInfo().areActivitiesEnabled) {
             for activity in activities { await finish(activity) }
             ownedID = nil
             dismissed = false

@@ -19,6 +19,22 @@ enum PingPolicyTests {
     }
 
     static func policyTests() throws {
+        let link = "vless://fixture@proxy.example:443?type=ws&security=tls"
+        precondition(NimboPingPolicy.canPreflight(configuration: link, host: "proxy.example", port: 443))
+        precondition(!NimboPingPolicy.canPreflight(configuration: link, host: "wrong.example", port: 443))
+        for suffix in ["type=quic", "type=xhttp", "type=ws&type=grpc", "type=ws&chain=other"] {
+            precondition(!NimboPingPolicy.canPreflight(configuration: "vless://fixture@proxy.example:443?\(suffix)", host: "proxy.example", port: 443))
+        }
+        for source in ["vmess://opaque", "hysteria2://fixture@proxy.example:443", "tuic://fixture@proxy.example:443", "naive+https://fixture@proxy.example:443", "ss://fixture@proxy.example:443?plugin=obfs-local"] {
+            precondition(!NimboPingPolicy.canPreflight(configuration: source, host: "proxy.example", port: 443))
+        }
+        let json = """
+        {"outbounds":[{"protocol":"freedom"},{"protocol":"shadowsocks","settings":{"servers":[{"address":"proxy.example","port":443,"method":"aes-128-gcm","password":"fixture"}]}}]}
+        """
+        precondition(NimboPingPolicy.canPreflight(configuration: json, host: "proxy.example", port: 443))
+        precondition(!NimboPingPolicy.canPreflight(configuration: json, host: "proxy.example", port: 8443))
+        let chained = json.replacingOccurrences(of: "\"protocol\":\"shadowsocks\"", with: "\"proxySettings\":{},\"protocol\":\"shadowsocks\"")
+        precondition(!NimboPingPolicy.canPreflight(configuration: chained, host: "proxy.example", port: 443))
         precondition(NimboPingProtocol(stored: nil) == .nimbo)
         precondition(NimboPingProtocol(stored: "bad") == .nimbo)
         precondition(NimboPingProtocol(stored: "") == .nimbo)

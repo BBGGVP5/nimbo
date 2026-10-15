@@ -12,6 +12,7 @@ import {
 } from "../lib/api";
 import { useAppStore } from "../store";
 import { fillTemplate, useMessages, type Messages } from "../lib/i18n";
+import { startVisiblePolling } from "../lib/visiblePolling";
 
 const CATEGORY_KEY = "nimbo.crossSync.categories.v1";
 const LAST_SYNC_KEY = "nimbo.crossSync.last.v1";
@@ -91,19 +92,21 @@ export function CrossPlatformSync() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
+    return startVisiblePolling(() => setNow(Date.now()), 1000);
   }, []);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
-    const timer = window.setInterval(() => {
-      void api.crossSyncStatus().then((status) => {
-        setSession(status);
-        setDevices(status.devices ?? []);
-      }).catch(() => undefined);
+    let disposed = false;
+    const stop = startVisiblePolling(async () => {
+      try {
+        const status = await api.crossSyncStatus();
+        if (!disposed && document.visibilityState === 'visible') {
+          setSession(status); setDevices(status.devices ?? []);
+        }
+      } catch { /* Existing state remains visible; no unhandled background errors. */ }
     }, 800);
-    return () => window.clearInterval(timer);
+    return () => { disposed = true; stop(); };
   }, []);
 
   useEffect(() => {

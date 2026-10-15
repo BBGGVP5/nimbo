@@ -12,12 +12,13 @@
 .mihomo-page label { display: grid; gap: 8px; min-width: 0; font-size: 12px; color: var(--color-text-dim); }
 .mihomo-page input, .mihomo-page textarea, .mihomo-page select { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text); border-radius: 9px; padding: 10px 12px; font: inherit; }
 .mihomo-page textarea { font-family: var(--font-mono, monospace); font-size: 12px; line-height: 1.6; resize: vertical; }
-.mihomo-page button { min-height: 38px; padding: 8px 14px; border: 1px solid var(--color-border-strong); border-radius: 9px; background: var(--color-surface); color: var(--color-text); font-size: 12px; cursor: pointer; }
+.mihomo-page button { min-height: 44px; padding: 8px 14px; border: 1px solid var(--color-border-strong); border-radius: 9px; background: var(--color-surface); color: var(--color-text); font: inherit; font-size: 12px; cursor: pointer; }
 .mihomo-page button:disabled, .mihomo-page input:disabled, .mihomo-page textarea:disabled, .mihomo-page select:disabled { opacity: .5; cursor: not-allowed; }
-.mihomo-page :is(button, input, select, textarea, a):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+.mihomo-page :is(button, input, select, textarea, a, summary):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
 .mihomo-section-head, .mihomo-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .mihomo-section-head { justify-content: space-between; }
-.mihomo-profile { display: grid; gap: 12px; border-top: 1px solid var(--color-border); padding-block: 16px; }
+.mihomo-profile { display: grid; gap: 12px; border: 1px solid var(--color-border); border-radius: 12px; padding: 16px; margin-top: 10px; min-width: 0; }
+.mihomo-profile[data-active="true"] { border: 2px solid var(--color-accent); padding: 15px; background: var(--color-surface); }
 .mihomo-profile:first-of-type { margin-top: 16px; }
 .mihomo-profile h3 { margin: 0; }
 .mihomo-live-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--color-border); padding-block: 14px; min-width: 0; }
@@ -26,4 +27,14 @@
 .mihomo-live-row select { width: min(100%, 280px); }
 .mihomo-delay { margin-top: 24px; font-size: 13px; }
 .mihomo-delay .mihomo-actions { align-items: end; margin-top: 16px; }
-@media (max-width: 600px) { .mihomo-import { grid-template-columns: minmax(0, 1fr); } .mihomo-page { gap: 16px; } }
+.mihomo-import__name { margin-top: 16px; }
+.mihomo-import-url { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; margin-top: 16px; }
+.mihomo-page input, .mihomo-page select { min-height: 44px; }
+.mihomo-page summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 8px; list-style: none; }
+.mihomo-page summary::-webkit-details-marker { display: none; }
+.mihomo-page summary::before { content: '+'; font-size: 20px; color: var(--color-text-dim); }
+.mihomo-page details[open] > summary::before { content: '−'; }
+.mihomo-import-details { border-top: 1px solid var(--color-border); margin-top: 16px; padding-top: 6px; }
+@media (hover: hover) { .mihomo-page button:not(:disabled):hover { border-color: var(--color-accent); } }
+@media (prefers-reduced-motion: no-preference) { .mihomo-page button { transition: border-color 140ms ease, transform 140ms ease; } .mihomo-page button:not(:disabled):active { transform: scale(.98); } }
+@media (max-width: 600px) { .mihomo-import, .mihomo-import-url { grid-template-columns: minmax(0, 1fr); } .mihomo-page { gap: 16px; } .mihomo-live-row select { width: 100%; } }

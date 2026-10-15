@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -27,6 +28,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.window.Dialog
 import kotlin.math.roundToInt
 
@@ -48,7 +51,7 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
         Column(
             Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())
                 .padding(top = LocalNimboContentTop.current, bottom = LocalNimboContentBottom.current).nimboScreenPadding(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             val selected = tab
             if (selected == null) {
@@ -68,9 +71,10 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
                     SettingsRow(NimboIconName.PING, "Пинг серверов",
                         value = "${pingMethodTitle(state.pingProtocol)} · ${state.pingTimeoutMs / 1000.0} с",
                         showDivider = true, onClick = { tab = SettingsTab.LATENCY })
-                    SettingsRow(NimboIconName.CONNECTION, "Проверка БС",
-                        "Доступность сервисов через текущую сеть", showDivider = true,
-                        onClick = actions.onOpenDiagnostics)
+                    actions.onOpenOnDemandSettings?.let {
+                        SettingsRow(NimboIconName.CONNECTION, "Автоподключение",
+                            "Wi-Fi и сотовая сеть", showDivider = true, onClick = it)
+                    }
                     SettingsRow(NimboIconName.ROUTE, "Маршрутизация", showDivider = true,
                         onClick = { actions.onOpenScreen(NimboScreen.ROUTING.wireName) })
                     SettingsRow(NimboIconName.CLOUD, "Подписка", onClick = { tab = SettingsTab.SUBSCRIPTION })
@@ -104,11 +108,6 @@ private fun GeneralPage(state: NimboUiState, actions: NimboUiActions) {
         AppearanceToggle("Виброотклик", state.appearance.haptics) { actions.onSetAppearance("haptics", it.toString()) }
     }
     SettingsSection("Соединение") {
-        SettingsRow(NimboIconName.CONNECTION, "Проверка БС",
-            "Доступность контрольных сервисов через текущую сеть", showDivider = true,
-            onClick = actions.onOpenDiagnostics)
-        SettingsRow(NimboIconName.ROUTE, "Маршрутизация", "Обход локальных сетей, DNS и определение доменов",
-            showDivider = true, onClick = { actions.onOpenScreen(NimboScreen.ROUTING.wireName) })
         SettingsRow(NimboIconName.CONNECTION, "Системные настройки VPN", "Профиль Nimbo в настройках iOS",
             onClick = actions.onOpenSystemSettings)
     }
@@ -124,9 +123,6 @@ private fun GeneralPage(state: NimboUiState, actions: NimboUiActions) {
         AppearanceToggle("Память", state.showMemoryWidget, info = "Сколько занимает приложение") {
             actions.onSetAppearance("showMemoryWidget", it.toString())
         }
-        SettingsDivider()
-        SettingsRow(NimboIconName.STATS, "История подключений", "Трафик и завершённые сессии",
-            onClick = { actions.onOpenScreen(NimboScreen.STATS.wireName) })
     }
 }
 
@@ -291,9 +287,12 @@ private fun UpdatesPage(state: NimboUiState, actions: NimboUiActions) {
         SettingsDivider()
         AppearanceToggle("Сообщать о новых сборках", state.updateNotify) { actions.onSetUpdate("notify", it.toString()) }
     }
-    val notes = com.danila.nimbo.shared.updates.ReleaseNotesText.withoutPlatformHeading(state.updateNotes)
+    val notes = com.danila.nimbo.shared.updates.ReleaseNotesText.forApp(state.updateNotes)
     if (notes.isNotBlank()) SettingsSection("Что изменилось") {
-        SelectionContainer { BasicText(notes, Modifier.padding(vertical = 12.dp), style = NimboBodyStyle) }
+        var expanded by remember(notes) { mutableStateOf(false) }
+        SelectionContainer { BasicText(notes, Modifier.padding(vertical = 12.dp), style = NimboBodyStyle,
+            maxLines = if (expanded) Int.MAX_VALUE else 6, overflow = TextOverflow.Ellipsis) }
+        NimboSettingsAction(if (expanded) "Свернуть" else "Все изменения", onClick = { expanded = !expanded })
     }
 }
 
@@ -340,8 +339,9 @@ private fun SystemPage(state: NimboUiState, actions: NimboUiActions) {
 
 @Composable
 internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        BasicText(title, style = NimboSectionTitleStyle)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        BasicText(title, Modifier.padding(start = 16.dp, top = 4.dp),
+            style = NimboBodyStyle.copy(color = NimboPalette.TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium))
         NimboSurface(Modifier.fillMaxWidth(), cornerRadius = 18.dp,
             padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) { Column { content() } }
     }
@@ -356,18 +356,18 @@ internal fun SettingsDivider() {
 private fun SettingsRow(icon: NimboIconName, title: String, subtitle: String? = null,
     showDivider: Boolean = false, value: String? = null, onClick: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Row(Modifier.weight(1f).heightIn(min = 52.dp)
-            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
-            .padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.weight(1f).heightIn(min = 48.dp)
+            .then(if (onClick != null) Modifier.nimboClickable(onClick = onClick) else Modifier)
+            .padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             NimboIcon(icon, tint = NimboPalette.TextSecondary, modifier = Modifier.size(20.dp))
             Column(Modifier.weight(1f)) {
                 BasicText(title, style = NimboBodyStyle.copy(color = NimboPalette.Text))
                 if (!value.isNullOrBlank()) BasicText(value, style = NimboBodyStyle)
+                if (!subtitle.isNullOrBlank()) BasicText(subtitle, style = NimboBodyStyle.copy(fontSize = 12.sp))
             }
-            if (onClick != null && subtitle.isNullOrBlank()) BasicText("›", style = NimboBodyStyle)
+            if (onClick != null) BasicText("›", style = NimboBodyStyle)
         }
-        if (!subtitle.isNullOrBlank()) NimboSettingsInfo(title, subtitle)
     }
     if (showDivider) SettingsDivider()
 }
@@ -382,13 +382,14 @@ private fun SystemValue(label: String, value: String) {
 
 @Composable
 internal fun NimboSettingsBack(title: String, onClick: () -> Unit) {
-    NimboSettingsAction("‹ $title", modifier = Modifier.nimboControlSurface(RoundedCornerShape(12.dp)), onClick = onClick)
+    NimboRegisterBack(onClick)
+    NimboSettingsAction("‹ $title", onClick = onClick)
 }
 
 @Composable
 internal fun NimboSettingsAction(title: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
     Box(modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp))
-        .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
+        .nimboClickable(enabled = enabled, onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center) {
         BasicText(title, style = NimboBodyStyle.copy(color = if (enabled) NimboPalette.Text else NimboPalette.TextTertiary))
     }
@@ -397,7 +398,10 @@ internal fun NimboSettingsAction(title: String, modifier: Modifier = Modifier, e
 @Composable
 internal fun NimboSettingsInfo(title: String, message: String) {
     var open by remember { mutableStateOf(false) }
-    NimboIconButton(NimboIconName.INFO, Modifier.size(44.dp).semantics { contentDescription = "Информация: $title" }) { open = true }
+    Box(Modifier.size(44.dp).clip(CircleShape).nimboClickable { open = true }
+        .semantics { contentDescription = "Информация: $title" }, contentAlignment = Alignment.Center) {
+        NimboIcon(NimboIconName.INFO, tint = NimboPalette.TextSecondary, modifier = Modifier.size(20.dp))
+    }
     if (open) NimboSettingsDialog(title, onDismiss = { open = false }) {
         SelectionContainer { BasicText(message, style = NimboBodyStyle.copy(color = NimboPalette.Text)) }
     }
@@ -412,7 +416,7 @@ internal fun NimboSettingsDialog(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        BoxWithConstraints(Modifier.fillMaxWidth().imePadding()) {
+        BoxWithConstraints(Modifier.fillMaxWidth().imePadding().nimboEdgeBack(onDismiss)) {
             NimboSurface(Modifier.fillMaxWidth().heightIn(max = maxHeight * .9f),
                 cornerRadius = 20.dp, padding = PaddingValues(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

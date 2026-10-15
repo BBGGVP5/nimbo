@@ -20,7 +20,8 @@ enum XrayConfigurationBuilder {
         options: NimboRoutingOptions = .default,
         tunnelMTU: Int = PacketTunnelNetwork.mtu,
         pingRoute: NimboPingRoute? = nil,
-        bridge: LibXrayBridge
+        bridge: LibXrayBridge,
+        naiveDNS: Bool = false
     ) throws -> PreparedXrayConfiguration {
         guard !tunnelInterfaceName.isEmpty else { throw XrayConfigurationError.tunnelInterfaceUnknown }
         guard !sourceData.isEmpty else { throw XrayConfigurationError.empty }
@@ -47,7 +48,9 @@ enum XrayConfigurationBuilder {
             assetDirectory: assetDirectory
         )
         configuration["inbounds"] = [
-            tunnelInbound(interfaceName: tunnelInterfaceName, sniffing: options.sniffingEnabled, mtu: tunnelMTU)
+            tunnelInbound(interfaceName: tunnelInterfaceName,
+                          sniffing: options.sniffingEnabled || options.adBlockingEnabled,
+                          routeOnly: options.adBlockingEnabled, mtu: tunnelMTU)
         ]
         let sanitized = sanitizedOutbounds(outbounds, balanced: source.balanced)
         configuration["outbounds"] = appendUtilityOutbounds(to: sanitized)
@@ -74,6 +77,10 @@ enum XrayConfigurationBuilder {
             configuration["routing"] = routing
         }
 
+        if naiveDNS {
+            configuration = NimboNaiveRouting.applying(to: configuration, dnsServer: options.dnsServers?.first ?? "1.1.1.1")
+        }
+        configuration = NimboAdBlocking.applying(to: configuration, enabled: options.adBlockingEnabled)
         let data = try JSONSerialization.data(withJSONObject: configuration, options: [.sortedKeys])
         guard data.count <= maximumInputBytes,
               let json = String(data: data, encoding: .utf8) else {
@@ -234,7 +241,7 @@ enum XrayConfigurationBuilder {
     /// `infra/conf/tun.go` разбирает настройки как `name`/`mtu` строчными
     /// буквами, а имя обязано быть настоящим `utunN`: на Darwin ядро без
     /// дескриптора пытается открыть интерфейс по имени и отвергает «tun0».
-    private static func tunnelInbound(interfaceName: String, sniffing: Bool, mtu: Int) -> [String: Any] {
+    private static func tunnelInbound(interfaceName: String, sniffing: Bool, routeOnly: Bool = false, mtu: Int) -> [String: Any] {
         var inbound: [String: Any] = [
             "tag": "tun-in",
             "protocol": "tun",
@@ -246,7 +253,7 @@ enum XrayConfigurationBuilder {
         if sniffing {
             inbound["sniffing"] = [
                 "enabled": true,
-                "routeOnly": false,
+                "routeOnly": routeOnly,
                 "destOverride": ["http", "tls", "quic"]
             ]
         }

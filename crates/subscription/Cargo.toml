@@ -18,5 +18,4 @@ base64.workspace = true
 percent-encoding.workspace = true
 reqwest.workspace = true
 
-[dev-dependencies]
-tokio = { workspace = true }
+tokio.workspace = true

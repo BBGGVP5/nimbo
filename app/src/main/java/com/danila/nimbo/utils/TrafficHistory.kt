@@ -44,10 +44,10 @@ data class SpeedSample(
  * История трафика: то, чего на Android не хватало по сравнению с десктопом —
  * график скорости, расход по дням и журнал сессий.
  *
- * Источник цифр тот же, что и у счётчиков на главной: агрегированная статистика
- * ядра, которая приходит в [com.danila.nimbo.vpn.VpnManager.updateSpeeds].
- * Никаких оценок и достроенных данных здесь нет: если ядро молчит, история
- * просто не растёт.
+ * Источник тот же, что у счётчиков на главной и в Statistics: native Mihomo
+ * telemetry when available, otherwise Android app-UID/device counters. OS
+ * counters include control-plane traffic; historical totals can contain both
+ * measurement scopes and cannot provide a proxy/direct breakdown.
  */
 object TrafficHistory {
 

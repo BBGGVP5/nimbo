@@ -8,10 +8,10 @@ pub const UNIX_SOCKET_PATH: &str = "/run/nimbo/helper.sock";
 /// Файл с uid владельца сессии: хелпер принимает команды только от него.
 pub const UNIX_ALLOWED_UID_PATH: &str = "/etc/nimbo/helper.uid";
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 pub const FRAME_LENGTH_BYTES: usize = 4;
-pub const FRAME_MAX_BYTES: u32 = 2 * 1024 * 1024;
+pub const FRAME_MAX_BYTES: u32 = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -34,6 +34,14 @@ pub enum Command {
     TunUp(TunRequest),
     /// Погасить TUN и вернуть маршруты в исходное состояние.
     TunDown,
+    /// Exact source and pinned identity; never an executable or home path.
+    MihomoPreflight(MihomoTunRequest),
+    MihomoUp(MihomoTunRequest),
+    MihomoDown,
+    MihomoStatus,
+    /// Release only the authenticated owner's retained native WFP policy.
+    MihomoResetKillSwitch,
+
     /// Положить ядро в каталог хелпера. Вызывается из повышенного процесса
     /// (pkexec), поэтому источник выбирает пользователь осознанно.
     InstallCore {
@@ -72,6 +80,19 @@ pub enum Response {
     Status(ServiceStatus),
     KillReport(KillReport),
     TunState(TunState),
+    MihomoReady(MihomoReady),
+    MihomoAvailability {
+        binary_sha256: String,
+        available: bool,
+        running: bool,
+        #[serde(default)]
+        both_available: bool,
+        #[serde(default)]
+        kill_switch_available: bool,
+        /// Old helpers must not be advertised as reboot-persistent protection.
+        #[serde(default)]
+        reboot_kill_switch_available: bool,
+    },
     Ok,
     Error {
         code: ErrorCode,
@@ -86,6 +107,27 @@ pub struct ServiceStatus {
     pub uptime_seconds: u64,
     pub bytes_up: u64,
     pub bytes_down: u64,
+}
+
+/// Privileged helper exclusively owns filesystem and host network settings.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MihomoTunRequest {
+    pub yaml: String,
+    pub source_sha256: String,
+    pub binary_sha256: String,
+    #[serde(default)]
+    pub mixed: bool,
+    #[serde(default)]
+    pub kill_switch: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ad_blocking: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MihomoReady {
+    pub info: serde_json::Value,
+    pub generation: u64,
+    pub secret: String,
 }
 
 /// Состояние туннеля со стороны хелпера.
@@ -227,6 +269,56 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
+    fn old_helper_status_never_claims_reboot_protection() {
+        let legacy = r#"{"type":"mihomo_availability","binary_sha256":"a","available":true,"running":false,"both_available":true,"kill_switch_available":true}"#;
+        assert!(matches!(
+            serde_json::from_str::<Response>(legacy).unwrap(),
+            Response::MihomoAvailability {
+                reboot_kill_switch_available: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn old_mihomo_requests_do_not_enable_kill_switch() {
+        let old =
+            serde_json::json!({"yaml":"x", "source_sha256":"a", "binary_sha256":"b", "mixed":true});
+        let mut request: MihomoTunRequest = serde_json::from_value(old).unwrap();
+        assert!(!request.ad_blocking);
+        assert!(serde_json::to_value(&request)
+            .unwrap()
+            .get("ad_blocking")
+            .is_none());
+        request.ad_blocking = true;
+        let enabled: MihomoTunRequest =
+            serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
+        assert!(enabled.ad_blocking);
+        assert!(!request.kill_switch);
+        request.kill_switch = true;
+        let back: MihomoTunRequest =
+            serde_json::from_slice(&serde_json::to_vec(&request).unwrap()).unwrap();
+        assert!(back.kill_switch && back.mixed);
+    }
+
+    #[test]
+    fn mihomo_commands_preserve_source_and_deny_paths() {
+        let request = MihomoTunRequest {
+            yaml: "# exact\r\n".into(),
+            source_sha256: "a".repeat(64),
+            binary_sha256: "b".repeat(64),
+            mixed: false,
+            kill_switch: false,
+            ad_blocking: false,
+        };
+        let back =
+            decode_command(&encode_command(&Command::MihomoUp(request.clone())).unwrap()).unwrap();
+        assert!(matches!(back,Command::MihomoUp(r) if r==request));
+        let mut value = serde_json::to_value(request).unwrap();
+        value["executable"] = serde_json::json!("/tmp/foreign");
+        assert!(serde_json::from_value::<MihomoTunRequest>(value).is_err());
+    }
+    #[test]
     fn ping_roundtrip() {
         let cmd = Command::Ping;
         let s = serde_json::to_string(&cmd).unwrap();
@@ -314,3 +406,6 @@ mod tests {
         assert_eq!(decoded, payload);
     }
 }
+
+#[cfg(windows)]
+pub mod windows;

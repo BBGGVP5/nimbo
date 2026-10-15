@@ -72,25 +72,26 @@ def main():
     awg_request = json.dumps({"config": config, "listen": "127.0.0.1:0", "username": "contract",
                               "password": "local-native-contract-test"}).encode()
     assert response(library.NimboAWGStart(b"{}"))["ok"] is False
-    awg = response(library.NimboAWGStart(awg_request))
-    assert awg["ok"] and awg["port"] > 0 and awg["version"] == "v3.1.20260828", awg
-    try:
-        assert response(library.NimboAWGStart(awg_request))["ok"] is False
-        assert response(library.NimboAWGStats())["running"] is True
-        xray = json.dumps({"log": {"loglevel": "none"}, "outbounds": [{"protocol": "socks",
-            "settings": {"servers": [{"address": "127.0.0.1", "port": awg["port"],
-                "users": [{"user": "contract", "pass": "local-native-contract-test"}]}]}}]})
-        invoke(run[1], {run[2]: xray})
-        assert invoke("getXrayState")["running"] is True
-        invoke(run[1], {run[2]: xray}, success=False)
-        invoke("stopXray")
-        assert invoke("getXrayState")["running"] is False
-        invoke("stopXray")
-    finally:
-        invoke("stopXray")
+    for reconnect in range(8):
+        awg = response(library.NimboAWGStart(awg_request))
+        assert awg["ok"] and awg["port"] > 0 and awg["version"] == "v3.1.20260828", awg
+        try:
+            assert response(library.NimboAWGStart(awg_request))["ok"] is False
+            assert response(library.NimboAWGStats())["running"] is True
+            xray = json.dumps({"log": {"loglevel": "none"}, "outbounds": [{"protocol": "socks",
+                "settings": {"servers": [{"address": "127.0.0.1", "port": awg["port"],
+                    "users": [{"user": "contract", "pass": "local-native-contract-test"}]}]}}]})
+            invoke(run[1], {run[2]: xray})
+            assert invoke("getXrayState")["running"] is True
+            invoke(run[1], {run[2]: xray}, success=False)
+            invoke("stopXray")
+            assert invoke("getXrayState")["running"] is False
+            invoke("stopXray")
+        finally:
+            invoke("stopXray")
+            library.NimboAWGStop()
         library.NimboAWGStop()
-    library.NimboAWGStop()
-    assert response(library.NimboAWGStats())["running"] is False
+        assert response(library.NimboAWGStats())["running"] is False
     check_authenticated_route(invoke, run)
     subprocess.run([sys.executable, str(ROOT / "scripts/ci/test-libxray-diagnostic.py"), sys.argv[1]], check=True)
     print(f"PASS real combined C ABI: Xray {version}/API {api}; Android/Swift run/state/stop/conversion envelopes; legacy requests rejected; AWG 3.1 start/stats/duplicate/stop; CGoFree ownership")

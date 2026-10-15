@@ -276,9 +276,9 @@ pub fn refresh_tray_menu(app: &AppHandle) -> tauri::Result<()> {
             snapshot.preferences.language.resolved(),
         )))?;
     }
-    // Also update the window taskbar icon so the indicator shows there too
+    // The taskbar needs the full-resolution application icon, NOT the tiny tray raster.
     if let Some(window) = app.get_webview_window("main") {
-        if let Ok(icon) = get_tray_icon(connected) {
+        if let Ok(icon) = Image::from_bytes(include_bytes!("../icons/icon.png")) {
             let _ = window.set_icon(icon);
         }
     }
@@ -401,6 +401,7 @@ pub struct TrayMenuServer {
 pub struct TrayMenuState {
     connected: bool,
     active_server_id: Option<String>,
+    active_profile_name: Option<String>,
     auto_selected: bool,
     connection_mode: ConnectionMode,
     subscription_count: usize,
@@ -422,6 +423,27 @@ fn is_elevated_cached() -> bool {
     *ELEVATED.get_or_init(crate::commands::is_running_as_admin)
 }
 
+fn tray_core_profile(snapshot: &PersistedState) -> Option<&nimbo_mihomo::FullProfile> {
+    if snapshot.core_profiles.preferred_core != Some(nimbo_mihomo::CoreKind::Mihomo)
+        && !(snapshot.connected && snapshot.core_profiles.active_profile_id.is_some())
+    {
+        return None;
+    }
+    let id = snapshot
+        .core_profiles
+        .active_profile_id
+        .as_deref()
+        .or_else(|| {
+            snapshot
+                .active_subscription_url
+                .as_deref()
+                .and_then(|url| snapshot.subscriptions.iter().find(|sub| sub.url == url))
+                .and_then(|sub| sub.meta.mihomo_profile_id.as_deref())
+        });
+    id.and_then(|id| snapshot.core_profiles.profile(id).ok())
+        .filter(|p| p.kind == nimbo_mihomo::ProfileKind::MihomoYaml)
+}
+
 /// Snapshot the data the popup needs to render itself.
 #[tauri::command]
 pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
@@ -431,7 +453,13 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
         _ => "ru",
     }
     .to_string();
-    let active_server_id = snapshot.active_server_id.clone();
+    let core_profile = tray_core_profile(&snapshot);
+    let active_profile_name = core_profile.map(|p| p.name.clone());
+    let active_server_id = if core_profile.is_some() {
+        None
+    } else {
+        snapshot.active_server_id.clone()
+    };
     let connection_mode = snapshot.connection_mode;
     let subscription_count = snapshot.subscriptions.len();
     let server_count = snapshot
@@ -454,12 +482,17 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
         }
     }
 
-    let needs_admin = matches!(connection_mode, ConnectionMode::Tun | ConnectionMode::Both)
+    if core_profile.is_some() {
+        servers.clear();
+    }
+    let needs_admin = core_profile.is_none()
+        && matches!(connection_mode, ConnectionMode::Tun | ConnectionMode::Both)
         && !is_elevated_cached();
 
     TrayMenuState {
         connected: snapshot.connected,
         active_server_id,
+        active_profile_name,
         auto_selected: snapshot.auto_subscription_url.is_some() && snapshot.connected,
         connection_mode,
         subscription_count,
@@ -752,6 +785,21 @@ fn ping_all_servers(app: &AppHandle) {
 }
 
 fn connect_active_server(app: &AppHandle) {
+    let profile_id = tray_core_profile(&app.state::<AppState>().snapshot()).map(|p| p.id.clone());
+    if let Some(profile_id) = profile_id {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let result = crate::mihomo_runtime::connect_mihomo_profile(
+                app.clone(),
+                app.state::<AppState>(),
+                profile_id,
+            )
+            .await;
+            let _ = refresh_tray_menu(&app);
+            emit_connect_result(&app, "connect", result.is_ok(), result.err());
+        });
+        return;
+    }
     let Some(server_id) = app.state::<AppState>().snapshot().active_server_id else {
         // No server selected — nothing connected, so report failure to let the
         // flyout drop the switching state instead of waiting for the timeout.

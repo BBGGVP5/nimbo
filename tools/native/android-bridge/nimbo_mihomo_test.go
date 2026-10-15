@@ -18,7 +18,7 @@ func TestNimboMihomoVersionedBridge(t *testing.T) {
 	if err := json.Unmarshal([]byte(NimboMihomoInvoke(`{"apiVersion":1,"requestId":"bridge-status","operation":"status"}`)), &result); err != nil {
 		t.Fatal(err)
 	}
-	if !result.Success || result.APIVersion != 1 || result.RequestID != "bridge-status" || result.Data.State != "stopped" || result.Data.CoreVersion != "v1.19.31" {
+	if !result.Success || result.APIVersion != 1 || result.RequestID != "bridge-status" || result.Data.State != "stopped" || result.Data.CoreVersion != "v1.19.32" {
 		t.Fatalf("unexpected bridge status: %+v", result)
 	}
 }

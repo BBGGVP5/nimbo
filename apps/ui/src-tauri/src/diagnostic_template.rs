@@ -23,7 +23,12 @@ fn identity(server: &Server) -> Option<Value> {
     serde_json::to_value(&nodes[0].protocol).ok()
 }
 
-pub(crate) fn derive(server: &Server, template: &Value, base: &Value) -> Result<Value, String> {
+pub(crate) fn derive(
+    server: &Server,
+    template: &Value,
+    base: &Value,
+    probe_url: &str,
+) -> Result<Value, String> {
     let unavailable = || {
         "Selected node template route is ambiguous or unsupported; no direct fallback".to_string()
     };
@@ -93,12 +98,14 @@ pub(crate) fn derive(server: &Server, template: &Value, base: &Value) -> Result<
         .ok_or_else(unavailable)?
         .remove("outboundTag");
     let mut routing = json!({"domainStrategy":"AsIs","rules":[]});
+    let block_tag = format!("nimbo-unmatched-{}", uuid::Uuid::new_v4());
+    let mut observer = None;
     if let Some(balancer) = balancers.first() {
-        // Health-driven strategies need autonomous observatory traffic. Until
-        // that has an equally isolated proof path, fail rather than guess first.
+        // Preserve the native health strategy; never replace it with one member.
+        // Only the bounded observer below may generate diagnostic health traffic.
         if !matches!(
             balancer["strategy"]["type"].as_str(),
-            None | Some("random" | "roundRobin")
+            None | Some("random" | "roundRobin" | "leastPing")
         ) {
             return Err(
                 "Selected balancer requires an unsupported isolated health strategy".into(),
@@ -114,10 +121,14 @@ pub(crate) fn derive(server: &Server, template: &Value, base: &Value) -> Result<
                 return Err(unavailable());
             }
         }
-        if let Some(fallback) = balancer["fallbackTag"].as_str() {
+        if let Some(raw_fallback) = balancer.get("fallbackTag") {
+            let fallback = raw_fallback
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(unavailable)?;
             if !outbounds
                 .iter()
-                .any(|out| out["tag"] == fallback && proxy(out))
+                .any(|out| out["tag"] == fallback && (proxy(out) || out["protocol"] == "blackhole"))
             {
                 return Err(unavailable());
             }
@@ -127,18 +138,50 @@ pub(crate) fn derive(server: &Server, template: &Value, base: &Value) -> Result<
             .filter(|s| !s.is_empty())
             .ok_or_else(unavailable)?
             .into();
-        routing["balancers"] = json!([balancer]);
+        let mut isolated_balancer = (*balancer).clone();
+        if balancer["strategy"]["type"] == "leastPing" {
+            let url = url::Url::parse(probe_url).map_err(|_| unavailable())?;
+            if !matches!(url.scheme(), "http" | "https")
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.fragment().is_some()
+            {
+                return Err(unavailable());
+            }
+            let members: Vec<_> = outbounds
+                .iter()
+                .filter(|out| {
+                    selectors.iter().any(|s| {
+                        s.as_str()
+                            .is_some_and(|s| out["tag"].as_str().unwrap_or("").starts_with(s))
+                    })
+                })
+                .map(|out| out["tag"].clone())
+                .collect();
+            if members.is_empty() || members.len() > 16 {
+                return Err(unavailable());
+            }
+            observer = Some(json!({"subjectSelector": members, "probeUrl":probe_url,
+                "probeInterval":"1h", "enableConcurrency":true}));
+            if balancer.get("fallbackTag").is_none() {
+                isolated_balancer["fallbackTag"] = block_tag.clone().into();
+            }
+        }
+        routing["balancers"] = json!([isolated_balancer]);
     } else {
         rule["outboundTag"] = tag.into();
     }
     routing["rules"] = json!([rule]);
     let mut config = base.clone();
-    let block_tag = format!("nimbo-unmatched-{}", uuid::Uuid::new_v4());
     let mut preserved = vec![json!({"tag":block_tag,"protocol":"blackhole"})];
     preserved.extend(outbounds.iter().cloned());
     config["outbounds"] = preserved.into();
     config["routing"] = routing;
-    // Never copy provider inbounds, TUN, system/API listeners, observatories or
+    if let Some(observer) = observer {
+        config["observatory"] = observer;
+    }
+    // Never copy provider inbounds, TUN, system/API listeners, provider observatories or
     // URL-dependent routing. Only this private authenticated inbound may enter.
     for key in ["dns", "policy", "transport"] {
         if let Some(value) = template.get(key) {
@@ -176,7 +219,7 @@ mod tests {
         let server = nimbo_subscription::parser::xray_json::parse_value(&template)
             .unwrap()
             .remove(0);
-        let config = derive(&server, &template, &base).unwrap();
+        let config = derive(&server, &template, &base, "https://probe.example/check").unwrap();
         assert_eq!(config["outbounds"][2], template["outbounds"][1]);
         assert_eq!(config["routing"]["rules"][0]["outboundTag"], "selected");
         assert_eq!(config["outbounds"][0]["protocol"], "blackhole");
@@ -185,7 +228,7 @@ mod tests {
     #[test]
     fn retains_full_reality_transport_and_forces_exact_node_before_direct_rules() {
         let (server, template, base) = fixture();
-        let config = derive(&server, &template, &base).unwrap();
+        let config = derive(&server, &template, &base, "https://probe.example/check").unwrap();
         assert_eq!(config["outbounds"][2], template["outbounds"][1]);
         assert_eq!(config["dns"], template["dns"]);
         assert_eq!(config["routing"]["rules"][0]["outboundTag"], "selected");
@@ -197,7 +240,7 @@ mod tests {
     fn never_substitutes_first_foreign_or_ambiguous_outbound() {
         let (server, mut template, base) = fixture();
         template["outbounds"][1]["settings"]["vnext"][0]["port"] = 444.into();
-        assert!(derive(&server, &template, &base).is_err());
+        assert!(derive(&server, &template, &base, "https://probe.example/check").is_err());
         let (server, mut template, base) = fixture();
         let mut duplicate = template["outbounds"][1].clone();
         duplicate["tag"] = "duplicate".into();
@@ -205,7 +248,7 @@ mod tests {
             .as_array_mut()
             .unwrap()
             .push(duplicate);
-        assert!(derive(&server, &template, &base).is_err());
+        assert!(derive(&server, &template, &base, "https://probe.example/check").is_err());
     }
     #[test]
     fn virtual_balancer_retains_members_and_strategy_not_first_outbound() {
@@ -216,7 +259,7 @@ mod tests {
         template["outbounds"].as_array_mut().unwrap().push(member);
         template["routing"]["balancers"] =
             json!([{"tag":"virtual","selector":["selected"],"strategy":{"type":"roundRobin"}}]);
-        let config = derive(&server, &template, &base).unwrap();
+        let config = derive(&server, &template, &base, "https://probe.example/check").unwrap();
         assert_eq!(config["routing"]["rules"][0]["balancerTag"], "virtual");
         assert!(config["routing"]["rules"][0].get("outboundTag").is_none());
         assert_eq!(
@@ -224,8 +267,50 @@ mod tests {
             template["routing"]["balancers"]
         );
         template["routing"]["balancers"][0]["selector"] = json!([""]);
-        assert!(derive(&server, &template, &base).is_err());
+        assert!(derive(&server, &template, &base, "https://probe.example/check").is_err());
     }
+    #[test]
+    fn least_ping_uses_private_observer_and_deny_fallback() {
+        let (server, mut template, base) = fixture();
+        let mut member = template["outbounds"][1].clone();
+        member["tag"] = "selected-2".into();
+        member["settings"]["vnext"][0]["port"] = 444.into();
+        template["outbounds"].as_array_mut().unwrap().push(member);
+        template["routing"]["balancers"] =
+            json!([{"tag":"virtual","selector":["selected"],"strategy":{"type":"leastPing"}}]);
+        template["observatory"] =
+            json!({"subjectSelector":[""],"probeUrl":"https://foreign.example"});
+        let config = derive(&server, &template, &base, "https://probe.example/check").unwrap();
+        assert_eq!(config["routing"]["rules"][0]["balancerTag"], "virtual");
+        assert_eq!(
+            config["observatory"]["subjectSelector"],
+            json!(["selected", "selected-2"])
+        );
+        assert_eq!(
+            config["observatory"]["probeUrl"],
+            "https://probe.example/check"
+        );
+        assert_eq!(config["observatory"]["enableConcurrency"], true);
+        assert_eq!(
+            config["routing"]["balancers"][0]["fallbackTag"],
+            config["outbounds"][0]["tag"]
+        );
+        assert_eq!(config["outbounds"][0]["protocol"], "blackhole");
+        assert!(config.get("burstObservatory").is_none());
+        for bad_url in [
+            "file:///tmp/secret",
+            "https://user:pass@probe.example",
+            "http://probe.example/#fragment",
+        ] {
+            assert!(derive(&server, &template, &base, bad_url).is_err());
+        }
+        template["routing"]["balancers"][0]["strategy"]["type"] = "leastLoad".into();
+        assert!(derive(&server, &template, &base, "https://probe.example/check").is_err());
+        template["routing"]["balancers"][0]["strategy"]["type"] = "leastPing".into();
+        template["routing"]["balancers"][0]["fallbackTag"] = "direct".into();
+        assert!(derive(&server, &template, &base, "https://probe.example/check").is_err());
+    }
+
     #[test]
     fn implicit_virtual_group_without_balancer_is_not_first_participant() {
         let (server, mut template, base) = fixture();
@@ -240,6 +325,6 @@ mod tests {
                 .len(),
             1
         );
-        assert!(derive(&server, &template, &base).is_err());
+        assert!(derive(&server, &template, &base, "https://probe.example/check").is_err());
     }
 }

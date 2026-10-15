@@ -271,3 +271,16 @@ func TestStandaloneProbeCancellationRestoresGlobals(t *testing.T) {
 		t.Fatal("probe resources retained")
 	}
 }
+
+func TestStandaloneProbeDNSRoutingHintsNeedNoActiveGroup(t *testing.T) {
+	stopTest(t)
+	var calls atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.WriteHeader(204) }))
+	defer target.Close()
+	source := "dns:\n  enable: true\n  nameserver: [\"https://192.0.2.1/dns-query#Fixture group&h3=true\"]\n  default-nameserver: [\"https://192.0.2.1/dns-query#Fixture group\"]\n  proxy-server-nameserver: [\"https://192.0.2.1/dns-query#Fixture group\"]\n" + simpleConfig
+	reply := call(t, "probeAndroid", map[string]any{"yaml": source, "name": "local", "url": target.URL, "timeoutMs": 2000, "expectedStatus": "200-299", "options": map[string]any{"androidSystemDNS": []string{"192.0.2.53"}}})
+	requireOK(t, reply)
+	if calls.Load() != 1 || singleton.state != "stopped" || singleton.session != nil {
+		t.Fatal("qualified DNS prevented independent Android probe or started VPN")
+	}
+}

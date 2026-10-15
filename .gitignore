@@ -61,3 +61,10 @@ local.properties
 *.hprof
 __pycache__/
 *.pyc
+
+# Linux helper files are verified build outputs, staged per target.
+/apps/ui/src-tauri/resources/helper/
+
+# Portable Linux Mihomo outputs are rebuilt and pinned per target in CI.
+/apps/ui/src-tauri/resources/mihomo/linux-x64/
+/apps/ui/src-tauri/resources/mihomo/linux-arm64/

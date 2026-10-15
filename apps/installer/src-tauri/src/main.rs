@@ -105,6 +105,7 @@ fn main() {
             payload::probe_uninstallation,
             payload::choose_install_dir,
             payload::install_nimbo,
+            payload::repair_install_permissions,
             payload::uninstall_nimbo,
             payload::open_nimbo,
             payload::read_app_theme,

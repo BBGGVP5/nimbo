@@ -112,6 +112,17 @@ func installAndroidProbeDNS(d *inspection, physical []mihomoDNS.NameServer, phys
 	probeDNS := map[string]any{"enable": true}
 	for _, key := range []string{"nameserver", "default-nameserver", "proxy-server-nameserver", "prefer-h3", "ipv6"} {
 		if value, exists := projected[key]; exists {
+			if servers, ok := value.([]any); ok {
+				independent := make([]any, 0, len(servers))
+				for _, server := range servers {
+					if text, ok := server.(string); ok {
+						independent = append(independent, desktopProbeDNSServer(text))
+					} else {
+						independent = append(independent, server)
+					}
+				}
+				value = independent
+			}
 			probeDNS[key] = value
 		}
 	}

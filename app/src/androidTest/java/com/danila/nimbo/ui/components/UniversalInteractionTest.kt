@@ -39,9 +39,9 @@ class UniversalInteractionTest {
                         NimboSubscriptionHeader("Provider", "Subscription", false,
                             { toggles++ }, { info++ }, logo = {})
                         Text("Provider description", androidx.compose.ui.Modifier.testTag("subscription-description"))
-                        NimboIconAction(Icons.Default.SignalCellularAlt, "Ping") { ping++ }
-                        NimboIconAction(Icons.Default.Refresh, "Refresh") { refresh++ }
-                        NimboIconAction(Icons.Default.Refresh, "Menu") { menu++ }
+                        NimboIconAction(Icons.Default.SignalCellularAlt, "Ping", onClick = { ping++ })
+                        NimboIconAction(Icons.Default.Refresh, "Refresh", onClick = { refresh++ })
+                        NimboIconAction(Icons.Default.Refresh, "Menu", onClick = { menu++ })
                     }
                 }
             }

@@ -340,3 +340,36 @@ diff --git a/listener/sing_tun/server.go b/listener/sing_tun/server.go
  	if err != nil {
  		return err
  	}
+diff --git a/component/dialer/dialer.go b/component/dialer/dialer.go
+--- a/component/dialer/dialer.go
++++ b/component/dialer/dialer.go
+@@ -102,5 +102,5 @@
+ 	}
+ 	if DefaultSocketHook != nil { // ignore interfaceName, routingMark when DefaultSocketHook not null (in CMFA)
+-		socketHookToListenConfig(lc)
++		socketHookToListenConfig(lc, rAddrPort)
+ 	} else {
+ 		if opt.interfaceName == "" {
+diff --git a/component/dialer/socket_hook.go b/component/dialer/socket_hook.go
+--- a/component/dialer/socket_hook.go
++++ b/component/dialer/socket_hook.go
+@@ -4,4 +4,5 @@
+ 	"context"
+ 	"net"
++	"net/netip"
+ 	"syscall"
+ )
+@@ -21,6 +22,12 @@
+ }
+ 
+-func socketHookToListenConfig(lc *net.ListenConfig) {
++func socketHookToListenConfig(lc *net.ListenConfig, remote netip.AddrPort) {
+ 	addControlToListenConfig(lc, func(ctx context.Context, network, address string, c syscall.RawConn) error {
++		// Nimbo's immutable hook needs the actual UDP peer, not the wildcard
++		// local bind address, to distinguish loopback from protected egress.
++		// A TCP listener with no peer retains the original callback semantics.
++		if remote.IsValid() {
++			address = remote.String()
++		}
+ 		return DefaultSocketHook(network, address, c)
+ 	})

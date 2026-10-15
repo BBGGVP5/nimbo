@@ -13,7 +13,6 @@ import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.HttpURLConnection
 import java.net.Proxy
-import java.net.Socket
 import java.net.URL
 import java.util.concurrent.TimeUnit
 
@@ -173,7 +172,7 @@ object PingManager {
         }
     }
 
-    private fun measureTcpConnect(
+    private suspend fun measureTcpConnect(
         addresses: List<InetAddress>,
         port: Int,
         timeoutMs: Int
@@ -183,17 +182,8 @@ object PingManager {
         for (address in addresses) {
             val remainingMs = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime()).toInt()
             if (remainingMs <= 0) return null
-            val startNs = System.nanoTime()
-            try {
-                Socket().use { socket ->
-                    socket.tcpNoDelay = true
-                    socket.connect(InetSocketAddress(address, port), perAddressTimeoutMs.coerceAtMost(remainingMs))
-                }
-                return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNs)
-                    .coerceAtLeast(1L)
-            } catch (_: Exception) {
-                // Try the next resolved address, if any.
-            }
+            cancellableTcpProbe(InetSocketAddress(address, port), perAddressTimeoutMs.coerceAtMost(remainingMs))
+                ?.let { return it }
         }
         return null
     }

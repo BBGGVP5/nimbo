@@ -1,7 +1,6 @@
 package com.danila.nimbo.vpn
 
 import android.content.Context
-import android.net.Uri
 import android.os.SystemClock
 import com.danila.nimbo.model.Server
 import com.danila.nimbo.utils.Logger
@@ -36,7 +35,12 @@ object NaiveProxyManager {
         check(runtimeDir.isDirectory || runtimeDir.mkdirs()) { "Не удалось создать папку NaiveProxy" }
         val config = File(runtimeDir, "naive-config.json")
         val log = File(runtimeDir, "naive.log")
-        val configText = buildConfig(server, localPort).toString(2)
+        // The endpoint can be an IP while TLS authenticates a different DNS name.
+        // Resolve only the dial address; never disable certificate verification.
+        val peer = NaiveProxyConfig.peer(server)
+        val address = if (peer.equals(server.host, ignoreCase = true)) server.host
+            else InetAddress.getByName(server.host).hostAddress ?: error("Не удалось разрешить адрес NaiveProxy")
+        val configText = NaiveProxyConfig.build(server, localPort, address).toString(2)
         runCatching { config.writeText(configText, Charsets.UTF_8) }
             .onFailure { config.delete() }
             .getOrElse { error ->
@@ -79,21 +83,8 @@ object NaiveProxyManager {
         )
     }
 
-    internal fun buildConfig(server: Server, localPort: Int): JSONObject {
-        val username = server.naiveUsername?.takeIf(String::isNotBlank) ?: server.uuid
-        val password = server.naivePassword?.takeIf(String::isNotBlank)
-            ?: error("NaiveProxy password is missing")
-        val scheme = if (server.naiveTransport.equals("quic", true) || server.network.equals("quic", true)) {
-            "quic"
-        } else {
-            "https"
-        }
-        val host = if (server.host.contains(':') && !server.host.startsWith("[")) "[${server.host}]" else server.host
-        val proxy = "$scheme://${Uri.encode(username)}:${Uri.encode(password)}@$host:${server.port}"
-        return JSONObject()
-            .put("listen", "socks://127.0.0.1:$localPort")
-            .put("proxy", proxy)
-    }
+    internal fun buildConfig(server: Server, localPort: Int): JSONObject =
+        NaiveProxyConfig.build(server, localPort)
 
     @Synchronized
     fun stop() {

@@ -5,8 +5,9 @@ export async function pingServersProgressively(
   onResult: (result: ServerPing) => void,
   concurrency = 3,
   signal?: AbortSignal,
+  cancelBackend = true,
 ): Promise<void> {
-  const cancel = () => { void api.cancelPings().catch(() => {}); };
+  const cancel = () => { if (cancelBackend) void api.cancelPings().catch(() => {}); };
   if (signal?.aborted) return;
   signal?.addEventListener("abort", cancel, { once: true });
   const queue = Array.from(new Set(serverIds));

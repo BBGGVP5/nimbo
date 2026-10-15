@@ -1,3 +1,4 @@
+mod helper_build;
 mod mihomo_build;
 fn main() {
     println!("cargo:rerun-if-changed=../dist");
@@ -7,6 +8,7 @@ fn main() {
     println!("cargo:rerun-if-changed=tauri.linux.conf.json");
     prepare_awg();
     mihomo_build::prepare();
+    helper_build::prepare();
     tauri_build::build()
 }
 

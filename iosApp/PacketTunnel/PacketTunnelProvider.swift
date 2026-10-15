@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Network
 import NetworkExtension
 
@@ -6,10 +7,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let lifecycleQueue = DispatchQueue(label: "com.nimbo.packet-tunnel.lifecycle")
     private let core = LibXrayBridge()
     private let awg = AmneziaWGBridge()
+    private let naive = NaiveProxyBridge()
+    private let mihomo = MihomoPacketBridge()
     private var previousPathInterfaces: Set<String>?
     private var lifecycleGeneration: UInt64 = 0
     private var starting = false
     private var started = false
+    private var activeAdBlockingEnabled: Bool?
     /// Сколько исходящих в текущей конфигурации.
     ///
     /// Сама конфигурация здесь не хранится: её JSON занимает сотни килобайт, а
@@ -52,6 +56,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             self.lifecycleGeneration &+= 1
             self.cancelPings()
+            self.clearRetainedStartupState()
             let generation = self.lifecycleGeneration
             self.starting = true
 
@@ -78,9 +83,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         }
                         if (try? self.core.isRunning()) == true { try? self.core.stop() }
                         self.awg.close()
+                        self.naive.close()
+                        self.mihomo.stop()
                         self.starting = false
                         self.started = false
-                        self.outboundCount = 0
+                        self.clearRetainedStartupState()
                         completionHandler(Self.transportableError(error))
                     }
                 }
@@ -92,6 +99,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         with reason: NEProviderStopReason,
         completionHandler: @escaping () -> Void
     ) {
+        mihomo.cancelPendingStart()
         lifecycleQueue.async { [weak self] in
             guard let self else {
                 completionHandler()
@@ -109,9 +117,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 stopError = error
             }
             self.awg.close()
+            self.naive.close()
+            self.mihomo.stop()
             self.starting = false
             self.started = false
-            self.outboundCount = 0
+            self.clearRetainedStartupState()
 
             Task {
                 await NimboDiagnostics.shared.record(
@@ -131,6 +141,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         _ messageData: Data,
         completionHandler: ((Data?) -> Void)? = nil
     ) {
+        if let request = (try? JSONSerialization.jsonObject(with: messageData)) as? [String: Any],
+           request["command"] as? String == "cancelMihomoProbe" {
+            let cancelled = (request["requestID"] as? String).flatMap { id in
+                (request["sourceSHA256"] as? String).map { self.mihomo.cancelProbe(id, sourceHash: $0) }
+            } ?? false
+            completionHandler?(Self.responseData(["ok": cancelled]))
+            return
+        }
         lifecycleQueue.async { [weak self] in
             guard let self else {
                 completionHandler?(Self.responseData(["ok": false, "error": "provider unavailable"]))
@@ -145,8 +163,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 if let id = request?["requestID"] as? String { self.pingTasks.removeValue(forKey: id)?.cancel() }
                 completionHandler?(Self.responseData(["ok": true]))
             case "status":
-                let running = (try? self.core.isRunning()) ?? false
-                let version = self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : ((try? self.core.version()) ?? "unknown")
+                let running = self.mihomo.isConfigured ? self.mihomo.isRunning : (((try? self.core.isRunning()) ?? false) && (!self.naive.isConfigured || self.naive.isRunning))
+                let version = self.mihomo.isConfigured ? "Mihomo v1.19.32" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version)" : ((try? self.core.version()) ?? "unknown")
                 completionHandler?(Self.responseData([
                     "ok": true,
                     "running": running,
@@ -154,26 +172,75 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     "outbounds": self.outboundCount
                 ]))
             case "metrics":
+                guard self.started else {
+                    completionHandler?(Self.responseData(["ok": false]))
+                    return
+                }
                 // Счётчики берём у своего интерфейса: приложение видит все utun
                 // и не может отличить наш от служебного.
-                let counters = self.tunnelInterfaceName
-                    .flatMap { NimboInterfaceCounters.counters(interface: $0) }
-                    ?? NimboInterfaceCounters.busiestTunnel()
+                if self.mihomo.isConfigured {
+                    let counters = self.mihomo.counters
+                    var response: [String: Any] = ["ok": true, "received": counters.received,
+                        "sent": counters.sent, "generation": self.lifecycleGeneration,
+                        "memoryMb": NimboInterfaceCounters.memoryFootprintMb()]
+                    // Optional, read-only and generation-checked. Old native bridges
+                    // and transient failures never interfere with the packet pump.
+                    if request?["includeTelemetry"] as? Bool == true,
+                       let reply = try? self.mihomo.command("telemetry"),
+                       let telemetry = NimboTrafficTelemetry.decode(reply["data"]) {
+                        response["telemetry"] = telemetry.providerValue
+                        response["activeAdBlockingEnabled"] = self.activeAdBlockingEnabled
+                    }
+                    completionHandler?(Self.responseData(response))
+                    return
+                }
+                guard let counters = self.tunnelInterfaceName
+                    .flatMap({ NimboInterfaceCounters.counters(interface: $0) }) else {
+                    completionHandler?(Self.responseData(["ok": false]))
+                    return
+                }
                 completionHandler?(Self.responseData([
                     "ok": true,
-                    "received": counters?.received ?? 0,
-                    "sent": counters?.sent ?? 0,
+                    "received": counters.received,
+                    "sent": counters.sent,
+                    "generation": self.lifecycleGeneration,
+                    "activeAdBlockingEnabled": self.activeAdBlockingEnabled.map { $0 as Any } ?? NSNull(),
                     // Предел памяти система ставит расширению, поэтому важна
                     // именно его занятая память, а не приложения.
                     "memoryMb": NimboInterfaceCounters.memoryFootprintMb()
                 ]))
+            case "mihomoSnapshot", "mihomoSelect", "mihomoDelay":
+                guard self.started, self.mihomo.isConfigured else {
+                    completionHandler?(Self.responseData(["ok": false, "error": "MIHOMO_NOT_RUNNING"]))
+                    return
+                }
+                do {
+                    let status = try self.mihomo.command("status")["data"] as? [String: Any]
+                    guard let sourceHash = status?["sourceSHA256"] as? String,
+                          request?["sourceSHA256"] as? String == sourceHash else {
+                        throw MihomoPacketError.native("STALE_SOURCE")
+                    }
+                    let operation = command == "mihomoSnapshot" ? "snapshot" : command == "mihomoSelect" ? "select" :
+                        (request?["httpMethod"] as? String == "GET" ? "nimboDelay" : "delay")
+                    var fields: [String: Any] = [:]
+                    for key in ["group", "name", "url", "timeoutMs", "expectedStatus"] {
+                        fields[key] = request?[key]
+                    }
+                    guard let requestID = request?["requestID"] as? String, UUID(uuidString: requestID) != nil else {
+                        throw MihomoPacketError.native("INVALID_REQUEST_ID")
+                    }
+                    let reply = try self.mihomo.command(operation, fields: fields, requestID: requestID)
+                    completionHandler?(Self.responseData(["ok": true, "sourceSHA256": sourceHash, "reply": reply]))
+                } catch {
+                    completionHandler?(Self.responseData(["ok": false, "error": NimboRedactor.redact(error.localizedDescription)]))
+                }
             case "awgStats":
                 completionHandler?(Self.responseData(
                     (try? self.awg.stats()) ?? ["ok": false, "error": "IOS_AWG_STATS_FAILED"]
                 ))
             case "diagnostics":
-                let running = (try? self.core.isRunning()) ?? false
-                let version = self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : ((try? self.core.version()) ?? "unknown")
+                let running = self.mihomo.isConfigured ? self.mihomo.isRunning : (((try? self.core.isRunning()) ?? false) && (!self.naive.isConfigured || self.naive.isRunning))
+                let version = self.mihomo.isConfigured ? "Mihomo v1.19.32" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version)" : ((try? self.core.version()) ?? "unknown")
                 let outboundCount = self.outboundCount
                 Task {
                     let records = (try? await NimboDiagnostics.shared.recentRecordsData(maxBytes: 384 * 1_024)) ?? Data()
@@ -205,21 +272,29 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         timer.schedule(deadline: .now() + 60, repeating: 60, leeway: .seconds(15))
         timer.setEventHandler { [weak self] in
             guard let self, self.started, !self.starting else { return }
+            if self.mihomo.isConfigured {
+                if self.mihomo.isRunning { self.watchdogMisses = 0; return }
+                self.watchdogMisses += 1
+                if self.watchdogMisses >= 3 {
+                    self.failActiveTunnel(MihomoPacketError.packetFlow)
+                }
+                return
+            }
             let awgHealthy = !self.awg.isConfigured || self.awg.suspended ||
                 ((try? self.awg.stats())?["running"] as? Bool == true)
-            if (try? self.core.isRunning()) == true, awgHealthy {
+            if (try? self.core.isRunning()) == true, awgHealthy, (!self.naive.isConfigured || self.naive.isRunning) {
                 self.watchdogMisses = 0
                 return
             }
             self.watchdogMisses += 1
             guard self.watchdogMisses >= 3 else { return }
             self.stopWatchdog()
+            if self.naive.isConfigured, !self.naive.isRunning {
+                self.failActiveTunnel(NimboNaiveError.runtimeFailure)
+                return
+            }
             if self.awg.isConfigured {
-                try? self.core.stop()
-                self.awg.close()
-                self.stopPathMonitor()
-                self.started = false
-                self.cancelTunnelWithError(NimboAWGError.runtimeFailure)
+                self.failActiveTunnel(NimboAWGError.runtimeFailure)
                 return
             }
             Task {
@@ -235,6 +310,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             if self.restartCore() {
                 self.watchdogMisses = 0
                 self.startWatchdog()
+            } else {
+                self.failActiveTunnel(PacketTunnelError.coreStoppedUnexpectedly)
             }
         }
         timer.resume()
@@ -279,6 +356,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         previousPathInterfaces = interfaces
         if !satisfied || returned || changed { invalidatePingSamples() }
 
+        if naive.isConfigured, satisfied, returned || changed { naive.networkChanged() }
+        if mihomo.isConfigured { return } // Dedicated physical binder owns Mihomo path handoff.
         if awg.isConfigured {
             // Never reinstall network settings or replace Xray's TUN FD.
             // Extension-originated AWG UDP sockets use the underlying network,
@@ -306,30 +385,47 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func sleep(completionHandler: @escaping () -> Void) {
+        mihomo.cancelLiveProbe()
         lifecycleQueue.async {
             self.invalidatePingSamples()
+            self.naive.networkChanged()
             if self.awg.isConfigured { self.awg.suspend() }
             completionHandler()
         }
     }
 
     override func wake() {
+        mihomo.cancelLiveProbe()
         lifecycleQueue.async { [weak self] in
             guard let self, self.started else { return }
+            self.naive.networkChanged()
             if self.awg.isConfigured {
                 self.restartAWG()
+                return
+            }
+            if self.mihomo.isConfigured {
+                guard self.mihomo.isRunning else {
+                    self.failActiveTunnel(MihomoPacketError.packetFlow); return
+                }
+                // A sleep/wake without interface-index change still retires
+                // stale pools. No system routes or Internet probes are needed.
+                do { _ = try self.mihomo.command("networkChanged") }
+                catch { self.failActiveTunnel(MihomoPacketError.packetFlow) }
                 return
             }
             guard (try? self.core.isRunning()) != true else { return }
             // Сразу после пробуждения ядро может не ответить, оставаясь живым.
             // Рвать из-за этого рабочее соединение нельзя, поэтому спрашиваем
             // ещё раз чуть погодя.
+            let generation = self.lifecycleGeneration
             self.lifecycleQueue.asyncAfter(deadline: .now() + 3) {
-                guard self.started, (try? self.core.isRunning()) != true else { return }
+                guard generation == self.lifecycleGeneration, self.started, !self.starting,
+                      !self.mihomo.isConfigured, !self.awg.isConfigured,
+                      (try? self.core.isRunning()) != true else { return }
                 // Рвать туннель — крайняя мера: сначала пробуем поднять ядро
                 // на том же конфиге, ради этого пробуждение и существует.
                 if self.restartCore() { return }
-                self.cancelTunnelWithError(PacketTunnelError.coreStoppedUnexpectedly)
+                self.failActiveTunnel(PacketTunnelError.coreStoppedUnexpectedly)
             }
         }
     }
@@ -378,6 +474,35 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         pingTasks.removeAll()
     }
 
+    private func clearRetainedStartupState() {
+        activeAdBlockingEnabled = nil
+        lastCoreConfiguration = nil
+        lastTunnelDescriptor = nil
+        lastAssetDirectory = nil
+        tunnelInterfaceName = nil
+        outboundCount = 0
+        coreRestarts = 0
+        networkWasSatisfied = true
+    }
+
+    /// Lifecycle queue only. Cancel ownership first so a queued wake/pump callback
+    /// cannot act on a new session. Release source/FD references after core join.
+    private func failActiveTunnel(_ error: Error) {
+        lifecycleGeneration &+= 1
+        mihomo.cancelPendingStart()
+        cancelPings()
+        stopWatchdog()
+        stopPathMonitor()
+        try? core.stop()
+        awg.close()
+        naive.close()
+        mihomo.stop()
+        starting = false
+        started = false
+        clearRetainedStartupState()
+        cancelTunnelWithError(error)
+    }
+
     /// Поднимает ядро на последнем подготовленном конфиге.
     ///
     /// iOS выгружает и будит расширение постоянно, и ядро переживает это не
@@ -418,12 +543,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         } catch {
             // Close both cores on failure; iOS can create a new provider via
             // the existing on-demand policy, with a fresh TUN descriptor.
-            try? core.stop()
-            awg.close()
-            stopWatchdog()
-            stopPathMonitor()
-            started = false
-            cancelTunnelWithError(NimboAWGError.runtimeFailure)
+            failActiveTunnel(NimboAWGError.runtimeFailure)
         }
     }
 
@@ -443,7 +563,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
         // Every entry point (app, widget, system quick start/on-demand) must pass
         // admission before routes/DNS or native runtime state are changed.
-        try NimboCoreAdmission.validate(
+        let engine = try NimboCoreAdmission.validate(
             preference: tunnelProtocol.providerConfiguration?[NimboCorePreference.providerKey],
             data: data,
             declaredEngine: tunnelProtocol.providerConfiguration?[NimboCorePreference.profileEngineKey]
@@ -453,6 +573,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             providerValue: (protocolConfiguration as? NETunnelProviderProtocol)?
                 .providerConfiguration?["routing"]
         )
+        if engine == .mihomo {
+            try await startMihomo(generation: generation, data: data, options: routingOptions,
+                selections: tunnelProtocol.providerConfiguration?["mihomoSelections"] as? [String: String] ?? [:])
+            return
+        }
         XrayConfigurationBuilder.moduleRulesJSON =
             tunnelProtocol.providerConfiguration?["modules"] as? String ?? ""
         XrayConfigurationBuilder.routingProfileJSON =
@@ -472,7 +597,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         do {
             let awgConfiguration = try NimboAWGConfiguration.parseIfPresent(String(decoding: data, as: UTF8.self))
             try await ensureStartIsCurrent(generation)
-            try await applyNetworkSettings(PacketTunnelNetwork.settings(options: routingOptions, awg: awgConfiguration))
+            try await applyNetworkSettings(PacketTunnelNetwork.settings(options: routingOptions, awg: awgConfiguration, naiveDNS: engine == .naive))
             await NimboDiagnostics.shared.record(
                 .info,
                 stage: .route,
@@ -525,6 +650,77 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
+    private func startMihomo(generation: UInt64, data: Data, options: NimboRoutingOptions,
+                             selections: [String: String]) async throws {
+        let binding = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<MihomoPhysicalBinding, Error>) in
+            lifecycleQueue.async {
+                guard self.lifecycleGeneration == generation, self.starting else {
+                    continuation.resume(throwing: PacketTunnelError.startCancelled); return
+                }
+                self.mihomo.onFailure = { [weak self] in
+                    guard let self else { return }
+                    self.lifecycleQueue.async {
+                        guard self.lifecycleGeneration == generation else { return }
+                        self.failActiveTunnel(MihomoPacketError.packetFlow)
+                    }
+                }
+                let binding = self.mihomo.prepareBinding { [weak self] in
+                    guard let self else { return }
+                    self.lifecycleQueue.async {
+                        guard self.lifecycleGeneration == generation, self.started, self.mihomo.isConfigured else { return }
+                        self.invalidatePingSamples()
+                        // Close stale native sockets/DNS pools; fresh packets use
+                        // the binder's new physical interface, not the old utun.
+                        do { _ = try self.mihomo.command("networkChanged") }
+                        catch { self.failActiveTunnel(MihomoPacketError.packetFlow) }
+                    }
+                }
+                continuation.resume(returning: binding)
+            }
+        }
+        for _ in 0..<100 {
+            try await ensureStartIsCurrent(generation)
+            if binding.isReady { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        guard binding.isReady else { throw MihomoPacketError.physicalPath }
+        try await ensureStartIsCurrent(generation)
+        try await applyNetworkSettings(PacketTunnelNetwork.mihomoSettings(options: options))
+        try await ensureStartIsCurrent(generation)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            lifecycleQueue.async {
+                guard self.lifecycleGeneration == generation, self.starting else {
+                    continuation.resume(throwing: PacketTunnelError.startCancelled); return
+                }
+                do {
+                    // Source-specific native caches prevent another subscription's
+                    // restored group choices/fake IP map from becoming authoritative.
+                    let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+                    let directory = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask,
+                        appropriateFor: nil, create: true).appendingPathComponent("Mihomo/" + hash, isDirectory: true)
+                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                    for (source, target) in [("geoip", "GeoIP.dat"), ("geosite", "GeoSite.dat")] {
+                        guard let resource = Bundle.main.url(forResource: source, withExtension: "dat") else {
+                            throw PacketTunnelError.geoDataMissing
+                        }
+                        let destination = directory.appendingPathComponent(target)
+                        if !FileManager.default.fileExists(atPath: destination.path) {
+                            try FileManager.default.copyItem(at: resource, to: destination)
+                        }
+                    }
+                    try self.mihomo.start(source: data, directory: directory, flow: self.packetFlow, selections: selections,
+                                          adBlocking: options.adBlockingEnabled)
+                    guard self.mihomo.isRunning else { throw MihomoPacketError.packetFlow }
+                    self.activeAdBlockingEnabled = options.adBlockingEnabled
+                    self.outboundCount = 0; self.tunnelInterfaceName = nil
+                    continuation.resume(returning: ())
+                } catch { self.mihomo.stop(); continuation.resume(throwing: error) }
+            }
+        }
+        await NimboDiagnostics.shared.record(.info, stage: .coreLoad, code: "IOS_MIHOMO_PACKET_FLOW_STARTED",
+            message: "Mihomo запущено через системный пакетный туннель")
+    }
+
     private func ensureStartIsCurrent(_ generation: UInt64) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             lifecycleQueue.async {
@@ -556,6 +752,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     self.cancelPings()
                     if (try? self.core.isRunning()) == true { try self.core.stop() }
                     self.awg.close()
+                    self.naive.close()
                     try self.core.configureRuntimeEnvironment(
                         tunnelFileDescriptor: descriptor,
                         assetDirectory: assetDirectory
@@ -564,6 +761,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     let xraySource: Data
                     if let awgConfiguration {
                         xraySource = try self.awg.start(awgConfiguration)
+                    } else if let naiveConfiguration = try NimboNaiveConfiguration.parseIfPresent(String(decoding: sourceData, as: UTF8.self)) {
+                        xraySource = try self.naive.start(naiveConfiguration)
                     } else {
                         xraySource = sourceData
                     }
@@ -576,7 +775,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         options: options,
                         tunnelMTU: awgConfiguration?.mtu ?? PacketTunnelNetwork.mtu,
                         pingRoute: candidatePingRoute,
-                        bridge: self.core
+                        bridge: self.core,
+                        naiveDNS: self.naive.isConfigured
                     )
                     try self.core.run(configurationJSON: configuration.json)
                     guard try self.core.isRunning() else { throw PacketTunnelError.coreDidNotStart }
@@ -586,8 +786,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     self.coreRestarts = 0
                     self.pingRoute = configuration.pingRouteVerified ? candidatePingRoute : nil
                     self.pingServerID = pingServerID
-                    let coreVersion = try self.core.version()
+                    let xrayVersion = try self.core.version()
+                    let coreVersion = self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version) / Xray \(xrayVersion)" : xrayVersion
                     self.outboundCount = configuration.outboundCount
+                    self.activeAdBlockingEnabled = options.adBlockingEnabled
                     continuation.resume(returning: CoreStartupResult(
                         outboundCount: configuration.outboundCount,
                         coreVersion: coreVersion
@@ -595,6 +797,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 } catch {
                     if (try? self.core.isRunning()) == true { try? self.core.stop() }
                     self.awg.close()
+                    self.naive.close()
                     continuation.resume(throwing: error)
                 }
             }

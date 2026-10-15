@@ -6,7 +6,11 @@ use std::time::Duration;
 
 use crate::awg_payload;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
 use tauri::{AppHandle, Emitter};
+
+include!(concat!(env!("OUT_DIR"), "/mihomo_files.rs"));
 
 /// Mode flag set once during process bootstrap and read by the UI to decide
 /// whether to render the install screen or the uninstall screen. We use a
@@ -36,6 +40,12 @@ pub fn get_installer_mode() -> &'static str {
         "install"
     }
 }
+
+#[cfg(test)]
+const MAIN_APP_BYTES: &[u8] = b"test-only main_app_bytes";
+
+#[cfg(test)]
+const HELPER_BYTES: &[u8] = b"test-only helper_bytes";
 
 const PRODUCT_NAME: &str = "Nimbo";
 const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -88,6 +98,7 @@ const UNINSTALL_EXE: &str = "Uninstall.exe";
 const UNINSTALL_EXE: &str = "Uninstall";
 
 #[cfg(windows)]
+#[cfg(not(test))]
 const MAIN_APP_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
@@ -95,6 +106,7 @@ const MAIN_APP_BYTES: &[u8] = include_bytes!(concat!(
     "/release/nimbo-ui.exe"
 ));
 #[cfg(not(windows))]
+#[cfg(not(test))]
 const MAIN_APP_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
@@ -102,6 +114,7 @@ const MAIN_APP_BYTES: &[u8] = include_bytes!(concat!(
     "/release/nimbo-ui"
 ));
 #[cfg(windows)]
+#[cfg(not(test))]
 const HELPER_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
@@ -111,6 +124,7 @@ const HELPER_BYTES: &[u8] = include_bytes!(concat!(
 /// Привилегированный хелпер для Linux: без него TUN недоступен, потому что
 /// GUI работает под обычным пользователем.
 #[cfg(target_os = "linux")]
+#[cfg(not(test))]
 const HELPER_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/",
@@ -412,6 +426,26 @@ pub async fn install_nimbo(
 }
 
 #[tauri::command]
+pub async fn repair_install_permissions(consent: bool) -> Result<(), String> {
+    if !consent {
+        return Err("Для исправления прав требуется ваше подтверждение.".into());
+    }
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(|| {
+            embedded_helper_action("--repair-install-permissions")?;
+            preflight_embedded_helper()
+        })
+        .await
+        .map_err(|e| format!("Не удалось исправить права: {e}"))?
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Исправление прав службы доступно только в Windows.".into())
+    }
+}
+
+#[tauri::command]
 pub fn open_nimbo(install_dir: String) -> Result<(), String> {
     let exe = PathBuf::from(install_dir).join(APP_EXE);
     Command::new(exe)
@@ -454,8 +488,11 @@ fn install_blocking_windows(
         "prepare",
         "running",
         6,
-        "Отключаем Nimbo и останавливаем хелпер",
+        "Проверяем безопасность установки",
     );
+    // Check native trust BEFORE stopping the existing app/service or replacing
+    // anything. A failed preflight leaves the user's installation untouched.
+    preflight_embedded_helper()?;
     prepare_windows_upgrade(&install_dir)?;
     ensure_install_dir_writable(&install_dir)?;
     emit(&app, "prepare", "done", 12, "Окружение готово");
@@ -485,8 +522,9 @@ fn install_blocking_windows(
         replace_payload(&tun_dir.join("geoip.dat"), GEOIP_BYTES)?;
         replace_payload(&tun_dir.join("geosite.dat"), GEOSITE_BYTES)?;
     }
-    run_status(&install_dir.join(APP_EXE), &["--install-tun"])
-        .map_err(|e| format!("TUN-компоненты не установились: {e}"))?;
+    // Already embedded/copied: never execute the GUI's x64-only downloader.
+    verify_staged_dependency(&tun_dir.join("tun2socks.exe"), TUN2SOCKS_BYTES)?;
+    verify_staged_dependency(&tun_dir.join("wintun.dll"), WINTUN_BYTES)?;
     cleanup_old_tun_binaries(&tun_dir);
     emit(&app, "tun", "done", 56, "TUN готов");
 
@@ -720,6 +758,9 @@ fn perform_uninstall(
     let tun_dir = roaming_nimbo_bin_dir()?;
     let _ = fs::remove_dir_all(&tun_dir);
     let _ = fs::remove_dir_all(install_dir.join("resources").join("awg"));
+    for (relative, _, _) in MIHOMO_FILES {
+        let _ = fs::remove_file(install_dir.join("resources/mihomo").join(relative));
+    }
     // Remove only an empty resource parent; leave other installed resources alone.
     let _ = fs::remove_dir(install_dir.join("resources"));
 
@@ -1092,6 +1133,27 @@ fn install_awg_payload(install_dir: &Path) -> Result<PayloadInstallation, String
     Ok(installation)
 }
 
+// Keep the helper and its source/license inventory in the same rollback guard
+// as the app whose compiled digest authorizes this exact helper.
+fn install_mihomo_payload(
+    install_dir: &Path,
+    installation: &mut PayloadInstallation,
+) -> Result<(), String> {
+    let root = install_dir.join("resources/mihomo");
+    for (relative, bytes, expected) in MIHOMO_FILES {
+        if format!("{:x}", Sha256::digest(bytes)) != *expected {
+            return Err("Повреждён встроенный компонент Mihomo".into());
+        }
+        let path = root.join(relative);
+        installation.replace(&path, bytes)?;
+        let written = fs::read(&path).map_err(|e| format!("Не удалось проверить Mihomo: {e}"))?;
+        if format!("{:x}", Sha256::digest(written)) != *expected {
+            return Err("Записанный компонент Mihomo не совпадает с пакетом".into());
+        }
+    }
+    Ok(())
+}
+
 fn install_runtime_payloads(
     install_dir: &Path,
 ) -> Result<(PayloadInstallation, PayloadInstallation), String> {
@@ -1099,6 +1161,7 @@ fn install_runtime_payloads(
     // whose embedded digest expects it. Guards restore the complete prior set.
     let awg = install_awg_payload(install_dir)?;
     let mut app = PayloadInstallation::new();
+    install_mihomo_payload(install_dir, &mut app)?;
     app.replace(&install_dir.join(APP_EXE), MAIN_APP_BYTES)?;
     app.replace(&install_dir.join(HELPER_EXE), HELPER_BYTES)?;
     make_executable(&install_dir.join(APP_EXE))?;
@@ -1188,6 +1251,68 @@ fn make_executable(_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn preflight_embedded_helper() -> Result<(), String> {
+    embedded_helper_action("--check-install-directory")
+}
+#[cfg(windows)]
+fn embedded_helper_action(action: &str) -> Result<(), String> {
+    use std::io::Write;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "Не удалось подготовить проверку службы")?
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "nimbo-helper-check-{}-{nonce}.exe",
+        std::process::id()
+    ));
+    let mut file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&path)
+        .map_err(|e| format!("Не удалось подготовить проверку службы: {e}"))?;
+    let result = (|| {
+        file.write_all(HELPER_BYTES)
+            .and_then(|_| file.sync_all())
+            .map_err(|e| format!("Не удалось подготовить проверку службы: {e}"))?;
+        drop(file);
+        // Check is read-only. Repair is invoked only by a separate consent command.
+        run_status(&path, &[action])
+    })();
+    let _ = fs::remove_file(&path);
+    result
+}
+fn helper_failure_message(code: i32) -> Option<&'static str> {
+    match code {
+        21 => Some("Windows разрешает обычному пользователю изменять защищённые папки службы. Этот случай нельзя исправить автоматически без риска для других программ. Прежняя версия и подписки сохранены; удалять Nimbo не нужно. Администратору нужно проверить права системного диска и Program Files."),
+        22 => Some("Ядро Mihomo отсутствует или не соответствует этой сборке. Скачайте полный установщик заново."),
+        23 => Some("Контрольная сумма ядра Mihomo не совпадает. Скачайте полный установщик заново."),
+        24 => Some("NIMBO_PERMISSIONS_REPAIR_AVAILABLE"),
+        25 => Some("Проверка исправления прав не пройдена. Исходные права восстановлены; прежняя установка сохранена."),
+        26 => Some("Не удалось сохранить резервную копию прав. Права не изменены; прежняя установка сохранена."),
+        27 => Some("В запросе Windows выбран другой администратор. Войдите под учётной записью, запускающей установщик, или попросите администратора проверить права диска. Права не изменены."),
+        28 => Some("Не удалось проверить восстановление прав. Не повторяйте исправление; передайте администратору резервную копию Nimbo-permissions-backup-*.sddl из корня диска."),
+        29 => Some("Для исправления требуется подтверждение администратора в запросе Windows. Права не изменены."),
+        1223 => Some("Установка системной службы отменена в запросе прав администратора."),
+        _ => None,
+    }
+}
+
+fn verify_staged_dependency(path: &Path, embedded: &[u8]) -> Result<(), String> {
+    let bytes =
+        fs::read(path).map_err(|e| format!("Не удалось проверить {}: {e}", path.display()))?;
+    if embedded.is_empty()
+        || bytes.len() != embedded.len()
+        || Sha256::digest(&bytes) != Sha256::digest(embedded)
+    {
+        return Err(format!(
+            "Проверка TUN-компонента {} не пройдена: файл повреждён",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
 fn run_status(exe: &Path, args: &[&str]) -> Result<(), String> {
     let status = hidden_command(exe)
         .args(args)
@@ -1196,6 +1321,9 @@ fn run_status(exe: &Path, args: &[&str]) -> Result<(), String> {
     if status.success() {
         Ok(())
     } else {
+        if let Some(message) = status.code().and_then(helper_failure_message) {
+            return Err(message.into());
+        }
         Err(format!(
             "{} завершился с кодом {:?}",
             exe.display(),
@@ -1794,6 +1922,38 @@ mod awg_install_tests {
     }
 
     #[test]
+    fn helper_error_is_actionable_without_exposing_unrelated_logs() {
+        assert!(helper_failure_message(21)
+            .unwrap()
+            .contains("удалять Nimbo не нужно"));
+        assert_eq!(
+            helper_failure_message(24),
+            Some("NIMBO_PERMISSIONS_REPAIR_AVAILABLE")
+        );
+        assert!(helper_failure_message(26)
+            .unwrap()
+            .contains("Права не изменены"));
+        assert!(helper_failure_message(27)
+            .unwrap()
+            .contains("другой администратор"));
+        assert!(helper_failure_message(22)
+            .unwrap()
+            .contains("полный установщик"));
+        assert!(helper_failure_message(1223).unwrap().contains("отменена"));
+        assert!(helper_failure_message(1).is_none());
+    }
+    #[test]
+    fn staged_dependency_is_verified_offline_and_rejects_corruption() {
+        let fixture = Fixture::new();
+        let path = fixture.0.join("wintun.dll");
+        assert!(verify_staged_dependency(&path, b"embedded driver").is_err());
+        fs::write(&path, b"embedded driver").unwrap();
+        verify_staged_dependency(&path, b"embedded driver").unwrap();
+        fs::write(&path, b"changed driver!").unwrap();
+        assert!(verify_staged_dependency(&path, b"embedded driver").is_err());
+        assert!(verify_staged_dependency(&path, b"").is_err());
+    }
+    #[test]
     fn embedded_awg_installs_exact_bytes_in_runtime_resource_layout() {
         let fixture = Fixture::new();
         verify_embedded_awg().unwrap();
@@ -1943,5 +2103,67 @@ mod awg_install_tests {
         assert_eq!(fs::read(fixture.0.join(APP_EXE)).unwrap(), b"previous app");
         assert_eq!(fs::read(binary).unwrap(), b"previous awg");
         assert_eq!(fs::read(manifest).unwrap(), b"previous manifest");
+    }
+    #[test]
+    fn mihomo_payload_is_exact_and_rolls_back_with_app() {
+        let fixture = Fixture::new();
+        for (relative, _, _) in MIHOMO_FILES {
+            write_payload(
+                &fixture.0.join("resources/mihomo").join(relative),
+                b"previous resource",
+            )
+            .unwrap();
+        }
+        let (app, awg) = install_runtime_payloads(&fixture.0).unwrap();
+        for (relative, bytes, _) in MIHOMO_FILES {
+            assert_eq!(
+                fs::read(fixture.0.join("resources/mihomo").join(relative)).unwrap(),
+                *bytes
+            );
+        }
+        drop(app);
+        drop(awg);
+        for (relative, _, _) in MIHOMO_FILES {
+            assert_eq!(
+                fs::read(fixture.0.join("resources/mihomo").join(relative)).unwrap(),
+                b"previous resource"
+            );
+        }
+    }
+
+    #[test]
+    fn mihomo_write_failure_restores_earlier_resources() {
+        let fixture = Fixture::new();
+        let Some((last, _, _)) = MIHOMO_FILES.last() else {
+            return;
+        };
+        let root = fixture.0.join("resources/mihomo");
+        for (relative, _, _) in &MIHOMO_FILES[..MIHOMO_FILES.len() - 1] {
+            write_payload(&root.join(relative), b"previous resource").unwrap();
+        }
+        fs::create_dir_all(root.join(last)).unwrap();
+        assert!(install_runtime_payloads(&fixture.0).is_err());
+        assert!(!fixture.0.join(APP_EXE).exists());
+        for (relative, _, _) in &MIHOMO_FILES[..MIHOMO_FILES.len() - 1] {
+            assert_eq!(fs::read(root.join(relative)).unwrap(), b"previous resource");
+        }
+    }
+    #[test]
+    fn mihomo_commit_keeps_exact_resources_without_private_stage_receipt() {
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        assert!(!MIHOMO_FILES.is_empty());
+        let fixture = Fixture::new();
+        let (app, awg) = install_runtime_payloads(&fixture.0).unwrap();
+        app.commit();
+        awg.commit();
+        for (relative, bytes, _) in MIHOMO_FILES {
+            let path = fixture.0.join("resources/mihomo").join(relative);
+            assert_eq!(fs::read(&path).unwrap(), *bytes);
+            assert!(!old_payload_path(&path).exists());
+        }
+        assert!(!fixture
+            .0
+            .join("resources/mihomo/windows-x64/desktop-stage-receipt.json")
+            .exists());
     }
 }

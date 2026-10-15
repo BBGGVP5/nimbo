@@ -29,6 +29,9 @@ object XrayManager {
     var isConnected = false
         private set
 
+    var activeAdBlockingEnabled: Boolean? = null
+        private set
+
     var connectionError: String? = null
         private set
 
@@ -44,6 +47,7 @@ object XrayManager {
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             disconnect()
+            val adBlocking = PreferencesManager(context).adBlockingEnabled
             NebulaGuardApplication.ensureXrayCoreLoaded()
 
             val vpnFd = establishTun(vpnService, underlyingNetwork)
@@ -72,8 +76,10 @@ object XrayManager {
             val healthRouteVerified = LocalProxyConfig.authenticateVerifiedRoute(
                 authenticatedConfig, healthSession, server.remoteOutboundTag, server.remoteBalancerTag
             )
+            // Apply after health-route authentication and every provider/profile rewrite.
+            // Both individual servers and full templates enter this common final path.
             val config = XrayCoreProtocol.withAndroidRuntimeEnv(
-                configJson = authenticatedConfig.toString(),
+                configJson = AdBlockingRules.overlay(authenticatedConfig, adBlocking).toString(),
                 assetDirectory = datDir.absolutePath,
                 tunFd = vpnFd
             )
@@ -82,6 +88,7 @@ object XrayManager {
             val runResult = LibXray.invoke(XrayCoreProtocol.runXrayFromJson(config))
             if (isOk(runResult)) {
                 isConnected = true
+                activeAdBlockingEnabled = adBlocking
                 // Keep existing authenticated startup health checks available even when
                 // this route is too complex to certify for user-facing Nimbo Ping.
                 HealthProxySessions.activate(healthSession, verifiedRoute = healthRouteVerified)
@@ -106,6 +113,7 @@ object XrayManager {
     }
 
     fun disconnect() {
+        activeAdBlockingEnabled = null
         HealthProxySessions.invalidate()
         runCatching { LibXray.invoke(XrayCoreProtocol.stopXray()) }
         runCatching { tunInterface?.close() }
@@ -307,7 +315,8 @@ object XrayManager {
                 hasTunInbound = true
                 if (RoutingRuntimePolicy.shouldEnableSniffing(
                         userEnabled = prefs.trafficSniffingEnabled,
-                        routingEnabled = prefs.isRoutingEnabled
+                        routingEnabled = prefs.isRoutingEnabled,
+                        adBlockingEnabled = prefs.adBlockingEnabled
                     )
                 ) {
                     inbound.put("sniffing", buildSniffingConfig())
@@ -355,7 +364,8 @@ object XrayManager {
         // dies. Inject the profile's concrete servers as proxy/<i> outbounds (matching the
         // balancer selector prefix) and drop the remnawave key xray-core doesn't understand.
         if (proxyServers.isNotEmpty() &&
-            (RemnawaveApiClient.hasBalancerOrInjectHosts(json) || (server != null && com.danila.nimbo.utils.isAutoBalancerServer(server)))
+            (RemnawaveApiClient.hasBalancerOrInjectHosts(json) || (server != null && com.danila.nimbo.utils.isAutoBalancerServer(server))) &&
+            XrayBalancerMembers.needsInjection(json)
         ) {
             val injectHosts = json.optJSONObject("remnawave")?.optJSONArray("injectHosts")
             var injected = 0
@@ -811,7 +821,8 @@ object XrayManager {
             })
             if (RoutingRuntimePolicy.shouldEnableSniffing(
                     userEnabled = prefs.trafficSniffingEnabled,
-                    routingEnabled = prefs.isRoutingEnabled
+                    routingEnabled = prefs.isRoutingEnabled,
+                    adBlockingEnabled = prefs.adBlockingEnabled
                 )
             ) {
                 put("sniffing", buildSniffingConfig())

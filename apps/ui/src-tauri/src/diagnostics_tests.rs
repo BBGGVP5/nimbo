@@ -365,3 +365,76 @@ async fn real_cli_per_node_http_tls_failure_deadline_and_cleanup() {
     std::fs::remove_dir(probes).unwrap();
     std::fs::remove_dir(root).unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires explicitly supplied hash-verified upstream Xray CLI"]
+async fn real_cli_least_ping_selects_healthy_member_and_cancels_startup() {
+    let binary = PathBuf::from(
+        std::env::var_os("NIMBO_DIAGNOSTIC_TEST_XRAY").expect("verified CLI required"),
+    );
+    let name = if cfg!(windows) { "xray.exe" } else { "xray" };
+    crate::xray_release::current()
+        .unwrap()
+        .verify_file(name, &std::fs::read(&binary).unwrap())
+        .unwrap();
+    let root = parent();
+    let probes = root.join("probes");
+    let (port, hits, http) = http_fixture(200, 70).await;
+    let (dead, mut dead_process) = vless_fixture(&binary, &root, port, false).await;
+    let (healthy, mut healthy_process) = vless_fixture(&binary, &root, port, false).await;
+    dead_process.cleanup().await;
+    let template = json!({"outbounds":[
+        {"tag":"direct","protocol":"freedom"},
+        nimbo_xray_config::outbound::server_to_outbound(&dead,"pool-1"),
+        nimbo_xray_config::outbound::server_to_outbound(&healthy,"pool-2")],
+        "routing":{"balancers":[{"tag":"group","selector":["pool-"],"strategy":{"type":"leastPing"}}],
+          "rules":[{"domain":["nimbo-probe.invalid"],"outboundTag":"direct"}]},
+        "observatory":{"subjectSelector":[""],"probeUrl":"http://unrelated.invalid/"}});
+    let resolve = || async {
+        Ok(Binaries {
+            xray: binary.clone(),
+            awg: None,
+            naive: None,
+        })
+    };
+    let latency = measure(
+        dead.clone(),
+        resolve(),
+        &probes,
+        "http://nimbo-probe.invalid/check",
+        3000,
+        || true,
+        Some(template.clone()),
+    )
+    .await
+    .unwrap();
+    assert!(latency >= 70);
+    assert!(
+        hits.load(Ordering::SeqCst) >= 2,
+        "observer AND measured GET must use healthy route, not first dead participant"
+    );
+    assert_eq!(std::fs::read_dir(&probes).unwrap().count(), 0);
+    // Remove every participant; even a directly reachable control URL must not
+    // become a freedom fallback while the observer is bootstrapping.
+    healthy_process.cleanup().await;
+    let before = hits.load(Ordering::SeqCst);
+    let started = std::time::Instant::now();
+    let result = measure(
+        dead,
+        resolve(),
+        &probes,
+        &format!("http://127.0.0.1:{port}"),
+        3000,
+        || started.elapsed() < Duration::from_millis(250),
+        Some(template),
+    )
+    .await;
+    assert!(result.unwrap_err().contains("cancelled"));
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(hits.load(Ordering::SeqCst), before, "no direct escape");
+    assert_eq!(std::fs::read_dir(&probes).unwrap().count(), 0);
+    http.abort();
+    let _ = http.await;
+    std::fs::remove_dir(probes).unwrap();
+    std::fs::remove_dir(root).unwrap();
+}

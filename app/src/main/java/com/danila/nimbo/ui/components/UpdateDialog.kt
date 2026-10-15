@@ -133,15 +133,15 @@ fun UpdateDialog(
                 modifier = Modifier
                     .widthIn(max = 620.dp).fillMaxWidth(0.94f)
                     .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.9f).dp).navigationBarsPadding().imePadding()
-                    .border(1.dp, colors.outline, RoundedCornerShape(16.dp)),
-                shape = RoundedCornerShape(16.dp),
+                    .border(1.dp, colors.outline, RoundedCornerShape(24.dp)),
+                shape = RoundedCornerShape(24.dp),
                 color = colors.surface,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp
             ) {
                 Column(
                     modifier = Modifier
-                        .verticalScroll(rememberScrollState()).padding(16.dp)
+                        .verticalScroll(rememberScrollState()).padding(20.dp)
                 ) {
                     UpdatePopupHeadline(
                         phase = phase,
@@ -210,10 +210,6 @@ fun UpdateDialog(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 DialogChip(
-                                    icon = { Icon(Icons.Default.Android, null, Modifier.size(15.dp)) },
-                                    text = "Android"
-                                )
-                                DialogChip(
                                     text = when (updateInfo.channel) {
                                         UpdateChannel.STABLE -> t("Стабильный", "Stable")
                                         UpdateChannel.BETA -> t("Бета", "Beta")
@@ -222,17 +218,12 @@ fun UpdateDialog(
                                 if (updateInfo.fileSize > 0L) {
                                     DialogChip(text = UpdateUiText.fileSize(updateInfo.fileSize, language))
                                 }
-                                DialogChip(
-                                    text = if (updateInfo.sha256 != null) {
-                                        "SHA-256"
-                                    } else {
-                                        t("Подпись APK", "APK signature")
-                                    }
-                                )
+
                             }
 
                             Spacer(Modifier.height(12.dp))
                             UpdateReleaseNotes(
+                                maxHeight = (LocalConfiguration.current.screenHeightDp * 0.3f).dp,
                                 content = updateInfo.changelog?.takeIf(String::isNotBlank)
                                     ?: t(
                                         "Исправления ошибок и улучшения стабильности.",
@@ -349,7 +340,7 @@ private fun UpdateReleaseCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(colors.cardFill)
-            .padding(16.dp)
+            .padding(20.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(

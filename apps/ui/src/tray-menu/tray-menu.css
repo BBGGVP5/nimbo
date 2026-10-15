@@ -1575,3 +1575,28 @@ body[data-ui-style="signal"] .tray-status-subtitle strong { display:block; max-w
 body[data-ui-style="signal"] .tray-card { border-radius:var(--tray-radius); }
 html:has(body[data-ui-style="signal"]) { background:#1c1c1c !important; }
 html:has(body[data-ui-style="signal"][data-theme="light"]) { background:#fff !important; }
+
+/* A tray is a quick action surface, not a second app navigation window. */
+body .tray-shell { width: 326px; padding: 0; }
+body .tray-card { width: 326px; padding: 14px; border-radius: 8px; background: var(--tray-window-color) !important; box-shadow: none; }
+body .tray-card::before { display: none; }
+body .tray-card-inner { display: grid; gap: 12px; }
+body .tray-hero { padding: 0; margin: 0; gap: 10px; }
+body .tray-status-title { font-size: 18px; line-height: 1.3; }
+body .tray-eyebrow { font-size: 10px; }
+body .tray-status-subtitle { font-size: 11px; }
+body .tray-meta-row { margin: 0; font-size: 10px; }
+body .tray-connect-toggle { width: 100%; min-height: 48px; margin: 0; }
+body .tray-favorites { margin: 0; padding-top: 10px; }
+body .tray-favorites-heading { font-size: 11px; margin-bottom: 6px; }
+body .tray-server { min-height: 48px; padding: 8px 10px; }
+body .tray-server-name { font-size: 12px; }
+body .tray-server-meta { font-size: 10px; }
+body .tray-footer { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin: 0; padding-top: 8px; }
+body .tray-quit { min-height: 44px; padding: 8px 12px; font: 12px var(--font-sans); letter-spacing: 0; }
+body .tray-admin-notice { margin: 0; padding: 10px; font-size: 11px; }
+body .tray-admin-action { min-height: 44px; }
+@media (prefers-reduced-motion: reduce) { body .tray-card-inner > * { animation: none; transition: none; } }
+
+body .tray-card.tray-card { padding: 14px !important; border-radius: 8px !important; }
+body .tray-card .tray-hero { padding: 0 !important; }

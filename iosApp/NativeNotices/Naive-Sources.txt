@@ -1,0 +1,14 @@
+Nimbo iOS Naive transport
+Chromium: 150.0.7871.63
+cronet-go source and Apple native modules (GPL-3.0-or-later):
+https://github.com/SagerNet/cronet-go/tree/0d28acc44093df24b2526dea3d6ffefd6b0a54f0
+Naive/Chromium source and third-party notices:
+https://github.com/SagerNet/naiveproxy/tree/72a06c9fca0e2d228588c7f3074bf7efff3ff686
+Nimbo adapter and integration/build source:
+https://github.com/BBGGVP5/nimbo/tree/codex/ondemand-memory-20260930/tools/native/naive-core
+https://github.com/BBGGVP5/nimbo/blob/codex/ondemand-memory-20260930/scripts/ci/build-libxray-awg-apple.sh
+Native modules are checksum-verified through the pinned Go module graph.
+
+Nimbo iOS-only compatibility source (pinned unused kqueue feature init):
+https://github.com/BBGGVP5/nimbo/tree/codex/ondemand-memory-20260930/tools/native/naive-apple-compat
+See its README for exact upstream source evidence and archive guards.

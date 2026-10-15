@@ -579,15 +579,7 @@ object AndroidCrossSyncBundleMapper {
                 appVersion = BuildConfig.VERSION_NAME,
                 architecture = Build.SUPPORTED_ABIS.firstOrNull()
             ),
-            subscriptions = profiles
-                .filter { it.url.isNotBlank() }
-                .mapIndexed { index, profile ->
-                    SyncSubscription(
-                        url = profile.url.trim(),
-                        name = profile.customName ?: profile.name.takeIf(String::isNotBlank),
-                        order = index
-                    )
-                },
+            subscriptions = crossSyncProfileLinks(profiles),
             appearance = SyncAppearance(
                 themeMode = themeMode,
                 // Стили десктопа и телефона совпадают по названиям, поэтому

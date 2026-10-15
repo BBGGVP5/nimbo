@@ -1,4 +1,5 @@
 @file:Suppress("FunctionName", "unused")
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 
 package com.danila.nimbo.shared.ui
 
@@ -18,6 +19,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.encodeToString
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSUserDefaults
+import platform.Foundation.NSUUID
 import platform.UIKit.UIViewController
 
 private const val ToggleVpnAction = "com.nimbo.action.toggle-vpn"
@@ -472,7 +474,7 @@ private data class StoredNotification(
 
 private fun loadNotifications(): List<NimboNotification> {
     val raw = NSUserDefaults.standardUserDefaults.stringForKey(NotificationsDefaultsKey) ?: return emptyList()
-    return runCatching { iosJson.decodeFromString<List<StoredNotification>>(raw) }
+    return normalizeNotificationIds(runCatching { iosJson.decodeFromString<List<StoredNotification>>(raw) }
         .getOrDefault(emptyList())
         .map {
             NimboNotification(
@@ -483,7 +485,7 @@ private fun loadNotifications(): List<NimboNotification> {
                 timestampSeconds = it.timestampSeconds,
                 timeLabel = it.timeLabel
             )
-        }
+        })
 }
 
 private fun storeNotifications(items: List<NimboNotification>) {
@@ -519,7 +521,7 @@ fun NimboPushIosNotification(
     timestampSeconds: Long
 ) {
     val notification = NimboNotification(
-        id = "n-" + timestampSeconds.toString() + "-" + message.hashCode().toString(36),
+        id = "n-" + NSUUID().UUIDString,
         title = NimboNotificationKind.fromWireName(kind).title,
         message = message,
         kind = NimboNotificationKind.fromWireName(kind),
@@ -549,6 +551,15 @@ fun NimboDismissIosToast() {
     iosUiState.value = iosUiState.value.copy(toast = null)
 }
 
+fun NimboCurrentIosToastId(): String? = iosUiState.value.toast?.id
+
+fun NimboIosNotificationTimeoutMillis(kind: String): Long =
+    notificationTimeoutMillis(NimboNotificationKind.fromWireName(kind))
+
+fun NimboDismissIosToastIfCurrent(id: String) {
+    if (shouldDismissNotification(iosUiState.value.toast, id)) NimboDismissIosToast()
+}
+
 private fun deleteNotification(id: String) {
     storeNotifications(loadNotifications().filterNot { it.id == id })
 }
@@ -572,12 +583,13 @@ private fun loadRoutingValue(key: String, default: String): String =
 private fun applyRoutingChange(key: String, value: String) {
     val defaults = NSUserDefaults.standardUserDefaults
     when (key) {
-        "bypassLocal", "sniffing" -> defaults.setBool(value == "true", RoutingDefaultsPrefix + key)
+        "bypassLocal", "sniffing", "adBlocking" -> defaults.setBool(value == "true", RoutingDefaultsPrefix + key)
         else -> defaults.setObject(value, RoutingDefaultsPrefix + key)
     }
     iosUiState.value = iosUiState.value.copy(
         routingBypassLocal = loadRoutingFlag("bypassLocal", true),
         routingSniffing = loadRoutingFlag("sniffing", true),
+        adBlockingEnabled = loadRoutingFlag("adBlocking", false),
         routingDns = loadRoutingValue("dns", "cloudflare")
     )
     // Пересобрать конфигурацию должен Swift: у него доступ к профилю и туннелю.
@@ -680,7 +692,43 @@ fun NimboUpdateIosMetrics(
 
 
 private val iosUiState = mutableStateOf(NimboUiState())
+
+fun NimboUpdateIosSubscriptionRefreshing(refreshing: Boolean) {
+    iosUiState.value = iosUiState.value.copy(profileRefreshing = refreshing)
+}
+
+
+fun NimboUpdateIosTrafficTelemetry(telemetryJson: String?, sessionAvailable: Boolean, activeAdBlockingEnabled: Boolean?) {
+    val snapshot = NimboTelemetryDecoder.decode(telemetryJson)
+    iosUiState.value = iosUiState.value.copy(
+        routeTraffic = snapshot?.routeTraffic,
+        tcpConnections = snapshot?.tcpConnections,
+        udpConnections = snapshot?.udpConnections,
+        sessionAvailable = sessionAvailable,
+        activeAdBlockingEnabled = activeAdBlockingEnabled
+    )
+}
+
+fun NimboClearIosTrafficTelemetry() {
+    iosUiState.value = iosUiState.value.copy(routeTraffic = null, tcpConnections = null,
+        udpConnections = null, sessionAvailable = null, activeAdBlockingEnabled = null)
+}
+
+fun NimboResetIosMetrics() {
+    NimboClearIosTrafficTelemetry()
+    iosUiState.value = iosUiState.value.copy(uploadSpeed = 0, downloadSpeed = 0,
+        uploadTotal = 0, downloadTotal = 0, speedSamples = emptyList(), connectionDuration = "")
+}
 private val iosJson = Json { ignoreUnknownKeys = true }
+
+/** A VPN transition keeps the already loaded profile, pings and subscription metadata. */
+fun NimboUpdateIosConnectionState(vpnState: String, errorCode: String?, errorMessage: String?) {
+    iosUiState.value = iosUiState.value.copy(
+        vpnState = vpnState,
+        errorCode = errorCode,
+        errorMessage = errorMessage
+    )
+}
 
 fun NimboUpdateIosUiState(
     vpnState: String,
@@ -734,6 +782,7 @@ fun NimboUpdateIosUiState(
         sessions = iosSessions.value,
         routingBypassLocal = loadRoutingFlag("bypassLocal", true),
         routingSniffing = loadRoutingFlag("sniffing", true),
+        adBlockingEnabled = loadRoutingFlag("adBlocking", false),
         routingDns = loadRoutingValue("dns", "cloudflare"),
         pingOnLaunch = appearanceFlag("pingOnLaunch", true),
         pingAfterRefresh = appearanceFlag("pingAfterRefresh", true),
@@ -770,10 +819,23 @@ private val iosPendingPingIds = mutableStateOf<Set<String>>(emptySet())
 
 /** Start only the requested rows; a completed row must not spin until the batch ends. */
 fun NimboBeginIosPings(serverIds: List<String>) {
+    iosPings.value = invalidatingPingIds(iosPings.value, serverIds.toSet())
+    persistIosPings()
     iosPendingPingIds.value = serverIds.toSet()
-    iosPings.value = iosPings.value - iosPendingPingIds.value
-    NSUserDefaults.standardUserDefaults.setObject(iosJson.encodeToString(iosPings.value), PingResultsKey)
     NimboUpdateIosPings(emptyList(), emptyList(), serverIds.isNotEmpty())
+}
+
+/** Measurements belong to one observed network/VPN context, not the subscription forever. */
+fun NimboClearIosPings() {
+    iosPings.value = emptyMap()
+    iosPendingPingIds.value = emptySet()
+    persistIosPings()
+    NimboUpdateIosPings(emptyList(), emptyList(), false)
+}
+
+private fun persistIosPings() {
+    if (iosPings.value.isEmpty()) NSUserDefaults.standardUserDefaults.removeObjectForKey(PingResultsKey)
+    else NSUserDefaults.standardUserDefaults.setObject(iosJson.encodeToString(iosPings.value), PingResultsKey)
 }
 
 fun NimboUpdateIosPings(serverIds: List<String>, values: List<Int>, inProgress: Boolean) {
@@ -787,10 +849,7 @@ fun NimboUpdateIosPings(serverIds: List<String>, values: List<Int>, inProgress: 
         iosPings.value = merged
         // Замеры нужны и за пределами экрана: по ним отбираются узлы для
         // балансировщика, а собирается он в Swift при передаче конфигурации.
-        NSUserDefaults.standardUserDefaults.setObject(
-            iosJson.encodeToString(merged),
-            PingResultsKey
-        )
+        persistIosPings()
     }
     iosPingInProgress.value = inProgress
     val current = iosUiState.value
@@ -836,6 +895,14 @@ fun NimboSetIosScreen(wireName: String) {
 
 fun NimboCurrentIosScreen(): String = iosScreen.value.wireName
 
+fun NimboSetIosTopClearance(points: Double) {
+    if (points.isFinite()) iosUiState.value = iosUiState.value.copy(nativeTopClearance = points.coerceIn(0.0, 150.0).toFloat())
+}
+
+fun NimboSetIosBottomClearance(points: Double) {
+    if (points.isFinite()) iosUiState.value = iosUiState.value.copy(nativeBottomClearance = points.coerceIn(0.0, 300.0).toFloat())
+}
+
 fun NimboComposeViewController(screenName: String): UIViewController =
     ComposeUIViewController {
         NimboSharedScreen(
@@ -854,6 +921,7 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onOpenAbout = { postIosAction(AboutAction) },
                 onOpenSystemSettings = { postIosAction(SystemSettingsAction) },
                 onOpenCoreSettings = { postIosAction(OpenCoreSettingsAction) },
+                onOpenOnDemandSettings = { postIosAction("com.nimbo.action.on-demand-settings") },
                 onOpenUrl = { postIosAction(OpenUrlAction, it) },
                 onToggleFavorite = { toggleFavoriteServer(it) },
                 onPingServer = { postIosAction(PingServerAction, it) },
@@ -864,6 +932,7 @@ fun NimboComposeViewController(screenName: String): UIViewController =
                 onImportFile = { postIosAction(ImportFileAction) },
                 onScanQr = { postIosAction(ScanQrAction) },
                 onSetRouting = { key, value -> applyRoutingChange(key, value) },
+                onSetAdBlocking = { enabled -> applyRoutingChange("adBlocking", enabled.toString()) },
                 onSetAppearance = { key, value -> applyAppearanceChange(key, value) },
                 onSetPing = { key, value -> applyPingChange(key, value) },
                 onSaveModule = { id, name, text -> saveModule(id, name, text) },

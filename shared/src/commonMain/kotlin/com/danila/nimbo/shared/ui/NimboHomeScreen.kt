@@ -68,17 +68,21 @@ internal fun NimboHomeScreen(
     onOpenProfiles: () -> Unit
 ) {
     var expanded by androidx.compose.runtime.saveable.rememberSaveable(state.activeProfileName) { mutableStateOf(false) }
+    NimboPullRefresh(state.profileRefreshing, state.profileCount > 0, actions.onRefreshProfile,
+        Modifier.fillMaxSize()) {
     androidx.compose.foundation.lazy.LazyColumn(
         modifier = Modifier.fillMaxSize().nimboScreenPadding(),
         contentPadding = PaddingValues(top = LocalNimboContentTop.current, bottom = LocalNimboContentBottom.current),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item { HomeHeader(state, actions) }
         item { NimboConnectionPanel(state, actions) }
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                BasicText("Мои подписки", Modifier.weight(1f), style = NimboSectionTitleStyle)
-                BasicText("Все профили ↗", Modifier.heightIn(min = 44.dp).clickable(role = Role.Button, onClick = onOpenProfiles).padding(vertical = 13.dp), style = NimboBodyStyle.copy(fontSize = 12.sp))
+            Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+                BasicText("Мои подписки", Modifier.weight(1f).alignByBaseline(), style = NimboSectionTitleStyle)
+                Box(Modifier.alignByBaseline().nimboClickable(onClick = onOpenProfiles).padding(vertical = 14.dp)) {
+                    BasicText("Все профили ↗", style = NimboBodyStyle.copy(fontSize = 12.sp))
+                }
             }
         }
         if (state.profileCount == 0) {
@@ -97,6 +101,7 @@ internal fun NimboHomeScreen(
         }
         item { HomeMonitoring(state) }
     }
+    }
 }
 
 @Composable
@@ -107,19 +112,19 @@ private fun HomeHeader(state: NimboUiState, actions: NimboUiActions) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(44.dp).clip(CircleShape).border(1.dp, NimboPalette.Border, CircleShape)
                 .background(NimboPalette.Surface).semantics { contentDescription = "Переключить тему" }
-                .clickable(role = Role.Button) { actions.onSetAppearance("themeMode", if (dark) "light" else "dark") }, contentAlignment = Alignment.Center) {
+                .nimboClickable { actions.onSetAppearance("themeMode", if (dark) "light" else "dark") }, contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.DarkMode, null, Modifier.size(20.dp), tint = NimboPalette.Text)
             }
             Box(Modifier.size(44.dp).clip(CircleShape).border(1.dp, NimboPalette.Border, CircleShape)
                 .background(NimboPalette.Surface).semantics { contentDescription = "Добавить" }
-                .clickable(role = Role.Button, onClick = actions.onAddProfile), contentAlignment = Alignment.Center) {
+                .nimboClickable(onClick = actions.onAddProfile), contentAlignment = Alignment.Center) {
                 NimboIcon(NimboIconName.ADD, Modifier.size(22.dp))
             }
         }
     }
     val brand: @Composable (Modifier) -> Unit = { modifier ->
         Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            BasicText("nimbo", style = NimboTitleStyle.copy(fontSize = (28f / fontScale.coerceAtLeast(1f)).sp, lineHeight = (34f / fontScale.coerceAtLeast(1f)).sp, fontWeight = FontWeight.Bold))
+            BasicText("nimbo", style = NimboTitleStyle.copy(fontWeight = FontWeight.Bold))
             BasicText("v${state.appVersion.removePrefix("v").replace("-beta.", " β")}", style = NimboBodyStyle.copy(fontSize = 11.sp, lineHeight = 14.sp))
         }
     }

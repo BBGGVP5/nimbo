@@ -44,15 +44,15 @@ class ElfValidationTest(unittest.TestCase):
 
 class BuildInfoValidationTest(unittest.TestCase):
     def test_pinned_replaced_module_without_checksum_is_detected(self):
-        metadata = """path example\ndep\tgithub.com/metacubex/mihomo\tv1.19.31\n=>\tC:/stage/dependencies/mihomo\t(devel)\n"""
+        metadata = """path example\ndep\tgithub.com/metacubex/mihomo\tv1.19.32\n=>\tC:/stage/dependencies/mihomo\t(devel)\n"""
         self.assertEqual(
-            verify.dependency(metadata, "github.com/metacubex/mihomo", "v1.19.31"),
+            verify.dependency(metadata, "github.com/metacubex/mihomo", "v1.19.32"),
             "C:/stage/dependencies/mihomo",
         )
 
     def test_wrong_version_is_rejected(self):
         metadata = "dep\tgithub.com/metacubex/mihomo\tv1.19.30\th1:sum\n"
-        self.assertIsNone(verify.dependency(metadata, "github.com/metacubex/mihomo", "v1.19.31"))
+        self.assertIsNone(verify.dependency(metadata, "github.com/metacubex/mihomo", "v1.19.32"))
 
 
 if __name__ == "__main__":
