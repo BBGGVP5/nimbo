@@ -53,6 +53,7 @@ class NimboSettingsRedesignInteractionTest {
             onSetAppearance = { key, value ->
                 record("onSetAppearance", key, value)
                 if (key == "themeMode") state.value = state.value.copy(appearance = state.value.appearance.copy(themeMode = value))
+                if (key == "settingsAdvanced") state.value = state.value.copy(settingsAdvanced = value.toBooleanStrict())
             },
             onSetPing = { key, value ->
                 record("onSetPing", key, value)
@@ -84,7 +85,8 @@ class NimboSettingsRedesignInteractionTest {
             onImportSubscription = { record("onImportSubscription", it) }, onImportClipboard = { record("onImportClipboard") },
             onImportFile = { record("onImportFile") }, onScanQr = { record("onScanQr") },
             onExportBackup = { record("onExportBackup") }, onImportBackup = { record("onImportBackup") },
-            onOpenSync = { record("onOpenSync") }
+            onOpenSync = { record("onOpenSync") },
+            onOpenCoreSettings = { record("onOpenCoreSettings") }
         )
         private var frameTime = 0L
         fun scene(screen: NimboScreen = NimboScreen.SETTINGS, height: Int = 480, showBottomBar: Boolean = false) = ImageComposeScene(320, height) {
@@ -169,6 +171,34 @@ class NimboSettingsRedesignInteractionTest {
                 assertTrue(bytes.size > 3000, "Empty screenshot: $name")
                 File(output, "$name.png").writeBytes(bytes)
             }
+        }
+    }
+
+    @Test fun settingsModeAndSearchOnlyChangePresentation() = with(Fixture()) {
+        scene().use { scene ->
+            scene.settle()
+            assertFalse("Ядро VPN" in scene.texts())
+            assertTrue("Диагностика" in scene.texts())
+            val search = scene.nodes().single { it.hasLabel("Поиск настроек") }
+            search.config[SemanticsActions.SetText].action!!.invoke(AnnotatedString("  XRAY  "))
+            scene.settle()
+            assertTrue("Ядро VPN" in scene.texts())
+            assertFalse(state.value.settingsAdvanced)
+            assertEquals(emptyList(), calls)
+            scene.nodes().single { it.hasLabel("Поиск настроек") }.config[SemanticsActions.SetText].action!!.invoke(AnnotatedString(""))
+            scene.settle()
+            assertFalse("Ядро VPN" in scene.texts())
+            scene.clickText("Расширенный", Role.RadioButton)
+            assertTrue(state.value.settingsAdvanced)
+            assertTrue("Ядро VPN" in scene.texts())
+            scene.clickText("Простой", Role.RadioButton)
+            assertFalse("Ядро VPN" in scene.texts())
+            assertEquals(listOf(call("onSetAppearance", "settingsAdvanced", "true"), call("onSetAppearance", "settingsAdvanced", "false")), calls)
+            assertEquals("https://probe.example.test/original", state.value.pingUrl)
+            assertEquals(1500, state.value.pingTimeoutMs)
+            scene.nodes().single { it.hasLabel("Поиск настроек") }.config[SemanticsActions.SetText].action!!.invoke(AnnotatedString("неттакойнастройки"))
+            scene.settle()
+            assertTrue("Ничего не найдено. Попробуйте другое название." in scene.texts())
         }
     }
 

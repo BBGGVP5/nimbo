@@ -137,6 +137,8 @@ data class NimboUiState(
     val navIconMotion: Boolean = true,
     val showSpeedWidget: Boolean = true,
     val showMemoryWidget: Boolean = true,
+    /** Presentation only: never alters connection preferences. */
+    val settingsAdvanced: Boolean = false,
     val pingOnLaunch: Boolean = true,
     val pingAfterRefresh: Boolean = true,
     val refreshOnLaunch: Boolean = false,

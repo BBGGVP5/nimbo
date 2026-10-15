@@ -1,27 +1,6 @@
 import Foundation
 import OSLog
 
-enum NimboDiagnosticLevel: String, Codable, Sendable {
-    case debug
-    case info
-    case warning
-    case error
-}
-
-enum NimboDiagnosticStage: String, Codable, Sendable {
-    case app
-    case permission
-    case config
-    case coreLoad = "core_load"
-    case tunnelStart = "tunnel_start"
-    case route
-    case dns
-    case probe
-    case networkChange = "network_change"
-    case recovery
-    case stop
-}
-
 struct NimboDiagnosticRecord: Codable, Sendable {
     let timestamp: String
     let level: NimboDiagnosticLevel
@@ -106,37 +85,60 @@ actor NimboDiagnostics {
         return Data(suffix)
     }
 
-    func exportBundle(additionalSections: [String: Data] = [:]) throws -> URL {
+    /// Actor-isolated disk IO and JSON projection; never queries or starts the tunnel.
+    func prepareSupportReport() throws -> NimboPreparedSupportReport {
+        try Task.checkCancellation()
         let directory = NimboConstants.diagnosticContainer
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let manifest: [String: String] = [
-            "generated_at": formatter.string(from: Date()),
-            "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
-            "build": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown",
-            "source_revision": Bundle.main.infoDictionary?["NimboBuildRevision"] as? String ?? "unknown",
-            "os": NimboDiagnosticPlatformInfo.system,
-            "device": NimboDiagnosticPlatformInfo.device,
-            "user_agent": NimboDiagnosticPlatformInfo.userAgent,
-            "privacy": "subscription URLs, credentials, UUID and IP addresses are redacted"
-        ]
-        let exportURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Nimbo-Diagnostics-\(Int(Date().timeIntervalSince1970)).txt")
-        var export = Data("NIMBO DIAGNOSTICS\n\nMANIFEST\n".utf8)
-        export.append(try encoder.encode(manifest))
-        export.append(Data("\n\nEVENTS\n".utf8))
-        for name in [NimboConstants.diagnosticArchiveFile, NimboConstants.diagnosticFile] {
+        var chunks: [Data] = []
+        var remaining = NimboSupportReport.maximumInputBytes
+        var omittedBytes = 0
+        // Read current first so the bounded window always favors recent records.
+        for name in [NimboConstants.diagnosticFile, NimboConstants.diagnosticArchiveFile] {
             let source = directory.appendingPathComponent(name)
             guard FileManager.default.fileExists(atPath: source.path) else { continue }
-            export.append(Data("\n--- \(name) ---\n".utf8))
-            export.append(try Data(contentsOf: source))
+            let handle = try FileHandle(forReadingFrom: source)
+            defer { try? handle.close() }
+            let size = try handle.seekToEnd()
+            let count = min(UInt64(remaining), size)
+            try handle.seek(toOffset: size - count)
+            var data = try handle.read(upToCount: Int(count)) ?? Data()
+            remaining -= Int(count)
+            // A bounded suffix can start mid-record. Discard rather than guess.
+            if size > count {
+                if let newline = data.firstIndex(of: 0x0A) {
+                    data = Data(data[data.index(after: newline)...])
+                } else {
+                    data = Data()
+                }
+            }
+            // A concurrent writer may leave a partial last record in this snapshot.
+            if let newline = data.lastIndex(of: 0x0A) {
+                data = Data(data[...newline])
+            } else {
+                data = Data()
+            }
+            omittedBytes += Int(size) - data.count
+            chunks.insert(data, at: 0)
         }
-        for name in additionalSections.keys.sorted() {
-            guard let section = additionalSections[name], !section.isEmpty else { continue }
-            export.append(Data("\n\n--- \(NimboRedactor.redact(name)) ---\n".utf8))
-            export.append(section)
-        }
-        try export.write(to: exportURL, options: [.atomic, .completeFileProtection])
-        return exportURL
+        try Task.checkCancellation()
+        let rendered = try NimboSupportReport.render(
+            records: chunks.reduce(into: Data()) { $0.append($1) },
+            appProcess: Bundle.main.bundleIdentifier ?? "",
+            environment: NimboSupportReport.Environment(
+                appVersion: NimboDiagnosticPlatformInfo.displayVersion,
+                build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
+                sourceRevision: Bundle.main.object(forInfoDictionaryKey: "NimboBuildRevision") as? String ?? "unknown",
+                os: NimboDiagnosticPlatformInfo.system,
+                device: NimboDiagnosticPlatformInfo.device
+            ),
+            omittedInputBytes: omittedBytes
+        )
+        try Task.checkCancellation()
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Nimbo-Support-\(UUID().uuidString).json")
+        // This exact immutable string is both the preview and the entire shared file.
+        try Data(rendered.preview.utf8).write(to: url, options: [.atomic, .completeFileProtection])
+        return NimboPreparedSupportReport(url: url, preview: rendered.preview)
     }
 
     private func append(_ record: NimboDiagnosticRecord) throws {

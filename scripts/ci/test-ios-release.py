@@ -58,7 +58,7 @@ class ReleaseTests(unittest.TestCase):
             script = pathlib.Path(directory) / "preflight.sh"
             script.write_text(preflight, encoding="utf-8", newline="\n")
             cases = [
-                (None, None, "1.3.0-beta.1|180|1.3.0|beta"),
+                (None, None, "1.3.0-beta.2|181|1.3.0|beta"),
                 ("1.3.0-beta.1", "180", "1.3.0-beta.1|180|1.3.0|beta"),
                 ("1.3.0-beta.2", "181", "1.3.0-beta.2|181|1.3.0|beta"),
                 ("1.3.0", "190", "1.3.0|190|1.3.0|stable"),
@@ -114,9 +114,9 @@ class ReleaseTests(unittest.TestCase):
 
     def test_release_defaults_and_native_link_contract(self):
         project = (ROOT / "iosApp/project.yml").read_text(encoding="utf-8")
-        self.assertRegex(project, r"(?m)^    CURRENT_PROJECT_VERSION: 180$")
+        self.assertRegex(project, r"(?m)^    CURRENT_PROJECT_VERSION: 181$")
         self.assertRegex(project, r"(?m)^    MARKETING_VERSION: 1\.3\.0$")
-        self.assertRegex(project, r"(?m)^    NIMBO_DISPLAY_VERSION: 1\.3\.0-beta\.1$")
+        self.assertRegex(project, r"(?m)^    NIMBO_DISPLAY_VERSION: 1\.3\.0-beta\.2$")
         checker = (ROOT / "iosApp/Nimbo/NimboUpdateChecker.swift").read_text(encoding="utf-8")
         self.assertIn('NimboUpdateChannel(rawValue: stored ?? "") ?? .beta', checker)
         self.assertIn('channel: NimboUpdateChannel = NimboUpdateCenter.channel', checker)

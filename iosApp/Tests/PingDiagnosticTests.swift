@@ -176,6 +176,72 @@ enum PingDiagnosticTests {
         }
     }
 
+    static func autoEvidenceTests() async {
+        let cache = NimboAutoPingCache.shared
+        let defaults = UserDefaults.standard
+        let config = "vless://fixture@proxy.example:443?type=tcp"
+        let changed = "vless://changed-fixture@proxy.example:443?type=tcp"
+        let unknown = "vless://unknown@proxy.example:443?type=tcp"
+        let keys = ["com.nimbo.connection.vpnCore", "com.nimbo.routing.modules",
+                    "com.nimbo.routing.profile-id", "com.nimbo.routing.dns"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(keys, saved) { defaults.set(value, forKey: key) }
+            cache.invalidate()
+        }
+        cache.invalidate(pathEstablished: true)
+        let good = NimboPingService(diagnosticProbe: { _, _, _, _ in 0 })
+        let measured = await good.measureOne(host: "", port: 0, id: "same-id", configuration: config)
+        precondition(measured == 0)
+        precondition(cache.rankedIndices(configurations: [unknown, config], limit: 16) == [1, 0])
+        precondition(cache.rankedIndices(configurations: [unknown, changed], limit: 16) == [0, 1], "Same server ID with changed credentials must lose proof")
+        precondition(cache.begin(configuration: nil) == nil && cache.begin(configuration: "  ") == nil)
+        precondition(cache.rankedIndices(configurations: ["", " ", config], limit: 16) == [2])
+
+        for key in keys {
+            let ticket = cache.begin(configuration: config)
+            cache.complete(ticket, latency: 0, provenance: .configuredRouteHTTP, cancelled: false)
+            let before = cache.generation
+            let old = defaults.object(forKey: key)
+            defaults.set("auto-test-policy-change", forKey: key)
+            NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+            defaults.set(old, forKey: key)
+            NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+            precondition(cache.generation != before, "Core/routing changes away and back must retire evidence")
+            precondition(cache.rankedIndices(configurations: [unknown, config], limit: 16) == [0, 1])
+        }
+
+        let coreBefore = defaults.object(forKey: keys[0])
+        let invalidPolicies: [Any] = [Data([0, 1]), Date(timeIntervalSince1970: 0), ["bad": "type"], String(repeating: "x", count: 262_145)]
+        for invalid in invalidPolicies {
+            defaults.set(invalid, forKey: keys[0])
+            NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+            let epoch = cache.refreshedGeneration
+            precondition(cache.refreshedGeneration == epoch, "Stable malformed defaults cannot rotate every read")
+            precondition(cache.begin(configuration: config) == nil, "Malformed policy cannot earn route proof")
+        }
+        defaults.set(coreBefore, forKey: keys[0])
+        _ = cache.refreshedGeneration
+
+        for cancel in [false, true] {
+            let started = NimboPingCompletion<Bool>()
+            let gate = NimboPingCompletion<Int>()
+            let service = NimboPingService(diagnosticProbe: { _, _, _, _ in
+                started.finish(true)
+                return await withCheckedContinuation { continuation in gate.install { continuation.resume(returning: $0) } }
+            })
+            let task = Task { await service.measureAll([(id: "same-id", host: "", port: 0)],
+                                                       configurations: ["same-id": config]) }
+            _ = await withCheckedContinuation { continuation in started.install { continuation.resume(returning: $0) } }
+            if cancel { task.cancel() } else { cache.invalidate(pathEstablished: true) }
+            gate.finish(0)
+            let result = await task.value
+            precondition(result == nil, "Cancellation/path-session epoch change discards late batch completion")
+            precondition(cache.rankedIndices(configurations: [unknown, config], limit: 16) == [0, 1])
+        }
+        print("PASS: producer auto evidence, config digest isolation, empty config, core/routing away-back and late completion retirement")
+    }
+
     static func run() async {
         let defaults = UserDefaults.standard
         let keys = ["com.nimbo.ping.protocol", "com.nimbo.ping.url", "com.nimbo.ping.timeoutMs"]
@@ -184,6 +250,7 @@ enum PingDiagnosticTests {
         defaults.set("nimbo", forKey: keys[0])
         defaults.set("https://example.invalid/probe?q=1", forKey: keys[1])
         defaults.set(3000, forKey: keys[2])
+        await autoEvidenceTests()
         await preflightTests()
         await batchBudgetTests()
         let backend = Backend()

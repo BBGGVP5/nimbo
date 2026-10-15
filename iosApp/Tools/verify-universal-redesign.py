@@ -148,7 +148,7 @@ check('Camera purpose describes subscription and sync QR', re.findall(camera_pat
 info_plist = plistlib.loads((IOS / 'Nimbo/Info.plist').read_bytes())
 check('Info.plist camera literal agrees when present', 'NSCameraUsageDescription' not in info_plist or info_plist['NSCameraUsageDescription'] == camera_description,
       'No camera literal in checked-in plist; project.yml provides it during project generation.' if 'NSCameraUsageDescription' not in info_plist else '')
-check('Version unchanged: 1.3.0-beta.1 / 180', 'CURRENT_PROJECT_VERSION: 180' in project and 'NIMBO_DISPLAY_VERSION: 1.3.0-beta.1' in project)
+check('Release version: 1.3.0-beta.2 / 181', 'CURRENT_PROJECT_VERSION: 181' in project and 'NIMBO_DISPLAY_VERSION: 1.3.0-beta.2' in project)
 check('Approved cloud exact source match', (IOS / 'Branding/Branding.xcassets/NimboCloud.imageset/cloud-template.svg').read_bytes() == (IOS.parent / 'assets/branding/1.3.0-beta.1/cloud-template.svg').read_bytes())
 widget_target = project.split('  NimboControlWidget:\n', 1)[1].split('\nschemes:', 1)[0]
 check('Control widget target includes brand catalog and is embedded/registered',

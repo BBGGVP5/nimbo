@@ -131,7 +131,7 @@ def main():
                 metadata = subprocess.run([args.go, "version", "-m", str(native)],
                                           check=True, capture_output=True, text=True).stdout
                 for module, version in (
-                    ("github.com/xtls/xray-core", "v1.260327.1-0.20260930074004-b26a91de4f32"),
+                    ("github.com/xtls/xray-core", "v1.260327.1-0.20261010092107-701af60772cd"),
                     ("github.com/metacubex/mihomo", "v1.19.32"),
                 ):
                     replacement = dependency(metadata, module, version)
@@ -142,6 +142,12 @@ def main():
                         for line in metadata.splitlines()
                     ):
                         raise ValueError(f"Missing or changed compiled core pin in {abi}: {module}")
+                    if module == "github.com/xtls/xray-core" and not any(
+                        line.strip().split() == ["dep", module, version,
+                            "h1:Am/9Pzw5PZr7+hMN1Vs5faeSXRoutnrwMAgtUDnh/J8="]
+                        for line in metadata.splitlines()
+                    ):
+                        raise ValueError(f"Compiled Xray source checksum mismatch in {abi}")
                     if module == "github.com/metacubex/mihomo":
                         expected_source = (args.aar.parent.parent / "dependencies" / "mihomo").resolve()
                         actual_source = Path(replacement).resolve() if replacement else None

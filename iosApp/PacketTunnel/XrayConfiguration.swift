@@ -11,6 +11,9 @@ enum XrayConfigurationBuilder {
     private static let maximumInputBytes = 15 * 1_024 * 1_024
     private static let proxyTagPrefix = "proxy/"
     private static let balancerTag = "balancer"
+    // Explicit Nimbo automatic opt-in. The patched native router owns sticky
+    // selection for this marker + leastPing; Swift does not select runtime nodes.
+    private static let automaticBalancerTag = "nimbo-auto-sticky-v1"
 
     static func prepare(
         sourceData: Data,
@@ -60,10 +63,11 @@ enum XrayConfigurationBuilder {
         configuration["routing"] = normalizedRouting(
             configuration["routing"],
             balanced: source.balanced,
+            balancerTag: source.automatic ? automaticBalancerTag : balancerTag,
             proxyTag: (sanitized.first?["tag"] as? String) ?? "proxy"
         )
         if source.balanced {
-            configuration["observatory"] = observatorySettings
+            configuration["observatory"] = observatorySettings(automatic: source.automatic)
         }
 
         let pingTag = NimboPingRoute.verifiedTag(outbounds: sanitized, balanced: source.balanced)
@@ -93,10 +97,16 @@ enum XrayConfigurationBuilder {
     private static func configurationObject(
         from sourceText: String,
         bridge: LibXrayBridge
-    ) throws -> (configuration: [String: Any], balanced: Bool) {
+    ) throws -> (configuration: [String: Any], balanced: Bool, automatic: Bool) {
         var object: [String: Any]?
         if let data = sourceText.data(using: .utf8) {
             object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        }
+
+        // Native user routing takes precedence even with incidental envelope keys.
+        // Never retag an imported balancer or replace its observation settings.
+        if let object, object["outbounds"] is [Any] {
+            return (object, false, false)
         }
 
         // Конверт приложения для автобалансировщика: реальные серверы профиля
@@ -108,14 +118,14 @@ enum XrayConfigurationBuilder {
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")
             guard !text.isEmpty else { throw XrayConfigurationError.empty }
-            let requested = (object?["nimbo"] as? [String: Any])?["balancer"] as? Bool ?? true
-            return (try convertShareText(text, bridge: bridge), requested && links.count > 1)
+            let explicitNimboFlag = (object?["nimbo"] as? [String: Any])?["balancer"] as? Bool
+            let requested = explicitNimboFlag ?? true
+            let balanced = requested && links.count > 1
+            // Legacy envelopes retain leastPing without opting into native stickiness.
+            return (try convertShareText(text, bridge: bridge), balanced, balanced && explicitNimboFlag == true)
         }
 
-        if let object, object["outbounds"] is [Any] {
-            return (object, false)
-        }
-        return (try convertShareText(sourceText, bridge: bridge), false)
+        return (try convertShareText(sourceText, bridge: bridge), false, false)
     }
 
     /// Конверсия ссылок силами libXray плюс то, чего его парсер не знает.
@@ -222,15 +232,13 @@ enum XrayConfigurationBuilder {
     /// leastPing выбирает выход по замерам обсерватории; до первого замера она
     /// пуста и стратегия возвращает пустой тег, поэтому у балансировщика есть
     /// fallbackTag — иначе первые соединения после подключения никуда не идут.
-    private static var observatorySettings: [String: Any] {
+    private static func observatorySettings(automatic: Bool) -> [String: Any] {
         [
             "subjectSelector": [proxyTagPrefix],
             "probeURL": "https://www.gstatic.com/generate_204",
-            // Полторы минуты — предел, после которого отвалившийся узел
-            // становится заметен человеку: страницы просто перестают
-            // открываться. Память при этом бережёт не редкость проверок, а
-            // их количество: узлов в балансировщике теперь немного.
-            "probeInterval": "90s",
+            // Nimbo automatic probes every 30 seconds; native sticky selection
+            // consumes these observations. Preserve legacy envelope cadence.
+            "probeInterval": automatic ? "30s" : "90s",
             // Проверка идёт разом: по очереди круг на десятке узлов
             // растягивался на минуты, и всё это время выбор оставался
             // вчерашним. Всплеск памяти сдерживается размером списка.
@@ -346,6 +354,7 @@ enum XrayConfigurationBuilder {
     private static func normalizedRouting(
         _ value: Any?,
         balanced: Bool,
+        balancerTag: String,
         proxyTag: String
     ) -> [String: Any] {
         var routing = value as? [String: Any] ?? [:]
@@ -376,8 +385,8 @@ enum XrayConfigurationBuilder {
         // Модули впереди всего: человек написал их под конкретную задачу, и ни
         // профиль, ни балансировщик не должны перебивать явный маршрут. Затем
         // идёт профиль — он решает, что вообще уходит в туннель.
-        routing["rules"] = retargeted(moduleRules(), balanced: balanced, proxyTag: proxyTag)
-            + retargeted(profile.rules, balanced: balanced, proxyTag: proxyTag)
+        routing["rules"] = retargeted(moduleRules(), balanced: balanced, balancerTag: balancerTag, proxyTag: proxyTag)
+            + retargeted(profile.rules, balanced: balanced, balancerTag: balancerTag, proxyTag: proxyTag)
             + rules
         return routing
     }
@@ -423,6 +432,7 @@ enum XrayConfigurationBuilder {
     private static func retargeted(
         _ rules: [[String: Any]],
         balanced: Bool,
+        balancerTag: String,
         proxyTag: String
     ) -> [[String: Any]] {
         rules.map { rule in

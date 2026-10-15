@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -43,9 +44,15 @@ private enum class SettingsTab(val title: String, val icon: NimboIconName) {
     ABOUT("О приложении", NimboIconName.INFO)
 }
 
+private data class SettingsDestination(
+    val group: String, val title: String, val icon: NimboIconName,
+    val subtitle: String?, val keywords: String, val advanced: Boolean, val open: () -> Unit
+)
+
 @Composable
 internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
     var tab by remember { mutableStateOf<SettingsTab?>(null) }
+    var query by remember { mutableStateOf("") }
     // Each page starts at the top; a long appearance page must not offset the next page.
     key(tab) {
         Column(
@@ -62,27 +69,63 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
                             value = state.updateStatus.takeIf { it.isNotBlank() }, onClick = { tab = SettingsTab.UPDATES })
                     }
                 }
-                SettingsSection("Подключение") {
-                    actions.onOpenCoreSettings?.let { openCoreSettings ->
-                        SettingsRow(NimboIconName.CONNECTION, "Ядро VPN",
-                            "Выбор для следующего подключения", showDivider = true,
-                            onClick = openCoreSettings)
+                Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(false to "Простой", true to "Расширенный").forEach { (advanced, title) ->
+                        Box(Modifier.weight(1f).heightIn(min = 48.dp)
+                            .clip(nimboStyledShape(14.dp))
+                            .background(if (state.settingsAdvanced == advanced) NimboPalette.SurfaceStrong else NimboPalette.Surface)
+                            .selectable(state.settingsAdvanced == advanced, role = Role.RadioButton) {
+                                if (state.settingsAdvanced != advanced) actions.onSetAppearance("settingsAdvanced", advanced.toString())
+                            }.padding(10.dp), contentAlignment = Alignment.Center) {
+                            BasicText(title, style = NimboBodyStyle.copy(color = NimboPalette.Text,
+                                fontWeight = if (state.settingsAdvanced == advanced) FontWeight.Bold else FontWeight.Normal))
+                        }
                     }
-                    SettingsRow(NimboIconName.PING, "Пинг серверов",
-                        value = "${pingMethodTitle(state.pingProtocol)} · ${state.pingTimeoutMs / 1000.0} с",
-                        showDivider = true, onClick = { tab = SettingsTab.LATENCY })
-                    actions.onOpenOnDemandSettings?.let {
-                        SettingsRow(NimboIconName.CONNECTION, "Автоподключение",
-                            "Wi-Fi и сотовая сеть", showDivider = true, onClick = it)
-                    }
-                    SettingsRow(NimboIconName.ROUTE, "Маршрутизация", showDivider = true,
-                        onClick = { actions.onOpenScreen(NimboScreen.ROUTING.wireName) })
-                    SettingsRow(NimboIconName.CLOUD, "Подписка", onClick = { tab = SettingsTab.SUBSCRIPTION })
                 }
-                SettingsSection("Приложение") {
-                    listOf(SettingsTab.GENERAL, SettingsTab.APPEARANCE, SettingsTab.BACKUP,
-                        SettingsTab.UPDATES, SettingsTab.ABOUT).forEachIndexed { index, entry ->
-                        SettingsRow(entry.icon, entry.title, showDivider = index < 4, onClick = { tab = entry })
+                BasicText("Меняется только список разделов, не параметры VPN. Поиск — по всем разделам.", style = NimboBodyStyle.copy(fontSize = 12.sp))
+                NimboSurface(Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
+                    BasicTextField(query, { query = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                        .semantics { contentDescription = "Поиск настроек" }, singleLine = true,
+                        textStyle = NimboBodyStyle.copy(color = NimboPalette.Text), cursorBrush = SolidColor(NimboPalette.Accent),
+                        decorationBox = { inner -> Box(contentAlignment = Alignment.CenterStart) {
+                            if (query.isEmpty()) BasicText("Поиск настроек", style = NimboBodyStyle)
+                            inner()
+                        } })
+                }
+                val destinations = buildList {
+                    actions.onOpenCoreSettings?.let { open ->
+                        add(SettingsDestination("Подключение", "Ядро VPN", NimboIconName.CONNECTION,
+                            "Выбор для следующего подключения", "Xray Mihomo AWG Naive", true, open))
+                    }
+                    add(SettingsDestination("Подключение", "Пинг серверов", NimboIconName.PING,
+                        "${pingMethodTitle(state.pingProtocol)} · ${state.pingTimeoutMs / 1000.0} с", "ping таймаут timeout URL", false) { tab = SettingsTab.LATENCY })
+                    actions.onOpenOnDemandSettings?.let { open ->
+                        add(SettingsDestination("Подключение", "Автоподключение", NimboIconName.CONNECTION,
+                            "Wi-Fi и сотовая сеть", "on demand", false, open))
+                    }
+                    add(SettingsDestination("Подключение", "Маршрутизация", NimboIconName.ROUTE,
+                        "Сайты, правила и блокировка рекламы", "DNS домены", false) { actions.onOpenScreen(NimboScreen.ROUTING.wireName) })
+                    add(SettingsDestination("Подключение", "Подписка", NimboIconName.CLOUD,
+                        "Обновление и серверы", "сортировка избранное", false) { tab = SettingsTab.SUBSCRIPTION })
+                    listOf(SettingsTab.GENERAL, SettingsTab.APPEARANCE, SettingsTab.BACKUP, SettingsTab.UPDATES, SettingsTab.ABOUT).forEach { entry ->
+                        val keywords = when (entry) {
+                            SettingsTab.GENERAL -> "виброотклик память синхронизация график VPN"
+                            SettingsTab.APPEARANCE -> "тема цвет текст анимация"
+                            SettingsTab.BACKUP -> "импорт экспорт восстановление"
+                            SettingsTab.UPDATES -> "версия бета beta"
+                            else -> "версия устройство"
+                        }
+                        add(SettingsDestination("Приложение", entry.title, entry.icon, null, keywords, false) { tab = entry })
+                    }
+                    add(SettingsDestination("Помощь", "Диагностика", NimboIconName.INFO,
+                        "Проверка подключения и отчёт об ошибке", "журнал логи report logs", false, actions.onOpenDiagnostics))
+                }.filter { matchesSettingsEntry(query, "${it.title} ${it.subtitle.orEmpty()} ${it.keywords}", it.advanced, state.settingsAdvanced) }
+                if (destinations.isEmpty()) BasicText("Ничего не найдено. Попробуйте другое название.", style = NimboBodyStyle)
+                destinations.groupBy { it.group }.forEach { (group, entries) ->
+                    SettingsSection(group) {
+                        entries.forEachIndexed { index, entry ->
+                            SettingsRow(entry.icon, entry.title, entry.subtitle, showDivider = index < entries.lastIndex, onClick = entry.open)
+                        }
                     }
                 }
             } else {

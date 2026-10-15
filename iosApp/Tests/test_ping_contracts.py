@@ -21,6 +21,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCES = [
     "iosApp/Shared/NimboPingPolicy.swift",
     "iosApp/Shared/NimboPingCompletion.swift",
+    "iosApp/Shared/NimboAutoSelectionPolicy.swift",
+    "iosApp/Nimbo/NimboAutoPingCache.swift",
     "iosApp/Shared/NimboWorkerActivity.swift",
     "iosApp/Shared/NimboHTTPProbe.swift",
     "iosApp/Shared/NimboSOCKSTunnel.swift",
@@ -35,6 +37,7 @@ SOURCES = [
     "iosApp/Shared/NimboNaiveConfiguration.swift", "iosApp/PacketTunnel/XrayConfiguration.swift",
     "iosApp/Tests/PingConfigurationStubs.swift",
     "iosApp/Tests/PingDiagnosticTests.swift",
+    "iosApp/Tests/AutoStickyConfigurationTests.swift",
     "iosApp/Tests/PingPolicyTests.swift",
 ]
 
@@ -245,7 +248,7 @@ class PingContracts(unittest.TestCase):
             self.assertNotIn('3.3', read(path))
             self.assertNotIn('displayMilliseconds', read(path))
         staging = read('iosApp/Nimbo/NimboStagingPayload.swift')
-        self.assertIn('NimboPingPolicy.selectionRank(latency)', staging)
+        self.assertIn('NimboAutoPingCache.shared.rankedIndices(', staging)
         self.assertIn('Array(sortedByLatency(candidates).prefix(maximumBalancerNodes))', staging)
         self.assertNotIn('displayMilliseconds', staging)
         self.assertIn('return raw >= 0 ? raw : 200_000', policy)

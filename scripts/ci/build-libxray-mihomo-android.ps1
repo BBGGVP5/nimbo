@@ -11,10 +11,10 @@ $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $bridge = Join-Path $repo 'tools/native/android-bridge'
 $appleBridge = Join-Path $repo 'iosApp/GoBridge'
 $mihomo = Join-Path $repo 'tools/native/mihomo-core'
-$archive = Join-Path $repo 'artifacts/libxray-26.9.30/libxray-codeload.tar.gz'
+$archive = Join-Path $repo 'artifacts/libxray-26.10.10/libxray-codeload.tar.gz'
 $go = Join-Path $GoRoot 'bin/go.exe'
 if (!(Test-Path -LiteralPath $go) -or !(Test-Path -LiteralPath $Python)) { throw 'Installed Go 1.27.1 and Python are required.' }
-if ((Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant() -ne '0b9162518c1eb2aadca13f39e63e9c5f7c904c4843ad6bc8f8251f2d1f99c185') { throw 'LibXray source archive pin mismatch.' }
+if ((Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant() -ne '11171db539d0496bb8e31246b7612ab8696b39403e16519be293ca88ac72d4dd') { throw 'LibXray source archive pin mismatch.' }
 if ((Get-Content -LiteralPath (Join-Path $appleBridge 'go.mod') -Raw) -notmatch 'nimbo/mihomocore') { throw 'Combined mobile module graph is not prepared; refusing an Xray-only artifact.' }
 
 # Fresh staging paths only. Never overwrites the installed AAR or another build.
@@ -102,6 +102,6 @@ try {
     foreach ($inputFile in $inputs) {
         if ((Get-FileHash -LiteralPath $inputFile.path).Hash.ToLowerInvariant() -ne $inputFile.sha256) { throw "Build inputs changed: $($inputFile.path). Artifact not approved." }
     }
-    [ordered]@{ stage=$stage; androidBuilt=[bool]$Build; productionLibraryChanged=$false; libXray='26.9.30'; mihomo='v1.19.32' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'result.json') -Encoding utf8
+    [ordered]@{ stage=$stage; androidBuilt=[bool]$Build; productionLibraryChanged=$false; libXray='26.10.10'; mihomo='v1.19.32' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'result.json') -Encoding utf8
     Write-Output "Staged build: $stage (never installed or promoted automatically)"
 } finally { Pop-Location }

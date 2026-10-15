@@ -2,18 +2,18 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VERSION="${NIMBO_VERSION:-1.3.0-beta.1}"
+VERSION="${NIMBO_VERSION:-1.3.0-beta.2}"
 MARKETING_VERSION="${VERSION%%-*}"
-BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-180}"
+BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-181}"
 RELEASE_CHANNEL=stable
 # Keep Apple marketing versions numeric; the display/filename retain prerelease.
 if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]*)?$ ]]; then
-  echo 'NIMBO_VERSION must be numeric semver with optional -beta.N (default: 1.3.0-beta.1)' >&2
+  echo 'NIMBO_VERSION must be numeric semver with optional -beta.N (default: 1.3.0-beta.2)' >&2
   exit 2
 fi
 [[ "${VERSION}" != *-beta.* ]] || RELEASE_CHANNEL=beta
 if [[ ! "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,3}$ ]] || (( BUILD_NUMBER <= 170 )); then
-  echo 'NIMBO_BUILD_NUMBER must be an integer from 171 to 9999 (default: 180)' >&2
+  echo 'NIMBO_BUILD_NUMBER must be an integer from 171 to 9999 (default: 181)' >&2
   exit 2
 fi
 [[ "$(uname -s)" == Darwin ]] || { echo 'IPA builds require macOS and Xcode' >&2; exit 2; }
@@ -375,8 +375,8 @@ contains_live_activity=true
 requires_resigning=true
 requires_network_extension_entitlement=true
 resignable=true
-libxray_version=26.9.30
-libxray_source_sha256=0b9162518c1eb2aadca13f39e63e9c5f7c904c4843ad6bc8f8251f2d1f99c185
+libxray_version=26.10.10
+libxray_source_sha256=11171db539d0496bb8e31246b7612ab8696b39403e16519be293ca88ac72d4dd
 awg_version=v3.1.20260828
 go_runtime_archives_per_slice=1
 MANIFEST

@@ -49,6 +49,7 @@ actor NimboPingService {
 
     /// Sticky invalidation also rejects a setting changed away and then back.
     private final class SettingsLease: @unchecked Sendable {
+        let generation = NimboAutoPingCache.shared.refreshedGeneration
         let settings = Settings.current
         private let lock = NSLock()
         private var invalidated = false
@@ -67,17 +68,31 @@ actor NimboPingService {
             // Defaults notifications may execute synchronously on a writer thread.
             // Never invert its lock order by reading defaults under our lease lock.
             let current = Settings.current
+            let currentGeneration = generation == NimboAutoPingCache.shared.generation
             lock.lock()
             defer { lock.unlock() }
-            return !invalidated && settings == current
+            return !invalidated && settings == current && currentGeneration
         }
 
         deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
     }
 
+    private static func provenance(_ mode: NimboPingProtocol) -> NimboAutoPingCache.Provenance {
+        switch mode {
+        case .nimbo: return .configuredRouteHTTP
+        // IPC proves the active route, but not that its staged config still
+        // equals this subscription snapshot. Do not upgrade it to config proof.
+        case .httpGet, .httpHead: return .activeRouteHTTP
+        case .tcp: return .tcp
+        case .icmp: return .icmp
+        }
+    }
+
     func measureOne(host: String, port: Int, id: String = "", session: NETunnelProviderSession? = nil, configuration: String? = nil) async -> Int {
         let lease = SettingsLease()
         let settings = lease.settings
+        let ticket = NimboAutoPingCache.shared.begin(configuration: configuration)
+        defer { NimboAutoPingCache.shared.discard(ticket) }
         let value: Int
         if settings.mode == .nimbo {
             guard !id.isEmpty, let configuration, let url = NimboPingPolicy.checkedURL(settings.rawURL) else { return -1 }
@@ -88,6 +103,8 @@ actor NimboPingService {
         } else {
             value = await Self.probe(host: host, port: port, settings: settings, timeout: settings.timeout)
         }
+        NimboAutoPingCache.shared.complete(ticket, latency: value, provenance: Self.provenance(settings.mode),
+                                          cancelled: Task.isCancelled || !lease.valid)
         return !Task.isCancelled && lease.valid ? value : -1
     }
 
@@ -101,6 +118,12 @@ actor NimboPingService {
         defer { inFlight = false }
         let lease = SettingsLease()
         let settings = lease.settings
+        // Capture immutable identities and attempt tokens before any probe await.
+        let tickets = Dictionary(targets.compactMap { target -> (String, NimboAutoPingCache.Ticket)? in
+            guard let ticket = NimboAutoPingCache.shared.begin(configuration: configurations[target.id]) else { return nil }
+            return (target.id, ticket)
+        }, uniquingKeysWith: { _, latest in latest })
+        defer { for ticket in tickets.values { NimboAutoPingCache.shared.discard(ticket) } }
         let unavailable = Dictionary(targets.map { ($0.id, -1) }, uniquingKeysWith: { first, _ in first })
         var results = unavailable
         if settings.mode == .nimbo {
@@ -109,7 +132,11 @@ actor NimboPingService {
             let deadline = diagnosticClock() + Self.diagnosticBatchBudget(count: targets.count, timeout: settings.timeout)
             guard let rejected = await preflight(targets, configurations: configurations, lease: lease,
                                                  deadline: deadline, progress: progress) else { return nil }
-            for id in rejected { results[id] = -1 }
+            for id in rejected {
+                results[id] = -1
+                NimboAutoPingCache.shared.complete(tickets[id], latency: -1, provenance: .tcp,
+                                                  cancelled: Task.isCancelled || !lease.valid)
+            }
             for target in targets {
                 if rejected.contains(target.id) { continue }
                 let remaining = deadline - diagnosticClock()
@@ -118,6 +145,8 @@ actor NimboPingService {
                 if let configuration = configurations[target.id] {
                     value = await diagnosticProbe(target.id, configuration, url, min(settings.timeout, remaining))
                 } else { value = -1 } // This target was checked and has no usable config.
+                NimboAutoPingCache.shared.complete(tickets[target.id], latency: value, provenance: .configuredRouteHTTP,
+                                                  cancelled: Task.isCancelled || !lease.valid)
                 guard !Task.isCancelled, lease.valid else { break }
                 results[target.id] = value
                 await MainActor.run {
@@ -131,7 +160,11 @@ actor NimboPingService {
         } else if settings.mode.httpMethod != nil {
             guard let url = NimboPingPolicy.checkedURL(settings.rawURL) else { return unavailable }
             let sample = await routeProbe(session, targets.map(\.id), url, settings.timeout, settings.mode.httpMethod!, settings.mode == .nimbo)
-            if sample.latency >= 0, results[sample.id] != nil { results[sample.id] = sample.latency }
+            if sample.latency >= 0, results[sample.id] != nil {
+                NimboAutoPingCache.shared.complete(tickets[sample.id], latency: sample.latency, provenance: .activeRouteHTTP,
+                                                  cancelled: Task.isCancelled || !lease.valid)
+                results[sample.id] = sample.latency
+            }
         } else {
             let deadline = ProcessInfo.processInfo.systemUptime + min(60, settings.timeout * Double(2 + targets.count / parallelism))
             var index = 0
@@ -146,12 +179,16 @@ actor NimboPingService {
                             (target.id, await Self.probe(host: target.host, port: target.port, settings: settings, timeout: timeout))
                         }
                     }
-                    for await (id, value) in group { results[id] = value }
+                    for await (id, value) in group {
+                        NimboAutoPingCache.shared.complete(tickets[id], latency: value, provenance: Self.provenance(settings.mode),
+                                                          cancelled: Task.isCancelled || !lease.valid)
+                        results[id] = value
+                    }
                 }
                 index += parallelism
             }
         }
-        return !Task.isCancelled && lease.valid ? results : unavailable
+        return !Task.isCancelled && lease.valid ? results : nil
     }
 
     /// Sliding window rejects closed/unreachable TCP endpoints in parallel. A

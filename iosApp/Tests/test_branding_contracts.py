@@ -66,9 +66,9 @@ class BrandingContracts(unittest.TestCase):
 
     def test_all_target_versions_inherit_release(self):
         project = read('project.yml')
-        self.assertEqual(re.findall(r'CURRENT_PROJECT_VERSION: (.+)', project), ['180'])
+        self.assertEqual(re.findall(r'CURRENT_PROJECT_VERSION: (.+)', project), ['181'])
         self.assertEqual(re.findall(r'MARKETING_VERSION: (.+)', project), ['1.3.0'])
-        self.assertEqual(re.findall(r'NIMBO_DISPLAY_VERSION: (.+)', project), ['1.3.0-beta.1'])
+        self.assertEqual(re.findall(r'NIMBO_DISPLAY_VERSION: (.+)', project), ['1.3.0-beta.2'])
         for folder in ['Nimbo', 'PacketTunnel', 'ControlWidget']:
             plist = plistlib.loads((IOS / folder / 'Info.plist').read_bytes())
             self.assertEqual(plist['CFBundleVersion'], '$(CURRENT_PROJECT_VERSION)')

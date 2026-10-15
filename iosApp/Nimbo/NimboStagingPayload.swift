@@ -68,26 +68,12 @@ enum NimboStagingPayload {
         return data
     }
 
-    /// Узлы по возрастанию задержки; неизмеренные идут следом за измеренными,
-    /// а молчащие — в конец: замер мог не состояться, но узел живой.
+    /// Only recent, generation-bound per-configuration HTTP proof earns priority.
+    /// Legacy presentation values remain unverified. Equal ranks retain input order.
     private static func sortedByLatency(_ servers: [NimboSubscriptionServer]) -> [NimboSubscriptionServer] {
-        let stored = UserDefaults.standard.string(forKey: "com.nimbo.ping.results")
-            .flatMap { $0.data(using: .utf8) }
-            .flatMap { try? JSONDecoder().decode([String: Int].self, from: $0) }
-            ?? [:]
-        guard !stored.isEmpty else { return servers }
-
-        return servers.enumerated().sorted { left, right in
-            let leftRank = rank(stored[left.element.id])
-            let rightRank = rank(stored[right.element.id])
-            if leftRank != rightRank { return leftRank < rightRank }
-            return left.offset < right.offset
-        }.map(\.element)
-    }
-
-    /// Чем меньше число, тем раньше узел попадёт в балансировщик.
-    private static func rank(_ latency: Int?) -> Int {
-        NimboPingPolicy.selectionRank(latency)
+        NimboAutoPingCache.shared.rankedIndices(
+            configurations: servers.map(\.rawConfiguration), limit: maximumBalancerNodes
+        ).map { servers[$0] }
     }
 
     /// Те же признаки, что и в `ServerPolicyManager.isAutoBalancerServer`

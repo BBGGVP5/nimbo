@@ -252,9 +252,9 @@ def main():
         raise RuntimeError('Exact netlink rule identity replacement missing')
     requirements = {r['Path']: r['Version'] for r in graph['Require']}
     for module, version in {
-        'github.com/xtls/xray-core': 'v1.260327.1-0.20260930074004-b26a91de4f32',
+        'github.com/xtls/xray-core': 'v1.260327.1-0.20261010092107-701af60772cd',
         'github.com/amnezia-vpn/amneziawg-go/v3': 'v3.1.20260828',
-        'gvisor.dev/gvisor': 'v0.0.0-20260122175437-89a5d21be8f0',
+        'gvisor.dev/gvisor': 'v0.0.0-20261010064756-cd110d9dec04',
     }.items():
         if requirements.get(module) != version:
             raise RuntimeError('Existing engine pin changed: ' + module)

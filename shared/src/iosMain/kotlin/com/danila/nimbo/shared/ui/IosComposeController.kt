@@ -125,7 +125,7 @@ private fun applyUpdateChange(key: String, value: String) {
 
 private fun applyAppearanceChange(key: String, value: String) {
     if (key !in setOf("themeMode", "accentHex", "textScale", "haptics", "navIconMotion",
-            "showSpeedWidget", "showMemoryWidget", "serverSort", "favoritesFirst",
+            "showSpeedWidget", "showMemoryWidget", "settingsAdvanced", "serverSort", "favoritesFirst",
             "pingOnLaunch", "pingAfterRefresh", "refreshOnLaunch", "connectStyle")) return
     val defaults = NSUserDefaults.standardUserDefaults
     when (key) {
@@ -153,6 +153,7 @@ private fun applyAppearanceChange(key: String, value: String) {
         navIconMotion = appearanceFlag("navIconMotion", true),
         showSpeedWidget = appearanceFlag("showSpeedWidget", true),
         showMemoryWidget = appearanceFlag("showMemoryWidget", true),
+        settingsAdvanced = appearanceFlag("settingsAdvanced", false),
         elementStyle = "glass",
         serverSort = appearanceText("serverSort", "subscription"),
         favoritesFirst = appearanceFlag("favoritesFirst", true),
@@ -794,6 +795,7 @@ fun NimboUpdateIosUiState(
         navIconMotion = appearanceFlag("navIconMotion", true),
         showSpeedWidget = appearanceFlag("showSpeedWidget", true),
         showMemoryWidget = appearanceFlag("showMemoryWidget", true),
+        settingsAdvanced = appearanceFlag("settingsAdvanced", false),
         elementStyle = "glass",
         serverSort = appearanceText("serverSort", "subscription"),
         favoritesFirst = appearanceFlag("favoritesFirst", true),

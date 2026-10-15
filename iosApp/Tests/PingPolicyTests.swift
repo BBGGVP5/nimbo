@@ -9,6 +9,7 @@ enum PingPolicyTests {
             do {
                 try policyTests()
                 try routingTests()
+                try AutoStickyConfigurationTests.run()
                 await networkTests()
                 await PingDiagnosticTests.run()
                 print("PASS: Swift ping policy, routing, HTTP/SOCKS/TLS, cancellation and attribution contracts")
@@ -220,7 +221,7 @@ enum PingPolicyTests {
             defaults.set(old, forKey: key)
             gate.finish(("a", 12))
             let stale = await task.value
-            precondition(stale == ["a": -1, "b": -1], "Settings changed away/back must reject in-flight success")
+            precondition(stale == nil, "Settings changed away/back must reject all obsolete completions")
         }
         let displayGate = NimboPingCompletion<(id: String, latency: Int)>()
         let displayService = NimboPingService(routeProbe: { _, _, _, _, _, _ in

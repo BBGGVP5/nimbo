@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "masterSize": 1024,
+  "opaque": true,
+  "maxRgbTint": 0,
+  "templateAlpha": true,
+  "icoSizes": [
+    16,
+    24,
+    32,
+    48,
+    64,
+    128,
+    256
+  ]
+}

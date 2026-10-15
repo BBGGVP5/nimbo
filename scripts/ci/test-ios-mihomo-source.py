@@ -91,7 +91,7 @@ class MergedMihomoSourceTests(unittest.TestCase):
                     'replace nimbo/mihomocore => ../../tools/native/mihomo-core',
                     'replace google.golang.org/protobuf => ../../tools/native/mihomo-core/.build/protobuf',
                     'github.com/amnezia-vpn/amneziawg-go/v3 v3.1.20260828',
-                    'github.com/xtls/xray-core v1.260327.1-0.20260930074004-b26a91de4f32']:
+                    'github.com/xtls/xray-core v1.260327.1-0.20261010092107-701af60772cd']:
             self.assertIn(pin, lock)
         adapter = (ROOT / 'iosApp/GoBridge/nimbo_mihomo.go').read_text()
         self.assertIn('return mihomocore.Invoke(input)', adapter)
