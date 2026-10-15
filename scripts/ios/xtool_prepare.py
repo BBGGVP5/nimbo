@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare an isolated, device-arm64 SwiftPM workspace for xtool 1.22.2.
+r"""Prepare an isolated, device-arm64 SwiftPM workspace for xtool 1.22.2.
 
 Requires Python 3.10+ and PyYAML (``python -m pip install PyYAML``). Example::
 
@@ -21,8 +21,9 @@ rewrites or raw .xcassets build rules are emitted. Compiled branding, ordinary
 resources, notices, and geo files use xtool's per-product root resources.
 
 xtool-prepare.json records target membership, required binary-version checks,
-and static-framework resource payloads that the parent packaging script must
-copy before final signing. In particular, xtool 1.22.2's generated wrapper
+and static-framework resource payloads. Those payloads are also declared as
+root resources of each dependent product, before xtool applies entitlements.
+In particular, xtool 1.22.2's generated wrapper
 executables share the package deployment version. Per-target compiler/linker
 flags and plists encode the intended versions, but the final Mach-O versions
 must be verified by the caller. This generator does not certify an installable
@@ -41,6 +42,7 @@ import re
 import shutil
 import struct
 import sys
+from xml.parsers.expat import ExpatError
 
 try:
     import yaml
@@ -119,7 +121,7 @@ def nonempty(path: Path) -> None:
 def read_plist(path: Path) -> dict:
     try:
         result = plistlib.loads(path.read_bytes())
-    except (OSError, ValueError, plistlib.InvalidFileException) as exc:
+    except (OSError, ValueError, plistlib.InvalidFileException, ExpatError) as exc:
         raise PreparationError(f"Invalid plist {path}: {exc}") from exc
     if not isinstance(result, dict):
         raise PreparationError(f"Expected a plist dictionary: {path}")
@@ -268,6 +270,28 @@ def document(ios: Path, spec: dict, settings: dict) -> dict:
     return substitute(merge(read_plist(path) if path.exists() else {}, spec.get("properties", {})), settings)
 
 
+def validate_resource_script(name: str, target: dict) -> None:
+    """Translate only the known geo-copy phase; never silently omit a hook."""
+    if target.get("preBuildScripts") or target.get("buildRules"):
+        raise PreparationError(f"Unsupported build hooks for {name}")
+    scripts = target.get("postBuildScripts", [])
+    if not scripts:
+        return
+    expected = {
+        "name": "Bundle Xray geo databases",
+        "script": ('set -euo pipefail\n'
+                   'RESOURCE_OUTPUT="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"\n'
+                   'mkdir -p "${RESOURCE_OUTPUT}"\n'
+                   'cp "${SRCROOT}/build/PacketTunnelResources/geoip.dat" "${RESOURCE_OUTPUT}/geoip.dat"\n'
+                   'cp "${SRCROOT}/build/PacketTunnelResources/geosite.dat" "${RESOURCE_OUTPUT}/geosite.dat"\n'),
+        "inputFiles": ["$(SRCROOT)/build/PacketTunnelResources/geoip.dat", "$(SRCROOT)/build/PacketTunnelResources/geosite.dat"],
+        "outputFiles": ["$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/geoip.dat",
+                        "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/geosite.dat"],
+    }
+    if name != "NimboPacketTunnel" or scripts != [expected]:
+        raise PreparationError(f"Unsupported post-build scripts for {name}; only the known geo-copy phase is translated")
+
+
 def selected_sources(ios: Path, specs: list) -> tuple[list[Path], list[Path], list[Path]]:
     swift, resources, catalogs = set(), set(), set()
 
@@ -335,8 +359,13 @@ def package_swift(targets: dict) -> str:
     for binary in BINARIES:
         lines.append(f'        .binaryTarget(name: "{binary}", path: "Dependencies/{binary}.xcframework"),')
     for name, target in targets.items():
-        compile_flags = ["-target", target["compile_triple"], "-strict-concurrency=minimal"]
-        link_flags = ["-target", target["compile_triple"], *target["other_ldflags"]]
+        # SwiftBuild otherwise replaces the target's driver -target with the
+        # package-wide deployment target. Forward to the frontend explicitly.
+        compile_flags = ["-Xfrontend", "-target", "-Xfrontend", target["compile_triple"],
+                         "-strict-concurrency=minimal"]
+        link_flags = ["-target", target["compile_triple"]]
+        for flag in target["other_ldflags"]:
+            link_flags.extend(["-Xlinker", flag])
         if name != "Nimbo":
             compile_flags.append("-application-extension")
             link_flags += ["-Xlinker", "-application_extension"]
@@ -393,6 +422,20 @@ def plan_workspace(repo: Path, dependencies: Path) -> Workspace:
     icons = [p for p in branding_files if p.name.startswith("AppIcon") and p.suffix == ".png"]
     if not icons or not partial.get("CFBundleIcons"):
         raise PreparationError("BrandingResources requires AppIcon*.png and CFBundleIcons in BrandingPartialInfo.plist")
+    def check_icon_references(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key == "CFBundleIconFiles":
+                    if not isinstance(child, list) or not child:
+                        raise PreparationError("CFBundleIconFiles must be a nonempty list")
+                    for reference in child:
+                        icon = relative_path(reference)
+                        stem = icon.stem if icon.suffix == ".png" else str(icon)
+                        if len(icon.parts) != 1 or not any(p.stem == stem or p.stem.startswith(stem + "@") or p.stem.startswith(stem + "~") for p in icons):
+                            raise PreparationError(f"Missing compiled icon referenced by BrandingPartialInfo.plist: {reference}")
+                else:
+                    check_icon_references(child)
+    check_icon_references(partial)
     for file in branding_files:
         nonempty(file)
         if file.name != "BrandingPartialInfo.plist" and (file.parent != branding or file.suffix not in {".car", ".png"}):
@@ -411,6 +454,7 @@ def plan_workspace(repo: Path, dependencies: Path) -> Workspace:
         expected_type = "application" if name == "Nimbo" else "app-extension"
         if target.get("type") != expected_type or target.get("platform") != "iOS":
             raise PreparationError(f"Unsupported target type/platform: {name}")
+        validate_resource_script(name, target)
         settings, minimum = target_settings(project, name, target)
         swift, resources, catalogs = selected_sources(ios, target["sources"])
         sources = [file.relative_to(ios).as_posix() for file in swift]
@@ -425,9 +469,6 @@ def plan_workspace(repo: Path, dependencies: Path) -> Workspace:
             destination = f"Resources/{name}/{resource.name}"
             workspace.copy(resource, destination)
             roots.append(destination)
-        basenames = [Path(path).name.casefold() for path in roots]
-        if len(basenames) != len(set(basenames)):
-            raise PreparationError(f"Colliding root resource names for {name}")
         info = document(ios, target["info"], settings)
         if name == "Nimbo":
             info = merge(info, substitute(partial, settings))
@@ -458,6 +499,11 @@ def plan_workspace(repo: Path, dependencies: Path) -> Workspace:
                 raise PreparationError(f"Unsupported target dependency: {dependency}")
         if name == "Nimbo" and set(embedded) != set(TARGETS[1:]):
             raise PreparationError("Nimbo must embed all three extensions")
+        roots.extend(payload["source"] for payload in binary_resources if payload["binary_target"] in binaries)
+        basenames = [Path(path).name.casefold() for path in roots]
+        reserved = {"info.plist", name.casefold(), "plugins", "frameworks", "_codesignature", "embedded.mobileprovision"}
+        if len(basenames) != len(set(basenames)) or reserved.intersection(basenames):
+            raise PreparationError(f"Colliding root resource names for {name}")
         ldflags = substitute(settings.get("OTHER_LDFLAGS", ""), settings).split()
         if set(ldflags) - {"-ObjC"}:
             raise PreparationError(f"Unsupported OTHER_LDFLAGS for {name}: {ldflags}")
@@ -485,13 +531,11 @@ def plan_workspace(repo: Path, dependencies: Path) -> Workspace:
                 "project_sha256": hashlib.sha256(project_file.read_bytes()).hexdigest(), "targets": targets,
                 "binary_resource_payloads": binary_resources,
                 "required_postpack_actions": [
-                    "Copy each binary_resource_payload to the root of every product that depends on its binary_target; fail on collisions.",
                     "Verify every final Mach-O minimum iOS version against targets[*].minimum_ios before signing/IPA packaging.",
                     "Verify Assets.car, icon plist entries, fonts, notices and tunnel geo files at product roots before final signing."],
                 "limitations": [
                     "Device arm64 only; per-target -target flags are not simulator-portable.",
                     "xtool 1.22.2 creates all wrapper executables at the package's app minimum; per-target compile/link flags require final Mach-O verification.",
-                    "Static framework resource payloads are not automatically promoted by xtool; the parent packaging script must copy them.",
                     "Exported actool output is required; its freshness against source .xcassets is not verified here."]}
     workspace.write("xtool-prepare.json", (json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"))
     return workspace

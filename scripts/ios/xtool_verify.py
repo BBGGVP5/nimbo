@@ -20,6 +20,7 @@ def macho(data: bytes) -> dict:
     if 32 + commands_size > len(data):
         raise ValueError("Truncated Mach-O load commands")
     platform = None
+    minimum = None
     entitlements = {}
     position = 32
     for _ in range(count):
@@ -27,7 +28,7 @@ def macho(data: bytes) -> dict:
         if size < 8 or position + size > 32 + commands_size:
             raise ValueError("Invalid Mach-O command size")
         if command == 0x32:
-            platform = struct.unpack_from("<I", data, position + 8)[0]
+            platform, minimum = struct.unpack_from("<II", data, position + 8)
         if command == 0x1D:
             offset, length = struct.unpack_from("<II", data, position + 8)
             signature = data[offset:offset + length]
@@ -46,10 +47,11 @@ def macho(data: bytes) -> dict:
         position += size
     if platform != 2:
         raise ValueError(f"Expected iOS device platform, got {platform}")
-    return {"architecture": "arm64", "platform": "iOS", "entitlements": entitlements}
+    return {"architecture": "arm64", "platform": "iOS", "entitlements": entitlements,
+            "minimumOS": f"{minimum >> 16}.{(minimum >> 8) & 255}.{minimum & 255}"}
 
 
-def verify(ipa: Path, dependencies: Path, version: str, build: str) -> dict:
+def verify(ipa: Path, dependencies: Path, version: str, build: str, source_commit: str | None = None) -> dict:
     bundles = {
         "Nimbo.app": ("com.nimbo.resignable", "APPL", "16.0"),
         "Nimbo.app/PlugIns/NimboPacketTunnel.appex": (
@@ -82,10 +84,14 @@ def verify(ipa: Path, dependencies: Path, version: str, build: str) -> dict:
                     raise ValueError(f"{bundle}: {key}: {info.get(key)!r} != {expected!r}")
             if "$(" in json.dumps(info):
                 raise ValueError(f"{bundle}: unresolved Xcode build setting")
+            if source_commit and info.get("NimboBuildRevision") != source_commit[:12]:
+                raise ValueError(f"{bundle}: source revision differs")
             executable = info["CFBundleExecutable"]
             if PurePosixPath(executable).name != executable:
                 raise ValueError("Invalid executable name")
             binary = macho(archive.read(prefix + executable))
+            if tuple(map(int, binary["minimumOS"].split("."))) != tuple(map(int, (minimum + ".0").split("."))):
+                raise ValueError(f"{bundle}: Mach-O minimum {binary['minimumOS']} differs from plist {minimum}")
             if bundle.endswith("Nimbo.app") or bundle.endswith("NimboPacketTunnel.appex"):
                 if "packet-tunnel-provider" not in binary["entitlements"].get(
                         "com.apple.developer.networking.networkextension", []):
@@ -112,6 +118,19 @@ def verify(ipa: Path, dependencies: Path, version: str, build: str) -> dict:
             raise ValueError("App display version differs")
         if not app_info.get("CFBundleIcons", {}).get("CFBundlePrimaryIcon"):
             raise ValueError("App icon metadata is missing")
+        icons = list((dependencies / "BrandingResources").glob("AppIcon*.png"))
+        if not icons:
+            raise ValueError("Export contains no app icon PNGs")
+        for icon in icons:
+            if archive.read("Payload/Nimbo.app/" + icon.name) != icon.read_bytes():
+                raise ValueError(f"App icon differs: {icon.name}")
+        fonts = ("golos_regular", "golos_medium", "golos_semibold", "golos_bold",
+                 "manrope_regular", "manrope_medium", "manrope_semibold", "manrope_bold", "manrope_extrabold")
+        for font in fonts:
+            candidates = ["Payload/Nimbo.app/" + prefix + font + ".ttf" for prefix in ("", "Fonts/")]
+            font_path = next((name for name in candidates if name in names), None)
+            if font_path is None or archive.read(font_path)[:4] not in (b"\x00\x01\x00\x00", b"OTTO"):
+                raise ValueError(f"Missing or invalid native font: {font}")
         for name in ("geoip.dat", "geosite.dat"):
             actual = archive.read("Payload/Nimbo.app/PlugIns/NimboPacketTunnel.appex/" + name)
             if not actual or actual != (dependencies / "PacketTunnelResources" / name).read_bytes():
@@ -123,6 +142,7 @@ def verify(ipa: Path, dependencies: Path, version: str, build: str) -> dict:
                 raise ValueError(f"Missing or altered native notice: {name}")
     return {"ipa": str(ipa.resolve()), "sha256": hashlib.sha256(ipa.read_bytes()).hexdigest(),
             "version": version, "build": build, "bundles": result,
+            "sourceCommit": source_commit,
             "deviceExecutionTested": False, "appleProvisioningTested": False}
 
 
@@ -132,9 +152,10 @@ def main() -> None:
     parser.add_argument("--dependencies-root", required=True, type=Path)
     parser.add_argument("--version", default="1.3.0-beta.2")
     parser.add_argument("--build", default="181")
+    parser.add_argument("--source-commit")
     parser.add_argument("--receipt", type=Path)
     args = parser.parse_args()
-    result = verify(args.ipa, args.dependencies_root, args.version, args.build)
+    result = verify(args.ipa, args.dependencies_root, args.version, args.build, args.source_commit)
     output = json.dumps(result, ensure_ascii=False, indent=2)
     if args.receipt:
         args.receipt.write_text(output + "\n", encoding="utf-8")
