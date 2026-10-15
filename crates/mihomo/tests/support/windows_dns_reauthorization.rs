@@ -35,6 +35,8 @@ impl PolicyChange {
         conditions[1].conditionValue.r#type = FWP_UINT16;
         conditions[1].conditionValue.Anonymous.uint16 = 53;
         let mut filter: FWPM_FILTER0 = unsafe { std::mem::zeroed() };
+        let mut name: Vec<u16> = "Nimbo synthetic DNS policy reauthorization\0".encode_utf16().collect();
+        filter.displayData.name = name.as_mut_ptr();
         filter.filterKey = GUID::from_u128(uuid::Uuid::new_v4().as_u128());
         filter.subLayerKey = GUID::from_u128(sublayer.as_u128());
         filter.layerKey = if family == 0 {
