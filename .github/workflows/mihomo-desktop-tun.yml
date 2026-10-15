@@ -12,6 +12,10 @@ on:
         description: Controlled DNS policy-change regression before the complete gate
         type: boolean
         default: false
+      windows_only:
+        description: Run only the Windows-specific regression (default keeps all platforms)
+        type: boolean
+        default: false
   push:
     branches: ['codex/ondemand-memory-20260930']
     paths:
@@ -37,16 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: ubuntu-22.04
-            target: linux/amd64
-            artifact: linux-x64
-          - runner: ubuntu-22.04-arm
-            target: linux/arm64
-            artifact: linux-arm64
-          - runner: windows-latest
-            target: windows/amd64
-            artifact: windows-x64
+        include: ${{ fromJSON(inputs.windows_only && '[{"runner":"windows-latest","target":"windows/amd64","artifact":"windows-x64"}]' || '[{"runner":"ubuntu-22.04","target":"linux/amd64","artifact":"linux-x64"},{"runner":"ubuntu-22.04-arm","target":"linux/arm64","artifact":"linux-arm64"},{"runner":"windows-latest","target":"windows/amd64","artifact":"windows-x64"}]') }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4

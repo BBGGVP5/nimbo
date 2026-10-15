@@ -53,6 +53,13 @@ def ps(code, timeout=10):
                                    text=True, encoding='utf-8-sig', timeout=timeout).strip()
 
 
+def assert_initial_adapter_absent():
+    # Hosted Windows CIM/module cold start exceeded 10s twice before any test
+    # session/network mutation. This is an infrastructure query, not a packet
+    # deadline; native DNS receives and physical denials remain at three seconds.
+    assert ps("@(Get-NetAdapter | Where-Object Name -eq 'nimbo-mh0').Count", timeout=45) == '0', 'never adopt an existing adapter'
+
+
 class FixtureTrace:
     """Bounded metadata only; no packet contents, config or arbitrary fields."""
     fields = frozenset(("peer", "command", "atyp", "target", "port", "txid", "qtype",
@@ -330,7 +337,7 @@ def main():
     binary = native / 'nimbo-mihomo.exe'
     assert hashlib.sha256(binary.read_bytes()).hexdigest() == manifest['sha256']
     assert manifest['windowsTunOwnership'] == 'exclusive-adapter-rollback-v1'
-    assert ps("@(Get-NetAdapter | Where-Object Name -eq 'nimbo-mh0').Count") == '0'
+    assert_initial_adapter_absent()
     assert ps("@(Get-Service NimboHelper -ErrorAction SilentlyContinue).Count") == '0', 'never replace an existing service'
     before = snapshot()
     # A remote TCP-only control proves actual physical bypass. No HTTP/token is

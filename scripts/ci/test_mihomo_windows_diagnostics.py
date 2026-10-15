@@ -257,5 +257,18 @@ class ReauthorizationBarrierTests(unittest.TestCase):
             with self.assertRaises(ValueError): barrier.before_reply('foreign')
 
 
+class InitialAdapterPreflightTests(unittest.TestCase):
+    def test_cold_cim_preflight_has_separate_bound_and_never_skips_assertion(self):
+        with patch.object(fixture, 'ps', return_value='0') as ps:
+            fixture.assert_initial_adapter_absent()
+        self.assertEqual(ps.call_args.kwargs, {'timeout':45})
+        with patch.object(fixture, 'ps', return_value='1'):
+            with self.assertRaises(AssertionError): fixture.assert_initial_adapter_absent()
+
+    def test_cim_failure_is_not_absence(self):
+        with patch.object(fixture, 'ps', side_effect=subprocess.TimeoutExpired('read only CIM',45)):
+            with self.assertRaises(subprocess.TimeoutExpired): fixture.assert_initial_adapter_absent()
+
+
 if __name__ == "__main__":
     unittest.main()
