@@ -35,6 +35,7 @@ jobs:
         run: python3 iosApp/Tests/test_auto_selection_contracts.py --swift
       - name: Execute startup cancellation, bounded validation and source admission
         run: |
+          python3 scripts/ios/test_startup_safety.py
           python3 scripts/ci/test-ios-reconnect.py
           python3 iosApp/Tests/test_profile_screen_contracts.py --swift
           python3 iosApp/Tests/test_design_audit_contracts.py --swift
@@ -107,14 +108,15 @@ jobs:
 
       - name: Verify reconnect startup and core admission policies
         run: |
+          python3 scripts/ios/test_startup_safety.py
           python3 scripts/ci/test-ios-reconnect.py
           python3 iosApp/Tests/test_mihomo_start_responsiveness.py
 
-      - name: Verify subscription worker and notification lifecycle wiring
+      - name: Verify all iOS source contracts including launch and notification lifecycle
         run: |
           python3 -m venv "$RUNNER_TEMP/nimbo-source-contracts"
           "$RUNNER_TEMP/nimbo-source-contracts/bin/python" -m pip install -r iosApp/Tests/requirements-source-contracts.txt
-          "$RUNNER_TEMP/nimbo-source-contracts/bin/python" -m unittest discover -s iosApp/Tests -p test_subscription_refresh_contracts.py
+          "$RUNNER_TEMP/nimbo-source-contracts/bin/python" -m unittest discover -s iosApp/Tests -p 'test_*.py'
 
       - name: Install build tools
         run: brew install xcodegen ldid-procursus

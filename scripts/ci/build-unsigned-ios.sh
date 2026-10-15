@@ -353,6 +353,16 @@ ditto "${APP_PATH}" "${PACKAGE_DIR}/Payload/Nimbo.app"
 )
 mv -f "${PACKAGE_DIR}/${OUTPUT_NAME}" "${OUTPUT_PATH}"
 
+python3 - "${ROOT_DIR}/scripts/ios" "${OUTPUT_PATH}" "${NIMBO_WITH_CONTROL_WIDGET:-0}" <<'PY'
+import sys
+import zipfile
+sys.path.insert(0, sys.argv[1])
+from xtool_verify import app_intents
+with zipfile.ZipFile(sys.argv[2]) as archive:
+    app_intents(archive, include_control=sys.argv[3] == '1')
+print('Verified compiled App Intents actions and shortcut registration metadata')
+PY
+
 if [[ -n "${WIDGET_EXECUTABLE}" ]]; then
   # Source-only SVG checks cannot catch a catalog omitted by XcodeGen.
   python3 "${ROOT_DIR}/iosApp/Tests/test_branding_contracts.py" --ipa "${OUTPUT_PATH}"

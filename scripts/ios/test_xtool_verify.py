@@ -35,6 +35,27 @@ class ExecutableContracts(unittest.TestCase):
 
 
 class ArchiveContracts(unittest.TestCase):
+    def test_app_intents_index_is_required_for_app_and_control(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for missing in (None, 'Nimbo.app', 'Nimbo.app/PlugIns/NimboControlWidget.appex'):
+                ipa = Path(directory) / ('metadata-' + str(missing is None) + '.ipa')
+                with zipfile.ZipFile(ipa, 'w') as archive:
+                    for bundle, actions in (
+                        ('Nimbo.app', ['NimboConnectIntent', 'NimboDisconnectIntent', 'NimboStatusIntent']),
+                        ('Nimbo.app/PlugIns/NimboControlWidget.appex', ['NimboToggleTunnelIntent']),
+                    ):
+                        if bundle != missing:
+                            archive.writestr('Payload/' + bundle + '/Metadata.appintents/extract.actionsdata',
+                                             __import__('json').dumps({'actions': dict.fromkeys(actions, {}),
+                                                 'autoShortcuts': [{'actionIdentifier': action} for action in actions]
+                                                 if bundle == 'Nimbo.app' else []}))
+                with zipfile.ZipFile(ipa) as archive:
+                    if missing is None:
+                        MODULE.app_intents(archive)
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'App Intents metadata'):
+                            MODULE.app_intents(archive)
+
     def test_complete_package_and_missing_vpn_entitlement(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -78,6 +99,13 @@ class ArchiveContracts(unittest.TestCase):
                         archive.writestr(prefix + "Info.plist", plistlib.dumps(info))
                         archive.writestr(prefix + name, executable(entitlements, minimum=minimum))
                         archive.writestr(prefix + "Assets.car", b"fixture branding")
+                        if suffix in ('', '.ControlWidget'):
+                            actions = ['NimboToggleTunnelIntent'] if suffix else [
+                                'NimboConnectIntent', 'NimboDisconnectIntent', 'NimboStatusIntent']
+                            archive.writestr(prefix + 'Metadata.appintents/extract.actionsdata',
+                                             __import__('json').dumps({'actions': dict.fromkeys(actions, {}),
+                                                 'autoShortcuts': [{'actionIdentifier': action} for action in actions]
+                                                 if not suffix else []}))
                         if suffix == ".PacketTunnel":
                             for resource in ("geoip.dat", "geosite.dat"):
                                 archive.writestr(prefix + resource, resource.encode())

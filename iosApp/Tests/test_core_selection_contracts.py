@@ -122,11 +122,13 @@ class CoreSelectionContracts(unittest.TestCase):
     def test_shared_connection_row_only_exists_on_settings_index(self):
         settings = (COMMON_UI / 'NimboSettingsScreen.kt').read_text(encoding='utf-8-sig')
         index = settings.split('if (selected == null) {', 1)[1].split('} else {', 1)[0]
-        connection = index.split('SettingsSection("Подключение") {', 1)[1].split('SettingsSection("Приложение")', 1)[0]
-        self.assertIn('actions.onOpenCoreSettings?.let { openCoreSettings ->', connection)
-        self.assertIn('SettingsRow(NimboIconName.CONNECTION, "Ядро VPN",', connection)
-        self.assertIn('"Выбор для следующего подключения", showDivider = true', connection)
-        self.assertIn('onClick = openCoreSettings', connection)
+        # Settings discovery projects searchable destinations instead of the
+        # old hard-coded SettingsSection/SettingsRow index. Keep the optional
+        # native capability and its exact action in that index, once only.
+        connection = index.split('actions.onOpenCoreSettings?.let { open ->', 1)[1].split('actions.onOpenOnDemandSettings', 1)[0]
+        self.assertIn('SettingsDestination("Подключение", "Ядро VPN", NimboIconName.CONNECTION,', connection)
+        self.assertIn('"Выбор для следующего подключения", "Xray Mihomo AWG Naive", true, open)', connection)
+        self.assertIn('destinations.groupBy { it.group }', index)
         self.assertEqual(settings.count('"Ядро VPN"'), 1)
 
     def test_core_sheet_notification_bridge_and_optional_callback_match(self):

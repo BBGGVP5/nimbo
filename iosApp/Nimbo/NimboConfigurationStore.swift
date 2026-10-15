@@ -28,6 +28,10 @@ final class NimboConfigurationStore {
     private let profileAccount = "normalized-profile-v2"
     private let selectedServerAccount = "selected-server-id-v1"
     private let fullConfigurationAccount = "full-configuration-v1"
+    private let descriptionAccount = "active-description-v1"
+    // Read-only migration hints from old versions. New writes stay in Keychain:
+    // UserDefaults posts synchronous SwiftUI notifications and must never be
+    // mutated while a record lock is held (UI/store lock-order inversion).
     private let descriptionKey = "nimbo.active.configuration.description"
     private let activeServerIDKey = "nimbo.active.server.id"
 
@@ -76,7 +80,7 @@ final class NimboConfigurationStore {
         } else {
             try? delete(account: sourceAccount)
         }
-        UserDefaults.standard.set(description, forKey: descriptionKey)
+        try write(Data(description.utf8), account: descriptionAccount)
     }
 
     func save(
@@ -92,7 +96,6 @@ final class NimboConfigurationStore {
         try write(profile, account: profileAccount)
         try saveLegacyConfiguration(selectedServer, source: source, description: description)
         try write(Data(selectedServerID.utf8), account: selectedServerAccount)
-        UserDefaults.standard.set(selectedServerID, forKey: activeServerIDKey)
         // Commit active-engine replacement only after all legacy writes succeed.
         try delete(account: fullConfigurationAccount)
     }
@@ -106,7 +109,6 @@ final class NimboConfigurationStore {
         guard !configuration.isEmpty, !serverID.isEmpty else { throw NimboConfigurationStoreError.empty }
         try write(configuration, account: configurationAccount)
         try write(Data(serverID.utf8), account: selectedServerAccount)
-        UserDefaults.standard.set(serverID, forKey: activeServerIDKey)
     }
 
     func loadConfiguration() throws -> Data? {
@@ -125,16 +127,31 @@ final class NimboConfigurationStore {
     }
 
     var displayDescription: String? {
-        if let full = try? loadFullConfiguration() { return full.title }
-        return UserDefaults.standard.string(forKey: descriptionKey)
+        do {
+            if let full = try loadFullConfiguration() { return full.title }
+            if let data = try read(account: descriptionAccount) {
+                return String(data: data, encoding: .utf8)
+            }
+            guard try read(account: configurationAccount) != nil else { return nil }
+            return UserDefaults.standard.string(forKey: descriptionKey)
+        } catch {
+            // A locked/corrupt Keychain record is not a missing legacy record.
+            return nil
+        }
     }
 
     var activeServerID: String? {
         // Presence, not successful decoding, prevents falling back to an old node.
-        if (try? read(account: fullConfigurationAccount)) != nil { return nil }
-        if let id = UserDefaults.standard.string(forKey: activeServerIDKey) { return id }
-        guard let data = try? read(account: selectedServerAccount) else { return nil }
-        return String(data: data, encoding: .utf8)
+        do {
+            guard try read(account: fullConfigurationAccount) == nil else { return nil }
+            if let data = try read(account: selectedServerAccount) {
+                return String(data: data, encoding: .utf8)
+            }
+            guard try read(account: profileAccount) != nil else { return nil }
+            return UserDefaults.standard.string(forKey: activeServerIDKey)
+        } catch {
+            return nil
+        }
     }
 
     func retainSelectedServerID(_ id: String) throws {
@@ -142,17 +159,22 @@ final class NimboConfigurationStore {
         defer { fullRecordLock.unlock() }
         guard !id.isEmpty, try loadFullConfiguration() == nil else { return }
         try write(Data(id.utf8), account: selectedServerAccount)
-        UserDefaults.standard.set(id, forKey: activeServerIDKey)
     }
 
     func removeAll() throws {
-        fullRecordLock.lock()
-        defer { fullRecordLock.unlock() }
-        try delete(account: configurationAccount)
-        try delete(account: sourceAccount)
-        try delete(account: profileAccount)
-        try delete(account: selectedServerAccount)
-        try delete(account: fullConfigurationAccount)
+        // Finish the Keychain transaction before notifying defaults observers.
+        // The old cached keys are no longer a write target, so a concurrent new
+        // save cannot be overwritten by this migration-hint cleanup.
+        do {
+            fullRecordLock.lock()
+            defer { fullRecordLock.unlock() }
+            try delete(account: configurationAccount)
+            try delete(account: sourceAccount)
+            try delete(account: profileAccount)
+            try delete(account: selectedServerAccount)
+            try delete(account: descriptionAccount)
+            try delete(account: fullConfigurationAccount)
+        }
         UserDefaults.standard.removeObject(forKey: descriptionKey)
         UserDefaults.standard.removeObject(forKey: activeServerIDKey)
     }

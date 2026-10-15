@@ -36,3 +36,11 @@
 - [ ] Reconfirm the existing iOS Beta 2 IPA provenance; if runtime source changes are required, rebuild it rather than claiming the old IPA contains the fix.
 - [ ] Inspect scoped diffs, mirror only reviewed owned files after before-hash checks, and verify the real Git index/current branch stayed unchanged.
 - [ ] Write a final platform matrix distinguishing source tests, package builds, installed-device/runtime acceptance and publication. iPhone signing/reconnect/Control Center/Dynamic Island and Android mobile-network acceptance require real device evidence; no synthetic pass.
+
+## 5. Blocking iOS launch report received during execution
+
+- [x] Compare the delivered xtool IPA with the previous Xcode IPA: ordinary resources match by membership; App Intents metadata is absent from the xtool package. The executable entry resolves to NimboApp. This packaging difference is not proof of the black-screen cause.
+- [x] Start a conventional Xcode Beta 2 comparison build from the same runtime source; retain the experimental xtool artifact, but do not present it as device-validated.
+- [ ] Move optional shortcut-index refresh out of synchronous App initialization into a once-only background actor after the root task begins. Skip refresh with an explicit diagnostic if compiled App Intents metadata is missing; do not invent metadata or disable VPN validation.
+- [ ] Add a regression requiring App Intents metadata in distributable IPA verification, and make the existing xtool IPA fail that new completeness check. Preserve the historical build receipt rather than rewriting it as a new pass.
+- [ ] Rebuild the updated application with standard Xcode, verify the delivered metadata/versions/entitlements, and keep physical-device launch confirmation outstanding until actually observed.

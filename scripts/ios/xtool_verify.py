@@ -51,6 +51,35 @@ def macho(data: bytes) -> dict:
             "minimumOS": f"{minimum >> 16}.{(minimum >> 8) & 255}.{minimum & 255}"}
 
 
+def app_intents(archive: zipfile.ZipFile, include_control: bool = True) -> None:
+    """Compiled Swift alone does not create the system's intent registration."""
+    required = {
+        'Nimbo.app': {'NimboConnectIntent', 'NimboDisconnectIntent', 'NimboStatusIntent'},
+        'Nimbo.app/PlugIns/NimboControlWidget.appex': {'NimboToggleTunnelIntent'},
+    }
+    if not include_control:
+        required.pop('Nimbo.app/PlugIns/NimboControlWidget.appex')
+    for bundle, expected in required.items():
+        name = 'Payload/' + bundle + '/Metadata.appintents/extract.actionsdata'
+        try:
+            entry = archive.getinfo(name)
+            if not 0 < entry.file_size <= 2 * 1024 * 1024:
+                raise ValueError('invalid metadata size')
+            metadata = json.loads(archive.read(name))
+            actions = metadata.get('actions') if isinstance(metadata, dict) else None
+            if not isinstance(actions, dict) or not expected.issubset(actions):
+                raise ValueError('required actions are absent')
+            if bundle == 'Nimbo.app':
+                shortcuts = metadata.get('autoShortcuts', [])
+                if not isinstance(shortcuts, list) or not expected.issubset({
+                    item.get('actionIdentifier') for item in shortcuts if isinstance(item, dict)
+                    and isinstance(item.get('actionIdentifier'), str)
+                }):
+                    raise ValueError('required app shortcuts are absent')
+        except (KeyError, ValueError, TypeError) as error:
+            raise ValueError(f'{bundle}: missing or invalid App Intents metadata ({error})') from error
+
+
 def verify(ipa: Path, dependencies: Path, version: str, build: str, source_commit: str | None = None) -> dict:
     bundles = {
         "Nimbo.app": ("com.nimbo.resignable", "APPL", "16.0"),
@@ -140,6 +169,7 @@ def verify(ipa: Path, dependencies: Path, version: str, build: str, source_commi
             actual = archive.read("Payload/Nimbo.app/NativeNotices/" + name)
             if actual != (dependencies / "NativeNotices" / name).read_bytes():
                 raise ValueError(f"Missing or altered native notice: {name}")
+        app_intents(archive)
     return {"ipa": str(ipa.resolve()), "sha256": hashlib.sha256(ipa.read_bytes()).hexdigest(),
             "version": version, "build": build, "bundles": result,
             "sourceCommit": source_commit,

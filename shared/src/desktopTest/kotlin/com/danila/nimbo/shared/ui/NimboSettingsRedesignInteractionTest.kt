@@ -654,6 +654,7 @@ class NimboSettingsRedesignInteractionTest {
                 for (kind in NimboNotificationKind.entries) {
                     scene.clickText("Показать"); scene.clickText("${kind.title} · 1", Role.RadioButton)
                     assertTrue(scene.texts().contains(messages.single { it.kind == kind }.message))
+                    assertTrue(messages.filter { it.kind != kind }.none { it.message in scene.texts() })
                     assertEquals(emptyList(), calls)
                 }
                 scene.clickText("Очистить всё")
@@ -668,9 +669,12 @@ class NimboSettingsRedesignInteractionTest {
                 expected += call("onClearNotifications"); assertEquals(expected, calls)
                 state.value = state.value.copy(notifications = emptyList(), toast = messages[1])
                 scene.settle(); scene.snapshot("advanced-$theme-toast-long-error")
-                val close = scene.nodes().single { "Закрыть" in it.texts() && it.config.getOrNull(SemanticsActions.OnClick) != null }
+                // The banner exposes its icon action through contentDescription, not visible text.
+                val close = scene.nodes().single { it.hasLabel("Закрыть уведомление") && it.config.getOrNull(SemanticsActions.OnClick) != null }
                 assertTrue(close.boundsInRoot.height >= 44f && close.boundsInRoot.bottom <= 480f)
-                scene.clickText("Закрыть"); expected += call("onDismissToast")
+                assertTrue(close.boundsInRoot.width >= 44f)
+                assertEquals(Role.Button, close.config.getOrNull(SemanticsProperties.Role))
+                scene.clickLabel("Закрыть уведомление"); expected += call("onDismissToast")
                 assertEquals(expected, calls)
             }
         }

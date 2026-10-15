@@ -10,7 +10,6 @@ struct NimboApp: App {
                     "backgroundMotion", "statusParticles", "brightness", "transparency", "corners", "refraction"] {
             UserDefaults.standard.removeObject(forKey: "com.nimbo.appearance." + key)
         }
-        NimboShortcuts.updateAppShortcutParameters()
     }
     @StateObject private var vpnController = VpnController()
 
@@ -19,6 +18,20 @@ struct NimboApp: App {
             RootView()
                 .environmentObject(vpnController)
                 .task {
+                    // System indexing is optional and can involve IPC. Never
+                    // perform it synchronously before SwiftUI creates the UI.
+                    Task(priority: .utility) {
+                        let hasMetadata = Bundle.main.url(forResource: "extract", withExtension: "actionsdata",
+                                                          subdirectory: "Metadata.appintents") != nil
+                        _ = await NimboShortcutRegistration.shared.refreshIfAvailable(hasMetadata: hasMetadata) {
+                            NimboShortcuts.updateAppShortcutParameters()
+                        }
+                        if !hasMetadata {
+                            await NimboDiagnostics.shared.record(.warning, stage: .app,
+                                code: "IOS_APPINTENTS_METADATA_MISSING",
+                                message: "В сборке отсутствует системный индекс быстрых команд")
+                        }
+                    }
                     await NimboDiagnostics.shared.record(
                         .info,
                         stage: .app,

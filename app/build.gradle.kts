@@ -99,6 +99,9 @@ android {
     // в t("ru","en"), а не в values-*.
     androidResources {
         localeFilters += listOf("ru", "en")
+        // Native notice inventories require licenses under .github directories.
+        // Retain those while preserving the other default VCS/editor exclusions.
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"
     }
 
     // Блок информации о зависимостях добавляется в APK для Play Store-аналитики.
