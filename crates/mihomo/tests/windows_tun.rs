@@ -6,10 +6,47 @@ use nimbo_mihomo::{
     FullProfile, ProfileKind,
 };
 use std::{
+    cell::Cell,
     io::{Read, Write},
     net::{TcpStream, UdpSocket},
     time::Duration,
 };
+#[path = "support/windows_proxy_guard.rs"]
+mod fixture_guard;
+
+fn stage(case: u8, current: &Cell<&'static str>, name: &'static str) {
+    current.set(name);
+    eprintln!(
+        "WINDOWS_FIXTURE {}",
+        serde_json::json!({
+            "case":case,"stage":name,
+            "unix_ms":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()
+        })
+    );
+}
+
+fn probe_step<T>(
+    case: u8,
+    current: &Cell<&'static str>,
+    name: &'static str,
+    target: &str,
+    local: Option<std::net::SocketAddr>,
+    action: impl FnOnce() -> std::io::Result<T>,
+) -> T {
+    stage(case, current, name);
+    let start = std::time::Instant::now();
+    action().unwrap_or_else(|error| {
+        eprintln!(
+            "WINDOWS_FIXTURE {}",
+            serde_json::json!({
+                "case":case,"stage":name,"target":target,"local":local.map(|a|a.to_string()),
+                "elapsed_ms":start.elapsed().as_millis(),"os_error":error.raw_os_error(),
+                "kind":format!("{:?}",error.kind()),"dns_txid":0x1234
+            })
+        );
+        panic!("Both/WFP case {case}: {name} target={target} failed: {error}");
+    })
+}
 fn tcp(address: &str) -> Vec<u8> {
     let mut stream = TcpStream::connect_timeout(&address.parse().unwrap(), Duration::from_secs(3))
         .unwrap_or_else(|error| {
@@ -122,6 +159,19 @@ mod state {
         pub proxy_override: Option<String>,
     }
 }
+struct RealProxy;
+impl fixture_guard::ProxyBackend for RealProxy {
+    type Snapshot = state::SystemProxySnapshot;
+    fn snapshot(&self) -> Result<Self::Snapshot, String> {
+        owned_proxy::snapshot()
+    }
+    fn owns(&self, port: u16) -> Result<bool, String> {
+        owned_proxy::owns(port)
+    }
+    fn restore(&self, saved: Self::Snapshot) -> Result<(), String> {
+        owned_proxy::restore(Some(saved))
+    }
+}
 
 fn physical_probe() -> std::io::Result<()> {
     use socket2::{Domain, Protocol, Socket, Type};
@@ -199,17 +249,380 @@ fn physical_dns(socket: &socket2::Socket) -> std::io::Result<()> {
     }
     Ok(())
 }
-fn native_udp_dns() {
-    let udp = UdpSocket::bind("0.0.0.0:0").unwrap();
+fn native_udp_dns(case: u8, current: &Cell<&'static str>) {
+    let udp = probe_step(case, current, "UDP bind", "0.0.0.0:0", None, || {
+        UdpSocket::bind("0.0.0.0:0")
+    });
     udp.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
-    udp.send_to(b"ks-native-udp", "198.18.0.10:18081").unwrap();
+    let local = udp.local_addr().ok();
+    probe_step(
+        case,
+        current,
+        "UDP echo send",
+        "198.18.0.10:18081",
+        local,
+        || udp.send_to(b"ks-native-udp", "198.18.0.10:18081"),
+    );
     let mut b = [0u8; 2048];
-    let (n, _) = udp.recv_from(&mut b).unwrap();
+    let (n, _) = probe_step(
+        case,
+        current,
+        "UDP echo receive",
+        "198.18.0.10:18081",
+        local,
+        || udp.recv_from(&mut b),
+    );
     assert_eq!(&b[..n], b"ks-native-udp");
     let query=b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07fixture\x07invalid\x00\x00\x01\x00\x01";
-    udp.send_to(query, "198.18.0.10:53").unwrap();
-    let (n, _) = udp.recv_from(&mut b).unwrap();
+    probe_step(case, current, "DNS send", "198.18.0.10:53", local, || {
+        udp.send_to(query, "198.18.0.10:53")
+    });
+    let (n, _) = probe_step(
+        case,
+        current,
+        "DNS receive",
+        "198.18.0.10:53",
+        local,
+        || udp.recv_from(&mut b),
+    );
     assert_eq!(&b[n - 4..n], &[192, 0, 2, 123]);
+}
+
+fn disposable_fixture() -> bool {
+    std::env::var("NIMBO_DISPOSABLE_WINDOWS").as_deref() == Ok("1")
+        && std::env::var("GITHUB_ACTIONS").as_deref() == Ok("true")
+}
+
+fn fixture_journal() -> serde_json::Value {
+    use serde_json::json;
+    let read = || -> Option<serde_json::Value> {
+        let file = std::fs::File::open(
+            nimbo_ipc::windows::root()
+                .ok()?
+                .join("kill-switch/owner.json"),
+        )
+        .ok()?;
+        let mut bytes = Vec::new();
+        file.take(8193).read_to_end(&mut bytes).ok()?;
+        if bytes.len() > 8192 {
+            return None;
+        }
+        let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        let uuid = |value: &serde_json::Value| {
+            value
+                .as_str()
+                .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                .map(|id| id.to_string())
+        };
+        // Never dump the whole journal/config, SID, source YAML or bearer secret.
+        Some(json!({
+            "version":value["version"].as_u64(),"sublayer":uuid(&value["sublayer"]),
+            "native":{"pid":value["native"]["pid"].as_u64(),"created":value["native"]["created"].as_u64()},
+            "device":{"interface":uuid(&value["device"]["interface"]),"luid":value["device"]["luid"].as_u64(),
+                      "instance":value["device"]["instance"].as_str().map(|s|s.chars().take(256).collect::<String>())}
+        }))
+    };
+    read().unwrap_or_else(|| json!({"error":"journal unreadable, invalid or over 8192 bytes"}))
+}
+
+fn bounded_diagnostic(command: &mut std::process::Command, label: &str, seconds: u64, cap: u64) {
+    use std::{os::windows::process::CommandExt, process::Stdio};
+    let result = (|| -> std::io::Result<()> {
+        let mut child = command
+            .creation_flags(0x08000000)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let stdout = child.stdout.take().expect("piped diagnostic stdout");
+        let (sender, output) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = stdout.take(cap + 1).read_to_end(&mut bytes);
+            let _ = sender.send(bytes);
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(seconds);
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Some(status),
+                Ok(None) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(25))
+                }
+                other => {
+                    // Kill/reap only this diagnostic process, never helper/native.
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    eprintln!("{label}: diagnostic timeout/wait error: {other:?}");
+                    break None;
+                }
+            }
+        };
+        // An inherited stdout handle must not make diagnostics wait indefinitely.
+        let bytes = output
+            .recv_timeout(Duration::from_millis(250))
+            .unwrap_or_else(|_| {
+                eprintln!("{label}: diagnostic output did not close within the capture bound");
+                Vec::new()
+            });
+        let count = bytes.len().min(cap as usize);
+        eprintln!(
+            "{label}: status={status:?} truncated={}\n{}",
+            bytes.len() > count,
+            String::from_utf8_lossy(&bytes[..count])
+        );
+        Ok(())
+    })();
+    if let Err(error) = result {
+        eprintln!("{label}: diagnostic unavailable: {error}");
+    }
+}
+
+async fn capture_fixture_failure(session: &mut Session, case: u8, failed_stage: &str) {
+    if !disposable_fixture() {
+        eprintln!("REFUSED: native diagnostics require disposable GitHub Windows VM");
+        return;
+    }
+    eprintln!(
+        "WINDOWS_FIXTURE_FAILURE {}",
+        serde_json::json!({
+            "case":case,"stage":failed_stage,"lease_running":session.is_running(),
+            "generation":session.controller().generation(),"tun_ready":session.info.tun_ready,
+            "journal":fixture_journal()
+        })
+    );
+    match tokio::time::timeout(Duration::from_secs(1), session.controller().status()).await {
+        Ok(Ok(value)) => eprintln!(
+            "NATIVE_STATUS {}",
+            serde_json::json!({
+                "state":value["state"],"tunReady":value["tunReady"],"networkOwner":value["networkOwner"]
+            })
+        ),
+        _ => eprintln!("NATIVE_STATUS unavailable within 1s"),
+    }
+    // The only child test invoked here reads WFP objects; it cannot reset them.
+    if let Ok(executable) = std::env::current_exe() {
+        bounded_diagnostic(
+            std::process::Command::new(executable).args([
+                "--ignored",
+                "--exact",
+                "windows_fixture_readonly_diagnostics",
+                "--nocapture",
+                "--test-threads=1",
+            ]),
+            "OWNED_WFP",
+            4,
+            65536,
+        );
+    }
+    let journal = fixture_journal();
+    let native_pid = journal["native"]["pid"]
+        .as_u64()
+        .filter(|id| *id <= u32::MAX as u64)
+        .unwrap_or(0);
+    let interface = journal["device"]["interface"].as_str().unwrap_or("");
+    // Read-only public fixture metadata. GUID/PID interpolation is type-checked.
+    let script = format!(
+        r#"
+$ErrorActionPreference='Stop'
+$a=@(Get-NetAdapter -IncludeHidden | Select-Object -First 16 Name,ifIndex,InterfaceGuid,NetLuid,Status)
+$indices=@($a | Where-Object {{$_.Name -eq 'nimbo-mh0' -or $_.InterfaceGuid -eq '{interface}'}} | Select-Object -ExpandProperty ifIndex)
+[ordered]@{{
+ service=@(Get-CimInstance Win32_Service -Filter "Name='NimboHelper'" | Select-Object Name,State,ProcessId)
+ native=@(Get-Process -Id {native_pid} -ErrorAction SilentlyContinue | Select-Object Id,StartTime,Responding)
+ adapters=$a
+ addresses=@(Get-NetIPAddress | Select-Object -First 32 InterfaceIndex,InterfaceAlias,IPAddress,AddressState)
+ routes=@(Get-NetRoute | Where-Object {{$_.InterfaceIndex -in $indices -or $_.DestinationPrefix -in @('0.0.0.0/0','::/0')}} | Select-Object -First 32 DestinationPrefix,InterfaceIndex,NextHop,RouteMetric)
+ udp=@(Get-NetUDPEndpoint -OwningProcess {parent} -ErrorAction SilentlyContinue | Select-Object -First 16 LocalAddress,LocalPort,OwningProcess)
+}} | ConvertTo-Json -Compress -Depth 5
+"#,
+        parent = std::process::id()
+    );
+    bounded_diagnostic(
+        std::process::Command::new("powershell").args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &script,
+        ]),
+        "ADAPTER_IDENTITIES",
+        3,
+        16384,
+    );
+}
+
+/// Read-only APIs only. Executed as a bounded child while parent retains Session.
+#[test]
+#[ignore = "read-only WFP diagnostics: explicitly disposable GitHub VM only"]
+fn windows_fixture_readonly_diagnostics() {
+    assert!(disposable_fixture());
+    use serde_json::{json, Value};
+    use std::ptr;
+    use windows_sys::{core::GUID, Win32::NetworkManagement::WindowsFilteringPlatform::*};
+    fn id(g: GUID) -> String {
+        uuid::Uuid::from_fields(g.data1, g.data2, g.data3, &g.data4).to_string()
+    }
+    unsafe fn text(pointer: *const u16) -> String {
+        if pointer.is_null() {
+            return String::new();
+        }
+        let mut units = Vec::new();
+        for i in 0..160 {
+            let unit = *pointer.add(i);
+            if unit == 0 {
+                break;
+            }
+            units.push(unit);
+        }
+        String::from_utf16_lossy(&units)
+    }
+    unsafe fn filter(value: &FWPM_FILTER0) -> Value {
+        let mut conditions = Vec::new();
+        if !value.filterCondition.is_null() {
+            for condition in std::slice::from_raw_parts(
+                value.filterCondition,
+                value.numFilterConditions.min(8) as usize,
+            ) {
+                let v = &condition.conditionValue;
+                let data = match v.r#type {
+                    FWP_UINT8 => json!(v.Anonymous.uint8),
+                    FWP_UINT16 => json!(v.Anonymous.uint16),
+                    FWP_UINT32 => json!(v.Anonymous.uint32),
+                    FWP_UINT64 if !v.Anonymous.uint64.is_null() => json!(*v.Anonymous.uint64),
+                    _ => Value::Null, // No application blobs, tokens or arbitrary strings.
+                };
+                conditions.push(
+                    json!({"field":id(condition.fieldKey),"match":condition.matchType,
+                                       "type":v.r#type,"value":data}),
+                );
+            }
+        }
+        json!({"id":value.filterId,"key":id(value.filterKey),"sublayer":id(value.subLayerKey),
+               "layer":id(value.layerKey),"action":value.action.r#type,"flags":value.flags,
+               "name":text(value.displayData.name),"description":text(value.displayData.description),
+               "conditions":conditions,"condition_count":value.numFilterConditions})
+    }
+    unsafe {
+        let mut engine = ptr::null_mut();
+        let code = FwpmEngineOpen0(ptr::null(), 10, ptr::null(), ptr::null(), &mut engine);
+        if code != 0 {
+            println!("WFP_OPEN error={code}");
+            return;
+        }
+        let journal = fixture_journal();
+        if let Some(owner) = journal["sublayer"]
+            .as_str()
+            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        {
+            for family in 0..2u8 {
+                for role in 0..7u8 {
+                    let mut bytes = *owner.as_bytes();
+                    bytes[0] ^= 0x80;
+                    bytes[14] ^= family;
+                    bytes[15] ^= role;
+                    let key = GUID::from_u128(u128::from_be_bytes(bytes));
+                    let mut found = ptr::null_mut();
+                    let code = FwpmFilterGetByKey0(engine, &key, &mut found);
+                    if code == 0 && !found.is_null() {
+                        println!("NIMBO_WFP family={family} role={role} {}", filter(&*found));
+                        FwpmFreeMemory0((&mut found as *mut *mut FWPM_FILTER0).cast());
+                    } else {
+                        println!("NIMBO_WFP family={family} role={role} error={code}");
+                    }
+                }
+            }
+        }
+        let mut native_layers = Vec::new();
+        let mut enumeration = ptr::null_mut();
+        let code = FwpmSubLayerCreateEnumHandle0(engine, ptr::null(), &mut enumeration);
+        if code == 0 {
+            let mut complete = false;
+            for _ in 0..4 {
+                let mut entries = ptr::null_mut();
+                let mut count = 0;
+                let code = FwpmSubLayerEnum0(engine, enumeration, 64, &mut entries, &mut count);
+                if code != 0 {
+                    println!("NATIVE_SUBLAYERS error={code}");
+                    break;
+                }
+                if !entries.is_null() {
+                    for entry in std::slice::from_raw_parts(entries, count as usize) {
+                        if entry.is_null() {
+                            continue;
+                        }
+                        let layer = &**entry;
+                        if text(layer.displayData.description) == "auto-route rules" {
+                            if native_layers.len() < 8 {
+                                native_layers.push(id(layer.subLayerKey));
+                            }
+                            println!(
+                                "NATIVE_SUBLAYER {}",
+                                json!({"key":id(layer.subLayerKey),
+                                "weight":layer.weight,"flags":layer.flags,"name":text(layer.displayData.name)})
+                            );
+                        }
+                    }
+                    FwpmFreeMemory0((&mut entries as *mut *mut *mut FWPM_SUBLAYER0).cast());
+                }
+                if count < 64 {
+                    complete = true;
+                    break;
+                }
+            }
+            println!(
+                "NATIVE_SUBLAYERS complete={complete} selected={}",
+                native_layers.len()
+            );
+            FwpmSubLayerDestroyEnumHandle0(engine, enumeration);
+        } else {
+            println!("NATIVE_SUBLAYERS error={code}");
+        }
+        for layer in [
+            FWPM_LAYER_ALE_AUTH_CONNECT_V4,
+            FWPM_LAYER_ALE_AUTH_CONNECT_V6,
+        ] {
+            let mut template: FWPM_FILTER_ENUM_TEMPLATE0 = std::mem::zeroed();
+            template.layerKey = layer;
+            template.actionMask = u32::MAX;
+            template.enumType = FWP_FILTER_ENUM_FULLY_CONTAINED;
+            let mut enumeration = ptr::null_mut();
+            let code = FwpmFilterCreateEnumHandle0(engine, &template, &mut enumeration);
+            if code != 0 {
+                println!("NATIVE_FILTER_ENUM error={code}");
+                continue;
+            }
+            let mut scanned = 0;
+            let mut emitted = 0;
+            let mut complete = false;
+            for _ in 0..32 {
+                let mut entries = ptr::null_mut();
+                let mut count = 0;
+                let code = FwpmFilterEnum0(engine, enumeration, 128, &mut entries, &mut count);
+                if code != 0 {
+                    println!("NATIVE_FILTER_ENUM error={code}");
+                    break;
+                }
+                scanned += count;
+                if !entries.is_null() {
+                    for entry in std::slice::from_raw_parts(entries, count as usize) {
+                        if !entry.is_null()
+                            && native_layers.contains(&id((**entry).subLayerKey))
+                            && emitted < 32
+                        {
+                            println!("NATIVE_WFP {}", filter(&**entry));
+                            emitted += 1;
+                        }
+                    }
+                    FwpmFreeMemory0((&mut entries as *mut *mut *mut FWPM_FILTER0).cast());
+                }
+                if count < 128 {
+                    complete = true;
+                    break;
+                }
+            }
+            println!("NATIVE_FILTER_ENUM layer={} scanned={scanned} emitted={emitted} complete={complete}",id(layer));
+            FwpmFilterDestroyEnumHandle0(engine, enumeration);
+        }
+        FwpmEngineClose0(engine);
+    }
 }
 fn assert_registered_reboot_policy() {
     use windows_sys::{core::GUID, Win32::NetworkManagement::WindowsFilteringPlatform::*};
@@ -327,18 +740,28 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
             .await
             .unwrap();
         assert!(session.info.tun_ready && session.is_running());
+        let current = Cell::new("owned session readiness");
+        // Both owners outlive the caught future: diagnostics see pre-cleanup
+        // proxy state and native policy before explicit failure cleanup begins.
+        let mut proxy_guard = None;
+        let outcome = fixture_guard::catch_fixture_panic(async {
         assert_registered_reboot_policy();
         let mixed = nimbo_mihomo::wire::loopback_address(&session.info.mixed_address).unwrap();
         eprintln!("Both/WFP case {failure}: routed TCP4");
+        stage(failure, &current, "routed TCP4");
         assert!(tcp("198.18.0.10:18080").ends_with(b"nimbo-windows-tun"));
         eprintln!("Both/WFP case {failure}: routed TCP6");
+        stage(failure, &current, "routed TCP6");
         assert!(tcp("[2001:db8::10]:18080").ends_with(b"nimbo-windows-tun"));
         // Apply/restore the actual GUI's per-user proxy and ownership check.
-        let saved_proxy = owned_proxy::snapshot().unwrap();
+        stage(failure, &current, "proxy apply");
+        proxy_guard = Some(fixture_guard::ProxyGuard::new(&RealProxy, mixed.port()).unwrap());
+        let saved_proxy = proxy_guard.as_ref().unwrap().saved().clone();
         owned_proxy::apply(mixed.port()).unwrap();
         assert!(owned_proxy::owns(mixed.port()).unwrap());
         assert_eq!(owned_proxy::snapshot().unwrap().proxy_enable, Some(1));
         // Real mixed listener, not a cosmetic Both flag.
+        stage(failure, &current, "mixed HTTP");
         let client = reqwest::Client::builder()
             .proxy(reqwest::Proxy::all(format!("http://{mixed}")).unwrap())
             .timeout(Duration::from_secs(4))
@@ -353,15 +776,18 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
             .await
             .unwrap();
         assert_eq!(&body[..], b"nimbo-windows-tun");
+        stage(failure, &current, "physical TCP denial");
         assert!(
             physical_probe().is_err(),
             "plaintext bypass was permitted while KS armed"
         );
-        native_udp_dns();
+        native_udp_dns(failure, &current);
+        stage(failure, &current, "existing physical DNS denial");
         assert!(
             physical_dns(&dns).is_err(),
             "existing UDP DNS flow escaped protection"
         );
+        stage(failure, &current, "new physical DNS denial");
         assert!(
             physical_dns_socket()
                 .and_then(|s| physical_dns(&s))
@@ -378,9 +804,11 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
                 "$s=Get-CimInstance Win32_Service -Filter \"Name='NimboHelper'\"; if(!$s.ProcessId){throw 'SCM helper missing'}; Stop-Process -Id $s.ProcessId -Force".into()
             };
             if failure == 4 {
+                stage(failure, &current, "GUI lease abandon");
                 // Same path as GUI/Windows exit, without an explicit Disconnect.
                 session.abandon_now();
             } else {
+                stage(failure, &current, if failure == 1 {"native process death"} else if failure == 3 {"SCM Stop-Service"} else {"helper process death"});
                 let output = std::process::Command::new("powershell")
                     .args(["-NoProfile", "-NonInteractive", "-Command", &script])
                     .output()
@@ -431,17 +859,40 @@ async fn actual_both_kill_switch_denies_physical_bypass_and_survives_native_deat
             }
             assert_registered_reboot_policy();
             eprintln!("Both/WFP case {failure}: protection retained, explicit reset");
+            stage(failure, &current, "explicit owner reset");
             nimbo_mihomo::helper::reset_kill_switch().await.unwrap();
         } else {
             session.stop().await.unwrap();
         }
-        owned_proxy::restore(Some(saved_proxy.clone())).unwrap();
+        stage(failure, &current, "proxy restore");
+        proxy_guard.as_mut().unwrap().finish().unwrap();
         assert_eq!(owned_proxy::snapshot().unwrap(), saved_proxy);
         physical_probe().expect("explicit release did not restore physical traffic");
         physical_dns_socket()
             .and_then(|s| physical_dns(&s))
             .expect("explicit release did not restore UDP DNS");
         eprintln!("Both/WFP case {failure}: physical TCP and UDP DNS restored");
+        }).await;
+        if let Err(error) = outcome {
+            let (diagnostic_panicked, cleanup) = fixture_guard::capture_before_proxy_cleanup(
+                capture_fixture_failure(&mut session, failure, current.get()),
+                &mut proxy_guard,
+            )
+            .await;
+            if diagnostic_panicked {
+                let _ = writeln!(
+                    std::io::stderr().lock(),
+                    "Fixture diagnostics failed; preserving original panic"
+                );
+            }
+            if let Err(cleanup_error) = cleanup {
+                let _ = writeln!(
+                    std::io::stderr().lock(),
+                    "Fixture proxy cleanup failed after diagnostics: {cleanup_error}"
+                );
+            }
+            std::panic::resume_unwind(error);
+        }
     }
 }
 

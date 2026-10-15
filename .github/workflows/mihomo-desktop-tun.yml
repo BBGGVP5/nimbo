@@ -58,6 +58,8 @@ jobs:
           key: mihomo-helper-${{ matrix.artifact }}
       - name: Stage native source and identity for protected native helper
         run: python3 scripts/ci/stage-mihomo-desktop.py --source 'native-desktop/${{ matrix.artifact }}'
+      - name: Test Windows fixture failure reporting without network mutations
+        run: python3 -m unittest discover -s scripts/ci -p test_mihomo_windows_diagnostics.py
       - name: Verify IPC and service adapter contracts
         env:
           CARGO_BUILD_JOBS: 2
