@@ -6575,7 +6575,7 @@ async fn connect_system_proxy(
             return Err(error);
         }
     };
-    if let Err(error) = wait_for_xray_port(&mut child, ports.socks) {
+    if let Err(error) = wait_for_xray_port(&mut child, ports.socks, XRAY_PORT_TIMEOUT) {
         let _ = child.kill();
         let _ = child.wait();
         stop_child(&mut naive);
@@ -6815,7 +6815,7 @@ async fn connect_tun(
                 return Err(error);
             }
         };
-        if let Err(error) = wait_for_xray_port(&mut xray, ports.socks) {
+        if let Err(error) = wait_for_xray_port(&mut xray, ports.socks, XRAY_TUN_PORT_TIMEOUT) {
             let _ = xray.kill();
             let _ = xray.wait();
             stop_child(&mut naive);
@@ -8514,8 +8514,19 @@ fn spawn_xray(xray_path: &Path, config_path: &Path) -> Result<std::process::Chil
     Ok(child)
 }
 
-fn wait_for_xray_port(child: &mut std::process::Child, port: u16) -> Result<(), String> {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+/// Обычный запуск Xray открывает SOCKS почти сразу.
+const XRAY_PORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+/// В TUN Xray сначала создаёт адаптер Wintun и только потом открывает SOCKS.
+/// На Windows 10 первое создание адаптера занимает больше 10 секунд; пока
+/// процесс жив, ждём его, а не обрываем запуск посреди создания устройства.
+const XRAY_TUN_PORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn wait_for_xray_port(
+    child: &mut std::process::Child,
+    port: u16,
+    timeout: std::time::Duration,
+) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + timeout;
     let addr = ("127.0.0.1", port);
     let mut last_error = None;
 
