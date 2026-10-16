@@ -81,6 +81,30 @@ class NativeLaunchContracts(unittest.TestCase):
         model = source('iosApp/Nimbo/NimboLaunchModel.swift')
         self.assertIn('value == "1"', model)
 
+    def test_vpn_state_replay_cannot_rerender_root_forever(self):
+        # Build 183 stopped right after RECORDING_APP_START with the main thread
+        # blocked; build 181's watchdog sample was a CPU-bound SwiftUI graph loop.
+        # A per-render publisher replaying the same state must not mutate State.
+        root = source('iosApp/Nimbo/RootView.swift')
+        self.assertNotIn('vpn.$state.removeDuplicates()', root)
+        handler = root.split('.onReceive(vpn.$state)', 1)[1]
+        self.assertLess(handler.index('guard state != handledVpnState else'),
+                        handler.index('handledVpnState = state'))
+        self.assertLess(handler.index('handledVpnState = state'), handler.index('handleVpnState(state)'))
+        self.assertLess(handler.index('markLaunchOnce(.vpnStateReplayIgnored)'), handler.index('handleVpnState(state)'))
+
+    def test_root_first_frame_breadcrumbs_are_recorded_once(self):
+        model = source('iosApp/Nimbo/NimboLaunchModel.swift')
+        for phase in ['ROOT_VIEW_APPEARED', 'ROOT_KOTLIN_BRIDGES_SYNCED',
+                      'FIRST_VPN_STATE_HANDLED', 'VPN_STATE_REPLAY_IGNORED']:
+            self.assertIn('"' + phase + '"', model)
+        coordinator = source('iosApp/Nimbo/NimboLaunchCoordinator.swift')
+        once = coordinator.split('func markOnce(', 1)[1].split('\n    }', 1)[0]
+        self.assertLess(once.index('record.events.contains'), once.index('mark(next, attempt: attempt)'))
+        root = source('iosApp/Nimbo/RootView.swift')
+        self.assertIn('launchContext.coordinator.markOnce(phase, attempt: launchContext.attempt)', root)
+        self.assertNotIn('coordinator.mark(', root)
+
 
 if __name__ == '__main__':
     unittest.main()

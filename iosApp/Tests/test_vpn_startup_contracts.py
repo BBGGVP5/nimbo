@@ -42,7 +42,8 @@ class VpnStartupSourceRegressions(unittest.TestCase):
         self.assertIn('synchronizeComposeState(state: state)', handler)
         self.assertNotIn('synchronizeComposeState()', handler)
         self.assertIn('let presentation = state.composePresentation', root)
-        self.assertIn('.onReceive(vpn.$state.removeDuplicates())', root)
+        self.assertIn('.onReceive(vpn.$state)', root)
+        self.assertIn('guard state != handledVpnState else', root)
 
     def test_on_demand_started_during_save_arms_watchdog(self):
         body = function(CONTROLLER, 'connect')

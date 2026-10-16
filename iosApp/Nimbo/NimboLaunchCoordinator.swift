@@ -137,6 +137,13 @@ final class NimboLaunchCoordinator: ObservableObject {
         }
     }
 
+    /// For callbacks that may repeat (appear, publisher replays): the first
+    /// occurrence is the evidence, and repeats must not republish `phase`.
+    func markOnce(_ next: NimboLaunchPhase, attempt: UUID) {
+        guard !record.events.contains(where: { $0.phase == next }) else { return }
+        mark(next, attempt: attempt)
+    }
+
     // Representable construction may be inside a SwiftUI update. Capture the
     // honest boundary now; defer ObservableObject publication until that returns.
     func markFactory(_ next: NimboLaunchPhase, attempt: UUID) {

@@ -14,6 +14,11 @@ enum NimboLaunchPhase: String, Codable, Sendable {
     case composeControllerReturned = "COMPOSE_CONTROLLER_RETURNED"
     case rootOwnerAppeared = "ROOT_OWNER_APPEARED"
     case recordingAppStart = "RECORDING_APP_START"
+    // RootView first-frame breadcrumbs: recorded once each, in callback order.
+    case rootViewAppeared = "ROOT_VIEW_APPEARED"
+    case rootBridgesSynced = "ROOT_KOTLIN_BRIDGES_SYNCED"
+    case firstVpnStateHandled = "FIRST_VPN_STATE_HANDLED"
+    case vpnStateReplayIgnored = "VPN_STATE_REPLAY_IGNORED"
     case migratingProfile = "MIGRATING_PROFILE"
     case migrationFailed = "MIGRATION_FAILED"
     case observingVPN = "OBSERVING_VPN"

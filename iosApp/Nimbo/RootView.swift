@@ -54,6 +54,9 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var metricsRequestInFlight = false
     @State private var metricsGeneration: UInt64 = 0
+    /// Последнее обработанное состояние VPN: повтор того же значения не трогает State.
+    @State private var handledVpnState: VpnController.State?
+    @Environment(\.nimboLaunchContext) private var launchContext
     private var shouldPollMetrics: Bool {
         scenePhase == .active && vpn.state == .connected
     }
@@ -124,14 +127,22 @@ struct RootView: View {
         IosComposeControllerKt.NimboSetIosBottomClearance(points: Double(bottomBarHeight + insets.bottom + 12))
     }
 
+    /// Startup breadcrumb, recorded once per launch attempt; no-op outside the launch gate.
+    private func markLaunchOnce(_ phase: NimboLaunchPhase) {
+        guard let launchContext else { return }
+        launchContext.coordinator.markOnce(phase, attempt: launchContext.attempt)
+    }
+
     private var lifecycleLayer: some View {
         interfaceLayer
+            .onAppear { markLaunchOnce(.rootViewAppeared) }
             .onAppear(perform: synchronizeComposeState)
             .onAppear(perform: publishSessions)
             .onAppear {
                 NimboPingNetworkMonitor.shared.start()
                 // Persisted ranking belongs to the previous launch/network.
                 IosComposeControllerKt.NimboClearIosPings()
+                markLaunchOnce(.rootBridgesSynced)
             }
             .onChange(of: scenePhase) { phase in
                 invalidatePingsForNetworkChange()
@@ -200,8 +211,21 @@ struct RootView: View {
             .onReceive(NotificationCenter.default.publisher(for: Notification.Name("com.nimbo.subscription.restored"))) { _ in
                 synchronizeComposeState()
             }
-            .onReceive(vpn.$state.removeDuplicates()) { (state: VpnController.State) in
+            .onReceive(vpn.$state) { (state: VpnController.State) in
+                // SwiftUI may resubscribe on a body update, and @Published then
+                // replays the current value. handleVpnState mutates State
+                // (metricsGeneration, ping tasks) on every call, so a replay
+                // re-rendered the root again — an endless main-thread loop at
+                // the first frame. Deduplicate against the last handled value
+                // here, outside the per-render publisher chain.
+                guard state != handledVpnState else {
+                    markLaunchOnce(.vpnStateReplayIgnored)
+                    return
+                }
+                let first = handledVpnState == nil
+                handledVpnState = state
                 handleVpnState(state)
+                if first { markLaunchOnce(.firstVpnStateHandled) }
                 if state != .preparing && state != .connecting && state != .disconnecting {
                     Task { await loadSubscriptionMetaIfNeeded() }
                 }
