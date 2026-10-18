@@ -10,6 +10,7 @@ struct RootView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showProfiles = false
     @State private var bottomBarHeight: CGFloat = 74
+    @State private var keyboardVisible = false
     @State private var contentSafeBottom: CGFloat = 0
     @State private var fullConfiguration: NimboFullConfiguration?
     @State private var fullServerCount = 0
@@ -84,7 +85,11 @@ struct RootView: View {
                     Group {
                         if selectedTab == .profiles, fullConfiguration != nil {
                             ProfilesContainerView().environmentObject(vpn)
-                        } else { ComposeScreen(tab: selectedTab) }
+                        } else {
+                            // Compose lifts its own fields (imePadding); a host that also
+                            // shrinks by the keyboard double-counts it and leaves a black gap.
+                            ComposeScreen(tab: selectedTab).ignoresSafeArea(.keyboard)
+                        }
                     }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -99,14 +104,26 @@ struct RootView: View {
                                 .onAppear { updateContentInsets(geometry.safeAreaInsets) }
                                 .onChange(of: geometry.safeAreaInsets) { updateContentInsets($0) }
                         }
+                        // Compose lifts its own fields (imePadding); a host that also
+                        // shrinks by the keyboard double-counts it and leaves a black gap.
+                        .ignoresSafeArea(.keyboard)
                     }
                 }
                     .overlay(alignment: .bottom) {
-                        NimboTabBar(selection: $selectedTab)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                                bottomBarHeight = height
-                                IosComposeControllerKt.NimboSetIosBottomClearance(points: Double(height + contentSafeBottom + 12))
-                            }
+                        // Above the keyboard the floating bar would cover the focused field.
+                        if !keyboardVisible {
+                            NimboTabBar(selection: $selectedTab)
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                                    bottomBarHeight = height
+                                    IosComposeControllerKt.NimboSetIosBottomClearance(points: Double(height + contentSafeBottom + 12))
+                                }
+                        }
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                        keyboardVisible = true
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                        keyboardVisible = false
                     }
                     .onAppear {
                         IosComposeControllerKt.NimboSetIosBottomClearance(points: Double(bottomBarHeight + contentSafeBottom + 12))

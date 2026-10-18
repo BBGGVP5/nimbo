@@ -93,6 +93,11 @@ class NativeLaunchContracts(unittest.TestCase):
         self.assertLess(handler.index('handledVpnState = state'), handler.index('handleVpnState(state)'))
         self.assertLess(handler.index('markLaunchOnce(.vpnStateReplayIgnored)'), handler.index('handleVpnState(state)'))
 
+    def test_normal_build_hides_launch_overlay_after_completed_root(self):
+        view = source('iosApp/Nimbo/NimboLaunchView.swift')
+        self.assertIn('launch.exposeRoot && (launch.gate.diagnostics || (launch.hasFailure && !launch.gate.completed))', view)
+        self.assertNotIn('(launch.gate.diagnostics || launch.hasFailure)', view)
+
     def test_root_first_frame_breadcrumbs_are_recorded_once(self):
         model = source('iosApp/Nimbo/NimboLaunchModel.swift')
         for phase in ['ROOT_VIEW_APPEARED', 'ROOT_KOTLIN_BRIDGES_SYNCED',

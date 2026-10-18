@@ -16,7 +16,9 @@ struct NimboLaunchView: View {
             if !launch.exposeRoot { nativeSurface }
         }
         .overlay(alignment: .topTrailing) {
-            if launch.exposeRoot && (launch.gate.diagnostics || launch.hasFailure) {
+            // A normal build keeps the escape hatch only until its root completes:
+            // after that the overlay would just cover the working interface.
+            if launch.exposeRoot && (launch.gate.diagnostics || (launch.hasFailure && !launch.gate.completed)) {
                 VStack(alignment: .trailing, spacing: 8) {
                     if launch.gate.diagnostics && !launch.gate.completed {
                         Button("Интерфейс виден") { launch.confirmVisibleInterface() }

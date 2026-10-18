@@ -44,6 +44,23 @@ class AppStartupContracts(unittest.TestCase):
         self.assertIn('ComposeUIViewController {', controller)
         self.assertIn('NimboSharedScreen(', controller)
 
+    def test_compose_host_does_not_double_count_the_keyboard(self):
+        # Compose screens lift fields with imePadding; a host shrunk by SwiftUI's
+        # keyboard safe area as well left a black gap of one keyboard height.
+        root = source('iosApp/Nimbo/RootView.swift')
+        screen = root.split('private var screen: some View', 1)[1].split('private var lifecycleLayer:', 1)[0]
+        self.assertIn('ComposeScreen(tab: selectedTab).ignoresSafeArea(.keyboard)', screen)
+        phone = screen.split('GeometryReader { geometry in', 1)[1]
+        self.assertLess(phone.index('ComposeScreen(tab: selectedTab)'), phone.index('.ignoresSafeArea(.keyboard)'))
+        self.assertLess(phone.index('.ignoresSafeArea(.keyboard)'), phone.index('.overlay(alignment: .bottom)'))
+        self.assertNotIn('ProfilesContainerView().environmentObject(vpn).ignoresSafeArea', screen)
+        overlay = phone.split('.overlay(alignment: .bottom)', 1)[1]
+        self.assertLess(overlay.index('if !keyboardVisible'), overlay.index('NimboTabBar(selection: $selectedTab)'))
+        self.assertIn('UIResponder.keyboardWillShowNotification', screen)
+        self.assertIn('UIResponder.keyboardWillHideNotification', screen)
+        for module in ['NimboSettingsScreen.kt', 'NimboModulesScreen.kt', 'NimboRoutingProfilesScreen.kt']:
+            self.assertIn('.imePadding()', source('shared/src/commonMain/kotlin/com/danila/nimbo/shared/ui/' + module))
+
     def test_shortcut_indexing_is_gated_after_native_root_host_display_acknowledgement(self):
         app = source('iosApp/Nimbo/NimboApp.swift')
         self.assertNotIn('updateAppShortcutParameters()', app)
