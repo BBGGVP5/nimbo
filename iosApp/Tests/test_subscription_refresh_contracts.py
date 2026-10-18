@@ -76,6 +76,28 @@ class SubscriptionRefreshContracts(unittest.TestCase):
         self.assertIn('!isRefreshingSubscription', toggle)
         self.assertIn('!NimboSubscriptionRepository.shared.isWorking', toggle)
 
+    def test_subscription_hwid_survives_reinstall_like_the_profile(self):
+        # The profile lives in Keychain and survives app deletion; a HWID kept only
+        # in UserDefaults was regenerated, so the panel saw a new device and could
+        # answer 404 once its device limit was reached.
+        info = source('Nimbo/NimboPlatformInfo.swift')
+        hwid = info.split('static let hardwareId: String = {', 1)[1].split('}()', 1)[0]
+        self.assertLess(hwid.index('HardwareIdKeychain.read()'), hwid.index('UserDefaults.standard.string(forKey: defaultsKey)'))
+        self.assertLess(hwid.index('UserDefaults.standard.string(forKey: defaultsKey)'), hwid.index('UUID().uuidString'))
+        self.assertIn('HardwareIdKeychain.write(value)', hwid)
+        self.assertIn('kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly', info)
+        self.assertIn('"com.nimbo.subscription.hwid"', info)
+        self.assertIn('request.setValue(NimboPlatformInfo.hardwareId, forHTTPHeaderField: "x-hwid")', info)
+
+    def test_http_404_explains_reissued_link_or_device_limit(self):
+        repo = source('Nimbo/NimboSubscriptionRepository.swift')
+        message = repo.split('enum NimboSubscriptionHTTPMessage', 1)[1]
+        self.assertIn('code == 404', message)
+        self.assertIn('лимит устройств', message)
+        self.assertIn('IOS_SUBSCRIPTION_HTTP', message)
+        self.assertIn('case let .http(code): NimboSubscriptionHTTPMessage.text(code)',
+                      source('Nimbo/NimboSubscriptionImporter.swift'))
+
 
 if __name__ == '__main__':
     unittest.main()

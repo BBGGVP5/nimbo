@@ -18,7 +18,7 @@ enum NimboSubscriptionImporter {
 
         var errorDescription: String? {
             switch self {
-            case let .http(code): "Сервис подписки вернул HTTP \(code) (IOS_SUBSCRIPTION_HTTP)."
+            case let .http(code): NimboSubscriptionHTTPMessage.text(code)
             case .invalidSize: "Ответ подписки пуст или слишком велик (IOS_SUBSCRIPTION_SIZE)."
             case .emptySource: "Пустая ссылка или конфигурация (IOS_SUBSCRIPTION_EMPTY)."
             }

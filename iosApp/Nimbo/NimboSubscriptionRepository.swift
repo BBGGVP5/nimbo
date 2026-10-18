@@ -414,7 +414,17 @@ enum NimboSubscriptionRepositoryError: LocalizedError {
         case .diagnosticStillRunning:
             "Пинг ещё останавливается. Подписка не изменена; повторите обновление через несколько секунд (IOS_SUBSCRIPTION_PING_BUSY)."
         case let .http(code):
-            "Сервис подписки вернул HTTP \(code) (IOS_SUBSCRIPTION_HTTP)."
+            NimboSubscriptionHTTPMessage.text(code)
         }
+    }
+}
+
+/// Общий текст для обновления и импорта: 404 сам по себе ничего не объясняет.
+enum NimboSubscriptionHTTPMessage {
+    static func text(_ code: Int) -> String {
+        if code == 404 {
+            return "Подписка не найдена на сервере (HTTP 404). Ссылку могли перевыпустить, или для подписки исчерпан лимит устройств (IOS_SUBSCRIPTION_HTTP)."
+        }
+        return "Сервис подписки вернул HTTP \(code) (IOS_SUBSCRIPTION_HTTP)."
     }
 }

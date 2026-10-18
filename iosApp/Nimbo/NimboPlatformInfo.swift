@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import UIKit
 
 enum NimboPlatformInfo {
@@ -44,17 +45,53 @@ enum NimboPlatformInfo {
     /// Стабильный идентификатор устройства для подписки.
     ///
     /// Панель считает по нему лимит устройств, поэтому он обязан переживать
-    /// перезапуск и обновление. `identifierForVendor` для этого не годится:
-    /// он меняется после удаления приложения, и лимит расходуется впустую.
+    /// перезапуск, обновление и переустановку. `identifierForVendor` и одни
+    /// UserDefaults для этого не годятся: после удаления приложения профиль
+    /// оставался в Keychain, а идентификатор рождался заново — панель видела
+    /// новое устройство и при исчерпанном лимите отвечала 404. Поэтому HWID
+    /// живёт в Keychain рядом с профилем; прежнее значение из UserDefaults
+    /// переносится туда без изменений.
     static let hardwareId: String = {
-        let key = "com.nimbo.subscription.hwid"
-        if let stored = UserDefaults.standard.string(forKey: key), !stored.isEmpty {
-            return stored
-        }
-        let generated = UUID().uuidString.lowercased()
-        UserDefaults.standard.set(generated, forKey: key)
-        return generated
+        let defaultsKey = "com.nimbo.subscription.hwid"
+        if let stored = HardwareIdKeychain.read(), !stored.isEmpty { return stored }
+        let legacy = UserDefaults.standard.string(forKey: defaultsKey).flatMap { $0.isEmpty ? nil : $0 }
+        let value = legacy ?? UUID().uuidString.lowercased()
+        HardwareIdKeychain.write(value)
+        if legacy == nil { UserDefaults.standard.set(value, forKey: defaultsKey) }
+        return value
     }()
+
+    /// Отдельная запись Keychain: без блокировок и счётчика ревизий хранилища профиля.
+    private enum HardwareIdKeychain {
+        private static let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.nimbo.resignable.device",
+            kSecAttrAccount as String: "subscription-hwid-v1"
+        ]
+
+        static func read() -> String? {
+            var request = query
+            request[kSecReturnData as String] = true
+            request[kSecMatchLimit as String] = kSecMatchLimitOne
+            var result: CFTypeRef?
+            guard SecItemCopyMatching(request as CFDictionary, &result) == errSecSuccess,
+                  let data = result as? Data else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+
+        /// Ошибка записи не мешает запросу: тогда идентификатор остаётся в UserDefaults, как раньше.
+        static func write(_ value: String) {
+            let updates: [String: Any] = [
+                kSecValueData as String: Data(value.utf8),
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            ]
+            if SecItemUpdate(query as CFDictionary, updates as CFDictionary) == errSecItemNotFound {
+                var item = query
+                updates.forEach { item[$0.key] = $0.value }
+                _ = SecItemAdd(item as CFDictionary, nil)
+            }
+        }
+    }
 
     /// Модель устройства для заголовка: «iPhone · iPhone14,5».
     static let deviceModel: String = device
