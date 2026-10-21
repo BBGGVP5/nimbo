@@ -177,6 +177,7 @@ if __name__ == "__main__":
             output = str(Path(directory) / "core-tests")
             subprocess.run(["swiftc", str(ROOT / "iosApp/Shared/NimboAWGConfiguration.swift"),
                 str(ROOT / "iosApp/Shared/NimboNaiveConfiguration.swift"),
+                str(ROOT / "iosApp/Shared/NimboTrustTunnelConfiguration.swift"),
                 str(ROOT / "iosApp/Nimbo/NimboCoreSelection.swift"),
                 str(ROOT / "iosApp/Tests/CoreSelectionTests.swift"), "-o", output], check=True)
             subprocess.run([output], check=True)

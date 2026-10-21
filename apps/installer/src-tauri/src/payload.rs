@@ -156,6 +156,44 @@ const NAIVE_BYTES: &[u8] = include_bytes!(concat!(
     all(target_os = "linux", target_arch = "x86_64")
 )))]
 const NAIVE_BYTES: &[u8] = &[];
+// Official TrustTunnel CLI client (Apache-2.0), run by the app as a loopback
+// SOCKS sidecar. The app re-verifies the pinned SHA-256 before every launch.
+#[cfg(all(windows, target_arch = "x86_64"))]
+const TRUSTTUNNEL_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../ui/src-tauri/resources/trusttunnel/windows-x64/trusttunnel_client.exe"
+));
+#[cfg(all(windows, target_arch = "aarch64"))]
+const TRUSTTUNNEL_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../ui/src-tauri/resources/trusttunnel/windows-arm64/trusttunnel_client.exe"
+));
+#[cfg(all(windows, target_arch = "x86"))]
+const TRUSTTUNNEL_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../ui/src-tauri/resources/trusttunnel/windows-x86/trusttunnel_client.exe"
+));
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+const TRUSTTUNNEL_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../ui/src-tauri/resources/trusttunnel/linux-x64/trusttunnel_client"
+));
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const TRUSTTUNNEL_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../ui/src-tauri/resources/trusttunnel/linux-arm64/trusttunnel_client"
+));
+#[cfg(not(any(
+    all(
+        windows,
+        any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "x86")
+    ),
+    all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+)))]
+const TRUSTTUNNEL_BYTES: &[u8] = &[];
 // Xray is embedded in release installers so a fresh Nimbo installation does
 // not depend on GitHub being reachable. The installer build script downloads
 // the official archive and verifies its SHA-256 before placing it here.
@@ -517,6 +555,9 @@ fn install_blocking_windows(
     if !NAIVE_BYTES.is_empty() {
         replace_payload(&tun_dir.join("naive.exe"), NAIVE_BYTES)?;
     }
+    if !TRUSTTUNNEL_BYTES.is_empty() {
+        replace_payload(&tun_dir.join("trusttunnel_client.exe"), TRUSTTUNNEL_BYTES)?;
+    }
     if !XRAY_BYTES.is_empty() {
         replace_payload(&tun_dir.join("xray.exe"), XRAY_BYTES)?;
         replace_payload(&tun_dir.join("geoip.dat"), GEOIP_BYTES)?;
@@ -608,6 +649,13 @@ fn install_blocking_linux(
             .map_err(|e| format!("Не удалось создать папку NaiveProxy: {e}"))?;
         replace_payload(&bin_dir.join("naive"), NAIVE_BYTES)?;
         make_executable(&bin_dir.join("naive"))?;
+    }
+    if !TRUSTTUNNEL_BYTES.is_empty() {
+        let bin_dir = roaming_nimbo_bin_dir()?;
+        fs::create_dir_all(&bin_dir)
+            .map_err(|e| format!("Не удалось создать папку TrustTunnel: {e}"))?;
+        replace_payload(&bin_dir.join("trusttunnel_client"), TRUSTTUNNEL_BYTES)?;
+        make_executable(&bin_dir.join("trusttunnel_client"))?;
     }
     let helper_path = install_dir.join(LINUX_HELPER_EXE);
     app_installation.commit();
@@ -1362,6 +1410,7 @@ fn stop_nimbo_runtime_processes() {
         "tun2socks.exe",
         "xray.exe",
         "naive.exe",
+        "trusttunnel_client.exe",
         "nimbo-awg.exe",
     ] {
         taskkill_image(image);
@@ -1719,6 +1768,7 @@ fn cleanup_old_tun_binaries(tun_dir: &Path) {
         "wintun.exe.old",
         "xray.exe.old",
         "naive.exe.old",
+        "trusttunnel_client.exe.old",
         "geoip.dat.old",
         "geosite.dat.old",
     ] {

@@ -882,7 +882,7 @@ object XrayManager {
 
     /** Build only; never touches the running core, TUN or selected server. */
     internal fun diagnosticConfig(server: Server, template: String?, peers: List<Server>): String? = runCatching {
-        require(!server.isNaiveProxy()) // Its live sidecar would measure a different connection.
+        require(!server.usesLocalSocksSidecar()) // Its live sidecar would measure a different connection.
         require(!server.protocol.lowercase().let { it.contains("awg") || it.contains("amnezia") || it == "wireguard" || it == "wg" })
         if (server.isRemoteTemplateServer() || !server.remoteOutboundTag.isNullOrBlank() || !server.remoteBalancerTag.isNullOrBlank()) {
             // Never substitute a generated/default node when a template is missing or invalid.
@@ -1120,6 +1120,7 @@ object XrayManager {
             protocol == "ss" || protocol.contains("shadowsocks") -> "shadowsocks"
             protocol == "hy2" || protocol.contains("hysteria") -> "hysteria"
             protocol == "naive" || protocol == "naiveproxy" || protocol.startsWith("naive+") -> "socks"
+            protocol == "trusttunnel" -> "socks"
             else -> protocol
         }
     }
@@ -1157,18 +1158,33 @@ object XrayManager {
                 .put("version", 2)
                 .put("address", server.host)
                 .put("port", server.port)
-            "socks" -> JSONObject().put("servers", JSONArray().put(
-                JSONObject()
-                    .put("address", "127.0.0.1")
-                    .put("port", server.naiveLocalPort
-                        ?: error("NaiveProxy sidecar has not supplied a local SOCKS port"))
-            ))
+            "socks" -> if (server.isTrustTunnel()) {
+                // Authenticated loopback SOCKS of the in-process TrustTunnel bridge.
+                JSONObject().put("servers", JSONArray().put(
+                    JSONObject()
+                        .put("address", "127.0.0.1")
+                        .put("port", server.trustTunnelSocksPort
+                            ?: error("TrustTunnel bridge has not supplied a local SOCKS port"))
+                        .put("users", JSONArray().put(
+                            JSONObject()
+                                .put("user", server.trustTunnelSocksUsername.orEmpty())
+                                .put("pass", server.trustTunnelSocksPassword.orEmpty())
+                        ))
+                ))
+            } else {
+                JSONObject().put("servers", JSONArray().put(
+                    JSONObject()
+                        .put("address", "127.0.0.1")
+                        .put("port", server.naiveLocalPort
+                            ?: error("NaiveProxy sidecar has not supplied a local SOCKS port"))
+                ))
+            }
             else -> error("Unsupported protocol for Xray: $protocol")
         }
     }
 
     internal fun buildStreamSettings(server: Server): JSONObject? {
-        if (server.isNaiveProxy()) return null
+        if (server.usesLocalSocksSidecar()) return null
         val serverProtocol = server.protocol.trim().lowercase()
         val rawNetwork = server.network
             ?.lowercase()

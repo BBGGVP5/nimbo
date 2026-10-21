@@ -2067,6 +2067,7 @@ function protoName(kind: string): string {
     case "hysteria2": return "HY2";
     case "naive": return "NAIVE";
     case "awg": return "AWG";
+    case "trusttunnel": return "TT";
     default: return kind.toUpperCase();
   }
 }

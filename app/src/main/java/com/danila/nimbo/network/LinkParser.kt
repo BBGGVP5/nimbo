@@ -3,6 +3,7 @@ package com.danila.nimbo.network
 import android.net.Uri
 import android.util.Base64
 import com.danila.nimbo.model.Server
+import com.danila.nimbo.shared.subscription.TrustTunnelLink
 import org.json.JSONObject
 import java.net.URI
 
@@ -189,6 +190,7 @@ object LinkParser {
             "ss" -> parseShadowsocks(link, uri)
             "hy", "hy2", "hysteria2", "hysteria" -> parseHysteria2(link, uri)
             "naive", "naive+https", "naive+quic" -> parseNaiveProxy(trimmed)
+            "tt" -> parseTrustTunnel(trimmed)
             "tuic", "mieru" -> parseMihomoShare(trimmed, protocol)
             "awg", "amneziawg" -> parseAwgLink(link, uri)
             "wireguard", "wg" -> parseWireGuardLink(link, uri)
@@ -256,6 +258,26 @@ object LinkParser {
             naiveUsername = username,
             naivePassword = password,
             naiveTransport = transport
+        )
+    }
+
+    private fun parseTrustTunnel(link: String): Server {
+        val endpoint = TrustTunnelLink.decode(link)
+        val fragment = link.substringAfter('#', "")
+        val name = fragment.takeIf { it.isNotBlank() }
+            ?.let { decodeProxyComponent(it).substringBefore("?serverDescription=").trim() }
+            ?.takeIf { it.isNotBlank() }
+            ?: TrustTunnelLink.displayName(endpoint)
+        return Server(
+            name = name,
+            host = endpoint.host,
+            port = endpoint.port,
+            uuid = endpoint.username,
+            protocol = TrustTunnelLink.PROTOCOL,
+            security = "tls",
+            network = if (endpoint.http3) "http3" else "http2",
+            sni = endpoint.tlsServerName,
+            trustTunnelLink = link.trim()
         )
     }
 

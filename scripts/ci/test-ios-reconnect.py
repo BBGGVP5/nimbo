@@ -16,12 +16,12 @@ with tempfile.TemporaryDirectory(prefix="nimbo-reconnect-") as directory:
         ("retirement", ["Shared/NimboWorkerActivity.swift", "Tests/WorkerActivityTests.swift"]),
         ("validation-worker", ["Shared/NimboPingCompletion.swift", "Shared/NimboCoreValidationWorker.swift",
                                "Tests/CoreValidationWorkerTests.swift"]),
-        ("profile-preparation", ["Shared/NimboAWGConfiguration.swift", "Shared/NimboNaiveConfiguration.swift",
+        ("profile-preparation", ["Shared/NimboAWGConfiguration.swift", "Shared/NimboNaiveConfiguration.swift", "Shared/NimboTrustTunnelConfiguration.swift",
                   "Nimbo/NimboCoreSelection.swift", "Nimbo/NimboFullConfiguration.swift",
                   "Nimbo/NimboSubscriptionModels.swift", "Nimbo/NimboStagingPayload.swift", "Shared/NimboPingPolicy.swift",
                   "Shared/NimboAutoSelectionPolicy.swift", "Nimbo/NimboAutoPingCache.swift",
                   "Nimbo/NimboVpnProfilePreparation.swift", "Tests/VpnProfilePreparationTests.swift"]),
-        ("core", ["Shared/NimboAWGConfiguration.swift", "Shared/NimboNaiveConfiguration.swift",
+        ("core", ["Shared/NimboAWGConfiguration.swift", "Shared/NimboNaiveConfiguration.swift", "Shared/NimboTrustTunnelConfiguration.swift",
                   "Nimbo/NimboCoreSelection.swift", "Tests/CoreSelectionTests.swift"]),
     ]:
         exe = str(Path(directory) / name)

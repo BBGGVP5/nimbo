@@ -6,7 +6,8 @@ package com.danila.nimbo.shared.subscription
  */
 object SubscriptionParserMigration {
     // 5: retain NaiveProxy links in wrapped subscriptions and correct TUIC identity.
-    const val currentRevision: Int = 5
+    // 6: TrustTunnel tt:// deep links and endpoint subscription JSON.
+    const val currentRevision: Int = 6
 
     fun needsMigration(parserRevision: Int): Boolean = parserRevision < currentRevision
 

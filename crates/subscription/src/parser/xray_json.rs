@@ -403,6 +403,14 @@ fn protocol_identity(protocol: &Protocol) -> String {
             "naive:{}:{}:{}:{}:{:?}",
             config.address, config.port, config.username, config.password, config.transport
         ),
+        Protocol::TrustTunnel(config) => format!(
+            "trusttunnel:{}:{}:{}:{}:{:?}",
+            config.addresses.join(","),
+            config.hostname,
+            config.username,
+            config.password,
+            config.upstream
+        ),
     }
 }
 

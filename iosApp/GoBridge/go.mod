@@ -13,6 +13,7 @@ require (
 	nimbo/awgcore v0.0.0
 	nimbo/mihomocore v0.0.0
 	nimbo/naivecore v0.0.0
+	nimbo/trusttunnelcore v0.0.0
 )
 
 require (
@@ -199,3 +200,5 @@ replace nimbo/mihomocore => ../../tools/native/mihomo-core
 replace google.golang.org/protobuf => ../../tools/native/mihomo-core/.build/protobuf
 
 replace nimbo/naivecore => ../../tools/native/naive-core
+
+replace nimbo/trusttunnelcore => ../../tools/native/trusttunnel-core

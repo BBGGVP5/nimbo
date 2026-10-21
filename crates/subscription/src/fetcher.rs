@@ -663,6 +663,21 @@ fn server_config_key(server: &Server) -> String {
             exact_key(&config.password),
             config.transport,
         ]),
+        Protocol::TrustTunnel(config) => json!([
+            "trusttunnel",
+            config
+                .addresses
+                .iter()
+                .map(|address| lower_key(address))
+                .collect::<Vec<_>>(),
+            lower_key(&config.hostname),
+            lower_option_key(config.custom_sni.as_deref()),
+            exact_key(&config.username),
+            exact_key(&config.password),
+            config.upstream,
+            config.skip_verification,
+            config.anti_dpi,
+        ]),
     };
 
     serde_json::to_string(&json!([
@@ -742,6 +757,18 @@ fn server_logical_key(server: &Server) -> Option<String> {
                 exact_key(&config.username),
                 exact_key(&config.password),
                 config.transport,
+            ])
+        }
+        Protocol::TrustTunnel(config) => {
+            if config.username.trim().is_empty() || config.password.is_empty() {
+                return None;
+            }
+            json!([
+                "trusttunnel",
+                lower_key(&config.hostname),
+                exact_key(&config.username),
+                exact_key(&config.password),
+                config.upstream,
             ])
         }
     };
@@ -1397,6 +1424,7 @@ fn server_identity(server: &Server) -> (&str, u16, Option<&str>) {
         Protocol::Hysteria2(cfg) => (&cfg.address, cfg.port, None),
         Protocol::Naive(cfg) => (&cfg.address, cfg.port, None),
         Protocol::Awg(cfg) => (&cfg.address, cfg.port, None),
+        Protocol::TrustTunnel(cfg) => (&cfg.address, cfg.port, None),
     }
 }
 

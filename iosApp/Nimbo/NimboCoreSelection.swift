@@ -31,7 +31,7 @@ enum NimboCorePreference: String, CaseIterable, Sendable {
 }
 
 enum NimboCoreProfile: String, Sendable {
-    case xray, awg, mihomo, naive
+    case xray, awg, mihomo, naive, trusttunnel
 }
 
 enum NimboCoreAdmission {
@@ -41,7 +41,9 @@ enum NimboCoreAdmission {
         let selected = try NimboCorePreference.decode(preference)
         guard selected.isAvailable else { throw NimboCoreSelectionError.unavailable }
         let profile = try classify(data, declaredEngine: declaredEngine)
-        guard selected == .auto || selected.rawValue == profile.rawValue || (profile == .naive && selected == .xray) else {
+        // Naive and TrustTunnel are upstreams behind the Xray TUN/router.
+        guard selected == .auto || selected.rawValue == profile.rawValue ||
+                ((profile == .naive || profile == .trusttunnel) && selected == .xray) else {
             throw NimboCoreSelectionError.incompatible
         }
         return profile
@@ -67,6 +69,10 @@ enum NimboCoreAdmission {
         if try NimboNaiveConfiguration.parseIfPresent(text) != nil {
             guard declared == nil || declared == .naive else { throw NimboCoreSelectionError.incompatible }
             return .naive
+        }
+        if try NimboTrustTunnelConfiguration.parseIfPresent(text) != nil {
+            guard declared == nil || declared == .trusttunnel else { throw NimboCoreSelectionError.incompatible }
+            return .trusttunnel
         }
         let detected: NimboCoreProfile
         if let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
@@ -105,7 +111,7 @@ enum NimboCoreAdmission {
     private static func rejectUnsupportedShareProtocols(_ text: String) throws {
         for line in text.split(whereSeparator: \.isNewline) {
             let scheme = line.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "://").first?.lowercased()
-            if scheme == "naive" || scheme == "naive+https" || scheme == "naive+quic" {
+            if scheme == "naive" || scheme == "naive+https" || scheme == "naive+quic" || scheme == "tt" {
                 throw NimboCoreSelectionError.unsupportedProfile
             }
             if scheme == "tuic" || scheme == "mieru" { throw NimboCoreSelectionError.tuicRequiresMihomo }

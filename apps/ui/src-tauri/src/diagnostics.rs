@@ -16,6 +16,13 @@ use tokio::{
 };
 
 const MAX_PROBES: usize = 3;
+/// Every file a probe may create in its private directory.
+const DIAGNOSTIC_FILES: [&str; 4] = [
+    "xray.json",
+    "naive.json",
+    "trusttunnel.toml",
+    "trusttunnel.log",
+];
 static SLOTS: std::sync::OnceLock<std::sync::Arc<Semaphore>> = std::sync::OnceLock::new();
 fn slots() -> std::sync::Arc<Semaphore> {
     SLOTS
@@ -27,6 +34,7 @@ pub(crate) struct Binaries {
     pub xray: PathBuf,
     pub awg: Option<PathBuf>,
     pub naive: Option<PathBuf>,
+    pub trusttunnel: Option<PathBuf>,
 }
 
 /// Holds the permit until children have been killed AND reaped, including when
@@ -79,7 +87,13 @@ impl Resources {
     }
 
     fn spawn(&mut self, command: &mut Command) -> Result<usize, String> {
-        command.kill_on_drop(true).stderr(Stdio::null());
+        command.stderr(Stdio::null());
+        self.spawn_configured(command)
+    }
+
+    /// Like `spawn`, but keeps the caller's stdout/stderr redirection.
+    fn spawn_configured(&mut self, command: &mut Command) -> Result<usize, String> {
+        command.kill_on_drop(true);
         #[cfg(windows)]
         command.creation_flags(0x08000000);
         let child = command
@@ -107,7 +121,7 @@ impl Resources {
         if let Some(path) = self.directory.take() {
             // Only these files are created by this owner. No recursive deletion
             // and no active runtime paths, shared logs, keys or route snapshots.
-            for name in ["xray.json", "naive.json"] {
+            for name in DIAGNOSTIC_FILES {
                 let _ = std::fs::remove_file(path.join(name));
             }
             let _ = std::fs::remove_dir(path);
@@ -129,7 +143,7 @@ impl Drop for Cleanup {
             let _ = child.start_kill();
         }
         if let Some(path) = self.directory.take() {
-            for name in ["xray.json", "naive.json"] {
+            for name in DIAGNOSTIC_FILES {
                 let _ = std::fs::remove_file(path.join(name));
             }
             let _ = std::fs::remove_dir(path);
@@ -184,6 +198,28 @@ pub(crate) fn isolated_config(
         }
     }
     Ok((route, config))
+}
+
+/// The SOCKS port opens before the tunnel exists; wait for the client's own
+/// CONNECTED state so the probe measures the endpoint, not a queued dial.
+async fn trusttunnel_ready(resources: &mut Resources, log: &Path) -> Result<(), String> {
+    use crate::trusttunnel_runtime::{link_state, LinkState};
+    loop {
+        let text = std::fs::read(log)
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default();
+        match link_state(&text) {
+            LinkState::Connected => return Ok(()),
+            LinkState::Failed(_) => {
+                return Err("TrustTunnel endpoint rejected the connection".into())
+            }
+            LinkState::Connecting => {}
+        }
+        if !resources.alive() {
+            return Err("Diagnostic runtime exited before readiness".into());
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 async fn ready(resources: &mut Resources, port: u16) -> Result<(), String> {
@@ -315,6 +351,38 @@ async fn prepare_sidecar(
             resources.spawn(&mut command)?;
             ready(resources, port).await?;
             config.local_port = Some(port);
+        }
+        Protocol::TrustTunnel(config) => {
+            let binary = binaries
+                .trusttunnel
+                .as_ref()
+                .ok_or("Verified TrustTunnel runtime unavailable")?;
+            let socks = crate::trusttunnel_runtime::new_local_socks()
+                .map_err(|_| "Cannot allocate TrustTunnel diagnostic port")?;
+            let directory = resources
+                .directory
+                .clone()
+                .ok_or("Missing diagnostic directory")?;
+            let config_path = directory.join("trusttunnel.toml");
+            let log_path = directory.join("trusttunnel.log");
+            crate::trusttunnel_runtime::write_private(
+                &config_path,
+                &crate::trusttunnel_runtime::render_config(config, &socks, None),
+            )
+            .map_err(|_| "Cannot write TrustTunnel diagnostic config")?;
+            let log = std::fs::File::create(&log_path)
+                .map_err(|_| "Cannot create TrustTunnel diagnostic log")?;
+            let stderr = log
+                .try_clone()
+                .map_err(|_| "Cannot create TrustTunnel diagnostic log")?;
+            let mut command =
+                Command::from(crate::trusttunnel_runtime::command(binary, &config_path));
+            command.stdout(log).stderr(stderr);
+            resources.spawn_configured(&mut command)?;
+            let result = trusttunnel_ready(resources, &log_path).await;
+            let _ = std::fs::remove_file(&config_path);
+            result?;
+            config.local_socks = Some(socks);
         }
         _ => {}
     }
@@ -480,6 +548,7 @@ mod tests {
                 xray: PathBuf::new(),
                 awg: None,
                 naive: None,
+                trusttunnel: None,
             })
         };
         assert!(measure(

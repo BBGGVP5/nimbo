@@ -11,6 +11,7 @@ BRIDGE_DIR="${ROOT_DIR}/iosApp/GoBridge"
 AWG_DIR="${ROOT_DIR}/tools/native/awg-core"
 MIHOMO_DIR="${ROOT_DIR}/tools/native/mihomo-core"
 NAIVE_DIR="${ROOT_DIR}/tools/native/naive-core"
+TRUSTTUNNEL_DIR="${ROOT_DIR}/tools/native/trusttunnel-core"
 CACHE_DIR="${ROOT_DIR}/.build-dependencies/libxray-awg/${LIBXRAY_COMMIT}"
 DESTINATION="${ROOT_DIR}/iosApp/Vendor/LibXray.xcframework"
 ARCHIVE="${CACHE_DIR}/libxray-source.tar.gz"
@@ -35,7 +36,8 @@ cp "${BRIDGE_DIR}/"*.go "${SOURCE_DIR}/cgo_bridge/"
 cp "${ROOT_DIR}/tools/native/libxray-memory/memory_ios.go" "${SOURCE_DIR}/memory/memory_ios.go"
 cp "${BRIDGE_DIR}/go.mod" "${BRIDGE_DIR}/go.sum" "${SOURCE_DIR}/"
 cd "${SOURCE_DIR}"
-go mod edit "-replace=nimbo/awgcore=${AWG_DIR}" "-replace=nimbo/naivecore=${NAIVE_DIR}"
+go mod edit "-replace=nimbo/awgcore=${AWG_DIR}" "-replace=nimbo/naivecore=${NAIVE_DIR}" \
+  "-replace=nimbo/trusttunnelcore=${TRUSTTUNNEL_DIR}"
 python3 "${ROOT_DIR}/scripts/ci/prepare-mihomo-merged.py" \
   --source-dir "${SOURCE_DIR}" --dependency-dir "${WORK_DIR}/mihomo-dependencies"
 go mod download
@@ -50,6 +52,7 @@ cp go.mod go.sum "${WORK_DIR}/verify/"
   go mod edit -droprequire=nimbo/awgcore -dropreplace=nimbo/awgcore \
     -droprequire=nimbo/mihomocore -dropreplace=nimbo/mihomocore \
     -droprequire=nimbo/naivecore -dropreplace=nimbo/naivecore \
+    -droprequire=nimbo/trusttunnelcore -dropreplace=nimbo/trusttunnelcore \
     -dropreplace=google.golang.org/protobuf \
     -dropreplace=github.com/metacubex/mihomo
   go mod verify
@@ -62,6 +65,7 @@ go test -mod=readonly -race -count=1 -timeout=120s -run '^TestNimboSticky' githu
 
 go test -mod=readonly -count=1 nimbo/awgcore nimbo/mihomocore ./cgo_bridge
 go test -mod=readonly -count=1 -timeout=120s nimbo/naivecore
+go test -mod=readonly -count=1 -timeout=120s nimbo/trusttunnelcore
 
 # Execute the production request contract against the same merged C bridge on
 # the macOS host. This temporary library contains both engines in one Go build;
@@ -123,6 +127,8 @@ build_slice() {
     "${ROOT_DIR}/iosApp/Shared/NimboAWGConfiguration.swift" \
     "${ROOT_DIR}/iosApp/Shared/NimboNaiveConfiguration.swift" \
     "${ROOT_DIR}/iosApp/PacketTunnel/NaiveProxyBridge.swift" \
+    "${ROOT_DIR}/iosApp/Shared/NimboTrustTunnelConfiguration.swift" \
+    "${ROOT_DIR}/iosApp/PacketTunnel/TrustTunnelBridge.swift" \
     "${ROOT_DIR}/iosApp/Shared/NimboMihomoSessionPolicy.swift" \
     "${ROOT_DIR}/iosApp/Shared/NimboAdBlocking.swift" \
     "${ROOT_DIR}/iosApp/PacketTunnel/AmneziaWGBridge.swift" \

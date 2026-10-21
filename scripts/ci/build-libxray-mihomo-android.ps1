@@ -47,7 +47,7 @@ Copy-Item -LiteralPath (Join-Path $appleBridge 'go.mod'),(Join-Path $appleBridge
 Get-ChildItem -LiteralPath $bridge -Filter '*.go' -File | Copy-Item -Destination $source
 Copy-Item -LiteralPath (Join-Path $repo 'tools/native/libxray-memory/memory_ios.go') -Destination (Join-Path $source 'memory/memory_ios.go')
 
-$inputs = @((Join-Path $repo 'tools/native/libxray-memory'),$bridge,$appleBridge,(Join-Path $repo 'tools/native/awg-core'),$mihomo) | ForEach-Object {
+$inputs = @((Join-Path $repo 'tools/native/libxray-memory'),$bridge,$appleBridge,(Join-Path $repo 'tools/native/awg-core'),(Join-Path $repo 'tools/native/trusttunnel-core'),$mihomo) | ForEach-Object {
     Get-ChildItem -LiteralPath $_ -Recurse -File | Where-Object {
         $_.FullName -notmatch '[\\/]\.build[\\/]' -and ($_.Extension -eq '.go' -or $_.Name -in @('go.mod','go.sum','pins.json','mihomo-session-lifecycle.patch','mihomo-reality-client-version.patch','mihomo-rule-journal.patch','mihomo-traffic-counters.patch','sing-tun-rule-journal.patch','netlink-rule-identity.patch'))
     }
@@ -58,7 +58,7 @@ $inputs | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stage '
 # package between Go's import scan and compilation (even a standard-library
 # import addition can otherwise produce misleading missing importcfg errors).
 $snapshots = @{}
-foreach ($name in @('awg-core','mihomo-core')) {
+foreach ($name in @('awg-core','trusttunnel-core','mihomo-core')) {
     $original = Join-Path $repo "tools/native/$name"
     $snapshot = Join-Path $stage "adapters/$name"
     New-Item -ItemType Directory -Path $snapshot -Force | Out-Null
@@ -75,7 +75,7 @@ Push-Location $source
 try {
     & $go mod edit -droprequire=nimbo/naivecore -dropreplace=nimbo/naivecore
     if ($LASTEXITCODE) { throw 'Cannot remove Apple-only Naive adapter.' }
-    & $go mod edit "-replace=nimbo/awgcore=$($snapshots['awg-core'].Replace('\','/'))"
+    & $go mod edit "-replace=nimbo/awgcore=$($snapshots['awg-core'].Replace('\','/'))" "-replace=nimbo/trusttunnelcore=$($snapshots['trusttunnel-core'].Replace('\','/'))"
     if ($LASTEXITCODE) { throw 'Cannot stage root dependency replacements.' }
     # Share the Apple source verifier: validate every protobuf file, not merely
     # go.mod, and install the effective replacements at the root module.

@@ -430,6 +430,7 @@ function networkBadge(protocol: Server["protocol"]): string {
   if (protocol.kind === "shadowsocks") return "SHADOWSOCKS";
   if (protocol.kind === "naive") return "NAIVEPROXY";
   if (protocol.kind === "awg") return "AWG";
+  if (protocol.kind === "trusttunnel") return protocol.upstream === "http3" ? "TRUSTTUNNEL • H3" : "TRUSTTUNNEL • H2";
   const value = transportLabel(protocol).replace(" · ", " • ").trim();
   return value ? value.toUpperCase() : "JSON";
 }

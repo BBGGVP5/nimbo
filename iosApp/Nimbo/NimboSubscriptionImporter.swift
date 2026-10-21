@@ -1,4 +1,5 @@
 import Foundation
+import NimboShared
 
 /// Импорт подписки из ссылки, буфера, файла или QR.
 ///
@@ -51,7 +52,12 @@ enum NimboSubscriptionImporter {
     /// сохранённую конфигурацию расширению непосредственно перед запуском.
     @discardableResult
     static func importProfile(_ source: String) async throws -> NimboSubscriptionProfile {
-        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A TrustTunnel v2 deep link may carry the endpoint's own HTTPS
+        // subscription; it becomes the refreshable source.
+        if let subscription = TrustTunnelLink.shared.subscriptionUrl(link: trimmed) {
+            trimmed = subscription
+        }
         let profile: NimboSubscriptionProfile
         if let url = URL(string: trimmed), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
             profile = try await NimboSubscriptionRepository.shared.importRemote(trimmed)

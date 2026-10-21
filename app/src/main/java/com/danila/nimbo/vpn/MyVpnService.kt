@@ -113,6 +113,7 @@ class MyVpnService : VpnService() {
         const val EXTRA_SERVER_NAIVE_USERNAME = "server_naive_username"
         const val EXTRA_SERVER_NAIVE_PASSWORD = "server_naive_password"
         const val EXTRA_SERVER_NAIVE_TRANSPORT = "server_naive_transport"
+        const val EXTRA_SERVER_TRUSTTUNNEL_LINK = "server_trusttunnel_link"
         const val EXTRA_SERVER_WG_PRIVATE_KEY = "server_wg_private_key"
         const val EXTRA_SERVER_WG_PUBLIC_KEY = "server_wg_public_key"
         const val EXTRA_SERVER_WG_PRESHARED_KEY = "server_wg_preshared_key"
@@ -191,6 +192,7 @@ class MyVpnService : VpnService() {
                 putExtra(EXTRA_SERVER_NAIVE_USERNAME, server.naiveUsername ?: "")
                 putExtra(EXTRA_SERVER_NAIVE_PASSWORD, server.naivePassword ?: "")
                 putExtra(EXTRA_SERVER_NAIVE_TRANSPORT, server.naiveTransport ?: "")
+                putExtra(EXTRA_SERVER_TRUSTTUNNEL_LINK, server.trustTunnelLink ?: "")
                 putExtra(EXTRA_SERVER_WG_PRIVATE_KEY, server.wgPrivateKey ?: "")
                 putExtra(EXTRA_SERVER_WG_PUBLIC_KEY, server.wgPublicKey ?: "")
                 putExtra(EXTRA_SERVER_WG_PRESHARED_KEY, server.wgPresharedKey ?: "")
@@ -2388,7 +2390,7 @@ class MyVpnService : VpnService() {
                     "Connection retry ${attempt + 1}/$maxAttempts for ${candidate.name}${if (probeMode) " [probe]" else ""}..."
                 )
                 XrayManager.disconnect()
-                NaiveProxyManager.stop()
+                stopSidecars()
                 val retryDelayMs = if (autoBalancerCandidate) {
                     AUTO_BALANCER_RETRY_DELAY_MS
                 } else {
@@ -2417,10 +2419,16 @@ class MyVpnService : VpnService() {
             if (attemptTimeoutMs <= 0L) break
             val connected = withTimeoutOrNull(attemptTimeoutMs) {
                 runCatching {
-                    val runtimeCandidate = if (candidate.isNaiveProxy()) {
-                        NaiveProxyManager.start(this@MyVpnService, candidate)
-                    } else {
-                        candidate
+                    val runtimeCandidate = when {
+                        candidate.isNaiveProxy() -> NaiveProxyManager.start(this@MyVpnService, candidate)
+                        candidate.isTrustTunnel() -> try {
+                            TrustTunnelManager.start(candidate) { fd -> protect(fd) }
+                        } catch (error: IllegalStateException) {
+                            // Surface the endpoint's verdict (wrong password, TLS) to the UI.
+                            XrayManager.recordConnectionFailure(error.message ?: "TrustTunnel")
+                            throw error
+                        }
+                        else -> candidate
                     }
                     XrayManager.connect(
                         context = this@MyVpnService,
@@ -2434,12 +2442,12 @@ class MyVpnService : VpnService() {
                     )
                 }.onFailure {
                     Logger.e(TAG, "Не удалось запустить ${candidate.protocol} для ${candidate.name}", it)
-                    NaiveProxyManager.stop()
+                    stopSidecars()
                 }.getOrDefault(false)
             } ?: run {
                 Logger.w(TAG, "Connection attempt timed out for ${candidate.name}")
                 XrayManager.disconnect()
-                NaiveProxyManager.stop()
+                stopSidecars()
                 false
             }
             if (connected) {
@@ -2457,13 +2465,13 @@ class MyVpnService : VpnService() {
                 }
                 if (verified) return true
                 XrayManager.disconnect()
-                NaiveProxyManager.stop()
+                stopSidecars()
             }
             if (!ConnectionAttemptPolicy.shouldRetry(XrayManager.connectionError, attempt, maxAttempts)) {
                 break
             }
         }
-        if (candidate.isNaiveProxy()) NaiveProxyManager.stop()
+        if (candidate.usesLocalSocksSidecar()) stopSidecars()
         return false
     }
 
@@ -2560,11 +2568,16 @@ class MyVpnService : VpnService() {
         return false
     }
 
+    private fun stopSidecars() {
+        NaiveProxyManager.stop()
+        TrustTunnelManager.stop()
+    }
+
     private fun disconnectCurrentEngine() {
         MihomoManager.disconnect()
         AmneziaWgManager.disconnect()
         XrayManager.disconnect()
-        NaiveProxyManager.stop()
+        stopSidecars()
     }
 
     private suspend fun verifyStartedTunnel(
@@ -3067,7 +3080,7 @@ class MyVpnService : VpnService() {
     private fun shouldUseRemoteTemplateConfig(server: Server): Boolean {
         // NaiveProxy is handled by its own native sidecar; an Xray template cannot
         // replace that process and would silently route the node as another protocol.
-        if (server.isNaiveProxy()) return false
+        if (server.usesLocalSocksSidecar()) return false
         if (server.uuid == "remote") return true
         if (!server.templateUuid.isNullOrBlank() || !server.templateName.isNullOrBlank()) return true
 
@@ -3145,6 +3158,7 @@ class MyVpnService : VpnService() {
             naiveUsername = intent.getStringExtra(EXTRA_SERVER_NAIVE_USERNAME)?.takeIf { it.isNotBlank() },
             naivePassword = intent.getStringExtra(EXTRA_SERVER_NAIVE_PASSWORD)?.takeIf { it.isNotBlank() },
             naiveTransport = intent.getStringExtra(EXTRA_SERVER_NAIVE_TRANSPORT)?.takeIf { it.isNotBlank() },
+            trustTunnelLink = intent.getStringExtra(EXTRA_SERVER_TRUSTTUNNEL_LINK)?.takeIf { it.isNotBlank() },
             wgPrivateKey = intent.getStringExtra(EXTRA_SERVER_WG_PRIVATE_KEY)?.takeIf { it.isNotBlank() },
             wgPublicKey = intent.getStringExtra(EXTRA_SERVER_WG_PUBLIC_KEY)?.takeIf { it.isNotBlank() },
             wgPresharedKey = intent.getStringExtra(EXTRA_SERVER_WG_PRESHARED_KEY)?.takeIf { it.isNotBlank() },

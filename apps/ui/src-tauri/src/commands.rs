@@ -979,7 +979,16 @@ pub async fn add_subscription(
     // Ссылка может нести домены-зеркала: ?mirrors=sub2.example.com,sub3.example.net
     // Их запоминаем отдельно, а из URL подписки вырезаем.
     let link = extract_mirrors_from_url(url.trim());
-    let source = link.url.trim();
+    // A TrustTunnel deep link may carry the endpoint's own subscription URL
+    // (format v2). It becomes the refreshable source; any static parameters in
+    // the link are only a fallback for the first fetch (DEEP_LINK.md rule 6).
+    let trusttunnel_link = link.url.trim().to_string();
+    let trusttunnel_subscription =
+        nimbo_subscription::parser::trusttunnel::subscription_url(&trusttunnel_link);
+    let source_owned = trusttunnel_subscription
+        .clone()
+        .unwrap_or_else(|| link.url.trim().to_string());
+    let source = source_owned.as_str();
     let link_mirrors = link.mirrors.clone();
 
     if let Some(existing) = snapshot_before
@@ -1014,9 +1023,34 @@ pub async fn add_subscription(
 
     let fetched = if is_remote_subscription(source) {
         let opts = build_fetch_options(&snapshot_before);
-        fetch_subscription_with_mirrors(source, &opts, &link_mirrors, None)
-            .await
-            .map_err(|e| format!("Не удалось загрузить: {e}"))?
+        match fetch_subscription_with_mirrors(source, &opts, &link_mirrors, None).await {
+            Ok(fetched) => fetched,
+            Err(error) => {
+                let fallback = trusttunnel_subscription
+                    .as_ref()
+                    .and_then(|_| parse_aggregate(&trusttunnel_link).ok());
+                let Some(servers) = fallback else {
+                    return Err(format!("Не удалось загрузить: {error}"));
+                };
+                tracing::warn!("TrustTunnel subscription fetch failed; using link parameters");
+                Fetched {
+                    raw_body: String::new(),
+                    servers,
+                    info: None,
+                    suggested_name: None,
+                    description: None,
+                    support_url: None,
+                    website_url: None,
+                    app_proxy_rules: Vec::new(),
+                    logo_url: None,
+                    theme: None,
+                    tls_fragment: None,
+                    xray_templates: Default::default(),
+                    mirrors: Vec::new(),
+                    source_url: source.to_string(),
+                }
+            }
+        }
     } else {
         let servers =
             parse_aggregate(source).map_err(|e| format!("Не удалось распарсить конфиг: {e}"))?;
@@ -3114,13 +3148,11 @@ async fn measure_server_latency(
             Err(_) => return ping_failure(&server.id, "Diagnostic directory unavailable"),
         };
         let template = diagnostic_template_for(snap, server).cloned();
-        if !matches!(
-            server.protocol,
-            nimbo_subscription::Protocol::Awg(_) | nimbo_subscription::Protocol::Naive(_)
-        ) && server
-            .xray_json_template_uuid
-            .as_deref()
-            .is_some_and(|key| !key.trim().is_empty())
+        if !is_sidecar_protocol(&server.protocol)
+            && server
+                .xray_json_template_uuid
+                .as_deref()
+                .is_some_and(|key| !key.trim().is_empty())
             && template.is_none()
         {
             return ping_failure(
@@ -3155,7 +3187,20 @@ async fn measure_server_latency(
             } else {
                 None
             };
-            Ok(crate::diagnostics::Binaries { xray, awg, naive })
+            let trusttunnel = if matches!(
+                server.protocol,
+                nimbo_subscription::Protocol::TrustTunnel(_)
+            ) {
+                Some(crate::trusttunnel_runtime::binary(app)?)
+            } else {
+                None
+            };
+            Ok(crate::diagnostics::Binaries {
+                xray,
+                awg,
+                naive,
+                trusttunnel,
+            })
         };
         match crate::diagnostics::measure(
             server.clone(),
@@ -4105,6 +4150,7 @@ fn server_protocol_label(server: &Server) -> String {
         nimbo_subscription::Protocol::Hysteria2(_) => "Hysteria2",
         nimbo_subscription::Protocol::Naive(_) => "NaiveProxy",
         nimbo_subscription::Protocol::Awg(_) => "AmneziaWG",
+        nimbo_subscription::Protocol::TrustTunnel(_) => "TrustTunnel",
     }
     .into()
 }
@@ -4772,7 +4818,7 @@ fn helper_log_path() -> Option<PathBuf> {
         .map(|base| base.join("Nimbo").join("helper.log"))
 }
 
-fn rotate_runtime_log(path: &Path) -> Result<(), String> {
+pub(crate) fn rotate_runtime_log(path: &Path) -> Result<(), String> {
     let Ok(metadata) = std::fs::metadata(path) else {
         return Ok(());
     };
@@ -6059,6 +6105,14 @@ fn server_connection_identity(server: &Server) -> String {
             config.password,
             config.transport
         ),
+        nimbo_subscription::Protocol::TrustTunnel(config) => format!(
+            "trusttunnel:{}:{}:{}:{}:{:?}",
+            config.addresses.join(",").to_ascii_lowercase(),
+            config.hostname.trim().to_ascii_lowercase(),
+            config.username,
+            config.password,
+            config.upstream
+        ),
     }
 }
 
@@ -6280,7 +6334,18 @@ fn server_endpoint(server: &Server) -> (String, u16) {
         nimbo_subscription::Protocol::Hysteria2(config) => (config.address.clone(), config.port),
         nimbo_subscription::Protocol::Naive(config) => (config.address.clone(), config.port),
         nimbo_subscription::Protocol::Awg(config) => (config.address.clone(), config.port),
+        nimbo_subscription::Protocol::TrustTunnel(config) => (config.address.clone(), config.port),
     }
+}
+
+/// Protocols whose remote transport is owned by a local sidecar process.
+fn is_sidecar_protocol(protocol: &nimbo_subscription::Protocol) -> bool {
+    matches!(
+        protocol,
+        nimbo_subscription::Protocol::Awg(_)
+            | nimbo_subscription::Protocol::Naive(_)
+            | nimbo_subscription::Protocol::TrustTunnel(_)
+    )
 }
 
 fn prepare_naive_runtime(
@@ -6542,6 +6607,7 @@ async fn connect_system_proxy(
 
     let ports = ProxyPorts::default();
     let (server, awg) = crate::awg_runtime::prepare(app, server)?;
+    let (server, trusttunnel) = crate::trusttunnel_runtime::prepare(app, server, None)?;
     let (server, mut naive) = prepare_naive_runtime(app, server)?;
     let mut config = match build_runtime_xray_config(&server, snapshot, ports) {
         Ok(value) => value,
@@ -6609,6 +6675,7 @@ async fn connect_system_proxy(
         runtime.xray = Some(child);
         runtime.naive = naive;
         runtime.awg = awg;
+        runtime.trusttunnel = trusttunnel;
         runtime.system_proxy_snapshot = proxy_snapshot;
     });
 
@@ -6679,7 +6746,35 @@ async fn connect_tun(
         *config = nimbo_subscription::parser::awg::parse_ini(&config.config)
             .map_err(|_| "Некорректная конфигурация AWG")?;
     }
-    let bypass_ips = resolve_server_ipv4s(&server).await;
+    // The TrustTunnel sidecar must dial exactly the addresses that bypass the
+    // tunnel, otherwise its own traffic would loop back into Xray's TUN. Both
+    // lists therefore come from one resolution.
+    let trusttunnel_pins = match &server.protocol {
+        nimbo_subscription::Protocol::TrustTunnel(config) => {
+            let pins = trusttunnel_pinned_addresses(config).await;
+            if pins.is_empty() {
+                return Err(
+                    "Для TrustTunnel в режиме TUN нужен доступный IPv4-адрес сервера".into(),
+                );
+            }
+            Some(pins)
+        }
+        _ => None,
+    };
+    let bypass_ips = match &trusttunnel_pins {
+        Some(pins) => {
+            let mut ips: Vec<String> = Vec::new();
+            for pin in pins {
+                if let Some((ip, _)) = pin.rsplit_once(':') {
+                    if !ips.iter().any(|known| known == ip) {
+                        ips.push(ip.to_string());
+                    }
+                }
+            }
+            ips
+        }
+        None => resolve_server_ipv4s(&server).await,
+    };
     let is_awg = matches!(&server.protocol, nimbo_subscription::Protocol::Awg(_));
     if is_awg {
         let ip = bypass_ips.first().and_then(|value| value.parse::<Ipv4Addr>().ok())
@@ -6705,6 +6800,8 @@ async fn connect_tun(
             .map_err(|_| "Не удалось сохранить снимок маршрута AWG")?;
     }
     let (server, awg) = crate::awg_runtime::prepare(app, server)?;
+    let (server, trusttunnel) =
+        crate::trusttunnel_runtime::prepare(app, server, trusttunnel_pins.as_deref())?;
     let (server, mut naive) = prepare_naive_runtime(app, server)?;
     let mut config = match build_runtime_xray_config(&server, snapshot, ports) {
         Ok(value) => value,
@@ -6794,6 +6891,7 @@ async fn connect_tun(
             runtime.tun_session = Some(session);
             runtime.naive = naive.take();
             runtime.awg = awg;
+            runtime.trusttunnel = trusttunnel;
             runtime.awg_route = awg_route;
             runtime.tun_snapshot = Some(TunRuntimeSnapshot {
                 awg_bypass_routes: Vec::new(),
@@ -6866,6 +6964,7 @@ async fn connect_tun(
             runtime.xray = Some(xray);
             runtime.naive = naive;
             runtime.awg = awg;
+            runtime.trusttunnel = trusttunnel;
             runtime.awg_route = awg_route;
             runtime.tun_snapshot = Some(tun_snapshot);
         });
@@ -7033,7 +7132,38 @@ fn current_default_ipv4_route() -> Option<DefaultIpv4Route> {
 }
 
 async fn resolve_server_ipv4s(server: &Server) -> Vec<String> {
+    if let nimbo_subscription::Protocol::TrustTunnel(config) = &server.protocol {
+        let mut ips = Vec::new();
+        for (host, port) in crate::trusttunnel_runtime::dial_endpoints(config) {
+            for ip in resolve_host_ipv4s(host, port).await {
+                if !ips.contains(&ip) {
+                    ips.push(ip);
+                }
+            }
+        }
+        return ips;
+    }
     let (host, port) = server_endpoint(server);
+    resolve_host_ipv4s(host, port).await
+}
+
+/// IPv4 `ip:port` for every TrustTunnel endpoint, in the link's order.
+async fn trusttunnel_pinned_addresses(
+    config: &nimbo_subscription::TrustTunnelConfig,
+) -> Vec<String> {
+    let mut pins = Vec::new();
+    for (host, port) in crate::trusttunnel_runtime::dial_endpoints(config) {
+        for ip in resolve_host_ipv4s(host, port).await {
+            let pin = format!("{ip}:{port}");
+            if !pins.contains(&pin) {
+                pins.push(pin);
+            }
+        }
+    }
+    pins
+}
+
+async fn resolve_host_ipv4s(host: String, port: u16) -> Vec<String> {
     if let Ok(IpAddr::V4(ip)) = host.parse::<IpAddr>() {
         return vec![ip.to_string()];
     }
@@ -7398,10 +7528,7 @@ fn diagnostic_template_for<'a>(
     snapshot: &'a PersistedState,
     server: &Server,
 ) -> Option<&'a serde_json::Value> {
-    if matches!(
-        server.protocol,
-        nimbo_subscription::Protocol::Awg(_) | nimbo_subscription::Protocol::Naive(_)
-    ) {
+    if is_sidecar_protocol(&server.protocol) {
         return None;
     }
     let owner = snapshot
@@ -7434,10 +7561,7 @@ fn diagnostic_transport_template(
 ) -> Option<serde_json::Value> {
     // Sidecars own their remote transport; their prepared local ports do not
     // exist until the isolated runtime starts.
-    if matches!(
-        server.protocol,
-        nimbo_subscription::Protocol::Awg(_) | nimbo_subscription::Protocol::Naive(_)
-    ) {
+    if is_sidecar_protocol(&server.protocol) {
         return None;
     }
     let fragment = effective_probe_fragmentation(snapshot, server);
@@ -7491,10 +7615,7 @@ fn prepare_runtime_ping_route(
     config: &mut serde_json::Value,
 ) -> Option<crate::latency::PingRoute> {
     let route = crate::latency::PingRoute::prepare(server, config).ok()?;
-    if matches!(
-        server.protocol,
-        nimbo_subscription::Protocol::Awg(_) | nimbo_subscription::Protocol::Naive(_)
-    ) {
+    if is_sidecar_protocol(&server.protocol) {
         return Some(route);
     }
     // The diagnostic outbound was added after runtime preferences were applied.
@@ -8591,6 +8712,7 @@ pub(crate) fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
             let _ = child.wait();
         }
         drop(runtime.awg.take());
+        drop(runtime.trusttunnel.take());
         drop(runtime.awg_route.take());
         if let Some(mut child) = runtime.naive.take() {
             let _ = child.kill();
@@ -8724,9 +8846,13 @@ pub fn start_resume_monitor(app: AppHandle) {
             let slept = now.duration_since(previous).unwrap_or_default() >= Duration::from_secs(30);
             previous = now;
             crate::mihomo_runtime::reconcile_process_exit(&app).await;
-            let awg_failed = app
-                .state::<AppState>()
-                .runtime(|runtime| runtime.awg.as_mut().is_some_and(|awg| awg.has_exited()));
+            let awg_failed = app.state::<AppState>().runtime(|runtime| {
+                runtime.awg.as_mut().is_some_and(|awg| awg.has_exited())
+                    || runtime
+                        .trusttunnel
+                        .as_mut()
+                        .is_some_and(|tt| tt.has_exited())
+            });
             if slept || awg_failed {
                 reconnect_runtime_after_resume(&app);
             }

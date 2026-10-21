@@ -66,6 +66,14 @@ data class Server(
     @SerializedName("naiveTransport") val naiveTransport: String? = null,
     @Transient val naiveLocalPort: Int? = null,
 
+    // TrustTunnel (AdGuard). The raw tt:// deep link is the source of truth and
+    // is decoded by the shared parser when connecting; the Go bridge exposes an
+    // authenticated loopback SOCKS endpoint consumed by Xray.
+    @SerializedName("trustTunnelLink") val trustTunnelLink: String? = null,
+    @Transient val trustTunnelSocksPort: Int? = null,
+    @Transient val trustTunnelSocksUsername: String? = null,
+    @Transient val trustTunnelSocksPassword: String? = null,
+
     // WireGuard
     @SerializedName("wgPrivateKey") val wgPrivateKey: String? = null,
     @SerializedName("wgPublicKey") val wgPublicKey: String? = null,
@@ -192,7 +200,8 @@ data class Server(
             hysteriaPorts.orEmpty(),
             hysteriaHopInterval.orEmpty(),
             naiveUsername.orEmpty(),
-            naiveTransport?.lowercase().orEmpty()
+            naiveTransport?.lowercase().orEmpty(),
+            trustTunnelLink?.substringBefore('#').orEmpty()
         ).joinToString("|")
         val pingTargetPart = if (isRemoteTemplateServer()) {
             // Embedded provider configs can reuse every visible endpoint/route field.
@@ -237,6 +246,11 @@ data class Server(
     fun isNaiveProxy(): Boolean = protocol.equals("naive", true) ||
         protocol.equals("naiveproxy", true) ||
         protocol.startsWith("naive+", true)
+
+    fun isTrustTunnel(): Boolean = protocol.equals("trusttunnel", true)
+
+    /** Protocols whose remote transport is owned by a local SOCKS sidecar. */
+    fun usesLocalSocksSidecar(): Boolean = isNaiveProxy() || isTrustTunnel()
 
     /**
      * Протоколы, которые обслуживает нативный движок AmneziaWG (libwg-go)

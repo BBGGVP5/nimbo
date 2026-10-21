@@ -867,6 +867,7 @@ pub async fn mihomo_probe(
         r.mihomo.is_some()
             || r.xray.is_some()
             || r.naive.is_some()
+            || r.trusttunnel.is_some()
             || r.awg.is_some()
             || r.tun2socks.is_some()
             || r.tun_snapshot.is_some()

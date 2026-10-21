@@ -255,6 +255,7 @@ async fn real_cli_per_node_http_tls_failure_deadline_and_cleanup() {
             xray: binary.clone(),
             awg: None,
             naive: None,
+            trusttunnel: None,
         })
     };
     // SAME unresolvable target URL: only fixture A and B's distinct VLESS routes
@@ -395,6 +396,7 @@ async fn real_cli_least_ping_selects_healthy_member_and_cancels_startup() {
             xray: binary.clone(),
             awg: None,
             naive: None,
+            trusttunnel: None,
         })
     };
     let latency = measure(

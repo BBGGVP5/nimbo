@@ -242,6 +242,7 @@ targets:
       - path: Shared/NimboAWGConfiguration.swift
       - path: Nimbo/NimboCoreSelection.swift
       - path: Shared/NimboNaiveConfiguration.swift
+      - path: Shared/NimboTrustTunnelConfiguration.swift
       - path: Branding/Branding.xcassets
         buildPhase: resources
     dependencies:

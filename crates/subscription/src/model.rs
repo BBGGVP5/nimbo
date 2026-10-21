@@ -118,6 +118,82 @@ pub enum Protocol {
     Hysteria2(Hysteria2Config),
     Naive(NaiveConfig),
     Awg(AwgConfig),
+    #[serde(rename = "trusttunnel")]
+    TrustTunnel(TrustTunnelConfig),
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TrustTunnelUpstream {
+    #[default]
+    Http2,
+    Http3,
+}
+
+/// TrustTunnel endpoint (`tt://?` deep link, AdGuard). The desktop runs the
+/// official client as a loopback SOCKS sidecar, like NaiveProxy.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct TrustTunnelConfig {
+    /// Dial host of the first endpoint address (IP or domain).
+    pub address: String,
+    pub port: u16,
+    /// Every endpoint address as `host:port`; the official client pings them all.
+    #[serde(default)]
+    pub addresses: Vec<String>,
+    /// Name the endpoint certificate is issued for.
+    pub hostname: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_sni: Option<String>,
+    #[serde(default = "default_true")]
+    pub has_ipv6: bool,
+    pub username: String,
+    pub password: String,
+    #[serde(default)]
+    pub skip_verification: bool,
+    /// PEM chain to verify the endpoint against instead of system CAs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certificate: Option<String>,
+    #[serde(default)]
+    pub upstream: TrustTunnelUpstream,
+    #[serde(default)]
+    pub anti_dpi: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_random_prefix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_random_auth_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dns_upstreams: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_url: Option<String>,
+    /// Runtime-only authenticated loopback SOCKS exposed by the TrustTunnel
+    /// sidecar. Never accepted from or persisted into an imported profile.
+    #[serde(skip)]
+    pub local_socks: Option<AwgLocalSocks>,
+}
+
+impl TrustTunnelConfig {
+    /// SNI sent in the ClientHello: `custom_sni` when set, else the hostname.
+    pub fn tls_server_name(&self) -> &str {
+        self.custom_sni
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(&self.hostname)
+    }
+}
+
+impl std::fmt::Debug for TrustTunnelConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TrustTunnelConfig")
+            .field("address", &self.address)
+            .field("port", &self.port)
+            .field("hostname", &self.hostname)
+            .field("upstream", &self.upstream)
+            .finish_non_exhaustive()
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]

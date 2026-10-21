@@ -21,6 +21,14 @@ enum CoreSelectionTests {
                 try rejected(.incompatible) { try NimboCoreAdmission.validate(preference: selected, data: data) }
             }
         }
+        // TrustTunnel is an upstream behind the Xray TUN, like NaiveProxy.
+        let trustTunnel = Data("tt://?AQZ0dC50bGQCCnR0LnRsZDo0NDMFAXUGAXA#Node".utf8)
+        for selected in ["auto", "xray"] {
+            precondition(try NimboCoreAdmission.validate(preference: selected, data: trustTunnel) == .trusttunnel)
+        }
+        for selected in ["awg", "mihomo"] {
+            try rejected(.incompatible) { try NimboCoreAdmission.validate(preference: selected, data: trustTunnel) }
+        }
         for scheme in ["tuic", "mieru"] {
             try rejected(.tuicRequiresMihomo) {
                 try NimboCoreAdmission.validate(preference: "auto", data: Data("\(scheme)://id:p@example.invalid".utf8))

@@ -4,6 +4,7 @@ pub mod hysteria2;
 pub mod naive;
 pub mod shadowsocks;
 pub mod trojan;
+pub mod trusttunnel;
 pub mod vless;
 pub mod vmess;
 pub mod xray_json;

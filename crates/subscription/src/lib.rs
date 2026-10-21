@@ -19,7 +19,7 @@ pub use model::{
     AwgConfig, AwgLocalSocks, Hysteria2Config, NaiveConfig, NaiveTransport, Network, Protocol,
     Security, Server, ShadowsocksConfig, StreamSettings, Subscription, SubscriptionAppProxyMode,
     SubscriptionAppProxyRule, SubscriptionMeta, SubscriptionTheme, TlsFragmentConfig, TrojanConfig,
-    VlessConfig, VmessConfig,
+    TrustTunnelConfig, TrustTunnelUpstream, VlessConfig, VmessConfig,
 };
 pub use parser::{parse_aggregate, ParseError};
 pub use userinfo::{parse_subscription_userinfo, SubscriptionInfo};

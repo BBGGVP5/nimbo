@@ -8,6 +8,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let core = LibXrayBridge()
     private let awg = AmneziaWGBridge()
     private let naive = NaiveProxyBridge()
+    private let trustTunnel = TrustTunnelBridge()
     private let mihomo = MihomoPacketBridge()
     private var previousPathInterfaces: Set<String>?
     private var lifecycleGeneration: UInt64 = 0
@@ -84,6 +85,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         if (try? self.core.isRunning()) == true { try? self.core.stop() }
                         self.awg.close()
                         self.naive.close()
+                        self.trustTunnel.close()
                         self.mihomo.stop()
                         self.starting = false
                         self.started = false
@@ -118,6 +120,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             self.awg.close()
             self.naive.close()
+            self.trustTunnel.close()
             self.mihomo.stop()
             self.starting = false
             self.started = false
@@ -163,8 +166,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 if let id = request?["requestID"] as? String { self.pingTasks.removeValue(forKey: id)?.cancel() }
                 completionHandler?(Self.responseData(["ok": true]))
             case "status":
-                let running = self.mihomo.isConfigured ? self.mihomo.isRunning : (((try? self.core.isRunning()) ?? false) && (!self.naive.isConfigured || self.naive.isRunning))
-                let version = self.mihomo.isConfigured ? "Mihomo v1.19.32" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version)" : ((try? self.core.version()) ?? "unknown")
+                let running = self.mihomo.isConfigured ? self.mihomo.isRunning : (((try? self.core.isRunning()) ?? false) && (!self.naive.isConfigured || self.naive.isRunning) && (!self.trustTunnel.isConfigured || self.trustTunnel.isRunning))
+                let version = self.mihomo.isConfigured ? "Mihomo v1.19.32" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version)" : self.trustTunnel.isConfigured ? "TrustTunnel \(TrustTunnelBridge.version)" : ((try? self.core.version()) ?? "unknown")
                 completionHandler?(Self.responseData([
                     "ok": true,
                     "running": running,
@@ -239,8 +242,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     (try? self.awg.stats()) ?? ["ok": false, "error": "IOS_AWG_STATS_FAILED"]
                 ))
             case "diagnostics":
-                let running = self.mihomo.isConfigured ? self.mihomo.isRunning : (((try? self.core.isRunning()) ?? false) && (!self.naive.isConfigured || self.naive.isRunning))
-                let version = self.mihomo.isConfigured ? "Mihomo v1.19.32" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version)" : ((try? self.core.version()) ?? "unknown")
+                let running = self.mihomo.isConfigured ? self.mihomo.isRunning : (((try? self.core.isRunning()) ?? false) && (!self.naive.isConfigured || self.naive.isRunning) && (!self.trustTunnel.isConfigured || self.trustTunnel.isRunning))
+                let version = self.mihomo.isConfigured ? "Mihomo v1.19.32" : self.awg.isConfigured ? "AmneziaWG \(NimboAWGConfiguration.version)" : self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version)" : self.trustTunnel.isConfigured ? "TrustTunnel \(TrustTunnelBridge.version)" : ((try? self.core.version()) ?? "unknown")
                 let outboundCount = self.outboundCount
                 Task {
                     let records = (try? await NimboDiagnostics.shared.recentRecordsData(maxBytes: 384 * 1_024)) ?? Data()
@@ -282,7 +285,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             let awgHealthy = !self.awg.isConfigured || self.awg.suspended ||
                 ((try? self.awg.stats())?["running"] as? Bool == true)
-            if (try? self.core.isRunning()) == true, awgHealthy, (!self.naive.isConfigured || self.naive.isRunning) {
+            if (try? self.core.isRunning()) == true, awgHealthy, (!self.naive.isConfigured || self.naive.isRunning) && (!self.trustTunnel.isConfigured || self.trustTunnel.isRunning) {
                 self.watchdogMisses = 0
                 return
             }
@@ -291,6 +294,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             self.stopWatchdog()
             if self.naive.isConfigured, !self.naive.isRunning {
                 self.failActiveTunnel(NimboNaiveError.runtimeFailure)
+                return
+            }
+            if self.trustTunnel.isConfigured, !self.trustTunnel.isRunning {
+                self.failActiveTunnel(NimboTrustTunnelError.runtimeFailure)
                 return
             }
             if self.awg.isConfigured {
@@ -357,6 +364,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         if !satisfied || returned || changed { invalidatePingSamples() }
 
         if naive.isConfigured, satisfied, returned || changed { naive.networkChanged() }
+        if trustTunnel.isConfigured, satisfied, returned || changed { trustTunnel.networkChanged() }
         if mihomo.isConfigured { return } // Dedicated physical binder owns Mihomo path handoff.
         if awg.isConfigured {
             // Never reinstall network settings or replace Xray's TUN FD.
@@ -389,6 +397,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         lifecycleQueue.async {
             self.invalidatePingSamples()
             self.naive.networkChanged()
+            self.trustTunnel.networkChanged()
             if self.awg.isConfigured { self.awg.suspend() }
             completionHandler()
         }
@@ -399,6 +408,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         lifecycleQueue.async { [weak self] in
             guard let self, self.started else { return }
             self.naive.networkChanged()
+            self.trustTunnel.networkChanged()
             if self.awg.isConfigured {
                 self.restartAWG()
                 return
@@ -496,6 +506,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         try? core.stop()
         awg.close()
         naive.close()
+        trustTunnel.close()
         mihomo.stop()
         starting = false
         started = false
@@ -753,6 +764,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     if (try? self.core.isRunning()) == true { try self.core.stop() }
                     self.awg.close()
                     self.naive.close()
+                    self.trustTunnel.close()
                     try self.core.configureRuntimeEnvironment(
                         tunnelFileDescriptor: descriptor,
                         assetDirectory: assetDirectory
@@ -763,6 +775,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         xraySource = try self.awg.start(awgConfiguration)
                     } else if let naiveConfiguration = try NimboNaiveConfiguration.parseIfPresent(String(decoding: sourceData, as: UTF8.self)) {
                         xraySource = try self.naive.start(naiveConfiguration)
+                    } else if let trustTunnelConfiguration = try NimboTrustTunnelConfiguration.parseIfPresent(String(decoding: sourceData, as: UTF8.self)) {
+                        xraySource = try self.trustTunnel.start(trustTunnelConfiguration)
                     } else {
                         xraySource = sourceData
                     }
@@ -787,7 +801,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     self.pingRoute = configuration.pingRouteVerified ? candidatePingRoute : nil
                     self.pingServerID = pingServerID
                     let xrayVersion = try self.core.version()
-                    let coreVersion = self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version) / Xray \(xrayVersion)" : xrayVersion
+                    let coreVersion = self.naive.isConfigured ? "NaiveProxy \(NaiveProxyBridge.version) / Xray \(xrayVersion)"
+                        : self.trustTunnel.isConfigured ? "TrustTunnel \(TrustTunnelBridge.version) / Xray \(xrayVersion)" : xrayVersion
                     self.outboundCount = configuration.outboundCount
                     self.activeAdBlockingEnabled = options.adBlockingEnabled
                     continuation.resume(returning: CoreStartupResult(
@@ -798,6 +813,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     if (try? self.core.isRunning()) == true { try? self.core.stop() }
                     self.awg.close()
                     self.naive.close()
+                    self.trustTunnel.close()
                     continuation.resume(throwing: error)
                 }
             }

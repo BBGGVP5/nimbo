@@ -141,6 +141,13 @@ enum NimboNetworkSession {
         request.setValue(UIDevice.current.systemVersion, forHTTPHeaderField: "x-ver-os")
         request.setValue(NimboPlatformInfo.deviceModel, forHTTPHeaderField: "x-device-model")
         request.setValue(NimboPlatformInfo.displayVersion, forHTTPHeaderField: "x-app-version")
+        // TrustTunnel endpoint subscriptions embed HTTP Basic credentials in the
+        // URL (https://user:pass@host/path); URLSession does not send them itself.
+        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let user = components.user, !user.isEmpty {
+            let token = Data("\(user):\(components.password ?? "")".utf8).base64EncodedString()
+            request.setValue("Basic \(token)", forHTTPHeaderField: "Authorization")
+        }
         return request
     }
 }

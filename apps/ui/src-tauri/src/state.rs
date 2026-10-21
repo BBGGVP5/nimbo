@@ -657,6 +657,7 @@ pub struct RuntimeState {
     pub xray: Option<Child>,
     pub naive: Option<Child>,
     pub awg: Option<crate::awg_runtime::AwgRuntime>,
+    pub trusttunnel: Option<crate::trusttunnel_runtime::TrustTunnelRuntime>,
     pub awg_route: Option<crate::awg_routes::AwgBypass>,
     pub tun2socks: Option<Child>,
     pub system_proxy_snapshot: Option<SystemProxySnapshot>,

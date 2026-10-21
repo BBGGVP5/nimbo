@@ -7,6 +7,7 @@
     ],
     "resources": [
       "resources/naive/**/*",
+      "resources/trusttunnel/**/*",
       "resources/awg/**/*",
       "resources/helper/linux/nimbo-svc.manifest.json",
       "resources/helper/linux/nimbo-svc.zip",

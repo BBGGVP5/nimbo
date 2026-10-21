@@ -966,7 +966,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 if (!silent) showTopNotification(userText("Nimbo Ping: проверка…", "Nimbo Ping: checking…"), com.danila.nimbo.ui.components.NotificationType.PING)
                 val targets = servers.map { server ->
-                    NimboPingTarget(server.pingMeasurementKey(), nimboConfigForServer(server))
+                    if (server.isTrustTunnel()) {
+                        NimboPingTarget(server.pingMeasurementKey(), null) {
+                            com.danila.nimbo.vpn.TrustTunnelManager.probe(server, settings.timeoutMs, null)
+                        }
+                    } else {
+                        NimboPingTarget(server.pingMeasurementKey(), nimboConfigForServer(server))
+                    }
                 }
                 NimboPingSweep.run(targets,
                     measure = { config -> NimboNodePing.measure(getApplication(), config, settings.testUrl, settings.timeoutMs) },
@@ -1649,8 +1655,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             profile.themeSpec?.takeIf { it.isNotBlank() }
         }
 
-    fun addSubscription(rawUrl: String) {
+    fun addSubscription(rawInput: String) {
         Log.d("MainViewModel", "=== addSubscription ===")
+        // A TrustTunnel v2 deep link may carry the endpoint's own HTTPS
+        // subscription; that URL becomes the refreshable profile source.
+        val rawUrl = com.danila.nimbo.shared.subscription.TrustTunnelLink.subscriptionUrl(rawInput.trim()) ?: rawInput
         Log.d("MainViewModel", "Loading subscription")
         Log.d("MainViewModel", "Current profiles count: ${_profilesState.value.size}")
 

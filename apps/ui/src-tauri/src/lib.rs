@@ -17,6 +17,7 @@ mod on_demand;
 mod recovery_policy;
 pub mod state;
 pub mod tray;
+mod trusttunnel_runtime;
 pub mod updater;
 #[cfg(windows)]
 mod window_activation;
