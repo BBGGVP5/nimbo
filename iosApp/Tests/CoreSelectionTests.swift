@@ -24,7 +24,8 @@ enum CoreSelectionTests {
         // TrustTunnel is an upstream behind the Xray TUN, like NaiveProxy.
         let trustTunnel = Data("tt://?AQZ0dC50bGQCCnR0LnRsZDo0NDMFAXUGAXA#Node".utf8)
         for selected in ["auto", "xray"] {
-            precondition(try NimboCoreAdmission.validate(preference: selected, data: trustTunnel) == .trusttunnel)
+            let profile = try NimboCoreAdmission.validate(preference: selected, data: trustTunnel)
+            precondition(profile == .trusttunnel)
         }
         for selected in ["awg", "mihomo"] {
             try rejected(.incompatible) { try NimboCoreAdmission.validate(preference: selected, data: trustTunnel) }
