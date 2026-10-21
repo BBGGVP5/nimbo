@@ -43,7 +43,7 @@ enum NimboCoreAdmission {
         let profile = try classify(data, declaredEngine: declaredEngine)
         // Naive and TrustTunnel are upstreams behind the Xray TUN/router.
         guard selected == .auto || selected.rawValue == profile.rawValue ||
-                ((profile == .naive || profile == .trusttunnel) && selected == .xray) else {
+                (profile == .naive && selected == .xray) || (profile == .trusttunnel && selected == .xray) else {
             throw NimboCoreSelectionError.incompatible
         }
         return profile
