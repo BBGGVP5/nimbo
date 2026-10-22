@@ -24,6 +24,25 @@ def verify(directory, asset):
                for name, expected in asset["files"].items())
 
 
+def sources(manifest, name, upstream):
+    # Nimbo's mirror first: upstream prereleases can be deleted (XTLS removed v26.10.17).
+    return [f"{manifest['mirror']}/{name}", upstream]
+
+
+def fetch(urls, expected, label):
+    errors = []
+    for url in urls:
+        try:
+            data = urllib.request.urlopen(url, timeout=90).read()
+        except OSError as error:
+            errors.append(f"{url}: {error}")
+            continue
+        if digest(data) == expected:
+            return data
+        errors.append(f"{url}: SHA-256 mismatch")
+    raise ValueError(f"{label} is unavailable or mismatched: " + "; ".join(errors))
+
+
 def stage(target, output=None, verify_only=False):
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     asset = next((a for a in manifest["assets"] if a["target"] == target), None)
@@ -34,14 +53,16 @@ def stage(target, output=None, verify_only=False):
         return directory
     if verify_only:
         raise ValueError(f"Xray {manifest['version']} payload is missing or mismatched: {directory}")
-    url = f"https://github.com/XTLS/Xray-core/releases/download/{manifest['tag']}/{asset['archive']}"
-    data = urllib.request.urlopen(url, timeout=90).read()
-    if digest(data) != asset["sha256"]:
-        raise ValueError("Xray archive SHA-256 mismatch")
+    upstream = f"https://github.com/XTLS/Xray-core/releases/download/{manifest['tag']}/{asset['archive']}"
+    data = fetch(sources(manifest, asset["archive"], upstream), asset["sha256"], "Xray archive")
+    geo = manifest["geo"]["urls"]
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
-        files = {name: archive.read(name) for name in asset["files"]}
+        files = {name: archive.read(name) for name in asset["files"] if name not in geo}
     if any(digest(data) != asset["files"][name] for name, data in files.items()):
         raise ValueError("Xray payload SHA-256 mismatch")
+    # Geo databases are pinned apart from the core archive (same files as Android).
+    for name, url in geo.items():
+        files[name] = fetch(sources(manifest, name, url), asset["files"][name], name)
     directory.mkdir(parents=True, exist_ok=True)
     for name, data in files.items():
         temporary = directory / (name + "." + uuid.uuid4().hex + ".partial")

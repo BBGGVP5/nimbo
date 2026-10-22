@@ -11,7 +11,16 @@ use std::{
 pub(crate) struct Release {
     pub version: String,
     pub tag: String,
+    /// Nimbo's copy of every pinned file; upstream prereleases can be deleted.
+    pub mirror: String,
+    pub geo: Geo,
     pub assets: Vec<Asset>,
+}
+
+/// Geo databases are pinned apart from the core archive (the files Android ships).
+#[derive(Deserialize)]
+pub(crate) struct Geo {
+    pub urls: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -37,6 +46,17 @@ pub(crate) fn asset(os: &str, arch: &str) -> Option<&'static Asset> {
         .find(|asset| asset.os == os && asset.arch == arch)
 }
 
+/// Download sources for a pinned geo database, mirror first.
+pub(crate) fn geo_urls(name: &str) -> Vec<String> {
+    let release = release();
+    release
+        .geo
+        .urls
+        .get(name)
+        .map(|upstream| vec![format!("{}/{name}", release.mirror), upstream.clone()])
+        .unwrap_or_default()
+}
+
 pub(crate) fn current() -> Result<&'static Asset, String> {
     asset(std::env::consts::OS, std::env::consts::ARCH)
         .ok_or_else(|| "Unsupported Xray platform".into())
@@ -57,12 +77,16 @@ impl Asset {
             .find(|path| self.verify_runtime(path).is_ok())
             .cloned())
     }
-    pub fn url(&self) -> String {
-        format!(
-            "https://github.com/XTLS/Xray-core/releases/download/{}/{}",
-            release().tag,
-            self.archive
-        )
+    /// Archive download sources, mirror first.
+    pub fn urls(&self) -> Vec<String> {
+        let release = release();
+        vec![
+            format!("{}/{}", release.mirror, self.archive),
+            format!(
+                "https://github.com/XTLS/Xray-core/releases/download/{}/{}",
+                release.tag, self.archive
+            ),
+        ]
     }
     pub fn verify_archive(&self, bytes: &[u8]) -> Result<(), String> {
         verify(bytes, &self.sha256)
@@ -102,16 +126,32 @@ mod tests {
 
     #[test]
     fn xray_pins_cover_all_supported_architectures_without_latest() {
-        assert_eq!(release().version, "26.10.10");
+        assert_eq!(release().version, "26.10.21");
         for os in ["windows", "linux"] {
             for arch in ["x86", "x86_64", "aarch64"] {
                 let asset = asset(os, arch).unwrap();
-                assert!(asset.url().contains("/v26.10.10/"));
-                assert!(!asset.url().contains("latest"));
+                let urls = asset.urls();
+                assert!(urls[0].starts_with(&release().mirror));
+                assert!(urls[1].contains("/v26.10.21/"));
+                assert!(urls.iter().all(|url| !url.contains("latest")));
                 assert_eq!(asset.sha256.len(), 64);
                 assert_eq!(asset.files.len(), 3);
             }
         }
+        for name in ["geoip.dat", "geosite.dat"] {
+            let urls = geo_urls(name);
+            assert_eq!(urls.len(), 2);
+            assert!(urls[0].starts_with(&release().mirror));
+            assert!(!urls[1].contains("latest"));
+            // Every platform pins the same geo bytes.
+            let hashes: std::collections::HashSet<_> = release()
+                .assets
+                .iter()
+                .map(|asset| &asset.files[name])
+                .collect();
+            assert_eq!(hashes.len(), 1);
+        }
+        assert!(geo_urls("xray").is_empty());
         assert!(asset("windows", "arm").is_none());
         assert!(asset("macos", "x86_64").is_none());
     }

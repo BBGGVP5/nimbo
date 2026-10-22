@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Run isolated loopback Xray regressions with the manifest-pinned Linux CLI.
 
-Only downloads a verified official build and starts local fixture processes.
+Only downloads a verified official build (Nimbo mirror first) and starts local
+fixture processes.
 No system proxy, TUN, DNS, routes, services or real subscription data are used.
 """
 import hashlib
@@ -26,6 +27,25 @@ def checked(data, expected):
     return data
 
 
+def download(urls, expected):
+    # Upstream prereleases can be deleted (XTLS removed v26.10.17), so try the mirror first.
+    errors = []
+    for url in urls:
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response:
+                data = response.read(MAX_ARCHIVE + 1)
+        except OSError as error:
+            errors.append(f"{url}: {error}")
+            continue
+        if len(data) > MAX_ARCHIVE:
+            raise ValueError("Native probe archive exceeds limit")
+        try:
+            return checked(data, expected)
+        except ValueError as error:
+            errors.append(f"{url}: {error}")
+    raise ValueError("Native probe archive is unavailable: " + "; ".join(errors))
+
+
 def main():
     if platform.system() != "Linux":
         raise SystemExit("This isolated gate runs on Linux only")
@@ -34,12 +54,9 @@ def main():
         raise SystemExit("Unsupported native probe gate architecture")
     manifest = json.loads((ROOT / "apps/ui/src-tauri/xray-release.json").read_text(encoding="utf-8"))
     asset = next(a for a in manifest["assets"] if a["os"] == "linux" and a["arch"] == arch)
-    url = "https://github.com/XTLS/Xray-core/releases/download/" + manifest["tag"] + "/" + asset["archive"]
-    with urllib.request.urlopen(url, timeout=60) as response:
-        data = response.read(MAX_ARCHIVE + 1)
-    if len(data) > MAX_ARCHIVE:
-        raise ValueError("Native probe archive exceeds limit")
-    checked(data, asset["sha256"])
+    data = download([manifest["mirror"] + "/" + asset["archive"],
+                     "https://github.com/XTLS/Xray-core/releases/download/" + manifest["tag"] + "/" + asset["archive"]],
+                    asset["sha256"])
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         if archive.getinfo("xray").file_size > MAX_BINARY:
             raise ValueError("Native probe executable exceeds limit")

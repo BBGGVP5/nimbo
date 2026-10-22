@@ -8441,12 +8441,16 @@ fn xray_release_archive_name(os: &str, arch: &str) -> Option<&'static str> {
     crate::xray_release::asset(os, arch).map(|asset| asset.archive.as_str())
 }
 
-fn xray_release_archive_url() -> Option<String> {
-    crate::xray_release::current().ok().map(|asset| asset.url())
+fn xray_release_archive_urls() -> Option<Vec<String>> {
+    crate::xray_release::current()
+        .ok()
+        .map(|asset| asset.urls())
 }
 
+const XRAY_RUNTIME_DATA_FILES: &[&str] = &["geoip.dat", "geosite.dat"];
+
 async fn download_xray_runtime() -> Result<PathBuf, String> {
-    let archive_url = xray_release_archive_url().ok_or_else(|| {
+    let archive_urls = xray_release_archive_urls().ok_or_else(|| {
         format!(
             "Автоматическая загрузка xray-core не поддерживается для {} {}. Укажите NIMBO_XRAY_PATH.",
             std::env::consts::OS,
@@ -8456,15 +8460,48 @@ async fn download_xray_runtime() -> Result<PathBuf, String> {
     let bin_dir = xray_versioned_bin_dir()?;
     std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Не удалось создать папку Xray: {e}"))?;
 
-    tracing::info!(%archive_url, "downloading xray");
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(90))
         .user_agent("Nimbo-Xray-Updater")
         .build()
         .map_err(|e| format!("Не удалось создать HTTP-клиент для Xray: {e}"))?;
-    let archive_bytes = download_xray_asset(&client, &archive_url).await?;
-    crate::xray_release::current()?.verify_archive(&archive_bytes)?;
-    install_xray_runtime_archive(&archive_bytes, &bin_dir)
+    let asset = crate::xray_release::current()?;
+    let archive_bytes =
+        download_verified_xray_asset(&client, &archive_urls, |bytes| asset.verify_archive(bytes))
+            .await?;
+    // Geo databases are pinned separately from the core archive.
+    let mut data_files = Vec::new();
+    for name in XRAY_RUNTIME_DATA_FILES {
+        let urls = crate::xray_release::geo_urls(name);
+        let bytes =
+            download_verified_xray_asset(&client, &urls, |bytes| asset.verify_file(name, bytes))
+                .await?;
+        data_files.push((*name, bytes));
+    }
+    install_xray_runtime_archive(&archive_bytes, &data_files, &bin_dir)
+}
+
+/// Tries each source in order (Nimbo mirror first) and keeps the first pinned match.
+async fn download_verified_xray_asset(
+    client: &reqwest::Client,
+    urls: &[String],
+    verify: impl Fn(&[u8]) -> Result<(), String>,
+) -> Result<Vec<u8>, String> {
+    let mut last_error = "Не найден источник для загрузки Xray.".to_string();
+    for url in urls {
+        tracing::info!(%url, "downloading xray");
+        match download_xray_asset(client, url)
+            .await
+            .and_then(|bytes| verify(&bytes).map(|()| bytes))
+        {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) => {
+                tracing::warn!(%url, %error, "xray source rejected");
+                last_error = error;
+            }
+        }
+    }
+    Err(last_error)
 }
 
 async fn download_xray_asset(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
@@ -8501,8 +8538,11 @@ fn verify_xray_archive_digest(bytes: &[u8], digest_file: &str) -> Result<(), Str
     }
 }
 
-fn install_xray_runtime_archive(archive_bytes: &[u8], bin_dir: &Path) -> Result<PathBuf, String> {
-    const XRAY_RUNTIME_DATA_FILES: &[&str] = &["geoip.dat", "geosite.dat"];
+fn install_xray_runtime_archive(
+    archive_bytes: &[u8],
+    data_files: &[(&str, Vec<u8>)],
+    bin_dir: &Path,
+) -> Result<PathBuf, String> {
     let staging_dir = bin_dir.join(format!(".nimbo-xray-{}.partial", uuid::Uuid::new_v4()));
     if staging_dir.exists() {
         std::fs::remove_dir_all(&staging_dir)
@@ -8529,7 +8569,8 @@ fn install_xray_runtime_archive(archive_bytes: &[u8], bin_dir: &Path) -> Result<
             let Some(name) = enclosed_name.file_name().and_then(|name| name.to_str()) else {
                 continue;
             };
-            if name != xray_exe_name() && !XRAY_RUNTIME_DATA_FILES.contains(&name) {
+            // The archive's bundled geo data is ignored in favour of the separate pin.
+            if name != xray_exe_name() {
                 continue;
             }
             let output = staging_dir.join(name);
@@ -8547,6 +8588,11 @@ fn install_xray_runtime_archive(archive_bytes: &[u8], bin_dir: &Path) -> Result<
                 "Архив Xray скачан, но {} внутри не найден.",
                 xray_exe_name()
             ));
+        }
+
+        for (name, bytes) in data_files {
+            std::fs::write(staging_dir.join(name), bytes)
+                .map_err(|e| format!("Не удалось записать файл Xray {name}: {e}"))?;
         }
 
         let staged_binary = staging_dir.join(xray_exe_name());
