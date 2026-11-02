@@ -39,16 +39,11 @@ func TestNimboBorrowedDescriptorReconnect(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
+			buffer := make([]byte, 1500+utunHeaderSize)
 			for {
-				_, packet, err := tun.ReadPacket()
-				if packet != nil {
-					packet.DecRef()
+				if _, err := tun.ReadPacket(buffer); err != nil {
+					return
 				}
-				if err == ErrQueueEmpty {
-					tun.Wait()
-					continue
-				}
-				return
 			}
 		}()
 		// Permit the reader to park in Go's poller before closing its owner.

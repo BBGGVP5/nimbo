@@ -93,12 +93,12 @@ pub fn prepare() {
     );
     assert_eq!(
         metadata["coreVersion"].as_str(),
-        Some("v1.19.32"),
+        Some("v1.19.33"),
         "Mihomo pin mismatch"
     );
     assert_eq!(
         metadata["coreCommit"].as_str(),
-        Some("88dcbf7f1614a67c3b36b848ee3592dfa92ada36"),
+        Some("3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8"),
         "Mihomo commit mismatch"
     );
     assert_eq!(

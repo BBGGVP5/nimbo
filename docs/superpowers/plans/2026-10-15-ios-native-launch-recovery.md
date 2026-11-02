@@ -66,3 +66,11 @@ let entered = token.map { gate.enter($0, factory: factory) } ?? false
 - [x] Report does not claim GPU rendering, device verification or the user's black-screen cause is fixed.
 
 Execution evidence (2026-10-15): Foundation tests passed in 9 scenario groups; all 171 iOS source contracts passed without skips; standalone arm64 iOS SDK UI typecheck passed with application-service seams. These checks do not execute SwiftUI or prove actual pixels. Parent-owned Xcode build 182 / diagnostics 1 and UI smoke remain outside this worker scope. Baseline, scoped patch and hashes are in root `.codex-tmp/ios-native-launch-recovery-20261015/`.
+
+## Parent verification checkpoint (2026-10-15)
+
+Standard-Xcode run38767788575 / source7ef82b601053 succeeded with build182 and launch_diagnostics=1. The actual native launch components passed both simulator XCUITests on iPhone16e: visible first native screen with zero root/font factories before Continue, explicit lazy gate and diagnostic relaunch remaining native. Test root/font factories are intentional doubles, not the full application. Actual screenshots were extracted byte-for-byte from the immutable xcresult and inspected. This does not prove full Nimbo/Compose/GPU/iPhone launch.
+
+The full application and all three extensions compiled using Xcode26.6, and the re-signable IPA was downloaded with immutable GitHub ZIP digest verification. Read-only delivery checks verified build182 in all four bundles, exact source revision, diagnostics flag1, arm64 load commands/minimum OS, App Intents actions/shortcuts/toggle metadata, three catalogs, fonts, geodata, notices, required entitlements and manifest. IPA SHA256:349a17c60172b49d333fc78d4cfdeb26cbf842b33681f81182cf1a1a8b4ce5c7 (77,661,802bytes). Native component UI checks and full compile/package checks remain separate from physical-device execution.
+
+The user reports no fresh IPS. The phone black-screen cause and resolution remain unconfirmed. The private diagnostic IPA was linked in the task with instructions to use Continue; after a hang, relaunch and share the safe startup journal. No public release was replaced and no user profiles/configuration stores were reset.

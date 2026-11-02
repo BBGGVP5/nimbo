@@ -2,20 +2,20 @@ NaiveProxy bundled runtime
 ==========================
 
 Upstream: https://github.com/klzgrad/naiveproxy
-Version: v154.0.8037.49-4
+Version: v154.0.8037.49-5
 License: BSD 3-Clause (see LICENSE)
 
 Official release archive SHA-256:
 - windows-x64/naive.exe
-  120b99474848d2f737515c1043249b0998e235fda750f61893d774b317bf1870
+  36d14c117ed052c8d04d10a30db083423ad4e423c012c2ef2ca7286ec06afbbc
 - linux-x64/naive
-  9d765620b90f7c60eb40c7c68b2f82537757cc52a8693dee7a00f8ba8b13dfd0
+  80214dfea1767f6ecf63a3a79dc9f48b203460f51abc609357fff48dd5844c7d
 
 SHA-256 of the extracted bundled executables:
 - windows-x64/naive.exe
-  71b1bc593a1470f3fbaf216469edde58b06a97449558aa3bc70cb265591635b7
+  ecf6f56a834a3e945e703ddb766b32c8c474e9767d472bb0b45177c33300aa79
 - linux-x64/naive
-  9fba072aceb445d0401bb26273584726c479f5c4bc7f911aebf293c90136b044
+  f86c52be454eebc9134aad476f3fe91fcf90df7200c3df262a4d0a3d2de85464
 
 Nimbo runs this executable as a local SOCKS sidecar only for NaiveProxy
 profiles. The credential-bearing runtime configuration is removed after the

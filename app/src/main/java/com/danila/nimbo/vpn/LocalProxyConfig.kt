@@ -14,6 +14,9 @@ internal object LocalProxyConfig {
     const val HOST = "127.0.0.1"
     const val PORT = 2080
     const val INBOUND_TAG = "nimbo-health-in"
+    const val MIRROR_PORT = 2081
+    const val MIRROR_INBOUND_TAG = "nimbo-mirror-in"
+    private const val TUN_INBOUND_TAG = "tun-in"
 
     private val utilityProtocols = setOf("freedom", "blackhole", "dns", "loopback")
     private val utilityTags = setOf("direct", "block", "dns", "dns-out")
@@ -170,6 +173,51 @@ internal object LocalProxyConfig {
         }
         is JSONArray -> (0 until value.length()).any { hasUnverifiedDialer(value.opt(it)) }
         else -> false
+    }
+
+    /**
+     * Второй loopback-прокси для «Состояния сервисов». В отличие от [INBOUND_TAG] он не
+     * прибит к одному узлу: его трафик идёт ровно по тем же правилам, что и `tun-in`
+     * (балансировщики, обходы, direct-правила шаблона). Проверка показывает то, что
+     * увидит трафик пользователя, а не отдельный узел. Вызывать на финальном JSON,
+     * после всех перезаписей правил.
+     */
+    fun addMirrorInbound(config: JSONObject, session: HealthProxySession): Boolean {
+        val inbounds = config.optJSONArray("inbounds") ?: return false
+        val tunTags = (0 until inbounds.length()).mapNotNull(inbounds::optJSONObject)
+            .filter { it.optString("tag") == TUN_INBOUND_TAG || it.optString("protocol") == "tun" }
+            .map { it.optString("tag") }.filter { it.isNotBlank() }.toSet()
+        if (tunTags.isEmpty()) return false
+        val retained = (0 until inbounds.length()).mapNotNull(inbounds::optJSONObject).filterNot { inbound ->
+            val listen = inbound.optString("listen").trim()
+            val loopback = listen.isEmpty() || listen == HOST || listen.equals("localhost", ignoreCase = true)
+            inbound.optString("tag") == MIRROR_INBOUND_TAG || (loopback && inbound.optInt("port", -1) == MIRROR_PORT)
+        }
+        while (inbounds.length() > 0) inbounds.remove(inbounds.length() - 1)
+        retained.forEach(inbounds::put)
+        inbounds.put(JSONObject()
+            .put("tag", MIRROR_INBOUND_TAG)
+            .put("listen", HOST)
+            .put("port", MIRROR_PORT)
+            .put("protocol", "http")
+            .put("settings", JSONObject().put("allowTransparent", false)
+                .put("accounts", JSONArray().put(JSONObject()
+                    .put("user", session.username).put("pass", session.password)))))
+
+        val rules = config.optJSONObject("routing")?.optJSONArray("rules") ?: return true
+        for (index in 0 until rules.length()) {
+            val rule = rules.optJSONObject(index) ?: continue
+            // Правила без inboundTag и так действуют на все входы, включая зеркальный.
+            when (val tags = rule.opt("inboundTag")) {
+                is JSONArray -> if ((0 until tags.length()).any { tags.optString(it) in tunTags }) {
+                    tags.put(MIRROR_INBOUND_TAG)
+                }
+                is String -> if (tags in tunTags) {
+                    rule.put("inboundTag", JSONArray().put(tags).put(MIRROR_INBOUND_TAG))
+                }
+            }
+        }
+        return true
     }
 
     private fun buildInbound(): JSONObject = JSONObject()

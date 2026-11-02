@@ -1,7 +1,7 @@
 // Package trusttunnelcore exposes a TrustTunnel (AdGuard) endpoint as an
 // authenticated loopback SOCKS5 proxy for the in-process Xray core on Android
 // and iOS. The protocol client is Mihomo's transport/trusttunnel (the same
-// v1.19.32 already linked into the mobile Go archive), so no second runtime or
+// v1.19.33 already linked into the mobile Go archive), so no second runtime or
 // native library is added. Desktop uses the official CLI client instead.
 //
 // Limits of this client compared with the official one, surfaced to users:
@@ -29,7 +29,7 @@ import (
 )
 
 // Version identifies the protocol implementation, not the TrustTunnel spec.
-const Version = "mihomo-v1.19.32"
+const Version = "mihomo-v1.19.33"
 
 const (
 	defaultTimeout = 10 * time.Second

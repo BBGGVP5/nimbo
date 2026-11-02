@@ -15,14 +15,14 @@ import struct
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = "26.10.10"
-COMMIT = "c0cc8d4a86d32e71e2b4e9e6377723597a069a3d"
-SOURCE_SHA = "11171db539d0496bb8e31246b7612ab8696b39403e16519be293ca88ac72d4dd"
-AAR_SHA = "b15d4c1afc35f115e78bfa3177071e7eddbc9cd64a27046122610629e83195a1"
-ARCHIVE_SHA = "11171db539d0496bb8e31246b7612ab8696b39403e16519be293ca88ac72d4dd"
-CORE = "v1.260327.1-0.20261010092107-701af60772cd"
-CORE_SUM = "h1:Am/9Pzw5PZr7+hMN1Vs5faeSXRoutnrwMAgtUDnh/J8="
-CORE_MOD_SUM = "h1:YAACF9L/Pu1GznixHOBtrBqVcE95nhFjgU+gIEdWKlo="
+VERSION = "26.10.31"
+COMMIT = "7fe8528063e54343af8ba9a37431afc56000de21"
+SOURCE_SHA = "738a99755c184923fcc5aaede114953bef8156f4bf918c1977ab0743739a1bf5"
+AAR_SHA = "8995e2ffbe8fe8153e6741437a2a5ef7de60bba5bcea71638540ac3ed2ed7479"
+ARCHIVE_SHA = "738a99755c184923fcc5aaede114953bef8156f4bf918c1977ab0743739a1bf5"
+CORE = "v1.260327.1-0.20261031132019-a4a3dff5b20c"
+CORE_SUM = "h1:XijTasBJ2fImHZo1GoAgSfHuDqloQGYHEADLy9CgrJ8="
+CORE_MOD_SUM = "h1:/Umx7vpU+A78gOOuKl6ESU6eQJ5EBRhwr5cl7+9/drw="
 AWG = "v3.1.20260828"
 ABIS = {"armeabi-v7a": (1, 40), "arm64-v8a": (2, 183),
         "x86": (1, 3), "x86_64": (2, 62)}
@@ -100,7 +100,7 @@ def main():
         metadata = json.loads((ROOT / "app/src/main/assets/third_party/libxray.json").read_text())
         for key, expected in {"version": VERSION, "commit": COMMIT, "aarSha256": AAR_SHA,
                               "archiveSha256": ARCHIVE_SHA, "sourceSha256": SOURCE_SHA,
-                              "goVersion": "1.27.1", "xrayCore": CORE, "apiVersion": 3}.items():
+                              "goVersion": "1.27.3", "xrayCore": CORE, "apiVersion": 3}.items():
             require(metadata.get(key) == expected, f"libxray.json: stale {key}")
         require(metadata["bundled"] == bundled, "Native library hashes/segments differ from metadata")
         notice_path = ROOT / "app/src/main/assets/third_party/libxray/source-license-manifest.json"
@@ -140,7 +140,7 @@ def main():
     require("defer { CGoFree(responsePointer) }" in swift, "Swift must free every C response")
     script = (ROOT / "scripts/ci/build-libxray-awg-apple.sh").read_text()
     for key, value in {"LIBXRAY_COMMIT": COMMIT, "LIBXRAY_SOURCE_SHA256": SOURCE_SHA,
-                       "GO_VERSION": "go1.27.1", "AWG_VERSION": AWG}.items():
+                       "GO_VERSION": "go1.27.3", "AWG_VERSION": AWG}.items():
         require(f"{key}={value}\n" in script, f"Stale Apple {key}")
     require(f"libxray_version={VERSION}" in script, "Stale Apple kernel version")
     require(script.count("-buildmode=c-archive") == 1 and 'cp "${BRIDGE_DIR}/"*.go' in script,
@@ -157,7 +157,7 @@ def main():
             "Combined Go module source checksum missing")
     require(f"github.com/xtls/xray-core {CORE}/go.mod {CORE_MOD_SUM}" in sums,
             "Combined Go module metadata checksum missing")
-    for pattern in (r"^go 1\.27\.1$", rf"^\s*github.com/xtls/xray-core {re.escape(CORE)}$",
+    for pattern in (r"^go 1\.27\.3$", rf"^\s*github.com/xtls/xray-core {re.escape(CORE)}$",
                     rf"^\s*github.com/amnezia-vpn/amneziawg-go/v3 {re.escape(AWG)}(?: // indirect)?$",
                     r"^replace nimbo/awgcore => ../../tools/native/awg-core$"):
         require(re.search(pattern, lock, re.M), f"Combined Go module pin missing: {pattern}")

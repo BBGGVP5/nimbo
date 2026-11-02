@@ -22,8 +22,10 @@ jobs:
           python-version: '3.11'
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.3'
           cache: false
+      - name: Verify reviewed core release coherence
+        run: python3 tools/release/test_core_refresh.py
       - name: Verify opt-in native sticky policy and staging guards
         run: |
           go test -race -count=1 tools/native/xray-apple-sticky/policy.go tools/native/xray-apple-sticky/policy_test.go

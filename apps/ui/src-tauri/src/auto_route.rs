@@ -101,7 +101,7 @@ fn same_auto_context(
         && before.connected == after.connected
         && before.core_profiles.preferred_core == after.core_profiles.preferred_core
         && before_route == after_route
-        && before.active_server_id.as_deref().is_none_or(|id| {
+        && before.active_server_id.as_deref().map_or(true, |id| {
             server_identity(before, id).is_some()
                 && server_identity(before, id) == server_identity(after, id)
         })

@@ -1,4 +1,4 @@
-"""Merged field-selector contracts; unrelated toolbar popups stay untouched."""
+"""Anchored field dropdown source regressions; toolbar overflow menus are excluded."""
 from pathlib import Path
 import unittest
 
@@ -11,43 +11,30 @@ def selector(path, name, next_name):
 
 
 class DropdownAlignmentTests(unittest.TestCase):
-    def test_shared_card_animates_one_envelope_without_popup(self):
-        source = (ROOT / "app/src/main/java/com/danila/nimbo/ui/components/NimboExpandingChoiceCard.kt").read_text(encoding="utf-8")
-        self.assertEqual(source.count("Surface("), 1)
-        for token in ["AnimatedVisibility(", "expandVertically(", "shrinkVertically(",
-                      "expandFrom = Alignment.Top", "shrinkTowards = Alignment.Top",
-                      "fadeIn(", "fadeOut(", "animateFloatAsState(", ".rotate(rotation)",
-                      "selectableGroup()", "Role.RadioButton", "enabled = expanded",
-                      "BackHandler(enabled = expanded)", "stateDescription =",
-                      "heightIn(min = 64.dp)", "onSelect(option.value)"]:
+    def assert_anchored(self, source):
+        for token in ["ExposedDropdownMenuBox(", "ExposedDropdownMenu(",
+                      "menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)",
+                      "matchAnchorWidth = true", "Modifier.fillMaxWidth()",
+                      "selectableGroup()", "Role.RadioButton", "selected =", "containerColor = colors.panelFill"]:
             self.assertIn(token, source)
-        self.assertNotIn("DropdownMenu", source)
+        self.assertNotIn("\n        DropdownMenu(", source)
+        self.assertNotIn(".clickable(", source)
         self.assertNotIn("maxLines = 1", source)
-
-    def test_options_have_no_divider_or_edge_to_edge_highlight_seam(self):
-        source = (ROOT / "app/src/main/java/com/danila/nimbo/ui/components/NimboExpandingChoiceCard.kt").read_text(encoding="utf-8")
-        self.assertNotIn("HorizontalDivider", source)
-        self.assertIn("padding(horizontal = 6.dp)", source)
-        self.assertIn(".clip(optionShape)", source)
-        self.assertLess(source.index(".clip(optionShape)"), source.index(".background(if (option.value"))
 
     def test_app_mode_dropdown_matches_field_and_preserves_selection(self):
         source = selector("app/src/main/java/com/danila/nimbo/ui/screens/AppProxySettingsScreen.kt",
                           "AppRoutingModeSelector", "AppSelectionFilter")
-        self.assertIn("NimboExpandingChoiceCard(", source)
-        self.assertIn("index + 1", source)
-        self.assertIn("selectedValue = mode", source)
-        self.assertIn("onSelect = onModeChange", source)
-        self.assertNotIn("DropdownMenu", source)
+        self.assert_anchored(source)
+        self.assertIn("onModeChange(index + 1); expanded = false", source)
+        self.assertIn("colors.textSecondary", source)
+        self.assertIn("heightIn(min = 64.dp)", source)
 
     def test_retention_dropdown_matches_field_and_preserves_selection(self):
         source = selector("app/src/main/java/com/danila/nimbo/ui/screens/NimboMiniApp.kt",
                           "LogRetentionOptionGrid", "SettingsStepperRow")
-        self.assertIn("NimboExpandingChoiceCard(", source)
-        self.assertIn("selectedValue = selected", source)
-        self.assertIn("onSelect = onSelect", source)
+        self.assert_anchored(source)
+        self.assertIn("onSelect(value); open = false", source)
         self.assertIn("labels.zip(values)", source)
-        self.assertNotIn("DropdownMenu", source)
 
 
 if __name__ == "__main__":

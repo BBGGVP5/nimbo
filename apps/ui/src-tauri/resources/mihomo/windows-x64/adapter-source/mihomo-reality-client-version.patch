@@ -1,0 +1,23 @@
+diff --git a/component/tls/reality.go b/component/tls/reality.go
+--- a/component/tls/reality.go
++++ b/component/tls/reality.go
+@@ -68,12 +68,14 @@
+ 			rawSessionID[i] = 0
+ 		}
+ 
+-		binary.BigEndian.PutUint64(hello.SessionId, uint64(ntp.Now().Unix()))
+-
++		// Match the bundled Xray REALITY client version and 32-bit timestamp layout.
++		// Some servers reject Mihomo's legacy 1.8.2 marker during authentication.
++		hello.SessionId[0] = 26
++		hello.SessionId[1] = 9
++		hello.SessionId[2] = 9
++		hello.SessionId[3] = 0
++		binary.BigEndian.PutUint32(hello.SessionId[4:], uint32(ntp.Now().Unix()))
+ 		copy(hello.SessionId[8:], realityConfig.ShortID[:])
+-		hello.SessionId[0] = 1
+-		hello.SessionId[1] = 8
+-		hello.SessionId[2] = 2
+ 
+ 		//log.Debugln("REALITY hello.sessionId[:16]: %v", hello.SessionId[:16])
+ 

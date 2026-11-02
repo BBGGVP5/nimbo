@@ -47,10 +47,10 @@ pub fn prepare(target: &str) {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/src-tauri/resources/mihomo");
         let manifest = json(&root, &format!("{platform}/build-manifest.json"));
         assert_eq!(manifest["apiVersion"], 1);
-        assert_eq!(manifest["coreVersion"], "v1.19.32");
+        assert_eq!(manifest["coreVersion"], "v1.19.33");
         assert_eq!(
             manifest["coreCommit"],
-            "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
+            "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8"
         );
         assert_eq!(
             manifest["target"],

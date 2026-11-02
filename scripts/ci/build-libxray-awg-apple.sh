@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Compile upstream API3, AWG, diagnostics and Mihomo V1 in ONE package main.
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LIBXRAY_COMMIT=c0cc8d4a86d32e71e2b4e9e6377723597a069a3d
-LIBXRAY_SOURCE_SHA256=11171db539d0496bb8e31246b7612ab8696b39403e16519be293ca88ac72d4dd
-GO_VERSION=go1.27.1
+LIBXRAY_COMMIT=7fe8528063e54343af8ba9a37431afc56000de21
+LIBXRAY_SOURCE_SHA256=738a99755c184923fcc5aaede114953bef8156f4bf918c1977ab0743739a1bf5
+GO_VERSION=go1.27.3
 AWG_VERSION=v3.1.20260828
 BRIDGE_DIR="${ROOT_DIR}/iosApp/GoBridge"
 AWG_DIR="${ROOT_DIR}/tools/native/awg-core"
@@ -58,7 +58,7 @@ cp go.mod go.sum "${WORK_DIR}/verify/"
   go mod verify
 )
 [[ "$(go list -m -f '{{.Version}}' github.com/amnezia-vpn/amneziawg-go/v3)" == "${AWG_VERSION}" ]]
-[[ "$(go list -m -f '{{.Version}}' github.com/metacubex/mihomo)" == 'v1.19.32' ]]
+[[ "$(go list -m -f '{{.Version}}' github.com/metacubex/mihomo)" == 'v1.19.33' ]]
 python3 "${ROOT_DIR}/scripts/ci/prepare-xray-apple-tun.py" --dependency-dir "${WORK_DIR}/xray-apple"
 go test -mod=readonly -race -count=1 -timeout=90s -run '^TestNimboBorrowedDescriptorReconnect$' github.com/xtls/xray-core/proxy/tun
 go test -mod=readonly -race -count=1 -timeout=120s -run '^TestNimboSticky' github.com/xtls/xray-core/app/router github.com/xtls/xray-core/app/observatory
@@ -154,7 +154,7 @@ xcodebuild "${XCFRAMEWORK_ARGS[@]}" -output "${WORK_DIR}/LibXray.xcframework"
 rm -rf "${DESTINATION}"
 ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
 {
-  echo 'libxray_version=26.10.10'
+  echo 'libxray_version=26.10.31'
   echo "libxray_commit=${LIBXRAY_COMMIT}"
   echo "libxray_source_sha256=${LIBXRAY_SOURCE_SHA256}"
   echo "awg_version=${AWG_VERSION}"
@@ -168,7 +168,7 @@ ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
   echo 'cronet_ios_compat=pinned-unused-kqueue-feature-init'
   shasum -a 256 "${ROOT_DIR}/tools/native/naive-apple-compat/"*.py "${ROOT_DIR}/tools/native/naive-apple-compat/"*.cc
   echo 'naive_ios_device_acceptance=required'
-  echo 'xray_version=26.10.10'
+  echo 'xray_version=26.10.31'
   echo 'xray_apple_tun_ownership=upstream-duplicate-cloexec'
   echo 'nimbo_auto_strategy=sticky-v1-generated-config-only'
   echo 'native_sticky_router_observatory_race_tests=passed'
@@ -178,7 +178,7 @@ ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
     "${ROOT_DIR}/tools/native/xray-apple-tun/descriptor_darwin_test.go"
   echo 'native_api3_awg_contract_test=passed'
   echo 'native_mihomo_v1_contract_test=passed'
-  echo 'mihomo_version=v1.19.32'
+  echo 'mihomo_version=v1.19.33'
   echo 'mihomo_ios_tun=public-packet-flow-source-linked-device-unverified'
   echo "apple_slices=${SELECTED_SLICES}"
   echo "swift_awg_link_check=${SELECTED_SLICES}"
@@ -189,4 +189,4 @@ ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
 } > "${ROOT_DIR}/iosApp/Vendor/libxray-build-info.txt"
 cp "${WORK_DIR}/mihomo-dependencies/mihomo-source-verification.json" \
   "${ROOT_DIR}/iosApp/Vendor/mihomo-source-verification.json"
-echo "Prepared single-runtime LibXray 26.10.10 / AWG ${AWG_VERSION} / Mihomo V1 bridge; iOS Mihomo public packet-flow linked; device acceptance remains required"
+echo "Prepared single-runtime LibXray 26.10.31 / AWG ${AWG_VERSION} / Mihomo V1 bridge; iOS Mihomo public packet-flow linked; device acceptance remains required"

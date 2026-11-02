@@ -6510,11 +6510,11 @@ fn verify_naive_binary(path: &Path) -> Result<(), String> {
 fn expected_naive_binary_sha256() -> Option<&'static str> {
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     {
-        return Some("71b1bc593a1470f3fbaf216469edde58b06a97449558aa3bc70cb265591635b7");
+        return Some("ecf6f56a834a3e945e703ddb766b32c8c474e9767d472bb0b45177c33300aa79");
     }
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
-        return Some("9fba072aceb445d0401bb26273584726c479f5c4bc7f911aebf293c90136b044");
+        return Some("f86c52be454eebc9134aad476f3fe91fcf90df7200c3df262a4d0a3d2de85464");
     }
     #[allow(unreachable_code)]
     None
@@ -6641,7 +6641,7 @@ async fn connect_system_proxy(
             return Err(error);
         }
     };
-    if let Err(error) = wait_for_xray_port(&mut child, ports.socks) {
+    if let Err(error) = wait_for_xray_port(&mut child, ports.socks, XRAY_PORT_TIMEOUT) {
         let _ = child.kill();
         let _ = child.wait();
         stop_child(&mut naive);
@@ -6913,7 +6913,7 @@ async fn connect_tun(
                 return Err(error);
             }
         };
-        if let Err(error) = wait_for_xray_port(&mut xray, ports.socks) {
+        if let Err(error) = wait_for_xray_port(&mut xray, ports.socks, XRAY_TUN_PORT_TIMEOUT) {
             let _ = xray.kill();
             let _ = xray.wait();
             stop_child(&mut naive);
@@ -8681,8 +8681,19 @@ fn spawn_xray(xray_path: &Path, config_path: &Path) -> Result<std::process::Chil
     Ok(child)
 }
 
-fn wait_for_xray_port(child: &mut std::process::Child, port: u16) -> Result<(), String> {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+/// Обычный запуск Xray открывает SOCKS почти сразу.
+const XRAY_PORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+/// В TUN Xray сначала создаёт адаптер Wintun и только потом открывает SOCKS.
+/// На Windows 10 первое создание адаптера занимает больше 10 секунд; пока
+/// процесс жив, ждём его, а не обрываем запуск посреди создания устройства.
+const XRAY_TUN_PORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn wait_for_xray_port(
+    child: &mut std::process::Child,
+    port: u16,
+    timeout: std::time::Duration,
+) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + timeout;
     let addr = ("127.0.0.1", port);
     let mut last_error = None;
 

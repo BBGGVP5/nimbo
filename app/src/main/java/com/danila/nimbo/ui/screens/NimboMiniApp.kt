@@ -559,11 +559,13 @@ fun NimboMiniApp(
                 if (!bottomBarAutoHideEnabled || source != NestedScrollSource.UserInput) {
                     return Offset.Zero
                 }
+                // Пока палец ведёт список, панель сама не всплывает: раньше таймер
+                // возвращал её через 0,4 с посреди медленной прокрутки, и она мигала.
+                bottomControlsRevealJob?.cancel()
                 bottomControlsVisible = scrollTracker.visibleAfterScroll(
                     currentlyVisible = bottomControlsVisible,
                     availableY = available.y
                 )
-                scheduleBottomControlsReveal()
                 return Offset.Zero
             }
 
@@ -572,10 +574,9 @@ fun NimboMiniApp(
                 available: androidx.compose.ui.unit.Velocity
             ): androidx.compose.ui.unit.Velocity {
                 scrollTracker.reset()
-                if (bottomBarAutoHideEnabled) {
-                    delay(180L)
-                    bottomControlsVisible = true
-                }
+                // Не ждать здесь: эффект растяжения в конце списка отпускается только
+                // после onPostFling, и delay() давал «двойной» отскок с задержкой.
+                if (bottomBarAutoHideEnabled && !bottomControlsVisible) scheduleBottomControlsReveal(350L)
                 return androidx.compose.ui.unit.Velocity.Zero
             }
         }
@@ -1583,12 +1584,15 @@ private fun NimboHomeScreen(
     val downloadedTotal = VpnManager.totalBytesDownloaded.value
     val showSpeed by preferencesManager.showSpeedState
     val showMemory by preferencesManager.memoryMonitoringState
+    val serviceStatusOnHome by preferencesManager.serviceStatusOnHomeState
     val compactConnectButton by preferencesManager.compactConnectButtonState
     val speedWidgetsVisible = showSpeed && vpnState == VpnState.CONNECTED
     val memoryWidgetVisible = showMemory && vpnState == VpnState.CONNECTED
     val speedSamples = rememberSpeedSamples(speedWidgetsVisible)
     val memoryState = rememberMemorySamples(memoryWidgetVisible)
     val colors = LocalNebulaColors.current
+    var showServiceStatus by rememberSaveable { mutableStateOf(false) }
+    if (showServiceStatus) ServiceStatusSheet(onDismiss = { showServiceStatus = false })
 
     LaunchedEffect(targetServer?.pingMeasurementKey(), vpnState) {
         val server = targetServer
@@ -1696,6 +1700,13 @@ private fun NimboHomeScreen(
                     onListClick = { onOpenServers(false) }, isPinging = targetPinging,
                     pingDisplayMode = pingDisplayMode, autoSelected = autoProgress.selected,
                     connected = vpnState == VpnState.CONNECTED, modifier = Modifier.fillMaxWidth())
+            }
+            // Строка появляется плавно: подключение не должно толчком сдвигать главную.
+            androidx.compose.animation.AnimatedVisibility(vpnState == VpnState.CONNECTED && serviceStatusOnHome,
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically()) {
+                ServiceStatusEntry(onClick = { showServiceStatus = true },
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -3158,7 +3169,8 @@ private fun ProxyList(
         }.distinct().sorted()
     }
 
-    val sortedServers = remember(servers, sortMode, isNameAscending, isPingAscending, localSelectedProtocols, pinnedServerKeys) {
+    val nameOverrides = remember(servers, pinnedServerKeys) { preferencesManager.getServerNameOverrides() }
+    val sortedServers = remember(servers, sortMode, isNameAscending, isPingAscending, localSelectedProtocols, pinnedServerKeys, nameOverrides) {
         val filtered = if (sortMode == 3) {
             val selected = localSelectedProtocols
             if (selected.isNotEmpty()) {
@@ -3187,8 +3199,12 @@ private fun ProxyList(
 
         when (sortMode) {
             1 -> {
-                if (isNameAscending) filtered.sortedBy { serverUiTitle(preferencesManager, it).lowercase() }
-                else filtered.sortedByDescending { serverUiTitle(preferencesManager, it).lowercase() }
+                // Имя считаем один раз на сервер, а не на каждое сравнение сортировки.
+                val names = filtered.associateWith {
+                    (nameOverrides[it.pingKey().trim()]?.takeIf(String::isNotBlank) ?: serverTitle(it)).lowercase()
+                }
+                if (isNameAscending) filtered.sortedBy { names.getValue(it) }
+                else filtered.sortedByDescending { names.getValue(it) }
             }
             2 -> {
                 if (isPingAscending) {
@@ -3206,13 +3222,13 @@ private fun ProxyList(
     // той же точкой входа (у балансировщика все записи начинаются с одного
     // участника). Индекс в ключе не используем: он меняется при каждой
     // пересортировке и ломает состояние строк.
-    val keyedServers = remember(sortedServers) {
+    val keyedServers = remember(sortedServers, nameOverrides) {
         val seen = HashMap<String, Int>()
-        sortedServers.mapIndexed { index, server ->
-            val base = server.pingMeasurementKey()
+        serverRowModels(sortedServers, nameOverrides).mapIndexed { index, row ->
+            val base = row.measurementKey
             val occurrence = seen.merge(base, 1) { old, _ -> old + 1 } ?: 1
             val key = if (occurrence == 1) base else "$base#$occurrence@$index"
-            key to server
+            key to row
         }
     }
     // Resolve the highlighted row by pingKey first — selectionKey() only includes
@@ -3228,15 +3244,15 @@ private fun ProxyList(
         // «Финляндии 2» подсвечивал «БЕЗЛИМИТНЫЕ» — первую запись с тем же
         // адресом, и выглядело это как «сервер не выбирается».
         val targetMeasurementKey = target.pingMeasurementKey()
-        val byMeasurement = keyedServers.indexOfFirst { (_, server) ->
-            server.pingMeasurementKey() == targetMeasurementKey
+        val byMeasurement = keyedServers.indexOfFirst { (_, row) ->
+            row.measurementKey == targetMeasurementKey
         }
         if (byMeasurement >= 0) return@let byMeasurement
 
         val targetPingKey = target.pingKey()
-        val byPing = keyedServers.indexOfFirst { (_, server) -> server.pingKey() == targetPingKey }
+        val byPing = keyedServers.indexOfFirst { (_, row) -> row.serverKey == targetPingKey }
         if (byPing >= 0) byPing
-        else keyedServers.indexOfFirst { (_, server) -> target.matchesSelection(server) }
+        else keyedServers.indexOfFirst { (_, row) -> target.matchesSelection(row.server) }
     } ?: -1
     val cornerScale = LocalGlobalCornerRadius.current
     val lazyListState = rememberLazyListState()
@@ -3323,7 +3339,9 @@ private fun ProxyList(
                 .fillMaxWidth(),
             contentPadding = PaddingValues(top = 4.dp, bottom = 132.dp)
         ) {
-            itemsIndexed(keyedServers, key = { index, item -> "subscription-order-$index-${item.first}" }) { index, (_, server) ->
+            itemsIndexed(keyedServers, key = { index, item -> "subscription-order-$index-${item.first}" },
+                contentType = { _, _ -> "proxy-server" }) { index, (_, row) ->
+                val server = row.server
                 val isFirst = index == 0
                 val isLast = index == keyedServers.lastIndex
                 val baseRowShape = RoundedCornerShape(
@@ -3339,13 +3357,16 @@ private fun ProxyList(
                         .clip(rowShape)
                         .background(nebulaColors.surface)
                 ) {
-                    val serverKey = server.pingKey()
+                    val serverKey = row.serverKey
                     WindowsProfileServerLine(
                         server = server,
-                        displayName = serverUiTitle(preferencesManager, server),
+                        displayName = row.displayName,
+                        title = row.title,
+                        subtitle = row.subtitle,
+                        flag = row.flag,
                         selected = index == selectedIndex,
                         isFavorite = pinnedServerKeys.contains(serverKey),
-                        isPinging = isPinging && activePingKeys.contains(server.pingMeasurementKey()),
+                        isPinging = isPinging && activePingKeys.contains(row.measurementKey),
                         pingDisplayMode = pingDisplayMode,
                         showDivider = !isLast,
                         showJsonBadge = showJsonBadge,
@@ -3693,7 +3714,8 @@ private fun WindowsProfilesList(
     val autoProfileUrl by VpnManager.autoProfileUrl
     val pinnedKeys = remember(pinnedOnly, serverUiVersion) { preferencesManager.getPinnedServerKeys() }
     val hiddenKeys = remember(serverUiVersion) { preferencesManager.getHiddenServerKeys() }
-    val visibleProfiles = remember(profiles, query, pinnedOnly, pinnedKeys, hiddenKeys) {
+    val visibleProfiles = remember(profiles, query, pinnedOnly, pinnedKeys, hiddenKeys, serverUiVersion) {
+        val overrides = preferencesManager.getServerNameOverrides()
         profiles.mapNotNull { profile ->
             val profileMatches = query.isBlank() ||
                 profile.displayName.lowercase().contains(query) ||
@@ -3713,7 +3735,7 @@ private fun WindowsProfilesList(
                     !hiddenMatches && pinMatches && queryMatches
                 }
             }
-            if (profileMatches || servers.isNotEmpty()) profile to servers else null
+            if (profileMatches || servers.isNotEmpty()) profile to serverRowModels(servers, overrides) else null
         }
     }
 
@@ -3808,9 +3830,10 @@ private fun WindowsProfilesList(
 
             itemsIndexed(
                 items = servers,
-                key = { index, server -> "server-${profile.url}-$index-${server.pingKey()}" },
+                key = { index, row -> "server-${profile.url}-$index-${row.serverKey}" },
                 contentType = { _, _ -> "profile-server" }
-            ) { index, server ->
+            ) { index, row ->
+                val server = row.server
                 val isFirst = index == 0
                 val isLast = index == servers.lastIndex
                 val baseRowShape = RoundedCornerShape(
@@ -3828,13 +3851,16 @@ private fun WindowsProfilesList(
                         // the selected style instead of painting an opaque slab.
                         .background(nebulaColors.panelFill)
                 ) {
-                    val serverKey = server.pingKey()
+                    val serverKey = row.serverKey
                     WindowsProfileServerLine(
                         server = server,
-                        displayName = serverUiTitle(preferencesManager, server),
+                        displayName = row.displayName,
+                        title = row.title,
+                        subtitle = row.subtitle,
+                        flag = row.flag,
                         selected = !autoProgress.selected && selectedServer?.matchesSelection(server) == true,
                         isFavorite = pinnedServerKeys.contains(serverKey),
-                        isPinging = isPinging && activePingKeys.contains(server.pingMeasurementKey()),
+                        isPinging = isPinging && activePingKeys.contains(row.measurementKey),
                         pingDisplayMode = pingDisplayMode,
                         showDivider = !isLast,
                         showJsonBadge = profile.supportsJsonResponse == true,
@@ -3950,6 +3976,26 @@ private fun WindowsSubscriptionCard(
 }
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+/** Всё, что строке списка серверов нужно посчитать, — один раз на список, а не на каждый кадр прокрутки. */
+@androidx.compose.runtime.Immutable
+private class ServerRowModel(
+    val server: Server,
+    val serverKey: String,
+    val measurementKey: String,
+    val displayName: String,
+    val title: String,
+    val subtitle: String,
+    val flag: String
+)
+
+private fun serverRowModels(servers: List<Server>, overrides: Map<String, String>): List<ServerRowModel> =
+    servers.map { server ->
+        val serverKey = server.pingKey()
+        val displayName = overrides[serverKey.trim()]?.takeIf { it.isNotBlank() } ?: serverTitle(server)
+        ServerRowModel(server, serverKey, server.pingMeasurementKey(), displayName,
+            cleanServerName(displayName), serverSubtitle(server), extractFlagEmoji(server.name))
+    }
+
 @Composable
 private fun WindowsProfileServerLine(
     server: Server,
@@ -3965,15 +4011,20 @@ private fun WindowsProfileServerLine(
     onPing: () -> Unit,
     onToggleFavorite: () -> Unit,
     onRename: (String) -> Unit,
-    onHide: () -> Unit
+    onHide: () -> Unit,
+    // Списки передают готовые значения из ServerRowModel: чистка имени и описания
+    // регулярками на каждую появившуюся строку заметно тормозила прокрутку.
+    title: String = cleanServerName(displayName),
+    subtitle: String = serverSubtitle(server),
+    flag: String = extractFlagEmoji(server.name)
 ) {
     val colors = LocalNebulaColors.current
     var menuExpanded by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
     var hideConfirmOpen by remember { mutableStateOf(false) }
     com.danila.nimbo.ui.components.NimboServerRow(
-        title = cleanServerName(displayName), subtitle = serverSubtitle(server), selected = selected,
-        flag = extractFlagEmoji(server.name), onSelect = onClick, onOpenMenu = { menuExpanded = true },
+        title = title, subtitle = subtitle, selected = selected,
+        flag = flag, onSelect = onClick, onOpenMenu = { menuExpanded = true },
         ping = { WindowsPingPill(server.ping ?: -1, isPinging, pingDisplayMode) },
         menu = {
                 DropdownMenu(menuExpanded, { menuExpanded = false }, containerColor = colors.panelFill,
@@ -4832,6 +4883,7 @@ private fun ColumnScope.GeneralSettingsSection(
     var updateSubOnStartup by remember { mutableStateOf(preferencesManager.updateSubOnStartup) }
     var pingOnUpdate by remember { mutableStateOf(preferencesManager.pingOnUpdate) }
     var memoryMonitoring by remember { mutableStateOf(preferencesManager.memoryMonitoring) }
+    var serviceStatusOnHome by remember { mutableStateOf(preferencesManager.serviceStatusOnHome) }
     var memoryLimitDisabled by remember { mutableStateOf(preferencesManager.memoryLimitDisabled) }
     var memoryLimitMb by remember { mutableStateOf(preferencesManager.memoryLimitMb) }
     val hapticFeedbackEnabled by preferencesManager.hapticFeedbackEnabledState
@@ -4932,6 +4984,16 @@ private fun ColumnScope.GeneralSettingsSection(
                 preferencesManager.showSpeed = it
             },
             icon = Icons.Default.BarChart
+        )
+        SettingsToggleRow(
+            title = t("Состояние сервисов", "Service status"),
+            subtitle = t("Показывать на главной проверку Google, YouTube, ChatGPT и других через VPN", "Show the Google, YouTube, ChatGPT and other checks on Home"),
+            checked = serviceStatusOnHome,
+            onCheckedChange = {
+                serviceStatusOnHome = it
+                preferencesManager.serviceStatusOnHome = it
+            },
+            icon = Icons.Default.Public
         )
         SettingsToggleRow(
             title = t("Потребление памяти", "Memory usage"),
@@ -8676,7 +8738,33 @@ internal fun BoxScope.NimboBottomControls(
     visible: Boolean,
     onDestinationChange: (MiniDestination) -> Unit
 ) {
-    if (!visible) return
+    val navMotionEnabled = rememberNavIconMotionEnabled()
+    // Панель уезжает вниз и возвращается, а не пропадает кадром: мгновенное
+    // исчезновение при лёгкой прокрутке выглядело как мигание.
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier.align(Alignment.BottomCenter),
+        enter = if (navMotionEnabled) {
+            androidx.compose.animation.slideInVertically(tween(260, easing = FastOutSlowInEasing)) { it } +
+                androidx.compose.animation.fadeIn(tween(200))
+        } else androidx.compose.animation.fadeIn(tween(150)),
+        exit = if (navMotionEnabled) {
+            androidx.compose.animation.slideOutVertically(tween(220, easing = FastOutSlowInEasing)) { it } +
+                androidx.compose.animation.fadeOut(tween(180))
+        } else androidx.compose.animation.fadeOut(tween(120)),
+        label = "bottom-controls-visibility"
+    ) {
+        NimboBottomControlsBar(onHeightMeasured, destination, navMotionEnabled, onDestinationChange)
+    }
+}
+
+@Composable
+private fun NimboBottomControlsBar(
+    onHeightMeasured: (Dp) -> Unit,
+    destination: MiniDestination,
+    navMotionEnabled: Boolean,
+    onDestinationChange: (MiniDestination) -> Unit
+) {
     val colors = LocalNebulaColors.current
     val entries = listOf(
         Triple(MiniDestination.Home, Icons.Default.PowerSettingsNew, t("Главная", "Home")),
@@ -8685,8 +8773,7 @@ internal fun BoxScope.NimboBottomControls(
         Triple(MiniDestination.Settings, Icons.Default.Tune, t("Настройки", "Settings"))
     )
     val navDensity = androidx.compose.ui.platform.LocalDensity.current
-    val navMotionEnabled = rememberNavIconMotionEnabled()
-    Surface(modifier = Modifier.align(Alignment.BottomCenter)
+    Surface(modifier = Modifier
         .onSizeChanged { onHeightMeasured(with(navDensity) { it.height.toDp() }) }.navigationBarsPadding()
         .padding(horizontal = 16.dp, vertical = 10.dp).widthIn(max = 520.dp).fillMaxWidth(),
         shape = RoundedCornerShape(28.dp), color = colors.controlFill,

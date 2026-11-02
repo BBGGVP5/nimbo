@@ -48,15 +48,15 @@ class ExportFixture:
                      'apps/ui/scripts/stage-xray.py'):
             write(self.root / name, b'fixture source\n')
         write(self.root / 'iosApp/GoBridge/go.mod',
-              b'module fixture\nrequire (\n\tgithub.com/xtls/xray-core v1.260327.1-0.20261010092107-701af60772cd\n)\n')
-        write(self.root / 'tools/native/mihomo-core/pins.json', b'{"version": "v1.19.32"}')
+              b'module fixture\nrequire (\n\tgithub.com/xtls/xray-core v1.260327.1-0.20261031132019-a4a3dff5b20c\n)\n')
+        write(self.root / 'tools/native/mihomo-core/pins.json', b'{"version": "v1.19.33"}')
         self.native = {
             'apple_slices': 'iphoneos-arm64', 'swift_awg_link_check': 'iphoneos-arm64',
-            'libxray_version': '26.10.10', 'libxray_commit': 'a' * 40,
-            'libxray_source_sha256': 'b' * 64, 'xray_version': '26.10.10',
-            'awg_version': 'v3.1.20260828', 'mihomo_version': 'v1.19.32',
+            'libxray_version': '26.10.31', 'libxray_commit': 'a' * 40,
+            'libxray_source_sha256': 'b' * 64, 'xray_version': '26.10.31',
+            'awg_version': 'v3.1.20260828', 'mihomo_version': 'v1.19.33',
             'naive_version': '150.0.7871.63', 'cronet_go_commit': 'c' * 40,
-            'go_version': 'go1.27.1',
+            'go_version': 'go1.27.3',
         }
         self.write_receipt()
         write(self.stage / 'NativeBuildReceipts/mihomo-source-verification.json', b'{"verified": true}')
@@ -82,7 +82,7 @@ class ExportFixture:
             content = ('geo fixture ' + name).encode()
             write(self.stage / 'PacketTunnelResources' / name, content)
             geo_files[name] = hashlib.sha256(content).hexdigest()
-        pin = {'version': '26.10.10', 'assets': [
+        pin = {'version': '26.10.31', 'assets': [
             {'target': 'x86_64-unknown-linux-gnu', 'files': geo_files}]}
         write(self.root / 'apps/ui/src-tauri/xray-release.json', json.dumps(pin).encode())
         write(self.stage / 'BrandingResources/Assets.car', b'compiled branding fixture')
@@ -189,8 +189,8 @@ class ManifestTests(unittest.TestCase):
             self.assertEqual(manifest['version'], '1.3.0-beta.2')
             self.assertEqual(manifest['build_number'], 181)
             self.assertEqual(manifest['slices'], ['iphoneos-arm64'])
-            self.assertEqual(manifest['core_pins']['xray']['version'], '26.10.10')
-            self.assertEqual(manifest['core_pins']['mihomo']['version'], 'v1.19.32')
+            self.assertEqual(manifest['core_pins']['xray']['version'], '26.10.31')
+            self.assertEqual(manifest['core_pins']['mihomo']['version'], 'v1.19.33')
             self.assertTrue({'shared/src', 'shared/build.gradle.kts', 'gradle', 'iosApp/GoBridge',
                              'tools/native', 'scripts/ci', 'iosApp/Branding',
                              'iosApp/Nimbo/Assets.xcassets'} <= manifest['source_fingerprints'].keys())

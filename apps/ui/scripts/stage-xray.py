@@ -26,7 +26,8 @@ def verify(directory, asset):
 
 def sources(manifest, name, upstream):
     # Nimbo's mirror first: upstream prereleases can be deleted (XTLS removed v26.10.17).
-    return [f"{manifest['mirror']}/{name}", upstream]
+    mirror = manifest.get('mirror')
+    return ([f"{mirror}/{name}"] if mirror else []) + [upstream]
 
 
 def fetch(urls, expected, label):

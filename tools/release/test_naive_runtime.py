@@ -9,7 +9,7 @@ ROOT=Path(__file__).resolve().parents[2]
 class NaiveRuntimeTests(unittest.TestCase):
     def test_android_payload_hash_architecture_and_page_alignment(self):
         manifest=json.loads((ROOT/'app/src/main/assets/third_party/naiveproxy.json').read_text())
-        self.assertEqual(manifest['version'],'v154.0.8037.49-4')
+        self.assertEqual(manifest['version'],'v154.0.8037.49-5')
         for abi,machine in [('arm64-v8a',183),('armeabi-v7a',40)]:
             b=(ROOT/f'app/src/main/jniLibs/{abi}/libnaive.so').read_bytes()
             self.assertEqual(hashlib.sha256(b).hexdigest(),manifest['bundled'][abi]['sha256'])

@@ -22,7 +22,8 @@ use windows_sys::{
 };
 const FAILURE: &str = "KILL_SWITCH_FAILED";
 const OWNER: &str = "KILL_SWITCH_NOT_OWNED";
-const ROLES: u8 = 7; // runtime block/core/loopback/DHCP/TUN; boot block/loopback
+const JOURNAL_VERSION: u32 = 3;
+const ROLES: u8 = 8; // runtime block/core/loopback/DHCP/TUN; boot block/loopback; TUN reauth
 fn filter_flags(role: u8) -> u32 {
     match role {
         0 | 2 | 3 => FWPM_FILTER_FLAG_PERSISTENT,
@@ -59,8 +60,17 @@ struct Journal {
     device: Option<crate::mihomo_adapter::Device>,
 }
 impl Journal {
+    fn role_count(&self) -> Result<u8, String> {
+        match self.version {
+            1 => Ok(5),
+            2 => Ok(7),
+            3 => Ok(ROLES),
+            _ => Err(OWNER.into()),
+        }
+    }
     fn authorize(&self, sid: &str) -> Result<(), String> {
-        if !matches!(self.version, 1 | 2) || self.sid != sid {
+        self.role_count()?;
+        if self.sid != sid {
             Err(OWNER.into())
         } else {
             Ok(())
@@ -76,6 +86,51 @@ impl Journal {
     fn layer_key(&self) -> GUID {
         GUID::from_u128(self.sublayer.as_u128())
     }
+    fn recovery_plan(&self) -> Result<RecoveryPlan, String> {
+        let roles = self.role_count()?;
+        Ok(RecoveryPlan {
+            filters: (0..2)
+                .flat_map(|family| (0..roles).map(move |role| self.key(family, role)))
+                .collect(),
+            sublayer: self.layer_key(),
+            provider: (self.version >= 2).then(|| self.layer_key()),
+        })
+    }
+}
+struct RecoveryPlan {
+    filters: Vec<GUID>,
+    sublayer: GUID,
+    provider: Option<GUID>,
+}
+// The caller keeps the borrowed conditions alive through FwpmFilterAdd0.
+// Keep construction pure so tests inspect the descriptors actually installed.
+fn filter_descriptor(
+    j: &Journal,
+    family: u8,
+    role: u8,
+    conditions: &mut [FWPM_FILTER_CONDITION0],
+) -> FWPM_FILTER0 {
+    let mut f: FWPM_FILTER0 = unsafe { std::mem::zeroed() };
+    f.filterKey = j.key(family, role);
+    f.flags = filter_flags(role);
+    f.layerKey = match (matches!(role, 5 | 6), family) {
+        (true, 0) => FWPM_LAYER_OUTBOUND_TRANSPORT_V4,
+        (true, _) => FWPM_LAYER_OUTBOUND_TRANSPORT_V6,
+        (false, 0) => FWPM_LAYER_ALE_AUTH_CONNECT_V4,
+        (false, _) => FWPM_LAYER_ALE_AUTH_CONNECT_V6,
+    };
+    f.subLayerKey = j.layer_key();
+    f.weight.r#type = FWP_UINT8;
+    f.weight.Anonymous.uint8 = if matches!(role, 0 | 5) { 0 } else { 15 };
+    // Permits are soft; never CLEAR_ACTION_RIGHT to bypass another firewall.
+    f.action.r#type = if matches!(role, 0 | 5) {
+        FWP_ACTION_BLOCK
+    } else {
+        FWP_ACTION_PERMIT
+    };
+    f.numFilterConditions = conditions.len() as u32;
+    f.filterCondition = conditions.as_mut_ptr();
+    f
 }
 struct Engine(HANDLE);
 // RPC engine handle may be owned by the serialized broker across worker threads.
@@ -104,31 +159,12 @@ impl Engine {
         role: u8,
         conditions: &mut [FWPM_FILTER_CONDITION0],
     ) -> Result<(), String> {
-        let mut f: FWPM_FILTER0 = unsafe { std::mem::zeroed() };
+        let mut f = filter_descriptor(j, family, role, conditions);
         let mut name = wide(OsStr::new("Nimbo Mihomo persistent Kill Switch"));
         let mut provider = j.layer_key();
         f.providerKey = &mut provider;
-        f.flags = filter_flags(role);
         let sd = Descriptor::new("D:P(A;;GA;;;SY)(A;;GA;;;BA)")?;
-        f.filterKey = j.key(family, role);
         f.displayData.name = name.as_mut_ptr();
-        f.layerKey = match (role >= 5, family) {
-            (true, 0) => FWPM_LAYER_OUTBOUND_TRANSPORT_V4,
-            (true, _) => FWPM_LAYER_OUTBOUND_TRANSPORT_V6,
-            (false, 0) => FWPM_LAYER_ALE_AUTH_CONNECT_V4,
-            (false, _) => FWPM_LAYER_ALE_AUTH_CONNECT_V6,
-        };
-        f.subLayerKey = j.layer_key();
-        f.weight.r#type = FWP_UINT8;
-        f.weight.Anonymous.uint8 = if matches!(role, 0 | 5) { 0 } else { 15 };
-        // Permits are soft; never CLEAR_ACTION_RIGHT to bypass another firewall.
-        f.action.r#type = if matches!(role, 0 | 5) {
-            FWP_ACTION_BLOCK
-        } else {
-            FWP_ACTION_PERMIT
-        };
-        f.numFilterConditions = conditions.len() as u32;
-        f.filterCondition = conditions.as_mut_ptr();
         checked(unsafe {
             FwpmFilterAdd0(
                 self.0,
@@ -186,6 +222,25 @@ fn tun_interface_condition(luid: &mut u64) -> FWPM_FILTER_CONDITION0 {
     let mut c = condition(FWPM_CONDITION_IP_NEXTHOP_INTERFACE, FWP_UINT64);
     c.conditionValue.Anonymous.uint64 = luid;
     c
+}
+fn with_tun_filters(
+    luid: &mut u64,
+    mut add: impl FnMut(u8, &mut [FWPM_FILTER_CONDITION0]) -> Result<(), String>,
+) -> Result<(), String> {
+    add(4, &mut [tun_interface_condition(luid)])?;
+    add(7, &mut tun_reauthorize_conditions(luid))
+}
+fn tun_reauthorize_conditions(luid: &mut u64) -> [FWPM_FILTER_CONDITION0; 3] {
+    // An inbound response may reauthorize an outbound ALE flow with EMPTY
+    // next-hop metadata. Permit only reauthorization arriving on our exact TUN,
+    // never a blanket EMPTY exception or a physical-interface/source-IP permit.
+    let mut flags = condition(FWPM_CONDITION_FLAGS, FWP_UINT32);
+    flags.matchType = FWP_MATCH_FLAGS_ALL_SET;
+    flags.conditionValue.Anonymous.uint32 = FWP_CONDITION_FLAG_IS_REAUTHORIZE;
+    let next_hop = condition(FWPM_CONDITION_IP_NEXTHOP_INTERFACE, FWP_EMPTY);
+    let mut arrival = condition(FWPM_CONDITION_IP_ARRIVAL_INTERFACE, FWP_UINT64);
+    arrival.conditionValue.Anonymous.uint64 = luid;
+    [flags, next_hop, arrival]
 }
 fn load() -> Result<Option<Journal>, String> {
     let p = path()?;
@@ -251,7 +306,7 @@ impl Firewall {
         }
         let engine = Engine::open()?;
         let journal = Journal {
-            version: 2,
+            version: JOURNAL_VERSION,
             sid: sid.into(),
             sublayer: Uuid::new_v4(),
             native: Some(crate::mihomo_adapter::NativeProcess::capture(child)?),
@@ -356,12 +411,9 @@ impl Firewall {
         )?;
         self.engine.transaction(|| {
             for family in 0..2 {
-                self.engine.add(
-                    &self.journal,
-                    family,
-                    4,
-                    &mut [tun_interface_condition(&mut value)],
-                )?;
+                with_tun_filters(&mut value, |role, conditions| {
+                    self.engine.add(&self.journal, family, role, conditions)
+                })?;
             }
             Ok(())
         })
@@ -416,22 +468,21 @@ pub fn release(sid: &str) -> Result<(), String> {
         return Ok(());
     };
     j.authorize(sid)?;
+    let plan = j.recovery_plan()?;
     let e = Engine::open()?;
     e.transaction(|| {
-        for family in 0..2 {
-            for role in 0..if j.version == 1 { 5 } else { ROLES } {
-                let code = unsafe { FwpmFilterDeleteByKey0(e.0, &j.key(family, role)) };
-                if code != FWP_E_FILTER_NOT_FOUND as u32 {
-                    checked(code)?;
-                }
+        for key in &plan.filters {
+            let code = unsafe { FwpmFilterDeleteByKey0(e.0, key) };
+            if code != FWP_E_FILTER_NOT_FOUND as u32 {
+                checked(code)?;
             }
         }
-        let code = unsafe { FwpmSubLayerDeleteByKey0(e.0, &j.layer_key()) };
+        let code = unsafe { FwpmSubLayerDeleteByKey0(e.0, &plan.sublayer) };
         if code != FWP_E_SUBLAYER_NOT_FOUND as u32 {
             checked(code)?;
         }
-        if j.version == 2 {
-            let code = unsafe { FwpmProviderDeleteByKey0(e.0, &j.layer_key()) };
+        if let Some(provider) = &plan.provider {
+            let code = unsafe { FwpmProviderDeleteByKey0(e.0, provider) };
             if code != FWP_E_PROVIDER_NOT_FOUND as u32 {
                 checked(code)?;
             }
@@ -448,6 +499,8 @@ pub(crate) fn release_for_uninstall() -> Result<(), String> {
     }
     Ok(())
 }
+#[cfg(test)]
+mod reauthorize_tests;
 #[cfg(test)]
 mod tests {
     use super::*;

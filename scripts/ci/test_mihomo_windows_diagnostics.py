@@ -175,5 +175,100 @@ class DnsTests(unittest.TestCase):
             self.assertEqual(fixture.socks_address(Input(data)), (3, expected, 18080))
 
 
+class RepeatedRoundsTests(unittest.TestCase):
+    def test_optional_kernel_regression_precedes_original_cases(self):
+        with patch.object(fixture.subprocess, 'run') as run:
+            fixture.run_driver_rounds(Path('driver'), {}, lambda *_: None, lambda *_: None, reauthorize=True)
+        self.assertEqual([x.args[0][3] for x in run.call_args_list], [fixture.REAUTHORIZE_CASE, *fixture.MANDATORY_CASES])
+    def test_bounded_round_counts(self):
+        for value in (1, 2, 4, 8, '1', '2', '4', '8'):
+            self.assertEqual(fixture.fixture_round_count(value), int(value))
+        for value in (0, 3, 9, -1, True, 'x', '1.5', 1.5):
+            with self.subTest(value=value), self.assertRaises((ValueError, TypeError)):
+                fixture.fixture_round_count(value)
+
+    def test_default_runs_original_order_once(self):
+        with patch.object(fixture.subprocess, 'run') as run:
+            fixture.run_driver_rounds(Path('driver'), {'fixture': 'only'}, lambda *_: None, lambda *_: None)
+        self.assertEqual([call.args[0][3] for call in run.call_args_list], [
+            'actual_windows_broker_session_tcp_udp_dns_selection_and_cleanup',
+            'actual_both_kill_switch_denies_physical_bypass_and_survives_native_death'])
+
+    def test_rounds_preserve_order_deadline_and_callbacks(self):
+        events = []
+        with patch.object(fixture.subprocess, 'run', side_effect=lambda argv, **kw: events.append(('run', argv[3], kw))) as run:
+            fixture.run_driver_rounds(Path('driver'), {'fixture': 'only'},
+                lambda r, c: events.append(('before', r, c)), lambda r, c: events.append(('after', r, c)), rounds=4)
+        self.assertEqual(run.call_count, 8)
+        for index in range(8):
+            before, call, after = events[index * 3:index * 3 + 3]
+            self.assertEqual(before, ('before', index // 2, fixture.MANDATORY_CASES[index % 2]))
+            self.assertEqual(after, ('after', index // 2, fixture.MANDATORY_CASES[index % 2]))
+            self.assertEqual(call[2], dict(env={'fixture': 'only'}, check=True, timeout=240))
+
+    def test_first_failure_stops_all_later_cases_and_rounds(self):
+        original = subprocess.CalledProcessError(101, ['driver'])
+        before, after = [], []
+        with patch.object(fixture.subprocess, 'run', side_effect=[None, original]) as run:
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                fixture.run_driver_rounds(Path('driver'), {}, lambda *x: before.append(x), lambda *x: after.append(x), rounds=8)
+        self.assertIs(raised.exception, original)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(len(before), 2)
+        self.assertEqual(len(after), 1)
+
+    def test_invalid_round_count_never_executes_driver(self):
+        with patch.object(fixture.subprocess, 'run') as run:
+            with self.assertRaises(ValueError):
+                fixture.run_driver_rounds(Path('driver'), {}, lambda *_: None, lambda *_: None, rounds=3)
+        run.assert_not_called()
+
+
+class ReauthorizationBarrierTests(unittest.TestCase):
+    def test_only_named_synthetic_questions_can_use_barrier(self):
+        for label in ('reauth4', 'reauth6'):
+            query = DnsTests.query[:12] + b'\x07' + label.encode() + DnsTests.query[12:]
+            actual, question, end = fixture.fixture_dns_question(query)
+            self.assertEqual(actual, label)
+            self.assertEqual(question, query[12:])
+            self.assertEqual(end, len(query))
+            self.assertEqual(fixture.fixture_dns_reply(query)[-4:], bytes([192,0,2,123]))
+        with self.assertRaises(ValueError):
+            fixture.fixture_dns_question(DnsTests.query[:12] + b'\x07foreign' + DnsTests.query[12:])
+
+    def test_ready_precedes_one_explicit_release(self):
+        import tempfile
+        import threading
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            def release(_):
+                self.assertTrue((root/'reauth4.ready').is_file())
+                (root/'reauth4.release').write_bytes(b'release')
+            barrier = fixture.SyntheticDnsBarrier(root, threading.Event(), sleep=release)
+            barrier.before_reply('reauth4')
+            self.assertEqual(sorted(x.name for x in root.iterdir()), ['reauth4.ready','reauth4.release'])
+
+    def test_missing_release_and_foreign_label_remain_fatal(self):
+        import tempfile
+        import threading
+        with tempfile.TemporaryDirectory() as temp:
+            barrier = fixture.SyntheticDnsBarrier(Path(temp), threading.Event(), clock=Mock(side_effect=[0,6]))
+            with self.assertRaises(TimeoutError): barrier.before_reply('reauth6')
+            with self.assertRaises(ValueError): barrier.before_reply('foreign')
+
+
+class InitialAdapterPreflightTests(unittest.TestCase):
+    def test_cold_cim_preflight_has_separate_bound_and_never_skips_assertion(self):
+        with patch.object(fixture, 'ps', return_value='0') as ps:
+            fixture.assert_initial_adapter_absent()
+        self.assertEqual(ps.call_args.kwargs, {'timeout':45})
+        with patch.object(fixture, 'ps', return_value='1'):
+            with self.assertRaises(AssertionError): fixture.assert_initial_adapter_absent()
+
+    def test_cim_failure_is_not_absence(self):
+        with patch.object(fixture, 'ps', side_effect=subprocess.TimeoutExpired('read only CIM',45)):
+            with self.assertRaises(subprocess.TimeoutExpired): fixture.assert_initial_adapter_absent()
+
+
 if __name__ == "__main__":
     unittest.main()

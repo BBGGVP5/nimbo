@@ -17,10 +17,11 @@ spec.loader.exec_module(stage)
 class XrayStagingTests(unittest.TestCase):
     def test_manifest_has_reviewed_six_platforms(self):
         manifest = json.loads(stage.MANIFEST.read_text())
-        self.assertEqual(manifest["version"], "26.10.21")
+        self.assertEqual(manifest["version"], "26.10.31")
         self.assertEqual(len(manifest["assets"]), 6)
         self.assertEqual(len({a["target"] for a in manifest["assets"]}), 6)
-        self.assertTrue(manifest["mirror"].startswith("https://github.com/BBGGVP5/nimbo-cores/releases/download/"))
+        if manifest.get("mirror"):
+            self.assertTrue(manifest["mirror"].startswith("https://github.com/BBGGVP5/nimbo-cores/releases/download/"))
         geo = manifest["geo"]["urls"]
         self.assertEqual(set(geo), {"geoip.dat", "geosite.dat"})
         for asset in manifest["assets"]:
@@ -31,6 +32,10 @@ class XrayStagingTests(unittest.TestCase):
         for name in geo:
             expected = hashlib.sha256((android / name).read_bytes()).hexdigest()
             self.assertEqual({a["files"][name] for a in manifest["assets"]}, {expected})
+
+    def test_sources_without_a_published_mirror(self):
+        self.assertEqual(stage.sources({}, "xray.zip", "https://upstream.test/xray.zip"),
+                         ["https://upstream.test/xray.zip"])
 
     def test_fresh_stale_verified_and_tampered_payloads(self):
         binary = b"new xray.exe"
@@ -43,7 +48,7 @@ class XrayStagingTests(unittest.TestCase):
                 archive.writestr(name, b"upstream " + name.encode())
         payload = buffer.getvalue()
         mirror = "https://mirror.test/core"
-        manifest = {"version": "26.10.21", "tag": "v26.10.21", "mirror": mirror,
+        manifest = {"version": "26.10.31", "tag": "v26.10.31", "mirror": mirror,
                     "geo": {"urls": {name: "https://geo.test/" + name for name in geo}},
                     "assets": [{
                         "target": "test", "os": "windows", "archive": "test.zip",
@@ -51,7 +56,7 @@ class XrayStagingTests(unittest.TestCase):
                         "files": {name: hashlib.sha256(data).hexdigest()
                                   for name, data in {"xray.exe": binary, **geo}.items()},
                     }]}
-        upstream = "https://github.com/XTLS/Xray-core/releases/download/v26.10.21/test.zip"
+        upstream = "https://github.com/XTLS/Xray-core/releases/download/v26.10.31/test.zip"
         served = {}
 
         def network(url, timeout):

@@ -8,13 +8,13 @@ import shutil
 import subprocess
 from prepare_xray_sticky import apply_sticky_patch
 
-PIN = dict(module="github.com/xtls/xray-core", version="v1.260327.1-0.20261010092107-701af60772cd",
-           sum="h1:Am/9Pzw5PZr7+hMN1Vs5faeSXRoutnrwMAgtUDnh/J8=")
-HASH = "54b4d648182354d8af4a5ec44c530989765422b89a7185a3bb61d1721a0aa29d"
+PIN = dict(module="github.com/xtls/xray-core", version="v1.260327.1-0.20261031132019-a4a3dff5b20c",
+           sum="h1:XijTasBJ2fImHZo1GoAgSfHuDqloQGYHEADLy9CgrJ8=")
+HASH = "d39b824ae9572e49f6ce2958c07739226d841257f955f15b74a59567f8d6504a"
 
 
 def validate_upstream_ownership(source):
-    # Xray 26.10.10 includes the descriptor ownership fix. Do not duplicate
+    # Xray 26.10.31 includes the descriptor ownership fix. Do not duplicate
     # again or wrap the borrowed NE descriptor. Exact file hash is checked
     # by main before copying; these semantic guards explain the requirement.
     required = (

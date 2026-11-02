@@ -78,8 +78,13 @@ object XrayManager {
             )
             // Apply after health-route authentication and every provider/profile rewrite.
             // Both individual servers and full templates enter this common final path.
+            val effectiveConfig = AdBlockingRules.overlay(authenticatedConfig, adBlocking)
+            // После всех перезаписей правил: зеркальный вход должен повторить итоговый маршрут tun-in.
+            healthSession.mirrorReady = runCatching { LocalProxyConfig.addMirrorInbound(effectiveConfig, healthSession) }
+                .onFailure { Logger.w(TAG, "Service status mirror inbound skipped: ${it.message}") }
+                .getOrDefault(false)
             val config = XrayCoreProtocol.withAndroidRuntimeEnv(
-                configJson = AdBlockingRules.overlay(authenticatedConfig, adBlocking).toString(),
+                configJson = effectiveConfig.toString(),
                 assetDirectory = datDir.absolutePath,
                 tunFd = vpnFd
             )

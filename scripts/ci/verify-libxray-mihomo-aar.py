@@ -21,6 +21,27 @@ EXPORTS = (
     "java.lang.String nimboMihomoStartAndroid(java.lang.String, long);",
 )
 
+# Upstream 26.10.31 removed the unused ping-location API (not Nimbo's own
+# diagnostic bridge). This exception applies ONLY to our exact prior AAR and
+# exact four removed generated members, never to Invoke or other JNI exports.
+LEGACY_AAR_SHA = "b15d4c1afc35f115e78bfa3177071e7eddbc9cd64a27046122610629e83195a1"
+REVIEWED_261017_REMOVALS = {
+    ("public final class libXray.PingBatchRequest implements go.Seq$Proxy {", signature)
+    for signature in ("public final native java.lang.String getLocationURL();",
+                      "public final native void setLocationURL(java.lang.String);")
+} | {
+    ("public final class libXray.PingBatchItemResponse implements go.Seq$Proxy {", signature)
+    for signature in ("public final native java.lang.String getLocationError();",
+                      "public final native void setLocationError(java.lang.String);")
+}
+
+
+def validate_public_api(old_api, new_api, baseline_sha):
+    removed = old_api - new_api
+    if removed and (baseline_sha != LEGACY_AAR_SHA or removed != REVIEWED_261017_REMOVALS):
+        raise ValueError(f"Existing public Java API changed: {sorted(removed)}")
+    return removed
+
 
 def check_elf(data, abi):
     elf_class, machine = ABIS[abi]
@@ -116,8 +137,7 @@ def main():
         new.write_bytes(new_jar)
         old_api, _ = api(args.javap, old, old_classes)
         new_api, output = api(args.javap, new, new_classes)
-        if not old_api <= new_api:
-            raise ValueError(f"Existing public Java API changed: {sorted(old_api - new_api)}")
+        removed = validate_public_api(old_api, new_api, hashlib.sha256(args.baseline.read_bytes()).hexdigest())
         for symbol in EXPORTS:
             if symbol not in output:
                 raise ValueError(f"Missing new Mihomo JNI export: {symbol}")
@@ -131,8 +151,8 @@ def main():
                 metadata = subprocess.run([args.go, "version", "-m", str(native)],
                                           check=True, capture_output=True, text=True).stdout
                 for module, version in (
-                    ("github.com/xtls/xray-core", "v1.260327.1-0.20261010092107-701af60772cd"),
-                    ("github.com/metacubex/mihomo", "v1.19.32"),
+                    ("github.com/xtls/xray-core", "v1.260327.1-0.20261031132019-a4a3dff5b20c"),
+                    ("github.com/metacubex/mihomo", "v1.19.33"),
                 ):
                     replacement = dependency(metadata, module, version)
                     if replacement is None and module == "github.com/metacubex/mihomo":
@@ -144,7 +164,7 @@ def main():
                         raise ValueError(f"Missing or changed compiled core pin in {abi}: {module}")
                     if module == "github.com/xtls/xray-core" and not any(
                         line.strip().split() == ["dep", module, version,
-                            "h1:Am/9Pzw5PZr7+hMN1Vs5faeSXRoutnrwMAgtUDnh/J8="]
+                            "h1:XijTasBJ2fImHZo1GoAgSfHuDqloQGYHEADLy9CgrJ8="]
                         for line in metadata.splitlines()
                     ):
                         raise ValueError(f"Compiled Xray source checksum mismatch in {abi}")
@@ -153,7 +173,7 @@ def main():
                         actual_source = Path(replacement).resolve() if replacement else None
                         if actual_source != expected_source:
                             raise ValueError(f"Compiled Mihomo source is not the verified staged pin in {abi}")
-                if "go1.27.1" not in metadata or "with_gvisor" not in metadata:
+                if "go1.27.3" not in metadata or "with_gvisor" not in metadata:
                     raise ValueError(f"Unexpected toolchain/TUN build tag in {abi}")
                 for tag in ("no_tailscale", "no_zerotier", "no_easytier"):
                     if tag not in metadata:
@@ -164,7 +184,9 @@ def main():
                 if "\tdep\tnimbo/mihomocore\tv0.0.0" not in metadata:
                     raise ValueError(f"Merged native adapter missing in {abi}")
     print(json.dumps({"aar": str(args.aar.resolve()), "sha256": hashlib.sha256(args.aar.read_bytes()).hexdigest(),
-                      "abis": list(ABIS), "existingApiPreserved": True, "mihomoBridgePresent": True,
+                      "abis": list(ABIS), "existingApiPreserved": not removed,
+                      "reviewedUpstreamApiRemovals": sorted(removed), "nimboApiPreserved": True,
+                      "mihomoBridgePresent": True,
                       "deviceRuntimeTested": False}, indent=2))
 
 

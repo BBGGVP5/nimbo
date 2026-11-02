@@ -40,7 +40,15 @@ Build181 matching-UUID report is a scene-create watchdog with sampled main threa
 ## Task 4: Snapshot, build and report (parent)
 
 - [x] Verify protected hashes and original index/HEAD/branch. Mirror only reviewed files after before-hash checks.
-- [ ] Create separate-index snapshot from7ef82b601053 with only reviewed files and this plan, on codex/ios-safe-tabbar-20261015. Do not switch/reset/stage real checkout. No public release update.
-- [ ] Dispatch standard build-ios-unsigned.yml with build_number183, launch_diagnostics=true and ping_only=false; require all existing gates and expanded component UI tests. Build-number default181 and release version remain unchanged.
-- [ ] Download immutable artifact, verify digest, all four build numbers183, revision, diagnostics flag, resources/entitlements/AppIntents and packaging. Preserve182 untouched.
-- [ ] Report compatibility candidate and checks without claiming the phone hang fixed until physical-device confirmation. Explain new RECORDING_APP_START boundary honestly.
+- [x] Create separate-index snapshot from7ef82b601053 with only reviewed files and this plan, on codex/ios-safe-tabbar-20261015. Do not switch/reset/stage real checkout. No public release update.
+- [x] Dispatch standard build-ios-unsigned.yml with build_number183, launch_diagnostics=true and ping_only=false; require all existing gates and expanded component UI tests. Build-number default181 and release version remain unchanged.
+- [x] Download immutable artifact, verify digest, all four build numbers183, revision, diagnostics flag, resources/entitlements/AppIntents and packaging. Preserve182 untouched.
+- [x] Report compatibility candidate and checks without claiming the phone hang fixed until physical-device confirmation. Explain new RECORDING_APP_START boundary honestly.
+
+## Parent checkpoint
+
+Source178ab64f6b29 / run38783114289 passed all source gates and three actual component XCUITests on iPhone16e simulator runtime iOS26.2. Actual native tab bar/model were exercised through12 repeated taps and independent heartbeat advancement. Four unmodified screenshots from xcresult were inspected. Presentation/font/application services are test doubles; this is not full Nimbo/Compose or iOS27.2 phone evidence. Full conventional-Xcode IPA183 build remains in progress at this checkpoint.
+
+## Final package checkpoint
+
+Run38783114289 / source178ab64f6b29 succeeded. Conventional-Xcode build183 and all three extensions compiled. Immutable artifact ZIP digest and actual IPA hashes/arm64 load commands, all four build numbers183, source revision, diagnostics1, resources/fonts/geodata/notices, required entitlements and compiled AppIntents metadata passed read-only verification. IPA77,660,575bytes; SHA256b8cd8696c09fb8a34bae2093e77da3171329d35eb4721b18e02fa07d72d885c9. Original HEAD/branch/index and protected operational sources remained unchanged; both mirrors match reviewed code. No profile/settings reset or public release update. This is a compatibility candidate; no physical iOS27.2 test or causal proof is claimed.

@@ -1,0 +1,1 @@
+Merged Android LibXray 26.10.17 notices. The source-license-manifest.json inventory is derived from the compiled dependency metadata of all four AAR native libraries. Existing standalone Mihomo notices are preserved separately in ../mihomo/. Repository-owned nimbo adapters are listed separately from third-party modules. No device runtime verification is claimed.

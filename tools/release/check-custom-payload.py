@@ -31,7 +31,7 @@ def main():
     selected = sys.argv[1:] or list(TARGETS)
     version = json.loads((ROOT / "apps/ui/package.json").read_text())["version"]
     xray_release = json.loads((ROOT / "apps/ui/src-tauri/xray-release.json").read_text())
-    assert xray_release["version"] == "26.10.21", "Unexpected desktop core pin"
+    assert xray_release["version"] == "26.10.31", "Unexpected desktop core pin"
     for platform in selected:
         target, arch, expected_machine = TARGETS[platform]
         windows = platform.startswith("windows")
@@ -103,7 +103,7 @@ def main():
             if windows:
                 for filename in ("geoip.dat", "geosite.dat"):
                     assert compiled.find((ROOT / "target/xray" / target / filename).read_bytes()) >= 0, f"Missing Xray data: {filename}"
-        print(f"{platform}: installer contains matching application and core payloads, including required source/notices")
+        print(f"{platform}: installer contains matching application, helper and AWG 3.1 payloads")
 
 
 if __name__ == "__main__":

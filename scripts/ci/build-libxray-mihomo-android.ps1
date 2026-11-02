@@ -1,5 +1,5 @@
 param(
-    [string]$GoRoot = "$env:USERPROFILE/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64",
+    [string]$GoRoot = "$env:USERPROFILE/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.3.windows-amd64",
     [string]$Python = "$env:LOCALAPPDATA/Programs/Python/Python311/python.exe",
     [string]$AndroidSdk = "$env:LOCALAPPDATA/Android/Sdk",
     [string]$CacheDirectory,
@@ -11,10 +11,10 @@ $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $bridge = Join-Path $repo 'tools/native/android-bridge'
 $appleBridge = Join-Path $repo 'iosApp/GoBridge'
 $mihomo = Join-Path $repo 'tools/native/mihomo-core'
-$archive = Join-Path $repo 'artifacts/libxray-26.10.10/libxray-codeload.tar.gz'
+$archive = Join-Path $repo 'artifacts/libxray-26.10.31/libxray-codeload.tar.gz'
 $go = Join-Path $GoRoot 'bin/go.exe'
-if (!(Test-Path -LiteralPath $go) -or !(Test-Path -LiteralPath $Python)) { throw 'Installed Go 1.27.1 and Python are required.' }
-if ((Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant() -ne '11171db539d0496bb8e31246b7612ab8696b39403e16519be293ca88ac72d4dd') { throw 'LibXray source archive pin mismatch.' }
+if (!(Test-Path -LiteralPath $go) -or !(Test-Path -LiteralPath $Python)) { throw 'Installed Go 1.27.3 and Python are required.' }
+if ((Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant() -ne '738a99755c184923fcc5aaede114953bef8156f4bf918c1977ab0743739a1bf5') { throw 'LibXray source archive pin mismatch.' }
 if ((Get-Content -LiteralPath (Join-Path $appleBridge 'go.mod') -Raw) -notmatch 'nimbo/mihomocore') { throw 'Combined mobile module graph is not prepared; refusing an Xray-only artifact.' }
 
 # Fresh staging paths only. Never overwrites the installed AAR or another build.
@@ -36,10 +36,10 @@ $env:GOBIN = Join-Path $stage 'bin'
 $env:JAVA_HOME = 'C:/Program Files/Android/Android Studio/jbr'
 $env:ANDROID_HOME = $AndroidSdk; $env:ANDROID_SDK_ROOT = $AndroidSdk
 $env:ANDROID_NDK_HOME = Join-Path $AndroidSdk 'ndk/28.2.13676358'
-$env:LIBXRAY_GOMOBILE_VERSION = 'v0.0.0-20260908204917-8b95e45f8d3e'
+$env:LIBXRAY_GOMOBILE_VERSION = 'v0.0.0-20261011034528-197770444867'
 $env:PATH = (Join-Path $GoRoot 'bin') + ';' + $env:GOBIN + ';' + (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:PATH
 foreach ($dir in @($env:GOPATH,$env:GOCACHE,$env:GOTMPDIR,$env:GOBIN)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-if ((& $go version) -ne 'go version go1.27.1 windows/amd64') { throw 'Go toolchain pin mismatch.' }
+if ((& $go version) -ne 'go version go1.27.3 windows/amd64') { throw 'Go toolchain pin mismatch.' }
 # Native bsdtar avoids depending on Git's hidden gzip subprocess PATH.
 & "$env:SystemRoot/System32/tar.exe" -xzf $archive --strip-components=1 -C $source
 if ($LASTEXITCODE) { throw 'Source extraction failed.' }
@@ -102,6 +102,6 @@ try {
     foreach ($inputFile in $inputs) {
         if ((Get-FileHash -LiteralPath $inputFile.path).Hash.ToLowerInvariant() -ne $inputFile.sha256) { throw "Build inputs changed: $($inputFile.path). Artifact not approved." }
     }
-    [ordered]@{ stage=$stage; androidBuilt=[bool]$Build; productionLibraryChanged=$false; libXray='26.10.10'; mihomo='v1.19.32' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'result.json') -Encoding utf8
+    [ordered]@{ stage=$stage; androidBuilt=[bool]$Build; productionLibraryChanged=$false; libXray='26.10.31'; mihomo='v1.19.33' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'result.json') -Encoding utf8
     Write-Output "Staged build: $stage (never installed or promoted automatically)"
 } finally { Pop-Location }

@@ -207,12 +207,14 @@ def main():
                        GOPRIVATE='', GONOPROXY='', GONOSUMDB='', GOINSECURE='')
     def go(*arguments, cwd=source):
         return subprocess.check_output([args.go, *arguments], cwd=cwd, env=environment, text=True)
-    if go('env', 'GOVERSION').strip() != pins['toolchain']:
+    # The merged LibXray graph follows its own reviewed Go toolchain. The
+    # standalone Mihomo --stage-only path above retains pins['toolchain'].
+    if go('env', 'GOVERSION').strip() != 'go1.27.3':
         raise RuntimeError('Existing pinned Go toolchain required')
     dependencies.mkdir(parents=True, exist_ok=True)
     pin_root = dependencies / 'pin-download'
     pin_root.mkdir(exist_ok=True)
-    (pin_root / 'go.mod').write_text('module nimbo/sourcepins\n\ngo 1.27.1\n', encoding='utf-8')
+    (pin_root / 'go.mod').write_text('module nimbo/sourcepins\n\ngo 1.27.3\n', encoding='utf-8')
     verified = []
     for pin in (pins, pins['protobuf'], pins['singTun'], pins['netlink']):
         metadata = json.loads(go('mod', 'download', '-json', pin['module'] + '@' + pin['version'], cwd=pin_root))
@@ -252,9 +254,9 @@ def main():
         raise RuntimeError('Exact netlink rule identity replacement missing')
     requirements = {r['Path']: r['Version'] for r in graph['Require']}
     for module, version in {
-        'github.com/xtls/xray-core': 'v1.260327.1-0.20261010092107-701af60772cd',
+        'github.com/xtls/xray-core': 'v1.260327.1-0.20261031132019-a4a3dff5b20c',
         'github.com/amnezia-vpn/amneziawg-go/v3': 'v3.1.20260828',
-        'gvisor.dev/gvisor': 'v0.0.0-20261010064756-cd110d9dec04',
+        'gvisor.dev/gvisor': 'v0.0.0-20261031105741-aa767e4c43d0',
     }.items():
         if requirements.get(module) != version:
             raise RuntimeError('Existing engine pin changed: ' + module)

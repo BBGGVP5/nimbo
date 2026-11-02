@@ -43,8 +43,8 @@ fn main() {
         return; // old proxy-only artifact is never elevated into a new TUN owner
     }
     assert_eq!(m["apiVersion"], 1);
-    assert_eq!(m["coreVersion"], "v1.19.32");
-    assert_eq!(m["coreCommit"], "88dcbf7f1614a67c3b36b848ee3592dfa92ada36");
+    assert_eq!(m["coreVersion"], "v1.19.33");
+    assert_eq!(m["coreCommit"], "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8");
     assert_eq!(
         m["target"],
         if platform == "linux-x64" {

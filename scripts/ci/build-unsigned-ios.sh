@@ -393,8 +393,8 @@ contains_live_activity=true
 requires_resigning=true
 requires_network_extension_entitlement=true
 resignable=true
-libxray_version=26.10.10
-libxray_source_sha256=11171db539d0496bb8e31246b7612ab8696b39403e16519be293ca88ac72d4dd
+libxray_version=26.10.31
+libxray_source_sha256=738a99755c184923fcc5aaede114953bef8156f4bf918c1977ab0743739a1bf5
 awg_version=v3.1.20260828
 go_runtime_archives_per_slice=1
 MANIFEST

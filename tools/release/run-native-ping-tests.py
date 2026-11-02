@@ -54,9 +54,11 @@ def main():
         raise SystemExit("Unsupported native probe gate architecture")
     manifest = json.loads((ROOT / "apps/ui/src-tauri/xray-release.json").read_text(encoding="utf-8"))
     asset = next(a for a in manifest["assets"] if a["os"] == "linux" and a["arch"] == arch)
-    data = download([manifest["mirror"] + "/" + asset["archive"],
-                     "https://github.com/XTLS/Xray-core/releases/download/" + manifest["tag"] + "/" + asset["archive"]],
-                    asset["sha256"])
+    urls = []
+    if manifest.get("mirror"):
+        urls.append(manifest["mirror"] + "/" + asset["archive"])
+    urls.append("https://github.com/XTLS/Xray-core/releases/download/" + manifest["tag"] + "/" + asset["archive"])
+    data = download(urls, asset["sha256"])
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         if archive.getinfo("xray").file_size > MAX_BINARY:
             raise ValueError("Native probe executable exceeds limit")
