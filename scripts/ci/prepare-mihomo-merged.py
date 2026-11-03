@@ -256,9 +256,13 @@ def main():
     for module, version in {
         'github.com/xtls/xray-core': 'v1.260327.1-0.20261031132019-a4a3dff5b20c',
         'github.com/amnezia-vpn/amneziawg-go/v3': 'v3.1.20260828',
-        'gvisor.dev/gvisor': 'v0.0.0-20261031105741-aa767e4c43d0',
+        # iOS GoBridge stays on 20261010: the 20261031 snapshot ships
+        # pkg/tcpip/stack/bridge_test.go as package bridge_test, which breaks
+        # loading gonet under `go test`. Upstream libXray (Android) keeps 20261031.
+        'gvisor.dev/gvisor': ('v0.0.0-20261010064756-cd110d9dec04', 'v0.0.0-20261031105741-aa767e4c43d0'),
     }.items():
-        if requirements.get(module) != version:
+        allowed = version if isinstance(version, tuple) else (version,)
+        if requirements.get(module) not in allowed:
             raise RuntimeError('Existing engine pin changed: ' + module)
     manifest = {'pins': pins, 'rootReplacements': replacements,
                 'protobufGoModSHA256': digest(protobuf / 'go.mod'),

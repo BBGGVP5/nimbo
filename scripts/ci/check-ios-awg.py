@@ -59,7 +59,7 @@ def main():
     check("NimboAWGConfiguration.parseIfPresent(payload)" in read("iosApp/Nimbo/NimboSubscriptionRepository.swift"), "Raw import must dispatch before share-link conversion")
     check('@SerialName("amneziawg")' in read("shared/src/commonMain/kotlin/com/danila/nimbo/shared/subscription/SubscriptionModels.kt"), "Compose must decode native AWG profiles")
     check("v3.1.20260828" in lock, "AWG version must be pinned")
-    check("v0.0.0-20261031105741-aa767e4c43d0" in lock, "Combined module must retain Xray's compatible gVisor")
+    check("v0.0.0-20261010064756-cd110d9dec04" in lock, "Combined module must retain Xray's compatible gVisor")
     check("738a99755c184923fcc5aaede114953bef8156f4bf918c1977ab0743739a1bf5" in build, "Source checksum is required")
     check("-mod=readonly" in build and "go mod verify" in build, "Locked dependency verification is required")
     check("go get" not in build and "@latest" not in build, "Build must not resolve floating dependencies")
