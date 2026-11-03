@@ -74,3 +74,57 @@ body[data-ui-style] .universal-subscription .signal-profile-head .universal-subs
 
 .nimbo-home-profile .server-profile-row-auto { border:1px solid transparent; width:100%; box-sizing:border-box; }
 .nimbo-home-profile .server-profile-row-auto-selected { border-color:var(--color-text-dim) !important; box-shadow:inset 0 0 0 1px var(--color-text-dim); border-radius:12px; }
+
+/* ── Desktop home, 1.3 rework ──────────────────────────────────────────────
+   Колонки больше не тянутся друг за другом: карточка соединения держит свою
+   высоту, когда справа раскрыт список серверов.
+   Внутри подписки — одна рамка на элемент: список серверов не обёрнут во
+   вторую карточку, у поиска и селектов рамка только снаружи. */
+.nimbo-home-profile .universal-home-grid { align-items: start; max-width: none; margin-inline: 0; }
+/* Один внутренний отступ на обе карточки — 16px, как у подписки, чтобы
+   текст и шевроны слева и справа стояли на одних вертикалях. */
+.nimbo-home-profile .universal-home .universal-connection-top { padding: 16px 16px 14px; }
+.nimbo-home-profile .universal-home .universal-selected-server { width: calc(100% - 32px); margin-inline: 16px; }
+.nimbo-home-profile .universal-home :is(.universal-session,.universal-route-summary) { padding-inline: 16px; }
+.nimbo-home-profile .universal-connection { flex: none; }
+.nimbo-home-profile .universal-route-summary { margin-top: 0; }
+.nimbo-home-profile .universal-home-subscriptions { grid-auto-rows: auto; }
+.nimbo-home-profile .universal-home-subscriptions .universal-subscription-servers { max-height: none; overflow: visible; }
+/* Одна свёрнутая подписка — карточки почти равны по высоте, и тогда их
+   выравниваем точно: низы на одной линии, футеры прижаты книзу. */
+@media (min-width: 1000px) {
+  .nimbo-home-profile .universal-home-grid:has(.universal-home-subscriptions > .signal-profile:only-child > .universal-subscription-servers[hidden]) { align-items: stretch; }
+  .nimbo-home-profile .universal-home-grid:has(.universal-home-subscriptions > .signal-profile:only-child > .universal-subscription-servers[hidden]) .universal-connection { flex: 1; }
+  .nimbo-home-profile .universal-home-grid:has(.universal-home-subscriptions > .signal-profile:only-child > .universal-subscription-servers[hidden]) .universal-route-summary { margin-top: auto; }
+  .nimbo-home-profile .universal-home-grid:has(.universal-home-subscriptions > .signal-profile:only-child > .universal-subscription-servers[hidden]) .universal-home-subscriptions { flex: 1; grid-auto-rows: minmax(0,1fr); }
+}
+
+body[data-ui-style] .nimbo-home-profile .universal-subscription-servers .signal-srv { gap: 10px; padding: 0; border: 0; border-radius: 0; background: none; height: auto; }
+body[data-ui-style] .nimbo-home-profile .universal-subscription-servers .signal-srv-head { padding: 0 2px; }
+body[data-ui-style] .nimbo-home-profile .universal-subscription-servers .signal-srv-list { margin-inline: 0; max-height: 420px; overflow: auto; overscroll-behavior: contain; }
+/* Активная строка отмечается только рамкой: outline рисовался снаружи
+   и выпирал за край поиска и соседних строк. */
+body[data-ui-style] .nimbo-home-profile .universal-subscription-servers :is(.signal-srv-row,.server-profile-row-auto):not(:focus-visible) { outline: none !important; }
+
+body[data-ui-style] .nimbo-home-profile .signal-srv-search { height: 40px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--color-border); background: transparent; }
+body[data-ui-style] .nimbo-home-profile .signal-srv-search:focus-within { border-color: var(--color-text-dim); }
+body[data-ui-style] .nimbo-home-profile .signal-srv-search input { height: 100%; padding: 0; border: 0 !important; border-radius: 0; background: transparent !important; box-shadow: none !important; font-size: 13px; }
+body[data-ui-style] .nimbo-home-profile .signal-srv-search svg { width: 16px; height: 16px; flex: none; }
+
+body[data-ui-style] .nimbo-home-profile .signal-srv-tools { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) 40px 40px; gap: 8px; }
+body[data-ui-style] .nimbo-home-profile .signal-srv-tools > :nth-child(1) { grid-column: 1; grid-row: 1; }
+body[data-ui-style] .nimbo-home-profile .signal-srv-tools > :nth-child(4) { grid-column: 2; grid-row: 1; }
+body[data-ui-style] .nimbo-home-profile .signal-srv-tools > .signal-icon-btn { width: 40px; height: 40px; min-width: 40px; padding: 0; display: grid; place-items: center; border: 1px solid var(--color-border); border-radius: 12px; background: transparent; }
+body[data-ui-style] .nimbo-home-profile .signal-srv-tools > .signal-icon-btn svg { width: 17px; height: 17px; }
+body[data-ui-style] .nimbo-home-profile .signal-srv-tools > .signal-icon-btn[aria-pressed="true"] { background: var(--color-card); border-color: var(--color-text-dim); }
+
+body[data-ui-style] .nimbo-home-profile .nimbo-rail-select { height: 40px; padding: 0; border: 1px solid var(--color-border); border-radius: 12px; background: transparent; }
+body[data-ui-style] .nimbo-home-profile .nimbo-rail-select::after { content: none; }
+body[data-ui-style] .nimbo-home-profile .nimbo-rail-select:focus-within { border-color: var(--color-text-dim); }
+body[data-ui-style] .nimbo-home-profile .nimbo-rail-select > svg { top: 50%; left: 11px; width: 16px; height: 16px; transform: translateY(-50%); color: var(--color-text-dim); }
+body[data-ui-style] .nimbo-home-profile .nimbo-rail-select > .nimbo-select { height: 100%; min-height: 0; padding: 0 10px 0 34px; border: 0 !important; border-radius: inherit; background: transparent !important; box-shadow: none !important; font-size: 12.5px; font-weight: 550; }
+
+@media (max-width: 1279px) {
+  body[data-ui-style] .nimbo-home-profile .signal-srv-tools { grid-template-columns: minmax(0,1fr) 40px 40px; }
+  body[data-ui-style] .nimbo-home-profile .signal-srv-tools > :nth-child(4) { grid-column: 1 / -1; grid-row: 2; }
+}

@@ -79,7 +79,9 @@ def main():
         target_env['GOOS'], target_env['GOARCH'] = args.target.split('/')
         name = 'nimbo-mihomo.exe' if args.target.startswith('windows/') else 'nimbo-mihomo'
         binary = output/name
-        go('build',*flags,'-trimpath','-buildvcs=false','-o',str(binary),'./cmd/nimbo-mihomo',env=target_env,capture=False)
+        # -s -w drops DWARF and the symbol table (~15 MB of the ~50 MB binary);
+        # pclntab stays, so panics in the core log still name their functions.
+        go('build',*flags,'-trimpath','-buildvcs=false','-ldflags=-s -w','-o',str(binary),'./cmd/nimbo-mihomo',env=target_env,capture=False)
         # Corresponding sources and all upstream notices travel with the binary.
         source = output/'adapter-source'
         for entry in frozen:

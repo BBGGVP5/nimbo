@@ -473,14 +473,15 @@ function SettingsOverview({ preferences, version, onSelect }: { preferences: App
   }
   return <>
     <div className="settings-discovery">
-      <div className="settings-mode" role="group" aria-label={ru ? "Режим настроек" : "Settings mode"}>
+      <label className="settings-search"><span className="settings-visually-hidden">{ru ? "Поиск настроек" : "Search settings"}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+        <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={ru ? "Поиск: DNS, ядро, тема…" : "Search: DNS, core, theme…"}/>
+      </label>
+      <div className="settings-mode" role="group" aria-label={ru ? "Режим настроек" : "Settings mode"}
+        title={ru ? "Меняется только список разделов, не параметры VPN. Поиск ищет по всем разделам." : "Only the section list changes, not VPN settings. Search covers all sections."}>
         <button type="button" aria-pressed={!advanced} onClick={() => changeMode(false)}>{ru ? "Простой" : "Simple"}</button>
         <button type="button" aria-pressed={advanced} onClick={() => changeMode(true)}>{ru ? "Расширенный" : "Advanced"}</button>
       </div>
-      <p>{ru ? "Меняется только список разделов, не параметры VPN. Поиск доступен по всем разделам." : "Only the section list changes, not VPN settings. Search covers all sections."}</p>
-      <label className="settings-search"><span>{ru ? "Поиск настроек" : "Search settings"}</span>
-        <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={ru ? "Например, DNS, ядро или тема" : "For example, DNS, core or theme"}/>
-      </label>
     </div>
     {groups.length === 0 && <p role="status">{ru ? "Ничего не найдено. Попробуйте другое название." : "No results. Try another name."}</p>}
     <div className="parity-settings-overview">

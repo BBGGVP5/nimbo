@@ -260,7 +260,7 @@ try {
    const full=await paragraph.evaluate(e=>({height:e.getBoundingClientRect().height,line:parseFloat(getComputedStyle(e).lineHeight),wrap:getComputedStyle(e).whiteSpace,clipped:e.scrollHeight>e.clientHeight+1}));assert.equal(full.wrap,'pre-wrap');assert(full.height>full.line*3&&!full.clipped,'description remains cropped');
    assert.equal(await announcement.locator('button').count(),0);assert.equal(await paragraph.locator('script').count(),0);
    if(artifacts)await page.locator('.signal-profile').screenshot({path:resolve(artifacts,`announcement-${width}-full.png`)});
-   if(width>1000){const heights=await page.evaluate(()=>['.universal-connection','.signal-profile'].map(s=>document.querySelector(s).getBoundingClientRect().height));assert(Math.abs(heights[0]-heights[1])<2);}
+   if(width>1000){const heights=await page.evaluate(()=>['.universal-connection','.signal-profile'].map(s=>document.querySelector(s).getBoundingClientRect().height));assert(heights[0]<=heights[1]+2,'connection card keeps its own height instead of stretching to the subscription list');}
   } else if(query==='multiple=1')assert.equal(await page.locator('.universal-home-subscriptions .signal-profile').count(),2);
   else if(query==='state=connecting'){assert(await page.locator('.nimbo-connect-action').isDisabled());assert.equal(await page.locator('.nimbo-connect-action [data-connection-icon="loading"]').count(),1);assert.deepEqual(await page.evaluate(()=>window.polishCalls),[]);}
   else {assert.equal(await page.locator('.nimbo-connect-action [data-connection-icon="cloud"]').count(),1);await page.locator('.nimbo-connect-action').click();await page.waitForFunction(()=>window.polishCalls.includes('disconnect'));}

@@ -182,6 +182,12 @@ androidComponents {
             val buildSuffix = if (variant.buildType == "debug") "_debug" else ""
             output.outputFileName.set("Nimbo_v${version}_${abi}${buildSuffix}.apk")
         }
+        // libxray.aar несёт Go-ядро под четыре ABI, по ~70 МБ каждое. Телефоны —
+        // только ARM, а x86/x86_64 нужны лишь эмулятору, поэтому из release
+        // (в том числе universal APK) их вырезаем; debug остаётся с ними.
+        if (variant.buildType == "release") {
+            variant.packaging.jniLibs.excludes.addAll("lib/x86/**", "lib/x86_64/**")
+        }
     }
 }
 
