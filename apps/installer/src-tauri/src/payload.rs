@@ -1188,18 +1188,30 @@ fn install_mihomo_payload(
     installation: &mut PayloadInstallation,
 ) -> Result<(), String> {
     let root = install_dir.join("resources/mihomo");
-    for (relative, bytes, expected) in MIHOMO_FILES {
-        if format!("{:x}", Sha256::digest(bytes)) != *expected {
+    for (relative, packed, expected) in MIHOMO_FILES {
+        let bytes = unpack_mihomo(packed)?;
+        if format!("{:x}", Sha256::digest(&bytes)) != *expected {
             return Err("Повреждён встроенный компонент Mihomo".into());
         }
         let path = root.join(relative);
-        installation.replace(&path, bytes)?;
+        installation.replace(&path, &bytes)?;
         let written = fs::read(&path).map_err(|e| format!("Не удалось проверить Mihomo: {e}"))?;
         if format!("{:x}", Sha256::digest(written)) != *expected {
             return Err("Записанный компонент Mihomo не совпадает с пакетом".into());
         }
     }
     Ok(())
+}
+
+/// Mihomo resources are embedded zstd-compressed by build.rs.
+fn unpack_mihomo(packed: &[u8]) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut out = Vec::new();
+    ruzstd::decoding::StreamingDecoder::new(packed)
+        .map_err(|_| "Повреждён встроенный компонент Mihomo".to_string())?
+        .read_to_end(&mut out)
+        .map_err(|_| "Повреждён встроенный компонент Mihomo".to_string())?;
+    Ok(out)
 }
 
 fn install_runtime_payloads(
@@ -2168,7 +2180,7 @@ mod awg_install_tests {
         for (relative, bytes, _) in MIHOMO_FILES {
             assert_eq!(
                 fs::read(fixture.0.join("resources/mihomo").join(relative)).unwrap(),
-                *bytes
+                unpack_mihomo(bytes).unwrap()
             );
         }
         drop(app);
@@ -2208,7 +2220,7 @@ mod awg_install_tests {
         awg.commit();
         for (relative, bytes, _) in MIHOMO_FILES {
             let path = fixture.0.join("resources/mihomo").join(relative);
-            assert_eq!(fs::read(&path).unwrap(), *bytes);
+            assert_eq!(fs::read(&path).unwrap(), unpack_mihomo(bytes).unwrap());
             assert!(!old_payload_path(&path).exists());
         }
         assert!(!fixture

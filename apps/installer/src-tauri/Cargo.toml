@@ -14,6 +14,8 @@ custom-protocol = ["tauri/custom-protocol"]
 tauri-build = { version = "2", features = [] }
 serde_json.workspace = true
 sha2.workspace = true
+# Mihomo ships zstd-compressed inside the installer (~50 MB → ~17 MB).
+zstd = { version = "0.13", default-features = false }
 
 [dependencies]
 serde.workspace = true
@@ -21,6 +23,8 @@ serde_json.workspace = true
 sha2.workspace = true
 dirs.workspace = true
 tauri = { version = "2", features = [] }
+# Pure-Rust decoder for the embedded Mihomo payload: no C toolchain per target.
+ruzstd = "0.8"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # getuid: владельцем службы записываем текущего пользователя.

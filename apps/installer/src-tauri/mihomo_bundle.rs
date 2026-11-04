@@ -35,6 +35,8 @@ fn json(root: &Path, relative: &str) -> Value {
 
 pub fn prepare(target: &str) {
     println!("cargo:rerun-if-changed=mihomo_bundle.rs");
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    // (relative path, zstd-compressed bytes, SHA-256 of the uncompressed file)
     let mut generated = String::from("const MIHOMO_FILES: &[(&str, &[u8], &str)] = &[\n");
     let platform = match target {
         "x86_64-pc-windows-msvc" => Some("windows-x64"),
@@ -149,20 +151,26 @@ pub fn prepare(target: &str) {
         for (relative, expected) in files {
             let path = checked_path(&root, &relative);
             println!("cargo:rerun-if-changed={}", path.display());
-            let digest = format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap()));
+            let bytes = std::fs::read(&path).unwrap();
+            let digest = format!("{:x}", Sha256::digest(&bytes));
             if let Some(expected) = expected {
                 assert_eq!(
                     digest, expected,
                     "Mihomo resource hash mismatch: {relative}"
                 );
             }
+            // Embedded zstd-compressed; the digest stays that of the original
+            // file, so the installer checks exactly what it writes to disk.
+            let compressed = zstd::bulk::compress(&bytes, 19).expect("compress Mihomo resource");
+            let packed = out_dir.join(format!("mihomo-{}.zst", generated.lines().count()));
+            std::fs::write(&packed, compressed).unwrap();
             generated.push_str(&format!(
                 "({relative:?}, include_bytes!({:?}), {digest:?}),\n",
-                path.to_str().unwrap()
+                packed.to_str().unwrap()
             ));
         }
     }
     generated.push_str("];\n");
-    let output = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("mihomo_files.rs");
+    let output = out_dir.join("mihomo_files.rs");
     std::fs::write(output, generated).unwrap();
 }
