@@ -4,6 +4,18 @@ on:
   push:
     branches:
       - codex/ios-unsigned-build
+      # Core and bridge pins break the iOS build first (gvisor 20261031 did).
+      # Build on every working branch that touches them, before release day.
+      - 'codex/**'
+    paths:
+      - 'iosApp/GoBridge/**'
+      - 'tools/native/**'
+      - 'scripts/ci/*mihomo*'
+      - 'scripts/ci/*libxray*'
+      - 'scripts/ci/*xray*'
+      - 'scripts/ci/check-ios-*'
+      - 'scripts/ci/test-ios-*'
+      - '.github/workflows/build-ios-unsigned.yml'
   workflow_dispatch:
     inputs:
       version:

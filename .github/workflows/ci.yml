@@ -46,6 +46,34 @@ jobs:
           python3 iosApp/Tests/test_traffic_statistics_contracts.py --swift
           python3 scripts/ci/test_gomobile_memory_limits.py
 
+  ui_browser:
+    # Layout regressions (double frames, misaligned cards) only show up in a
+    # real browser; these suites ran nowhere in CI before.
+    name: UI в браузере (Playwright)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v4
+
+      - name: Установить Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/ui/package-lock.json
+            apps/installer/package-lock.json
+
+      - name: Установить зависимости и Chromium
+        run: |
+          npm ci --prefix apps/ui
+          npm ci --prefix apps/installer
+          cd apps/installer && npx playwright install --with-deps chromium
+
+      - name: Прогнать браузерные наборы
+        working-directory: apps/ui
+        run: npm run test:browser
+
   verify:
     name: Проверка (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

@@ -42,11 +42,6 @@ body[data-ui-style] .settings-page .parity-settings-detail .settings-row-title {
 .settings-search > svg { width: 18px; height: 18px; flex: none; }
 .settings-search input { flex: 1; width: 100%; min-width: 0; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent !important; color: var(--color-text); font: inherit; font-size: 14px; }
 .settings-search input::placeholder { color: var(--color-text-dim); }
-/* Группы раскладываются колонками, а не рядами: короткая группа не тянется
-   до высоты соседней и не оставляет пустую плашку. */
-.settings-page .parity-settings-overview { display: block; columns: 2 340px; column-gap: 24px; }
-.settings-page .parity-settings-group { break-inside: avoid; margin: 0 0 24px; }
-.settings-page .parity-settings-list { flex: none; }
 @media (max-width: 640px) {
   .settings-discovery { flex-direction: column; align-items: stretch; }
   .settings-mode { align-self: flex-start; }

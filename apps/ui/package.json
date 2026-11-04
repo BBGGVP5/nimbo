@@ -16,6 +16,7 @@
     "test:polish": "tsc --noEmit -p tests/browser/tsconfig.cross-platform-polish.json && node tests/browser/cross-platform-polish.mjs",
     "test:settings": "tsc --noEmit -p tests/browser/tsconfig.settings-polish.json && node tests/browser/settings-polish.mjs",
     "test:secondary": "tsc --noEmit -p tests/browser/tsconfig.secondary-audit.json && node tests/browser/secondary-audit.mjs",
+    "test:browser": "npm run test:settings && npm run test:polish && npm run test:secondary && npm run test:traffic:browser",
     "build:installer": "tauri build --bundles nsis",
     "build:installer:local": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/windows/build-local-installer.ps1",
     "build:installer:current": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/windows/build-local-installer.ps1 -Targets current",
