@@ -16,7 +16,6 @@
 }
 .app-shell .app-bottom-nav { display: none; }
 /* App supplies the activity tabs with the same icons as the sidebar. */
-.app-workspace-header > .parity-activity-nav { display: none; }
 .app-shell .app-workspace-header { max-width: none; }
 .app-workspace-header .parity-workspace-bar {
   margin: 0 0 20px !important;

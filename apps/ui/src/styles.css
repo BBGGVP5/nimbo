@@ -63,15 +63,6 @@
 .cross-sync-card-heading h2, .cross-sync-confirm h2, .cross-sync-status-card h2 { margin: 0 0 5px; font-size: 18px; }
 .cross-sync-card-heading p, .cross-sync-confirm p, .cross-sync-status-card p { margin: 0; color: var(--color-text-dim); font-size: 13px; line-height: 1.5; }
 .cross-sync-step { width: 30px; height: 30px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 11px; color: var(--color-accent-bright); background: var(--color-accent-panel); border: 1px solid var(--color-accent); font-weight: 800; }
-.cross-sync-link-visual { display: grid; grid-template-columns: 43px minmax(110px, 1fr) 43px; align-items: center; gap: 10px; margin: 0 0 18px; padding: 10px 12px; border-radius: 17px; border: 1px solid color-mix(in srgb, var(--color-accent) 20%, var(--color-border)); background: color-mix(in srgb, var(--color-accent) 5%, transparent); }
-.cross-sync-link-device { width: 43px; height: 43px; display: grid; place-items: center; border-radius: 15px; color: var(--color-accent-bright); background: color-mix(in srgb, var(--color-accent) 15%, transparent); border: 1px solid color-mix(in srgb, var(--color-accent) 34%, transparent); font-size: 12px; font-weight: 850; box-shadow: inset 0 1px rgba(255,255,255,.09); }
-.cross-sync-link-device svg { width: 25px; height: 25px; }
-.cross-sync-link-rail { position: relative; height: 22px; overflow: hidden; }
-.cross-sync-link-rail::before { content: ""; position: absolute; left: 0; right: 0; top: 10px; height: 2px; border-radius: 999px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 38%, transparent), transparent); }
-.cross-sync-link-rail i { position: absolute; top: 7px; left: -8px; width: 8px; height: 8px; border-radius: 3px; background: var(--color-accent); box-shadow: 0 0 14px color-mix(in srgb, var(--color-accent) 75%, transparent); animation: cross-sync-packet 2.4s linear infinite; }
-.cross-sync-link-rail i:nth-child(2) { animation-delay: -.8s; opacity: .72; transform: scale(.78); }
-.cross-sync-link-rail i:nth-child(3) { animation-delay: -1.6s; opacity: .46; transform: scale(.62); }
-.cross-sync-link-visual.is-linked .cross-sync-link-rail i { background: var(--color-status-connected); box-shadow: 0 0 14px color-mix(in srgb, var(--color-status-connected) 75%, transparent); animation-duration: 1.35s; }
 .cross-sync-qr-wrap { display: grid; grid-template-columns: 1fr; justify-items: center; gap: 18px; min-height: 308px; }
 .cross-sync-qr-stage { position: relative; padding: 7px; border-radius: 29px; }
 .cross-sync-qr-stage::before { content: ""; position: absolute; inset: -13px; z-index: -1; border-radius: 38px; background: conic-gradient(from 0deg, transparent, color-mix(in srgb, var(--color-accent) 45%, transparent), transparent 35%); filter: blur(10px); animation: cross-sync-qr-halo 5.4s linear infinite; }
@@ -376,12 +367,6 @@ body[data-theme="light"] .settings-card {
     var(--ui-panel-bg);
   border-color: var(--color-border);
   box-shadow: 0 18px 50px var(--color-material-shadow);
-}
-
-body[data-theme="light"] .app-sidebar > .glass {
-  background:
-    linear-gradient(180deg, var(--color-material-glaze-strong), var(--color-material-glaze)),
-    var(--ui-panel-bg-strong);
 }
 
 body[data-theme="light"] .text-white {
@@ -1078,42 +1063,6 @@ select {
   -webkit-backdrop-filter: var(--ui-backdrop-filter);
 }
 
-.app-sidebar {
-  width: var(--sidebar-width, 232px);
-}
-
-.app-sidebar > .glass {
-  background: var(--ui-panel-bg-strong);
-  border-color: var(--color-border);
-  box-shadow: none;
-}
-
-body[data-theme="light"] .app-sidebar > .glass {
-  background: var(--ui-panel-bg-strong);
-}
-
-.app-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.app-brand-lockup {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 10px;
-}
-
-.app-brand-version {
-  flex: 0 0 auto;
-  color: var(--color-text-faint);
-  font-size: 10px;
-  line-height: 1;
-  white-space: nowrap;
-}
-
 /* Стрелка сворачивания: тихая, пока к ней не потянулись. */
 .app-sidebar-collapse {
   display: inline-flex;
@@ -1147,88 +1096,13 @@ body[data-theme="light"] .app-sidebar > .glass {
   transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.app-sidebar[data-collapsed="true"] .app-sidebar-collapse svg {
-  transform: rotate(180deg);
-}
-
 /* Свёрнутая панель: остаются значки, подписи и марка уходят. */
-.app-sidebar {
-  transition: width 260ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.app-sidebar[data-collapsed="true"] .app-brand {
-  flex-direction: column;
-  gap: 10px;
-}
-
-.app-sidebar[data-collapsed="true"] .app-brand-name,
-.app-sidebar[data-collapsed="true"] .app-brand-version,
-.app-sidebar[data-collapsed="true"] .app-nav-text,
-.app-sidebar[data-collapsed="true"] .app-build {
-  display: none;
-}
-
-.app-sidebar[data-collapsed="true"] .app-brand {
-  padding-left: 0;
-  padding-right: 0;
-}
-
-.app-sidebar[data-collapsed="true"] .app-brand-lockup {
-  justify-content: center;
-}
-
-.app-sidebar[data-collapsed="true"] .app-nav-link {
-  justify-content: center;
-  padding-left: 0;
-  padding-right: 0;
-  min-height: 46px;
-}
-
-.app-sidebar[data-collapsed="true"] .app-nav-icon {
-  width: 22px;
-  height: 22px;
-}
 
 /* Логотипу нужен воздух: в узком рельсе он упирался в края и выглядел
    сплющенным. Пропорции не режем — «cover» обрезал бы неквадратный знак. */
-.app-sidebar[data-collapsed="true"] .app-brand-logo {
-  width: 38px;
-  height: 38px;
-  object-fit: contain;
-}
-
-.app-sidebar[data-collapsed="true"] .app-brand {
-  padding-top: 16px;
-  padding-bottom: 12px;
-}
 
 /* Счётчик непрочитанных превращается в точку: цифра рядом со значком не
    помещается, но само уведомление скрывать нельзя. */
-.app-sidebar[data-collapsed="true"] .app-nav-badge {
-  position: absolute;
-  top: 6px;
-  right: 12px;
-  min-width: 8px;
-  width: 8px;
-  height: 8px;
-  padding: 0;
-  font-size: 0;
-  line-height: 0;
-  border-radius: 999px;
-}
-
-.app-sidebar[data-collapsed="true"] .app-nav-link {
-  position: relative;
-}
-
-.app-brand-logo {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  border-radius: 8px;
-  object-fit: cover;
-  box-shadow: none;
-}
 
 .page-view {
   width: min(100%, 1500px);
@@ -1398,61 +1272,6 @@ body[data-theme="light"] .connection-button-core {
   content: none;
 }
 
-.connection-button-icon {
-  position: relative;
-  z-index: 1;
-  width: 38%;
-  height: 38%;
-  filter: none;
-}
-
-.connection-button-icon-power {
-  width: 42%;
-  height: 42%;
-  display: block;
-  transform: translateY(0);
-  opacity: 0.96;
-}
-
-.connection-button-icon-power::before,
-.connection-button-icon-power::after {
-  content: "";
-  position: absolute;
-  box-sizing: border-box;
-  left: 50%;
-}
-
-.connection-button-icon-power::before {
-  top: 1%;
-  width: 13%;
-  height: 45%;
-  border-radius: 999px;
-  background: currentColor;
-  transform: translateX(-50%);
-}
-
-.connection-button-icon-power::after {
-  top: 28%;
-  width: 86%;
-  height: 68%;
-  border: clamp(8px, 0.95vw, 12px) solid currentColor;
-  border-top-color: transparent;
-  border-radius: 999px;
-  transform: translateX(-50%);
-}
-
-.connection-button-loader {
-  position: relative;
-  z-index: 1;
-  width: 28%;
-  aspect-ratio: 1;
-  border-radius: 999px;
-  border: 4px solid var(--color-border);
-  border-top-color: var(--color-accent);
-  filter: none;
-  animation: nimbo-connection-spin 0.9s linear infinite;
-}
-
 .connection-button-connecting {
   color: var(--color-accent);
 }
@@ -1517,12 +1336,6 @@ body[data-theme="light"] .connection-button-core {
 .connection-button-disconnecting .connection-button-ring {
   opacity: 1;
   border-color: var(--color-border-strong);
-}
-
-.connection-button-disconnecting .connection-button-loader {
-  border-color: var(--color-border);
-  border-top-color: var(--color-text);
-  animation-direction: reverse;
 }
 
 /* ── Compact connection toggle ─────────────────────────────── */
@@ -1591,16 +1404,6 @@ body[data-theme="light"] .connection-button-core {
     transform 240ms cubic-bezier(.2, .8, .2, 1),
     background 220ms ease,
     color 220ms ease;
-}
-
-.connection-toggle-thumb .connection-button-icon {
-  width: 60%;
-  height: 60%;
-}
-
-.connection-toggle-thumb .connection-button-loader {
-  width: 56%;
-  border-width: 2.5px;
 }
 
 .connection-toggle-label {
@@ -1943,10 +1746,6 @@ body[data-theme="light"] .connection-button-core {
 .server-side-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 3px; }
 .server-side-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
 
-.server-side-item {
-  font-size: 13px;
-}
-
 .server-side-entry {
   min-height: 64px;
   border: 1px solid transparent;
@@ -2149,13 +1948,6 @@ body[data-theme="light"] .server-side-entry-active {
   align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
-}
-
-.connections-active-profile {
-  margin-top: 8px;
-  color: var(--color-text-faint);
-  font-size: 13px;
-  font-weight: 700;
 }
 
 .connections-tabs {
@@ -2563,12 +2355,6 @@ body[data-theme="light"] .connections-live-head {
 .connections-remove:hover:not(:disabled) {
   background: rgba(255, 80, 80, 0.12);
   color: #ff6b6b;
-}
-
-.connections-empty {
-  padding: 54px 18px;
-  color: var(--color-text-faint);
-  text-align: center;
 }
 
 .server-detail-page {
@@ -3250,11 +3036,6 @@ body[data-theme="light"] .session-traffic-card {
 }
 
 /* Notification history screen */
-.notification-history-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
 
 .notification-history-list {
   display: grid;
@@ -3372,30 +3153,6 @@ body[data-theme="light"] .session-traffic-card {
   height: 15px;
 }
 
-.notification-history-empty {
-  display: grid;
-  justify-items: center;
-  gap: 14px;
-  padding: 64px 24px;
-  text-align: center;
-  color: var(--color-text-faint);
-}
-
-.notification-history-empty-icon {
-  display: grid;
-  place-items: center;
-  width: 64px;
-  height: 64px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-text) 5%, transparent);
-  color: var(--color-text-faint);
-}
-
-.notification-history-empty-icon svg {
-  width: 30px;
-  height: 30px;
-}
-
 @media (hover: none) {
   .notification-history-delete {
     opacity: 1;
@@ -3403,66 +3160,10 @@ body[data-theme="light"] .session-traffic-card {
   }
 }
 
-.notification-history-clear {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  border: 1px solid var(--color-border);
-  background: var(--color-glass-bg);
-  color: var(--color-text-dim);
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
-}
-
-.notification-history-clear:hover {
-  border-color: color-mix(in srgb, var(--color-status-error) 50%, transparent);
-  background: rgba(255, 92, 100, 0.12);
-  color: #ff7a88;
-}
-
-.notification-history-clear svg {
-  width: 18px;
-  height: 18px;
-}
-
 /* Event-center notification page */
 .notification-page {
   width: min(100%, 980px);
   padding: 8px 8px 44px;
-}
-
-.notification-page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 14px;
-}
-
-.notification-page-heading {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 10px;
-}
-
-.notification-page-heading-icon {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
-  border-radius: 12px;
-  background: linear-gradient(145deg, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent), var(--ui-panel-bg-strong);
-  color: var(--color-accent-bright);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 6%, transparent);
-}
-
-.notification-page-heading-icon svg {
-  width: 18px;
-  height: 18px;
 }
 
 .notification-page .page-title {
@@ -3475,151 +3176,6 @@ body[data-theme="light"] .session-traffic-card {
   font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.01em;
-}
-
-.notification-overview {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 32%, var(--color-border));
-  border-radius: 18px;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 48%), var(--ui-panel-bg-strong);
-  box-shadow: 0 26px 70px color-mix(in srgb, var(--color-accent) 10%, transparent), inset 0 1px 0 color-mix(in srgb, white 5%, transparent);
-  animation: notification-rise 420ms cubic-bezier(0.2, 0.72, 0.2, 1) both;
-}
-
-.notification-overview::before {
-  position: absolute;
-  z-index: -1;
-  inset: -45% -15% auto 35%;
-  height: 250px;
-  content: "";
-  background: radial-gradient(circle, color-mix(in srgb, var(--color-accent) 24%, transparent), transparent 68%);
-  filter: blur(20px);
-  pointer-events: none;
-}
-
-.notification-overview-main {
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  align-items: center;
-  gap: 14px;
-}
-
-.notification-overview-count {
-  display: grid;
-  width: 56px;
-  height: 56px;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 48%, transparent);
-  border-radius: 16px;
-  background: linear-gradient(145deg, color-mix(in srgb, var(--color-accent) 20%, transparent), transparent), color-mix(in srgb, var(--color-card) 84%, transparent);
-  color: var(--color-accent-bright);
-  font-size: 23px;
-  font-weight: 850;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.04em;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 7%, transparent), 0 14px 32px color-mix(in srgb, var(--color-accent) 14%, transparent);
-}
-
-.notification-overview-eyebrow {
-  margin-bottom: 2px;
-  color: var(--color-accent-bright);
-  font-size: 11px;
-  font-weight: 850;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.notification-overview-copy h2 {
-  margin: 0;
-  color: var(--color-text);
-  font-size: clamp(16px, 1.7vw, 18px);
-  font-weight: 820;
-  line-height: 1.12;
-  letter-spacing: -0.025em;
-}
-
-.notification-overview-copy p {
-  margin: 4px 0 0;
-  color: var(--color-text-faint);
-  font-size: 12px;
-  font-weight: 570;
-}
-
-.notification-overview-progress {
-  display: flex;
-  overflow: hidden;
-  height: 5px;
-  gap: 3px;
-  margin: 14px 0 12px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-text) 5%, transparent);
-}
-
-.notification-overview-progress > span {
-  min-width: 8px;
-  border-radius: 999px;
-}
-
-.notification-overview-progress [data-tone="success"] { background: #5dd9a1; box-shadow: 0 0 18px rgba(93, 217, 161, 0.3); }
-.notification-overview-progress [data-tone="error"] { background: #ff707c; box-shadow: 0 0 18px rgba(255, 112, 124, 0.3); }
-.notification-overview-progress [data-tone="activity"] { background: var(--color-accent); box-shadow: 0 0 18px color-mix(in srgb, var(--color-accent) 35%, transparent); }
-.notification-overview-progress .notification-progress-empty { width: 100%; max-width: none; background: color-mix(in srgb, var(--color-text) 6%, transparent); }
-
-.notification-overview-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.notification-overview-stat {
-  display: flex;
-  min-width: 0;
-  min-height: 48px;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--color-text) 3%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 3%, transparent);
-}
-
-.notification-overview-stat[data-tone="success"] { border-color: color-mix(in srgb, #5dd9a1 26%, var(--color-border)); background: color-mix(in srgb, #5dd9a1 7%, transparent); }
-.notification-overview-stat[data-tone="error"] { border-color: color-mix(in srgb, #ff707c 26%, var(--color-border)); background: color-mix(in srgb, #ff707c 7%, transparent); }
-.notification-overview-stat[data-tone="activity"] { border-color: color-mix(in srgb, var(--color-accent) 30%, var(--color-border)); background: color-mix(in srgb, var(--color-accent) 7%, transparent); }
-
-.notification-overview-stat-dot {
-  width: 10px;
-  height: 10px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: var(--color-accent-bright);
-  box-shadow: 0 0 14px currentColor;
-}
-
-.notification-overview-stat[data-tone="success"] .notification-overview-stat-dot { background: #5dd9a1; }
-.notification-overview-stat[data-tone="error"] .notification-overview-stat-dot { background: #ff707c; }
-.notification-overview-stat strong, .notification-overview-stat span { display: block; }
-
-.notification-overview-stat strong {
-  color: var(--color-text);
-  font-size: 14px;
-  font-weight: 820;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.05;
-}
-
-.notification-overview-stat div > span {
-  overflow: hidden;
-  margin-top: 2px;
-  color: var(--color-text-faint);
-  font-size: 10px;
-  font-weight: 680;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .notification-filters { margin-top: 16px; }
@@ -3794,46 +3350,6 @@ body[data-theme="light"] .session-traffic-card {
 .notification-page .notification-history-delete:hover { transform: scale(1.06); opacity: 1; }
 .notification-page .notification-history-delete svg { width: 14px; height: 14px; }
 
-.notification-page .notification-history-empty {
-  min-height: 200px;
-  align-content: center;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 32px 20px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 18px;
-  background: radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--color-accent) 9%, transparent), transparent 42%), color-mix(in srgb, var(--color-text) 2%, transparent);
-  animation: notification-rise 440ms 80ms cubic-bezier(0.2, 0.72, 0.2, 1) both;
-}
-
-.notification-page .notification-history-empty-icon {
-  width: 54px;
-  height: 54px;
-  margin-bottom: 8px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
-  border-radius: 15px;
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  color: var(--color-accent-bright);
-  box-shadow: 0 16px 38px color-mix(in srgb, var(--color-accent) 13%, transparent);
-}
-
-.notification-page .notification-history-empty-icon svg { width: 24px; height: 24px; }
-.notification-history-empty-title { color: var(--color-text); font-size: 15px; font-weight: 820; letter-spacing: -0.02em; }
-.notification-history-empty-hint { max-width: 520px; color: var(--color-text-faint); font-size: 12px; font-weight: 560; line-height: 1.55; }
-
-.notification-page .notification-history-clear {
-  width: 38px;
-  height: 38px;
-  flex: 0 0 auto;
-  border-color: color-mix(in srgb, #ff707c 28%, var(--color-border));
-  border-radius: 12px;
-  background: color-mix(in srgb, #ff707c 10%, transparent);
-  color: #ff8d96;
-}
-
-.notification-page .notification-history-clear:hover { transform: translateY(-1px); background: rgba(255, 92, 100, 0.16); color: #ffadb3; }
-.notification-page .notification-history-clear svg { width: 16px; height: 16px; }
-
 @keyframes notification-rise {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -3841,19 +3357,6 @@ body[data-theme="light"] .session-traffic-card {
 
 @media (max-width: 640px) {
   .notification-page { padding: 4px 2px 28px; }
-  .notification-page-header { margin-bottom: 14px; }
-  .notification-page-heading { gap: 9px; }
-  .notification-page-heading-icon,
-  .notification-page .notification-history-clear { width: 36px; height: 36px; border-radius: 12px; }
-  .notification-overview { padding: 14px; border-radius: 16px; }
-  .notification-overview-main { grid-template-columns: 50px minmax(0, 1fr); gap: 12px; }
-  .notification-overview-count { width: 50px; height: 50px; border-radius: 15px; font-size: 20px; }
-  .notification-overview-copy p { font-size: 11px; }
-  .notification-overview-stats { gap: 6px; }
-  .notification-overview-stat { min-height: 44px; gap: 7px; padding: 8px; border-radius: 12px; }
-  .notification-overview-stat-dot { width: 7px; height: 7px; }
-  .notification-overview-stat strong { font-size: 13px; }
-  .notification-overview-stat div > span { font-size: 9px; }
   .notification-page .notification-history-item { grid-template-columns: 36px minmax(0, 1fr) 26px; gap: 9px; min-height: 48px; padding: 8px 9px; border-radius: 13px; }
   .notification-page .notification-history-icon { width: 36px; height: 36px; border-radius: 12px; }
   .notification-page .notification-history-icon svg { width: 17px; height: 17px; }
@@ -3864,16 +3367,6 @@ body[data-theme="light"] .session-traffic-card {
 @media (max-width: 430px) {
   .notification-page .page-title { font-size: 18px; }
   .notification-page .page-subtitle { font-size: 11px; }
-  .notification-page-heading-icon { display: none; }
-  .notification-overview { padding: 13px; }
-  .notification-overview-main { grid-template-columns: 46px minmax(0, 1fr); gap: 10px; }
-  .notification-overview-count { width: 46px; height: 46px; border-radius: 14px; font-size: 19px; }
-  .notification-overview-eyebrow { font-size: 9px; }
-  .notification-overview-copy h2 { font-size: 15px; }
-  .notification-overview-copy p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .notification-overview-progress { margin: 14px 0 10px; }
-  .notification-overview-stat { display: grid; justify-items: center; gap: 4px; padding: 7px 5px; text-align: center; }
-  .notification-overview-stat div > span { max-width: 76px; }
   .notification-filter-chip { min-height: 28px; padding: 0 10px; }
   .notification-history-meta { align-items: flex-start; flex-direction: column; gap: 1px; }
   .notification-page .notification-history-message { margin-top: 2px; }
@@ -3888,22 +3381,6 @@ body[data-theme="light"] .session-traffic-card {
 }
 
 /* Unread badge on the sidebar bell */
-.app-nav-badge {
-  margin-left: auto;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: var(--color-accent);
-  color: #0a0a0a;
-  font-size: 10px;
-  font-weight: 850;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
 
 body[data-theme="light"] .notification-toast {
   background: var(--color-material-bg);
@@ -3927,79 +3404,6 @@ body[data-theme="light"] .notification-toast {
   }
 }
 
-.app-dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-body[data-theme="light"] .app-dialog-backdrop {
-  background: rgba(20, 24, 36, 0.28);
-}
-
-.app-dialog {
-  width: min(480px, 100%);
-  border: 1px solid var(--color-border);
-  border-radius: 14px;
-  background: var(--color-surface);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
-  padding: 22px 24px 20px;
-}
-
-body[data-theme="light"] .app-dialog {
-  background: var(--color-material-bg);
-  box-shadow: 0 20px 40px rgba(40, 32, 64, 0.18);
-}
-
-.app-dialog-title {
-  color: var(--color-text);
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
-}
-
-.app-dialog-message {
-  margin-top: 12px;
-  color: var(--color-text-dim);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.45;
-}
-
-.app-dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 20px;
-}
-
-.app-dialog-ok {
-  min-width: 96px;
-  border: 0;
-  border-radius: 10px;
-  background: var(--color-accent);
-  color: #fff;
-  padding: 10px 18px;
-  font-size: 13.5px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  transition: background-color 160ms ease;
-}
-
-.app-dialog-ok:hover {
-  background: color-mix(in srgb, #fff 6%, var(--color-accent));
-}
-
-.conflict-dialog-backdrop {
-  z-index: 118;
-}
-
 .conflict-dialog {
   position: relative;
   width: min(480px, 100%);
@@ -4015,70 +3419,6 @@ body[data-theme="light"] .app-dialog {
 body[data-theme="light"] .conflict-dialog {
   background: var(--color-material-bg);
   box-shadow: 0 24px 50px rgba(40, 32, 64, 0.18);
-}
-
-.conflict-dialog-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  color: var(--color-text-dim);
-  background: transparent;
-  border: 1px solid transparent;
-  transition: color 160ms ease, background 160ms ease;
-}
-
-.conflict-dialog-close:hover:not(:disabled) {
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-text) 6%, transparent);
-}
-
-.conflict-dialog-close:disabled {
-  cursor: wait;
-  opacity: 0.55;
-}
-
-.conflict-dialog-close svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-}
-
-.conflict-dialog-badge {
-  display: inline-grid;
-  min-width: 40px;
-  height: 20px;
-  place-items: center;
-  padding: 0 8px;
-  border-radius: 6px;
-  border: 0;
-  color: var(--color-accent-bright);
-  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-body[data-theme="light"] .conflict-dialog-badge {
-  color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-}
-
-.conflict-dialog-title {
-  margin: 10px 40px 0 0;
-  color: var(--color-text);
-  font-size: 19px;
-  line-height: 1.2;
-  font-weight: 700;
-  letter-spacing: -0.02em;
 }
 
 .conflict-dialog-text {
@@ -4259,11 +3599,6 @@ body[data-theme="light"] .conflict-dialog-badge {
     padding: 20px;
   }
 
-  .conflict-dialog-title {
-    margin-right: 42px;
-    font-size: 24px;
-  }
-
   .conflict-dialog-text {
     margin-right: 0;
     font-size: 14px;
@@ -4288,24 +3623,6 @@ body[data-theme="light"] .conflict-dialog-badge {
   }
 }
 
-.update-dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 120;
-  display: grid;
-  place-items: center;
-  padding: 18px;
-  /* Затемнение заметное: сквозь прежнее просвечивал интерфейс, и глаз цеплялся
-     за него вместо текста обновления. */
-  background: rgba(0, 0, 0, 0.78);
-  backdrop-filter: var(--ui-backdrop-filter-soft);
-  -webkit-backdrop-filter: var(--ui-backdrop-filter-soft);
-}
-
-body[data-theme="light"] .update-dialog-backdrop {
-  background: rgba(20, 24, 36, 0.46);
-}
-
 .update-dialog {
   width: min(460px, calc(100vw - 36px));
   /* Заметки к релизу бывают длинными: без предела диалог уезжал за нижний
@@ -4327,106 +3644,11 @@ body[data-theme="light"] .update-dialog-backdrop {
   text-align: left;
 }
 
-.update-dialog-header {
-  display: grid;
-  grid-template-columns: 66px minmax(0, 1fr);
-  align-items: center;
-  gap: 14px;
-}
-
-.update-dialog-heading-copy {
-  min-width: 0;
-}
-
-.update-dialog-platform {
-  color: var(--color-accent-bright);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-}
-
 body[data-theme="light"] .update-dialog {
   /* Прежде здесь стояла подложка панелей, зависящая от ползунка
      прозрачности, и она перекрывала плотный фон окна. */
   background: var(--color-surface);
   box-shadow: 0 24px 50px rgba(40, 32, 64, 0.22);
-}
-
-.update-dialog-art {
-  width: 74px;
-  height: 74px;
-  display: grid;
-  place-items: center;
-  margin-bottom: 0;
-}
-
-.update-dialog-orbit {
-  width: 68px;
-  height: 68px;
-  display: grid;
-  place-items: center;
-  border-radius: 16px;
-  border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
-  box-shadow: none;
-}
-
-.update-dialog-logo {
-  width: 44px;
-  height: 44px;
-  object-fit: contain;
-  filter: none;
-}
-
-.update-dialog-success {
-  position: relative;
-  border-color: color-mix(in srgb, #63d98a 48%, var(--color-border));
-  background: color-mix(in srgb, #63d98a 10%, transparent);
-}
-
-.update-dialog-success span {
-  position: absolute;
-  right: -5px;
-  bottom: -5px;
-  display: grid;
-  width: 23px;
-  height: 23px;
-  place-items: center;
-  border: 2px solid var(--ui-panel-bg);
-  border-radius: 50%;
-  background: #43bd70;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.update-dialog-title {
-  margin: 0;
-  color: var(--color-text);
-  font-size: 20px;
-  line-height: 1.2;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.update-dialog-version {
-  width: fit-content;
-  margin-top: 5px;
-  border: 0;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
-  color: var(--color-accent-bright);
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
-}
-
-body[data-theme="light"] .update-dialog-version {
-  color: var(--color-accent);
 }
 
 .update-dialog-text {
@@ -4565,10 +3787,6 @@ body[data-theme="light"] .update-dialog {
     radial-gradient(40% 35% at 50% 100%, var(--color-bg-aura-2), transparent 78%),
     linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.78)),
     rgba(255, 255, 255, 0.88);
-}
-
-body[data-theme="light"] .update-dialog-backdrop {
-  background: rgba(16, 20, 32, 0.28);
 }
 
 .dark-input {
@@ -4834,10 +4052,6 @@ body[data-theme="light"] .server-profile-title {
   }
 }
 
-.server-row-menu-wrap {
-  position: relative;
-}
-
 /* Profile reordering is one control instead of two unrelated tiny buttons. */
 .subscription-reorder-control {
   display: inline-flex;
@@ -4901,19 +4115,9 @@ body[data-theme="light"] .server-profile-title {
   .subscription-summary-actions .subscription-reorder-control {
     min-height: 40px;
   }
-
-  .subscription-description {
-    overflow-wrap: anywhere;
-  }
 }
 
 /* Frosted, more solid pill so the dots button doesn't read as transparent. */
-.server-row-dots-button {
-  border-color: var(--color-border);
-  background: color-mix(in srgb, var(--color-surface) 80%, transparent);
-  backdrop-filter: blur(14px) saturate(150%);
-  -webkit-backdrop-filter: blur(14px) saturate(150%);
-}
 
 .server-row-menu {
   position: absolute;
@@ -5001,74 +4205,6 @@ body[data-theme="light"] .server-row-menu .server-row-menu-danger {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
-}
-
-.server-rename-dialog {
-  width: min(420px, calc(100vw - 40px));
-  padding: 22px;
-  background: var(--ui-panel-bg-strong);
-  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.48);
-}
-
-.subscription-settings-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 70;
-  display: grid;
-  place-items: center;
-  padding: 28px;
-  background: rgba(0, 0, 0, 0.68);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.subscription-settings-dialog {
-  display: flex;
-  width: min(560px, calc(100vw - 48px));
-  max-height: calc(100vh - 56px);
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-border-strong) 72%, transparent);
-  border-radius: 18px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--color-text) 3%, transparent), transparent 42%),
-    color-mix(in srgb, var(--color-bg) 92%, #000);
-  box-shadow:
-    0 28px 80px rgba(0, 0, 0, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  animation: subscription-dialog-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.subscription-settings-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  border-bottom: 1px solid var(--color-border);
-  padding: 18px 24px;
-}
-
-.subscription-settings-header h2 {
-  margin: 0;
-  color: #ffffff;
-  font-size: 19px;
-  font-weight: 820;
-  line-height: 1.1;
-}
-
-.subscription-settings-close {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border-radius: 10px;
-  color: var(--color-text-faint);
-  transition: background 160ms ease, color 160ms ease;
-}
-
-.subscription-settings-close:hover {
-  background: var(--color-glass-bg);
-  color: var(--color-text);
 }
 
 .subscription-settings-body {
@@ -5260,73 +4396,6 @@ body[data-theme="light"] .server-row-menu .server-row-menu-danger {
   height: 18px;
 }
 
-.subscription-settings-provider-links {
-  border: 1px solid var(--color-border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--color-text) 4%, transparent);
-  padding: 16px;
-}
-
-.subscription-settings-provider-links .subscription-settings-label,
-.subscription-settings-announcement .subscription-settings-label {
-  margin-bottom: 10px;
-  color: var(--color-text-faint);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.subscription-settings-provider-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.subscription-settings-provider-grid a {
-  display: flex;
-  min-height: 44px;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 42%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
-  color: var(--color-accent-bright);
-  font-size: 13px;
-  font-weight: 750;
-  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
-}
-
-.subscription-settings-provider-grid a svg {
-  width: 18px;
-  height: 18px;
-}
-
-.subscription-settings-provider-grid a:hover {
-  border-color: color-mix(in srgb, var(--color-accent) 70%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
-}
-
-.subscription-settings-provider-grid a:active {
-  transform: scale(0.99);
-}
-
-.subscription-settings-announcement {
-  border: 1px solid color-mix(in srgb, #ffb020 40%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, #ffb020 10%, transparent);
-  color: color-mix(in srgb, var(--color-text) 76%, transparent);
-  font-size: 13px;
-  font-weight: 550;
-  line-height: 1.45;
-  padding: 14px 16px;
-  white-space: pre-wrap;
-}
-
-.subscription-settings-announcement .subscription-settings-label {
-  color: #ffb020;
-}
-
 .subscription-settings-footer {
   position: relative;
   z-index: 2;
@@ -5428,30 +4497,11 @@ body[data-theme="light"] .server-row-menu .server-row-menu-danger {
     left: 0;
   }
 
-  .subscription-settings-backdrop {
-    padding: 12px;
-  }
-
-  .subscription-settings-dialog {
-    width: calc(100vw - 24px);
-    max-height: calc(100vh - 24px);
-    border-radius: 20px;
-  }
-
   .subscription-settings-header,
   .subscription-settings-body,
   .subscription-settings-footer {
     padding-left: 22px;
     padding-right: 22px;
-  }
-
-  .subscription-settings-header {
-    padding-top: 16px;
-    padding-bottom: 16px;
-  }
-
-  .subscription-settings-header h2 {
-    font-size: 18px;
   }
 
   .subscription-settings-body {
@@ -5500,11 +4550,6 @@ body[data-theme="light"] .server-row-menu .server-row-menu-danger {
     min-width: 0;
     font-size: 13px;
   }
-}
-
-.flag-emoji {
-  font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Twemoji Mozilla", sans-serif;
-  font-variant-emoji: emoji;
 }
 
 .settings-page {
@@ -6291,10 +5336,6 @@ body[data-theme="light"] .settings-input {
   transform: translateY(-55%);
 }
 
-.update-protection-copy {
-  background: color-mix(in srgb, var(--color-accent) 4%, transparent);
-}
-
 @media (max-width: 680px) {
   .update-center-heading {
     grid-template-columns: 48px minmax(0, 1fr);
@@ -6554,239 +5595,7 @@ body[data-theme="light"] .settings-input {
   line-height: 1.15;
 }
 
-.appearance-details-heading {
-  margin-top: 0 !important;
-}
-
 /* Collapsible "Style details" section */
-.appearance-collapse-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 24px;
-}
-
-.appearance-collapse-toggle {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  text-align: left;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-
-.appearance-collapse-titles {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  text-align: left;
-}
-
-.appearance-collapse-titles .settings-row-title,
-.appearance-collapse-titles .settings-row-description {
-  display: block;
-}
-
-.appearance-collapse-chevron {
-  display: grid;
-  flex-shrink: 0;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-  color: var(--color-text-faint);
-  background: color-mix(in srgb, var(--color-text) 5%, transparent);
-  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1), color 160ms ease, background 160ms ease;
-}
-
-.appearance-collapse-toggle:hover .appearance-collapse-chevron {
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-text) 9%, transparent);
-}
-
-.appearance-collapse-chevron.is-open {
-  transform: rotate(180deg);
-}
-
-.appearance-collapse-chevron svg {
-  width: 16px;
-  height: 16px;
-}
-
-.appearance-collapse-body {
-  display: grid;
-  grid-template-rows: 0fr;
-  opacity: 0;
-  transition:
-    grid-template-rows 300ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 220ms ease;
-}
-
-.appearance-collapse-body.is-open {
-  grid-template-rows: 1fr;
-  opacity: 1;
-}
-
-.appearance-collapse-inner {
-  min-height: 0;
-  overflow: hidden;
-}
-
-.appearance-collapse-body.is-open .appearance-collapse-inner {
-  overflow: visible;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .appearance-collapse-body {
-    transition: none;
-  }
-  .appearance-collapse-chevron {
-    transition: none;
-  }
-}
-
-.appearance-slider-stack {
-  display: grid;
-  gap: 18px;
-  padding: 0 24px 22px;
-}
-
-
-.appearance-slider-row {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 42%) 106px;
-  align-items: center;
-  gap: 18px;
-}
-
-.appearance-slider-copy {
-  min-width: 0;
-}
-
-.appearance-slider-control {
-  --appearance-slider-progress: 50%;
-  min-width: 0;
-  height: 34px;
-  display: grid;
-  align-items: center;
-}
-
-.appearance-slider-input {
-  width: 100%;
-  height: 34px;
-  margin: 0;
-  appearance: none;
-  background: transparent !important;
-  cursor: pointer;
-}
-
-.appearance-slider-input:focus {
-  outline: none;
-}
-
-.appearance-slider-input::-webkit-slider-runnable-track {
-  height: 10px;
-  border-radius: 999px;
-  background:
-    linear-gradient(
-      90deg,
-      var(--color-accent) 0%,
-      var(--color-accent) var(--appearance-slider-progress),
-      color-mix(in srgb, var(--color-text) 18%, transparent) var(--appearance-slider-progress),
-      color-mix(in srgb, var(--color-text) 18%, transparent) 100%
-    );
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
-}
-
-.appearance-slider-input::-webkit-slider-thumb {
-  width: 7px;
-  height: 34px;
-  margin-top: -12px;
-  appearance: none;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-text) 96%, white 4%);
-  border: 0;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-accent) 18%, transparent),
-    0 6px 16px rgba(0, 0, 0, 0.28);
-}
-
-.appearance-slider-input::-moz-range-track {
-  height: 10px;
-  border: 0;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-text) 18%, transparent);
-}
-
-.appearance-slider-input::-moz-range-progress {
-  height: 10px;
-  border-radius: 999px;
-  background: var(--color-accent);
-}
-
-.appearance-slider-input::-moz-range-thumb {
-  width: 7px;
-  height: 34px;
-  border: 0;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-text) 96%, white 4%);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-accent) 18%, transparent),
-    0 6px 16px rgba(0, 0, 0, 0.28);
-}
-
-.appearance-slider-input:focus-visible::-webkit-slider-thumb {
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--color-accent) 24%, transparent),
-    0 6px 16px rgba(0, 0, 0, 0.28);
-}
-
-.appearance-slider-value {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  color: var(--color-text);
-  font-size: 18px;
-  font-weight: 800;
-  line-height: 1;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.appearance-slider-reset {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  color: var(--color-text-faint);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  opacity: 0.7;
-  padding: 0;
-}
-
-.appearance-slider-reset:hover {
-  opacity: 1;
-  color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-text) 8%, transparent);
-  transform: rotate(-30deg);
-}
-
-.appearance-slider-reset svg {
-  width: 14px;
-  height: 14px;
-}
 
 .settings-reset-all-btn {
   display: inline-flex;
@@ -6814,7 +5623,6 @@ body[data-theme="light"] .settings-input {
   width: 14px;
   height: 14px;
 }
-
 
 /* Accent colour preview cards (mirror the theme preview cards) */
 .settings-accent-grid {
@@ -8106,64 +6914,11 @@ body[data-theme="black"] .settings-background-thumb-grid {
   box-shadow: 0 0 20px var(--color-glow-accent);
 }
 
-.app-nav-link-active {
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--color-accent) 17%, transparent), color-mix(in srgb, var(--color-accent) 9%, transparent));
-  color: var(--color-accent-bright);
-  position: relative;
-  border-color: color-mix(in srgb, var(--color-accent) 16%, transparent);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 8%, transparent),
-    0 8px 22px color-mix(in srgb, var(--color-accent) 8%, transparent);
-}
-
-.app-nav-link-active::before {
-  display: none;
-}
-
-body[data-theme="light"] .app-nav-link-active {
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--color-accent) 16%, transparent), color-mix(in srgb, var(--color-accent) 8%, transparent));
-  color: color-mix(in srgb, var(--color-accent) 82%, #1c1830);
-}
-
-.app-nav-link {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border: 1px solid transparent;
-  background: transparent;
-  min-width: 0;
-  padding: 12px 14px;
-  white-space: nowrap;
-  transition:
-    background 180ms cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 180ms ease,
-    color 180ms ease,
-    box-shadow 180ms ease,
-    transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.app-nav-link:hover {
-  transform: translateX(1px);
-}
-
-.app-nav-short {
-  display: none;
-}
-
 .app-nav-icon {
   display: block;
   width: 20px;
   height: 20px;
   flex: 0 0 auto;
-}
-
-.app-nav-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .app-main {
@@ -8353,121 +7108,14 @@ body[data-theme="light"] .app-nav-link-active {
     flex-direction: column-reverse;
   }
 
-  .app-sidebar {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    width: 100% !important;
-    height: 84px;
-    padding: 8px 10px 10px;
-    z-index: 20;
-    background: transparent;
-    border: 0;
-    box-shadow: none;
-    pointer-events: none;
-  }
-
   .app-sidebar-resizer {
     display: none;
-  }
-
-  .app-sidebar > .glass {
-    border-radius: var(--ui-radius-xl);
-    min-height: 0;
-    height: 100%;
-    background: var(--ui-panel-bg-strong);
-    border: 1px solid var(--color-border);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-    backdrop-filter: var(--ui-backdrop-filter);
-    -webkit-backdrop-filter: var(--ui-backdrop-filter);
-    pointer-events: auto;
-  }
-
-  .app-brand,
-  .app-build {
-    display: none;
-  }
-
-  .app-sidebar nav {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 6px;
-    padding: 6px;
-    height: 100%;
-    align-items: stretch;
-    background: transparent;
-    border: 0;
-    box-shadow: none;
-  }
-
-  .app-nav-link[data-compact-hide="true"] {
-    display: none !important;
-  }
-
-  .app-nav-link {
-    justify-content: center;
-    flex-direction: column;
-    gap: 0;
-    height: 100%;
-    margin: 0;
-    padding: 7px 4px 6px;
-    border-radius: 12px;
-    font-size: 11px;
-    line-height: 1.1;
-    min-width: 0;
-    box-shadow: none !important;
-    background: transparent !important;
-    transition:
-      color 160ms ease,
-      border-color 160ms ease,
-      gap 220ms cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
-  .app-nav-link[aria-current="page"] {
-    gap: 5px;
-    background: color-mix(in srgb, var(--color-accent) 16%, transparent) !important;
-    border-color: color-mix(in srgb, var(--color-accent) 22%, transparent);
-    color: var(--color-accent-bright);
-  }
-
-  .app-nav-link-active::before {
-    display: none;
-  }
-
-  .app-nav-short {
-    display: block;
-    max-height: 0;
-    opacity: 0;
-    pointer-events: none;
-    transform: translateY(-4px) scale(0.96);
-    transition:
-      max-height 220ms cubic-bezier(0.16, 1, 0.3, 1),
-      opacity 170ms ease,
-      transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .app-nav-icon {
     width: 20px;
     height: 20px;
     line-height: 1;
-  }
-
-  .app-nav-short {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .app-nav-link[aria-current="page"] .app-nav-short {
-    max-height: 1.2em;
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-
-  .app-nav-text {
-    display: none;
   }
 
   .app-main {
@@ -8525,27 +7173,6 @@ body[data-theme="light"] .app-nav-link-active {
 
   .server-detail-card {
     padding: 18px;
-  }
-
-  .server-detail-row {
-    grid-template-columns: 40px minmax(0, 1fr) auto 32px;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 12px;
-  }
-
-  .server-detail-row-title {
-    padding-right: 0;
-  }
-
-  .server-detail-row-badges {
-    gap: 4px;
-  }
-
-  .server-detail-row-badges .tag-pill,
-  .server-detail-row-badges > span {
-    padding: 2px 6px;
-    font-size: 9px;
   }
 
   .server-detail-profile-row {
@@ -8644,29 +7271,6 @@ body[data-theme="light"] .app-nav-link-active {
     min-height: 116px;
   }
 
-  .appearance-slider-stack {
-    padding: 0 16px 18px;
-  }
-
-  .appearance-slider-row {
-    grid-template-columns: 1fr 100px;
-    gap: 8px 14px;
-  }
-
-  .appearance-slider-copy {
-    grid-column: 1 / -1;
-  }
-
-  .appearance-slider-control {
-    grid-column: 1;
-  }
-
-  .appearance-slider-value {
-    grid-column: 2;
-    grid-row: 2;
-    font-size: 16px;
-  }
-
   .settings-accent-panel {
     padding: 0 16px 16px;
   }
@@ -8731,10 +7335,6 @@ body[data-theme="light"] .app-nav-link-active {
     padding: 16px;
   }
 
-  .server-detail-row {
-    padding: 13px 12px;
-  }
-
   .server-detail-profile-row {
     grid-template-columns: 42px minmax(0, 1fr);
     padding: 12px;
@@ -8764,36 +7364,6 @@ body[data-theme="light"] .app-nav-link-active {
     flex-wrap: wrap;
   }
 
-  .app-nav-text {
-    display: none !important;
-  }
-
-  .app-nav-short {
-    display: block;
-  }
-
-  .app-nav-link {
-    font-size: 10px;
-    padding: 7px 4px;
-  }
-
-  .app-nav-link[aria-current="page"] {
-    gap: 4px;
-  }
-
-  .app-nav-link[aria-current="page"] .app-nav-short {
-    display: block !important;
-    max-height: 16px;
-    min-height: 12px;
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    color: var(--color-accent-bright);
-    font-size: 10px;
-    font-weight: 720;
-    line-height: 1;
-    text-align: center;
-  }
-
   .app-nav-icon {
     width: 21px;
     height: 21px;
@@ -8803,26 +7373,6 @@ body[data-theme="light"] .app-nav-link-active {
 @media (max-width: 430px) {
   body {
     font-size: 13px;
-  }
-
-  .app-sidebar {
-    height: 80px;
-    padding: 7px 8px 9px;
-  }
-
-  .app-sidebar nav {
-    gap: 4px;
-    padding: 5px;
-  }
-
-  .app-nav-link {
-    gap: 0;
-    padding: 6px 3px 5px;
-    font-size: 10px;
-  }
-
-  .app-nav-link[aria-current="page"] {
-    gap: 4px;
   }
 
   .app-nav-icon {
@@ -9535,24 +8085,6 @@ body[data-theme="light"] .routing-editor-input {
   -webkit-backdrop-filter: var(--ui-backdrop-filter-soft);
 }
 
-.statistics-speed-card.tint-up::before,
-.statistics-speed-card.tint-down::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at top right, var(--tint-color, transparent), transparent 70%);
-  opacity: 0.18;
-  pointer-events: none;
-}
-
-.statistics-speed-card.tint-up {
-  --tint-color: #7be084;
-}
-
-.statistics-speed-card.tint-down {
-  --tint-color: var(--color-accent-bright);
-}
-
 .statistics-speed-head {
   display: flex;
   align-items: center;
@@ -9570,27 +8102,11 @@ body[data-theme="light"] .routing-editor-input {
   justify-content: center;
 }
 
-.statistics-speed-card.tint-up .statistics-speed-icon {
-  color: #7be084;
-}
-
-.statistics-speed-card.tint-down .statistics-speed-icon {
-  color: var(--color-accent-bright);
-}
-
 .statistics-speed-value {
   margin-top: 6px;
   font-size: 30px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-}
-
-.statistics-speed-card.tint-up .statistics-speed-value {
-  color: #7be084;
-}
-
-.statistics-speed-card.tint-down .statistics-speed-value {
-  color: var(--color-accent-bright);
 }
 
 .statistics-speed-total {
@@ -9670,14 +8186,6 @@ body[data-theme="light"] .routing-editor-input {
   color: var(--color-text);
 }
 
-.statistics-totals-row-value.tint-up {
-  color: #7be084;
-}
-
-.statistics-totals-row-value.tint-down {
-  color: var(--color-accent-bright);
-}
-
 .statistics-info-card {
   border-radius: var(--ui-radius-lg);
   border: 1px solid var(--color-border);
@@ -9727,57 +8235,6 @@ body[data-theme="light"] .routing-editor-input {
 
 .tunnel-logs-page {
   padding: 18px 22px 18px;
-}
-
-.tunnel-logs-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-
-.tunnel-logs-title-block {
-  min-width: 280px;
-  max-width: 520px;
-}
-
-.tunnel-logs-eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 5px;
-  color: var(--color-text-dim);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.tunnel-logs-live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--color-status-connected);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-status-connected) 14%, transparent);
-}
-
-.tunnel-logs-live-dot.is-paused {
-  background: #f5c040;
-  box-shadow: 0 0 0 4px color-mix(in srgb, #f5c040 14%, transparent);
-}
-
-.tunnel-logs-live-dot.is-error {
-  background: var(--color-status-error);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-status-error) 14%, transparent);
-}
-
-.tunnel-logs-subtitle {
-  margin: 3px 0 8px;
-  color: var(--color-text-dim);
-  font-size: 13px;
-  line-height: 1.4;
 }
 
 .tunnel-logs-summary {
@@ -9868,226 +8325,6 @@ body[data-theme="light"] .routing-editor-input {
   max-width: 155px;
 }
 
-.tunnel-logs-source-select .tunnel-logs-select-menu {
-  min-width: 205px;
-}
-
-.tunnel-logs-select-trigger {
-  width: 100%;
-  height: 100%;
-  display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) 16px;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 0 11px;
-  background: var(--color-glass-bg);
-  color: var(--color-text);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  outline: none;
-  transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
-}
-
-.tunnel-logs-select-trigger:hover {
-  border-color: var(--color-border-strong);
-  background: var(--color-glass-bg-strong);
-}
-
-.tunnel-logs-select-trigger:focus-visible,
-.tunnel-logs-select-trigger.is-open {
-  border-color: color-mix(in srgb, var(--color-accent) 58%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent) 6%, var(--color-surface));
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--color-accent) 13%, transparent),
-    0 8px 22px rgba(0, 0, 0, 0.08);
-}
-
-.tunnel-logs-select-value,
-.tunnel-logs-select-option-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tunnel-logs-select-chevron {
-  width: 16px;
-  height: 16px;
-  color: var(--color-text-faint);
-  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), color 160ms ease;
-}
-
-.tunnel-logs-select-trigger.is-open .tunnel-logs-select-chevron {
-  transform: rotate(180deg);
-  color: var(--color-accent);
-}
-
-.tunnel-logs-select-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--color-text-faint);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-text-faint) 14%, transparent);
-}
-
-.tunnel-logs-select-dot.is-info {
-  background: #7be084;
-  box-shadow: 0 0 0 3px rgba(123, 224, 132, 0.13);
-}
-
-.tunnel-logs-select-dot.is-warn {
-  background: #f5c040;
-  box-shadow: 0 0 0 3px rgba(245, 192, 64, 0.13);
-}
-
-.tunnel-logs-select-dot.is-error {
-  background: #ff8080;
-  box-shadow: 0 0 0 3px rgba(255, 128, 128, 0.13);
-}
-
-.tunnel-logs-select-dot.is-debug {
-  background: var(--color-accent-bright);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-bright) 14%, transparent);
-}
-
-.tunnel-logs-select-dot.is-source {
-  background: var(--color-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 13%, transparent);
-}
-
-.tunnel-logs-select-menu {
-  position: absolute;
-  top: calc(100% + 7px);
-  right: 0;
-  width: max(100%, 178px);
-  max-height: min(310px, calc(100vh - 170px));
-  overflow: auto;
-  padding: 6px;
-  border: 1px solid color-mix(in srgb, var(--color-border-strong) 86%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--color-surface) 94%, #0b0c12);
-  color: var(--color-text);
-  box-shadow:
-    0 20px 48px rgba(0, 0, 0, 0.30),
-    0 4px 12px rgba(0, 0, 0, 0.16),
-    inset 0 1px rgba(255, 255, 255, 0.035);
-  backdrop-filter: blur(24px) saturate(145%);
-  -webkit-backdrop-filter: blur(24px) saturate(145%);
-  transform-origin: top right;
-  animation: tunnel-logs-select-pop 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  z-index: 100;
-}
-
-.tunnel-logs-select-menu::-webkit-scrollbar {
-  width: 7px;
-}
-
-.tunnel-logs-select-menu::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-text) 18%, transparent);
-  background-clip: padding-box;
-}
-
-.tunnel-logs-select-option {
-  width: 100%;
-  min-height: 36px;
-  display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto 18px;
-  align-items: center;
-  gap: 9px;
-  border: 0;
-  border-radius: 9px;
-  padding: 7px 9px;
-  background: transparent;
-  color: var(--color-text-dim);
-  font-size: 12px;
-  font-weight: 650;
-  text-align: left;
-  cursor: pointer;
-  outline: none;
-  transition: background 130ms ease, color 130ms ease, transform 130ms ease;
-}
-
-.tunnel-logs-select-option:hover,
-.tunnel-logs-select-option.is-active {
-  background: color-mix(in srgb, var(--color-text) 6%, transparent);
-  color: var(--color-text);
-}
-
-.tunnel-logs-select-option.is-selected {
-  background: color-mix(in srgb, var(--color-accent) 13%, transparent);
-  color: color-mix(in srgb, var(--color-accent-bright) 42%, var(--color-text));
-}
-
-.tunnel-logs-select-option:active {
-  transform: scale(0.985);
-}
-
-.tunnel-logs-select-meta {
-  min-width: 22px;
-  height: 20px;
-  display: inline-grid;
-  place-items: center;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-text) 7%, transparent);
-  color: var(--color-text-faint);
-  font-size: 10px;
-  font-weight: 750;
-  font-variant-numeric: tabular-nums;
-}
-
-.tunnel-logs-select-option.is-selected .tunnel-logs-select-meta {
-  background: color-mix(in srgb, var(--color-accent) 13%, transparent);
-  color: color-mix(in srgb, var(--color-accent) 70%, var(--color-text));
-}
-
-.tunnel-logs-select-check {
-  width: 16px;
-  height: 16px;
-  display: grid;
-  place-items: center;
-  color: var(--color-accent);
-}
-
-.tunnel-logs-select-check svg {
-  width: 15px;
-  height: 15px;
-}
-
-body[data-theme="light"] .tunnel-logs-select-menu {
-  border-color: rgba(28, 24, 48, 0.11);
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow:
-    0 20px 46px rgba(40, 32, 64, 0.16),
-    0 4px 12px rgba(40, 32, 64, 0.08),
-    inset 0 1px rgba(255, 255, 255, 0.9);
-}
-
-body[data-theme="light"] .tunnel-logs-select-dot.is-info {
-  background: #087f46;
-}
-
-body[data-theme="light"] .tunnel-logs-select-dot.is-warn {
-  background: #946200;
-}
-
-body[data-theme="light"] .tunnel-logs-select-dot.is-error {
-  background: #b42318;
-}
-
-body[data-theme="light"] .tunnel-logs-select-dot.is-debug {
-  background: #5b3bd6;
-}
-
 @keyframes tunnel-logs-select-pop {
   from {
     opacity: 0;
@@ -10096,12 +8333,6 @@ body[data-theme="light"] .tunnel-logs-select-dot.is-debug {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tunnel-logs-select-menu {
-    animation: none;
   }
 }
 
@@ -10133,36 +8364,6 @@ body[data-theme="light"] .tunnel-logs-select-dot.is-debug {
 
 @keyframes tunnel-logs-spin {
   to { transform: rotate(360deg); }
-}
-
-.tunnel-logs-error {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  padding: 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--color-status-error) 34%, transparent);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--color-status-error) 9%, var(--color-surface));
-  color: color-mix(in srgb, var(--color-status-error) 78%, white);
-  font-size: 12px;
-}
-
-.tunnel-logs-error code {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-text-dim);
-}
-
-.tunnel-logs-error button {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font-weight: 800;
-  cursor: pointer;
 }
 
 .tunnel-logs-container {
@@ -10288,37 +8489,6 @@ body[data-theme="light"] .tunnel-logs-level-debug {
   white-space: nowrap;
 }
 
-.tunnel-logs-empty {
-  min-height: 100%;
-  padding: 48px 32px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  text-align: center;
-  color: var(--color-text-faint);
-}
-
-.tunnel-logs-empty svg {
-  width: 44px;
-  height: 44px;
-  margin-bottom: 5px;
-  color: color-mix(in srgb, var(--color-accent) 68%, var(--color-text-faint));
-}
-
-.tunnel-logs-empty strong {
-  color: var(--color-text);
-  font-size: 14px;
-}
-
-.tunnel-logs-empty span {
-  max-width: 420px;
-  font-family: var(--font-sans, inherit);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
 .tunnel-logs-footer {
   display: flex;
   align-items: center;
@@ -10397,14 +8567,6 @@ body[data-theme="light"] .tunnel-logs-level-debug {
   .tunnel-logs-select {
     flex: 1 1 120px;
     max-width: none;
-  }
-
-  .tunnel-logs-error {
-    grid-template-columns: 1fr auto;
-  }
-
-  .tunnel-logs-error code {
-    display: none;
   }
 
   .tunnel-logs-row {
@@ -10552,17 +8714,6 @@ body[data-ui-style="material_you"] .update-dialog {
   /* Подложка панелей подчиняется ползунку прозрачности, поэтому под ней
      сплошной цвет; размытие при плотном фоне только добавляло стеклянности. */
   background: var(--ui-panel-bg-layer), var(--color-surface);
-  box-shadow: var(--md-elevation-1);
-}
-
-body[data-ui-style="material_you"] .app-sidebar > .glass {
-  border-radius: var(--md-shape-xl);
-  background: var(--ui-panel-bg-strong);
-  box-shadow: var(--md-elevation-2);
-}
-
-body[data-ui-style="material_you"] .app-brand-logo {
-  border-radius: var(--md-shape-sm);
   box-shadow: var(--md-elevation-1);
 }
 
@@ -10900,12 +9051,6 @@ body[data-ui-style="material_you"] .connection-button-connected:hover:not(:disab
     0 0 0 12px color-mix(in srgb, var(--color-status-connected) 14%, transparent);
 }
 
-body[data-ui-style="material_you"] .connection-button-loader {
-  border-color: color-mix(in srgb, var(--md-on-primary-container) 22%, transparent);
-  border-top-color: var(--md-on-primary-container);
-  filter: none;
-}
-
 body[data-ui-style="material_you"] .server-side-item,
 body[data-ui-style="material_you"] .server-detail-row,
 body[data-ui-style="material_you"] .statistics-info-row,
@@ -10918,13 +9063,6 @@ body[data-ui-style="material_you"] .server-detail-row:hover,
 body[data-ui-style="material_you"] .statistics-info-row:hover,
 body[data-ui-style="material_you"] .tunnel-logs-row:hover {
   background: var(--md-state-hover);
-}
-
-body[data-ui-style="material_you"] .update-dialog-backdrop,
-body[data-ui-style="material_you"] .conflict-dialog-backdrop {
-  background: color-mix(in srgb, var(--md-surface-dim) 68%, transparent);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }
 
 /* Material You uses filled pills for active state — drop the accent edge strips */
@@ -11034,19 +9172,6 @@ body[data-ui-style="nimbo"] .update-dialog {
     var(--liquid-rim) border-box,
     var(--liquid-fill) padding-box;
   box-shadow: var(--liquid-shadow-soft);
-}
-
-body[data-ui-style="nimbo"] .app-sidebar {
-  padding: 14px 8px 14px 14px;
-}
-
-body[data-ui-style="nimbo"] .app-sidebar > .glass {
-  border-radius: var(--ui-radius-3xl);
-  background:
-    var(--liquid-specular) padding-box,
-    var(--liquid-fill-strong) padding-box,
-    var(--liquid-rim) border-box;
-  box-shadow: var(--liquid-shadow);
 }
 
 /* Live Network Glass — measured state, deliberately below content. */
@@ -11339,39 +9464,6 @@ body[data-ui-style="material_you"] {
   --md-motion-expressive: 420ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-body[data-ui-style="material_you"] .app-sidebar {
-  padding: 14px 8px 14px 14px;
-}
-
-body[data-ui-style="material_you"] .app-sidebar > .glass {
-  border-radius: var(--md-shape-xl);
-  border-color: color-mix(in srgb, var(--md-outline-variant) 78%, transparent);
-  background: var(--md-surface-container);
-  box-shadow: var(--md-elevation-2);
-}
-
-body[data-ui-style="material_you"] .app-sidebar nav {
-  padding: 8px;
-}
-
-body[data-ui-style="material_you"] .app-nav-link {
-  min-height: 48px;
-  padding: 11px 15px;
-  border-radius: var(--md-shape-pill);
-}
-
-body[data-ui-style="material_you"] .app-nav-link[aria-current="page"] {
-  background: var(--md-primary-container) !important;
-  color: var(--md-on-primary-container) !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
-}
-
-body[data-ui-style="material_you"] .app-nav-link:hover:not([aria-current="page"]) {
-  border-radius: var(--md-shape-pill);
-  background: var(--md-state-hover);
-}
-
 /* Dotted: compact, high-contrast geometry with a quiet moving dot field. */
 body[data-ui-style="dotted"] {
   --ui-radius-xs: 3px !important;
@@ -11442,14 +9534,6 @@ body[data-ui-style="dotted"] .server-plaque {
   -webkit-backdrop-filter: none !important;
 }
 
-body[data-ui-style="dotted"] .app-sidebar > .glass {
-  border: 1px dotted color-mix(in srgb, var(--color-accent) 74%, var(--color-text)) !important;
-  border-radius: 0 var(--ui-radius-xl) var(--ui-radius-xl) 0;
-  background-color: var(--dotted-surface) !important;
-  background-image: radial-gradient(circle, color-mix(in srgb, var(--color-text) 16%, transparent) 0.75px, transparent 1.15px) !important;
-  background-size: 10px 10px !important;
-}
-
 body[data-ui-style="dotted"] .app-nav-link,
 body[data-ui-style="dotted"] .settings-side-item {
   border-radius: var(--ui-radius-md);
@@ -11488,62 +9572,6 @@ body[data-ui-style="dotted"] .settings-interface-card-dotted .settings-interface
 }
 
 @media (max-width: 720px) {
-  body[data-ui-style="nimbo"] .app-sidebar,
-  body[data-ui-style="material_you"] .app-sidebar,
-  body[data-ui-style="dotted"] .app-sidebar {
-    left: 10px;
-    right: 10px;
-    bottom: var(--compact-nav-offset);
-    width: auto !important;
-    height: var(--compact-nav-height);
-    padding: 0;
-  }
-
-  body[data-ui-style="nimbo"] .app-sidebar > .glass {
-    border-radius: 30px;
-    background:
-      var(--liquid-specular) padding-box,
-      var(--liquid-fill-strong) padding-box,
-      var(--liquid-rim) border-box;
-  }
-
-  body[data-ui-style="material_you"] .app-sidebar > .glass {
-    border-radius: 30px;
-    background: var(--md-surface-container-high);
-  }
-
-  body[data-ui-style="dotted"] .app-sidebar > .glass {
-    border: 1px dotted color-mix(in srgb, var(--color-accent) 82%, var(--color-text)) !important;
-    border-radius: 12px;
-    background-color: var(--dotted-surface) !important;
-    background-image: radial-gradient(circle, color-mix(in srgb, var(--color-text) 18%, transparent) 0.75px, transparent 1.15px) !important;
-    background-size: 9px 9px !important;
-    box-shadow: 3px 3px 0 color-mix(in srgb, var(--color-text) 44%, transparent) !important;
-  }
-
-  body[data-ui-style="nimbo"] .app-sidebar nav,
-  body[data-ui-style="material_you"] .app-sidebar nav,
-  body[data-ui-style="dotted"] .app-sidebar nav {
-    padding: 7px;
-    gap: 5px;
-  }
-
-  body[data-ui-style="nimbo"] .app-nav-link,
-  body[data-ui-style="material_you"] .app-nav-link,
-  body[data-ui-style="dotted"] .app-nav-link {
-    border-radius: 24px;
-  }
-
-  body[data-ui-style="nimbo"] .app-nav-link[aria-current="page"],
-  body[data-ui-style="material_you"] .app-nav-link[aria-current="page"],
-  body[data-ui-style="dotted"] .app-nav-link[aria-current="page"] {
-    border-radius: 24px;
-  }
-
-  body[data-ui-style="dotted"] .app-nav-link,
-  body[data-ui-style="dotted"] .app-nav-link[aria-current="page"] {
-    border-radius: 7px;
-  }
 
   body[data-ui-style="nimbo"] .app-main,
   body[data-ui-style="material_you"] .app-main,
@@ -11558,26 +9586,6 @@ body[data-ui-style="dotted"] .settings-interface-card-dotted .settings-interface
   .app-shell {
     --compact-nav-height: 72px;
     --compact-nav-offset: 6px;
-  }
-
-  body[data-ui-style="nimbo"] .app-sidebar,
-  body[data-ui-style="material_you"] .app-sidebar,
-  body[data-ui-style="dotted"] .app-sidebar {
-    left: 8px;
-    right: 8px;
-  }
-
-  body[data-ui-style="nimbo"] .app-sidebar nav,
-  body[data-ui-style="material_you"] .app-sidebar nav,
-  body[data-ui-style="dotted"] .app-sidebar nav {
-    gap: 4px;
-    padding: 5px;
-  }
-
-  .app-nav-link,
-  .app-nav-link[aria-current="page"] {
-    gap: 3px;
-    padding: 5px 3px;
   }
 
   body[data-ui-style="nimbo"] .app-main,
@@ -11763,47 +9771,6 @@ body[data-ui-style="signal"] .server-plaque {
 }
 
 /* ---------------------------------------------- рельс навигации */
-body[data-ui-style="signal"] .app-sidebar > .glass {
-  border: none !important;
-  border-right: 1px solid var(--signal-hairline) !important;
-  border-radius: 0 !important;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0.008)),
-    color-mix(in srgb, var(--signal-ink-2) 96%, transparent) !important;
-  box-shadow: none !important;
-}
-
-body[data-ui-style="signal"][data-theme="light"] .app-sidebar > .glass {
-  background: rgba(255, 255, 255, 0.9) !important;
-}
-
-body[data-ui-style="signal"] .app-nav-link {
-  border: 1px solid transparent;
-  border-radius: var(--ui-radius-md);
-  color: var(--color-text-dim);
-  font-weight: 500;
-  transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease;
-}
-
-body[data-ui-style="signal"] .app-nav-link:hover {
-  background: color-mix(in srgb, var(--color-text) 5%, transparent);
-  color: var(--color-text);
-}
-
-body[data-ui-style="signal"] .app-nav-link[aria-current="page"] {
-  background: color-mix(in srgb, var(--signal-accent) 13%, transparent) !important;
-  border-color: color-mix(in srgb, var(--signal-accent) 32%, transparent) !important;
-  color: var(--color-text) !important;
-  font-weight: 650;
-  box-shadow: none !important;
-}
-
-body[data-ui-style="signal"] .app-build {
-  font-family: var(--font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-faint);
-}
 
 /* ---------------------------------------------- заголовки и данные */
 body[data-ui-style="signal"] h1,
@@ -11971,11 +9938,6 @@ body[data-ui-style="signal"] .app-bg-blob {
   filter: blur(90px);
 }
 
-body[data-ui-style="signal"] .network-glass-reactive::before,
-body[data-ui-style="signal"] .network-glass-reactive::after {
-  display: none !important;
-}
-
 @media (prefers-reduced-motion: reduce) {
   body[data-ui-style="signal"] .app-bg-blob {
     animation: none !important;
@@ -12030,53 +9992,6 @@ body[data-ui-style="signal"] .server-side-panel .interactive.panel {
    области: шапка, карточка состояния с кольцом, ячейки скорости,
    график и ряд плиток.
    ============================================================= */
-.signal-home {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto var(--servers-panel-width, 300px);
-  height: 100%;
-  min-height: 0;
-}
-
-.signal-home-rail-collapsed {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.signal-work {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-  padding: 20px 20px 22px;
-  overflow: auto;
-}
-
-.signal-work-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.signal-work-head-copy {
-  min-width: 0;
-}
-
-.signal-work-title {
-  font-family: var(--font-display, inherit);
-  font-size: 21px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.signal-work-sub {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--color-text-faint);
-}
 
 .signal-btn {
   display: inline-flex;
@@ -12113,163 +10028,11 @@ body[data-ui-style="signal"] .server-side-panel .interactive.panel {
 }
 
 /* ---------------------------------------------- карточка состояния */
-.signal-hero {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding: 20px;
-  border-radius: var(--ui-radius-3xl, 26px);
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background:
-    radial-gradient(520px 260px at 8% 0%, color-mix(in srgb, var(--signal-ok, #43d98a) 10%, transparent), transparent 70%),
-    linear-gradient(180deg, var(--signal-panel-strong, rgba(255, 255, 255, 0.045)), var(--signal-panel, rgba(255, 255, 255, 0.028)));
-}
-
-.signal-hero--connected {
-  border-color: color-mix(in srgb, var(--signal-ok, #43d98a) 26%, transparent);
-}
-
-.signal-hero--connecting,
-.signal-hero--switching {
-  border-color: color-mix(in srgb, var(--signal-accent) 30%, transparent);
-}
-
-.signal-hero-top {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-.signal-ring {
-  position: relative;
-  width: 104px;
-  height: 104px;
-  flex: none;
-  display: grid;
-  place-items: center;
-}
-
-.signal-ring svg {
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-
-.signal-ring-track {
-  fill: none;
-  stroke: color-mix(in srgb, var(--color-text) 9%, transparent);
-  stroke-width: 6;
-}
-
-.signal-ring-value {
-  fill: none;
-  stroke: var(--signal-ok, #43d98a);
-  stroke-width: 6;
-  stroke-linecap: round;
-  transition: stroke-dasharray 0.6s ease;
-}
-
-.signal-hero--idle .signal-ring-value {
-  stroke: color-mix(in srgb, var(--color-text) 22%, transparent);
-}
-
-.signal-hero--connecting .signal-ring-value,
-.signal-hero--switching .signal-ring-value,
-.signal-hero--disconnecting .signal-ring-value {
-  stroke: var(--signal-accent);
-}
-
-.signal-ring-pulse {
-  position: absolute;
-  inset: 6px;
-  border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--signal-ok, #43d98a) 40%, transparent);
-  animation: signal-ring-pulse 3.4s ease-out infinite;
-  pointer-events: none;
-}
 
 @keyframes signal-ring-pulse {
   0% { transform: scale(0.92); opacity: 0.75; }
   70% { transform: scale(1.12); opacity: 0; }
   100% { transform: scale(1.12); opacity: 0; }
-}
-
-.signal-ring-core {
-  position: absolute;
-  font-family: var(--font-mono);
-  font-size: 15px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--signal-ok, #43d98a);
-  letter-spacing: 0.02em;
-}
-
-.signal-hero--idle .signal-ring-core {
-  color: var(--color-text-faint);
-  font-size: 12px;
-}
-
-.signal-hero-state {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  flex: 1 1 240px;
-}
-
-.signal-state-line {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  flex-wrap: wrap;
-}
-
-.signal-state-word {
-  font-family: var(--font-display, inherit);
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -0.025em;
-  color: var(--color-text);
-}
-
-.signal-state-pill {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  padding: 4px 9px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--signal-ok, #43d98a) 14%, transparent);
-  color: var(--signal-ok, #43d98a);
-  border: 1px solid color-mix(in srgb, var(--signal-ok, #43d98a) 30%, transparent);
-}
-
-.signal-hero--idle .signal-state-pill {
-  background: color-mix(in srgb, var(--color-text) 7%, transparent);
-  color: var(--color-text-faint);
-  border-color: var(--signal-hairline, rgba(255, 255, 255, 0.075));
-}
-
-.signal-state-meta {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--color-text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.signal-server-chip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-  padding: 9px 12px;
-  border-radius: var(--ui-radius-md, 12px);
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-text) 3%, transparent);
-  max-width: 100%;
 }
 
 .signal-server-flag {
@@ -12286,49 +10049,7 @@ body[data-ui-style="signal"] .server-side-panel .interactive.panel {
   min-width: 0;
 }
 
-.signal-server-name {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.signal-server-proto {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  color: var(--color-text-faint);
-}
-
 /* пользовательское описание сервера остаётся видимым */
-.signal-server-description {
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: var(--color-text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.signal-server-ping {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  color: var(--signal-ok, #43d98a);
-  flex: none;
-}
-
-.signal-power {
-  margin-left: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-  flex: none;
-}
 
 /* ---------------------------------------------- скорости */
 .signal-flow {
@@ -12390,27 +10111,7 @@ body[data-ui-style="signal"] .server-side-panel .interactive.panel {
   color: var(--color-text-faint);
 }
 
-.signal-chart > * {
-  border-radius: var(--ui-radius-xl, 18px);
-}
-
 /* ---------------------------------------------- плитки */
-.signal-tiles {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.signal-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 12px 13px;
-  border-radius: var(--ui-radius-md, 12px);
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-text) 2%, transparent);
-  min-width: 0;
-}
 
 .signal-tile-key {
   font-family: var(--font-mono);
@@ -12420,94 +10121,12 @@ body[data-ui-style="signal"] .server-side-panel .interactive.panel {
   color: var(--color-text-faint);
 }
 
-.signal-tile-value {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.signal-led {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex: none;
-  display: inline-block;
-}
-
-.signal-led--ok {
-  background: var(--signal-ok, #43d98a);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--signal-ok, #43d98a) 75%, transparent);
-}
-
-.signal-led--warn {
-  background: var(--signal-warn, #ffc857);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--signal-warn, #ffc857) 65%, transparent);
-}
-
-.signal-led--off {
-  background: var(--color-text-faint);
-}
-
-.signal-extras {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
 /* ---------------------------------------------- рельс серверов */
-.signal-rail-resizer {
-  width: 6px;
-  cursor: col-resize;
-  background: transparent;
-}
-
-.signal-rail-resizer:hover {
-  background: color-mix(in srgb, var(--signal-accent) 22%, transparent);
-}
-
-.signal-rail-right {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 20px 16px 20px 0;
-  overflow: hidden;
-}
-
-.signal-rail-right > * {
-  flex: 1;
-  min-height: 0;
-}
-
-@media (max-width: 1080px) {
-  .signal-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 
 @media (max-width: 900px) {
-  .signal-home {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .signal-rail-resizer,
-  .signal-rail-right {
-    display: none;
-  }
 
   .signal-flow {
     grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .signal-ring-pulse {
-    animation: none;
   }
 }
 
@@ -12532,20 +10151,6 @@ body[data-ui-style="signal"] .server-side-panel .interactive.panel {
   font-size: 12px;
   background: color-mix(in srgb, var(--signal-accent) 16%, transparent);
   color: var(--signal-accent-bright);
-}
-
-.signal-sub-copy {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.signal-sub-name {
-  font-size: 13.5px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .signal-sub-meta {
@@ -12575,113 +10180,8 @@ body[data-ui-style="signal"] .server-side-panel .interactive.panel {
 }
 
 /* ---------------------------------------------- таблица серверов */
-.signal-table-wrap {
-  border-radius: var(--ui-radius-xl, 18px);
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-text) 2%, transparent);
-  overflow: auto;
-}
-
-.signal-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.signal-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  text-align: left;
-  padding: 12px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--color-text-faint);
-  /* Шапка липкая, поэтому фон непрозрачный — но собран из тех же слоёв,
-     что и панель: цвет фона плюс лёгкий налёт текста, чуть плотнее строк. */
-  background:
-    linear-gradient(
-      color-mix(in srgb, var(--color-text) 4%, transparent),
-      color-mix(in srgb, var(--color-text) 4%, transparent)
-    ),
-    var(--color-bg);
-  border-bottom: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-}
-
-.signal-table td {
-  padding: 11px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 5%, transparent);
-  vertical-align: middle;
-}
-
-.signal-table tr:last-child td {
-  border-bottom: none;
-}
-
-.signal-table tr.is-active td {
-  background: color-mix(in srgb, var(--signal-ok, #43d98a) 8%, transparent);
-}
-
-.signal-table tr.is-connecting td {
-  background: color-mix(in srgb, var(--signal-accent) 10%, transparent);
-}
-
-.signal-table-name {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-}
-
-.signal-table-copy {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.signal-table-title {
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* пользовательское описание сервера видно и в таблице */
-.signal-table-description {
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--color-text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.signal-num {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text-dim);
-}
-
-.signal-tag {
-  display: inline-flex;
-  padding: 3px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-text) 4%, transparent);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-dim);
-}
-
-.signal-table-action {
-  text-align: right;
-  white-space: nowrap;
-}
 
 .signal-chip {
   padding: 5px 12px;
@@ -12727,19 +10227,6 @@ body[data-ui-style="signal"] .server-side-panel .interactive.panel {
 
 .signal-star.is-on {
   color: var(--signal-warn, #ffc857);
-}
-
-.signal-table-empty {
-  padding: 28px 12px;
-  text-align: center;
-  color: var(--color-text-faint);
-}
-
-.signal-manage {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 4px;
 }
 
 /* =============================================================
@@ -12850,17 +10337,6 @@ body[data-theme="light"] .signal-srv-search {
   color: var(--color-text-faint);
 }
 
-.signal-srv-chips {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.signal-chip-arrow {
-  margin-left: 4px;
-  font-style: normal;
-}
-
 .signal-srv-list {
   display: flex;
   flex-direction: column;
@@ -12937,39 +10413,6 @@ body[data-theme="light"] .signal-srv-search {
   flex: none;
 }
 
-.signal-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 13px;
-}
-
-.signal-bars i {
-  width: 3px;
-  border-radius: 1px;
-  background: color-mix(in srgb, var(--color-text) 18%, transparent);
-  display: block;
-}
-
-.signal-bars i:nth-child(1) { height: 4px; }
-.signal-bars i:nth-child(2) { height: 7px; }
-.signal-bars i:nth-child(3) { height: 10px; }
-.signal-bars i:nth-child(4) { height: 13px; }
-
-.signal-bars--4 i { background: var(--signal-ok, #43d98a); }
-.signal-bars--3 i:nth-child(-n + 3) { background: var(--signal-ok, #43d98a); }
-.signal-bars--2 i:nth-child(-n + 2) { background: var(--signal-warn, #ffc857); }
-.signal-bars--1 i:nth-child(1) { background: var(--signal-bad, #ff6b6b); }
-
-.signal-srv-ms {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text-dim);
-  min-width: 26px;
-  text-align: right;
-}
-
 .signal-srv-empty {
   padding: 22px 8px;
   text-align: center;
@@ -13002,40 +10445,8 @@ body[data-theme="light"] .signal-srv-search {
 }
 
 /* ---------------------------------------------- боковая навигация */
-body[data-ui-style="signal"] .app-sidebar > .glass {
-  padding-top: 4px;
-}
-
-body[data-ui-style="signal"] .app-brand {
-  padding: 14px 14px 12px;
-}
-
-body[data-ui-style="signal"] .app-nav-link {
-  margin: 1px 0;
-  padding: 8px 11px;
-  font-size: 13px;
-}
-
-body[data-ui-style="signal"] .app-nav-link[aria-current="page"] {
-  box-shadow: inset 2px 0 0 var(--signal-accent) !important;
-}
 
 /* второстепенные пункты отделяются тонкой линией — как группы в макете */
-body[data-ui-style="signal"] .app-nav-link-secondary:first-of-type {
-  margin-top: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  border-radius: 0 0 var(--ui-radius-md, 12px) var(--ui-radius-md, 12px);
-}
-
-body[data-ui-style="signal"] .app-build {
-  margin: 6px 8px 8px;
-  padding: 7px 9px;
-  border-radius: var(--ui-radius-sm, 8px);
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  font-size: 9.5px;
-  text-align: center;
-}
 
 /* =============================================================
    Signal — остальные страницы в одном стиле
@@ -13214,16 +10625,6 @@ body[data-ui-style="signal"] .connections-badge {
 }
 
 /* ---------------------------------------------- логи и уведомления */
-body[data-ui-style="signal"] .tunnel-log-row,
-body[data-ui-style="signal"] .notification-item {
-  border-radius: var(--ui-radius-md, 12px);
-  border: 1px solid transparent;
-}
-
-body[data-ui-style="signal"] .tunnel-log-row:hover,
-body[data-ui-style="signal"] .notification-item:hover {
-  background: color-mix(in srgb, var(--color-text) 4%, transparent);
-}
 
 /* ---------------------------------------------- страница целиком */
 body[data-ui-style="signal"] .page-view {
@@ -13239,32 +10640,6 @@ body[data-ui-style="signal"] .notification-page {
 }
 
 /* ---------------------------------------------- Signal: нижняя панель */
-@media (max-width: 720px) {
-  body[data-ui-style="signal"] .app-sidebar > .glass {
-    border-radius: var(--ui-radius-xl, 18px) !important;
-    border: 1px solid var(--signal-hairline-strong, rgba(255, 255, 255, 0.15)) !important;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.018)),
-      color-mix(in srgb, var(--signal-ink-2, #090d14) 96%, transparent) !important;
-    box-shadow: 0 22px 50px -34px rgba(0, 0, 0, 0.95) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-
-  body[data-ui-style="signal"] .app-nav-link[aria-current="page"] {
-    box-shadow: none !important;
-    border-color: color-mix(in srgb, var(--signal-accent) 34%, transparent) !important;
-  }
-
-  body[data-ui-style="signal"] .signal-home {
-    grid-template-columns: minmax(0, 1fr);
-    padding-bottom: var(--compact-nav-height, 80px);
-  }
-
-  body[data-ui-style="signal"] .signal-work {
-    padding: 14px 14px 18px;
-  }
-}
 
 /* =============================================================
    Signal — рельс навигации и список серверов как в макете
@@ -13277,68 +10652,11 @@ body[data-ui-style="signal"] .app-shell {
     transparent;
 }
 
-body[data-ui-style="signal"] .app-sidebar > .glass {
-  border-right: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075)) !important;
-  background:
-    radial-gradient(320px 220px at 20% -6%, color-mix(in srgb, var(--signal-accent) 10%, transparent), transparent 70%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.006)),
-    color-mix(in srgb, var(--signal-ink-2, #090d14) 97%, transparent) !important;
-}
-
 /* бренд: марка градиентом и плотная подпись */
-body[data-ui-style="signal"] .app-brand-logo {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  padding: 5px;
-  background: linear-gradient(150deg, var(--signal-accent), color-mix(in srgb, var(--signal-accent) 68%, #ff5f2e));
-  box-shadow: 0 8px 22px -12px color-mix(in srgb, var(--signal-accent) 90%, transparent);
-}
-
-body[data-ui-style="signal"] .app-brand-lockup {
-  gap: 10px;
-}
 
 /* пункты навигации: капсула, тонкая рамка у активного, акцентная точка */
-body[data-ui-style="signal"] .app-nav-link {
-  position: relative;
-  color: var(--color-text-dim);
-}
-
-body[data-ui-style="signal"] .app-nav-link[aria-current="page"] {
-  background: color-mix(in srgb, var(--signal-accent) 13%, transparent) !important;
-  border: 1px solid color-mix(in srgb, var(--signal-accent) 32%, transparent) !important;
-  box-shadow: none !important;
-  color: var(--color-text) !important;
-}
-
-body[data-ui-style="signal"] .app-nav-link[aria-current="page"] svg {
-  color: var(--signal-accent);
-}
 
 /* нижние чипы: версия приложения и состояние ядра — как в макете */
-body[data-ui-style="signal"] .app-build {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 8px;
-  padding: 7px 9px;
-  border-radius: var(--ui-radius-sm, 8px);
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-text) 2%, transparent);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-faint);
-}
-
-body[data-ui-style="signal"] .app-build::after {
-  content: "OK";
-  color: var(--signal-ok, #43d98a);
-  font-weight: 500;
-}
 
 /* ---------------------------------------------- список серверов */
 body[data-ui-style="signal"] .signal-srv {
@@ -13373,16 +10691,6 @@ body[data-ui-style="signal"] .signal-srv-search {
 }
 
 /* чипы фильтров */
-body[data-ui-style="signal"] .signal-srv-chips .signal-chip {
-  padding: 5px 10px;
-  font-size: 11.5px;
-}
-
-body[data-ui-style="signal"] .signal-srv-chips .signal-chip.is-on {
-  background: color-mix(in srgb, var(--signal-accent) 13%, transparent);
-  border-color: color-mix(in srgb, var(--signal-accent) 35%, transparent);
-  color: var(--signal-accent-bright);
-}
 
 /* строки: активная — зелёная, как «подключено» в макете */
 body[data-ui-style="signal"] .signal-srv-row.is-active {
@@ -13568,7 +10876,6 @@ body[data-theme="light"] .signal-rail {
   transform: rotate(180deg);
 }
 
-
 .signal-rail-foot {
   margin-top: auto;
   display: flex;
@@ -13682,68 +10989,11 @@ body[data-ui-style="signal"] .app-shell {
     transparent;
 }
 
-body[data-ui-style="signal"] .app-sidebar > .glass {
-  border-right: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075)) !important;
-  background:
-    radial-gradient(320px 220px at 20% -6%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 70%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.006)),
-    color-mix(in srgb, var(--signal-ink-2, #090d14) 97%, transparent) !important;
-}
-
 /* бренд: марка градиентом и плотная подпись */
-body[data-ui-style="signal"] .app-brand-logo {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  padding: 5px;
-  background: linear-gradient(150deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 68%, #ff5f2e));
-  box-shadow: 0 8px 22px -12px color-mix(in srgb, var(--color-accent) 90%, transparent);
-}
-
-body[data-ui-style="signal"] .app-brand-lockup {
-  gap: 10px;
-}
 
 /* пункты навигации: капсула, тонкая рамка у активного, акцентная точка */
-body[data-ui-style="signal"] .app-nav-link {
-  position: relative;
-  color: var(--color-text-dim);
-}
-
-body[data-ui-style="signal"] .app-nav-link[aria-current="page"] {
-  background: color-mix(in srgb, var(--color-accent) 13%, transparent) !important;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 32%, transparent) !important;
-  box-shadow: none !important;
-  color: var(--color-text) !important;
-}
-
-body[data-ui-style="signal"] .app-nav-link[aria-current="page"] svg {
-  color: var(--color-accent);
-}
 
 /* нижние чипы: версия приложения и состояние ядра — как в макете */
-body[data-ui-style="signal"] .app-build {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 8px;
-  padding: 7px 9px;
-  border-radius: var(--ui-radius-sm, 8px);
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-text) 2%, transparent);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-faint);
-}
-
-body[data-ui-style="signal"] .app-build::after {
-  content: "OK";
-  color: var(--signal-ok, #43d98a);
-  font-weight: 500;
-}
 
 /* ---------------------------------------------- список серверов */
 body[data-ui-style="signal"] .signal-srv {
@@ -13778,16 +11028,6 @@ body[data-ui-style="signal"] .signal-srv-search {
 }
 
 /* чипы фильтров */
-body[data-ui-style="signal"] .signal-srv-chips .signal-chip {
-  padding: 5px 10px;
-  font-size: 11.5px;
-}
-
-body[data-ui-style="signal"] .signal-srv-chips .signal-chip.is-on {
-  background: color-mix(in srgb, var(--color-accent) 13%, transparent);
-  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
-  color: var(--color-accent-bright);
-}
 
 /* строки: активная — зелёная, как «подключено» в макете */
 body[data-ui-style="signal"] .signal-srv-row.is-active {
@@ -13867,10 +11107,6 @@ body[data-ui-style="signal"] .statistics-speed-icon {
   overflow: hidden;
 }
 
-body[data-ui-style="signal"] .statistics-speed-card.tint-up .statistics-speed-icon {
-  background: var(--signal-lilac, #b08cff);
-}
-
 body[data-ui-style="signal"] .statistics-speed-value {
   font-size: 23px;
   font-weight: 600;
@@ -13939,25 +11175,6 @@ body[data-ui-style="signal"] .tray-power-ring {
   border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 
-body[data-ui-style="signal"] .tray-item,
-body[data-ui-style="signal"] .tray-server-row,
-body[data-ui-style="signal"] .tray-action {
-  border-radius: var(--ui-radius-md, 12px);
-  border: 1px solid transparent;
-}
-
-body[data-ui-style="signal"] .tray-item:hover,
-body[data-ui-style="signal"] .tray-server-row:hover,
-body[data-ui-style="signal"] .tray-action:hover {
-  background: color-mix(in srgb, var(--color-text) 6%, transparent);
-}
-
-body[data-ui-style="signal"] .tray-server-row.is-active,
-body[data-ui-style="signal"] .tray-server-active {
-  background: color-mix(in srgb, var(--signal-ok, #43d98a) 10%, transparent);
-  border-color: color-mix(in srgb, var(--signal-ok, #43d98a) 28%, transparent);
-}
-
 body[data-ui-style="signal"] .tray-footer,
 body[data-ui-style="signal"] .tray-quit {
   font-family: var(--font-mono);
@@ -13980,12 +11197,6 @@ body[data-ui-style="signal"] .update-dialog {
     ),
     var(--color-surface) !important;
   box-shadow: 0 40px 90px -50px rgba(0, 0, 0, 0.95) !important;
-}
-
-body[data-ui-style="signal"] .update-dialog-title {
-  font-family: var(--font-display, inherit);
-  font-weight: 800;
-  letter-spacing: -0.02em;
 }
 
 body[data-ui-style="signal"] .update-dialog-version,
@@ -14015,12 +11226,6 @@ body[data-ui-style="signal"] .update-dialog-download {
 body[data-ui-style="signal"] .update-dialog-later {
   border-radius: 999px;
   color: var(--color-text-dim);
-}
-
-body[data-ui-style="signal"] .update-dialog-logo,
-body[data-ui-style="signal"] .update-dialog-art,
-body[data-ui-style="signal"] .update-dialog-orbit {
-  filter: saturate(0.9);
 }
 
 /* ---------------------------------------------- настройки: строки макета */
@@ -14055,29 +11260,6 @@ body[data-ui-style="signal"] .settings-accent-grid button {
    Секция-карточка, шапка с киккером, ряды «подпись + контрол»,
    плоская таблица данных. На этих примитивах собраны страницы.
    ============================================================= */
-.signal-page {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.signal-card {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 16px;
-  border-radius: var(--ui-radius-2xl, 22px);
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background:
-    linear-gradient(180deg, var(--signal-panel-strong, rgba(255, 255, 255, 0.045)), var(--signal-panel, rgba(255, 255, 255, 0.028)));
-}
-
-.signal-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
 
 .signal-section-kicker {
   font-family: var(--font-mono);
@@ -14085,15 +11267,6 @@ body[data-ui-style="signal"] .settings-accent-grid button {
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--color-text-faint);
-}
-
-.signal-table--plain th,
-.signal-table--plain td {
-  padding: 10px 2px;
-}
-
-.signal-table--plain td:first-child {
-  color: var(--color-text-dim);
 }
 
 /* ---------------------------------------------- ряды настроек */
@@ -14189,11 +11362,6 @@ body[data-ui-style="signal"] .cross-sync-timer-num strong {
 }
 
 /* уведомления — плитка счётчика как в макете */
-body[data-ui-style="signal"] .notification-overview-count {
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
 
 /* маршрутизация — карточки правил */
 body[data-ui-style="signal"] .routing-card {
@@ -14550,14 +11718,6 @@ body[data-ui-style="signal"] .connections-cell {
   border-bottom: 1px solid color-mix(in srgb, var(--color-text) 5%, transparent);
 }
 
-body[data-ui-style="signal"] .connections-empty,
-body[data-ui-style="signal"] .connections-live-empty {
-  padding: 28px 12px;
-  min-height: 0;
-  font-size: 12.5px;
-  color: var(--color-text-faint);
-}
-
 /* ---------------------------------------------- Signal: строки соединений */
 body[data-ui-style="signal"] .connections-live-head {
   padding: 10px 12px;
@@ -14590,33 +11750,12 @@ body[data-ui-style="signal"] .connections-live-table {
 }
 
 /* пустое состояние не растягивает страницу на весь экран */
-body[data-ui-style="signal"] .connections-live-empty,
-body[data-ui-style="signal"] .connections-empty-state {
-  padding: 30px 12px !important;
-  min-height: 0 !important;
-  height: auto !important;
-  font-size: 12.5px;
-  color: var(--color-text-faint);
-}
 
 /* =============================================================
    Signal — журнал: колонки, уровни-бейджи, чипы фильтров
    ============================================================= */
 body[data-ui-style="signal"] .tunnel-logs-page {
   gap: 12px;
-}
-
-body[data-ui-style="signal"] .tunnel-logs-eyebrow {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--color-text-faint);
-}
-
-body[data-ui-style="signal"] .tunnel-logs-live-dot {
-  background: var(--signal-ok, #43d98a);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--signal-ok, #43d98a) 75%, transparent);
 }
 
 /* уровни — компактные бейджи с подложкой, а не просто цветной текст */
@@ -14779,93 +11918,6 @@ body[data-ui-style="signal"] .connections-live-head > * {
    Signal — статистика по превью: сегменты периода, карточка
    суммарного трафика с графиком, разбивка по приложениям
    ============================================================= */
-.signal-seg {
-  display: inline-flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 999px;
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-text) 3%, transparent);
-}
-
-.signal-seg-item {
-  padding: 6px 16px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-text-dim);
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: background-color 0.16s ease, color 0.16s ease;
-}
-
-.signal-seg-item:hover {
-  color: var(--color-text);
-}
-
-.signal-seg-item.is-on {
-  background: color-mix(in srgb, var(--color-text) 10%, transparent);
-  color: var(--color-text);
-  font-weight: 600;
-}
-
-.signal-stats-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
-  gap: 14px;
-  align-items: start;
-}
-
-.signal-chart-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-
-.signal-total {
-  font-family: var(--font-mono);
-  font-size: 34px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text);
-  line-height: 1.1;
-}
-
-.signal-total small {
-  margin-left: 6px;
-  font-size: 14px;
-  font-weight: 400;
-  color: var(--color-text-faint);
-}
-
-.signal-legend {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-text-dim);
-}
-
-.signal-legend span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.signal-chart-svg {
-  width: 100%;
-  height: 190px;
-  display: block;
-}
-
-.signal-chart-grid {
-  stroke: color-mix(in srgb, var(--color-text) 6%, transparent);
-  stroke-width: 1;
-}
 
 .signal-chart-line {
   fill: none;
@@ -14877,133 +11929,11 @@ body[data-ui-style="signal"] .connections-live-head > * {
 .signal-chart-line--down { stroke: var(--signal-sky, #5bc0ff); }
 .signal-chart-line--up { stroke: var(--signal-lilac, #b08cff); stroke-width: 1.6; }
 
-.signal-chart-axis {
-  display: flex;
-  justify-content: space-between;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  color: var(--color-text-faint);
-}
-
-.signal-apps-title {
-  font-family: var(--font-display, inherit);
-  font-weight: 700;
-  font-size: 15px;
-  color: var(--color-text);
-}
-
-.signal-apps-list {
-  display: flex;
-  flex-direction: column;
-  gap: 11px;
-}
-
-.signal-app-row {
-  display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-}
-
-.signal-app-icon {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-text) 6%, transparent);
-  color: var(--color-text-dim);
-  font-family: var(--font-display, inherit);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.signal-app-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-}
-
-.signal-app-name {
-  font-size: 12.5px;
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.signal-app-bar {
-  display: block;
-  height: 6px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--color-text) 7%, transparent);
-  overflow: hidden;
-}
-
-.signal-app-bar i {
-  display: block;
-  height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, var(--signal-sky, #5bc0ff), var(--signal-lilac, #b08cff));
-}
-
-.signal-app-value {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  color: var(--color-text-dim);
-}
-
-.signal-apps-note {
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--color-text-faint);
-}
-
-.signal-session-server {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.signal-session-flag {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: var(--color-text-faint);
-}
-
-.signal-table .is-good { color: var(--signal-ok, #43d98a); }
-.signal-table .is-fair { color: var(--signal-warn, #ffc857); }
-.signal-table .is-bad { color: var(--signal-bad, #ff6b6b); }
-
-@media (max-width: 1080px) {
-  .signal-stats-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 /* =============================================================
    Signal — выравнивание: шапка, плитки, действия карточек
    ============================================================= */
-.signal-work-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-}
 
 /* плитки: одинаковая высота, значение переносится, а не обрезается */
-.signal-tiles {
-  align-items: stretch;
-}
-
-.signal-tile {
-  justify-content: flex-start;
-  gap: 6px;
-  min-height: 62px;
-}
 
 .signal-tile-key {
   min-height: 12px;
@@ -15011,67 +11941,9 @@ body[data-ui-style="signal"] .connections-live-head > * {
   white-space: normal;
 }
 
-.signal-tile-value {
-  align-items: flex-start;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  line-height: 1.3;
-}
-
-.signal-tile-value .signal-led {
-  margin-top: 5px;
-}
-
 /* карточка состояния: колонки не разъезжаются на узком окне */
-.signal-hero-top {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 18px;
-}
-
-.signal-power {
-  margin-left: 0;
-  align-items: stretch;
-  min-width: 168px;
-}
-
-.signal-power .signal-btn {
-  justify-content: center;
-  width: 100%;
-}
-
-@media (max-width: 1180px) {
-  .signal-hero-top {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .signal-power {
-    grid-column: 1 / -1;
-    flex-direction: row;
-    min-width: 0;
-  }
-}
 
 /* кнопка возврата рельса — там же, где была кнопка сворачивания */
-.signal-rail-expand {
-  align-self: start;
-  margin: 20px 12px 0 0;
-  width: 28px;
-  height: 44px;
-  border-radius: 999px;
-  border: 1px solid var(--signal-hairline-strong, rgba(255, 255, 255, 0.15));
-  background: color-mix(in srgb, var(--color-text) 4%, transparent);
-  color: var(--color-text-dim);
-  cursor: pointer;
-  font-size: 15px;
-  line-height: 1;
-}
-
-.signal-rail-expand:hover {
-  background: color-mix(in srgb, var(--color-text) 8%, transparent);
-  color: var(--color-text);
-}
 
 /* строки серверов в рельсе: имя не наезжает на полоски */
 .signal-srv-pick {
@@ -15088,10 +11960,6 @@ body[data-ui-style="signal"] .connections-live-head > * {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.signal-profiles-all {
-  align-self: flex-start;
 }
 
 .signal-profile {
@@ -15140,24 +12008,6 @@ body[data-ui-style="signal"] .connections-live-head > * {
   font-size: 15px;
   font-weight: 650;
   letter-spacing: -0.01em;
-}
-
-.signal-profile-count {
-  flex: none;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  background: color-mix(in srgb, var(--signal-accent) 16%, transparent);
-  color: var(--signal-accent-bright);
-}
-
-.signal-profile-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
 }
 
 .signal-icon-btn {
@@ -15217,104 +12067,7 @@ body[data-ui-style="signal"] .connections-live-head > * {
   }
 }
 
-.signal-menu-wrap {
-  position: relative;
-  display: inline-flex;
-}
-
-.signal-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  min-width: 190px;
-  padding: 6px;
-  border-radius: 14px;
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-bg) 94%, transparent);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(14px);
-}
-
-.signal-menu button {
-  padding: 9px 10px;
-  border-radius: 10px;
-  text-align: left;
-  font-size: 13px;
-  color: var(--color-text-dim);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-
-.signal-menu button:hover {
-  background: color-mix(in srgb, var(--color-text) 7%, transparent);
-  color: var(--color-text);
-}
-
-.signal-menu button.is-danger:hover {
-  background: color-mix(in srgb, #ff5f56 16%, transparent);
-  color: #ff8b83;
-}
-
-.signal-profile-meta {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.signal-meta-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-text) 2.5%, transparent);
-  min-width: 0;
-}
-
-.signal-meta-value {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.signal-profile-description {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-text) 2%, transparent);
-}
-
-.signal-profile-description p {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--color-text-dim);
-  white-space: pre-wrap;
-}
-
-.signal-profile-links {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
 @media (max-width: 720px) {
-  .signal-profile-meta {
-    grid-template-columns: minmax(0, 1fr);
-  }
 
   /* На узком экране кнопки уезжают на свою строку, иначе название сжимается. */
   .signal-profile-head {
@@ -15326,44 +12079,10 @@ body[data-ui-style="signal"] .connections-live-head > * {
     flex: 1 1 calc(100% - 42px);
   }
 
-  .signal-profile-actions {
-    flex: 1 1 100%;
-    justify-content: flex-start;
-  }
-
   .signal-icon-btn,
   .signal-menu-wrap {
     flex: 1 1 0;
   }
-
-  .signal-menu-wrap .signal-icon-btn {
-    width: 100%;
-  }
-}
-
-.signal-row-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.signal-row-actions .signal-icon-btn {
-  width: 26px;
-  height: 26px;
-  font-size: 12px;
-}
-
-.signal-menu--floating {
-  position: fixed;
-  z-index: 90;
-  min-width: 200px;
-}
-
-.signal-menu-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 89;
 }
 
 /* ============================================================
@@ -15371,24 +12090,8 @@ body[data-ui-style="signal"] .connections-live-head > * {
    ============================================================ */
 
 /* Плиток теперь три: на узком окне текст в них больше не рвётся. */
-.signal-tiles {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.signal-tile-value {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
 
 /* Панель не растягивается на всю высоту — снизу больше нет пустоты. */
-.signal-work {
-  justify-content: flex-start;
-  padding-bottom: 16px;
-}
-
-.signal-work > :last-child {
-  margin-bottom: 0;
-}
 
 /* ------------------------------------------------ график скорости */
 .signal-speed {
@@ -15473,28 +12176,6 @@ body[data-theme="light"] .signal-select {
   background: rgba(12, 16, 26, 0.04);
 }
 
-.signal-select-icon {
-  display: grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  flex: none;
-  color: var(--color-text-faint);
-}
-
-.signal-select-icon svg {
-  width: 15px;
-  height: 15px;
-}
-
-.signal-select-value {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .signal-select::after {
   content: "";
   position: absolute;
@@ -15510,18 +12191,6 @@ body[data-theme="light"] .signal-select {
 }
 
 /* список опций — те же карточки, что у меню, с отметкой выбранного */
-.signal-select-list {
-  /* Меню по умолчанию прижато к правому краю; здесь позиция задаётся
-     слева, иначе элемент растягивается на всю ширину окна. */
-  right: auto;
-  max-height: 280px;
-  overflow: auto;
-}
-
-.signal-select-list button.is-selected {
-  color: var(--signal-accent-bright, var(--color-accent));
-  background: color-mix(in srgb, var(--signal-accent) 12%, transparent);
-}
 
 /* Сортировка с кнопками в одной строке, фильтр протокола — во всю ширину. */
 .signal-srv-tools {
@@ -15559,43 +12228,6 @@ body[data-theme="light"] .signal-select {
 }
 
 /* Кнопка возврата рельса: узкая вкладка у правого края, всегда по центру. */
-.signal-rail-expand {
-  position: absolute;
-  top: 50%;
-  right: 0;
-  transform: translateY(-50%);
-  align-self: center;
-  margin: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: auto;
-  height: auto;
-  padding: 10px 12px 10px 9px;
-  border-radius: 14px 0 0 14px;
-  border: 1px solid var(--signal-hairline-strong, rgba(255, 255, 255, 0.15));
-  border-right: 0;
-  background: color-mix(in srgb, var(--color-bg) 88%, var(--color-text) 5%);
-  color: var(--color-text-dim);
-  font-size: 12px;
-  font-weight: 600;
-  box-shadow: -8px 0 22px rgba(0, 0, 0, 0.28);
-  writing-mode: vertical-rl;
-}
-
-.signal-rail-expand svg {
-  width: 14px;
-  height: 14px;
-  rotate: 90deg;
-}
-
-.signal-rail-expand-text {
-  letter-spacing: 0.02em;
-}
-
-.signal-home-rail-collapsed {
-  position: relative;
-}
 
 /* Флаг сервера не липнет к названию. */
 .signal-srv-pick {
@@ -15624,34 +12256,6 @@ body[data-theme="light"] .signal-select {
 }
 
 /* Шеврон сворачивания стоит перед логотипом и живёт без подложки. */
-.signal-collapse-btn {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  flex: none;
-  margin-left: -4px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--color-text-faint);
-  cursor: pointer;
-}
-
-.signal-collapse-btn:hover {
-  color: var(--color-text);
-}
-
-.signal-collapse-btn svg {
-  width: 14px;
-  height: 14px;
-  rotate: 90deg;
-  transition: rotate 0.18s ease;
-}
-
-.signal-collapse-btn.is-collapsed svg {
-  rotate: 0deg;
-}
 
 .signal-profile.is-collapsed {
   gap: 0;
@@ -15659,17 +12263,6 @@ body[data-theme="light"] .signal-select {
 }
 
 /* Меню не просвечивает фоном. */
-.signal-menu {
-  background: color-mix(in srgb, var(--color-bg) 97%, var(--color-text) 4%);
-  border-color: var(--signal-hairline-strong, rgba(255, 255, 255, 0.15));
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.25);
-  backdrop-filter: none;
-}
-
-body[data-theme="light"] .signal-menu {
-  background: #ffffff;
-  box-shadow: 0 18px 40px rgba(15, 22, 38, 0.18);
-}
 
 /* ------------------------------------------ узкое окно и нижняя панель */
 /* Никакого горизонтального скролла: всё сжимается внутрь колонки. */
@@ -15679,50 +12272,8 @@ body[data-ui-style="signal"] .page-view {
   overflow-x: hidden;
 }
 
-.signal-work,
-.signal-work-head,
-.signal-hero,
-.signal-hero-state,
-.signal-server-chip {
-  min-width: 0;
-}
-
-.signal-work-head {
-  flex-wrap: wrap;
-  row-gap: 10px;
-}
-
-.signal-work-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 @media (max-width: 860px) {
   /* Кольцо, состояние и кнопки — в столбик, иначе всё наезжает. */
-  .signal-hero-top {
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: stretch;
-    gap: 14px;
-  }
-
-  .signal-ring {
-    justify-self: center;
-  }
-
-  .signal-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .signal-work-title {
-    white-space: normal;
-  }
-}
-
-@media (max-width: 560px) {
-  .signal-tiles {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 /* Нижняя панель: подписи больше не срезаются. */
@@ -15896,55 +12447,8 @@ body[data-ui-style="signal"] .settings-tools-icon {
 
 /* ------------------------------------------------ лист серверов (Signal) */
 /* Полноэкранный список для узких окон: та же панель, что в рельсе. */
-.signal-sheet {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  background:
-    radial-gradient(680px 380px at 22% -10%, color-mix(in srgb, var(--color-accent) 8%, transparent), transparent 62%),
-    color-mix(in srgb, var(--color-bg) 98%, transparent);
-}
-
-.signal-sheet-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-}
-
-.signal-sheet-title {
-  font-family: var(--font-display, inherit);
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--color-text);
-}
-
-.signal-sheet-head .signal-icon-btn svg {
-  width: 14px;
-  height: 14px;
-}
-
-.signal-sheet-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px));
-}
-
-.signal-sheet-body > * {
-  flex: 1;
-  min-height: 0;
-}
 
 /* В листе рельс занимает всю ширину, поэтому фильтры встают в один ряд. */
-.signal-sheet .signal-select {
-  flex: 1 1 150px;
-}
 
 .signal-star svg,
 .signal-icon-btn svg {
@@ -16003,18 +12507,6 @@ body[data-ui-style="signal"] .notification-history-group-line {
 
 /* ------------------------------------------ плашка активного сервера */
 /* Флаг стоит в своей колонке — раньше он прилипал к названию. */
-.signal-server-chip {
-  gap: 12px;
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.16s ease, background-color 0.16s ease;
-}
-
-.signal-server-chip:hover {
-  border-color: color-mix(in srgb, var(--signal-accent) 32%, transparent);
-  background: color-mix(in srgb, var(--color-text) 5%, transparent);
-}
 
 .signal-server-flag {
   width: 26px;
@@ -16027,91 +12519,17 @@ body[data-ui-style="signal"] .notification-history-group-line {
   height: auto;
 }
 
-.signal-server-open {
-  display: grid;
-  place-items: center;
-  width: 16px;
-  flex: none;
-  margin-left: 8px;
-  color: var(--color-text-faint);
-}
-
-.signal-server-open svg {
-  width: 14px;
-  height: 14px;
-}
-
-.signal-server-chip:hover .signal-server-open {
-  color: var(--signal-accent-bright, var(--color-accent));
-}
-
 /* ------------------------------------------ лист серверов: под общий стиль */
 /* Раньше внутри листа список лежал на голом фоне и во всю ширину окна:
    строки растягивались, а заголовок «Серверы» дублировался с шапкой листа. */
-.signal-sheet-head {
-  gap: 10px;
-}
-
-.signal-sheet-count {
-  margin-right: auto;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  color: var(--color-text-faint);
-}
-
-.signal-sheet-body {
-  justify-content: center;
-}
-
-.signal-sheet-body > * {
-  width: 100%;
-  max-width: 760px;
-}
 
 /* Свой заголовок рельса в листе не нужен — он уже есть в шапке. */
-.signal-sheet .signal-srv-head {
-  display: none;
-}
 
 /* Список получает такую же карточку, как остальные панели. */
-.signal-sheet .signal-srv {
-  gap: 12px;
-  padding: 14px;
-  border-radius: var(--ui-radius-xl, 18px);
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-text) 2%, transparent);
-}
-
-.signal-sheet .signal-srv-list {
-  margin: 0;
-  padding: 0;
-  gap: 0;
-}
 
 /* Строки разделены волосяной линией, а не пустотой. */
-.signal-sheet .signal-srv-row {
-  border-radius: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 5%, transparent);
-}
-
-.signal-sheet .signal-srv-row:last-child {
-  border-bottom: 0;
-}
-
-.signal-sheet .signal-srv-row.is-active {
-  border-radius: var(--ui-radius-md, 12px);
-  border-color: color-mix(in srgb, var(--signal-ok, #43d98a) 26%, transparent);
-}
 
 /* Пинг и звезда держатся ближе к названию, а не улетают к краю окна. */
-.signal-sheet .signal-srv-pick {
-  grid-template-columns: 26px minmax(0, 1fr) auto;
-}
-
-.signal-sheet .signal-srv-name {
-  max-width: 460px;
-}
 
 /* Панель логов занимает всю доступную высоту: под ней оставалась полоса
    пустого фона, потому что страница тянулась, а карточка — нет. */
@@ -16381,33 +12799,6 @@ body[data-ui-style="manga"] .server-plaque {
 }
 
 /* Рельс навигации: сплошная линия отреза вместо мягкой границы. */
-body[data-ui-style="manga"] .app-sidebar > .glass {
-  background: var(--manga-paper-2) !important;
-  border: none !important;
-  border-right: 2px solid var(--manga-ink) !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-}
-
-body[data-ui-style="manga"] .app-nav-link {
-  border: 1.5px solid transparent;
-  border-radius: var(--ui-radius-sm);
-  color: var(--manga-ink-dim);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-body[data-ui-style="manga"] .app-nav-link:hover {
-  border-color: var(--manga-ink);
-  color: var(--manga-ink);
-}
-
-body[data-ui-style="manga"] .app-nav-link.is-active {
-  background: var(--manga-accent) !important;
-  border-color: var(--manga-ink);
-  color: #ffffff !important;
-}
 
 /* Кнопки: заливка акцентом и контур, никаких градиентов. */
 body[data-ui-style="manga"] .btn,
@@ -16605,14 +12996,6 @@ body[data-ui-style="manga"] :where(
 /* Подписи-ярлыки остаются ярлыками: контур тонкий, заливки нет. Ярлык тона
    сюда не входит: он лежит внутри строки истории, и своя рамка превращала
    строку в коробку с коробкой внутри. */
-body[data-ui-style="manga"] :where(
-  .notification-overview-stat
-) {
-  background: transparent !important;
-  border: 1.5px solid var(--manga-ink) !important;
-  border-radius: var(--ui-radius-sm) !important;
-  box-shadow: none !important;
-}
 
 /* Раньше сюда попадали button и .interactive — то есть звёздочки, кнопки
    пинга и любые значки. Каждый получал свою коробку. Контур полагается
@@ -16697,33 +13080,9 @@ body[data-nav-motion="on"] .app-nav-icon {
   transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-body[data-nav-motion="on"] .app-nav-link:hover .app-nav-icon {
-  transform: scale(1.12);
-}
-
 /* Движение объясняет сам значок, поэтому оно разное: дом подпрыгивает,
    глобус проворачивается, шестерёнка поворачивается на четверть оборота,
    остальные коротко подскакивают. */
-body[data-nav-motion="on"] .app-nav-link-active .app-nav-icon {
-  animation: nimbo-nav-icon-pop 420ms cubic-bezier(0.2, 1.4, 0.35, 1);
-}
-
-body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="home"] .app-nav-icon {
-  animation: nimbo-nav-icon-hop 560ms cubic-bezier(0.2, 1.4, 0.35, 1);
-}
-
-body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="profiles"] .app-nav-icon {
-  animation: nimbo-nav-icon-spin 620ms cubic-bezier(0.33, 0, 0.2, 1);
-}
-
-body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="settings"] .app-nav-icon {
-  animation: nimbo-nav-icon-turn 560ms cubic-bezier(0.33, 0, 0.2, 1);
-}
-
-body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="apps"] .app-nav-icon,
-body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="statistics"] .app-nav-icon {
-  animation: nimbo-nav-icon-wobble 520ms ease-out;
-}
 
 @keyframes nimbo-nav-icon-hop {
   0% { transform: translateY(0) scale(1, 1); }
@@ -16759,14 +13118,6 @@ body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="statistics"] .app-
 
 /* Уважение к системной настройке: если пользователь просил меньше движения,
    значки стоят на месте независимо от нашей галочки. */
-@media (prefers-reduced-motion: reduce) {
-  body[data-nav-motion="on"] .app-nav-link-active .app-nav-icon {
-    animation: none;
-  }
-  body[data-nav-motion="on"] .app-nav-link:hover .app-nav-icon {
-    transform: none;
-  }
-}
 
 /* --------------------------------------------- раскладка выбора стилей */
 /* Пятый стиль пары не имеет: половина ряда с пустотой читалась обрывом. */
@@ -16782,32 +13133,6 @@ body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="statistics"] .app-
 /* ------------------------------------- своё движение каждому значку меню */
 /* Общий «поп» доставался шести пунктам из десяти, и меню выглядело
    одинаковым. Теперь движение объясняет сам значок. */
-
-body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="routing"] .app-nav-icon {
-  animation: nimbo-nav-icon-travel 620ms cubic-bezier(0.33, 0, 0.2, 1);
-}
-
-body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="connections"] .app-nav-icon {
-  animation: nimbo-nav-icon-handshake 620ms ease-out;
-}
-
-body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="statistics"] .app-nav-icon {
-  animation: nimbo-nav-icon-grow 560ms cubic-bezier(0.2, 1.3, 0.35, 1);
-  transform-origin: 50% 100%;
-}
-
-body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="tunnelLogs"] .app-nav-icon {
-  animation: nimbo-nav-icon-page 620ms cubic-bezier(0.33, 0, 0.2, 1);
-}
-
-body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="notifications"] .app-nav-icon {
-  animation: nimbo-nav-icon-ring 720ms ease-out;
-  transform-origin: 50% 12%;
-}
-
-body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="sync"] .app-nav-icon {
-  animation: nimbo-nav-icon-cycle 680ms cubic-bezier(0.33, 0, 0.2, 1);
-}
 
 /* Маршрут: значок проходит отрезок пути и возвращается. */
 @keyframes nimbo-nav-icon-travel {
@@ -16855,12 +13180,6 @@ body[data-nav-motion="on"] .app-nav-link-active[data-nav-key="sync"] .app-nav-ic
 @keyframes nimbo-nav-icon-cycle {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  body[data-nav-motion="on"] .app-nav-link-active .app-nav-icon {
-    animation: none;
-  }
 }
 
 /* Плашка выбранного сервера лежит внутри уже обведённой карточки: своя рамка

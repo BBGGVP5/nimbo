@@ -15,7 +15,7 @@ import {
 } from "../lib/api";
 import { applyAccentGradient, refreshAppearance, subscribeAppearance } from "../lib/appearance";
 import { applyVisualPreferences } from "../lib/visualTheme";
-import { favoriteServers } from "./quickServers";
+import { quickServers } from "./quickServers";
 
 type ConnectionMode = "system_proxy" | "tun" | "both";
 
@@ -391,7 +391,8 @@ export function TrayMenu({ previewState }: { previewState?: TrayState } = {}) {
   const connected = state?.connected ?? false;
   const activeId = state?.activeServerId ?? null;
   const servers = state?.servers ?? [];
-  const favorites = useMemo(() => favoriteServers(servers, favoriteIds), [servers, favoriteIds]);
+  const quick = useMemo(() => quickServers(servers, favoriteIds, activeId), [servers, favoriteIds, activeId]);
+  const favorites = quick.servers;
   const activeServer = useMemo(
     () => servers.find((server) => server.id === activeId) ?? null,
     [activeId, servers],
@@ -549,19 +550,19 @@ export function TrayMenu({ previewState }: { previewState?: TrayState } = {}) {
           </div>
         ) : null}
 
-        <section className="tray-favorites" aria-label={t.favorites}>
+        <section className="tray-favorites" aria-label={quick.fallback ? t.servers : t.favorites}>
           <div className="tray-favorites-heading">
-            <span>{t.favorites}</span>
+            <span>{quick.fallback ? t.servers : t.favorites}</span>
             <button type="button" className="tray-admin-action" onClick={() => act("profiles")}>{t.profiles} →</button>
           </div>
           <div className="tray-servers">
-            {favorites.length === 0 ? <p className="tray-server-empty">{t.favoriteHint}</p> : favorites.map(server => (
+            {favorites.length === 0 ? <p className="tray-server-empty">{t.noServers}</p> : favorites.map(server => (
               <button key={server.id} type="button" className={`tray-server ${server.id === activeId ? "is-active" : ""}`}
                 aria-current={server.id === activeId ? "true" : undefined}
                 aria-label={`${t.connect}: ${displayServerName(server)}`}
                 disabled={switching || (connected && server.id === activeId)}
                 onClick={() => connectFavorite(server.id)}>
-                <span className="tray-flag" aria-hidden="true">☆</span>
+                <span className="tray-flag" aria-hidden="true">{quick.fallback ? "·" : "☆"}</span>
                 <span className="tray-server-copy">
                   <span className="tray-server-name" title={displayServerName(server)}>{displayServerName(server)}</span>
                   <span className="tray-server-meta"><span>{server.subscriptionName}</span><span>{server.latencyMs != null ? <LatencyDisplay value={server.latencyMs} format={state?.visualPreferences?.latency_display_format} protocol={state?.visualPreferences?.latency_protocol} language={lang} /> : t.noPing}</span></span>
@@ -569,6 +570,7 @@ export function TrayMenu({ previewState }: { previewState?: TrayState } = {}) {
                 <span className="tray-check" aria-hidden="true">{server.id === activeId ? "✓" : "→"}</span>
               </button>
             ))}
+            {quick.fallback && favorites.length > 0 ? <p className="tray-server-empty">{t.favoriteHint}</p> : null}
           </div>
         </section>
 

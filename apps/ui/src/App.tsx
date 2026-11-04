@@ -19,7 +19,8 @@ import { MihomoProfiles } from "./pages/MihomoProfiles";
 import { Notifications } from "./pages/Notifications";
 import { CrossPlatformSync } from "./pages/CrossPlatformSync";
 import { NotificationCenter } from "./components/NotificationCenter";
-import { notifyError, notifyInfo, useNotificationHistory } from "./lib/notify";
+import { notify, notifyError, notifyInfo, useNotificationHistory } from "./lib/notify";
+import { dueSubscriptionWarnings, readWarnedState, subscriptionWarningText, writeWarnedState } from "./lib/subscriptionWarnings";
 import {
   applyAccentGradient,
   loadBackgroundBlob,
@@ -100,6 +101,23 @@ export default function App() {
       pingMs: latencyPresentation(measuredServerId ? serverPings[measuredServerId] : null, preferences.latency_protocol).value,
     });
   }, [activeServerId, connectingServerId, disconnecting, serverPings, status?.state, switchingServerId, trafficSpeed.download, trafficSpeed.upload, preferences.latency_protocol]);
+  // Expiry and traffic reminders: re-checked on every refresh and hourly,
+  // each stage shown once per term (see subscriptionWarnings.ts).
+  const [warningTick, setWarningTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setWarningTick((tick) => tick + 1), 3_600_000);
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (!subscriptions.length) return;
+    const { due, next } = dueSubscriptionWarnings(subscriptions, readWarnedState(), Date.now());
+    writeWarnedState(next);
+    const ru = m.common.locale.startsWith("ru");
+    for (const warning of due) {
+      const blocking = warning.stage === "expired" || warning.stage === "traffic-100";
+      notify(subscriptionWarningText(warning, ru), blocking ? "error" : "warning");
+    }
+  }, [subscriptions, m, warningTick]);
   const networkGlassStyle = useMemo(() => ({
     "--network-upload-alpha": `${0.014 + networkGlassSignal.uploadLevel * 0.09}`,
     "--network-download-alpha": `${0.017 + networkGlassSignal.downloadLevel * 0.10}`,
