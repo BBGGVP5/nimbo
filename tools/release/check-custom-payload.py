@@ -8,6 +8,10 @@ import struct
 import sys
 import zipfile
 
+import zstandard
+
+ZSTD_MAGIC = bytes.fromhex("28b52ffd")
+
 ROOT = Path(__file__).resolve().parents[2]
 TARGETS = {
     "windows-x64": ("x86_64-pc-windows-msvc", "x64", 0x8664),
@@ -25,6 +29,21 @@ def machine(data, windows):
         return struct.unpack_from("<H", data, offset + 4)[0]
     assert data[:4] == b"\x7fELF" and data[5] == 1, "Expected little-endian ELF"
     return struct.unpack_from("<H", data, 18)[0]
+
+
+def zstd_digests(compiled):
+    """SHA-256 of every zstd frame embedded in the installer (Mihomo ships compressed)."""
+    digests = set()
+    view = memoryview(compiled)
+    decompressor = zstandard.ZstdDecompressor()
+    start = compiled.find(ZSTD_MAGIC)
+    while start >= 0:
+        try:
+            digests.add(hashlib.sha256(decompressor.decompress(view[start:])).hexdigest())
+        except zstandard.ZstdError:
+            pass  # the magic also occurs by chance inside other binaries
+        start = compiled.find(ZSTD_MAGIC, start + 1)
+    return digests
 
 
 def main():
@@ -57,7 +76,8 @@ def main():
             metadata = json.loads((root / "windows-x64/build-manifest.json").read_text(encoding="utf-8-sig"))
             helper = (root / "windows-x64/nimbo-mihomo.exe").read_bytes()
             assert hashlib.sha256(helper).hexdigest() == metadata["sha256"], "Mihomo digest mismatch"
-            parts.append(("Mihomo", helper))
+            assert machine(helper, True) == expected_machine, "Wrong Mihomo architecture"
+            mihomo_files.append(root / "windows-x64/nimbo-mihomo.exe")
             mihomo_files.extend(root / "adapter-source" / entry["path"] for entry in metadata["sourceFiles"])
             mihomo_files.extend(root / "windows-x64" / name for name in ("build-manifest.json", "go.mod", "go.sum", "pins.json"))
             mihomo_files.extend(root / "notices" / name for name in ("source-license-manifest.json", "Mihomo-LICENSE", "Mihomo-README.md", "Protobuf-LICENSE", "Protobuf-PATENTS", "protobuf-directive.patch"))
@@ -98,8 +118,10 @@ def main():
             for name, data in parts:
                 assert machine(data, windows) == expected_machine, f"Wrong {name} architecture"
                 assert compiled.find(data) >= 0, f"Installer is missing the exact {name} payload"
+            embedded = zstd_digests(compiled) if mihomo_files else set()
             for path in mihomo_files:
-                assert compiled.find(path.read_bytes()) >= 0, f"Missing Mihomo source/notice: {path.name}"
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                assert digest in embedded, f"Missing Mihomo payload/source/notice: {path.name}"
             if windows:
                 for filename in ("geoip.dat", "geosite.dat"):
                     assert compiled.find((ROOT / "target/xray" / target / filename).read_bytes()) >= 0, f"Missing Xray data: {filename}"
