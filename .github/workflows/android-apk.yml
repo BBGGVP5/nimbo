@@ -55,9 +55,10 @@ jobs:
       - name: Установить компоненты Android SDK
         run: |
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$sdkmanager" --licenses > /dev/null
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          # compileSdk 37 ships as "android-37.0" (new minor-versioned naming).
           "$sdkmanager" --install \
-            "platforms;android-37" \
+            "platforms;android-37.0" \
             "build-tools;37.0.0" \
             "ndk;28.2.13676358" > /dev/null
 
