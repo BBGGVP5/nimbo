@@ -29,6 +29,12 @@ on:
 permissions:
   contents: write
 
+env:
+  # Сертификат, которым подписаны опубликованные APK (CN=Danila, ключ key0).
+  # Release с другой подписью не встанет поверх установленного приложения,
+  # поэтому такой прогон считается проваленным.
+  NIMBO_RELEASE_CERT_SHA256: e99f7c5ad9b25798fec22670b8108f2692771d4ca347de40881feb3487cdc06d
+
 concurrency:
   group: android-apk-${{ github.ref }}
   cancel-in-progress: true
@@ -82,12 +88,26 @@ jobs:
         if: inputs.build_type == 'release'
         env:
           KEYSTORE_BASE64: ${{ secrets.NIMBO_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.NIMBO_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.NIMBO_KEY_ALIAS }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
             echo "::error::Нет секрета NIMBO_KEYSTORE_BASE64 — release нельзя подписать. Добавь секреты или запусти debug."
             exit 1
           fi
           echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nimbo-release.jks"
+          # Неверный пароль или alias лучше поймать здесь, а не после 6 минут Gradle.
+          if ! keytool -list -keystore "$RUNNER_TEMP/nimbo-release.jks" -storetype PKCS12 \
+               -storepass:env STORE_PASSWORD -alias "$KEY_ALIAS" > /dev/null 2>&1; then
+            echo "::error::Ключ не открылся: проверь NIMBO_KEYSTORE_PASSWORD и NIMBO_KEY_ALIAS."
+            exit 1
+          fi
+          actual=$(keytool -exportcert -keystore "$RUNNER_TEMP/nimbo-release.jks" -storetype PKCS12 \
+                     -storepass:env STORE_PASSWORD -alias "$KEY_ALIAS" | sha256sum | cut -d' ' -f1)
+          if [ "$actual" != "$NIMBO_RELEASE_CERT_SHA256" ]; then
+            echo "::error::Это не тот ключ, которым подписаны опубликованные APK ($actual)."
+            exit 1
+          fi
 
       - name: Собрать APK
         env:
@@ -105,7 +125,13 @@ jobs:
           apksigner="$ANDROID_HOME/build-tools/37.0.0/apksigner"
           for apk in app/build/outputs/apk/${{ inputs.build_type }}/*.apk; do
             echo "== $(basename "$apk")"
-            "$apksigner" verify --min-sdk-version 29 --print-certs "$apk" | grep -E "DN|SHA-256"
+            certs=$("$apksigner" verify --min-sdk-version 29 --print-certs "$apk")
+            echo "$certs" | grep -E "DN|SHA-256"
+            if [ "${{ inputs.build_type }}" = release ] && \
+               ! echo "$certs" | grep -q "SHA-256 digest: $NIMBO_RELEASE_CERT_SHA256"; then
+              echo "::error::$(basename "$apk") подписан не релизным ключом — не встанет поверх установленного Nimbo."
+              exit 1
+            fi
           done
           rm -f "$RUNNER_TEMP/nimbo-release.jks"
 
