@@ -49,6 +49,7 @@ export function AutoFastestLine({
     <div
       role="button"
       aria-disabled={!canAuto}
+      aria-pressed={autoSelected}
       title={latencyPresentation(activePing, pingProtocol).approximate ? m.settings.latencyEstimateDescription : undefined}
       tabIndex={canAuto ? 0 : -1}
       onClick={run}

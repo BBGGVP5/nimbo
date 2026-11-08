@@ -167,8 +167,8 @@ fn process_command(command: Command) -> Response {
             code: ErrorCode::PermissionDenied,
             message: "shutdown via pipe not supported".into(),
         },
-        other => {
-            warn!(?other, "unsupported command");
+        _ => {
+            warn!("unsupported command (payload omitted)");
             Response::Error {
                 code: ErrorCode::UnknownCommand,
                 message: "command not implemented in helper service".into(),

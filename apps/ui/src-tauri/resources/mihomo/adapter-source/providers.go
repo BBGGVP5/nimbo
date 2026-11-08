@@ -346,7 +346,7 @@ func managedProviderWithParser(name string, m map[string]any, home string,
 // The original config was already validated by the pinned parser. No YAML export
 // is ever reconstructed from this runtime graph.
 func rebindProviders(cfg *config.Config, d *inspection, home string) error {
-	if d.android {
+	if d.android || d.desktop {
 		// ParseRawConfig already built the complete, pinned Mihomo provider and
 		// group graph. Keep those upstream implementations on Android so provider
 		// proxy/header/size-limit/age/override options, auto groups and refresh

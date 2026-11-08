@@ -15,14 +15,26 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 #[cfg(windows)]
+mod mihomo_adapter;
+#[cfg(windows)]
+mod mihomo_firewall;
+#[cfg(windows)]
+mod mihomo_windows;
+#[cfg(windows)]
 mod platform;
 
+#[cfg(target_os = "linux")]
+mod mihomo_owner;
 #[cfg(target_os = "linux")]
 mod platform_linux;
 
 #[cfg(windows)]
-fn main() -> anyhow::Result<()> {
-    platform::run()
+fn main() {
+    if let Err(error) = platform::run() {
+        tracing::error!(error = %error, "helper operation failed");
+        eprintln!("{error:#}");
+        std::process::exit(platform::failure_exit_code(&error));
+    }
 }
 
 #[cfg(target_os = "linux")]

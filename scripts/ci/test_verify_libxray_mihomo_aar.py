@@ -44,15 +44,33 @@ class ElfValidationTest(unittest.TestCase):
 
 class BuildInfoValidationTest(unittest.TestCase):
     def test_pinned_replaced_module_without_checksum_is_detected(self):
-        metadata = """path example\ndep\tgithub.com/metacubex/mihomo\tv1.19.31\n=>\tC:/stage/dependencies/mihomo\t(devel)\n"""
+        metadata = """path example\ndep\tgithub.com/metacubex/mihomo\tv1.19.33\n=>\tC:/stage/dependencies/mihomo\t(devel)\n"""
         self.assertEqual(
-            verify.dependency(metadata, "github.com/metacubex/mihomo", "v1.19.31"),
+            verify.dependency(metadata, "github.com/metacubex/mihomo", "v1.19.33"),
             "C:/stage/dependencies/mihomo",
         )
 
     def test_wrong_version_is_rejected(self):
         metadata = "dep\tgithub.com/metacubex/mihomo\tv1.19.30\th1:sum\n"
-        self.assertIsNone(verify.dependency(metadata, "github.com/metacubex/mihomo", "v1.19.31"))
+        self.assertIsNone(verify.dependency(metadata, "github.com/metacubex/mihomo", "v1.19.33"))
+
+
+class PublicApiValidationTest(unittest.TestCase):
+    def test_reviewed_unused_location_fields_need_exact_old_binary(self):
+        removed = verify.REVIEWED_261017_REMOVALS
+        self.assertEqual(verify.validate_public_api(removed, set(), verify.LEGACY_AAR_SHA), removed)
+        with self.assertRaisesRegex(ValueError, "public Java API changed"):
+            verify.validate_public_api(removed, set(), "unknown baseline")
+
+    def test_partial_or_additional_removals_are_not_silently_accepted(self):
+        removed = verify.REVIEWED_261017_REMOVALS
+        for unexpected in (set(list(removed)[:1]), removed | {("active owner", "invoke();")}):
+            with self.subTest(removed=unexpected), self.assertRaisesRegex(ValueError, "public Java API changed"):
+                verify.validate_public_api(unexpected, set(), verify.LEGACY_AAR_SHA)
+
+    def test_compatible_api_needs_no_exception(self):
+        kept = {("active owner", "invoke();")}
+        self.assertEqual(verify.validate_public_api(kept, kept, "new baseline"), set())
 
 
 if __name__ == "__main__":

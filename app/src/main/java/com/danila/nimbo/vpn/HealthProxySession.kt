@@ -7,6 +7,8 @@ internal class HealthProxySession(val ownerKey: String) {
     val username: String = "nimbo"
     val password: String = UUID.randomUUID().toString()
     internal var routeVerified: Boolean = false
+    /** Ядро поднято с зеркальным входом LocalProxyConfig.MIRROR_PORT (маршрут как у tun-in). */
+    @Volatile internal var mirrorReady: Boolean = false
 }
 
 internal object HealthProxySessions {

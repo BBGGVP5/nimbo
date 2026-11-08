@@ -6,6 +6,11 @@ import mmap
 from pathlib import Path
 import struct
 import sys
+import zipfile
+
+import zstandard
+
+ZSTD_MAGIC = bytes.fromhex("28b52ffd")
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGETS = {
@@ -26,11 +31,26 @@ def machine(data, windows):
     return struct.unpack_from("<H", data, 18)[0]
 
 
+def zstd_digests(compiled):
+    """SHA-256 of every zstd frame embedded in the installer (Mihomo ships compressed)."""
+    digests = set()
+    view = memoryview(compiled)
+    decompressor = zstandard.ZstdDecompressor()
+    start = compiled.find(ZSTD_MAGIC)
+    while start >= 0:
+        try:
+            digests.add(hashlib.sha256(decompressor.decompress(view[start:])).hexdigest())
+        except zstandard.ZstdError:
+            pass  # the magic also occurs by chance inside other binaries
+        start = compiled.find(ZSTD_MAGIC, start + 1)
+    return digests
+
+
 def main():
     selected = sys.argv[1:] or list(TARGETS)
     version = json.loads((ROOT / "apps/ui/package.json").read_text())["version"]
     xray_release = json.loads((ROOT / "apps/ui/src-tauri/xray-release.json").read_text())
-    assert xray_release["version"] == "26.9.30", "Unexpected desktop core pin"
+    assert xray_release["version"] == "26.10.31", "Unexpected desktop core pin"
     for platform in selected:
         target, arch, expected_machine = TARGETS[platform]
         windows = platform.startswith("windows")
@@ -50,6 +70,47 @@ def main():
                 assert hashlib.sha256(data).hexdigest() == expected_hash, f"Stale Xray payload: {filename}"
                 if filename == "xray.exe":
                     parts.append(("Xray", data))
+        mihomo_files = []
+        if platform == "windows-x64":
+            root = ROOT / "apps/ui/src-tauri/resources/mihomo"
+            metadata = json.loads((root / "windows-x64/build-manifest.json").read_text(encoding="utf-8-sig"))
+            helper = (root / "windows-x64/nimbo-mihomo.exe").read_bytes()
+            assert hashlib.sha256(helper).hexdigest() == metadata["sha256"], "Mihomo digest mismatch"
+            assert machine(helper, True) == expected_machine, "Wrong Mihomo architecture"
+            mihomo_files.append(root / "windows-x64/nimbo-mihomo.exe")
+            mihomo_files.extend(root / "adapter-source" / entry["path"] for entry in metadata["sourceFiles"])
+            mihomo_files.extend(root / "windows-x64" / name for name in ("build-manifest.json", "go.mod", "go.sum", "pins.json"))
+            mihomo_files.extend(root / "notices" / name for name in ("source-license-manifest.json", "Mihomo-LICENSE", "Mihomo-README.md", "Protobuf-LICENSE", "Protobuf-PATENTS", "protobuf-directive.patch"))
+            inventory = json.loads((root / "notices/source-license-manifest.json").read_text(encoding="utf-8-sig"))
+            for module in inventory["modules"]:
+                for notice in module["notices"]:
+                    relative = notice["path"].removeprefix("licenses/")
+                    mihomo_files.append(root / "notices" / relative)
+        elif platform.startswith("linux"):
+            root = ROOT / "apps/ui/src-tauri/resources/mihomo" / platform
+            metadata = json.loads((root / "build-manifest.json").read_text())
+            archive = root / "nimbo-mihomo.zip"
+            assert hashlib.sha256(archive.read_bytes()).hexdigest() == metadata["archiveSHA256"]
+            with zipfile.ZipFile(archive) as bundle:
+                assert bundle.namelist() == ["nimbo-mihomo"]
+                helper = bundle.read("nimbo-mihomo")
+            assert hashlib.sha256(helper).hexdigest() == metadata["sha256"]
+            assert machine(helper, False) == expected_machine
+            mihomo_files.append(archive)
+            for entry in metadata["sourceFiles"]:
+                path = root / "adapter-source" / entry["path"]
+                assert hashlib.sha256(path.read_bytes()).hexdigest() == entry["sha256"]
+                mihomo_files.append(path)
+            mihomo_files.extend(root / name for name in ("build-manifest.json", "go.mod", "go.sum", "pins.json"))
+            inventory_path = root / "notices/source-license-manifest.json"
+            assert hashlib.sha256(inventory_path.read_bytes()).hexdigest() == metadata["sourceLicenseManifestSHA256"]
+            mihomo_files.append(inventory_path)
+            for module in json.loads(inventory_path.read_text())["modules"]:
+                assert not module["reachedByCLI"] or module["notices"]
+                for notice in module["notices"]:
+                    path = root / notice["path"]
+                    assert hashlib.sha256(path.read_bytes()).hexdigest() == notice["sha256"]
+                    mihomo_files.append(path)
         for name in ("nimbo-ui", "nimbo-svc"):
             parts.append((name, (ROOT / f"target/{target}/release/{name}{suffix}").read_bytes()))
         with installer.open("rb") as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as compiled:
@@ -57,6 +118,10 @@ def main():
             for name, data in parts:
                 assert machine(data, windows) == expected_machine, f"Wrong {name} architecture"
                 assert compiled.find(data) >= 0, f"Installer is missing the exact {name} payload"
+            embedded = zstd_digests(compiled) if mihomo_files else set()
+            for path in mihomo_files:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                assert digest in embedded, f"Missing Mihomo payload/source/notice: {path.name}"
             if windows:
                 for filename in ("geoip.dat", "geosite.dat"):
                     assert compiled.find((ROOT / "target/xray" / target / filename).read_bytes()) >= 0, f"Missing Xray data: {filename}"

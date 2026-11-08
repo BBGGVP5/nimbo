@@ -11,6 +11,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
@@ -184,23 +185,23 @@ internal object NimboPalette {
 
 internal val NimboTitleStyle: TextStyle @Composable get() = TextStyle(fontFamily = NimboTypography.heading, 
     color = NimboPalette.Text,
-    fontSize = 28.sp,
-    lineHeight = 32.sp,
+    fontSize = 22.sp,
+    lineHeight = 28.sp,
     fontWeight = FontWeight.SemiBold,
-    letterSpacing = (-0.6).sp
+    letterSpacing = (-0.3).sp
 )
 
 internal val NimboSectionTitleStyle: TextStyle @Composable get() = TextStyle(fontFamily = NimboTypography.heading, 
     color = NimboPalette.Text,
-    fontSize = 17.sp,
-    lineHeight = 23.sp,
+    fontSize = 15.sp,
+    lineHeight = 20.sp,
     fontWeight = FontWeight.SemiBold
 )
 
 internal val NimboBodyStyle: TextStyle @Composable get() = TextStyle(fontFamily = NimboTypography.body, 
     color = NimboPalette.TextSecondary,
-    fontSize = 15.sp,
-    lineHeight = 20.sp,
+    fontSize = 14.sp,
+    lineHeight = 19.sp,
     fontWeight = FontWeight.Normal
 )
 
@@ -209,7 +210,7 @@ internal fun NimboSurface(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 18.dp,
     strong: Boolean = false,
-    padding: PaddingValues = PaddingValues(15.dp),
+    padding: PaddingValues = PaddingValues(12.dp),
     onClick: (() -> Unit)? = null,
     enabled: Boolean = true,
     content: @Composable BoxScope.() -> Unit
@@ -273,7 +274,7 @@ internal fun NimboSurface(
             )
             .then(
                 if (onClick != null) {
-                    Modifier.clickable(
+                    Modifier.heightIn(min = 44.dp).nimboPressFeedback(interaction).clickable(
                         enabled = enabled,
                         role = androidx.compose.ui.semantics.Role.Button,
                         interactionSource = interaction,
@@ -413,6 +414,7 @@ internal fun NimboIconButton(
             .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
             .semantics { contentDescription = name.accessibleLabel }
             .nimboControlSurface(shape, accented = selected)
+            .nimboPressFeedback(interaction)
             .clickable(
                 enabled = enabled,
                 role = Role.Button,
@@ -431,17 +433,29 @@ internal fun NimboIconButton(
     }
 }
 
-/** Ряд без подсветки нажатия — так же ведут себя ряды настроек на Android. */
+/** Visual feedback does not shrink the touch target or depend on decorative motion. */
 @Composable
-internal fun Modifier.nimboRowClickable(onClick: () -> Unit): Modifier {
+internal fun Modifier.nimboPressFeedback(interaction: MutableInteractionSource): Modifier {
+    val pressed by interaction.collectIsPressedAsState()
+    // Compose's system MotionDurationScale also handles Reduce Motion.
+    val opacity by animateFloatAsState(if (pressed) 0.72f else 1f, tween(100), label = "press")
+    return graphicsLayer { alpha = opacity }
+}
+
+@Composable
+internal fun Modifier.nimboClickable(enabled: Boolean = true, onClick: () -> Unit): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val haptic = LocalHapticFeedback.current
-    val enabled = LocalNimboAppearance.current.haptics
-    return this.clickable(interactionSource = interaction, indication = null) {
-        if (enabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    val haptics = LocalNimboAppearance.current.haptics
+    return nimboPressFeedback(interaction).clickable(enabled = enabled, role = Role.Button,
+        interactionSource = interaction, indication = null) {
+        if (haptics) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         onClick()
     }
 }
+
+@Composable
+internal fun Modifier.nimboRowClickable(onClick: () -> Unit): Modifier = nimboClickable(onClick = onClick)
 
 /**
  * Имя сервера без флага-эмодзи впереди.
@@ -583,7 +597,8 @@ internal fun NimboPill(
     text: String,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    textSize: androidx.compose.ui.unit.TextUnit = 13.sp
 ) {
     val style = LocalNimboElementStyle.current
     val shape = nimboStyledShape(12.dp, 2.dp)
@@ -617,7 +632,7 @@ internal fun NimboPill(
             .padding(horizontal = 13.dp, vertical = 9.dp),
         style = TextStyle(fontFamily = NimboTypography.body, 
             color = if (selected) NimboPalette.Accent else NimboPalette.TextSecondary,
-            fontSize = 13.sp,
+            fontSize = textSize,
             fontWeight = FontWeight.Bold
         )
     )

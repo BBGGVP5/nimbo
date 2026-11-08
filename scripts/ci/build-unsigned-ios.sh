@@ -2,18 +2,23 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VERSION="${NIMBO_VERSION:-1.3.0-beta.1}"
+VERSION="${NIMBO_VERSION:-1.3.0-beta.2}"
 MARKETING_VERSION="${VERSION%%-*}"
-BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-180}"
+BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-181}"
+LAUNCH_DIAGNOSTICS="${NIMBO_LAUNCH_DIAGNOSTICS:-0}"
 RELEASE_CHANNEL=stable
 # Keep Apple marketing versions numeric; the display/filename retain prerelease.
 if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]*)?$ ]]; then
-  echo 'NIMBO_VERSION must be numeric semver with optional -beta.N (default: 1.3.0-beta.1)' >&2
+  echo 'NIMBO_VERSION must be numeric semver with optional -beta.N (default: 1.3.0-beta.2)' >&2
   exit 2
 fi
 [[ "${VERSION}" != *-beta.* ]] || RELEASE_CHANNEL=beta
 if [[ ! "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,3}$ ]] || (( BUILD_NUMBER <= 170 )); then
-  echo 'NIMBO_BUILD_NUMBER must be an integer from 171 to 9999 (default: 180)' >&2
+  echo 'NIMBO_BUILD_NUMBER must be an integer from 171 to 9999 (default: 181)' >&2
+  exit 2
+fi
+if [[ "${LAUNCH_DIAGNOSTICS}" != 0 && "${LAUNCH_DIAGNOSTICS}" != 1 ]]; then
+  echo 'NIMBO_LAUNCH_DIAGNOSTICS must be 0 or 1 (default: 0)' >&2
   exit 2
 fi
 [[ "$(uname -s)" == Darwin ]] || { echo 'IPA builds require macOS and Xcode' >&2; exit 2; }
@@ -37,6 +42,10 @@ trap 'rm -f "${PROJECT_SPEC}"; [[ -z "${PACKAGE_DIR}" ]] || rm -rf "${PACKAGE_DI
 cp "${ROOT_DIR}/iosApp/project.yml" "${PROJECT_SPEC}"
 rm -rf "${DERIVED_DATA}" "${ROOT_DIR}/iosApp/Nimbo.xcodeproj"
 
+# Fail native ABI/TLS/Swift link checks before the expensive Kotlin release link.
+chmod +x "${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
+"${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
+
 chmod +x ./gradlew
 # Kotlin/Native release LTO runs inside Gradle's JVM. The Android-oriented 2 GiB
 # project default exhausted its heap in DevirtualizationAnalysis on macOS CI.
@@ -45,9 +54,6 @@ echo 'iOS Kotlin/Native release link: Gradle heap=6 GiB, workers=1'
 ./gradlew --no-daemon --max-workers=1 \
   '-Dorg.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -XX:+HeapDumpOnOutOfMemoryError' \
   -PnimboIosOnly=true :shared:linkReleaseFrameworkIosArm64
-
-chmod +x "${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
-"${ROOT_DIR}/scripts/ci/prepare-libxray-apple.sh"
 
 PACKET_TUNNEL_RESOURCES="${ROOT_DIR}/iosApp/build/PacketTunnelResources"
 if [[ -d "${ROOT_DIR}/app/src/main/assets" ]]; then
@@ -129,6 +135,8 @@ xcodebuild \
   NIMBO_APP_BUNDLE_ID="${APP_BUNDLE_ID}" \
   NIMBO_PACKET_TUNNEL_BUNDLE_ID="${TUNNEL_BUNDLE_ID}" \
   NIMBO_DISPLAY_VERSION="${VERSION}" \
+  NIMBO_BUILD_REVISION="$(git -C "${ROOT_DIR}" rev-parse --short=12 HEAD)" \
+  NIMBO_LAUNCH_DIAGNOSTICS="${LAUNCH_DIAGNOSTICS}" \
   MARKETING_VERSION="${MARKETING_VERSION}" \
   CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
   CODE_SIGNING_ALLOWED=NO \
@@ -174,11 +182,16 @@ assert_plist() {
   fi
 }
 
+# XcodeGen folder resources must actually reach the IPA, not only the project.
+for notice in Chromium-LICENSE.txt cronet-go-LICENSE.txt GPL-3.0.txt NaiveProxy-LICENSE.txt Naive-Sources.txt; do
+  cmp "${ROOT_DIR}/iosApp/NativeNotices/${notice}" "${APP_PATH}/NativeNotices/${notice}"
+done
 assert_plist "${APP_PATH}/Info.plist" "CFBundleIdentifier" "${APP_BUNDLE_ID}"
 assert_plist "${APP_PATH}/Info.plist" "CFBundleShortVersionString" "${MARKETING_VERSION}"
 assert_plist "${APP_PATH}/Info.plist" "CFBundleVersion" "${BUILD_NUMBER}"
 assert_plist "${APP_PATH}/Info.plist" "CADisableMinimumFrameDurationOnPhone" "true"
 assert_plist "${APP_PATH}/Info.plist" "NimboDisplayVersion" "${VERSION}"
+assert_plist "${APP_PATH}/Info.plist" "NimboLaunchDiagnostics" "${LAUNCH_DIAGNOSTICS}"
 assert_plist "${APP_PATH}/Info.plist" "NimboPacketTunnelBundleIdentifier" "${TUNNEL_BUNDLE_ID}"
 assert_plist "${TUNNEL_PATH}/Info.plist" "CFBundleIdentifier" "${TUNNEL_BUNDLE_ID}"
 assert_plist "${TUNNEL_PATH}/Info.plist" "NSExtension:NSExtensionPointIdentifier" "com.apple.networkextension.packet-tunnel"
@@ -347,6 +360,21 @@ ditto "${APP_PATH}" "${PACKAGE_DIR}/Payload/Nimbo.app"
 )
 mv -f "${PACKAGE_DIR}/${OUTPUT_NAME}" "${OUTPUT_PATH}"
 
+python3 - "${ROOT_DIR}/scripts/ios" "${OUTPUT_PATH}" "${NIMBO_WITH_CONTROL_WIDGET:-0}" <<'PY'
+import sys
+import zipfile
+sys.path.insert(0, sys.argv[1])
+from xtool_verify import app_intents
+with zipfile.ZipFile(sys.argv[2]) as archive:
+    app_intents(archive, include_control=sys.argv[3] == '1')
+print('Verified compiled App Intents actions and shortcut registration metadata')
+PY
+
+if [[ -n "${WIDGET_EXECUTABLE}" ]]; then
+  # Source-only SVG checks cannot catch a catalog omitted by XcodeGen.
+  python3 "${ROOT_DIR}/iosApp/Tests/test_branding_contracts.py" --ipa "${OUTPUT_PATH}"
+fi
+
 shasum -a 256 "${OUTPUT_PATH}" > "${OUTPUT_PATH}.sha256"
 
 cat > "${ARTIFACT_DIR}/build-manifest.txt" <<MANIFEST
@@ -354,6 +382,7 @@ name=${OUTPUT_NAME}
 version=${VERSION}
 build_number=${BUILD_NUMBER}
 channel=${RELEASE_CHANNEL}
+launch_diagnostics=${LAUNCH_DIAGNOSTICS}
 main_bundle_id=${APP_BUNDLE_ID}
 packet_tunnel_bundle_id=${TUNNEL_BUNDLE_ID}
 signed=adhoc-ldid
@@ -364,8 +393,8 @@ contains_live_activity=true
 requires_resigning=true
 requires_network_extension_entitlement=true
 resignable=true
-libxray_version=26.9.30
-libxray_source_sha256=0b9162518c1eb2aadca13f39e63e9c5f7c904c4843ad6bc8f8251f2d1f99c185
+libxray_version=26.10.31
+libxray_source_sha256=738a99755c184923fcc5aaede114953bef8156f4bf918c1977ab0743739a1bf5
 awg_version=v3.1.20260828
 go_runtime_archives_per_slice=1
 MANIFEST

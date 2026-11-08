@@ -1,6 +1,70 @@
 import Foundation
 
 enum PingDiagnosticTests {
+    final class PreflightBackend: @unchecked Sendable {
+        private let lock = NSLock()
+        private var active = 0
+        private var maximum = 0
+        private var nativeVisits: [String] = []
+        private var publications: [String: Int] = [:]
+        var maximumActive: Int { lock.lock(); defer { lock.unlock() }; return maximum }
+        var visits: [String] { lock.lock(); defer { lock.unlock() }; return nativeVisits }
+        var progress: [String: Int] { lock.lock(); defer { lock.unlock() }; return publications }
+        func enter() { lock.lock(); active += 1; maximum = max(maximum, active); lock.unlock() }
+        func leave() { lock.lock(); active -= 1; lock.unlock() }
+        func diagnostic(_ id: String) -> Int {
+            lock.lock(); defer { lock.unlock() }
+            nativeVisits.append(id)
+            return id == "node-39" ? -1 : 210 // TCP-ready does not mean the proxy authenticates.
+        }
+        func publish(_ id: String, value: Int) {
+            lock.lock(); defer { lock.unlock() }
+            precondition(publications[id] == nil, "Each completed sample publishes only once")
+            publications[id] = value
+        }
+    }
+
+    static func preflightTests() async {
+        let targets = (1...40).map { (id: "node-\($0)", host: "proxy.example", port: $0) }
+        let configs = Dictionary(uniqueKeysWithValues: targets.map {
+            ($0.id, "vless://fixture@proxy.example:\($0.port)?type=tcp")
+        })
+        let backend = PreflightBackend()
+        let service = NimboPingService(diagnosticProbe: { id, _, _, timeout in
+            precondition(timeout == 3)
+            return backend.diagnostic(id)
+        }, endpointProbe: { _, port, timeout in
+            precondition(timeout == 3, "Preflight must not replace the configured timeout with an aggressive cutoff")
+            backend.enter()
+            defer { backend.leave() }
+            try? await Task.sleep(nanoseconds: 3_000_000)
+            return port >= 33
+        })
+        let result = await service.measureAll(targets, configurations: configs, progress: { backend.publish($0, value: $1) })
+        precondition(backend.maximumActive > 1 && backend.maximumActive <= 8, "Unreachable endpoints should run in bounded parallel waves")
+        precondition(backend.visits == (33...40).map { "node-\($0)" }, "Native lifetimes remain serial and unreachable TCP endpoints are skipped")
+        precondition(result?.count == 40 && backend.progress == result!)
+        precondition((1...32).allSatisfy { result?["node-\($0)"] == -1 })
+        precondition(result?["node-39"] == -1 && result?["node-40"] == 210, "Only authenticated per-server HTTP can produce success")
+
+        let entered = NimboPingCompletion<Bool>()
+        let cancelledProgress = PreflightBackend()
+        let cancelledService = NimboPingService(diagnosticProbe: { _, _, _, _ in
+            preconditionFailure("Cancelled preflight must never enter native")
+        }, endpointProbe: { _, _, _ in
+            entered.finish(true)
+            do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch {}
+            return false
+        })
+        let task = Task { await cancelledService.measureAll(targets, configurations: configs,
+            progress: { cancelledProgress.publish($0, value: $1) }) }
+        _ = await withCheckedContinuation { continuation in entered.install { continuation.resume(returning: $0) } }
+        task.cancel()
+        let cancelled = await task.value
+        precondition(cancelled == nil && cancelledProgress.progress.isEmpty, "Cancelled TCP attempts must not publish failure placeholders")
+        print("PASS: bounded negative-only preflight, real per-node HTTP proof and cancelled preflight retirement")
+    }
+
     /// No wall-clock sleeps: each attempted target consumes its configured timeout.
     final class Clock: @unchecked Sendable {
         private let lock = NSLock()
@@ -112,6 +176,72 @@ enum PingDiagnosticTests {
         }
     }
 
+    static func autoEvidenceTests() async {
+        let cache = NimboAutoPingCache.shared
+        let defaults = UserDefaults.standard
+        let config = "vless://fixture@proxy.example:443?type=tcp"
+        let changed = "vless://changed-fixture@proxy.example:443?type=tcp"
+        let unknown = "vless://unknown@proxy.example:443?type=tcp"
+        let keys = ["com.nimbo.connection.vpnCore", "com.nimbo.routing.modules",
+                    "com.nimbo.routing.profile-id", "com.nimbo.routing.dns"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(keys, saved) { defaults.set(value, forKey: key) }
+            cache.invalidate()
+        }
+        cache.invalidate(pathEstablished: true)
+        let good = NimboPingService(diagnosticProbe: { _, _, _, _ in 0 })
+        let measured = await good.measureOne(host: "", port: 0, id: "same-id", configuration: config)
+        precondition(measured == 0)
+        precondition(cache.rankedIndices(configurations: [unknown, config], limit: 16) == [1, 0])
+        precondition(cache.rankedIndices(configurations: [unknown, changed], limit: 16) == [0, 1], "Same server ID with changed credentials must lose proof")
+        precondition(cache.begin(configuration: nil) == nil && cache.begin(configuration: "  ") == nil)
+        precondition(cache.rankedIndices(configurations: ["", " ", config], limit: 16) == [2])
+
+        for key in keys {
+            let ticket = cache.begin(configuration: config)
+            cache.complete(ticket, latency: 0, provenance: .configuredRouteHTTP, cancelled: false)
+            let before = cache.generation
+            let old = defaults.object(forKey: key)
+            defaults.set("auto-test-policy-change", forKey: key)
+            NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+            defaults.set(old, forKey: key)
+            NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+            precondition(cache.generation != before, "Core/routing changes away and back must retire evidence")
+            precondition(cache.rankedIndices(configurations: [unknown, config], limit: 16) == [0, 1])
+        }
+
+        let coreBefore = defaults.object(forKey: keys[0])
+        let invalidPolicies: [Any] = [Data([0, 1]), Date(timeIntervalSince1970: 0), ["bad": "type"], String(repeating: "x", count: 262_145)]
+        for invalid in invalidPolicies {
+            defaults.set(invalid, forKey: keys[0])
+            NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+            let epoch = cache.refreshedGeneration
+            precondition(cache.refreshedGeneration == epoch, "Stable malformed defaults cannot rotate every read")
+            precondition(cache.begin(configuration: config) == nil, "Malformed policy cannot earn route proof")
+        }
+        defaults.set(coreBefore, forKey: keys[0])
+        _ = cache.refreshedGeneration
+
+        for cancel in [false, true] {
+            let started = NimboPingCompletion<Bool>()
+            let gate = NimboPingCompletion<Int>()
+            let service = NimboPingService(diagnosticProbe: { _, _, _, _ in
+                started.finish(true)
+                return await withCheckedContinuation { continuation in gate.install { continuation.resume(returning: $0) } }
+            })
+            let task = Task { await service.measureAll([(id: "same-id", host: "", port: 0)],
+                                                       configurations: ["same-id": config]) }
+            _ = await withCheckedContinuation { continuation in started.install { continuation.resume(returning: $0) } }
+            if cancel { task.cancel() } else { cache.invalidate(pathEstablished: true) }
+            gate.finish(0)
+            let result = await task.value
+            precondition(result == nil, "Cancellation/path-session epoch change discards late batch completion")
+            precondition(cache.rankedIndices(configurations: [unknown, config], limit: 16) == [0, 1])
+        }
+        print("PASS: producer auto evidence, config digest isolation, empty config, core/routing away-back and late completion retirement")
+    }
+
     static func run() async {
         let defaults = UserDefaults.standard
         let keys = ["com.nimbo.ping.protocol", "com.nimbo.ping.url", "com.nimbo.ping.timeoutMs"]
@@ -120,6 +250,8 @@ enum PingDiagnosticTests {
         defaults.set("nimbo", forKey: keys[0])
         defaults.set("https://example.invalid/probe?q=1", forKey: keys[1])
         defaults.set(3000, forKey: keys[2])
+        await autoEvidenceTests()
+        await preflightTests()
         await batchBudgetTests()
         let backend = Backend()
         let service = NimboPingService(routeProbe: { _, _, _, _, _, _ in
@@ -166,6 +298,26 @@ enum PingDiagnosticTests {
         task.cancel()
         let cancelled = await task.value
         precondition(cancelled == -1 && backend.active == 0, "Task cancellation must await native cleanup")
+
+        let blockedEntered = NimboPingCompletion<Bool>()
+        let unblockNative = DispatchSemaphore(value: 0)
+        let unresponsive = NimboDiagnosticProbe.Transport(run: { _ in
+            blockedEntered.finish(true)
+            _ = unblockNative.wait(timeout: .now() + 2)
+            return nil
+        }, cancel: { _ in }) // Simulate a native operation ignoring Cancel.
+        let blocked = Task {
+            await NimboDiagnosticProbe.measure(serverID: "blocked", configuration: "fixture", url: url,
+                timeout: 1, transport: unresponsive)
+        }
+        _ = await withCheckedContinuation { continuation in blockedEntered.install { continuation.resume(returning: $0) } }
+        blocked.cancel()
+        let didRetire = await NimboDiagnosticProbe.waitUntilIdle(timeout: 0.04)
+        precondition(!didRetire, "Refresh must not falsely admit profile mutation before native cleanup")
+        unblockNative.signal()
+        _ = await blocked.value
+        let realRetirement = await NimboDiagnosticProbe.waitUntilIdle(timeout: 1)
+        precondition(realRetirement)
 
         let gate = NimboPingCompletion<Int>()
         let started = NimboPingCompletion<Bool>()

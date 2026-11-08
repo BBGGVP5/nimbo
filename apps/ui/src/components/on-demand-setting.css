@@ -1,0 +1,20 @@
+.on-demand-setting { min-width: 0; padding: clamp(16px, 3vw, 24px); color: var(--color-text); }
+.on-demand-heading { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.on-demand-setting h3 { margin: 0; font-size: 17px; letter-spacing: -.025em; }
+.on-demand-setting p { margin: 8px 0; line-height: 1.6; font-size: 12px; color: var(--color-text-dim); overflow-wrap: anywhere; }
+.on-demand-status { display: inline-flex; padding: 6px 10px; border: 1px solid var(--color-border); border-radius: 16px; font-size: 11px; }
+.on-demand-setting fieldset { padding: 0; border: 0; margin: 16px 0 0; min-width: 0; }
+.on-demand-enable { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; cursor: pointer; }
+.on-demand-enable input { width: 18px; height: 18px; accent-color: var(--color-accent); }
+.on-demand-networks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0 20px; }
+.on-demand-networks button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; min-height: 82px; padding: 10px 4px; color: var(--color-text-dim); background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: 12px; font: inherit; font-size: 12px; cursor: pointer; }
+.on-demand-networks button[aria-pressed="true"] { color: var(--color-text); border: 2px solid var(--color-accent); padding: 9px 3px; background: var(--color-card); }
+.on-demand-ssids { display: grid; gap: 8px; font-size: 13px; }
+.on-demand-setting textarea { width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid var(--color-border-strong); border-radius: 12px; padding: 12px; color: var(--color-text); background: var(--color-surface); font: inherit; line-height: 1.5; }
+.on-demand-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.on-demand-footer p { flex: 1 1 170px; }
+.on-demand-footer button { min-height: 44px; cursor: pointer; }
+.on-demand-setting :is(button, input, textarea):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+.on-demand-setting :is(button, input, textarea):disabled { cursor: not-allowed; opacity: .6; }
+.on-demand-setting [role="alert"] { color: var(--color-status-error, #b44); }
+@media (prefers-reduced-motion: no-preference) { .on-demand-networks button { transition: transform 140ms ease, border-color 140ms ease; } .on-demand-networks button:active:not(:disabled) { transform: scale(.97); } }

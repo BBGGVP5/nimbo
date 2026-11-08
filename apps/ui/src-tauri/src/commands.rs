@@ -21,8 +21,8 @@ use nimbo_subscription::{
     build_subscription, extract_mirrors_from_url, extract_xray_templates_from_value,
     fetch_subscription_with_mirrors, happ_compatible_user_agent, merge_mirrors, parse_aggregate,
     parse_subscription_userinfo, FetchOptions, Fetched, NaiveTransport, Server, Subscription,
-    TlsFragmentConfig, CURRENT_SUBSCRIPTION_PARSER_REVISION, HAPP_COMPAT_DEVICE_MODEL,
-    HAPP_COMPAT_DEVICE_OS, HAPP_COMPAT_OS_VERSION, USER_AGENT,
+    SubscriptionFormat, TlsFragmentConfig, CURRENT_SUBSCRIPTION_PARSER_REVISION,
+    HAPP_COMPAT_DEVICE_MODEL, HAPP_COMPAT_DEVICE_OS, HAPP_COMPAT_OS_VERSION, USER_AGENT,
 };
 use nimbo_xray_config::{
     AppRoutingMode as XrayAppRoutingMode, AppRoutingRule as XrayAppRoutingRule, ConfigBuilder,
@@ -61,6 +61,20 @@ static RESUME_RECONNECT_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 pub(crate) static CONNECTION_INTENT: AtomicU64 = AtomicU64::new(0);
 static LAST_WAKE_RECOVERY: AtomicU64 = AtomicU64::new(0);
 static PING_INTENT: AtomicU64 = AtomicU64::new(0);
+static PING_CANCEL: std::sync::LazyLock<tokio::sync::watch::Sender<u64>> =
+    std::sync::LazyLock::new(|| tokio::sync::watch::channel(0).0);
+
+async fn ping_cancelled(intent: u64) {
+    let mut cancelled = PING_CANCEL.subscribe();
+    loop {
+        if PING_INTENT.load(Ordering::SeqCst) != intent {
+            return;
+        }
+        if cancelled.changed().await.is_err() {
+            return;
+        }
+    }
+}
 static XRAY_RESOLUTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static SIDECAR_RESOLUTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 pub(crate) static CONNECTION_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -616,6 +630,11 @@ fn count_rules(profile: &RoutingProfile) -> u32 {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TrafficStats {
+    pub session_available: bool,
+    pub route_traffic: Option<nimbo_xray_config::telemetry::RouteTraffic>,
+    pub tcp_connections: Option<u64>,
+    pub udp_connections: Option<u64>,
+    pub ad_blocking_active: bool,
     pub session_upload: u64,
     pub session_download: u64,
     pub upload_speed: f64,
@@ -750,8 +769,10 @@ pub async fn set_preferences(
     mut preferences: AppPreferences,
 ) -> Result<AppPreferences, String> {
     let _operation = CONNECTION_OPERATION.lock().await;
-    if preferences.connection_kill_switch && state.runtime(|r| r.mihomo.is_some()) {
-        return Err("MIHOMO_KILL_SWITCH_UNAVAILABLE".into());
+    if preferences.connection_kill_switch != state.snapshot().preferences.connection_kill_switch
+        && state.runtime(|r| r.mihomo.is_some())
+    {
+        return Err("DISCONNECT_BEFORE_CORE_CHANGE".into());
     }
     preferences.accent_color = normalize_accent_color(&preferences.accent_color);
     preferences.ui_style = normalize_ui_style(&preferences.ui_style);
@@ -787,7 +808,7 @@ pub async fn set_preferences(
     state
         .mutate(|s| {
             if !same_latency_settings(&s.preferences, &preferences) {
-                PING_INTENT.fetch_add(1, Ordering::SeqCst);
+                cancel_pings();
                 s.server_pings.clear();
             }
             s.preferences = preferences.clone();
@@ -813,6 +834,8 @@ pub fn export_app_backup(state: State<'_, AppState>) -> Result<String, String> {
     snapshot.connected = false;
     snapshot.connected_at = None;
     snapshot.pending_system_proxy_snapshot = None;
+    snapshot.pending_mihomo_kill_switch = false;
+    snapshot.on_demand = crate::on_demand::Config::default();
     snapshot.pending_mihomo_proxy_port = None;
     snapshot.pending_tun_snapshot = None;
     let exported_at = std::time::SystemTime::now()
@@ -844,9 +867,11 @@ pub async fn import_app_backup(
     let mut imported: PersistedState = serde_json::from_value(state_value)
         .map_err(|e| format!("Не удалось применить резервную копию: {e}"))?;
     imported.normalize_runtime_defaults();
+    imported.on_demand = crate::on_demand::Config::default();
     imported.connected = false;
     imported.connected_at = None;
     imported.pending_system_proxy_snapshot = None;
+    imported.pending_mihomo_kill_switch = false;
     imported.pending_mihomo_proxy_port = None;
     imported.pending_tun_snapshot = None;
     for profile in &imported.core_profiles.profiles {
@@ -954,7 +979,16 @@ pub async fn add_subscription(
     // Ссылка может нести домены-зеркала: ?mirrors=sub2.example.com,sub3.example.net
     // Их запоминаем отдельно, а из URL подписки вырезаем.
     let link = extract_mirrors_from_url(url.trim());
-    let source = link.url.trim();
+    // A TrustTunnel deep link may carry the endpoint's own subscription URL
+    // (format v2). It becomes the refreshable source; any static parameters in
+    // the link are only a fallback for the first fetch (DEEP_LINK.md rule 6).
+    let trusttunnel_link = link.url.trim().to_string();
+    let trusttunnel_subscription =
+        nimbo_subscription::parser::trusttunnel::subscription_url(&trusttunnel_link);
+    let source_owned = trusttunnel_subscription
+        .clone()
+        .unwrap_or_else(|| link.url.trim().to_string());
+    let source = source_owned.as_str();
     let link_mirrors = link.mirrors.clone();
 
     if let Some(existing) = snapshot_before
@@ -989,9 +1023,34 @@ pub async fn add_subscription(
 
     let fetched = if is_remote_subscription(source) {
         let opts = build_fetch_options(&snapshot_before);
-        fetch_subscription_with_mirrors(source, &opts, &link_mirrors, None)
-            .await
-            .map_err(|e| format!("Не удалось загрузить: {e}"))?
+        match fetch_subscription_with_mirrors(source, &opts, &link_mirrors, None).await {
+            Ok(fetched) => fetched,
+            Err(error) => {
+                let fallback = trusttunnel_subscription
+                    .as_ref()
+                    .and_then(|_| parse_aggregate(&trusttunnel_link).ok());
+                let Some(servers) = fallback else {
+                    return Err(format!("Не удалось загрузить: {error}"));
+                };
+                tracing::warn!("TrustTunnel subscription fetch failed; using link parameters");
+                Fetched {
+                    raw_body: String::new(),
+                    servers,
+                    info: None,
+                    suggested_name: None,
+                    description: None,
+                    support_url: None,
+                    website_url: None,
+                    app_proxy_rules: Vec::new(),
+                    logo_url: None,
+                    theme: None,
+                    tls_fragment: None,
+                    xray_templates: Default::default(),
+                    mirrors: Vec::new(),
+                    source_url: source.to_string(),
+                }
+            }
+        }
     } else {
         let servers =
             parse_aggregate(source).map_err(|e| format!("Не удалось распарсить конфиг: {e}"))?;
@@ -1017,6 +1076,7 @@ pub async fn add_subscription(
         }
     };
 
+    let companion = prepare_subscription_companion(&snapshot_before, source, &fetched)?;
     let xray_templates = collect_subscription_xray_templates(
         &fetched,
         source,
@@ -1024,15 +1084,29 @@ pub async fn add_subscription(
     )
     .await;
     let mut subscription = build_subscription(source, fetched, name);
+    subscription.meta.mihomo_profile_id = companion.as_ref().map(|p| p.id.clone());
     // Зеркала из ссылки живут дальше вместе с подпиской, даже если панель их
     // не продублировала заголовком.
     subscription.meta.mirrors = merge_mirrors(&subscription.meta.mirrors, &link_mirrors);
 
     state
-        .mutate(|s| {
+        .transaction(|s| {
+            if s.core_profiles.preferred_core != snapshot_before.core_profiles.preferred_core {
+                return Err("STALE_GENERATION".into());
+            }
+            if s.subscriptions.iter().any(|sub| sub.url == source) {
+                return Err("SUBSCRIPTION_ALREADY_EXISTS".into());
+            }
+            if companion.is_some() && s.core_profiles.profiles.len() >= 1024 {
+                return Err("PROFILE_LIMIT".into());
+            }
             remove_xray_templates_for_subscription(&mut s.xray_templates, source);
             merge_xray_template_cache(&mut s.xray_templates, source, xray_templates);
+            if let Some(profile) = companion.clone() {
+                s.core_profiles.profiles.push(profile);
+            }
             s.subscriptions.push(subscription.clone());
+            Ok(())
         })
         .map_err(|e| format!("Не удалось сохранить: {e}"))?;
 
@@ -1047,7 +1121,10 @@ pub async fn refresh_subscription(
     refresh_subscription_inner(&state, url).await
 }
 
-async fn refresh_subscription_inner(state: &AppState, url: String) -> Result<Subscription, String> {
+pub(crate) async fn refresh_subscription_inner(
+    state: &AppState,
+    url: String,
+) -> Result<Subscription, String> {
     let snapshot_before = state.snapshot();
     let source = url.trim();
     let opts = build_fetch_options(&snapshot_before);
@@ -1057,6 +1134,9 @@ async fn refresh_subscription_inner(state: &AppState, url: String) -> Result<Sub
         .subscriptions
         .iter()
         .find(|item| item.url == source);
+    if saved.is_none() {
+        return Err("PROFILE_NOT_FOUND".into());
+    }
     let known_mirrors: Vec<String> = saved
         .map(|item| item.meta.mirrors.clone())
         .unwrap_or_default();
@@ -1090,6 +1170,7 @@ async fn refresh_subscription_inner(state: &AppState, url: String) -> Result<Sub
         }
     };
 
+    let companion = prepare_subscription_companion(&snapshot_before, source, &fetched)?;
     let active_was_in_servers = {
         if let Some(active) = &snapshot_before.active_server_id {
             fetched.servers.iter().any(|srv| &srv.id == active)
@@ -1100,8 +1181,58 @@ async fn refresh_subscription_inner(state: &AppState, url: String) -> Result<Sub
 
     let xray_templates =
         collect_subscription_xray_templates(&fetched, source, opts.user_agent.as_deref()).await;
-    let updated_name = state
-        .mutate(|s| {
+    state
+        .transaction(|s| {
+            if s.core_profiles.preferred_core != snapshot_before.core_profiles.preferred_core {
+                return Err("STALE_GENERATION".into());
+            }
+            if snapshot_before
+                .subscriptions
+                .iter()
+                .any(|sub| sub.url == source)
+                && !s.subscriptions.iter().any(|sub| sub.url == source)
+            {
+                return Err("PROFILE_NOT_FOUND".into());
+            }
+            if let Some(profile) = companion.clone() {
+                let old_link = snapshot_before
+                    .subscriptions
+                    .iter()
+                    .find(|sub| sub.url == source)
+                    .and_then(|sub| sub.meta.mihomo_profile_id.as_deref());
+                let current_link = s
+                    .subscriptions
+                    .iter()
+                    .find(|sub| sub.url == source)
+                    .and_then(|sub| sub.meta.mihomo_profile_id.as_deref());
+                if old_link != current_link {
+                    return Err("STALE_REVISION".into());
+                }
+                if !s.core_profiles.profiles.iter().any(|p| p.id == profile.id)
+                    && s.core_profiles.profiles.len() >= 1024
+                {
+                    return Err("PROFILE_LIMIT".into());
+                }
+                let previous = snapshot_before
+                    .core_profiles
+                    .profiles
+                    .iter()
+                    .find(|p| p.id == profile.id);
+                let current = s.core_profiles.profiles.iter().find(|p| p.id == profile.id);
+                if previous.map(|p| p.revision) != current.map(|p| p.revision) {
+                    return Err("STALE_REVISION".into());
+                }
+                if s.connected
+                    && s.core_profiles.active_profile_id.as_deref() == Some(&profile.id)
+                    && s.core_profiles
+                        .profile(&profile.id)
+                        .is_ok_and(|old| old.source_digest != profile.source_digest)
+                {
+                    return Err("PROFILE_ACTIVE".into());
+                }
+                s.core_profiles.profiles.retain(|p| p.id != profile.id);
+                s.core_profiles.profiles.push(profile);
+            }
             remove_xray_templates_for_subscription(&mut s.xray_templates, source);
             merge_xray_template_cache(&mut s.xray_templates, source, xray_templates);
             let existing = s.subscriptions.iter().find(|sub| sub.url == source);
@@ -1112,19 +1243,26 @@ async fn refresh_subscription_inner(state: &AppState, url: String) -> Result<Sub
             let mut updated = build_subscription(source, fetched.clone(), existing_name.clone());
             updated.meta.show_on_home = existing_show_on_home.or(Some(true));
             updated.meta.update_interval_minutes = existing_update_interval;
+            updated.meta.mihomo_profile_id = companion
+                .as_ref()
+                .map(|p| p.id.clone())
+                .or_else(|| existing.and_then(|sub| sub.meta.mihomo_profile_id.clone()));
+            if companion.is_some() {
+                // Keep the legacy representation for a future switch back. Never flatten provider rules.
+                updated.servers = existing.map(|sub| sub.servers.clone()).unwrap_or_default();
+            }
             if let Some(pos) = s.subscriptions.iter().position(|sub| sub.url == source) {
                 s.subscriptions[pos] = updated.clone();
             } else {
                 s.subscriptions.push(updated.clone());
             }
-            if !active_was_in_servers {
+            if !s.connected && companion.is_none() && !active_was_in_servers {
                 s.active_server_id = None;
             }
-            existing_name
+            Ok(())
         })
         .map_err(|e| format!("Не удалось сохранить: {e}"))?;
 
-    let _ = updated_name;
     let snap = state.snapshot();
     snap.subscriptions
         .into_iter()
@@ -1235,7 +1373,25 @@ pub fn remove_subscription(
     url: String,
 ) -> Result<PersistedState, String> {
     state
-        .mutate(|s| {
+        .transaction(|s| {
+            let companion_id = s
+                .subscriptions
+                .iter()
+                .find(|sub| sub.url == url)
+                .and_then(|sub| sub.meta.mihomo_profile_id.clone());
+            if s.connected
+                && companion_id
+                    .as_deref()
+                    .is_some_and(|id| s.core_profiles.active_profile_id.as_deref() == Some(id))
+            {
+                return Err("PROFILE_ACTIVE".into());
+            }
+            if let Some(id) = companion_id {
+                s.core_profiles.profiles.retain(|profile| profile.id != id);
+                if s.core_profiles.active_profile_id.as_deref() == Some(&id) {
+                    s.core_profiles.active_profile_id = None;
+                }
+            }
             s.subscriptions.retain(|sub| sub.url != url);
             let valid_server_ids = s
                 .subscriptions
@@ -1259,6 +1415,7 @@ pub fn remove_subscription(
                     s.active_subscription_url = None;
                 }
             }
+            Ok(())
         })
         .map_err(|e| format!("Не удалось сохранить: {e}"))?;
     Ok(state.snapshot())
@@ -1510,7 +1667,7 @@ pub fn helper_status(app: AppHandle) -> crate::helper::HelperStatus {
     crate::helper::status(&app)
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 #[tauri::command]
 pub fn helper_status() -> serde_json::Value {
     serde_json::json!({
@@ -1529,7 +1686,7 @@ pub fn install_helper(app: AppHandle) -> Result<crate::helper::HelperStatus, Str
     Ok(crate::helper::status(&app))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 #[tauri::command]
 pub fn install_helper() -> Result<(), String> {
     Err("Хелпер доступен только на Windows.".into())
@@ -1542,10 +1699,38 @@ pub fn uninstall_helper(app: AppHandle) -> Result<crate::helper::HelperStatus, S
     Ok(crate::helper::status(&app))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 #[tauri::command]
 pub fn uninstall_helper() -> Result<(), String> {
     Err("Хелпер доступен только на Windows.".into())
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub fn helper_status(app: AppHandle) -> serde_json::Value {
+    crate::helper_linux::helper_status(&app)
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub async fn install_helper(app: AppHandle) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::helper_linux::ensure_service(&app)?;
+        Ok(crate::helper_linux::helper_status(&app))
+    })
+    .await
+    .map_err(|e| format!("Не удалось установить службу TUN: {e}"))?
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub async fn uninstall_helper(app: AppHandle) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::helper_linux::uninstall_service(&app)?;
+        Ok(crate::helper_linux::helper_status(&app))
+    })
+    .await
+    .map_err(|e| format!("Не удалось удалить службу TUN: {e}"))?
 }
 
 #[tauri::command]
@@ -2725,7 +2910,7 @@ pub async fn set_connection_mode(
     }
 
     if snapshot.core_profiles.active_profile_id.is_some() {
-        return Err("MIHOMO_TUN_UNAVAILABLE".into());
+        return Err("DISCONNECT_BEFORE_CORE_CHANGE".into());
     }
     let server_id = snapshot
         .active_server_id
@@ -2741,7 +2926,7 @@ pub async fn set_connection_mode(
         if !status.installed {
             return Err(format!("Новый режим не применён: {}", status.message));
         }
-        if !is_running_as_admin() {
+        if tun_requires_local_elevation() && !is_running_as_admin() {
             return Err(
                 "Новый режим не применён: для TUN перезапусти Nimbo от имени администратора."
                     .into(),
@@ -2852,8 +3037,7 @@ pub async fn ping_servers(
     // Bounded concurrency without sharing a result between different server IDs.
     for chunk in ids.chunks(6) {
         if PING_INTENT.load(Ordering::SeqCst) != batch_intent {
-            out.extend(chunk.iter().map(|id| ping_failure(id, "Ping cancelled")));
-            continue;
+            break; // Queued nodes were not measured; never erase their saved values.
         }
         let measure = |index: usize| {
             let state = &*state;
@@ -2882,7 +3066,12 @@ pub async fn ping_servers(
 
 #[tauri::command]
 pub fn cancel_pings() {
-    PING_INTENT.fetch_add(1, Ordering::SeqCst);
+    let revision = PING_INTENT.fetch_add(1, Ordering::SeqCst) + 1;
+    PING_CANCEL.send_replace(revision);
+}
+
+pub(crate) fn ping_generation() -> u64 {
+    PING_INTENT.load(Ordering::SeqCst)
 }
 
 fn same_latency_settings(a: &AppPreferences, b: &AppPreferences) -> bool {
@@ -2907,7 +3096,11 @@ fn verified_ping_route(
     if CONNECTION_OPERATION.try_lock().is_err() {
         return None;
     }
+    let config = find_server(snap, server_id).and_then(|node| diagnostic_identity(snap, &node))?;
     state.runtime(|runtime| {
+        if runtime.ping_config_identity != Some(config) {
+            return None;
+        }
         let route = runtime.ping_route.as_ref()?;
         if !route.accepts(snap.connected, snap.active_server_id.as_deref(), server_id) {
             return None;
@@ -2935,11 +3128,11 @@ async fn measure_server_latency(
     snap: &PersistedState,
     server: &Server,
 ) -> ServerPing {
-    let _ = state.mutate(|saved| {
-        saved.server_pings.remove(&server.id);
-    });
+    // Keep the last completed sample while pending; cancellation is not a failed measurement.
     let intent = CONNECTION_INTENT.load(Ordering::SeqCst);
     let ping_intent = PING_INTENT.load(Ordering::SeqCst);
+    let context = crate::auto_route::probe_context(state, snap);
+    let config = diagnostic_identity(snap, server);
     let protocol = normalize_latency_protocol(&snap.preferences.latency_protocol);
     let timeout_ms = normalize_latency_timeout_ms(snap.preferences.latency_timeout_ms);
     let is_nimbo = protocol == "nimbo";
@@ -2949,19 +3142,17 @@ async fn measure_server_latency(
     } else {
         None
     };
-    let mut result = if is_nimbo {
+    let result = if is_nimbo {
         let parent = match nimbo_data_dir() {
             Ok(path) => path.join("diagnostics"),
             Err(_) => return ping_failure(&server.id, "Diagnostic directory unavailable"),
         };
         let template = diagnostic_template_for(snap, server).cloned();
-        if !matches!(
-            server.protocol,
-            nimbo_subscription::Protocol::Awg(_) | nimbo_subscription::Protocol::Naive(_)
-        ) && server
-            .xray_json_template_uuid
-            .as_deref()
-            .is_some_and(|key| !key.trim().is_empty())
+        if !is_sidecar_protocol(&server.protocol)
+            && server
+                .xray_json_template_uuid
+                .as_deref()
+                .is_some_and(|key| !key.trim().is_empty())
             && template.is_none()
         {
             return ping_failure(
@@ -2971,11 +3162,14 @@ async fn measure_server_latency(
         }
         let identity = serde_json::to_value(server).ok();
         let valid = || {
-            if PING_INTENT.load(Ordering::SeqCst) != ping_intent {
+            if PING_INTENT.load(Ordering::SeqCst) != ping_intent
+                || CONNECTION_INTENT.load(Ordering::SeqCst) != intent
+            {
                 return false;
             }
             let current = state.snapshot();
-            same_latency_settings(&current.preferences, &snap.preferences)
+            crate::auto_route::probe_context(state, &current) == context
+                && same_latency_settings(&current.preferences, &snap.preferences)
                 && find_server(&current, &server.id)
                     .is_some_and(|value| serde_json::to_value(&value).ok() == identity)
                 && same_diagnostic_config(&current, snap, server)
@@ -2993,7 +3187,20 @@ async fn measure_server_latency(
             } else {
                 None
             };
-            Ok(crate::diagnostics::Binaries { xray, awg, naive })
+            let trusttunnel = if matches!(
+                server.protocol,
+                nimbo_subscription::Protocol::TrustTunnel(_)
+            ) {
+                Some(crate::trusttunnel_runtime::binary(app)?)
+            } else {
+                None
+            };
+            Ok(crate::diagnostics::Binaries {
+                xray,
+                awg,
+                naive,
+                trusttunnel,
+            })
         };
         match crate::diagnostics::measure(
             server.clone(),
@@ -3026,6 +3233,10 @@ async fn measure_server_latency(
                         let current = state.snapshot();
                         CONNECTION_INTENT.load(Ordering::SeqCst) == intent
                             && PING_INTENT.load(Ordering::SeqCst) == ping_intent
+                            && crate::auto_route::probe_context(state, &current) == context
+                            && find_server(&current, &server.id)
+                                .and_then(|node| diagnostic_identity(&current, &node))
+                                == config
                             && same_latency_settings(&current.preferences, &snap.preferences)
                             && verified_ping_route(state, &current, &server.id).as_ref()
                                 == Some(route)
@@ -3047,10 +3258,17 @@ async fn measure_server_latency(
             ),
         }
     } else {
-        latency_ping_server(server, timeout_ms, &protocol).await
+        tokio::select! {
+            value = latency_ping_server(server, timeout_ms, &protocol) => value,
+            _ = ping_cancelled(ping_intent) => return ping_failure(&server.id, "Ping cancelled"),
+        }
     };
     let current = state.snapshot();
-    let stale = (!is_nimbo && CONNECTION_INTENT.load(Ordering::SeqCst) != intent)
+    let stale = CONNECTION_INTENT.load(Ordering::SeqCst) != intent
+        || crate::auto_route::probe_context(state, &current) != context
+        || config.is_none()
+        || find_server(&current, &server.id).and_then(|node| diagnostic_identity(&current, &node))
+            != config
         || PING_INTENT.load(Ordering::SeqCst) != ping_intent
         || !same_latency_settings(&current.preferences, &snap.preferences)
         || (is_nimbo
@@ -3061,19 +3279,38 @@ async fn measure_server_latency(
             && route.is_some()
             && verified_ping_route(state, &current, &server.id) != route);
     if stale {
-        result = ping_failure(
+        // Cancellation/context replacement is not a negative route observation.
+        return ping_failure(
             &server.id,
             "VPN route or ping settings changed; run the check again",
         );
     }
+    if is_nimbo || (is_http && route.is_some()) {
+        if let Some(config) = config {
+            state.runtime(|runtime| {
+                if CONNECTION_INTENT.load(Ordering::SeqCst) == intent
+                    && PING_INTENT.load(Ordering::SeqCst) == ping_intent
+                {
+                    crate::auto_route::evidence::record(
+                        &mut runtime.auto_route_evidence,
+                        server.id.clone(),
+                        crate::auto_route::evidence::Sample {
+                            context,
+                            config,
+                            at: std::time::Instant::now(),
+                            latency_ms: result.latency_ms,
+                        },
+                    );
+                }
+            });
+        }
+    }
     let _ = state.mutate(|saved| {
         if same_latency_settings(&saved.preferences, &snap.preferences)
-            && (is_nimbo || CONNECTION_INTENT.load(Ordering::SeqCst) == intent)
+            && CONNECTION_INTENT.load(Ordering::SeqCst) == intent
             && PING_INTENT.load(Ordering::SeqCst) == ping_intent
-            && (!is_nimbo
-                || (find_server(saved, &server.id).is_some_and(|value| {
-                    serde_json::to_value(&value).ok() == serde_json::to_value(server).ok()
-                }) && same_diagnostic_config(saved, snap, server)))
+            && find_server(saved, &server.id).and_then(|node| diagnostic_identity(saved, &node))
+                == config
         {
             if let Some(ms) = result.latency_ms {
                 saved.server_pings.insert(server.id.clone(), ms);
@@ -3913,6 +4150,7 @@ fn server_protocol_label(server: &Server) -> String {
         nimbo_subscription::Protocol::Hysteria2(_) => "Hysteria2",
         nimbo_subscription::Protocol::Naive(_) => "NaiveProxy",
         nimbo_subscription::Protocol::Awg(_) => "AmneziaWG",
+        nimbo_subscription::Protocol::TrustTunnel(_) => "TrustTunnel",
     }
     .into()
 }
@@ -4307,32 +4545,36 @@ pub async fn get_traffic_stats(
         totals.monthly_download = 0;
     }
 
-    let (session, upload_speed, download_speed, speed_available) = if snapshot.connected {
-        let xray_running = state.runtime(|runtime| runtime.xray.is_some());
-        if xray_running {
-            let xray_path = ensure_xray_binary(&app).await?;
-            let session = query_xray_session_traffic(xray_path, ProxyPorts::default()).await?;
-            let rate = state.runtime(|runtime| {
-                record_traffic_sample(
-                    &mut runtime.traffic_samples,
-                    std::time::Instant::now(),
-                    &session,
-                )
-            });
-            let (upload_speed, download_speed, speed_available) = rate
-                .map(|(upload, download)| (upload, download, true))
-                .unwrap_or((0.0, 0.0, false));
-            (session, upload_speed, download_speed, speed_available)
-        } else {
-            state.runtime(|runtime| runtime.traffic_samples.clear());
-            (SessionTraffic::default(), 0.0, 0.0, false)
-        }
+    let telemetry = if snapshot.connected {
+        query_runtime_telemetry(&app, &state).await?
     } else {
-        state.runtime(|runtime| runtime.traffic_samples.clear());
-        (SessionTraffic::default(), 0.0, 0.0, false)
+        None
     };
+    let session_available = telemetry.is_some();
+    let (session, route_traffic, tcp_connections, udp_connections) = telemetry.unwrap_or_default();
+    let rate = state.runtime(|runtime| {
+        if session_available {
+            record_traffic_sample(
+                &mut runtime.traffic_samples,
+                std::time::Instant::now(),
+                &session,
+            )
+        } else {
+            runtime.traffic_samples.clear();
+            None
+        }
+    });
+    let (upload_speed, download_speed, speed_available) = rate
+        .map(|(up, down)| (up, down, true))
+        .unwrap_or((0.0, 0.0, false));
+    let ad_blocking_active = snapshot.connected && state.runtime(|r| r.ad_blocking_active);
 
     Ok(TrafficStats {
+        session_available,
+        route_traffic,
+        tcp_connections,
+        udp_connections,
+        ad_blocking_active,
         session_upload: session.upload,
         session_download: session.download,
         upload_speed,
@@ -4576,7 +4818,7 @@ fn helper_log_path() -> Option<PathBuf> {
         .map(|base| base.join("Nimbo").join("helper.log"))
 }
 
-fn rotate_runtime_log(path: &Path) -> Result<(), String> {
+pub(crate) fn rotate_runtime_log(path: &Path) -> Result<(), String> {
     let Ok(metadata) = std::fs::metadata(path) else {
         return Ok(());
     };
@@ -4603,19 +4845,82 @@ pub async fn get_session_traffic(
         return Ok(SessionTraffic::default());
     }
 
-    let xray_running = state.runtime(|runtime| runtime.xray.is_some());
-    if !xray_running {
-        return Ok(SessionTraffic::default());
-    }
-
-    let xray_path = ensure_xray_binary(&app).await?;
-    query_xray_session_traffic(xray_path, ProxyPorts::default()).await
+    Ok(query_runtime_telemetry(&app, &state)
+        .await?
+        .map(|t| t.0)
+        .unwrap_or_default())
 }
 
-async fn query_xray_session_traffic(
+type RuntimeTelemetry = (
+    SessionTraffic,
+    Option<nimbo_xray_config::telemetry::RouteTraffic>,
+    Option<u64>,
+    Option<u64>,
+);
+async fn query_runtime_telemetry(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+) -> Result<Option<RuntimeTelemetry>, String> {
+    let intent = CONNECTION_INTENT.load(Ordering::SeqCst);
+    let mihomo = state.runtime(|r| {
+        r.mihomo
+            .as_ref()
+            .map(|s| (s.controller(), s.session_id.clone()))
+    });
+    if let Some((controller, id)) = mihomo {
+        let t = controller.telemetry().await?;
+        if CONNECTION_INTENT.load(Ordering::SeqCst) != intent
+            || !state.runtime(|r| r.mihomo.as_ref().is_some_and(|s| s.session_id == id))
+        {
+            return Ok(None);
+        }
+        let routes = t
+            .route_available
+            .then_some(nimbo_xray_config::telemetry::RouteTraffic {
+                proxy_upload: t.proxy_upload,
+                proxy_download: t.proxy_download,
+                direct_upload: t.direct_upload,
+                direct_download: t.direct_download,
+            });
+        return Ok(Some((
+            SessionTraffic {
+                upload: t.upload,
+                download: t.download,
+            },
+            routes,
+            Some(t.tcp_connections),
+            Some(t.udp_connections),
+        )));
+    }
+    let running = state.runtime(|r| {
+        let running = r.xray.is_some();
+        #[cfg(target_os = "linux")]
+        let running = running || r.tun_session.is_some();
+        running
+    });
+    if !running {
+        return Ok(None);
+    }
+    let xray = ensure_xray_binary(app).await?;
+    let t = query_xray_telemetry(xray, ProxyPorts::default()).await?;
+    if CONNECTION_INTENT.load(Ordering::SeqCst) != intent {
+        return Ok(None);
+    }
+    Ok(Some((
+        SessionTraffic {
+            upload: t.upload,
+            download: t.download,
+        },
+        t.routes,
+        None,
+        None,
+    )))
+}
+
+async fn query_xray_telemetry(
     xray_path: PathBuf,
     ports: ProxyPorts,
-) -> Result<SessionTraffic, String> {
+) -> Result<nimbo_xray_config::telemetry::TrafficCounters, String> {
     tokio::task::spawn_blocking(move || {
         let _query_guard = XRAY_STATS_QUERY_LOCK
             .lock()
@@ -4645,7 +4950,7 @@ async fn query_xray_session_traffic(
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        Ok(parse_xray_stats_output(&stdout))
+        nimbo_xray_config::telemetry::parse_traffic_counters(&stdout).map_err(str::to_string)
     })
     .await
     .map_err(|e| format!("Не удалось дождаться статистики Xray: {e}"))?
@@ -4716,66 +5021,43 @@ fn join_command_output_reader(
         .map_err(|e| format!("не удалось прочитать {stream_name}: {e}"))
 }
 
-fn parse_xray_stats_output(output: &str) -> SessionTraffic {
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(output) else {
-        return SessionTraffic::default();
-    };
-    let Some(stats) = json.get("stat").and_then(serde_json::Value::as_array) else {
-        return SessionTraffic::default();
-    };
-
-    let mut inbound = SessionTraffic::default();
-    let mut outbound_proxy = SessionTraffic::default();
-
-    for stat in stats {
-        let name = stat
-            .get("name")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        let value = stat.get("value").and_then(parse_stat_value).unwrap_or(0);
-        if name.starts_with("inbound>>>api>>>") {
-            continue;
-        }
-
-        if name.starts_with("inbound>>>") {
-            if name.ends_with(">>>traffic>>>uplink") {
-                inbound.upload = inbound.upload.saturating_add(value);
-            } else if name.ends_with(">>>traffic>>>downlink") {
-                inbound.download = inbound.download.saturating_add(value);
-            }
-        } else if name.starts_with("outbound>>>proxy>>>") {
-            if name.ends_with(">>>traffic>>>uplink") {
-                outbound_proxy.upload = outbound_proxy.upload.saturating_add(value);
-            } else if name.ends_with(">>>traffic>>>downlink") {
-                outbound_proxy.download = outbound_proxy.download.saturating_add(value);
-            }
-        }
+fn prepare_subscription_companion(
+    snapshot: &PersistedState,
+    source: &str,
+    fetched: &Fetched,
+) -> Result<Option<nimbo_mihomo::FullProfile>, String> {
+    if snapshot.core_profiles.preferred_core != Some(nimbo_mihomo::CoreKind::Mihomo) {
+        return Ok(None);
     }
-
-    if inbound.upload > 0 || inbound.download > 0 {
-        inbound
-    } else {
-        outbound_proxy
+    if !is_remote_subscription(source) {
+        return Err("SUBSCRIPTION_CORE_UNSUPPORTED".into());
     }
-}
-
-fn parse_stat_value(value: &serde_json::Value) -> Option<u64> {
-    value
-        .as_u64()
-        .or_else(|| value.as_i64().and_then(|v| u64::try_from(v).ok()))
-        .or_else(|| {
-            value
-                .as_str()
-                .and_then(|text| text.trim().parse::<u64>().ok())
-        })
+    let existing = snapshot.subscriptions.iter().find(|sub| sub.url == source);
+    let previous = existing
+        .and_then(|sub| sub.meta.mihomo_profile_id.as_deref())
+        .and_then(|id| snapshot.core_profiles.profile(id).ok());
+    let name = existing
+        .and_then(|sub| sub.name.as_deref())
+        .or(fetched.suggested_name.as_deref())
+        .unwrap_or("Mihomo");
+    nimbo_mihomo::subscription::prepare(name, &fetched.raw_body, previous)
+        .map(Some)
+        .map_err(String::from)
 }
 
 fn build_fetch_options(state: &PersistedState) -> FetchOptions {
-    let mut opts = FetchOptions::default();
-    if let Some(ua) = &state.user_agent_override {
-        opts.user_agent = Some(ua.clone());
+    let format = match state.core_profiles.preferred_core {
+        Some(nimbo_mihomo::CoreKind::Mihomo) => SubscriptionFormat::Mihomo,
+        Some(nimbo_mihomo::CoreKind::Xray) | Some(nimbo_mihomo::CoreKind::Awg) => {
+            SubscriptionFormat::Xray
+        }
+        None => SubscriptionFormat::Auto,
+    };
+    FetchOptions {
+        format,
+        user_agent: state.user_agent_override.clone(),
+        ..FetchOptions::default()
     }
-    opts
 }
 
 fn is_remote_subscription(source: &str) -> bool {
@@ -4970,8 +5252,11 @@ pub async fn connect_server(
     server_id: String,
 ) -> Result<PersistedState, String> {
     preflight_server_connection(&app, &state.snapshot(), &server_id)?;
-    CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst);
+    let ticket = CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst) + 1;
     let _operation = CONNECTION_OPERATION.lock().await;
+    if ticket != CONNECTION_INTENT.load(Ordering::SeqCst) {
+        return Err("CONNECTION_CANCELLED".into());
+    }
     preflight_server_connection(&app, &state.snapshot(), &server_id)?;
     state
         .mutate(|s| s.auto_subscription_url = None)
@@ -4980,6 +5265,9 @@ pub async fn connect_server(
     // existing Mihomo session just because legacy UI invoked the wrong command.
     let preference = state.snapshot().core_profiles.preferred_core;
     let result = connect_server_inner(app, state.clone(), server_id, preference).await;
+    if result.is_ok() {
+        crate::on_demand::manual_connected(&state, ticket)?;
+    }
     if result.is_err() {
         let _ = stop_runtime(&state);
         let _ = state.mutate(|s| {
@@ -4999,6 +5287,9 @@ pub async fn resume_saved_connection(
 ) -> Result<bool, String> {
     let _operation = CONNECTION_OPERATION.lock().await;
     let snapshot = state.session_snapshot();
+    if snapshot.on_demand.settings.enabled {
+        return Ok(true);
+    }
     if snapshot.connected {
         return Ok(true);
     }
@@ -5051,16 +5342,11 @@ pub(crate) async fn connect_server_inner(
     match snap.connection_mode {
         ConnectionMode::SystemProxy => connect_system_proxy(&app, &state, server, &snap).await?,
         ConnectionMode::Tun => {
-            let status = ensure_tun_dependencies(&app).await.map_err(|e| {
-                format!(
-                    "TUN не установлен: {e}. Установи TUN в настройках и перезапусти Nimbo от имени администратора."
-                )
-            })?;
+            let status = ensure_tun_dependencies(&app)
+                .await
+                .map_err(|e| format!("Не удалось подготовить TUN: {e}"))?;
             if !status.installed {
-                return Err(format!(
-                    "{} Установи TUN в настройках и перезапусти Nimbo от имени администратора.",
-                    status.message
-                ));
+                return Err(status.message);
             }
             if tun_requires_local_elevation() && !is_running_as_admin() {
                 return Err(elevation_required_message());
@@ -5068,16 +5354,11 @@ pub(crate) async fn connect_server_inner(
             connect_tun(&app, &state, server, &snap, status).await?;
         }
         ConnectionMode::Both => {
-            let status = ensure_tun_dependencies(&app).await.map_err(|e| {
-                format!(
-                    "TUN не установлен: {e}. Установи TUN в настройках и перезапусти Nimbo от имени администратора."
-                )
-            })?;
+            let status = ensure_tun_dependencies(&app)
+                .await
+                .map_err(|e| format!("Не удалось подготовить TUN: {e}"))?;
             if !status.installed {
-                return Err(format!(
-                    "{} Установи TUN в настройках и перезапусти Nimbo от имени администратора.",
-                    status.message
-                ));
+                return Err(status.message);
             }
             if tun_requires_local_elevation() && !is_running_as_admin() {
                 return Err(elevation_required_message());
@@ -5111,6 +5392,7 @@ pub async fn disconnect_server(
 ) -> Result<PersistedState, String> {
     // Invalidate recovery immediately, even if a native startup is still finishing.
     CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst);
+    crate::on_demand::manual_pause(&state)?;
     let _operation = CONNECTION_OPERATION.lock().await;
     disconnect_server_inner(app, state).await
 }
@@ -5126,17 +5408,12 @@ async fn disconnect_server_inner(
         .map_err(|e| format!("Не удалось отключить автоматический выбор: {e}"))?;
     let snapshot = state.snapshot();
     let final_session = if snapshot.connected {
-        let xray_running = state.runtime(|runtime| runtime.xray.is_some());
-        if xray_running {
-            match ensure_xray_binary(&app).await {
-                Ok(xray_path) => query_xray_session_traffic(xray_path, ProxyPorts::default())
-                    .await
-                    .unwrap_or_default(),
-                Err(_) => SessionTraffic::default(),
-            }
-        } else {
-            SessionTraffic::default()
-        }
+        query_runtime_telemetry(&app, &state)
+            .await
+            .ok()
+            .flatten()
+            .map(|t| t.0)
+            .unwrap_or_default()
     } else {
         SessionTraffic::default()
     };
@@ -5828,6 +6105,14 @@ fn server_connection_identity(server: &Server) -> String {
             config.password,
             config.transport
         ),
+        nimbo_subscription::Protocol::TrustTunnel(config) => format!(
+            "trusttunnel:{}:{}:{}:{}:{:?}",
+            config.addresses.join(",").to_ascii_lowercase(),
+            config.hostname.trim().to_ascii_lowercase(),
+            config.username,
+            config.password,
+            config.upstream
+        ),
     }
 }
 
@@ -6049,7 +6334,18 @@ fn server_endpoint(server: &Server) -> (String, u16) {
         nimbo_subscription::Protocol::Hysteria2(config) => (config.address.clone(), config.port),
         nimbo_subscription::Protocol::Naive(config) => (config.address.clone(), config.port),
         nimbo_subscription::Protocol::Awg(config) => (config.address.clone(), config.port),
+        nimbo_subscription::Protocol::TrustTunnel(config) => (config.address.clone(), config.port),
     }
+}
+
+/// Protocols whose remote transport is owned by a local sidecar process.
+fn is_sidecar_protocol(protocol: &nimbo_subscription::Protocol) -> bool {
+    matches!(
+        protocol,
+        nimbo_subscription::Protocol::Awg(_)
+            | nimbo_subscription::Protocol::Naive(_)
+            | nimbo_subscription::Protocol::TrustTunnel(_)
+    )
 }
 
 fn prepare_naive_runtime(
@@ -6214,11 +6510,11 @@ fn verify_naive_binary(path: &Path) -> Result<(), String> {
 fn expected_naive_binary_sha256() -> Option<&'static str> {
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     {
-        return Some("94f99801c665d29fc071624663c6f7bfa59e8d5efaa84cd08ef5ebb18b46cb62");
+        return Some("ecf6f56a834a3e945e703ddb766b32c8c474e9767d472bb0b45177c33300aa79");
     }
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
-        return Some("baea1e9b9f8dd879a6374110bd7bdca80c2ecbdca8debc4f84f784a8739eaea7");
+        return Some("f86c52be454eebc9134aad476f3fe91fcf90df7200c3df262a4d0a3d2de85464");
     }
     #[allow(unreachable_code)]
     None
@@ -6305,10 +6601,13 @@ async fn connect_system_proxy(
     server: Server,
     snapshot: &PersistedState,
 ) -> Result<(), String> {
+    // Capture the original endpoint before AWG/Naive replace it with a local hop.
+    let ping_config_identity = diagnostic_identity(snapshot, &server);
     stop_runtime(state)?;
 
     let ports = ProxyPorts::default();
     let (server, awg) = crate::awg_runtime::prepare(app, server)?;
+    let (server, trusttunnel) = crate::trusttunnel_runtime::prepare(app, server, None)?;
     let (server, mut naive) = prepare_naive_runtime(app, server)?;
     let mut config = match build_runtime_xray_config(&server, snapshot, ports) {
         Ok(value) => value,
@@ -6342,7 +6641,7 @@ async fn connect_system_proxy(
             return Err(error);
         }
     };
-    if let Err(error) = wait_for_xray_port(&mut child, ports.socks) {
+    if let Err(error) = wait_for_xray_port(&mut child, ports.socks, XRAY_PORT_TIMEOUT) {
         let _ = child.kill();
         let _ = child.wait();
         stop_child(&mut naive);
@@ -6371,9 +6670,12 @@ async fn connect_system_proxy(
 
     state.runtime(|runtime| {
         runtime.ping_route = ping_route;
+        runtime.ping_config_identity = ping_config_identity;
+        runtime.ad_blocking_active = snapshot.preferences.ad_blocking_enabled;
         runtime.xray = Some(child);
         runtime.naive = naive;
         runtime.awg = awg;
+        runtime.trusttunnel = trusttunnel;
         runtime.system_proxy_snapshot = proxy_snapshot;
     });
 
@@ -6432,6 +6734,8 @@ async fn connect_tun(
     snapshot: &PersistedState,
     _status: TunInstallStatus,
 ) -> Result<(), String> {
+    // Capture the original endpoint before AWG/Naive replace it with a local hop.
+    let ping_config_identity = diagnostic_identity(snapshot, &server);
     stop_runtime(state)?;
 
     let ports = ProxyPorts::default();
@@ -6442,7 +6746,35 @@ async fn connect_tun(
         *config = nimbo_subscription::parser::awg::parse_ini(&config.config)
             .map_err(|_| "Некорректная конфигурация AWG")?;
     }
-    let bypass_ips = resolve_server_ipv4s(&server).await;
+    // The TrustTunnel sidecar must dial exactly the addresses that bypass the
+    // tunnel, otherwise its own traffic would loop back into Xray's TUN. Both
+    // lists therefore come from one resolution.
+    let trusttunnel_pins = match &server.protocol {
+        nimbo_subscription::Protocol::TrustTunnel(config) => {
+            let pins = trusttunnel_pinned_addresses(config).await;
+            if pins.is_empty() {
+                return Err(
+                    "Для TrustTunnel в режиме TUN нужен доступный IPv4-адрес сервера".into(),
+                );
+            }
+            Some(pins)
+        }
+        _ => None,
+    };
+    let bypass_ips = match &trusttunnel_pins {
+        Some(pins) => {
+            let mut ips: Vec<String> = Vec::new();
+            for pin in pins {
+                if let Some((ip, _)) = pin.rsplit_once(':') {
+                    if !ips.iter().any(|known| known == ip) {
+                        ips.push(ip.to_string());
+                    }
+                }
+            }
+            ips
+        }
+        None => resolve_server_ipv4s(&server).await,
+    };
     let is_awg = matches!(&server.protocol, nimbo_subscription::Protocol::Awg(_));
     if is_awg {
         let ip = bypass_ips.first().and_then(|value| value.parse::<Ipv4Addr>().ok())
@@ -6468,6 +6800,8 @@ async fn connect_tun(
             .map_err(|_| "Не удалось сохранить снимок маршрута AWG")?;
     }
     let (server, awg) = crate::awg_runtime::prepare(app, server)?;
+    let (server, trusttunnel) =
+        crate::trusttunnel_runtime::prepare(app, server, trusttunnel_pins.as_deref())?;
     let (server, mut naive) = prepare_naive_runtime(app, server)?;
     let mut config = match build_runtime_xray_config(&server, snapshot, ports) {
         Ok(value) => value,
@@ -6516,7 +6850,7 @@ async fn connect_tun(
             .unwrap_or(false)
             || !linux_helper_core_matches_pin()
         {
-            if let Err(error) = crate::helper_linux::install_core(&xray_path) {
+            if let Err(error) = crate::helper_linux::install_core(app, &xray_path) {
                 stop_child(&mut naive);
                 return Err(error);
             }
@@ -6524,7 +6858,10 @@ async fn connect_tun(
 
         if !linux_helper_core_matches_pin() {
             stop_child(&mut naive);
-            return Err("The Linux helper kernel does not match verified Xray 26.9.30".into());
+            return Err(format!(
+                "The Linux helper kernel does not match verified Xray {}",
+                crate::xray_release::release().version
+            ));
         }
         let config = match std::fs::read_to_string(&config_path) {
             Ok(config) => config,
@@ -6549,9 +6886,12 @@ async fn connect_tun(
         };
         state.runtime(|runtime| {
             runtime.ping_route = ping_route;
+            runtime.ping_config_identity = ping_config_identity;
+            runtime.ad_blocking_active = snapshot.preferences.ad_blocking_enabled;
             runtime.tun_session = Some(session);
             runtime.naive = naive.take();
             runtime.awg = awg;
+            runtime.trusttunnel = trusttunnel;
             runtime.awg_route = awg_route;
             runtime.tun_snapshot = Some(TunRuntimeSnapshot {
                 awg_bypass_routes: Vec::new(),
@@ -6573,7 +6913,7 @@ async fn connect_tun(
                 return Err(error);
             }
         };
-        if let Err(error) = wait_for_xray_port(&mut xray, ports.socks) {
+        if let Err(error) = wait_for_xray_port(&mut xray, ports.socks, XRAY_TUN_PORT_TIMEOUT) {
             let _ = xray.kill();
             let _ = xray.wait();
             stop_child(&mut naive);
@@ -6619,9 +6959,12 @@ async fn connect_tun(
 
         state.runtime(|runtime| {
             runtime.ping_route = ping_route;
+            runtime.ping_config_identity = ping_config_identity;
+            runtime.ad_blocking_active = snapshot.preferences.ad_blocking_enabled;
             runtime.xray = Some(xray);
             runtime.naive = naive;
             runtime.awg = awg;
+            runtime.trusttunnel = trusttunnel;
             runtime.awg_route = awg_route;
             runtime.tun_snapshot = Some(tun_snapshot);
         });
@@ -6789,7 +7132,38 @@ fn current_default_ipv4_route() -> Option<DefaultIpv4Route> {
 }
 
 async fn resolve_server_ipv4s(server: &Server) -> Vec<String> {
+    if let nimbo_subscription::Protocol::TrustTunnel(config) = &server.protocol {
+        let mut ips = Vec::new();
+        for (host, port) in crate::trusttunnel_runtime::dial_endpoints(config) {
+            for ip in resolve_host_ipv4s(host, port).await {
+                if !ips.contains(&ip) {
+                    ips.push(ip);
+                }
+            }
+        }
+        return ips;
+    }
     let (host, port) = server_endpoint(server);
+    resolve_host_ipv4s(host, port).await
+}
+
+/// IPv4 `ip:port` for every TrustTunnel endpoint, in the link's order.
+async fn trusttunnel_pinned_addresses(
+    config: &nimbo_subscription::TrustTunnelConfig,
+) -> Vec<String> {
+    let mut pins = Vec::new();
+    for (host, port) in crate::trusttunnel_runtime::dial_endpoints(config) {
+        for ip in resolve_host_ipv4s(host, port).await {
+            let pin = format!("{ip}:{port}");
+            if !pins.contains(&pin) {
+                pins.push(pin);
+            }
+        }
+    }
+    pins
+}
+
+async fn resolve_host_ipv4s(host: String, port: u16) -> Vec<String> {
     if let Ok(IpAddr::V4(ip)) = host.parse::<IpAddr>() {
         return vec![ip.to_string()];
     }
@@ -6960,6 +7334,8 @@ fn build_runtime_xray_config(
             .ok_or("Нет proxy outbound в конфигурации AWG")?;
         *proxy = serde_json::to_value(outbound).map_err(|_| "Не удалось настроить AWG outbound")?;
     }
+    nimbo_xray_config::ad_blocking::apply(&mut config, snapshot.preferences.ad_blocking_enabled)
+        .map_err(str::to_string)?;
     Ok(config)
 }
 
@@ -7152,10 +7528,7 @@ fn diagnostic_template_for<'a>(
     snapshot: &'a PersistedState,
     server: &Server,
 ) -> Option<&'a serde_json::Value> {
-    if matches!(
-        server.protocol,
-        nimbo_subscription::Protocol::Awg(_) | nimbo_subscription::Protocol::Naive(_)
-    ) {
+    if is_sidecar_protocol(&server.protocol) {
         return None;
     }
     let owner = snapshot
@@ -7188,10 +7561,7 @@ fn diagnostic_transport_template(
 ) -> Option<serde_json::Value> {
     // Sidecars own their remote transport; their prepared local ports do not
     // exist until the isolated runtime starts.
-    if matches!(
-        server.protocol,
-        nimbo_subscription::Protocol::Awg(_) | nimbo_subscription::Protocol::Naive(_)
-    ) {
+    if is_sidecar_protocol(&server.protocol) {
         return None;
     }
     let fragment = effective_probe_fragmentation(snapshot, server);
@@ -7223,6 +7593,17 @@ fn effective_probe_fragmentation(snapshot: &PersistedState, server: &Server) -> 
     tls_fragmentation_config(&snapshot.preferences, provider)
 }
 
+// Used only in memory: neither serialized configuration nor its digest is logged.
+pub(crate) fn diagnostic_identity(snapshot: &PersistedState, server: &Server) -> Option<[u8; 32]> {
+    let bytes = serde_json::to_vec(&(
+        &server.protocol,
+        diagnostic_transport_template(snapshot, server),
+        snapshot.core_profiles.preferred_core,
+    ))
+    .ok()?;
+    Some(Sha256::digest(bytes).into())
+}
+
 fn same_diagnostic_config(a: &PersistedState, b: &PersistedState, server: &Server) -> bool {
     diagnostic_template_for(a, server) == diagnostic_template_for(b, server)
         && effective_probe_fragmentation(a, server) == effective_probe_fragmentation(b, server)
@@ -7234,10 +7615,7 @@ fn prepare_runtime_ping_route(
     config: &mut serde_json::Value,
 ) -> Option<crate::latency::PingRoute> {
     let route = crate::latency::PingRoute::prepare(server, config).ok()?;
-    if matches!(
-        server.protocol,
-        nimbo_subscription::Protocol::Awg(_) | nimbo_subscription::Protocol::Naive(_)
-    ) {
+    if is_sidecar_protocol(&server.protocol) {
         return Some(route);
     }
     // The diagnostic outbound was added after runtime preferences were applied.
@@ -8063,12 +8441,16 @@ fn xray_release_archive_name(os: &str, arch: &str) -> Option<&'static str> {
     crate::xray_release::asset(os, arch).map(|asset| asset.archive.as_str())
 }
 
-fn xray_release_archive_url() -> Option<String> {
-    crate::xray_release::current().ok().map(|asset| asset.url())
+fn xray_release_archive_urls() -> Option<Vec<String>> {
+    crate::xray_release::current()
+        .ok()
+        .map(|asset| asset.urls())
 }
 
+const XRAY_RUNTIME_DATA_FILES: &[&str] = &["geoip.dat", "geosite.dat"];
+
 async fn download_xray_runtime() -> Result<PathBuf, String> {
-    let archive_url = xray_release_archive_url().ok_or_else(|| {
+    let archive_urls = xray_release_archive_urls().ok_or_else(|| {
         format!(
             "Автоматическая загрузка xray-core не поддерживается для {} {}. Укажите NIMBO_XRAY_PATH.",
             std::env::consts::OS,
@@ -8078,15 +8460,48 @@ async fn download_xray_runtime() -> Result<PathBuf, String> {
     let bin_dir = xray_versioned_bin_dir()?;
     std::fs::create_dir_all(&bin_dir).map_err(|e| format!("Не удалось создать папку Xray: {e}"))?;
 
-    tracing::info!(%archive_url, "downloading xray");
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(90))
         .user_agent("Nimbo-Xray-Updater")
         .build()
         .map_err(|e| format!("Не удалось создать HTTP-клиент для Xray: {e}"))?;
-    let archive_bytes = download_xray_asset(&client, &archive_url).await?;
-    crate::xray_release::current()?.verify_archive(&archive_bytes)?;
-    install_xray_runtime_archive(&archive_bytes, &bin_dir)
+    let asset = crate::xray_release::current()?;
+    let archive_bytes =
+        download_verified_xray_asset(&client, &archive_urls, |bytes| asset.verify_archive(bytes))
+            .await?;
+    // Geo databases are pinned separately from the core archive.
+    let mut data_files = Vec::new();
+    for name in XRAY_RUNTIME_DATA_FILES {
+        let urls = crate::xray_release::geo_urls(name);
+        let bytes =
+            download_verified_xray_asset(&client, &urls, |bytes| asset.verify_file(name, bytes))
+                .await?;
+        data_files.push((*name, bytes));
+    }
+    install_xray_runtime_archive(&archive_bytes, &data_files, &bin_dir)
+}
+
+/// Tries each source in order (Nimbo mirror first) and keeps the first pinned match.
+async fn download_verified_xray_asset(
+    client: &reqwest::Client,
+    urls: &[String],
+    verify: impl Fn(&[u8]) -> Result<(), String>,
+) -> Result<Vec<u8>, String> {
+    let mut last_error = "Не найден источник для загрузки Xray.".to_string();
+    for url in urls {
+        tracing::info!(%url, "downloading xray");
+        match download_xray_asset(client, url)
+            .await
+            .and_then(|bytes| verify(&bytes).map(|()| bytes))
+        {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) => {
+                tracing::warn!(%url, %error, "xray source rejected");
+                last_error = error;
+            }
+        }
+    }
+    Err(last_error)
 }
 
 async fn download_xray_asset(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
@@ -8123,8 +8538,11 @@ fn verify_xray_archive_digest(bytes: &[u8], digest_file: &str) -> Result<(), Str
     }
 }
 
-fn install_xray_runtime_archive(archive_bytes: &[u8], bin_dir: &Path) -> Result<PathBuf, String> {
-    const XRAY_RUNTIME_DATA_FILES: &[&str] = &["geoip.dat", "geosite.dat"];
+fn install_xray_runtime_archive(
+    archive_bytes: &[u8],
+    data_files: &[(&str, Vec<u8>)],
+    bin_dir: &Path,
+) -> Result<PathBuf, String> {
     let staging_dir = bin_dir.join(format!(".nimbo-xray-{}.partial", uuid::Uuid::new_v4()));
     if staging_dir.exists() {
         std::fs::remove_dir_all(&staging_dir)
@@ -8151,7 +8569,8 @@ fn install_xray_runtime_archive(archive_bytes: &[u8], bin_dir: &Path) -> Result<
             let Some(name) = enclosed_name.file_name().and_then(|name| name.to_str()) else {
                 continue;
             };
-            if name != xray_exe_name() && !XRAY_RUNTIME_DATA_FILES.contains(&name) {
+            // The archive's bundled geo data is ignored in favour of the separate pin.
+            if name != xray_exe_name() {
                 continue;
             }
             let output = staging_dir.join(name);
@@ -8169,6 +8588,11 @@ fn install_xray_runtime_archive(archive_bytes: &[u8], bin_dir: &Path) -> Result<
                 "Архив Xray скачан, но {} внутри не найден.",
                 xray_exe_name()
             ));
+        }
+
+        for (name, bytes) in data_files {
+            std::fs::write(staging_dir.join(name), bytes)
+                .map_err(|e| format!("Не удалось записать файл Xray {name}: {e}"))?;
         }
 
         let staged_binary = staging_dir.join(xray_exe_name());
@@ -8257,8 +8681,19 @@ fn spawn_xray(xray_path: &Path, config_path: &Path) -> Result<std::process::Chil
     Ok(child)
 }
 
-fn wait_for_xray_port(child: &mut std::process::Child, port: u16) -> Result<(), String> {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+/// Обычный запуск Xray открывает SOCKS почти сразу.
+const XRAY_PORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+/// В TUN Xray сначала создаёт адаптер Wintun и только потом открывает SOCKS.
+/// На Windows 10 первое создание адаптера занимает больше 10 секунд; пока
+/// процесс жив, ждём его, а не обрываем запуск посреди создания устройства.
+const XRAY_TUN_PORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn wait_for_xray_port(
+    child: &mut std::process::Child,
+    port: u16,
+    timeout: std::time::Duration,
+) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + timeout;
     let addr = ("127.0.0.1", port);
     let mut last_error = None;
 
@@ -8308,12 +8743,17 @@ fn recent_xray_log_suffix() -> String {
 
 pub(crate) fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
     let pending = state.snapshot();
-    let (tun_snapshot, proxy_snapshot) = state.runtime(|runtime| {
-        if let Some(mut session) = runtime.mihomo.take() {
-            session.stop_now();
-        }
+    let had_mihomo = state.runtime(|r| r.mihomo.is_some());
+    let (tun_snapshot, proxy_snapshot, mihomo_result) = state.runtime(|runtime| {
+        let mihomo_result = if let Some(mut session) = runtime.mihomo.take() {
+            session.stop_now()
+        } else {
+            Ok(())
+        };
         runtime.ping_route = None;
+        runtime.ping_config_identity = None;
         runtime.traffic_samples.clear();
+        runtime.ad_blocking_active = false;
         // Сессия хелпера закрывается первой: он сам погасит ядро и вернёт
         // маршруты, а Drop отправит TunDown даже если что-то пойдёт не так.
         #[cfg(target_os = "linux")]
@@ -8329,6 +8769,7 @@ pub(crate) fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
             let _ = child.wait();
         }
         drop(runtime.awg.take());
+        drop(runtime.trusttunnel.take());
         drop(runtime.awg_route.take());
         if let Some(mut child) = runtime.naive.take() {
             let _ = child.kill();
@@ -8337,6 +8778,7 @@ pub(crate) fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
         (
             runtime.tun_snapshot.take(),
             runtime.system_proxy_snapshot.take(),
+            mihomo_result,
         )
     });
     let proxy_owned = pending
@@ -8364,11 +8806,25 @@ pub(crate) fn stop_runtime(state: &State<'_, AppState>) -> Result<(), String> {
     };
     tun_result?;
     proxy_result?;
+    if let Err(error) = mihomo_result {
+        // A removed/dead owner is not a protected VPN. Do not leave the UI
+        // connected and do not admit a replacement after failed cleanup.
+        state
+            .mutate(|s| {
+                s.connected = false;
+                s.connected_at = None;
+            })
+            .map_err(|_| "STATE_WRITE_FAILED")?;
+        return Err(error);
+    }
     state
         .mutate(|s| {
             s.pending_tun_snapshot = None;
             s.pending_system_proxy_snapshot = None;
             s.pending_mihomo_proxy_port = None;
+            if had_mihomo {
+                s.pending_mihomo_kill_switch = false;
+            }
             if matches!(
                 s.preferences.latency_protocol.as_str(),
                 "http_get" | "http_head"
@@ -8413,6 +8869,16 @@ pub fn cleanup_runtime_for_exit(app: &AppHandle) {
     cancel_pings();
     CONNECTION_INTENT.fetch_add(1, Ordering::SeqCst);
     let state = app.state::<AppState>();
+    #[cfg(windows)]
+    if state.snapshot().pending_mihomo_kill_switch {
+        // Leave the private WFP journal/pending marker armed through shutdown.
+        // Taking this owner first keeps generic teardown from sending MihomoDown.
+        state.runtime(|runtime| {
+            if let Some(mut session) = runtime.mihomo.take() {
+                session.abandon_now();
+            }
+        });
+    }
     if let Err(error) = stop_runtime(&state) {
         tracing::warn!(?error, "failed to clean runtime during app exit");
     }
@@ -8437,9 +8903,13 @@ pub fn start_resume_monitor(app: AppHandle) {
             let slept = now.duration_since(previous).unwrap_or_default() >= Duration::from_secs(30);
             previous = now;
             crate::mihomo_runtime::reconcile_process_exit(&app).await;
-            let awg_failed = app
-                .state::<AppState>()
-                .runtime(|runtime| runtime.awg.as_mut().is_some_and(|awg| awg.has_exited()));
+            let awg_failed = app.state::<AppState>().runtime(|runtime| {
+                runtime.awg.as_mut().is_some_and(|awg| awg.has_exited())
+                    || runtime
+                        .trusttunnel
+                        .as_mut()
+                        .is_some_and(|tt| tt.has_exited())
+            });
             if slept || awg_failed {
                 reconnect_runtime_after_resume(&app);
             }
@@ -8457,7 +8927,7 @@ impl Drop for ResumeGuard {
 pub fn reconnect_runtime_after_resume(app: &AppHandle) {
     let ticket = CONNECTION_INTENT.load(Ordering::SeqCst);
     let snapshot = app.state::<AppState>().snapshot();
-    if !snapshot.connected {
+    if !snapshot.connected || !crate::on_demand::permits_recovery(&snapshot) {
         return;
     }
     let Some(server_id) = snapshot.active_server_id.clone() else {
@@ -8482,6 +8952,7 @@ pub fn reconnect_runtime_after_resume(app: &AppHandle) {
             let state = app_handle.state::<AppState>();
             let current = state.session_snapshot();
             if !current.connected
+                || !crate::on_demand::permits_recovery(&current)
                 || !crate::recovery_policy::may_recover(
                     ticket,
                     CONNECTION_INTENT.load(Ordering::SeqCst),
@@ -8629,6 +9100,13 @@ fn flush_dns_cache() -> Result<(), String> {
 }
 
 pub(crate) async fn ensure_tun_dependencies(app: &AppHandle) -> Result<TunInstallStatus, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let handle = app.clone();
+        tauri::async_runtime::spawn_blocking(move || crate::helper_linux::ensure_service(&handle))
+            .await
+            .map_err(|e| format!("Не удалось подготовить службу TUN: {e}"))??;
+    }
     let before = tun_status(app)?;
     if before.installed {
         return Ok(before);
@@ -8694,6 +9172,34 @@ pub(crate) fn install_tun_dependencies_for_installer() -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn tun_status(app: &AppHandle) -> Result<TunInstallStatus, String> {
+    let helper = crate::helper_linux::helper_status(app);
+    let installed = helper["installed"].as_bool().unwrap_or(false)
+        && helper["running"].as_bool().unwrap_or(false);
+    let can_install = helper["exe_present"].as_bool().unwrap_or(false);
+    Ok(TunInstallStatus {
+        installed,
+        can_install,
+        needs_admin_restart: false,
+        tun2socks_path: None,
+        wintun_path: None,
+        missing: if installed {
+            vec![]
+        } else {
+            vec!["nimbo-helper.service".into()]
+        },
+        message: if installed {
+            "Служба TUN готова.".into()
+        } else if can_install {
+            "Настройте службу TUN: система запросит подтверждение установки.".into()
+        } else {
+            "Компонент TUN отсутствует. Переустановите пакет Nimbo.".into()
+        },
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
 fn tun_status(app: &AppHandle) -> Result<TunInstallStatus, String> {
     let tun2socks_path = find_existing_path(tun2socks_candidate_paths(app)?);
     let wintun_path = find_existing_path(wintun_candidate_paths(app)?);
@@ -9731,7 +10237,9 @@ mod tests {
         let mut snapshot = PersistedState::default();
         snapshot.preferences.tunnel_tls_fragmentation = true;
         let template = diagnostic_transport_template(&snapshot, &server);
-        let (_, config) = crate::diagnostics::isolated_config(&server, template.as_ref()).unwrap();
+        let (_, config) =
+            crate::diagnostics::isolated_config(&server, template.as_ref(), "http://probe.invalid")
+                .unwrap();
         assert_probe_fragment(&config, "100-200", "10-20");
 
         let provider = TlsFragmentConfig {
@@ -9764,7 +10272,9 @@ mod tests {
             .insert(DEFAULT_XRAY_TEMPLATE_KEY.into(), json!({"outbounds":[raw]}));
         let original = snapshot.xray_templates.clone();
         let template = diagnostic_transport_template(&snapshot, &server);
-        let (_, config) = crate::diagnostics::isolated_config(&server, template.as_ref()).unwrap();
+        let (_, config) =
+            crate::diagnostics::isolated_config(&server, template.as_ref(), "http://probe.invalid")
+                .unwrap();
         assert_probe_fragment(&config, "120-240", "15-30");
         assert_eq!(
             config["outbounds"][1]["streamSettings"]["sockopt"]["tcpKeepAliveIdle"],
@@ -9779,7 +10289,9 @@ mod tests {
             .unwrap()
             .enabled = false;
         let template = diagnostic_transport_template(&snapshot, &server);
-        let (_, config) = crate::diagnostics::isolated_config(&server, template.as_ref()).unwrap();
+        let (_, config) =
+            crate::diagnostics::isolated_config(&server, template.as_ref(), "http://probe.invalid")
+                .unwrap();
         assert!(config["outbounds"]
             .as_array()
             .unwrap()
@@ -10593,6 +11105,38 @@ mod tests {
     }
 
     #[test]
+    fn ad_blocking_is_final_runtime_overlay_and_leaves_cached_template_unchanged() {
+        let server = test_server();
+        let mut snapshot = PersistedState::default();
+        snapshot.xray_templates.insert("local".into(), json!({
+            "routing":{"rules":[{"domain":["domain:provider.invalid"], "outboundTag":"direct"}]},
+            "outbounds":[{"tag":"direct","protocol":"freedom"},{"tag":"block","protocol":"blackhole"}]
+        }));
+        let stored = snapshot.xray_templates.clone();
+        assert!(!snapshot.preferences.ad_blocking_enabled);
+        let off = build_runtime_xray_config(&server, &snapshot, ProxyPorts::default()).unwrap();
+        snapshot.preferences.ad_blocking_enabled = true;
+        let on = build_runtime_xray_config(&server, &snapshot, ProxyPorts::default()).unwrap();
+        assert_eq!(snapshot.xray_templates, stored);
+        assert_eq!(
+            on["routing"]["rules"][0]["domain"][0],
+            "domain:doubleclick.net"
+        );
+        assert!(off["routing"]["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["domain"][0] != "domain:doubleclick.net"));
+        assert!(on["routing"]["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["domain"][0] == "domain:provider.invalid"));
+        let migrated: AppPreferences = serde_json::from_value(json!({})).unwrap();
+        assert!(!migrated.ad_blocking_enabled);
+    }
+
+    #[test]
     fn runtime_config_preserves_remnawave_proxy_pool_and_removes_balancer_fallback() {
         let server = Server {
             id: "server-1".into(),
@@ -11080,7 +11624,17 @@ fn clear_windows_kill_switch(_previous: Option<Vec<(String, String)>>) {}
 /// интернета нет — а выключить их изнутри приложения было нечем: единственным
 /// выходом оставалась консоль администратора.
 #[tauri::command]
-pub fn reset_kill_switch(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn reset_kill_switch(state: State<'_, AppState>) -> Result<(), String> {
+    let _operation = CONNECTION_OPERATION.lock().await;
+    #[cfg(windows)]
+    if state.snapshot().pending_mihomo_kill_switch
+        || nimbo_mihomo::helper::capabilities(option_env!("NIMBO_MIHOMO_SHA256").unwrap_or("")).2
+    {
+        nimbo_mihomo::helper::reset_kill_switch().await?;
+        state
+            .mutate(|s| s.pending_mihomo_kill_switch = false)
+            .map_err(|_| "STATE_WRITE_FAILED")?;
+    }
     // Политика, которая была до включения, лежит в снимке незавершённого
     // туннеля — том самом, что остаётся после падения. По нему и возвращаем
     // исходное поведение брандмауэра, а не «как по умолчанию».
@@ -11089,7 +11643,9 @@ pub fn reset_kill_switch(state: State<'_, AppState>) -> Result<(), String> {
         .pending_tun_snapshot
         .map(|snapshot| snapshot.firewall_policy)
         .filter(|policy| !policy.is_empty());
-    clear_windows_kill_switch(previous);
+    if previous.is_some() {
+        clear_windows_kill_switch(previous);
+    }
     state
         .mutate(|value| {
             if let Some(snapshot) = value.pending_tun_snapshot.as_mut() {

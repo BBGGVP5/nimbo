@@ -113,6 +113,7 @@ class MyVpnService : VpnService() {
         const val EXTRA_SERVER_NAIVE_USERNAME = "server_naive_username"
         const val EXTRA_SERVER_NAIVE_PASSWORD = "server_naive_password"
         const val EXTRA_SERVER_NAIVE_TRANSPORT = "server_naive_transport"
+        const val EXTRA_SERVER_TRUSTTUNNEL_LINK = "server_trusttunnel_link"
         const val EXTRA_SERVER_WG_PRIVATE_KEY = "server_wg_private_key"
         const val EXTRA_SERVER_WG_PUBLIC_KEY = "server_wg_public_key"
         const val EXTRA_SERVER_WG_PRESHARED_KEY = "server_wg_preshared_key"
@@ -191,6 +192,7 @@ class MyVpnService : VpnService() {
                 putExtra(EXTRA_SERVER_NAIVE_USERNAME, server.naiveUsername ?: "")
                 putExtra(EXTRA_SERVER_NAIVE_PASSWORD, server.naivePassword ?: "")
                 putExtra(EXTRA_SERVER_NAIVE_TRANSPORT, server.naiveTransport ?: "")
+                putExtra(EXTRA_SERVER_TRUSTTUNNEL_LINK, server.trustTunnelLink ?: "")
                 putExtra(EXTRA_SERVER_WG_PRIVATE_KEY, server.wgPrivateKey ?: "")
                 putExtra(EXTRA_SERVER_WG_PUBLIC_KEY, server.wgPublicKey ?: "")
                 putExtra(EXTRA_SERVER_WG_PRESHARED_KEY, server.wgPresharedKey ?: "")
@@ -290,6 +292,7 @@ class MyVpnService : VpnService() {
     private var autoHealthJob: Job? = null
     @Volatile
     private var autoAvoidCandidateKey: String? = null
+    private var appliedRuntimeMemoryMb: Int? = null
     private var autoConnectedAtMs: Long = 0L
     private var networkDebounceJob: Job? = null
     private var networkHandoffJob: Job? = null
@@ -331,6 +334,7 @@ class MyVpnService : VpnService() {
         Log.d(TAG, "Service created")
 
         preferencesManager = PreferencesManager(this)
+        enforceSoftMemoryLimitIfNeeded()
         preferencesManager.sharedPreferences.registerOnSharedPreferenceChangeListener(liveUpdatePreferencesListener)
         sessionCoreId = if (preferencesManager.vpnConnectionDesired) preferencesManager.activeVpnCore
             else preferencesManager.vpnCore
@@ -838,6 +842,11 @@ class MyVpnService : VpnService() {
                     currentProfileName = finalProfileName
                     connectionStatusOverride = null
                     VpnManager.state.value = VpnState.CONNECTED
+                    VpnManager.activeAdBlockingEnabled.value = when {
+                        VpnCorePolicy.isMihomo(finalServer) -> MihomoManager.activeAdBlockingEnabled
+                        finalServer.usesAwgEngine() -> null
+                        else -> XrayManager.activeAdBlockingEnabled
+                    }
                     // Журнал сессий: с этого момента считаем трафик текущего подключения.
                     TrafficHistory.startSession(finalServer.name)
                     performConnectionSuccessHaptic(
@@ -947,6 +956,8 @@ class MyVpnService : VpnService() {
         connectionTimeoutRunnable = null
         timerJob?.cancel()
         timerJob = null
+
+        VpnManager.clearLiveTelemetry()
 
         val previousJob = connectionJob
         connectionJob = null
@@ -1164,6 +1175,7 @@ class MyVpnService : VpnService() {
         isConnected = false
         isConnecting = false
         VpnManager.state.value = VpnState.DISCONNECTED
+        VpnManager.clearLiveTelemetry()
         VpnManager.connectedServer.value = null
         VpnManager.connectedSeconds.value = 0
         notifyQuickSettingsTiles()
@@ -1176,11 +1188,12 @@ class MyVpnService : VpnService() {
             MihomoManager.prepare(this, server)
             true
         } catch (error: Exception) {
+            val modeFailure = mihomoAdBlockingModeFailure(error, preferencesManager.appLanguage == "en")
             val conflicts = MihomoManager.options(preferencesManager).conflicts()
-            val message = if (conflicts.isNotEmpty())
+            val message = modeFailure?.reason ?: if (conflicts.isNotEmpty())
                 "Mihomo: unsupported settings: ${conflicts.joinToString()}. Disable them explicitly before connecting."
             else "Mihomo Android profile admission failed. Check the original YAML and adapter availability."
-            VpnManager.lastConnectionError.value = ConnectionFailure(message,
+            VpnManager.lastConnectionError.value = modeFailure ?: ConnectionFailure(message,
                 if (preferencesManager.appLanguage == "en") "Settings → VPN core" else "Настройки → Ядро VPN",
                 "MIHOMO_ADMISSION")
             Logger.w(TAG, message)
@@ -1905,8 +1918,8 @@ class MyVpnService : VpnService() {
         }
 
         timerJob = serviceScope.launch {
-            // Existing UID estimate, including core/control-plane traffic. Mihomo exposes
-            // no native traffic counters; these values are not native tunnel accounting.
+            // UID/device counters include control-plane traffic. Only native Mihomo
+            // counters can provide measured per-route bytes and active protocol counts.
             // Device-wide TrafficStats double-counts every byte (once on the tun interface,
             // once on the underlying socket) and folds in other apps' traffic — that's why
             // the speed graph read roughly 2x inflated and "fake". Fall back to device-wide
@@ -1919,6 +1932,18 @@ class MyVpnService : VpnService() {
             fun rxPackets(): Long = if (useUidStats) TrafficStats.getUidRxPackets(myUid) else TrafficStats.getTotalRxPackets()
             fun txPackets(): Long = if (useUidStats) TrafficStats.getUidTxPackets(myUid) else TrafficStats.getTotalTxPackets()
             Log.i(TAG, "Traffic source: ${if (useUidStats) "per-UID ($myUid)" else "device-wide (UID stats unsupported)"}")
+
+            val initialTelemetry = if (currentServer?.let(VpnCorePolicy::isMihomo) == true)
+                MihomoManager.telemetry() else null
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            // Choose once per session so native payload counters and OS socket counters
+            // cannot be mixed. Old bridges fall back without adding another polling loop.
+            val nativeWindow = initialTelemetry?.let { TrafficTelemetryWindow(it.generation) }
+            VpnManager.trafficMeasurementScope.value = when {
+                nativeWindow != null -> TrafficMeasurementScope.MIHOMO
+                useUidStats -> TrafficMeasurementScope.APP_UID
+                else -> TrafficMeasurementScope.DEVICE
+            }
 
             var lastTime = System.currentTimeMillis()
             var lastRxBytes = rxBytes()
@@ -1985,15 +2010,26 @@ class MyVpnService : VpnService() {
                     lastRxPackets = currentRxPackets
                     lastTxPackets = currentTxPackets
 
-                    VpnManager.updateSpeeds(txDelta, rxDelta, timeDelta)
+                    val telemetry = if (nativeWindow != null) MihomoManager.telemetry() else null
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    val nativeDelta = telemetry?.let { nativeWindow?.sample(it) }
+                    VpnManager.nativeTrafficTelemetry.value = telemetry.takeIf { nativeDelta != null }
+                    val uploaded = if (nativeWindow != null) nativeDelta?.upload ?: 0L else txDelta
+                    val downloaded = if (nativeWindow != null) nativeDelta?.download ?: 0L else rxDelta
+                    if (nativeWindow == null || nativeDelta != null) {
+                        VpnManager.updateSpeeds(uploaded, downloaded, timeDelta)
+                    } else {
+                        // Keep session totals, but do not fabricate a zero speed chart sample.
+                        VpnManager.clearLiveSpeeds()
+                    }
                     VpnManager.updatePackets(txPacketDelta, rxPacketDelta)
-                    evaluateTrafficBudgets(txDelta + rxDelta, currentTime)
+                    evaluateTrafficBudgets(uploaded + downloaded, currentTime)
 
                     if (notificationUpdateTick >= NOTIFICATION_UPDATE_INTERVAL_TICKS) {
                         notificationUpdateTick = 0
                         Log.d(
                             TAG,
-                            "Traffic(real) - Up: ${formatBytes(txDelta)}/s, Down: ${formatBytes(rxDelta)}/s"
+                            "Traffic(${VpnManager.trafficMeasurementScope.value}) - Up: ${formatBytes(uploaded)}/tick, Down: ${formatBytes(downloaded)}/tick"
                         )
                         handler.post {
                             startForeground(
@@ -2092,20 +2128,16 @@ class MyVpnService : VpnService() {
     }
 
     private fun enforceSoftMemoryLimitIfNeeded() {
-        if (preferencesManager.memoryLimitDisabled) return
-
-        val limitMb = preferencesManager.memoryLimitMb
-        val usedMb = currentProcessMemoryMb()
-        if (usedMb <= limitMb) return
-
-        Log.w(TAG, "Soft memory limit exceeded: used=${usedMb}MB, limit=${limitMb}MB. Triggering GC.")
-        Runtime.getRuntime().gc()
-        Runtime.getRuntime().runFinalization()
-        val afterGcMb = currentProcessMemoryMb()
-
-        if (afterGcMb > limitMb + 30) {
-            Log.w(TAG, "Memory still high after GC: ${afterGcMb}MB (limit=${limitMb}MB)")
-        }
+        // JVM GC cannot enforce the native Go heap budget. Configure the shared
+        // runtime once/change; Go's pacer handles pressure without a GC timer.
+        val limitMb = if (preferencesManager.memoryLimitDisabled) 96 else preferencesManager.memoryLimitMb
+        if (appliedRuntimeMemoryMb == limitMb) return
+        runCatching {
+            com.danila.nimbo.NebulaGuardApplication.ensureXrayCoreLoaded()
+            val response = org.json.JSONObject(libXray.LibXray.nimboConfigureRuntimeMemory(limitMb.toLong()))
+            check(response.optBoolean("success")) { "Native memory policy rejected" }
+            appliedRuntimeMemoryMb = limitMb
+        }.onFailure { Logger.w(TAG, "Could not apply native memory policy") }
     }
 
     private fun currentProcessMemoryMb(): Long {
@@ -2358,7 +2390,7 @@ class MyVpnService : VpnService() {
                     "Connection retry ${attempt + 1}/$maxAttempts for ${candidate.name}${if (probeMode) " [probe]" else ""}..."
                 )
                 XrayManager.disconnect()
-                NaiveProxyManager.stop()
+                stopSidecars()
                 val retryDelayMs = if (autoBalancerCandidate) {
                     AUTO_BALANCER_RETRY_DELAY_MS
                 } else {
@@ -2387,10 +2419,16 @@ class MyVpnService : VpnService() {
             if (attemptTimeoutMs <= 0L) break
             val connected = withTimeoutOrNull(attemptTimeoutMs) {
                 runCatching {
-                    val runtimeCandidate = if (candidate.isNaiveProxy()) {
-                        NaiveProxyManager.start(this@MyVpnService, candidate)
-                    } else {
-                        candidate
+                    val runtimeCandidate = when {
+                        candidate.isNaiveProxy() -> NaiveProxyManager.start(this@MyVpnService, candidate)
+                        candidate.isTrustTunnel() -> try {
+                            TrustTunnelManager.start(candidate) { fd -> protect(fd) }
+                        } catch (error: IllegalStateException) {
+                            // Surface the endpoint's verdict (wrong password, TLS) to the UI.
+                            XrayManager.recordConnectionFailure(error.message ?: "TrustTunnel")
+                            throw error
+                        }
+                        else -> candidate
                     }
                     XrayManager.connect(
                         context = this@MyVpnService,
@@ -2404,12 +2442,12 @@ class MyVpnService : VpnService() {
                     )
                 }.onFailure {
                     Logger.e(TAG, "Не удалось запустить ${candidate.protocol} для ${candidate.name}", it)
-                    NaiveProxyManager.stop()
+                    stopSidecars()
                 }.getOrDefault(false)
             } ?: run {
                 Logger.w(TAG, "Connection attempt timed out for ${candidate.name}")
                 XrayManager.disconnect()
-                NaiveProxyManager.stop()
+                stopSidecars()
                 false
             }
             if (connected) {
@@ -2427,13 +2465,13 @@ class MyVpnService : VpnService() {
                 }
                 if (verified) return true
                 XrayManager.disconnect()
-                NaiveProxyManager.stop()
+                stopSidecars()
             }
             if (!ConnectionAttemptPolicy.shouldRetry(XrayManager.connectionError, attempt, maxAttempts)) {
                 break
             }
         }
-        if (candidate.isNaiveProxy()) NaiveProxyManager.stop()
+        if (candidate.usesLocalSocksSidecar()) stopSidecars()
         return false
     }
 
@@ -2530,11 +2568,16 @@ class MyVpnService : VpnService() {
         return false
     }
 
+    private fun stopSidecars() {
+        NaiveProxyManager.stop()
+        TrustTunnelManager.stop()
+    }
+
     private fun disconnectCurrentEngine() {
         MihomoManager.disconnect()
         AmneziaWgManager.disconnect()
         XrayManager.disconnect()
-        NaiveProxyManager.stop()
+        stopSidecars()
     }
 
     private suspend fun verifyStartedTunnel(
@@ -3037,7 +3080,7 @@ class MyVpnService : VpnService() {
     private fun shouldUseRemoteTemplateConfig(server: Server): Boolean {
         // NaiveProxy is handled by its own native sidecar; an Xray template cannot
         // replace that process and would silently route the node as another protocol.
-        if (server.isNaiveProxy()) return false
+        if (server.usesLocalSocksSidecar()) return false
         if (server.uuid == "remote") return true
         if (!server.templateUuid.isNullOrBlank() || !server.templateName.isNullOrBlank()) return true
 
@@ -3115,6 +3158,7 @@ class MyVpnService : VpnService() {
             naiveUsername = intent.getStringExtra(EXTRA_SERVER_NAIVE_USERNAME)?.takeIf { it.isNotBlank() },
             naivePassword = intent.getStringExtra(EXTRA_SERVER_NAIVE_PASSWORD)?.takeIf { it.isNotBlank() },
             naiveTransport = intent.getStringExtra(EXTRA_SERVER_NAIVE_TRANSPORT)?.takeIf { it.isNotBlank() },
+            trustTunnelLink = intent.getStringExtra(EXTRA_SERVER_TRUSTTUNNEL_LINK)?.takeIf { it.isNotBlank() },
             wgPrivateKey = intent.getStringExtra(EXTRA_SERVER_WG_PRIVATE_KEY)?.takeIf { it.isNotBlank() },
             wgPublicKey = intent.getStringExtra(EXTRA_SERVER_WG_PUBLIC_KEY)?.takeIf { it.isNotBlank() },
             wgPresharedKey = intent.getStringExtra(EXTRA_SERVER_WG_PRESHARED_KEY)?.takeIf { it.isNotBlank() },

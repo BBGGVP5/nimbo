@@ -8,7 +8,7 @@ enum class NimboScreen(
 ) {
     HOME("home", "Главная", "Главная", "ϟ"),
     PROFILES("profiles", "Профили", "Профили", "◉"),
-    STATS("stats", "Активность", "Активность", "▤"),
+    STATS("stats", "Статистика", "Статистика", "▤"),
     SETTINGS("settings", "Настройки", "Настройки", "⚙"),
 
     /**

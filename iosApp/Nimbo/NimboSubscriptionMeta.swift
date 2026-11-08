@@ -6,7 +6,7 @@ import Foundation
 /// владельца подписки (обычно почта или ник), остаток трафика, срок действия и
 /// адреса поддержки. Набор заголовков совпадает с тем, что читает Android в
 /// `SubscriptionManager`.
-struct NimboSubscriptionMeta: Codable, Equatable {
+struct NimboSubscriptionMeta: Codable, Equatable, Sendable {
     var title: String?
     var supportUrl: String?
     var websiteUrl: String?
@@ -224,17 +224,19 @@ struct NimboSubscriptionMeta: Codable, Equatable {
 enum NimboSubscriptionMetaStore {
     private static let key = "com.nimbo.subscription.meta"
 
-    static var current: NimboSubscriptionMeta {
-        guard let data = UserDefaults.standard.data(forKey: key),
+    static var current: NimboSubscriptionMeta { load() }
+
+    static func load(defaults: UserDefaults = .standard) -> NimboSubscriptionMeta {
+        guard let data = defaults.data(forKey: key),
               let value = try? JSONDecoder().decode(NimboSubscriptionMeta.self, from: data) else {
             return .empty
         }
         return value
     }
 
-    static func save(_ value: NimboSubscriptionMeta) {
+    static func save(_ value: NimboSubscriptionMeta, defaults: UserDefaults = .standard) {
         guard let data = try? JSONEncoder().encode(value) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        defaults.set(data, forKey: key)
     }
 
     static func clear() {

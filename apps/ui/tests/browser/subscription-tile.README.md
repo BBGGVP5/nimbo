@@ -34,3 +34,7 @@ Observed results reported by parent:
 - Final counters: `toggles=7, ping=1, refresh=1, menu=1, server=1, collapsed=false, busy=true`.
 
 Parent closed the temporary tab and stopped Vite session 96858 with Ctrl+C. These results cover this production-component fixture, not native desktop IPC integration or device testing. Android/shared and desktop production files remained unchanged during fixture QA.
+
+## Updated ping action — 2026-10-02
+
+Ping is deliberately enabled while measuring: it now displays Cancel and stops that operation. Busy still disables Refresh. The original disabled-button QA above is historical; rerun step 4 expecting only the Ping counter to increase, never the disclosure counter.

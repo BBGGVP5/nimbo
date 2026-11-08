@@ -15,12 +15,14 @@ import struct
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = "26.9.30"
-COMMIT = "3c694b23290f9849fe52284a345ebd4343bc90cd"
-SOURCE_SHA = "0b9162518c1eb2aadca13f39e63e9c5f7c904c4843ad6bc8f8251f2d1f99c185"
-AAR_SHA = "822653121099b6d6582b385035c09aa97975de5ad88b5d9599ea6e2b2db2b326"
-ARCHIVE_SHA = "0b9162518c1eb2aadca13f39e63e9c5f7c904c4843ad6bc8f8251f2d1f99c185"
-CORE = "v1.260327.1-0.20260930074004-b26a91de4f32"
+VERSION = "26.10.31"
+COMMIT = "7fe8528063e54343af8ba9a37431afc56000de21"
+SOURCE_SHA = "738a99755c184923fcc5aaede114953bef8156f4bf918c1977ab0743739a1bf5"
+AAR_SHA = "8995e2ffbe8fe8153e6741437a2a5ef7de60bba5bcea71638540ac3ed2ed7479"
+ARCHIVE_SHA = "738a99755c184923fcc5aaede114953bef8156f4bf918c1977ab0743739a1bf5"
+CORE = "v1.260327.1-0.20261031132019-a4a3dff5b20c"
+CORE_SUM = "h1:XijTasBJ2fImHZo1GoAgSfHuDqloQGYHEADLy9CgrJ8="
+CORE_MOD_SUM = "h1:/Umx7vpU+A78gOOuKl6ESU6eQJ5EBRhwr5cl7+9/drw="
 AWG = "v3.1.20260828"
 ABIS = {"armeabi-v7a": (1, 40), "arm64-v8a": (2, 183),
         "x86": (1, 3), "x86_64": (2, 62)}
@@ -29,6 +31,14 @@ ABIS = {"armeabi-v7a": (1, 40), "arm64-v8a": (2, 183),
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def notice_digest_matches(data, expected):
+    # Git can normalize text notices/JSON between Windows and Linux checkouts.
+    # Allow only that newline conversion; AAR and ELF hashes remain byte-exact.
+    lf = data.replace(b"\r\n", b"\n")
+    return expected in {hashlib.sha256(value).hexdigest()
+                        for value in (data, lf, lf.replace(b"\n", b"\r\n"))}
 
 
 def elf_segments(data, abi):
@@ -90,9 +100,31 @@ def main():
         metadata = json.loads((ROOT / "app/src/main/assets/third_party/libxray.json").read_text())
         for key, expected in {"version": VERSION, "commit": COMMIT, "aarSha256": AAR_SHA,
                               "archiveSha256": ARCHIVE_SHA, "sourceSha256": SOURCE_SHA,
-                              "goVersion": "1.27.1", "xrayCore": CORE, "apiVersion": 3}.items():
+                              "goVersion": "1.27.3", "xrayCore": CORE, "apiVersion": 3}.items():
             require(metadata.get(key) == expected, f"libxray.json: stale {key}")
         require(metadata["bundled"] == bundled, "Native library hashes/segments differ from metadata")
+        notice_path = ROOT / "app/src/main/assets/third_party/libxray/source-license-manifest.json"
+        require(metadata.get("sourceLicenseManifest") == "libxray/source-license-manifest.json",
+                "Missing merged Android dependency notice inventory")
+        notice_bytes = notice_path.read_bytes()
+        require(notice_digest_matches(notice_bytes, metadata.get("sourceLicenseManifestSHA256")),
+                "Merged Android notice inventory checksum mismatch")
+        inventory = json.loads(notice_bytes)
+        require(inventory.get("aarSHA256") == AAR_SHA, "Notices describe a different AAR")
+        require(bool(inventory.get("modules")), "Empty compiled-module notice inventory")
+        notices = list(inventory.get("notices", []))
+        for module in inventory["modules"]:
+            require(set(module.get("compiledABIs", [])) <= set(ABIS) and bool(module.get("compiledABIs")),
+                    "Notice inventory has invalid compiled ABIs")
+            require(bool(module.get("notices")) or
+                    (module["module"].startswith("nimbo/") and module.get("repositoryOwned") is True),
+                    f"Missing compiled dependency notices: {module['module']}")
+            notices.extend(module.get("notices", []))
+        for notice in notices:
+            path = notice_path.parent / notice["path"]
+            require(path.resolve().is_relative_to(notice_path.parent.resolve()), "Notice path escapes inventory")
+            require(notice_digest_matches(path.read_bytes(), notice["sha256"]),
+                    f"Compiled dependency notice checksum mismatch: {notice['path']}")
         require((ROOT / "app/src/main/assets/third_party/libxray.LICENSE").is_file(), "Missing libXray license")
         gradle = (ROOT / "app/build.gradle.kts").read_text(encoding="utf-8")
         declaration = next((line for line in gradle.splitlines() if '"LIBXRAY_VERSION"' in line), "")
@@ -108,7 +140,7 @@ def main():
     require("defer { CGoFree(responsePointer) }" in swift, "Swift must free every C response")
     script = (ROOT / "scripts/ci/build-libxray-awg-apple.sh").read_text()
     for key, value in {"LIBXRAY_COMMIT": COMMIT, "LIBXRAY_SOURCE_SHA256": SOURCE_SHA,
-                       "GO_VERSION": "go1.27.1", "AWG_VERSION": AWG}.items():
+                       "GO_VERSION": "go1.27.3", "AWG_VERSION": AWG}.items():
         require(f"{key}={value}\n" in script, f"Stale Apple {key}")
     require(f"libxray_version={VERSION}" in script, "Stale Apple kernel version")
     require(script.count("-buildmode=c-archive") == 1 and 'cp "${BRIDGE_DIR}/"*.go' in script,
@@ -120,7 +152,12 @@ def main():
         require(f"//export {symbol}" in diagnostic_exports, f"Missing diagnostic C ABI {symbol}")
         require(symbol in symbol_gate.group(1).split(), f"Apple archive must verify {symbol}")
     lock = (ROOT / "iosApp/GoBridge/go.mod").read_text()
-    for pattern in (r"^go 1\.27\.1$", rf"^\s*github.com/xtls/xray-core {re.escape(CORE)}$",
+    sums = (ROOT / "iosApp/GoBridge/go.sum").read_text(encoding="utf-8").splitlines()
+    require(f"github.com/xtls/xray-core {CORE} {CORE_SUM}" in sums,
+            "Combined Go module source checksum missing")
+    require(f"github.com/xtls/xray-core {CORE}/go.mod {CORE_MOD_SUM}" in sums,
+            "Combined Go module metadata checksum missing")
+    for pattern in (r"^go 1\.27\.3$", rf"^\s*github.com/xtls/xray-core {re.escape(CORE)}$",
                     rf"^\s*github.com/amnezia-vpn/amneziawg-go/v3 {re.escape(AWG)}(?: // indirect)?$",
                     r"^replace nimbo/awgcore => ../../tools/native/awg-core$"):
         require(re.search(pattern, lock, re.M), f"Combined Go module pin missing: {pattern}")

@@ -1,0 +1,188 @@
+--- a/tunnel/statistic/manager.go
++++ b/tunnel/statistic/manager.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"os"
++ "sync"
+ 	"time"
+ 
+ 	"github.com/metacubex/mihomo/common/atomic"
+@@ -20,12 +21,17 @@
+ 		uploadTotal:   atomic.NewInt64(0),
+ 		downloadTotal: atomic.NewInt64(0),
+ 		pid:           int32(os.Getpid()),
++ proxyUpload: atomic.NewInt64(0), proxyDownload: atomic.NewInt64(0),
++ directUpload: atomic.NewInt64(0), directDownload: atomic.NewInt64(0),
+ 	}
+ 
+ 	go DefaultManager.handle()
+ }
+ 
+ type Manager struct {
++ routeMu sync.RWMutex
++ directNames map[string]bool
++ proxyUpload, proxyDownload, directUpload, directDownload atomic.Int64
+ 	connections   xsync.Map[string, Tracker]
+ 	uploadTemp    atomic.Int64
+ 	downloadTemp  atomic.Int64
+@@ -104,6 +110,8 @@
+ }
+ 
+ func (m *Manager) ResetStatistic() {
++ m.proxyUpload.Store(0); m.proxyDownload.Store(0)
++ m.directUpload.Store(0); m.directDownload.Store(0)
+ 	m.uploadTemp.Store(0)
+ 	m.uploadBlip.Store(0)
+ 	m.uploadTotal.Store(0)
+@@ -127,3 +135,24 @@
+ 	Connections   []*TrackerInfo `json:"connections"`
+ 	Memory        uint64         `json:"memory"`
+ }
++
++// Nimbo aggregate route counters. No destination or completed-connection history.
++func (m *Manager) SetDirectNames(names []string) {
++ m.routeMu.Lock(); defer m.routeMu.Unlock()
++ m.directNames = make(map[string]bool, len(names))
++ for _, name := range names { m.directNames[name] = true }
++}
++func (m *Manager) isDirectChain(chain []string) bool {
++ if len(chain) == 0 { return false }
++ m.routeMu.RLock(); defer m.routeMu.RUnlock()
++ return m.directNames[chain[0]]
++}
++func (m *Manager) PushRouteUploaded(direct bool, size int64) {
++ if direct { m.directUpload.Add(size) } else { m.proxyUpload.Add(size) }
++}
++func (m *Manager) PushRouteDownloaded(direct bool, size int64) {
++ if direct { m.directDownload.Add(size) } else { m.proxyDownload.Add(size) }
++}
++func (m *Manager) RouteTotal() (proxyUp, proxyDown, directUp, directDown int64) {
++ return m.proxyUpload.Load(), m.proxyDownload.Load(), m.directUpload.Load(), m.directDownload.Load()
++}
+--- a/tunnel/statistic/tracker.go
++++ b/tunnel/statistic/tracker.go
+@@ -39,6 +39,7 @@
+ 	manager *Manager
+ 
+ 	pushToManager bool `json:"-"`
++ directRoute bool
+ }
+ 
+ func (tt *tcpTracker) ID() string {
+@@ -54,6 +55,7 @@
+ 	download := int64(n)
+ 	if tt.pushToManager {
+ 		tt.manager.PushDownloaded(download)
++ tt.manager.PushRouteDownloaded(tt.directRoute, download)
+ 	}
+ 	tt.DownloadTotal.Add(download)
+ 	return n, err
+@@ -64,6 +66,7 @@
+ 	download := int64(buffer.Len())
+ 	if tt.pushToManager {
+ 		tt.manager.PushDownloaded(download)
++ tt.manager.PushRouteDownloaded(tt.directRoute, download)
+ 	}
+ 	tt.DownloadTotal.Add(download)
+ 	return
+@@ -73,6 +76,7 @@
+ 	return tt.Conn, []N.CountFunc{func(download int64) {
+ 		if tt.pushToManager {
+ 			tt.manager.PushDownloaded(download)
++ tt.manager.PushRouteDownloaded(tt.directRoute, download)
+ 		}
+ 		tt.DownloadTotal.Add(download)
+ 	}}
+@@ -83,6 +87,7 @@
+ 	upload := int64(n)
+ 	if tt.pushToManager {
+ 		tt.manager.PushUploaded(upload)
++ tt.manager.PushRouteUploaded(tt.directRoute, upload)
+ 	}
+ 	tt.UploadTotal.Add(upload)
+ 	return n, err
+@@ -93,6 +98,7 @@
+ 	err = tt.Conn.WriteBuffer(buffer)
+ 	if tt.pushToManager {
+ 		tt.manager.PushUploaded(upload)
++ tt.manager.PushRouteUploaded(tt.directRoute, upload)
+ 	}
+ 	tt.UploadTotal.Add(upload)
+ 	return
+@@ -102,6 +108,7 @@
+ 	return tt.Conn, []N.CountFunc{func(upload int64) {
+ 		if tt.pushToManager {
+ 			tt.manager.PushUploaded(upload)
++ tt.manager.PushRouteUploaded(tt.directRoute, upload)
+ 		}
+ 		tt.UploadTotal.Add(upload)
+ 	}}
+@@ -133,14 +140,17 @@
+ 			DownloadTotal: atomic.NewInt64(downloadTotal),
+ 		},
+ 		pushToManager: pushToManager,
++ directRoute: manager.isDirectChain(conn.Chains()),
+ 	}
+ 
+ 	if pushToManager {
+ 		if uploadTotal > 0 {
+ 			manager.PushUploaded(uploadTotal)
++ manager.PushRouteUploaded(t.directRoute, uploadTotal)
+ 		}
+ 		if downloadTotal > 0 {
+ 			manager.PushDownloaded(downloadTotal)
++ manager.PushRouteDownloaded(t.directRoute, downloadTotal)
+ 		}
+ 	}
+ 
+@@ -159,6 +169,7 @@
+ 	manager *Manager
+ 
+ 	pushToManager bool `json:"-"`
++ directRoute bool
+ }
+ 
+ func (ut *udpTracker) ID() string {
+@@ -174,6 +185,7 @@
+ 	download := int64(n)
+ 	if ut.pushToManager {
+ 		ut.manager.PushDownloaded(download)
++ ut.manager.PushRouteDownloaded(ut.directRoute, download)
+ 	}
+ 	ut.DownloadTotal.Add(download)
+ 	return n, addr, err
+@@ -184,6 +196,7 @@
+ 	download := int64(len(data))
+ 	if ut.pushToManager {
+ 		ut.manager.PushDownloaded(download)
++ ut.manager.PushRouteDownloaded(ut.directRoute, download)
+ 	}
+ 	ut.DownloadTotal.Add(download)
+ 	return
+@@ -194,6 +207,7 @@
+ 	upload := int64(n)
+ 	if ut.pushToManager {
+ 		ut.manager.PushUploaded(upload)
++ ut.manager.PushRouteUploaded(ut.directRoute, upload)
+ 	}
+ 	ut.UploadTotal.Add(upload)
+ 	return n, err
+@@ -225,14 +239,17 @@
+ 			DownloadTotal: atomic.NewInt64(downloadTotal),
+ 		},
+ 		pushToManager: pushToManager,
++ directRoute: manager.isDirectChain(conn.Chains()),
+ 	}
+ 
+ 	if pushToManager {
+ 		if uploadTotal > 0 {
+ 			manager.PushUploaded(uploadTotal)
++ manager.PushRouteUploaded(ut.directRoute, uploadTotal)
+ 		}
+ 		if downloadTotal > 0 {
+ 			manager.PushDownloaded(downloadTotal)
++ manager.PushRouteDownloaded(ut.directRoute, downloadTotal)
+ 		}
+ 	}
+ 

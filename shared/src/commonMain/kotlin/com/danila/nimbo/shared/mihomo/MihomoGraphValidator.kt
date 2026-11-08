@@ -15,13 +15,13 @@ data class MihomoIssue(
 )
 
 /**
- * Bounded preflight against v1.19.31, NOT native configuration validation. Does not resolve
+ * Bounded preflight against v1.19.33, NOT native configuration validation. Does not resolve
  * providers, expand dynamic groups, check protocol options, rules, DNS or dialer-proxy graphs.
  * An empty issue list never establishes that a configuration can run.
  */
 object MihomoGraphValidator {
-    const val upstreamVersion: String = "v1.19.31"
-    const val upstreamCommit: String = "ab405bad5beeeac8b003bb01f60f134f6df54471"
+    const val upstreamVersion: String = "v1.19.33"
+    const val upstreamCommit: String = "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8"
 
     // GLOBAL is intentionally absent: upstream permits an explicitly declared GLOBAL group.
     private val policies = setOf("DIRECT", "REJECT", "REJECT-DROP", "COMPATIBLE", "PASS", "PASS-RULE")

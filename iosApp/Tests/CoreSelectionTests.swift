@@ -11,6 +11,30 @@ enum CoreSelectionTests {
 
     static func main() throws {
         try compatibilityMatrix()
+        for scheme in ["naive", "naive+https", "naive+quic"] {
+            let data = Data("\(scheme)://u:p@example.invalid".utf8)
+            for selected in ["auto", "xray"] {
+                let result = try NimboCoreAdmission.validate(preference: selected, data: data)
+                precondition(result == .naive)
+            }
+            for selected in ["awg", "mihomo"] {
+                try rejected(.incompatible) { try NimboCoreAdmission.validate(preference: selected, data: data) }
+            }
+        }
+        // TrustTunnel is an upstream behind the Xray TUN, like NaiveProxy.
+        let trustTunnel = Data("tt://?AQZ0dC50bGQCCnR0LnRsZDo0NDMFAXUGAXA#Node".utf8)
+        for selected in ["auto", "xray"] {
+            let profile = try NimboCoreAdmission.validate(preference: selected, data: trustTunnel)
+            precondition(profile == .trusttunnel)
+        }
+        for selected in ["awg", "mihomo"] {
+            try rejected(.incompatible) { try NimboCoreAdmission.validate(preference: selected, data: trustTunnel) }
+        }
+        for scheme in ["tuic", "mieru"] {
+            try rejected(.tuicRequiresMihomo) {
+                try NimboCoreAdmission.validate(preference: "auto", data: Data("\(scheme)://id:p@example.invalid".utf8))
+            }
+        }
         try unknownIDsFailClosed()
         try fullDocumentIdentity()
         try malformedAndUnsupportedInputs()
@@ -35,11 +59,7 @@ enum CoreSelectionTests {
         ]
         for (data, declared, engine) in cases {
             for selected in NimboCorePreference.allCases {
-                if selected == .mihomo || engine == .mihomo {
-                    try rejected(.unavailable) {
-                        try NimboCoreAdmission.validate(preference: selected.rawValue, data: data, declaredEngine: declared)
-                    }
-                } else if selected == .auto || selected.rawValue == engine.rawValue {
+                if selected == .auto || selected.rawValue == engine.rawValue {
                     let result = try NimboCoreAdmission.validate(preference: selected.rawValue, data: data, declaredEngine: declared)
                     precondition(result == engine)
                 } else {
@@ -78,11 +98,13 @@ enum CoreSelectionTests {
             try NimboCoreAdmission.validate(preference: "awg", data: wireguardInXray)
         }
         for data in [Data(#"{"coreId":"mihomo","outbounds":[]}"#.utf8),
+                     Data(#"{"coreId":"mihomo","shareLinks":["naive://u:p@host"]}"#.utf8),
+                     Data(#"{"originalYAML":"proxies: []","shareLinks":["naive://u:p@host"]}"#.utf8),
                      Data(#"{"proxies":[],"outbounds":[]}"#.utf8),
                      Data(#"{"originalYAML":"proxies: []","outbounds":[]}"#.utf8)] {
-            try rejected(.unavailable) { try NimboCoreAdmission.validate(preference: "xray", data: data) }
+            try rejected(.incompatible) { try NimboCoreAdmission.validate(preference: "xray", data: data) }
         }
-        try rejected(.unavailable) {
+        try rejected(.incompatible) {
             try NimboCoreAdmission.validate(preference: "xray", data: xray, declaredEngine: "mihomo")
         }
         try rejected(.incompatible) {

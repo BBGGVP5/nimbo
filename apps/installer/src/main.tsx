@@ -448,6 +448,11 @@ function InstallApp() {
   const [phase, setPhase] = React.useState<InstallerPhase>("idle");
   const [error, setError] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<InstallResult | null>(null);
+  const [permissionRecovery, setPermissionRecovery] = React.useState(false);
+  const [repairConsent, setRepairConsent] = React.useState(false);
+  const [repairing, setRepairing] = React.useState(false);
+  const repairInFlight = React.useRef(false);
+  const recoveryHeading = React.useRef<HTMLHeadingElement>(null);
   const versionLabel = probe?.product_version ? `v${probe.product_version}` : "v—";
   const archLabel = probe?.product_arch ?? "Windows";
   const isLinux = probe?.platform === "linux";
@@ -459,6 +464,10 @@ function InstallApp() {
     [...steps].reverse().find((step) => step.state === "done") ??
     steps[0];
   const currentStepIndex = Math.max(0, steps.findIndex((step) => step.id === currentStep.id));
+
+  React.useEffect(() => {
+    if (permissionRecovery) recoveryHeading.current?.focus();
+  }, [permissionRecovery]);
 
   React.useEffect(() => {
     void invoke<InstallerProbe>("probe_installation")
@@ -520,10 +529,43 @@ function InstallApp() {
       setSteps(current => current.map(step => ({ ...step, state: "done" })));
       setPhase("done");
     } catch (err) {
-      setError(formatInstallerError(err));
+      if (!isLinux && String(err).includes("NIMBO_PERMISSIONS_REPAIR_AVAILABLE")) {
+        setPermissionRecovery(true);
+        setRepairConsent(false);
+        setError(null);
+      } else {
+        setError(formatInstallerError(err));
+      }
       setSteps(current => current.map(step => step.state === "running" ? { ...step, state: "failed" } : step));
       setPhase("failed");
     }
+  };
+
+  const repairAndContinue = async () => {
+    if (!repairConsent || repairInFlight.current) return;
+    repairInFlight.current = true;
+    setRepairing(true);
+    setError(null);
+    try {
+      await invoke("repair_install_permissions", { consent: true });
+      setPermissionRecovery(false);
+      await install();
+    } catch (err) {
+      setError(formatInstallerError(err));
+    } finally {
+      setRepairing(false);
+      repairInFlight.current = false;
+    }
+  };
+
+  const cancelPermissionRecovery = () => {
+    if (repairInFlight.current) return;
+    setPermissionRecovery(false);
+    setRepairConsent(false);
+    setError(null);
+    setPhase("idle");
+    setProgress(0);
+    setSteps(stepsTemplate);
   };
 
   const openInstalled = () => {
@@ -547,6 +589,7 @@ function InstallApp() {
   };
 
   const close = () => {
+    if (repairInFlight.current) return;
     void getCurrentWindow().close();
   };
 
@@ -563,34 +606,61 @@ function InstallApp() {
       runningStepLabel="Установка"
       isDone={phase === "done"}
     >
-      <button className="window-close" type="button" onClick={close} aria-label="Закрыть">×</button>
+      <button className="window-close" type="button" onClick={close} disabled={repairing} aria-label="Закрыть">×</button>
 
-      {phase === "done" ? (
-        <div className="done-screen no-window-drag">
-          <div className="done-art" aria-hidden="true">
-            <svg viewBox="0 0 64 64" width="56" height="56">
-              <path
-                d="M20 33 L29 42 L45 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="done-check"
-              />
-            </svg>
+      {permissionRecovery ? (
+        <section className="permission-recovery no-window-drag" aria-labelledby="permission-heading" aria-busy={repairing}>
+          <div className="hero">
+            <h1 className="hero-title" id="permission-heading" ref={recoveryHeading} tabIndex={-1}>Подготовим Windows для Nimbo</h1>
+            <p>Прежняя версия и подписки сохранены. Удалять Nimbo не нужно.</p>
           </div>
-          <h1>Nimbo установлен</h1>
-          <p>
-            Папка установки — <span className="done-path">{result?.install_dir || installDir}</span>.
-          </p>
-          <div className="actions done-actions">
-            <button className="ghost-button close-action-button" type="button" onClick={close}>
-              Закрыть
-            </button>
-            <button className="primary-button success" type="button" onClick={openInstalled}>
-              Открыть Nimbo
-            </button>
+          <div className="permission-summary">
+            <h2>Что мешает установке</h2>
+            <p>У вашей учётной записи есть лишнее разрешение менять защищённые папки на диске с Program Files. Это небезопасно для TUN и Kill Switch.</p>
+            <h2>Что исправит Nimbo</h2>
+            <p>Уберёт только это разрешение на корне диска. Права файлов и подпапок не изменит. Сначала сохранит копию прав в корне диска: <code>Nimbo-permissions-backup-*.sddl</code>.</p>
+            <p>Windows запросит подтверждение администратора. Выберите ту же учётную запись, под которой запущен установщик.</p>
+          </div>
+          <label className="permission-consent">
+            <input type="checkbox" checked={repairConsent} disabled={repairing} onChange={event => setRepairConsent(event.target.checked)} />
+            <span>Разрешаю исправить это разрешение на корне диска.</span>
+          </label>
+          {error && <div className="error-box" role="alert">{error}</div>}
+          {repairing && <p className="permission-status" role="status">Подтвердите запрос Windows. Сохраняем копию прав и проверяем исправление…</p>}
+          <div className="actions">
+            <button className="ghost-button" type="button" onClick={cancelPermissionRecovery} disabled={repairing}>Не сейчас</button>
+            <button className="primary-button" type="button" onClick={repairAndContinue} disabled={!repairConsent || repairing}>{repairing ? "Исправляем…" : "Исправить и продолжить"}</button>
+          </div>
+        </section>
+      ) : phase === "done" ? (
+        <div className="done-screen no-window-drag">
+          <div className="done-content">
+            <div className="done-art" aria-hidden="true">
+              <svg viewBox="0 0 64 64" width="56" height="56">
+                <path
+                  d="M20 33 L29 42 L45 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="done-check"
+                />
+              </svg>
+            </div>
+            <h1>Nimbo установлен</h1>
+            <div className="done-location">
+              <span>Папка установки</span>
+              <span className="done-path">{result?.install_dir || installDir}</span>
+            </div>
+            <div className="actions done-actions">
+              <button className="ghost-button close-action-button" type="button" onClick={close}>
+                Закрыть
+              </button>
+              <button className="primary-button success" type="button" onClick={openInstalled}>
+                Открыть Nimbo
+              </button>
+            </div>
           </div>
         </div>
       ) : (
@@ -632,14 +702,16 @@ function InstallApp() {
               </span>
             </div>
             <div className="path-row-field">
-              <textarea
+              <input
+                className="path-input"
+                type="text"
                 value={installDir}
                 disabled={phase === "installing"}
                 onChange={(event) => setInstallDir(event.target.value.replace(/[\r\n]+/g, ""))}
                 aria-label="Папка установки"
                 spellCheck={false}
-                rows={1}
-                wrap="off"
+                autoComplete="off"
+                title={installDir}
               />
               <button
                 className="folder-button"
@@ -823,34 +895,33 @@ function UninstallApp() {
 
       {phase === "done" ? (
         <div className="done-screen no-window-drag">
-          <div className="done-art" aria-hidden="true">
-            <svg viewBox="0 0 64 64" width="56" height="56">
-              <path
-                d="M20 33 L29 42 L45 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="done-check"
-              />
-            </svg>
-          </div>
-          <h1>Nimbo удалён</h1>
-          <p>
-            {result?.removed_user_data
+          <div className="done-content">
+            <div className="done-art" aria-hidden="true">
+              <svg viewBox="0 0 64 64" width="56" height="56">
+                <path
+                  d="M20 33 L29 42 L45 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="done-check"
+                />
+              </svg>
+            </div>
+            <h1>Nimbo удалён</h1>
+            <p>{result?.removed_user_data
               ? "Папка установки и пользовательские данные удалены."
-              : (
-                <>
-                  Подписки и настройки остались в{" "}
-                  <span className="done-path">{probe?.user_data_dir}</span>.
-                </>
-              )}
-          </p>
-          <div className="actions done-actions">
-            <button className="primary-button success" type="button" onClick={close}>
-              Закрыть
-            </button>
+              : "Подписки и настройки сохранены."}</p>
+            {!result?.removed_user_data && <div className="done-location">
+              <span>Папка пользовательских данных</span>
+              <span className="done-path">{probe?.user_data_dir}</span>
+            </div>}
+            <div className="actions done-actions">
+              <button className="primary-button success" type="button" onClick={close}>
+                Закрыть
+              </button>
+            </div>
           </div>
         </div>
       ) : (
@@ -882,13 +953,15 @@ function UninstallApp() {
               </span>
             </div>
             <div className="path-row-field">
-              <textarea
+              <input
+                className="path-input"
+                type="text"
                 value={probe?.install_dir ?? ""}
                 disabled
                 aria-label="Папка установки"
                 spellCheck={false}
-                rows={1}
-                wrap="off"
+                autoComplete="off"
+                title={probe?.install_dir ?? ""}
               />
             </div>
           </div>

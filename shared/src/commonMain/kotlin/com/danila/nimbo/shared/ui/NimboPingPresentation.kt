@@ -49,6 +49,10 @@ internal fun normalizePingDisplay(value: String): String = when (value) {
 internal fun remainingPingIds(pending: Set<String>, completed: List<String>, running: Boolean): Set<String> =
     if (running) pending - completed.toSet() else emptySet()
 
+/** A new attempt cannot resurrect yesterday's success if cancelled before completion. */
+internal fun invalidatingPingIds(samples: Map<String, Int>, requested: Set<String>): Map<String, Int> =
+    samples.filterKeys { it !in requested }
+
 internal fun pingSignalLevel(value: Int?, running: Boolean): Int = when {
     running || value == null || value < 0 -> 0
     value < 100 -> 4
@@ -77,8 +81,8 @@ internal fun NimboPingBadge(server: NimboServerUi, selected: Boolean = false, qu
     // Missing, failed and pending results remain distinguishable in every display mode.
     if (display == "numeric" || level == 0) {
         if (quiet) BasicText(label.replace(" ms", " мс"), accessible,
-            style = NimboBodyStyle.copy(fontSize = 12.sp))
-        else NimboPill(label, modifier = accessible, selected = selected)
+            style = NimboBodyStyle.copy(fontSize = 11.sp))
+        else NimboPill(label, modifier = accessible, selected = selected, textSize = 11.sp)
         return
     }
     val foreground = if (selected) NimboPalette.Accent else NimboPalette.Text
@@ -106,7 +110,7 @@ internal fun NimboPingBadge(server: NimboServerUi, selected: Boolean = false, qu
                 }
             }
             if (display == "both") {
-                BasicText(label, style = TextStyle(fontFamily = NimboTypography.body, color = foreground, fontSize = 13.sp))
+                BasicText(label, style = TextStyle(fontFamily = NimboTypography.body, color = foreground, fontSize = 12.sp))
             }
         }
     }

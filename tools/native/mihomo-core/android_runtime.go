@@ -604,6 +604,14 @@ func projectAndroidDNS(value any, servers []any) any {
 // Parse using Mihomo's full configuration model. Android IPv6 is a platform
 // choice passed separately from YAML; the YAML is not rewritten or rehashed.
 func nativeParseAndroid(d *inspection, ipv6 bool, physicalDNS ...[]string) (*config.Config, error) {
+	return nativeParseVPN(d, ipv6, true, physicalDNS...)
+}
+
+func nativeParsePacket(d *inspection, ipv6 bool, physicalDNS []string) (*config.Config, error) {
+	return nativeParseVPN(d, ipv6, false, physicalDNS)
+}
+
+func nativeParseVPN(d *inspection, ipv6, processEnabled bool, physicalDNS ...[]string) (*config.Config, error) {
 	oldLogLevel := log.Level()
 	defer log.SetLevel(oldLogLevel)
 	log.SetLevel(log.SILENT)
@@ -647,7 +655,7 @@ func nativeParseAndroid(d *inspection, ipv6 bool, physicalDNS ...[]string) (*con
 	// Nimbo does not ship; make the bundled upstream-compatible data the default.
 	raw.GeodataMode = true
 	raw.FindProcessMode = process.FindProcessStrict
-	if d.root["enable-process"] == false || d.root["find-process-mode"] == "off" {
+	if !processEnabled || d.root["enable-process"] == false || d.root["find-process-mode"] == "off" {
 		raw.FindProcessMode = process.FindProcessOff
 	}
 	// The service owns interfaces; never open source-defined host listeners.

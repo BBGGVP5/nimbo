@@ -16,6 +16,13 @@ use tokio::{
 };
 
 const MAX_PROBES: usize = 3;
+/// Every file a probe may create in its private directory.
+const DIAGNOSTIC_FILES: [&str; 4] = [
+    "xray.json",
+    "naive.json",
+    "trusttunnel.toml",
+    "trusttunnel.log",
+];
 static SLOTS: std::sync::OnceLock<std::sync::Arc<Semaphore>> = std::sync::OnceLock::new();
 fn slots() -> std::sync::Arc<Semaphore> {
     SLOTS
@@ -27,6 +34,7 @@ pub(crate) struct Binaries {
     pub xray: PathBuf,
     pub awg: Option<PathBuf>,
     pub naive: Option<PathBuf>,
+    pub trusttunnel: Option<PathBuf>,
 }
 
 /// Holds the permit until children have been killed AND reaped, including when
@@ -79,7 +87,13 @@ impl Resources {
     }
 
     fn spawn(&mut self, command: &mut Command) -> Result<usize, String> {
-        command.kill_on_drop(true).stderr(Stdio::null());
+        command.stderr(Stdio::null());
+        self.spawn_configured(command)
+    }
+
+    /// Like `spawn`, but keeps the caller's stdout/stderr redirection.
+    fn spawn_configured(&mut self, command: &mut Command) -> Result<usize, String> {
+        command.kill_on_drop(true);
         #[cfg(windows)]
         command.creation_flags(0x08000000);
         let child = command
@@ -107,7 +121,7 @@ impl Resources {
         if let Some(path) = self.directory.take() {
             // Only these files are created by this owner. No recursive deletion
             // and no active runtime paths, shared logs, keys or route snapshots.
-            for name in ["xray.json", "naive.json"] {
+            for name in DIAGNOSTIC_FILES {
                 let _ = std::fs::remove_file(path.join(name));
             }
             let _ = std::fs::remove_dir(path);
@@ -129,7 +143,7 @@ impl Drop for Cleanup {
             let _ = child.start_kill();
         }
         if let Some(path) = self.directory.take() {
-            for name in ["xray.json", "naive.json"] {
+            for name in DIAGNOSTIC_FILES {
                 let _ = std::fs::remove_file(path.join(name));
             }
             let _ = std::fs::remove_dir(path);
@@ -164,6 +178,7 @@ impl Drop for Resources {
 pub(crate) fn isolated_config(
     server: &Server,
     template: Option<&Value>,
+    probe_url: &str,
 ) -> Result<(PingRoute, Value), String> {
     let mut config = json!({
         "log": {"loglevel":"none"}, "inbounds": [],
@@ -173,7 +188,7 @@ pub(crate) fn isolated_config(
     let route = PingRoute::prepare(server, &mut config)?;
     if let Some(template) = template {
         if template.get("outbounds").is_some() {
-            config = crate::diagnostic_template::derive(server, template, &config)?;
+            config = crate::diagnostic_template::derive(server, template, &config, probe_url)?;
         } else {
             for key in ["dns", "policy", "transport"] {
                 if let Some(value) = template.get(key) {
@@ -183,6 +198,28 @@ pub(crate) fn isolated_config(
         }
     }
     Ok((route, config))
+}
+
+/// The SOCKS port opens before the tunnel exists; wait for the client's own
+/// CONNECTED state so the probe measures the endpoint, not a queued dial.
+async fn trusttunnel_ready(resources: &mut Resources, log: &Path) -> Result<(), String> {
+    use crate::trusttunnel_runtime::{link_state, LinkState};
+    loop {
+        let text = std::fs::read(log)
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default();
+        match link_state(&text) {
+            LinkState::Connected => return Ok(()),
+            LinkState::Failed(_) => {
+                return Err("TrustTunnel endpoint rejected the connection".into())
+            }
+            LinkState::Connecting => {}
+        }
+        if !resources.alive() {
+            return Err("Diagnostic runtime exited before readiness".into());
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 async fn ready(resources: &mut Resources, port: u16) -> Result<(), String> {
@@ -315,6 +352,38 @@ async fn prepare_sidecar(
             ready(resources, port).await?;
             config.local_port = Some(port);
         }
+        Protocol::TrustTunnel(config) => {
+            let binary = binaries
+                .trusttunnel
+                .as_ref()
+                .ok_or("Verified TrustTunnel runtime unavailable")?;
+            let socks = crate::trusttunnel_runtime::new_local_socks()
+                .map_err(|_| "Cannot allocate TrustTunnel diagnostic port")?;
+            let directory = resources
+                .directory
+                .clone()
+                .ok_or("Missing diagnostic directory")?;
+            let config_path = directory.join("trusttunnel.toml");
+            let log_path = directory.join("trusttunnel.log");
+            crate::trusttunnel_runtime::write_private(
+                &config_path,
+                &crate::trusttunnel_runtime::render_config(config, &socks, None),
+            )
+            .map_err(|_| "Cannot write TrustTunnel diagnostic config")?;
+            let log = std::fs::File::create(&log_path)
+                .map_err(|_| "Cannot create TrustTunnel diagnostic log")?;
+            let stderr = log
+                .try_clone()
+                .map_err(|_| "Cannot create TrustTunnel diagnostic log")?;
+            let mut command =
+                Command::from(crate::trusttunnel_runtime::command(binary, &config_path));
+            command.stdout(log).stderr(stderr);
+            resources.spawn_configured(&mut command)?;
+            let result = trusttunnel_ready(resources, &log_path).await;
+            let _ = std::fs::remove_file(&config_path);
+            result?;
+            config.local_socks = Some(socks);
+        }
         _ => {}
     }
     Ok(())
@@ -331,7 +400,7 @@ async fn run(
 ) -> Result<u64, String> {
     resources.directory(parent)?;
     prepare_sidecar(resources, &mut server, &binaries).await?;
-    let (route, config) = isolated_config(&server, template.as_ref())?;
+    let (route, config) = isolated_config(&server, template.as_ref(), url)?;
     #[cfg(test)]
     let config = {
         let mut value = config;
@@ -349,11 +418,21 @@ async fn run(
     command.stdout(Stdio::inherit());
     resources.spawn(&mut command)?;
     ready(resources, route.port).await?;
-    let result = measure_http(&route, "nimbo", url, timeout_ms).await;
-    if !resources.alive() {
-        return Err("Diagnostic runtime exited during measurement".into());
+    // A new leastPing instance initially routes to deny until its observer has
+    // a healthy member. Retry the private route, not a participant or host route.
+    // The measure() owner includes all attempts/sleeps in ONE total deadline
+    // and drops this future immediately on cancellation before reaping children.
+    let health_startup = config.get("observatory").is_some();
+    loop {
+        let result = measure_http(&route, "nimbo", url, timeout_ms).await;
+        if !resources.alive() {
+            return Err("Diagnostic runtime exited during measurement".into());
+        }
+        if !health_startup || result.is_ok() {
+            return result;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    result
 }
 
 pub(crate) async fn measure(
@@ -429,8 +508,8 @@ mod tests {
 
     #[test]
     fn isolated_configs_have_distinct_routes_and_no_direct_or_active_state() {
-        let (a, ca) = isolated_config(&server("a", 23451), None).unwrap();
-        let (b, cb) = isolated_config(&server("b", 23452), None).unwrap();
+        let (a, ca) = isolated_config(&server("a", 23451), None, "https://probe.example").unwrap();
+        let (b, cb) = isolated_config(&server("b", 23452), None, "https://probe.example").unwrap();
         assert!(a != b);
         for (config, port) in [(ca, 23451), (cb, 23452)] {
             assert_eq!(config["inbounds"].as_array().unwrap().len(), 1);
@@ -451,7 +530,7 @@ mod tests {
             cfg.stream.security = nimbo_subscription::Security::Tls;
             cfg.stream.sni = Some("vpn.example".into());
         }
-        let (_, config) = isolated_config(&srv, None).unwrap();
+        let (_, config) = isolated_config(&srv, None, "https://probe.example").unwrap();
         let stream = &config["outbounds"][1]["streamSettings"];
         assert_eq!(stream["security"], "tls");
         assert_eq!(stream["tlsSettings"]["serverName"], "vpn.example");
@@ -469,6 +548,7 @@ mod tests {
                 xray: PathBuf::new(),
                 awg: None,
                 naive: None,
+                trusttunnel: None,
             })
         };
         assert!(measure(

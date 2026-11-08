@@ -39,15 +39,16 @@ Mihomo exports. Host tests do not demonstrate Android TUN functionality.
   Native code validates and duplicates it; Android owns the original until stop
   returns. Neither remote JSON nor YAML can choose an FD.
 
-## App integration and capability limits
+## Not yet an app-level feature
 
-Building this bridge alone is not proof of complete Android VPN support. The
-application integration lives under `app/src/main` and `shared/src`; device
-verification is separate from native compilation. The adapter's explicit capability restrictions
+Building this bridge alone does not enable the Android Mihomo selector. The
+VpnService lifecycle, full-document persistence/import/update/backup, group UI,
+statistics, health/recovery, DNS/IPv6 policy and device behavior must also be
+integrated and verified. The native adapter's explicit capability restrictions
 must never be bypassed by silently rewriting a subscription. See
 `../mihomo-core/ANDROID-MILESTONE.md` for its actual admitted network model.
 
-## Historical build verification — 2026-09-24
+## Verified build — 2026-09-24
 
 The frozen merged AAR built successfully for arm64-v8a, armeabi-v7a, x86 and
 x86_64. The verifier confirmed existing public Java API preservation, all five
@@ -56,6 +57,5 @@ bridge exports, pinned Go/core metadata, one Go shared library per ABI, and
 `79861ccc33e78255e5242460740337020609d4fbbe9fd1813e751dbe78839030`.
 Evidence: `artifacts/mihomo-android-native-20260924-064218-ef35750b/aar-verification.json`
 and `aar-build-resumed.log`. Inputs matched the source freeze after compilation.
-At that verification milestone the AAR remained staged: production
-`app/libs/libxray.aar` was not replaced and no device runtime test or installation
-was performed. This records that build only, not the current application status.
+The AAR remains staged: production `app/libs/libxray.aar` was not replaced and
+no device runtime test or installation was performed.

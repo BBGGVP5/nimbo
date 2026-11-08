@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use nimbo_subscription::{
-    Hysteria2Config, NaiveConfig, Protocol, Server, ShadowsocksConfig, TrojanConfig, VlessConfig,
-    VmessConfig,
+    AwgLocalSocks, Hysteria2Config, NaiveConfig, Protocol, Server, ShadowsocksConfig, TrojanConfig,
+    VlessConfig, VmessConfig,
 };
 
 use crate::transport::build_stream_settings;
@@ -25,20 +25,23 @@ pub fn server_to_outbound(server: &Server, tag: &str) -> Outbound {
         Protocol::Shadowsocks(cfg) => shadowsocks_outbound(tag, cfg),
         Protocol::Hysteria2(cfg) => hysteria2_outbound(tag, cfg),
         Protocol::Naive(cfg) => naive_outbound(tag, cfg),
-        Protocol::Awg(cfg) => match cfg
-            .local_socks
-            .as_ref()
-            .filter(|s| s.port != 0 && !s.username.is_empty() && !s.password.is_empty())
-        {
-            Some(socks) => Outbound {
-                tag: tag.into(),
-                protocol: "socks".into(),
-                settings: json!({"servers": [{"address": "127.0.0.1", "port": socks.port,
-                    "users": [{"user": socks.username, "pass": socks.password}]}]}),
-                stream_settings: None,
-            },
-            None => outbound_block(tag),
+        Protocol::Awg(cfg) => local_socks_outbound(tag, cfg.local_socks.as_ref()),
+        // The official TrustTunnel client runs as a loopback SOCKS sidecar.
+        // Without a prepared sidecar the outbound must not leak traffic.
+        Protocol::TrustTunnel(cfg) => local_socks_outbound(tag, cfg.local_socks.as_ref()),
+    }
+}
+
+fn local_socks_outbound(tag: &str, socks: Option<&AwgLocalSocks>) -> Outbound {
+    match socks.filter(|s| s.port != 0 && !s.username.is_empty() && !s.password.is_empty()) {
+        Some(socks) => Outbound {
+            tag: tag.into(),
+            protocol: "socks".into(),
+            settings: json!({"servers": [{"address": "127.0.0.1", "port": socks.port,
+                "users": [{"user": socks.username, "pass": socks.password}]}]}),
+            stream_settings: None,
         },
+        None => outbound_block(tag),
     }
 }
 

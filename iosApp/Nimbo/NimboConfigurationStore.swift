@@ -7,11 +7,31 @@ import Security
 final class NimboConfigurationStore {
     static let shared = NimboConfigurationStore()
 
+    private let fullRecordLock = NSRecursiveLock()
+    // Tiny read-only identity check for MainActor; never acquire the Keychain/
+    // JSON-decoding lock just to reject an obsolete background preparation.
+    private let revisionLock = NSLock()
+    private var currentRevision: UInt64 = 0
+
+    var revision: UInt64 {
+        revisionLock.lock(); defer { revisionLock.unlock() }
+        return currentRevision
+    }
+
+    private func markChanged() {
+        revisionLock.lock(); currentRevision &+= 1; revisionLock.unlock()
+    }
+
     private let service = "com.nimbo.resignable.configuration"
     private let configurationAccount = "active-configuration"
     private let sourceAccount = "active-source"
     private let profileAccount = "normalized-profile-v2"
+    private let selectedServerAccount = "selected-server-id-v1"
     private let fullConfigurationAccount = "full-configuration-v1"
+    private let descriptionAccount = "active-description-v1"
+    // Read-only migration hints from old versions. New writes stay in Keychain:
+    // UserDefaults posts synchronous SwiftUI notifications and must never be
+    // mutated while a record lock is held (UI/store lock-order inversion).
     private let descriptionKey = "nimbo.active.configuration.description"
     private let activeServerIDKey = "nimbo.active.server.id"
 
@@ -20,11 +40,25 @@ final class NimboConfigurationStore {
     /// One SecItem write commits source, identity and desired choices together.
     /// Legacy accounts are retained but cannot override an active full record.
     func saveFullConfiguration(_ configuration: NimboFullConfiguration) throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
         try configuration.validate()
         try write(JSONEncoder().encode(configuration), account: fullConfigurationAccount)
     }
 
+    /// Compare and commit are one critical section, including a live choice write.
+    func saveFullConfiguration(_ configuration: NimboFullConfiguration, expected: NimboFullConfiguration) throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
+        guard try loadFullConfiguration() == expected else {
+            throw NimboFullConfigurationError.staleRefresh
+        }
+        try saveFullConfiguration(configuration)
+    }
+
     func loadFullConfiguration() throws -> NimboFullConfiguration? {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
         guard let data = try read(account: fullConfigurationAccount) else { return nil }
         let configuration = try JSONDecoder().decode(NimboFullConfiguration.self, from: data)
         try configuration.validate()
@@ -32,6 +66,8 @@ final class NimboConfigurationStore {
     }
 
     func save(configuration: Data, source: String?, description: String) throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
         try saveLegacyConfiguration(configuration, source: source, description: description)
         try delete(account: fullConfigurationAccount)
     }
@@ -44,7 +80,7 @@ final class NimboConfigurationStore {
         } else {
             try? delete(account: sourceAccount)
         }
-        UserDefaults.standard.set(description, forKey: descriptionKey)
+        try write(Data(description.utf8), account: descriptionAccount)
     }
 
     func save(
@@ -54,21 +90,25 @@ final class NimboConfigurationStore {
         source: String?,
         description: String
     ) throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
         guard !profile.isEmpty, !selectedServer.isEmpty else { throw NimboConfigurationStoreError.empty }
         try write(profile, account: profileAccount)
         try saveLegacyConfiguration(selectedServer, source: source, description: description)
-        UserDefaults.standard.set(selectedServerID, forKey: activeServerIDKey)
+        try write(Data(selectedServerID.utf8), account: selectedServerAccount)
         // Commit active-engine replacement only after all legacy writes succeed.
         try delete(account: fullConfigurationAccount)
     }
 
     func saveSelection(configuration: Data, serverID: String) throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
         guard try loadFullConfiguration() == nil else {
             throw NimboFullConfigurationError.fullConfigurationActive
         }
         guard !configuration.isEmpty, !serverID.isEmpty else { throw NimboConfigurationStoreError.empty }
         try write(configuration, account: configurationAccount)
-        UserDefaults.standard.set(serverID, forKey: activeServerIDKey)
+        try write(Data(serverID.utf8), account: selectedServerAccount)
     }
 
     func loadConfiguration() throws -> Data? {
@@ -87,21 +127,54 @@ final class NimboConfigurationStore {
     }
 
     var displayDescription: String? {
-        if let full = try? loadFullConfiguration() { return full.title }
-        return UserDefaults.standard.string(forKey: descriptionKey)
+        do {
+            if let full = try loadFullConfiguration() { return full.title }
+            if let data = try read(account: descriptionAccount) {
+                return String(data: data, encoding: .utf8)
+            }
+            guard try read(account: configurationAccount) != nil else { return nil }
+            return UserDefaults.standard.string(forKey: descriptionKey)
+        } catch {
+            // A locked/corrupt Keychain record is not a missing legacy record.
+            return nil
+        }
     }
 
     var activeServerID: String? {
         // Presence, not successful decoding, prevents falling back to an old node.
-        if (try? read(account: fullConfigurationAccount)) != nil { return nil }
-        return UserDefaults.standard.string(forKey: activeServerIDKey)
+        do {
+            guard try read(account: fullConfigurationAccount) == nil else { return nil }
+            if let data = try read(account: selectedServerAccount) {
+                return String(data: data, encoding: .utf8)
+            }
+            guard try read(account: profileAccount) != nil else { return nil }
+            return UserDefaults.standard.string(forKey: activeServerIDKey)
+        } catch {
+            return nil
+        }
+    }
+
+    func retainSelectedServerID(_ id: String) throws {
+        fullRecordLock.lock()
+        defer { fullRecordLock.unlock() }
+        guard !id.isEmpty, try loadFullConfiguration() == nil else { return }
+        try write(Data(id.utf8), account: selectedServerAccount)
     }
 
     func removeAll() throws {
-        try delete(account: configurationAccount)
-        try delete(account: sourceAccount)
-        try delete(account: profileAccount)
-        try delete(account: fullConfigurationAccount)
+        // Finish the Keychain transaction before notifying defaults observers.
+        // The old cached keys are no longer a write target, so a concurrent new
+        // save cannot be overwritten by this migration-hint cleanup.
+        do {
+            fullRecordLock.lock()
+            defer { fullRecordLock.unlock() }
+            try delete(account: configurationAccount)
+            try delete(account: sourceAccount)
+            try delete(account: profileAccount)
+            try delete(account: selectedServerAccount)
+            try delete(account: descriptionAccount)
+            try delete(account: fullConfigurationAccount)
+        }
         UserDefaults.standard.removeObject(forKey: descriptionKey)
         UserDefaults.standard.removeObject(forKey: activeServerIDKey)
     }
@@ -117,7 +190,7 @@ final class NimboConfigurationStore {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
         let status = SecItemUpdate(base as CFDictionary, updates as CFDictionary)
-        if status == errSecSuccess { return }
+        if status == errSecSuccess { markChanged(); return }
         if status != errSecItemNotFound { throw NimboConfigurationStoreError.keychain(status) }
 
         var item = base
@@ -126,6 +199,7 @@ final class NimboConfigurationStore {
         guard addStatus == errSecSuccess else {
             throw NimboConfigurationStoreError.keychain(addStatus)
         }
+        markChanged()
     }
 
     private func read(account: String) throws -> Data? {
@@ -155,6 +229,7 @@ final class NimboConfigurationStore {
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw NimboConfigurationStoreError.keychain(status)
         }
+        if status == errSecSuccess { markChanged() }
     }
 }
 

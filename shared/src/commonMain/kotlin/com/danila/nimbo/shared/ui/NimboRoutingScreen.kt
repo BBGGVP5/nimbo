@@ -9,16 +9,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @Composable
 internal fun NimboRoutingScreen(state: NimboUiState, actions: NimboUiActions) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(top = LocalNimboContentTop.current, bottom = LocalNimboContentBottom.current).nimboScreenPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         NimboSettingsBack("Настройки") { actions.onOpenScreen(NimboScreen.SETTINGS.wireName) }
-        NimboPageHeading("Маршрутизация") {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            BasicText("Маршрутизация", Modifier.weight(1f).semantics { heading() },
+                style = NimboTitleStyle.copy(fontSize = 24.sp, lineHeight = 30.sp))
             NimboSettingsInfo("Маршрутизация", "Изменения применяются при следующем подключении. На iOS доступны правила по доменам и адресам; выбор приложений ограничен системой.")
         }
+        AdBlockingSettingsCard(state, actions)
         SettingsSection("Правила") {
             RoutingDestination("Профили", state.routingProfiles.firstOrNull { it.id == state.routingProfileId }
                 ?.let { "${it.name} · ${it.ruleCount} правил" } ?: "Не выбран") {

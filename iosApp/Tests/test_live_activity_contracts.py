@@ -24,6 +24,11 @@ class LiveActivityContracts(unittest.TestCase):
         source = read("iosApp/LiveActivity/NimboLiveActivityWidget.swift")
         for contract in ["ActivityConfiguration", "DynamicIsland", "compactLeading", "compactTrailing", "minimal", "context.isStale"]:
             self.assertIn(contract, source)
+        self.assertEqual(source.count('Image("NimboCloudSymbol")'), 4)
+        self.assertIn('.minimumScaleFactor(0.8)', source)
+        self.assertIn('compactText(english:', source)
+        self.assertIn('statusSymbol(context.state.phase, stale: context.isStale)', source)
+        self.assertNotIn('Image(systemName: "cloud.fill")', source)
         attributes = read("iosApp/Shared/NimboLiveActivityAttributes.swift")
         for secret in ["serverName", "profileName", "nodeID", "subscriptionURL", "password"]:
             self.assertNotIn(secret, attributes)
@@ -36,10 +41,32 @@ class LiveActivityContracts(unittest.TestCase):
         self.assertNotIn("Timer.scheduledTimer", source)
         vpn = read("iosApp/Nimbo/VpnController.swift")
         self.assertIn("refreshLiveActivity()", vpn)
-        self.assertIn("manager?.connection.status", vpn)
+        self.assertIn("switch observedSystemStatus", vpn)
         root = read("iosApp/Nimbo/RootView.swift")
         self.assertIn("NimboLiveActivitySettingsView()", root)
         self.assertIn(".onChange(of: scenePhase)", root)
+
+    def test_pill_toggle_updates_presentation_without_tunnel_control(self):
+        view = read("iosApp/Nimbo/NimboLiveActivitySettingsView.swift")
+        self.assertIn("@AppStorage(NimboLiveActivityPolicy.preferenceKey)", view)
+        self.assertIn(".onChange(of: enabled) { _ in vpn.refreshLiveActivity() }", view)
+        self.assertIn("Dynamic Island", view)
+        self.assertIn("if enabled {", view)
+        self.assertNotIn("disconnect()", view)
+        self.assertNotIn("connect()", view)
+        controller = read("iosApp/Nimbo/NimboLiveActivityController.swift")
+        self.assertIn("NimboLiveActivityPolicy.shouldEnd(", controller)
+        self.assertNotIn("stopVPNTunnel", controller)
+        builder = read("app/src/main/java/com/danila/nimbo/utils/NotificationManager.kt")
+        self.assertIn("vpnNotificationPresentation(", builder)
+        self.assertIn("setRequestPromotedOngoing(presentation.promoted)", builder)
+        self.assertIn("setShortCriticalText(presentation.shortCriticalText)", builder)
+        service = read("app/src/main/java/com/danila/nimbo/vpn/MyVpnService.kt")
+        self.assertIn("KEY_VPN_LIVE_UPDATE_ENABLED", service)
+        listener = service.split("private val liveUpdatePreferencesListener", 1)[1].split("\n    }", 1)[0]
+        self.assertIn("refreshForegroundNotification()", listener)
+        self.assertNotIn("disconnect", listener)
+        self.assertNotIn("cancel", listener)
 
     def test_ipa_preserves_widget_when_control_widget_removed(self):
         script = read("scripts/ci/build-unsigned-ios.sh")
@@ -61,6 +88,17 @@ def native_tests():
                         "-sdk", sdk, *shared, "iosApp/Nimbo/NimboLiveActivityController.swift"], cwd=ROOT, check=True)
         subprocess.run(["xcrun", "swiftc", "-typecheck", "-parse-as-library", "-target", "arm64-apple-ios16.2",
                         "-sdk", sdk, *shared, "iosApp/LiveActivity/NimboLiveActivityWidget.swift"], cwd=ROOT, check=True)
+        # Compile the actual settings view at the oldest app deployment target.
+        # Only its unrelated design/controller dependencies are stubbed here.
+        stub = pathlib.Path(directory) / "SettingsDependencies.swift"
+        stub.write_text("""import SwiftUI
+@MainActor final class VpnController: ObservableObject { func refreshLiveActivity() {} }
+enum NimboNative { static let secondary = Color.secondary }
+extension View { func nimboCard() -> some View { self } }
+""", encoding="utf-8")
+        subprocess.run(["xcrun", "swiftc", "-typecheck", "-parse-as-library", "-target", "arm64-apple-ios16.0",
+                        "-sdk", sdk, *shared, "iosApp/Nimbo/NimboLiveActivityController.swift",
+                        "iosApp/Nimbo/NimboLiveActivitySettingsView.swift", str(stub)], cwd=ROOT, check=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

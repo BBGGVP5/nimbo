@@ -21,17 +21,23 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCES = [
     "iosApp/Shared/NimboPingPolicy.swift",
     "iosApp/Shared/NimboPingCompletion.swift",
+    "iosApp/Shared/NimboAutoSelectionPolicy.swift",
+    "iosApp/Nimbo/NimboAutoPingCache.swift",
+    "iosApp/Shared/NimboWorkerActivity.swift",
     "iosApp/Shared/NimboHTTPProbe.swift",
     "iosApp/Shared/NimboSOCKSTunnel.swift",
     "iosApp/Shared/NimboRoutingOptions.swift",
+    "iosApp/Shared/NimboAdBlocking.swift",
     "iosApp/Nimbo/NimboICMPProbe.swift",
     "iosApp/Nimbo/NimboActiveRouteProbe.swift",
     "iosApp/Nimbo/NimboPingService.swift",
+    "iosApp/Nimbo/NimboPingNetworkMonitor.swift",
     "iosApp/Nimbo/NimboDiagnosticProbe.swift",
     "iosApp/PacketTunnel/NimboPingRoute.swift",
-    "iosApp/PacketTunnel/XrayConfiguration.swift",
+    "iosApp/Shared/NimboNaiveConfiguration.swift", "iosApp/PacketTunnel/XrayConfiguration.swift",
     "iosApp/Tests/PingConfigurationStubs.swift",
     "iosApp/Tests/PingDiagnosticTests.swift",
+    "iosApp/Tests/AutoStickyConfigurationTests.swift",
     "iosApp/Tests/PingPolicyTests.swift",
 ]
 
@@ -126,7 +132,35 @@ class PingContracts(unittest.TestCase):
             self.assertIn('NimboBeginIosPings(serverIds: ' + ids + ')', s)
         self.assertEqual(s.count('NimboBeginIosPings('), 2)
         self.assertNotIn('serverIds: [], values: [], inProgress: true', s)
-        self.assertEqual(s.count('defer {\n            IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false)'), 2)
+        self.assertEqual(s.count('if pingRunID == runID { IosComposeControllerKt.NimboUpdateIosPings(serverIds: [], values: [], inProgress: false) }'), 2)
+        self.assertIn('pingTask?.cancel()', s)
+        self.assertIn('await previous?.value', s)
+        self.assertIn('guard !Task.isCancelled, pingRunID == runID else { return }', s)
+        shared = read('shared/src/iosMain/kotlin/com/danila/nimbo/shared/ui/IosComposeController.kt')
+        begin = shared.split('fun NimboBeginIosPings(', 1)[1].split('fun NimboUpdateIosPings(', 1)[0]
+        self.assertIn('invalidatingPingIds(iosPings.value, serverIds.toSet())', begin)
+        self.assertIn('persistIosPings()', begin)
+
+    def test_preflight_can_only_publish_failure_and_native_lifetimes_stay_serial(self):
+        service = read('iosApp/Nimbo/NimboPingService.swift')
+        self.assertIn('preflightParallelism = 8', service)
+        self.assertIn('NimboPingPolicy.canPreflight', service)
+        self.assertIn('progress?(id, -1)', service)
+        self.assertIn('rejected.contains(target.id)', service)
+        self.assertIn('for target in targets', service)
+        self.assertIn('private static let queue = DispatchQueue(label:', read('iosApp/Nimbo/NimboDiagnosticProbe.swift'))
+        tests = read('iosApp/Tests/PingDiagnosticTests.swift')
+        self.assertIn('await preflightTests()', tests)
+
+    def test_network_context_cancels_and_discards_stale_successes(self):
+        root = read('iosApp/Nimbo/RootView.swift')
+        self.assertIn('.nimboPingNetworkChanged', root)
+        self.assertIn('IosComposeControllerKt.NimboClearIosPings()', root)
+        monitor = read('iosApp/Nimbo/NimboPingNetworkMonitor.swift')
+        self.assertIn('NWPathMonitor()', monitor)
+        self.assertIn('guard let previous, previous != signature', monitor)
+        shared = read('shared/src/iosMain/kotlin/com/danila/nimbo/shared/ui/IosComposeController.kt')
+        self.assertIn('fun NimboClearIosPings()', shared)
 
     def test_provider_identity_generation_method_and_health(self):
         s = read("iosApp/PacketTunnel/PacketTunnelProvider.swift")
@@ -135,8 +169,8 @@ class PingContracts(unittest.TestCase):
                      'socks: route.socks', '"nimboPing" ? "GET"', 'invalidatePingSamples()']:
             self.assertIn(text, s)
         app = read("iosApp/Nimbo/VpnController.swift")
-        self.assertIn('stagingData(for: server) == data', app)
-        self.assertIn('"pingServerID": verifiedPingServerID(for: data)', app)
+        self.assertIn('NimboStagingPayload.make(for: selected, in: profile) == data', read('iosApp/Nimbo/NimboVpnProfilePreparation.swift'))
+        self.assertIn('"pingServerID": prepared.pingServerID', app)
 
     def test_disconnected_ipc_never_probes_direct(self):
         s = read("iosApp/Nimbo/NimboActiveRouteProbe.swift")
@@ -214,7 +248,7 @@ class PingContracts(unittest.TestCase):
             self.assertNotIn('3.3', read(path))
             self.assertNotIn('displayMilliseconds', read(path))
         staging = read('iosApp/Nimbo/NimboStagingPayload.swift')
-        self.assertIn('NimboPingPolicy.selectionRank(latency)', staging)
+        self.assertIn('NimboAutoPingCache.shared.rankedIndices(', staging)
         self.assertIn('Array(sortedByLatency(candidates).prefix(maximumBalancerNodes))', staging)
         self.assertNotIn('displayMilliseconds', staging)
         self.assertIn('return raw >= 0 ? raw : 200_000', policy)

@@ -27,6 +27,11 @@ import java.util.UUID
 class PreferencesManager(context: Context) {
     val sharedPreferences: SharedPreferences =
         context.applicationContext.getSharedPreferences("nebulaguard_prefs", Context.MODE_PRIVATE)
+    /** Only changes settings navigation; does not reconfigure or restart VPN. */
+    var settingsAdvanced: Boolean
+        get() = sharedPreferences.getBoolean("settings_advanced", false)
+        set(value) { sharedPreferences.edit().putBoolean("settings_advanced", value).apply() }
+
     private val gson = Gson()
     private val profilesFile = File(context.filesDir, "profiles_v3.json")
     private val profilesBackupFile = File(context.filesDir, "profiles_v3.bak.json")
@@ -50,6 +55,10 @@ class PreferencesManager(context: Context) {
         private const val KEY_SUBSCRIPTION_THEME_SPEC = "subscription_theme_spec"
 
         private const val KEY_SHOW_SPEED = "show_speed"
+        private const val KEY_SERVICE_STATUS_ON_HOME = "service_status_on_home"
+
+        /** Общий для всех экземпляров: ключ — сырой JSON, поэтому устаревание невозможно. */
+        @Volatile private var nameOverridesCache: Pair<String, Map<String, String>>? = null
         private const val KEY_SHOW_NOTIFICATION_SPEED = "show_notification_speed"
         private const val KEY_SHOW_NOTIFICATION_CONNECTION_TIME = "show_notification_connection_time"
         internal const val KEY_VPN_LIVE_UPDATE_ENABLED = "vpn_live_update_enabled"
@@ -247,6 +256,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     val hapticFeedbackStrengthState = mutableIntStateOf(sharedPreferences.getInt(KEY_HAPTIC_FEEDBACK_STRENGTH, 1).coerceIn(0, 2))
     val hapticFeedbackStyleState = mutableIntStateOf(sharedPreferences.getInt(KEY_HAPTIC_FEEDBACK_STYLE, 1).coerceIn(0, 5))
     val showSpeedState = mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_SPEED, true))
+    val serviceStatusOnHomeState = mutableStateOf(sharedPreferences.getBoolean(KEY_SERVICE_STATUS_ON_HOME, true))
     val tlsFragmentState = mutableStateOf(sharedPreferences.getBoolean(KEY_TLS_FRAGMENT, false))
     val showSubscriptionLogoState = mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_SUBSCRIPTION_LOGO, true))
     val subscriptionThemeSpecState = mutableStateOf(sharedPreferences.getString(KEY_SUBSCRIPTION_THEME_SPEC, null))
@@ -314,7 +324,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     val pingDisplayModeState = mutableStateOf(PingDisplay.fromId(sharedPreferences.getInt(KEY_PING_DISPLAY_MODE, 0)).id)
     val pingThroughProxyState = mutableStateOf(sharedPreferences.getBoolean(KEY_PING_THROUGH_PROXY, false))
     val autoBypassByNetworkState = mutableStateOf(sharedPreferences.getBoolean(KEY_AUTO_BYPASS_BY_NETWORK, true))
-    val allowServerSwitchWhileConnectedState = mutableStateOf(sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false))
+    val allowServerSwitchWhileConnectedState = mutableStateOf(sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, ServerSwitchPolicy.DEFAULT_ENABLED))
     val connectButtonStyleState = mutableStateOf(sharedPreferences.getInt(KEY_CONNECT_BUTTON_STYLE, 0))
     val connectButtonSizeScaleState = mutableStateOf(sharedPreferences.getFloat(KEY_CONNECT_BUTTON_SIZE_SCALE, 1f))
     val compactConnectButtonState = mutableStateOf(sharedPreferences.getBoolean(KEY_COMPACT_CONNECT_BUTTON, false))
@@ -322,6 +332,11 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     val showProtectedStatusCardState = mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_PROTECTED_STATUS_CARD, true))
     val showConnectionTimeCardState = mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_CONNECTION_TIME_CARD, true))
     val autoRotationEnabledState = mutableStateOf(sharedPreferences.getBoolean(KEY_AUTO_ROTATION_ENABLED, false))
+
+    /** Saved opt-in; effective runtime configuration is rebuilt on the next connection. */
+    var adBlockingEnabled: Boolean
+        get() = AdBlockingPreference.read(sharedPreferences)
+        set(value) = AdBlockingPreference.write(sharedPreferences, value)
 
     var isRoutingEnabled: Boolean
         get() = sharedPreferences.getBoolean(KEY_ROUTING_ENABLED, false)
@@ -573,6 +588,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
             KEY_THEME_MODE -> themeModeState.value = prefs.getInt(KEY_THEME_MODE, 0).coerceIn(0, 2)
             KEY_TEXT_SCALE -> textScaleState.value = prefs.getFloat(KEY_TEXT_SCALE, 1f).coerceIn(0.85f, 1.25f)
             KEY_SHOW_SPEED -> showSpeedState.value = prefs.getBoolean(KEY_SHOW_SPEED, true)
+            KEY_SERVICE_STATUS_ON_HOME -> serviceStatusOnHomeState.value = prefs.getBoolean(KEY_SERVICE_STATUS_ON_HOME, true)
             KEY_IS_CUSTOM_ACCENT -> isCustomAccentState.value = prefs.getBoolean(KEY_IS_CUSTOM_ACCENT, false)
             KEY_CUSTOM_ACCENT_COLOR -> customAccentColorState.value = prefs.getInt(KEY_CUSTOM_ACCENT_COLOR, 0xFF7C5DFA.toInt())
             KEY_GRADIENT_EFFECTS_ENABLED -> gradientEffectsEnabledState.value = prefs.getBoolean(KEY_GRADIENT_EFFECTS_ENABLED, false)
@@ -631,7 +647,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
             KEY_PING_DISPLAY_MODE -> pingDisplayModeState.value = PingDisplay.fromId(prefs.getInt(KEY_PING_DISPLAY_MODE, 0)).id
             KEY_PING_THROUGH_PROXY -> pingThroughProxyState.value = prefs.getBoolean(KEY_PING_THROUGH_PROXY, false)
             KEY_AUTO_BYPASS_BY_NETWORK -> autoBypassByNetworkState.value = true
-            KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED -> allowServerSwitchWhileConnectedState.value = prefs.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false)
+            KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED -> allowServerSwitchWhileConnectedState.value = prefs.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, ServerSwitchPolicy.DEFAULT_ENABLED)
             KEY_CONNECT_BUTTON_STYLE -> connectButtonStyleState.value = prefs.getInt(KEY_CONNECT_BUTTON_STYLE, 0)
             KEY_CONNECT_BUTTON_SIZE_SCALE -> connectButtonSizeScaleState.value = prefs.getFloat(KEY_CONNECT_BUTTON_SIZE_SCALE, 1f)
             KEY_COMPACT_CONNECT_BUTTON -> compactConnectButtonState.value = prefs.getBoolean(KEY_COMPACT_CONNECT_BUTTON, false)
@@ -653,6 +669,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         themeModeState.value = sharedPreferences.getInt(KEY_THEME_MODE, sharedPreferences.getInt("theme_mode_override", 0)).coerceIn(0, 2)
         textScaleState.value = sharedPreferences.getFloat(KEY_TEXT_SCALE, 1f).coerceIn(0.85f, 1.25f)
         showSpeedState.value = sharedPreferences.getBoolean(KEY_SHOW_SPEED, true)
+        serviceStatusOnHomeState.value = sharedPreferences.getBoolean(KEY_SERVICE_STATUS_ON_HOME, true)
         sharedPreferences.registerOnSharedPreferenceChangeListener(preferenceChangeListener)
         memoryMonitoringState.value = sharedPreferences.getBoolean(KEY_MEMORY_MONITORING, false)
         memoryLimitMbState.value = sharedPreferences.getInt(KEY_MEMORY_LIMIT_MB, 160).coerceIn(40, 300)
@@ -706,7 +723,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         pingThroughProxyState.value = sharedPreferences.getBoolean(KEY_PING_THROUGH_PROXY, false)
         subscriptionUserAgent // migrate older Happ, Incy, and custom settings to Nimbo
         autoBypassByNetworkState.value = sharedPreferences.getBoolean(KEY_AUTO_BYPASS_BY_NETWORK, true)
-        allowServerSwitchWhileConnectedState.value = sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false)
+        allowServerSwitchWhileConnectedState.value = sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, ServerSwitchPolicy.DEFAULT_ENABLED)
         connectButtonStyleState.value = sharedPreferences.getInt(KEY_CONNECT_BUTTON_STYLE, 0)
         connectButtonSizeScaleState.value = sharedPreferences.getFloat(KEY_CONNECT_BUTTON_SIZE_SCALE, 1f)
         compactConnectButtonState.value = sharedPreferences.getBoolean(KEY_COMPACT_CONNECT_BUTTON, false)
@@ -1194,6 +1211,13 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
             showSpeedState.value = value
         }
 
+    var serviceStatusOnHome: Boolean
+        get() = sharedPreferences.getBoolean(KEY_SERVICE_STATUS_ON_HOME, true)
+        set(value) {
+            sharedPreferences.edit().putBoolean(KEY_SERVICE_STATUS_ON_HOME, value).apply()
+            serviceStatusOnHomeState.value = value
+        }
+
     var hapticFeedbackEnabled: Boolean
         get() = sharedPreferences.getBoolean(KEY_HAPTIC_FEEDBACK_ENABLED, true)
         set(value) {
@@ -1380,7 +1404,10 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
 
     fun getServerNameOverrides(): Map<String, String> {
         val json = sharedPreferences.getString(KEY_SERVER_NAME_OVERRIDES, null) ?: return emptyMap()
-        return try {
+        // Список серверов спрашивает имя для каждой строки при прокрутке: без кэша
+        // это полный Gson-разбор JSON на каждую появившуюся строку и лаги скролла.
+        nameOverridesCache?.let { (raw, parsed) -> if (raw === json || raw == json) return parsed }
+        val parsed = try {
             val type = object : TypeToken<Map<String, String>>() {}.type
             gson.fromJson<Map<String, String>>(json, type)
                 ?.filterKeys { it.isNotBlank() }
@@ -1391,6 +1418,8 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
             Log.e("PreferencesManager", "Failed to parse server name overrides: ${e.message}")
             emptyMap()
         }
+        nameOverridesCache = json to parsed
+        return parsed
     }
 
     fun getServerDisplayName(serverKey: String): String? {
@@ -1704,7 +1733,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         }
 
     var allowServerSwitchWhileConnected: Boolean
-        get() = sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, false)
+        get() = sharedPreferences.getBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, ServerSwitchPolicy.DEFAULT_ENABLED)
         set(value) {
             sharedPreferences.edit().putBoolean(KEY_ALLOW_SERVER_SWITCH_WHILE_CONNECTED, value).apply()
             allowServerSwitchWhileConnectedState.value = value

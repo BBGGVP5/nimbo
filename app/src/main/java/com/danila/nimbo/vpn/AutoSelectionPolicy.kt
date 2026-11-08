@@ -63,32 +63,54 @@ internal object AutoSelectionPolicy {
         failedChecks >= REQUIRED_FAILED_CHECKS &&
             connectedForMs >= MIN_CONNECTED_BEFORE_FAILOVER_MS
 
-    /** Keep the previously verified route through app restarts/network handoffs.
-     * Recently failed and explicitly rejected routes are tried only as fallbacks. */
+    /** Keep the remembered route unless available evidence is stale or failed.
+     * preferredKey is an explicit stickiness hint, not proof of current-network health.
+     * Without that hint, viable candidates retain the caller's restricted ordering.
+     * Cooldown uses monotonic time; verification timestamps use wall-clock time.
+     * Recently failed and explicitly rejected routes remain available as fallbacks. */
     fun stableOrder(
         ranked: List<Server>,
         preferredKey: String?,
         avoidedKey: String?,
         failedAtMs: Map<String, Long>,
-        nowMs: Long
+        nowMs: Long,
+        verified: Map<String, VerifiedLatency> = VerifiedLatencyStore.entries.value,
+        verificationNowMs: Long = System.currentTimeMillis()
     ): List<Server> = ranked.withIndex().sortedWith(compareBy(
         { entry ->
             val key = candidateKey(entry.value)
             when {
-                key == avoidedKey -> 2
-                ConnectionAttemptPolicy.isCoolingDown(failedAtMs[key], nowMs, false) -> 1
-                else -> 0
+                key == avoidedKey -> 4
+                ConnectionAttemptPolicy.isCoolingDown(failedAtMs[key], nowMs, false) -> 3
+                // Fresh successes and missing history retain the sticky preference.
+                // A stale/failed remembered route must not leapfrog untested ones.
+                else -> (evidenceRank(verified[entry.value.pingMeasurementKey()], verificationNowMs) - 1)
+                    .coerceAtLeast(0)
             }
         },
         { entry -> if (candidateKey(entry.value) == preferredKey) 0 else 1 },
         { entry -> entry.index }
     )).map { it.value }
 
+    /** 0: fresh cached tunnel success; 1: untested; 2: stale; 3: fresh failure.
+     * Freshness is time-only: these observations have no network identity. */
+    private fun evidenceRank(verdict: VerifiedLatency?, nowMs: Long): Int {
+        if (verdict == null) return 1
+        // Check bounds before subtraction: future/invalid timestamps are not fresh.
+        if (verdict.checkedAtMs < 0 || verdict.checkedAtMs > nowMs ||
+            nowMs - verdict.checkedAtMs > VerifiedLatencyStore.FRESH_WINDOW_MS
+        ) return 2
+        return if (verdict.ok && verdict.latencyMs >= 0) 0 else 3
+    }
+
     /**
      * Порядок перебора кандидатов.
      *
-     * Ключевое: узлы, уже проверенные сквозным запросом, идут впереди, а
-     * проверенные и не поднявшиеся — в самый конец. Полагаться на [Server.ping]
+     * Успешные сквозные проверки имеют приоритет внутри одной группы. При
+     * ограничениях непроверенный обход идёт раньше обычного узла с успешной
+     * проверкой: кэш не привязан к сети, успех мог быть получен на другом Wi-Fi.
+     * Устаревшие и неудачные проверки идут после этих кандидатов независимо
+     * от метки обхода. Полагаться на [Server.ping]
      * как на единственный признак нельзя: у обходов с подменным адресом
      * (`google.com:456`) TCP-соединение принимает кто угодно на пути, цифра
      * выходит отличной, а туннель не встаёт — именно поэтому автоподбор раз за
@@ -101,24 +123,23 @@ internal object AutoSelectionPolicy {
         nowMs: Long = System.currentTimeMillis()
     ): List<Server> {
         fun verdict(server: Server): VerifiedLatency? = verified[server.pingMeasurementKey()]
-            ?.takeIf { nowMs - it.checkedAtMs <= VerifiedLatencyStore.FRESH_WINDOW_MS }
+        fun rank(server: Server): Int = evidenceRank(verdict(server), nowMs)
 
-        // 0 — проверен и работает, 1 — не проверялся, 2 — проверен и не поднялся.
-        fun rank(server: Server): Int = when (verdict(server)?.ok) {
-            true -> 0
-            null -> 1
-            false -> 2
-        }
-
-        fun latency(server: Server): Int {
-            verdict(server)?.takeIf { it.ok }?.let { return it.latencyMs }
-            return server.ping?.takeIf { value -> value > 0 } ?: Int.MAX_VALUE
+        fun latency(server: Server): Int = when (rank(server)) {
+            0 -> verdict(server)!!.latencyMs
+            // Raw ping is only a hint among untested routes, never tunnel proof.
+            1 -> server.ping?.takeIf { value -> value > 0 } ?: Int.MAX_VALUE
+            else -> Int.MAX_VALUE
         }
 
         return servers
             .filterNot(::isAutoBalancerServer)
             .distinctBy { it.pingMeasurementKey() }
             .sortedWith(compareBy<Server>(
+                // A cached success may predate a Wi-Fi -> LTE handoff. Keep
+                // untested bypass routes in the same viability bucket so they
+                // cannot be crowded out by unscoped successes before a pool cap.
+                { if (restricted) (rank(it) - 1).coerceAtLeast(0) else rank(it) },
                 { if (restricted && isBypassCandidate(it)) 0 else 1 },
                 { rank(it) },
                 { latency(it) }

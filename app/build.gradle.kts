@@ -37,9 +37,9 @@ android {
         minSdk = 29
         targetSdk = 37
         // Beta 1.3.0 installs over published stable 1.2.0 (17).
-        versionCode = 18
-        versionName = "1.3.0-beta.1"
-        buildConfigField("String", "LIBXRAY_VERSION", "\"26.9.30\"")
+        versionCode = 19
+        versionName = "1.3.0-beta.2"
+        buildConfigField("String", "LIBXRAY_VERSION", "\"26.10.31\"")
 
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -99,6 +99,9 @@ android {
     // в t("ru","en"), а не в values-*.
     androidResources {
         localeFilters += listOf("ru", "en")
+        // Native notice inventories require licenses under .github directories.
+        // Retain those while preserving the other default VCS/editor exclusions.
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"
     }
 
     // Блок информации о зависимостях добавляется в APK для Play Store-аналитики.
@@ -178,6 +181,12 @@ androidComponents {
                 ?: "universal"
             val buildSuffix = if (variant.buildType == "debug") "_debug" else ""
             output.outputFileName.set("Nimbo_v${version}_${abi}${buildSuffix}.apk")
+        }
+        // libxray.aar несёт Go-ядро под четыре ABI, по ~70 МБ каждое. Телефоны —
+        // только ARM, а x86/x86_64 нужны лишь эмулятору, поэтому из release
+        // (в том числе universal APK) их вырезаем; debug остаётся с ними.
+        if (variant.buildType == "release") {
+            variant.packaging.jniLibs.excludes.addAll("lib/x86/**", "lib/x86_64/**")
         }
     }
 }

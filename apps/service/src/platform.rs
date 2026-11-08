@@ -12,6 +12,7 @@ use tracing::{error, info, warn};
 
 mod elevation;
 mod kill;
+mod mihomo_pipe;
 mod pipe;
 
 pub const SERVICE_NAME: &str = "NimboHelper";
@@ -23,10 +24,39 @@ const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
 
 pub fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    let mode = parse_mode(&args);
+    if matches!(mode, Mode::CheckInstallDirectory) {
+        // Read-only means no ProgramData log creation/rotation either.
+        return check_install_directory();
+    }
+    if matches!(mode, Mode::RepairInstallPermissions) {
+        // Explicit action only; no logging, service stop/start or runtime guard.
+        let user = nimbo_ipc::windows::permissions::current_user().map_err(|e| anyhow!(e))?;
+        let original = args.iter().find_map(|a| a.strip_prefix("--repair-user="));
+        if original.is_some_and(|sid| sid != user) {
+            return Err(anyhow!("PERMISSIONS_ACCOUNT_CHANGED"));
+        }
+        if !elevation::is_elevated() {
+            let code = elevation::relaunch_elevated(&format!(
+                "--repair-install-permissions --repair-user={user}"
+            ))?;
+            return if code == 0 {
+                Ok(())
+            } else {
+                Err(anyhow!(
+                    "elevated permission repair exited with code {code}"
+                ))
+            };
+        }
+        if crate::mihomo_windows::expected_hash().is_empty() {
+            return Err(anyhow!("UNSAFE_SERVICE_DIRECTORY"));
+        }
+        nimbo_ipc::windows::permissions::repair(&user).map_err(|e| anyhow!(e))?;
+        return check_install_directory();
+    }
     init_tracing(&args);
     info!(version = VERSION, "nimbo-svc starting");
 
-    let mode = parse_mode(&args);
     let _runtime_guard = match mode {
         Mode::RunForeground | Mode::Service => match acquire_runtime_guard()? {
             Some(guard) => Some(guard),
@@ -35,16 +65,37 @@ pub fn run() -> Result<()> {
                 return Ok(());
             }
         },
-        Mode::Install | Mode::Uninstall | Mode::PreInstall => None,
+        Mode::Install
+        | Mode::Uninstall
+        | Mode::PreInstall
+        | Mode::CheckInstallDirectory
+        | Mode::RepairInstallPermissions => None,
     };
 
     match mode {
+        Mode::CheckInstallDirectory => check_install_directory(),
+        Mode::RepairInstallPermissions => unreachable!("handled before logging"),
         Mode::Install => maybe_elevate_then("--install", install_service),
         Mode::Uninstall => maybe_elevate_then("--uninstall", uninstall_service),
         Mode::PreInstall => maybe_elevate_then("--pre-install", pre_install_stop),
         Mode::RunForeground => run_pipe_loop(Arc::new(AtomicBool::new(false))),
         Mode::Service => run_as_service(),
     }
+}
+
+fn check_install_directory() -> Result<()> {
+    crate::mihomo_windows::InstallPlan::check_directory()
+        .map(|_| ())
+        .map_err(|error| {
+            if error == "UNSAFE_SERVICE_DIRECTORY"
+                && !crate::mihomo_windows::expected_hash().is_empty()
+                && nimbo_ipc::windows::permissions::repair_available()
+            {
+                anyhow!("PERMISSIONS_REPAIR_AVAILABLE")
+            } else {
+                anyhow!(error)
+            }
+        })
 }
 
 fn maybe_elevate_then(action_arg: &str, run: fn() -> Result<()>) -> Result<()> {
@@ -61,11 +112,13 @@ fn maybe_elevate_then(action_arg: &str, run: fn() -> Result<()>) -> Result<()> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum Mode {
     Install,
     Uninstall,
     PreInstall,
+    CheckInstallDirectory,
+    RepairInstallPermissions,
     RunForeground,
     Service,
 }
@@ -73,6 +126,8 @@ enum Mode {
 fn parse_mode(args: &[String]) -> Mode {
     for arg in args.iter().skip(1) {
         match arg.as_str() {
+            "--check-install-directory" => return Mode::CheckInstallDirectory,
+            "--repair-install-permissions" => return Mode::RepairInstallPermissions,
             "--install" | "install" => return Mode::Install,
             "--uninstall" | "uninstall" => return Mode::Uninstall,
             "--pre-install" | "pre-install" => return Mode::PreInstall,
@@ -260,12 +315,22 @@ fn service_entrypoint() -> Result<()> {
 }
 
 fn run_pipe_loop(shutdown: Arc<AtomicBool>) -> Result<()> {
-    pipe::serve(shutdown)
+    let tun_shutdown = shutdown.clone();
+    let tun = std::thread::spawn(move || {
+        if let Err(error) = mihomo_pipe::serve(tun_shutdown) {
+            warn!(%error,"native TUN broker unavailable");
+        }
+    });
+    let result = pipe::serve(shutdown.clone());
+    shutdown.store(true, Ordering::SeqCst);
+    let _ = tun.join();
+    result
 }
 
 // ─── Service install / uninstall ────────────────────────────────────────────
 
 fn install_service() -> Result<()> {
+    let install = crate::mihomo_windows::InstallPlan::prepare().map_err(|e| anyhow!(e))?;
     use windows_service::service::{
         ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceType,
     };
@@ -277,7 +342,28 @@ fn install_service() -> Result<()> {
     )
     .context("open SCM (CONNECT|CREATE_SERVICE) — нужны права администратора")?;
 
-    let exe = std::env::current_exe().context("locate nimbo-svc executable path")?;
+    if let Ok(existing) = manager.open_service(
+        SERVICE_NAME,
+        ServiceAccess::STOP | ServiceAccess::QUERY_STATUS,
+    ) {
+        if existing
+            .query_status()
+            .is_ok_and(|s| s.current_state != windows_service::service::ServiceState::Stopped)
+        {
+            pipe::occupy_accept_briefly_for_stop();
+            existing
+                .stop()
+                .context("stop helper before protected upgrade")?;
+            wait_until_stopped(&existing);
+            if !existing
+                .query_status()
+                .is_ok_and(|s| s.current_state == windows_service::service::ServiceState::Stopped)
+            {
+                return Err(anyhow!("helper did not stop"));
+            }
+        }
+    }
+    let exe = install.apply().map_err(|e| anyhow!(e))?;
 
     let info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
@@ -388,6 +474,7 @@ fn uninstall_service() -> Result<()> {
     ) {
         Ok(svc) => svc,
         Err(err) if is_not_found(&err) => {
+            crate::mihomo_firewall::release_for_uninstall().map_err(|e| anyhow!(e))?;
             println!("nimbo-svc was not installed");
             return Ok(());
         }
@@ -405,6 +492,13 @@ fn uninstall_service() -> Result<()> {
         }
     }
 
+    if !service
+        .query_status()
+        .is_ok_and(|s| s.current_state == ServiceState::Stopped)
+    {
+        return Err(anyhow!("helper did not stop; owned protection retained"));
+    }
+    crate::mihomo_firewall::release_for_uninstall().map_err(|e| anyhow!(e))?;
     service.delete().context("delete service")?;
     println!("nimbo-svc uninstalled");
     Ok(())
@@ -412,7 +506,8 @@ fn uninstall_service() -> Result<()> {
 
 fn wait_until_stopped(service: &windows_service::service::Service) {
     use windows_service::service::ServiceState;
-    for _ in 0..50 {
+    // Native TUN teardown can take up to 30 seconds; do not race it during upgrades.
+    for _ in 0..400 {
         match service.query_status() {
             Ok(status) if status.current_state == ServiceState::Stopped => return,
             Ok(_) => std::thread::sleep(Duration::from_millis(100)),
@@ -475,4 +570,85 @@ fn is_not_found(err: &windows_service::Error) -> bool {
         return io_err.raw_os_error() == Some(1060);
     }
     false
+}
+
+/// Preserve specific causes through the ShellExecute/UAC boundary; the installer
+/// can explain static codes without reading unrelated logs or suppressing errors.
+pub fn failure_exit_code(error: &anyhow::Error) -> i32 {
+    let message = format!("{error:#}");
+    for (reason, code) in [
+        ("UNSAFE_SERVICE_DIRECTORY", 21),
+        ("CORE_UNAVAILABLE", 22),
+        ("CORE_HASH_MISMATCH", 23),
+        ("PERMISSIONS_REPAIR_AVAILABLE", 24),
+        ("PERMISSIONS_REPAIR_FAILED", 25),
+        ("PERMISSIONS_BACKUP_FAILED", 26),
+        ("PERMISSIONS_ACCOUNT_CHANGED", 27),
+        ("PERMISSIONS_ROLLBACK_FAILED", 28),
+        ("PERMISSIONS_ELEVATION_REQUIRED", 29),
+    ] {
+        if message.contains(reason) || message.contains(&format!("exited with code {code}")) {
+            return code;
+        }
+    }
+    if message.contains("UAC отменён") || message.contains("exited with code 1223") {
+        1223
+    } else {
+        1
+    }
+}
+#[cfg(test)]
+mod install_error_tests {
+    #[test]
+    fn install_causes_survive_elevation() {
+        for (cause, code) in [
+            ("UNSAFE_SERVICE_DIRECTORY", 21),
+            ("CORE_UNAVAILABLE", 22),
+            ("CORE_HASH_MISMATCH", 23),
+            ("PERMISSIONS_REPAIR_AVAILABLE", 24),
+            ("PERMISSIONS_REPAIR_FAILED", 25),
+            ("PERMISSIONS_BACKUP_FAILED", 26),
+            ("PERMISSIONS_ACCOUNT_CHANGED", 27),
+            ("PERMISSIONS_ROLLBACK_FAILED", 28),
+            ("PERMISSIONS_ELEVATION_REQUIRED", 29),
+        ] {
+            assert_eq!(super::failure_exit_code(&anyhow::anyhow!(cause)), code);
+            assert_eq!(
+                super::failure_exit_code(&anyhow::anyhow!(
+                    "elevated --install exited with code {code}"
+                )),
+                code
+            );
+        }
+        assert_eq!(
+            super::failure_exit_code(&anyhow::anyhow!("SCM unavailable")),
+            1
+        );
+        assert_eq!(
+            super::failure_exit_code(&anyhow::anyhow!(
+                "elevated permission repair exited with code 1223"
+            )),
+            1223
+        );
+    }
+    #[test]
+    fn permission_recovery_requires_its_own_explicit_mode() {
+        use super::{parse_mode, Mode};
+        assert_eq!(
+            parse_mode(&["svc".into(), "--check-install-directory".into()]),
+            Mode::CheckInstallDirectory
+        );
+        assert_eq!(
+            parse_mode(&["svc".into(), "--install".into()]),
+            Mode::Install
+        );
+        assert_eq!(
+            parse_mode(&["svc".into(), "--repair-install-permissions".into()]),
+            Mode::RepairInstallPermissions
+        );
+        assert_eq!(
+            parse_mode(&["svc".into(), "--repair-user=S-1-5-21-123".into()]),
+            Mode::Service
+        );
+    }
 }

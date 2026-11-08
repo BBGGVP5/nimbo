@@ -8,8 +8,8 @@ import org.junit.Test
 
 class StableReleaseDefaultsTest {
     @Test fun betaVersionUpgradesPublishedStable() {
-        assertEquals("1.3.0-beta.1", BuildConfig.VERSION_NAME)
-        assertEquals(18, BuildConfig.VERSION_CODE)
+        assertEquals("1.3.0-beta.2", BuildConfig.VERSION_NAME)
+        assertEquals(19, BuildConfig.VERSION_CODE)
         assertTrue(UpdatePolicy.isSemanticVersionNewer(BuildConfig.VERSION_NAME, "1.2.0"))
         assertTrue(UpdatePolicy.isSemanticVersionNewer(BuildConfig.VERSION_NAME, "1.2.0-beta.5"))
     }

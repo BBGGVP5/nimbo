@@ -1,0 +1,43 @@
+body[data-ui-style] .core-subscription-control { padding: 4px 0; display: grid; gap: 12px; min-width: 0; }
+body[data-ui-style] .universal-subscription-footer .core-proxy-ping-all { font-size: 12px; font-weight: 500; }
+body[data-ui-style] .core-subscription-control small { font-size: 11px; color: var(--color-text-dim); overflow-wrap: anywhere; }
+body[data-ui-style] .core-proxy-browser { min-width: 0; display: grid; gap: 12px; }
+body[data-ui-style] .core-proxy-navigation { display: flex; min-width: 0; align-items: center; gap: 6px; }
+body[data-ui-style] .core-proxy-tabs { display: flex; position: relative; min-width: 0; flex: 1; gap: 20px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+.core-proxy-tabs::-webkit-scrollbar { display: none; }
+body[data-ui-style] .core-proxy-tab { position: relative; flex: 0 0 auto; min-height: 44px; max-width: 280px; padding: 10px 2px 13px; border: 0; border-radius: 0; background: transparent; font: inherit; font-size: 13px; font-weight: 600; color: var(--color-text-dim); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+body[data-ui-style] .core-proxy-tab[aria-selected="true"] { color: var(--color-text); }
+.core-proxy-tab[aria-selected="true"]::after { content: ""; position: absolute; inset: auto 0 0; height: 3px; border-radius: 3px 3px 0 0; background: currentColor; }
+body[data-ui-style] .core-proxy-category-menu.nimbo-select { width: 44px; min-width: 44px; height: 44px; padding: 12px; border: 0; border-radius: 10px; background: transparent; }
+.core-proxy-category-menu .nimbo-select__value { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+body[data-ui-style] .core-subscription-members { display: grid; grid-template-columns: repeat(auto-fill,minmax(176px,1fr)); gap: 10px; }
+body[data-ui-style] .core-proxy-card { position: relative; min-width: 0; height: 140px; }
+body[data-ui-style] .core-subscription-member { position: relative; display: flex; flex-direction: column; justify-content: space-between; align-items: stretch; gap: 8px; text-align: left; min-width: 0; width: 100%; height: 100%; padding: 12px; border: 1px solid var(--color-border); border-radius: 16px; background: transparent; color: var(--color-text); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background 140ms ease, border-color 140ms ease, transform 100ms ease; }
+.core-proxy-card-name { min-width: 0; line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow-wrap: anywhere; }
+.core-subscription-member[aria-pressed="true"] .core-proxy-card-name { padding-right: 16px; }
+.core-proxy-card-name .country-flag, .core-proxy-card-route .country-flag { display: inline-block; vertical-align: -1px; box-shadow: none; }
+.core-proxy-card-meta { display: grid; min-width: 0; padding-right: 40px; gap: 2px; font-size: 11px; line-height: 1.4; color: var(--color-text-dim); }
+.core-proxy-card-meta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.core-proxy-card-selected { position: absolute; top: 15px; right: 12px; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+body[data-ui-style] .core-proxy-ping-one { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; min-width: 44px; min-height: 44px; padding: 8px; border: 0; border-radius: 10px; background: transparent; color: var(--color-text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 140ms ease, transform 100ms ease; }
+body[data-ui-style] .core-proxy-ping-one { position: absolute; bottom: 5px; right: 5px; width: 44px; height: 44px; }
+body[data-ui-style] .core-proxy-ping-one:disabled { color: var(--color-text-dim); cursor: default; opacity: .65; }
+.core-proxy-ping-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.core-proxy-ping-icon.is-pending, .core-proxy-ping-all[aria-busy="true"] svg { animation: core-ping-pulse 900ms ease-in-out infinite alternate; }
+.core-proxy-card-latency { font-size: 10px; line-height: 1.4; font-weight: 400; font-variant-numeric: tabular-nums; }
+.core-proxy-card-latency[data-state="success"] { color: var(--color-text); }
+body[data-ui-style] .core-proxy-ping-one:focus-visible { outline: 2px solid var(--color-text); outline-offset: -3px; }
+body[data-ui-style] .core-proxy-ping-one:not(:disabled):active { transform: scale(.94); }
+body[data-ui-style] .core-subscription-member[aria-pressed="true"] { border-color: var(--color-text); background: var(--color-card); box-shadow: inset 0 0 0 .5px var(--color-text); }
+body[data-ui-style] .core-subscription-member:disabled { opacity: 1; cursor: default; }
+body[data-ui-style] .core-subscription-member:not(:disabled):active { transform: scale(.98); }
+body[data-ui-style] .core-proxy-tab:focus-visible, body[data-ui-style] .core-subscription-member:focus-visible, .core-proxy-browser [role="tabpanel"]:focus-visible { outline: 2px solid var(--color-text); outline-offset: -3px; }
+@media (hover: hover) { body[data-ui-style] .core-subscription-member:not(:disabled):hover { background: var(--color-card); border-color: var(--color-text-dim); } body[data-ui-style] .core-proxy-ping-one:not(:disabled):hover { background: var(--color-card); } }
+@media (max-width: 600px) {
+  body[data-ui-style] .core-subscription-members { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+  body[data-ui-style] .core-subscription-member { padding: 12px; border-radius: 14px; }
+  body[data-ui-style] .core-proxy-tabs { gap: 16px; }
+  body[data-ui-style] .core-proxy-tab { max-width: 230px; }
+}
+@keyframes core-ping-pulse { from { opacity: .35; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { body[data-ui-style] .core-subscription-member, body[data-ui-style] .core-proxy-ping-one, body[data-ui-style] .core-proxy-ping-all { transition: none; } .core-proxy-ping-icon.is-pending, .core-proxy-ping-all[aria-busy="true"] svg { animation: none; } }

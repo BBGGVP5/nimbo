@@ -1,0 +1,111 @@
+--- a/tun.go
++++ b/tun.go
+@@ -73,4 +73,10 @@
+ 
+ type Options struct {
++	// Trusted desktop service only: do not attach to an existing adapter.
++	NimboWindowsExclusive bool
++	// Nimbo Linux ownership metadata, not packet filtering (fwmark mask is 0).
++	NimboRuleMark                         uint32
++	NimboRecordRules                      func([]byte) error
++	NimboClearRules                       func() error
+ 	Name                                  string
+ 	Inet4Address                          []netip.Prefix
+--- a/tun_linux.go
++++ b/tun_linux.go
+@@ -2,4 +2,5 @@
+ 
+ import (
++	"encoding/json"
+ 	"errors"
+ 	"fmt"
+@@ -934,5 +935,25 @@
+ 
+ func (t *NativeTun) setRules() error {
+-	for i, rule := range t.rules() {
++	rules := t.rules()
++	if t.options.NimboRuleMark != 0 {
++		if t.options.NimboRecordRules == nil || t.options.NimboClearRules == nil {
++			return E.New("missing trusted rule ownership journal")
++		}
++		for _, rule := range rules {
++			if rule.MarkSet || rule.Mask >= 0 {
++				return E.New("owned rule plan already has a packet mark filter")
++			}
++			rule.Mark, rule.MarkSet, rule.Mask = t.options.NimboRuleMark, true, 0
++		}
++		plan, err := json.Marshal(rules)
++		if err != nil {
++			return err
++		}
++		// Durable write-ahead plan before even the first kernel mutation.
++		if err = t.options.NimboRecordRules(plan); err != nil {
++			return err
++		}
++	}
++	for i, rule := range rules {
+ 		err := netlink.RuleAdd(rule)
+ 		if err != nil {
+@@ -964,4 +985,10 @@
+ 
+ func (t *NativeTun) unsetRules() error {
++	if t.options.NimboRuleMark != 0 {
++		if t.options.NimboClearRules == nil {
++			return E.New("missing rule cleanup owner")
++		}
++		return t.options.NimboClearRules()
++	}
+ 	if t.options.FileDescriptor > 0 {
+ 		return nil
+--- a/tun_windows.go
++++ b/tun_windows.go
+@@ -45,5 +45,5 @@
+ 	adapter, err := wintun.CreateAdapter(options.Name, TunnelType, generateGUIDByDeviceName(options.Name))
+ 	if err != nil {
+-		if !errors.Is(err, os.ErrExist) {
++		if options.NimboWindowsExclusive || !errors.Is(err, os.ErrExist) {
+ 			return nil, err
+ 		}
+@@ -58,16 +58,29 @@
+ 		options: options,
+ 	}
++	constructed := false
++	sessionStarted := false
++	defer func() {
++		if !constructed {
++			if nativeTun.fwpmSession != 0 {
++				_ = winsys.FwpmEngineClose0(nativeTun.fwpmSession)
++			}
++			if sessionStarted {
++				nativeTun.session.End()
++			}
++			adapter.Close()
++		}
++	}()
+ 	session, err := adapter.StartSession(0x800000)
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	sessionStarted = true
+ 	nativeTun.session = session
+ 	nativeTun.readWait = session.ReadWaitEvent()
+ 	err = nativeTun.configure()
+ 	if err != nil {
+-		session.End()
+-		adapter.Close()
+ 		return nil, err
+ 	}
++	constructed = true
+ 	return nativeTun, nil
+ }
+@@ -136,7 +149,7 @@
+ 				err = luid.AddRoute(routeRange, gateway6, 0)
+ 			}
+-		}
+-		if err != nil {
+-			return err
++			if err != nil {
++				return err
++			}
+ 		}
+ 		err = windnsapi.FlushResolverCache()

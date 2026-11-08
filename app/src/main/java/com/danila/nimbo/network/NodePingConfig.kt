@@ -13,13 +13,8 @@ internal object NodePingConfig {
 
     fun leastPingCandidates(source: String): Set<String> = runCatching {
         val root = JSONObject(source)
-        val routing = root.getJSONObject("routing")
-        val tag = routing.getJSONArray("rules").getJSONObject(0).optString("balancerTag")
-        val balancers = routing.optJSONArray("balancers") ?: return emptySet()
-        val balancer = (0 until balancers.length()).map { balancers.getJSONObject(it) }.singleOrNull { it.optString("tag") == tag }
-            ?: return emptySet()
-        if (balancer.optJSONObject("strategy")?.optString("type") != "leastPing") return emptySet()
-        selectedTags(root.getJSONArray("outbounds"), balancer.getJSONArray("selector"))
+        XrayProbeRouting.project(root, root.getJSONObject("routing").getJSONArray("rules").getJSONObject(0))
+            ?.leastPingTags.orEmpty()
     }.getOrDefault(emptySet())
 
     private fun selectedTags(outbounds: JSONArray, selector: JSONArray): Set<String> {
@@ -40,15 +35,15 @@ internal object NodePingConfig {
         require((outboundTag != null) != (balancerTag != null))
         val outbounds = original.getJSONArray("outbounds")
         require((0 until outbounds.length()).none { outbounds.getJSONObject(it).optString("tag") == DENY })
-        val routing = JSONObject().put("rules", JSONArray().put(JSONObject(route.toString())))
+        val projection = requireNotNull(XrayProbeRouting.project(original, route))
+        val routing = JSONObject().put("rules", projection.rules)
         original.getJSONObject("routing").opt("domainStrategy")?.let { routing.put("domainStrategy", it) }
-        if (balancerTag != null) {
-            val balancers = original.getJSONObject("routing").getJSONArray("balancers")
-            val selected = (0 until balancers.length()).map { balancers.getJSONObject(it) }
-                .single { it.optString("tag") == balancerTag }
-            val copy = JSONObject(selected.toString())
-            if (copy.optString("fallbackTag").isBlank()) copy.put("fallbackTag", DENY)
-            routing.put("balancers", JSONArray().put(copy))
+        if (projection.balancers.length() > 0) {
+            for (i in 0 until projection.balancers.length()) {
+                val copy = projection.balancers.getJSONObject(i)
+                if (copy.optString("fallbackTag").isBlank()) copy.put("fallbackTag", DENY)
+            }
+            routing.put("balancers", projection.balancers)
         }
         val config = JSONObject().put("log", JSONObject().put("loglevel", "none"))
             .put("outbounds", JSONArray().put(JSONObject().put("tag", DENY).put("protocol", "blackhole")).apply {
@@ -58,12 +53,14 @@ internal object NodePingConfig {
             .put("inbounds", JSONArray().put(JSONObject()
                 .put("tag", LocalProxyConfig.INBOUND_TAG).put("protocol", "http")
                 .put("listen", LocalProxyConfig.HOST).put("port", port)))
-        listOf("dns", "policy").forEach { key ->
+        listOf("dns", "policy", "transport").forEach { key ->
             original.opt(key)?.let { config.put(key, it) }
         }
         // Explicit outbounds have no observer dependency: don't launch every subscription probe.
-        if (balancerTag != null) {
-            val selected = selectedTags(outbounds, routing.getJSONArray("balancers").getJSONObject(0).getJSONArray("selector"))
+        if (projection.balancers.length() > 0) {
+            val selected = (0 until projection.balancers.length()).flatMap {
+                selectedTags(outbounds, projection.balancers.getJSONObject(it).getJSONArray("selector"))
+            }.toSet()
             listOf("observatory", "burstObservatory").forEach { key ->
                 original.optJSONObject(key)?.let { observer ->
                     val copy = JSONObject(observer.toString())
@@ -80,8 +77,10 @@ internal object NodePingConfig {
         if (readinessPort != null) {
             require(readinessPort in 1..65535 && readinessPort != port && leastPingCandidates(source).isNotEmpty())
             require((0 until outbounds.length()).none { outbounds.getJSONObject(it).optString("tag") == READINESS_TAG })
-            val selector = routing.getJSONArray("balancers").getJSONObject(0).getJSONArray("selector")
-            require((0 until selector.length()).none { READINESS_TAG.startsWith(selector.getString(it)) })
+            for (i in 0 until projection.balancers.length()) {
+                val selector = projection.balancers.getJSONObject(i).getJSONArray("selector")
+                require((0 until selector.length()).none { READINESS_TAG.startsWith(selector.getString(it)) })
+            }
             listOf("observatory", "burstObservatory").forEach { key ->
                 config.optJSONObject(key)?.optJSONArray("subjectSelector")?.let { subjects ->
                     require((0 until subjects.length()).none { READINESS_TAG.startsWith(subjects.getString(it)) })

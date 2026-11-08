@@ -5,6 +5,23 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class VpnLiveUpdateTest {
+    @Test fun disabledPillAlwaysKeepsOrdinaryNotificationPresentation() {
+        for (state in VpnPillState.entries) for (english in listOf(false, true)) {
+            for (seconds in listOf(0, 6, 3600)) {
+                val presentation = vpnNotificationPresentation(false, state, seconds, english)
+                assertEquals(false, presentation.promoted)
+                assertNull(presentation.shortCriticalText)
+            }
+        }
+    }
+    @Test fun enabledPillRequestsPromotionEvenAfterTextCollapses() {
+        for (state in VpnPillState.entries) for (english in listOf(false, true)) {
+            val presentation = vpnNotificationPresentation(true, state, 6, english)
+            assertEquals(true, presentation.promoted)
+            assertEquals(vpnPillText(state, 6, english), presentation.shortCriticalText)
+        }
+    }
+
     @Test fun compactVocabularyFitsNativeChipInBothLanguages() {
         for (state in VpnPillState.entries) for (english in listOf(false, true)) {
             val text = vpnPillText(state, 0, english)
@@ -20,8 +37,8 @@ class VpnLiveUpdateTest {
     @Test fun localizedConnectionSettlesWithoutDurationText() {
         assertEquals("Подкл.", vpnPillText(VpnPillState.CONNECTING, 0, false))
         assertEquals("Connect", vpnPillText(VpnPillState.CONNECTING, 0, true))
-        assertEquals("VPN", vpnPillText(VpnPillState.CONNECTED, -1, false))
-        assertEquals("VPN", vpnPillText(VpnPillState.CONNECTED, 5, true))
+        assertEquals("NIMBO", vpnPillText(VpnPillState.CONNECTED, -1, false))
+        assertEquals("NIMBO", vpnPillText(VpnPillState.CONNECTED, 5, true))
         assertNull(vpnPillText(VpnPillState.CONNECTED, 6, false))
     }
     @Test fun eligibilityDoesNotMistakeLowChannelForMinimized() {
@@ -40,8 +57,8 @@ class VpnLiveUpdateTest {
         assertEquals("…", vpnLiveUpdateText(false, 0, false))
     }
     @Test fun justConnectedShowsBriefStatusThenOnlyTheCloud() {
-        assertEquals("VPN", vpnLiveUpdateText(true, 0, false))
-        assertEquals("VPN", vpnLiveUpdateText(true, 5, false))
+        assertEquals("NIMBO", vpnLiveUpdateText(true, 0, false))
+        assertEquals("NIMBO", vpnLiveUpdateText(true, 5, false))
         assertNull(vpnLiveUpdateText(true, 6, false))
         assertNull(vpnLiveUpdateText(true, 3600, false))
     }

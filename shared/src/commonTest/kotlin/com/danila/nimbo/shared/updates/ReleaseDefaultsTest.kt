@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 
 class ReleaseDefaultsTest {
     @Test fun freshInstallUsesBetaRelease() {
-        assertEquals("1.3.0-beta.1", NimboUiState().appVersion)
+        assertEquals("1.3.0-beta.2", NimboUiState().appVersion)
         assertEquals("beta", NimboUiState().updateChannel)
         assertEquals("beta", ReleaseDefaults.updateChannel(null))
     }

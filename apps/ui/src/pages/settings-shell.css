@@ -1,0 +1,51 @@
+.settings-page .parity-settings-overview { min-width: 0; align-items: start; }
+.settings-page .parity-settings-list { flex: none; }
+/* Top separators disappear with hidden destinations; no line below the last visible row. */
+body[data-ui-style] .settings-page .parity-setting-link::after { content: none; }
+.settings-page .parity-setting-link + .parity-setting-link::before { content: ""; position: absolute; top: 0; left: 58px; right: 12px; height: 1px; background: var(--color-border); pointer-events: none; }
+.settings-page .parity-setting-link:hover::before { opacity: 0; }
+.settings-page .parity-settings-detail { max-width: 760px; margin-top: 16px; }
+body[data-ui-style] .settings-page .parity-settings-detail .settings-row { padding: 14px 12px; gap: 16px; }
+body[data-ui-style] .settings-page .parity-settings-detail .settings-card { padding: 0 8px; }
+body[data-ui-style] .settings-page .parity-settings-detail .settings-row-title { font-size: 13px; }
+.settings-page .core-preference-setting__details { font-size: 12px; color: var(--color-text-dim); }
+.settings-page .core-preference-setting__details summary { min-height: 32px; cursor: pointer; }
+.settings-page .parity-setting-link { min-width: 0; }
+.settings-page .parity-setting-link :is(strong,small) { overflow-wrap: anywhere; }
+.settings-page .parity-setting-link small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.settings-page .settings-row-description { line-height: 1.45; }
+.settings-page .latency-routing-help p { overflow-wrap: anywhere; }
+.settings-page .update-channel-select-wrap { min-width: 0; }
+.settings-page .update-channel-select { max-width: 100%; }
+.settings-page .settings-narrow-destination { display: none; }
+@media (max-width: 959px) {
+  .settings-page .settings-narrow-destination { display: flex; }
+}
+@media (max-width: 480px) {
+  .settings-page .parity-settings-list { padding: 4px; }
+  .settings-page .parity-settings-detail .settings-card { padding-inline: 12px; }
+  .settings-page .parity-radio-list label { min-height: 56px; padding-block: 10px; }
+  .settings-page .settings-row { gap: 10px; }
+}
+
+/* Одна строка инструментов: поиск во всю ширину, режим справа.
+   Подсказка про режим живёт в title группы, а не отдельным абзацем. */
+.settings-discovery { display: flex; align-items: center; gap: 12px; margin: 4px 0 28px; }
+.settings-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.settings-mode { display: flex; flex: none; gap: 2px; padding: 3px; border: 1px solid var(--color-border); border-radius: 14px; max-width: 100%; }
+.settings-mode button { min-height: 40px; padding: 6px 16px; border: 0; border-radius: 11px; background: transparent; color: var(--color-text-dim); font: inherit; font-size: 13px; cursor: pointer; transition: background-color 140ms ease, color 140ms ease; }
+.settings-mode button:hover { color: var(--color-text); }
+.settings-mode button[aria-pressed="true"] { background: var(--color-card); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-border-strong, var(--color-border)); }
+.settings-mode button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.settings-search { position: relative; display: flex; align-items: center; flex: 1; min-width: 0; height: 48px; padding: 0 14px; gap: 10px; border: 1px solid var(--color-border); border-radius: 14px; color: var(--color-text-dim); transition: border-color 140ms ease; }
+.settings-search:focus-within { border-color: var(--color-text-dim); }
+.settings-search > svg { width: 18px; height: 18px; flex: none; }
+.settings-search input { flex: 1; width: 100%; min-width: 0; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent !important; color: var(--color-text); font: inherit; font-size: 14px; }
+.settings-search input::placeholder { color: var(--color-text-dim); }
+@media (max-width: 640px) {
+  .settings-discovery { flex-direction: column; align-items: stretch; }
+  .settings-mode { align-self: flex-start; }
+}
+/* Правый край настроек — по линии шапки, как на главной: старый отступ под
+   скроллбар сдвигал колонки внутрь на ~35px. */
+body[data-ui-style] .settings-page { width: auto; margin: 0; padding-right: 0; scrollbar-gutter: auto; }

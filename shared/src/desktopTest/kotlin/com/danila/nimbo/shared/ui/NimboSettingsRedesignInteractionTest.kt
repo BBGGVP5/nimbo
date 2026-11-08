@@ -53,6 +53,7 @@ class NimboSettingsRedesignInteractionTest {
             onSetAppearance = { key, value ->
                 record("onSetAppearance", key, value)
                 if (key == "themeMode") state.value = state.value.copy(appearance = state.value.appearance.copy(themeMode = value))
+                if (key == "settingsAdvanced") state.value = state.value.copy(settingsAdvanced = value.toBooleanStrict())
             },
             onSetPing = { key, value ->
                 record("onSetPing", key, value)
@@ -84,11 +85,12 @@ class NimboSettingsRedesignInteractionTest {
             onImportSubscription = { record("onImportSubscription", it) }, onImportClipboard = { record("onImportClipboard") },
             onImportFile = { record("onImportFile") }, onScanQr = { record("onScanQr") },
             onExportBackup = { record("onExportBackup") }, onImportBackup = { record("onImportBackup") },
-            onOpenSync = { record("onOpenSync") }
+            onOpenSync = { record("onOpenSync") },
+            onOpenCoreSettings = { record("onOpenCoreSettings") }
         )
         private var frameTime = 0L
-        fun scene(screen: NimboScreen = NimboScreen.SETTINGS, height: Int = 480) = ImageComposeScene(320, height) {
-            NimboAppShell(screen, state.value, actions, showBottomBar = false)
+        fun scene(screen: NimboScreen = NimboScreen.SETTINGS, height: Int = 480, showBottomBar: Boolean = false) = ImageComposeScene(320, height) {
+            NimboAppShell(screen, state.value, actions, showBottomBar = showBottomBar)
         }
         fun ImageComposeScene.settle() {
             // Monotonic time also settles focus-driven scrolling after a selector opens.
@@ -169,6 +171,34 @@ class NimboSettingsRedesignInteractionTest {
                 assertTrue(bytes.size > 3000, "Empty screenshot: $name")
                 File(output, "$name.png").writeBytes(bytes)
             }
+        }
+    }
+
+    @Test fun settingsModeAndSearchOnlyChangePresentation() = with(Fixture()) {
+        scene().use { scene ->
+            scene.settle()
+            assertFalse("Ядро VPN" in scene.texts())
+            assertTrue("Диагностика" in scene.texts())
+            val search = scene.nodes().single { it.hasLabel("Поиск настроек") }
+            search.config[SemanticsActions.SetText].action!!.invoke(AnnotatedString("  XRAY  "))
+            scene.settle()
+            assertTrue("Ядро VPN" in scene.texts())
+            assertFalse(state.value.settingsAdvanced)
+            assertEquals(emptyList(), calls)
+            scene.nodes().single { it.hasLabel("Поиск настроек") }.config[SemanticsActions.SetText].action!!.invoke(AnnotatedString(""))
+            scene.settle()
+            assertFalse("Ядро VPN" in scene.texts())
+            scene.clickText("Расширенный", Role.RadioButton)
+            assertTrue(state.value.settingsAdvanced)
+            assertTrue("Ядро VPN" in scene.texts())
+            scene.clickText("Простой", Role.RadioButton)
+            assertFalse("Ядро VPN" in scene.texts())
+            assertEquals(listOf(call("onSetAppearance", "settingsAdvanced", "true"), call("onSetAppearance", "settingsAdvanced", "false")), calls)
+            assertEquals("https://probe.example.test/original", state.value.pingUrl)
+            assertEquals(1500, state.value.pingTimeoutMs)
+            scene.nodes().single { it.hasLabel("Поиск настроек") }.config[SemanticsActions.SetText].action!!.invoke(AnnotatedString("неттакойнастройки"))
+            scene.settle()
+            assertTrue("Ничего не найдено. Попробуйте другое название." in scene.texts())
         }
     }
 
@@ -325,15 +355,20 @@ class NimboSettingsRedesignInteractionTest {
         }
     }
 
-    @Test fun connectionHistoryOpensOnlyStatsWithoutChangingPreferencesOrVpn() = with(Fixture()) {
-        scene().use { scene ->
+    @Test fun generalDoesNotDuplicateNavigationAndActivityStillOpensFromBottomBar() = with(Fixture()) {
+        scene(showBottomBar = true).use { scene ->
             scene.settle(); scene.clickText("Общие")
             val before = state.value
             assertEquals(emptyList(), calls, "Opening General must not start an operation")
-            scene.clickText("История подключений")
-            assertEquals(listOf(call("onOpenScreen", NimboScreen.STATS.wireName)), calls,
-                "History must emit exactly one stats route and no other bridge callback")
-            assertEquals(before, state.value, "Opening history must not change settings or VPN state")
+            for (removed in listOf("История подключений", "Маршрутизация", "Проверка БС")) {
+                assertFalse(removed in scene.texts(), "$removed must not be duplicated inside General")
+            }
+            assertEquals(1, scene.texts().count { it == "Статистика" }, "Statistics belongs only to the bottom bar")
+            scene.snapshot("general-dedup-bottom-navigation")
+            scene.clickText("Статистика")
+            assertTrue("Трафик и история подключений" in scene.texts(), "Bottom-bar Statistics must open the real stats screen")
+            assertEquals(emptyList(), calls, "Primary tab navigation is local and must not invoke VPN/preference bridge callbacks")
+            assertEquals(before, state.value, "Opening Activity must not change settings or VPN state")
         }
     }
 
@@ -354,8 +389,7 @@ class NimboSettingsRedesignInteractionTest {
                 scene.settle(); scene.clickText("Обновления")
                 scene.snapshot("$theme-320x480-text125-update-progress")
                 for ((trigger, title, name) in listOf(
-                    Triple("Сборки", "Сборки", "channel"),
-                    Triple("Информация: Страница релиза", "Страница релиза", "release-info")
+                    Triple("Сборки", "Сборки", "channel")
                 )) {
                     if (name == "channel") scene.clickText(trigger) else scene.clickLabel(trigger)
                     val modal = scene.dialogNodes()
@@ -620,6 +654,7 @@ class NimboSettingsRedesignInteractionTest {
                 for (kind in NimboNotificationKind.entries) {
                     scene.clickText("Показать"); scene.clickText("${kind.title} · 1", Role.RadioButton)
                     assertTrue(scene.texts().contains(messages.single { it.kind == kind }.message))
+                    assertTrue(messages.filter { it.kind != kind }.none { it.message in scene.texts() })
                     assertEquals(emptyList(), calls)
                 }
                 scene.clickText("Очистить всё")
@@ -634,9 +669,12 @@ class NimboSettingsRedesignInteractionTest {
                 expected += call("onClearNotifications"); assertEquals(expected, calls)
                 state.value = state.value.copy(notifications = emptyList(), toast = messages[1])
                 scene.settle(); scene.snapshot("advanced-$theme-toast-long-error")
-                val close = scene.nodes().single { "Закрыть" in it.texts() && it.config.getOrNull(SemanticsActions.OnClick) != null }
+                // The banner exposes its icon action through contentDescription, not visible text.
+                val close = scene.nodes().single { it.hasLabel("Закрыть уведомление") && it.config.getOrNull(SemanticsActions.OnClick) != null }
                 assertTrue(close.boundsInRoot.height >= 44f && close.boundsInRoot.bottom <= 480f)
-                scene.clickText("Закрыть"); expected += call("onDismissToast")
+                assertTrue(close.boundsInRoot.width >= 44f)
+                assertEquals(Role.Button, close.config.getOrNull(SemanticsProperties.Role))
+                scene.clickLabel("Закрыть уведомление"); expected += call("onDismissToast")
                 assertEquals(expected, calls)
             }
         }

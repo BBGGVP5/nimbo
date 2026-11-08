@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import UIKit
 
 enum NimboPlatformInfo {
@@ -44,17 +45,53 @@ enum NimboPlatformInfo {
     /// Стабильный идентификатор устройства для подписки.
     ///
     /// Панель считает по нему лимит устройств, поэтому он обязан переживать
-    /// перезапуск и обновление. `identifierForVendor` для этого не годится:
-    /// он меняется после удаления приложения, и лимит расходуется впустую.
+    /// перезапуск, обновление и переустановку. `identifierForVendor` и одни
+    /// UserDefaults для этого не годятся: после удаления приложения профиль
+    /// оставался в Keychain, а идентификатор рождался заново — панель видела
+    /// новое устройство и при исчерпанном лимите отвечала 404. Поэтому HWID
+    /// живёт в Keychain рядом с профилем; прежнее значение из UserDefaults
+    /// переносится туда без изменений.
     static let hardwareId: String = {
-        let key = "com.nimbo.subscription.hwid"
-        if let stored = UserDefaults.standard.string(forKey: key), !stored.isEmpty {
-            return stored
-        }
-        let generated = UUID().uuidString.lowercased()
-        UserDefaults.standard.set(generated, forKey: key)
-        return generated
+        let defaultsKey = "com.nimbo.subscription.hwid"
+        if let stored = HardwareIdKeychain.read(), !stored.isEmpty { return stored }
+        let legacy = UserDefaults.standard.string(forKey: defaultsKey).flatMap { $0.isEmpty ? nil : $0 }
+        let value = legacy ?? UUID().uuidString.lowercased()
+        HardwareIdKeychain.write(value)
+        if legacy == nil { UserDefaults.standard.set(value, forKey: defaultsKey) }
+        return value
     }()
+
+    /// Отдельная запись Keychain: без блокировок и счётчика ревизий хранилища профиля.
+    private enum HardwareIdKeychain {
+        private static let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.nimbo.resignable.device",
+            kSecAttrAccount as String: "subscription-hwid-v1"
+        ]
+
+        static func read() -> String? {
+            var request = query
+            request[kSecReturnData as String] = true
+            request[kSecMatchLimit as String] = kSecMatchLimitOne
+            var result: CFTypeRef?
+            guard SecItemCopyMatching(request as CFDictionary, &result) == errSecSuccess,
+                  let data = result as? Data else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+
+        /// Ошибка записи не мешает запросу: тогда идентификатор остаётся в UserDefaults, как раньше.
+        static func write(_ value: String) {
+            let updates: [String: Any] = [
+                kSecValueData as String: Data(value.utf8),
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            ]
+            if SecItemUpdate(query as CFDictionary, updates as CFDictionary) == errSecItemNotFound {
+                var item = query
+                updates.forEach { item[$0.key] = $0.value }
+                _ = SecItemAdd(item as CFDictionary, nil)
+            }
+        }
+    }
 
     /// Модель устройства для заголовка: «iPhone · iPhone14,5».
     static let deviceModel: String = device
@@ -82,22 +119,35 @@ enum NimboNetworkSession {
         return URLSession(configuration: configuration)
     }()
 
-    static func subscriptionRequest(url: URL, timeout: TimeInterval = 25) -> URLRequest {
+    static func subscriptionRequest(url: URL, timeout: TimeInterval = 25, core: NimboCorePreference? = nil) throws -> URLRequest {
+        let requestedCore = try core ?? NimboCorePreference.decode(UserDefaults.standard.object(forKey: NimboCorePreference.defaultsKey))
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         request.setValue("no-cache", forHTTPHeaderField: "Pragma")
-        request.setValue("text/plain, application/json;q=0.9, application/octet-stream;q=0.8, */*;q=0.5", forHTTPHeaderField: "Accept")
+        request.setValue(requestedCore == .mihomo
+            ? "application/yaml, text/yaml, text/plain;q=0.8"
+            : "text/plain, application/json;q=0.9, application/octet-stream;q=0.8, */*;q=0.5", forHTTPHeaderField: "Accept")
+        request.setValue(requestedCore.rawValue, forHTTPHeaderField: "X-Nimbo-Core")
         // Те же заголовки, что шлёт Android. По ним панель узнаёт клиента и
         // отдаёт готовый профиль с правилами, а не голый список ссылок.
-        request.setValue(NimboPlatformInfo.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(requestedCore == .mihomo
+            ? "Mihomo/1.19.31 \(NimboPlatformInfo.userAgent)" : NimboPlatformInfo.userAgent,
+            forHTTPHeaderField: "User-Agent")
         request.setValue(NimboPlatformInfo.hardwareId, forHTTPHeaderField: "x-hwid")
         request.setValue(NimboPlatformInfo.hardwareId, forHTTPHeaderField: "x-device-id")
         request.setValue("iOS", forHTTPHeaderField: "x-device-os")
         request.setValue(UIDevice.current.systemVersion, forHTTPHeaderField: "x-ver-os")
         request.setValue(NimboPlatformInfo.deviceModel, forHTTPHeaderField: "x-device-model")
         request.setValue(NimboPlatformInfo.displayVersion, forHTTPHeaderField: "x-app-version")
+        // TrustTunnel endpoint subscriptions embed HTTP Basic credentials in the
+        // URL (https://user:pass@host/path); URLSession does not send them itself.
+        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let user = components.user, !user.isEmpty {
+            let token = Data("\(user):\(components.password ?? "")".utf8).base64EncodedString()
+            request.setValue("Basic \(token)", forHTTPHeaderField: "Authorization")
+        }
         return request
     }
 }

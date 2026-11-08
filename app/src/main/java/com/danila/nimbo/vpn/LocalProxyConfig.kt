@@ -14,6 +14,9 @@ internal object LocalProxyConfig {
     const val HOST = "127.0.0.1"
     const val PORT = 2080
     const val INBOUND_TAG = "nimbo-health-in"
+    const val MIRROR_PORT = 2081
+    const val MIRROR_INBOUND_TAG = "nimbo-mirror-in"
+    private const val TUN_INBOUND_TAG = "tun-in"
 
     private val utilityProtocols = setOf("freedom", "blackhole", "dns", "loopback")
     private val utilityTags = setOf("direct", "block", "dns", "dns-out")
@@ -99,7 +102,7 @@ internal object LocalProxyConfig {
         fun safe(tag: String): Boolean {
             val outbound = entries.singleOrNull { it.optString("tag") == tag } ?: return false
             return tag.isNotBlank() && outbound.optString("protocol").lowercase() in allowed &&
-                tag.lowercase() !in utilityTags && !hasUnverifiedDialer(outbound)
+                tag.lowercase() !in utilityTags && !hasUnverifiedDialer(outbound, entries)
         }
         val outboundTag = rule.optString("outboundTag")
         val balancerTag = rule.optString("balancerTag")
@@ -108,25 +111,49 @@ internal object LocalProxyConfig {
         if (outboundTag.isNotBlank()) {
             // Without an explicit selection, multiple proxies do not prove which node owns the result.
             if (selectedOutboundTag.isNullOrBlank() && entries.count { it.optString("protocol").lowercase() in allowed } != 1) return false
-            return balancerTag.isBlank() && safe(outboundTag)
+            if (balancerTag.isNotBlank()) return false
+            if (safe(outboundTag)) return true
+            if (entries.singleOrNull { it.optString("tag") == outboundTag }?.optString("protocol") != "loopback") return false
         }
-        if (balancerTag.isBlank()) return false
-        val balancers = routing.optJSONArray("balancers") ?: return false
-        val balancer = (0 until balancers.length()).mapNotNull(balancers::optJSONObject)
-            .singleOrNull { it.optString("tag") == balancerTag } ?: return false
-        val selector = balancer.optJSONArray("selector") ?: return false
-        val prefixes = (0 until selector.length()).map { selector.optString(it) }
-        if (prefixes.isEmpty() || prefixes.any { it.isBlank() }) return false
-        val selected = entries.filter { node -> prefixes.any { node.optString("tag").startsWith(it) } }
-        val fallback = balancer.optString("fallbackTag")
+        if (balancerTag.isBlank() && outboundTag.isBlank()) return false
+        val projection = com.danila.nimbo.network.XrayProbeRouting.project(config, rule) ?: return false
         fun safeFailure(tag: String): Boolean {
             val entry = entries.singleOrNull { it.optString("tag") == tag } ?: return false
-            return safe(tag) || (entry.optString("protocol") == "blackhole" && !hasUnverifiedDialer(entry))
+            // Projection proves each loopback's sole unconditional route and rejects cycles.
+            return safe(tag) || (entry.optString("protocol") in setOf("blackhole", "loopback") && !hasUnverifiedDialer(entry))
         }
-        return selected.isNotEmpty() && selected.all { safe(it.optString("tag")) } &&
-            // Xray falls back to the default outbound when a balancer returns no tag.
-            // A direct default with no explicit safe fallback is not a verified route.
-            (if (fallback.isBlank()) safeFailure(entries.firstOrNull()?.optString("tag").orEmpty()) else safeFailure(fallback))
+        if (outboundTag.isNotBlank() && !safeFailure(outboundTag)) return false
+        if ((1 until projection.rules.length()).any {
+                val internal = projection.rules.getJSONObject(it)
+                internal.optString("outboundTag").takeIf(String::isNotBlank)?.let { tag -> !safeFailure(tag) } == true
+            }) return false
+        return (0 until projection.balancers.length()).all { index ->
+            val balancer = projection.balancers.getJSONObject(index)
+            val selector = balancer.optJSONArray("selector") ?: return false
+            val prefixes = (0 until selector.length()).map { selector.optString(it) }
+            if (prefixes.isEmpty() || prefixes.any { it.isBlank() }) return false
+            val selected = entries.filter { node -> prefixes.any { node.optString("tag").startsWith(it) } }
+            val fallback = balancer.optString("fallbackTag")
+            selected.isNotEmpty() && selected.all { safe(it.optString("tag")) } &&
+                (if (fallback.isBlank()) safeFailure(entries.firstOrNull()?.optString("tag").orEmpty()) else safeFailure(fallback))
+        }
+    }
+
+    /** A terminal ClientHello fragmenter dials the selected node's destination, not a DIRECT target. */
+    private fun hasUnverifiedDialer(outbound: JSONObject, entries: List<JSONObject>): Boolean {
+        val copy = JSONObject(outbound.toString())
+        val sockopt = copy.optJSONObject("streamSettings")?.optJSONObject("sockopt")
+        val fragmentTag = sockopt?.optString("dialerProxy")?.takeIf { it.isNotBlank() }
+        if (fragmentTag != null) {
+            val fragmenter = entries.singleOrNull { it.optString("tag") == fragmentTag } ?: return true
+            val settings = fragmenter.optJSONObject("settings") ?: return true
+            if (fragmenter.optString("protocol") != "freedom" || settings.optJSONObject("fragment") == null ||
+                settings.keys().asSequence().any { it !in setOf("fragment", "noises", "domainStrategy") } ||
+                hasUnverifiedDialer(fragmenter) || fragmenter.optJSONObject("streamSettings")?.keys()?.asSequence()
+                    ?.any { it != "sockopt" } == true) return true
+            sockopt.remove("dialerProxy")
+        }
+        return hasUnverifiedDialer(copy)
     }
 
     /** Inspect structured fields, including XHTTP extra/downloadSettings and arrays.
@@ -146,6 +173,51 @@ internal object LocalProxyConfig {
         }
         is JSONArray -> (0 until value.length()).any { hasUnverifiedDialer(value.opt(it)) }
         else -> false
+    }
+
+    /**
+     * Второй loopback-прокси для «Состояния сервисов». В отличие от [INBOUND_TAG] он не
+     * прибит к одному узлу: его трафик идёт ровно по тем же правилам, что и `tun-in`
+     * (балансировщики, обходы, direct-правила шаблона). Проверка показывает то, что
+     * увидит трафик пользователя, а не отдельный узел. Вызывать на финальном JSON,
+     * после всех перезаписей правил.
+     */
+    fun addMirrorInbound(config: JSONObject, session: HealthProxySession): Boolean {
+        val inbounds = config.optJSONArray("inbounds") ?: return false
+        val tunTags = (0 until inbounds.length()).mapNotNull(inbounds::optJSONObject)
+            .filter { it.optString("tag") == TUN_INBOUND_TAG || it.optString("protocol") == "tun" }
+            .map { it.optString("tag") }.filter { it.isNotBlank() }.toSet()
+        if (tunTags.isEmpty()) return false
+        val retained = (0 until inbounds.length()).mapNotNull(inbounds::optJSONObject).filterNot { inbound ->
+            val listen = inbound.optString("listen").trim()
+            val loopback = listen.isEmpty() || listen == HOST || listen.equals("localhost", ignoreCase = true)
+            inbound.optString("tag") == MIRROR_INBOUND_TAG || (loopback && inbound.optInt("port", -1) == MIRROR_PORT)
+        }
+        while (inbounds.length() > 0) inbounds.remove(inbounds.length() - 1)
+        retained.forEach(inbounds::put)
+        inbounds.put(JSONObject()
+            .put("tag", MIRROR_INBOUND_TAG)
+            .put("listen", HOST)
+            .put("port", MIRROR_PORT)
+            .put("protocol", "http")
+            .put("settings", JSONObject().put("allowTransparent", false)
+                .put("accounts", JSONArray().put(JSONObject()
+                    .put("user", session.username).put("pass", session.password)))))
+
+        val rules = config.optJSONObject("routing")?.optJSONArray("rules") ?: return true
+        for (index in 0 until rules.length()) {
+            val rule = rules.optJSONObject(index) ?: continue
+            // Правила без inboundTag и так действуют на все входы, включая зеркальный.
+            when (val tags = rule.opt("inboundTag")) {
+                is JSONArray -> if ((0 until tags.length()).any { tags.optString(it) in tunTags }) {
+                    tags.put(MIRROR_INBOUND_TAG)
+                }
+                is String -> if (tags in tunTags) {
+                    rule.put("inboundTag", JSONArray().put(tags).put(MIRROR_INBOUND_TAG))
+                }
+            }
+        }
+        return true
     }
 
     private fun buildInbound(): JSONObject = JSONObject()

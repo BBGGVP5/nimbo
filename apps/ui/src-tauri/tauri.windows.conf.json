@@ -3,6 +3,7 @@
     "resources": [
       "resources/tun/*",
       "resources/naive/**/*",
+      "resources/trusttunnel/**/*",
       "resources/awg/**/*",
       "resources/mihomo/**/*"
     ]

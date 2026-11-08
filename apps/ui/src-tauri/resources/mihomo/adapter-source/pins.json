@@ -1,11 +1,11 @@
 {
   "apiVersion": 1,
   "module": "github.com/metacubex/mihomo",
-  "version": "v1.19.31",
-  "commit": "ab405bad5beeeac8b003bb01f60f134f6df54471",
-  "sum": "h1:gqtGzDf8DtNCj8gGE5XSgGeF2j40ZUBB0nlwiSyxg5g=",
-  "goModSum": "h1:LrKKxtHjjlgYjYiTrYyvI8bOWwHW0HUH0c1LXlf3Kcg=",
-  "sourceZipSHA256": "c87ea4f7ed3b59e7e753769866cd12c61e656c6cad585333a544eeec835cc6cf",
+  "version": "v1.19.32",
+  "commit": "88dcbf7f1614a67c3b36b848ee3592dfa92ada36",
+  "sum": "h1:uD7ZC3P77isWD554NNvtee65L+99+/C5hyc+Lk8rVEk=",
+  "goModSum": "h1:d7xWi5iEktkC9PqXkD/Vo4AEcb0Q92XikfLoySUDWls=",
+  "sourceZipSHA256": "2a63640dcdd4ff2fb429488b120515c2e2fb2391cf6d2c2d6f21a8dc86b864e4",
   "toolchain": "go1.27.1",
   "protobuf": {
     "module": "github.com/metacubex/protobuf-go",
@@ -17,5 +17,21 @@
     "patchedGoModSHA256": "544713ba08b85f02f15b3547673ef11824e2135c2ce30f518322b425289a1cb9"
   },
   "binary": ".build/bin/nimbo-mihomo.exe",
-  "binaryManifest": ".build/bin/build-manifest.json"
+  "binaryManifest": ".build/bin/build-manifest.json",
+  "singTun": {
+    "module": "github.com/metacubex/sing-tun",
+    "version": "v0.4.27",
+    "commit": "27e28c30de350cff262e32d9ed92b87215a0ff7c",
+    "sum": "h1:dWCpFDlWelQrhH3y5KkMrJXEXYeJ0V2LROP8Cxv96MI=",
+    "goModSum": "h1:5nlmrOy+FG0yhiLm+O/pzmirZVrpLuDQZuA+qI9x5kg=",
+    "sourceZipSHA256": "ec7fe1bcb921c76a3b487624794e72d9a39b8591d51f928ffd43bdc3ae3d62e0"
+  },
+  "netlink": {
+    "module": "github.com/sagernet/netlink",
+    "version": "v0.0.0-20240612041022-b9a21c07ac6a",
+    "commit": "b9a21c07ac6a3a58371a162d0ca44f8008ac1acc",
+    "sum": "h1:ObwtHN2VpqE0ZNjr6sGeT00J8uU7JF4cNUdb44/Duis=",
+    "goModSum": "h1:xLnfdiJbSp8rNqYEdIW/6eDO4mVoogml14Bh2hSiFpM=",
+    "sourceZipSHA256": "895c0dbc63c8f45e072cb5af2da65755d6a0221a8958fb82822cc4135e035af5"
+  }
 }

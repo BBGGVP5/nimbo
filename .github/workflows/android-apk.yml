@@ -1,0 +1,134 @@
+name: Сборка Android APK
+
+# Собирает APK без Android Studio. libxray.aar (~105 МБ) в git не хранится:
+# он лежит ассетом в релизе `android-deps` этого репозитория и сверяется с
+# aarSha256 из app/src/main/assets/third_party/libxray.json.
+#
+# Подпись берётся из секретов репозитория (Settings → Secrets → Actions):
+#   NIMBO_KEYSTORE_BASE64   — файл ключа в base64
+#   NIMBO_KEYSTORE_PASSWORD — пароль хранилища
+#   NIMBO_KEY_ALIAS         — alias ключа (key0)
+#   NIMBO_KEY_PASSWORD      — пароль ключа
+# Без них release-сборка невозможна (неподписанный APK не ставится),
+# поэтому workflow остановится с понятной ошибкой; debug собирается всегда.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Тип сборки"
+        default: release
+        type: choice
+        options: [release, debug]
+      release_tag:
+        description: "Прикрепить APK к релизу с этим тегом (пусто — только артефакты прогона)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: APK (${{ inputs.build_type }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v4
+
+      - name: Установить JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Кэш Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Установить компоненты Android SDK
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" --install \
+            "platforms;android-37" \
+            "build-tools;37.0.0" \
+            "ndk;28.2.13676358" > /dev/null
+
+      - name: Скачать и проверить libxray.aar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 -c "import json;print(json.load(open('app/src/main/assets/third_party/libxray.json'))['version'])")
+          expected=$(python3 -c "import json;print(json.load(open('app/src/main/assets/third_party/libxray.json'))['aarSha256'])")
+          mkdir -p app/libs
+          gh release download android-deps --repo "$GITHUB_REPOSITORY" \
+            --pattern "libxray-${version}.aar" --output app/libs/libxray.aar
+          actual=$(sha256sum app/libs/libxray.aar | cut -d' ' -f1)
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::libxray.aar не совпадает с libxray.json: $actual != $expected"
+            exit 1
+          fi
+          echo "libxray $version, sha256 $actual"
+
+      - name: Подготовить ключ подписи
+        if: inputs.build_type == 'release'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.NIMBO_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Нет секрета NIMBO_KEYSTORE_BASE64 — release нельзя подписать. Добавь секреты или запусти debug."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nimbo-release.jks"
+
+      - name: Собрать APK
+        env:
+          ORG_GRADLE_PROJECT_nimboReleaseStoreFile: ${{ inputs.build_type == 'release' && format('{0}/nimbo-release.jks', runner.temp) || '' }}
+          ORG_GRADLE_PROJECT_nimboReleaseStorePassword: ${{ secrets.NIMBO_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_nimboReleaseKeyAlias: ${{ secrets.NIMBO_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_nimboReleaseKeyPassword: ${{ secrets.NIMBO_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          task=$([ "${{ inputs.build_type }}" = release ] && echo assembleRelease || echo assembleDebug)
+          ./gradlew ":app:$task" --no-daemon --max-workers=4 --stacktrace
+
+      - name: Проверить подпись
+        run: |
+          apksigner="$ANDROID_HOME/build-tools/37.0.0/apksigner"
+          for apk in app/build/outputs/apk/${{ inputs.build_type }}/*.apk; do
+            echo "== $(basename "$apk")"
+            "$apksigner" verify --min-sdk-version 29 --print-certs "$apk" | grep -E "DN|SHA-256"
+          done
+          rm -f "$RUNNER_TEMP/nimbo-release.jks"
+
+      - name: Сохранить APK как артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbo-apk-${{ inputs.build_type }}-${{ github.run_number }}
+          path: app/build/outputs/apk/${{ inputs.build_type }}/*.apk
+          if-no-files-found: error
+
+      - name: Прикрепить к релизу
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        # Без --clobber: он сначала удаляет ассет, и обрыв оставляет релиз без APK.
+        # Уже прикреплённые файлы с тем же именем пропускаем.
+        run: |
+          existing=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          for apk in app/build/outputs/apk/${{ inputs.build_type }}/*.apk; do
+            name=$(basename "$apk")
+            if echo "$existing" | grep -qx "$name"; then
+              echo "::warning::$name уже есть в $TAG — пропускаю"
+              continue
+            fi
+            gh release upload "$TAG" "$apk" --repo "$GITHUB_REPOSITORY"
+          done

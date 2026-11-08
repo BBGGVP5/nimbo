@@ -29,7 +29,7 @@ func AndroidTunPlan() string {
 		"nonblockingRequired": true, "autoRoute": false, "autoRedirect": false, "interfaceDiscovery": false,
 		"ruleRouting": androidTunCompiled,
 		"ruleTypes":   "pinned Mihomo rule engine; process/UID classifiers remain unavailable",
-		"protocols":   "pinned Mihomo v1.19.31 upstream outbound parser and dispatch", "providerUpdates": "native-configured-interval", "deviceVerified": false,
+		"protocols":   "pinned Mihomo v1.19.32 upstream outbound parser and dispatch", "providerUpdates": "native-configured-interval", "deviceVerified": false,
 		"transportScope": "pinned Mihomo upstream proxy/protocol implementations", "applicationDNS": "pinned Mihomo DNS resolver and enhancer over VPN DNS relay", "bootstrapDNS": "protected upstream dialer",
 	}})
 	return string(b)

@@ -4,7 +4,7 @@ import { DialogFocusManager } from "./components/DialogFocusManager";
 import { latencyPresentation } from "./lib/latency";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Home } from "./pages/Home";
 import { Subscriptions } from "./pages/Subscriptions";
 import { Servers } from "./pages/Servers";
@@ -19,7 +19,8 @@ import { MihomoProfiles } from "./pages/MihomoProfiles";
 import { Notifications } from "./pages/Notifications";
 import { CrossPlatformSync } from "./pages/CrossPlatformSync";
 import { NotificationCenter } from "./components/NotificationCenter";
-import { notifyError, notifyInfo, useNotificationHistory } from "./lib/notify";
+import { notify, notifyError, notifyInfo, useNotificationHistory } from "./lib/notify";
+import { dueSubscriptionWarnings, readWarnedState, subscriptionWarningText, writeWarnedState } from "./lib/subscriptionWarnings";
 import {
   applyAccentGradient,
   loadBackgroundBlob,
@@ -28,7 +29,7 @@ import {
 } from "./lib/appearance";
 import { useAppStore } from "./store";
 import { SignalSidebar } from "./components/SignalSidebar";
-import { desktopNavItems } from "./lib/desktopNavigation";
+import { activityNavItems, compactDestination, compactNavItems, desktopNavItems } from "./lib/desktopNavigation";
 import { APP_VERSION, CURRENT_SUBSCRIPTION_PARSER_REVISION, api, formatBytes, isTauriRuntime, type AppPostUpdateInfo, type AppUpdateInfo, type AppUpdateProgress, type ConflictingProcess, type HelperStatus, type SubscriptionTheme } from "./lib/api";
 import { cachedSubscriptionTheme } from "./lib/subscriptionTheme";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -38,6 +39,7 @@ import { applyVisualPreferences } from "./lib/visualTheme";
 import { liveNetworkGlassSignal } from "./lib/liveNetworkGlass";
 import { WorkspaceBar } from "./components/WorkspaceBar";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import "./desktop-shell.css";
 
 const APP_UPDATE_DIALOG_EVENT = "nimbo:show-update-dialog";
 
@@ -99,6 +101,23 @@ export default function App() {
       pingMs: latencyPresentation(measuredServerId ? serverPings[measuredServerId] : null, preferences.latency_protocol).value,
     });
   }, [activeServerId, connectingServerId, disconnecting, serverPings, status?.state, switchingServerId, trafficSpeed.download, trafficSpeed.upload, preferences.latency_protocol]);
+  // Expiry and traffic reminders: re-checked on every refresh and hourly,
+  // each stage shown once per term (see subscriptionWarnings.ts).
+  const [warningTick, setWarningTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setWarningTick((tick) => tick + 1), 3_600_000);
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (!subscriptions.length) return;
+    const { due, next } = dueSubscriptionWarnings(subscriptions, readWarnedState(), Date.now());
+    writeWarnedState(next);
+    const ru = m.common.locale.startsWith("ru");
+    for (const warning of due) {
+      const blocking = warning.stage === "expired" || warning.stage === "traffic-100";
+      notify(subscriptionWarningText(warning, ru), blocking ? "error" : "warning");
+    }
+  }, [subscriptions, m, warningTick]);
   const networkGlassStyle = useMemo(() => ({
     "--network-upload-alpha": `${0.014 + networkGlassSignal.uploadLevel * 0.09}`,
     "--network-download-alpha": `${0.017 + networkGlassSignal.downloadLevel * 0.10}`,
@@ -229,6 +248,12 @@ export default function App() {
         consecutiveFailures += 1;
         if (consecutiveFailures >= 2) {
           setTrafficMonitoringAvailable(false);
+          // Do not leave stale route/protocol values looking live after a
+          // failed native poll. Preserve saved totals, not session evidence.
+          const previous = useAppStore.getState().trafficStats;
+          if (previous) recordTrafficStats({ ...previous, session_available: false,
+            route_traffic: null, tcp_connections: null, udp_connections: null,
+            speed_available: false, upload_speed: 0, download_speed: 0 });
         }
       } finally {
         if (!cancelled && connected) {
@@ -585,7 +610,7 @@ export default function App() {
           label={(key) => navLabel(m.app, key, false)}
           unread={unreadNotifications}
           version={`V${APP_VERSION}`}
-          coreLabel="VPN"
+          coreLabel={m.settings.connection}
           coreState={status?.state === "connected" ? m.signal.coreOk : m.signal.coreIdle}
           updateLabel={startupUpdate ? m.signal.coreUpdate : null}
           onUpdate={startupUpdate ? () => navigate("/settings") : undefined}
@@ -606,7 +631,7 @@ export default function App() {
       />
 
       <main className="app-main flex-1 overflow-auto p-3 pl-0">
-        <WorkspaceBar />
+        <AppWorkspaceBar />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/subscriptions" element={<Subscriptions />} />
@@ -624,8 +649,37 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+      <DesktopBottomNavigation />
     </div>
   );
+}
+
+export function DesktopBottomNavigation() {
+  const m = useMessages();
+  const { pathname } = useLocation();
+  const selected = compactDestination(pathname);
+  return <nav className="app-bottom-nav" aria-label={m.common.locale.startsWith("ru") ? "Основная навигация" : "Primary navigation"}>
+    {compactNavItems.map(item => <Link key={item.to} to={item.to}
+      aria-current={selected === item.to ? "page" : undefined}
+      className={`app-bottom-nav-item${selected === item.to ? " is-active" : ""}`}>
+      <NavIcon name={item.icon} /><span>{navLabel(m.app, item.key, false)}</span>
+    </Link>)}
+  </nav>;
+}
+
+export function AppWorkspaceBar() {
+  const m = useMessages();
+  const { pathname } = useLocation();
+  const activity = activityNavItems.some(item => item.to === pathname);
+  return <>
+    <div className="app-workspace-header"><WorkspaceBar /></div>
+    {activity && <nav className="app-activity-nav" aria-label={m.common.locale.startsWith("ru") ? "Мониторинг" : "Monitoring"}>
+      {activityNavItems.map(item => <NavLink key={item.to} to={item.to} end={item.end}
+        className={({ isActive }) => `app-activity-link${isActive ? " is-active" : ""}`}>
+        <NavIcon name={item.icon} /><span>{navLabel(m.app, item.key, false)}</span>
+      </NavLink>)}
+    </nav>}
+  </>;
 }
 
 export function showAppUpdateDialog(update: AppUpdateInfo) {

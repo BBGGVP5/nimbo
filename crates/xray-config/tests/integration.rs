@@ -197,6 +197,32 @@ fn naive_uses_the_prepared_local_socks_sidecar() {
 }
 
 #[test]
+fn trusttunnel_uses_authenticated_sidecar_and_blocks_when_unprepared() {
+    // hostname=tt.tld, addresses=tt.tld:443, username=u, password=p
+    let mut server = parse_single("tt://?AQZ0dC50bGQCCnR0LnRsZDo0NDMFAXUGAXA").unwrap();
+    let unprepared = serde_json::to_value(build_config(&server)).unwrap();
+    assert_eq!(unprepared["outbounds"][0]["protocol"], "blackhole");
+
+    let Protocol::TrustTunnel(tt) = &mut server.protocol else {
+        panic!("TrustTunnel link was parsed as another protocol");
+    };
+    tt.local_socks = Some(nimbo_subscription::AwgLocalSocks {
+        port: 19191,
+        username: "local".into(),
+        password: "secret".into(),
+    });
+    let value = serde_json::to_value(build_config(&server)).unwrap();
+    let proxy = &value["outbounds"][0];
+    assert_eq!(proxy["protocol"], "socks");
+    assert_eq!(proxy["settings"]["servers"][0]["address"], "127.0.0.1");
+    assert_eq!(proxy["settings"]["servers"][0]["port"], 19191);
+    assert_eq!(proxy["settings"]["servers"][0]["users"][0]["user"], "local");
+    // Runtime credentials must never reach persisted state.
+    let persisted = serde_json::to_string(&server).unwrap();
+    assert!(!persisted.contains("secret") && persisted.contains("\"kind\":\"trusttunnel\""));
+}
+
+#[test]
 fn custom_ports_propagate() {
     let url = "vless://uuid@host:443?type=tcp&security=tls&sni=host#x";
     let server = parse_single(url).unwrap();

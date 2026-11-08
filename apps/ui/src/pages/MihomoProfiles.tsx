@@ -1,9 +1,11 @@
+import { NimboSelect } from '../components/NimboSelect';
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useCoreStore } from '../coreStore';
 import { useAppStore } from '../store';
 import { api, isTauriRuntime } from '../lib/api';
 import { coreApi } from '../lib/coreApi';
-import { decodeCoreSource, groupCanSelect, MAX_CORE_SOURCE_BYTES, mihomoBlockReason, mihomoErrorMessage, validDelayUrl, validateCoreSource } from '../lib/coreProfiles';
+import { decodeCoreSource, groupCanSelect, MAX_CORE_SOURCE_BYTES, MAX_CORE_URL_BYTES, mihomoBlockReason, mihomoErrorMessage, validDelayUrl, validateCoreSource, validateCoreSourceUrl } from '../lib/coreProfiles';
+import { startVisiblePolling } from '../lib/visiblePolling';
 import { useMessages } from '../lib/i18n';
 import './mihomo-profiles.css';
 
@@ -15,6 +17,7 @@ export function MihomoProfiles() {
   const native = isTauriRuntime();
   const [name, setName] = useState('');
   const [source, setSource] = useState('');
+  const [sourceUrl, setSourceUrl] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [localError, setLocalError] = useState<unknown>(null);
   const [fileBusy, setFileBusy] = useState(false);
@@ -31,14 +34,15 @@ export function MihomoProfiles() {
 
   useEffect(() => {
     if (!native) return;
+    let disposed = false;
     const refresh = async () => {
-      if (document.hidden) return;
       await useCoreStore.getState().refresh();
-      if (useCoreStore.getState().runtime?.running) await useCoreStore.getState().live('snapshot');
+      if (!disposed && document.visibilityState === 'visible' && useCoreStore.getState().runtime?.running) {
+        await useCoreStore.getState().live('snapshot');
+      }
     };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 10000);
-    return () => window.clearInterval(timer);
+    const stop = startVisiblePolling(refresh, 10000);
+    return () => { disposed = true; stop(); };
   }, [native]);
 
   async function loadFile(event: ChangeEvent<HTMLInputElement>) {
@@ -66,7 +70,26 @@ export function MihomoProfiles() {
         setSource(''); setName('');
         setMessage(text('Полный YAML сохранён.', 'Complete YAML saved.'));
         if (inspectionError) setLocalError(inspectionError);
-      }
+      } else setLocalError(useCoreStore.getState().error);
+    } catch (error) { setLocalError(error); }
+  }
+
+  async function importUrl(event: FormEvent) {
+    event.preventDefault();
+    if (busy || !native) return;
+    setLocalError(null); setMessage(null);
+    try {
+      const url = validateCoreSourceUrl(sourceUrl);
+      let inspectionError: string | null = null;
+      const ok = await core.mutate('import-url', async () => {
+        const result = await coreApi.importUrl(name.trim() || 'Mihomo', url);
+        inspectionError = result.inspection_error;
+      });
+      if (ok) {
+        setSourceUrl(''); setName('');
+        setMessage(text('Полный YAML загружен и сохранён. Ссылка не хранится.', 'Complete YAML downloaded and saved. The URL is not stored.'));
+        if (inspectionError) setLocalError(inspectionError);
+      } else setLocalError(useCoreStore.getState().error);
     } catch (error) { setLocalError(error); }
   }
 
@@ -80,31 +103,47 @@ export function MihomoProfiles() {
     <header className="mihomo-page__header">
       <a className="settings-action" href="#/settings?section=connection">← {text('Настройки подключения', 'Connection settings')}</a>
       <h1>Mihomo</h1>
-      <p>{text('Полные профили · System Proxy', 'Full profiles · System Proxy')}</p>
+      <p>{text('Полные YAML-профили', 'Complete YAML profiles')}</p>
     </header>
     <div className="mihomo-notice">
-      {text('Только System Proxy на Windows. TUN, Both и Kill Switch пока не поддерживаются. Настройки подключения не меняются автоматически.', 'Windows System Proxy only. TUN, Both and Kill Switch are not supported yet. Connection settings are never changed automatically.')}
+      <details><summary>{text('Режимы подключения', 'Connection modes')}</summary>
+      <p>{text('Windows и Linux: TUN через проверенный системный помощник. Windows поддерживает System Proxy и Both, а с новым помощником — внешний Kill Switch для TUN/Both. Защита сохраняется при сбое и закрытии приложения. Правила записываются для загрузки Windows; после перезапуска нужен явный сброс перед новым подключением. Настройки подключения не меняются автоматически.', 'Windows and Linux: TUN through the verified system helper. Windows supports System Proxy and Both; the updated helper provides external Kill Switch for TUN/Both. Protection survives failure and app exit. Windows boot protection is registered; after a restart, explicitly reset before reconnecting. Connection settings are never changed automatically.')}</p>
+      </details>
       {!native && <p>{text('Для импорта и подключения откройте desktop-приложение.', 'Open the desktop app to import and connect.')}</p>}
       {native && blocked && <p role="status">{mihomoErrorMessage(blocked, ru)}</p>}
     </div>
     {(localError || core.error) && <p className="mihomo-error" role="alert">{mihomoErrorMessage(localError || core.error, ru)}</p>}
     {message && <p role="status">{message}</p>}
+    {native && capability?.binary_verified && capability.reason === 'MIHOMO_HELPER_REQUIRED' && <div className="mihomo-actions">
+      <button disabled={busy || running} onClick={() => void core.mutate('prepare-tun', () => coreApi.prepareTun())}>
+        {core.busy === 'prepare-tun' ? text('Подготовка…', 'Preparing…') : text('Подготовить Mihomo TUN', 'Prepare Mihomo TUN')}
+      </button>
+      <small>{text('Потребуется системное подтверждение', 'System authorization is required')}</small>
+    </div>}
 
-    <section className="mihomo-panel" aria-labelledby="mihomo-import-heading">
+    <section className="mihomo-panel" aria-labelledby="mihomo-import-heading" aria-busy={busy}>
       <h2 id="mihomo-import-heading">{text('Импорт полного YAML', 'Import complete YAML')}</h2>
-      <p>{text('Файл или вставка текста, до 4 МиБ. Группы, providers и правила сохраняются в исходном YAML. Импорт URL и преобразование ссылок отдельных серверов не поддерживаются.', 'File or pasted text, up to 4 MiB. Groups, providers and rules remain in the original YAML. URL import and individual server-link conversion are not supported.')}</p>
+      <p>{text('Файл, ссылка или текст, до 4 МиБ. Группы и правила сохраняются.', 'File, URL or text, up to 4 MiB. Groups and rules are preserved.')}</p>
+      <label className="mihomo-import__name">{text('Название профиля', 'Profile name')}<input value={name} maxLength={512} disabled={busy || !native} onChange={e => setName(e.target.value)} autoComplete="off" /></label>
+      <form onSubmit={event => void importUrl(event)} className="mihomo-import-url">
+        <label>{text('Ссылка на полный YAML', 'Complete YAML URL')}<input type="url" value={sourceUrl} maxLength={MAX_CORE_URL_BYTES} disabled={busy || !native} onChange={e => setSourceUrl(e.target.value)} autoComplete="off" spellCheck={false} placeholder="https://…" aria-describedby="mihomo-url-policy" /></label>
+        <button type="submit" disabled={busy || !native || !sourceUrl.trim()}>{core.busy === 'import-url' ? text('Загружаем…', 'Downloading…') : text('Загрузить профиль', 'Download profile')}</button>
+      </form>
+      <p id="mihomo-url-policy">{text('Загрузка один раз, до 20 секунд. Ссылка не сохраняется; это не автообновляемая подписка.', 'One-time download, up to 20 seconds. The URL is not stored; this is not an automatically refreshed subscription.')}</p>
+      <details className="mihomo-import-details">
+      <summary>{text('Импорт из файла или текста', 'Import from file or text')}</summary>
       <form onSubmit={event => void importProfile(event)} className="mihomo-import">
-        <label>{text('Название профиля', 'Profile name')}<input value={name} maxLength={512} disabled={busy || !native} onChange={e => setName(e.target.value)} /></label>
         <label>{text('YAML-файл', 'YAML file')}<input type="file" accept=".yaml,.yml,text/yaml,application/yaml" disabled={busy || !native} onChange={event => void loadFile(event)} /></label>
         <label className="mihomo-import__source">{text('Полный исходный YAML', 'Complete original YAML')}<textarea rows={7} spellCheck={false} autoComplete="off" value={source} disabled={busy || !native} onChange={event => setSource(event.target.value)} placeholder="proxy-groups: …" /></label>
         <button type="submit" disabled={busy || !native || !source.trim()}>{text('Импортировать', 'Import profile')}</button>
       </form>
+      </details>
     </section>
 
     <section className="mihomo-panel" aria-labelledby="mihomo-profiles-heading">
       <div className="mihomo-section-head"><h2 id="mihomo-profiles-heading">{text('Профили', 'Profiles')} <small>{profiles.length}</small></h2><button disabled={busy || !native} onClick={() => void core.refresh()}>{text('Обновить', 'Refresh')}</button></div>
       {!profiles.length && <p>{text('Импортируйте полный YAML, чтобы подключиться через Mihomo.', 'Import a complete YAML profile to connect through Mihomo.')}</p>}
-      {profiles.map(profile => <article className="mihomo-profile" key={profile.id}>
+      {profiles.map(profile => <article className="mihomo-profile" key={profile.id} data-active={running && core.runtime?.profile_id === profile.id}>
         <div><h3>{profile.name}</h3><p>{profile.inspection ? text('Проверен инспектором · ', 'Inspected · ') + profile.inspection.issues.length + text(' замечаний', ' issues') : text('Ожидает native-инспекции', 'Awaiting native inspection')}{running && core.runtime?.profile_id === profile.id && <> · <strong>{text('Подключён', 'Connected')}</strong></>}</p></div>
         <div className="mihomo-actions">
           {running && core.runtime?.profile_id === profile.id
@@ -125,9 +164,9 @@ export function MihomoProfiles() {
       <h3>{text('Группы', 'Groups')}</h3>
       {Object.entries(core.snapshot?.groups ?? {}).filter(([, group]) => !group.hidden).map(([name, group]) => <div className="mihomo-live-row" key={name}>
         <div><strong>{name}</strong><small>{group.type ?? '—'}</small></div>
-        {groupCanSelect(group) ? <select aria-label={name} disabled={busy} value={group.now ?? ''} onChange={event => void core.live('select', name, event.target.value)}>
+        {groupCanSelect(group) ? <NimboSelect aria-label={name} disabled={busy} value={group.now ?? ''} onChange={event => void core.live('select', name, event.target.value)}>
           {!group.now && <option value="" disabled>—</option>}{(group.all ?? []).map(member => <option key={member} value={member}>{member}</option>)}
-        </select> : <span>{group.now ?? '—'}</span>}
+        </NimboSelect> : <span>{group.now ?? '—'}</span>}
       </div>)}
       <h3>Proxy providers</h3>
       {Object.entries(core.snapshot?.providers ?? {}).map(([name, provider]) => <div className="mihomo-live-row" key={name}><div><strong>{name}</strong><small>{provider.vehicleType ?? '—'} · {provider.proxies?.length ?? 0} {text('узлов', 'nodes')}</small></div><button disabled={busy} onClick={() => void core.live('provider', name)}>{text('Обновить provider', 'Refresh provider')}</button></div>)}
@@ -140,6 +179,6 @@ export function MihomoProfiles() {
         <button disabled={busy || !delayName || !validDelayUrl(delayUrl)} onClick={() => void core.live('delay', delayName, delayUrl)}>{text('Проверить задержку', 'Check delay')}</button>
       </div>{core.delay && <p role="status">{core.delay.name}: {core.delay.ms} ms</p>}</details>
     </section>}
-    {core.busy && <p role="status">{text('Операция выполняется…', 'Working…')}</p>}
+    {core.busy && <p role="status" aria-live="polite">{text('Операция выполняется…', 'Working…')}</p>}
   </div>;
 }

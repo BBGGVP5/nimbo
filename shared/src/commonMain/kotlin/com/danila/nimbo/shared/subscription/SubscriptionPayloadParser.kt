@@ -19,8 +19,8 @@ object SubscriptionPayloadParser {
     }
 
     private val supportedSchemes = setOf(
-        "vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "hy2", "tuic",
-        "naive", "naive+https", "naive+quic", "wg", "wireguard", "awg", "amneziawg"
+        "vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "hy2", "tuic", "mieru",
+        "naive", "naive+https", "naive+quic", "wg", "wireguard", "awg", "amneziawg", "tt"
     )
 
     fun parse(payload: String, source: String? = null): NormalizedSubscription {
@@ -71,6 +71,12 @@ object SubscriptionPayloadParser {
     private fun parseJson(raw: String, source: String?): NormalizedSubscription? {
         val root = runCatching { json.parseToJsonElement(raw) }.getOrNull() ?: return null
         if (root !is JsonObject && root !is JsonArray) return null
+
+        // Per-user JSON from a TrustTunnel endpoint's [subscription] section.
+        if (root is JsonObject && TrustTunnelLink.isSubscriptionJson(root)) {
+            val link = TrustTunnelLink.fromSubscriptionJson(root) ?: return null
+            return resultFromLinks(listOf(link), source, SubscriptionPayloadFormat.JSON_LINKS)
+        }
 
         if (root is JsonObject && root["outbounds"] is JsonArray) {
             val outbound = (root["outbounds"] as JsonArray)
@@ -141,6 +147,7 @@ object SubscriptionPayloadParser {
         if (scheme !in supportedSchemes) return null
 
         if (scheme == "vmess") return parseVmess(link)
+        if (scheme == "tt") return parseTrustTunnel(link)
 
         val withoutScheme = link.substringAfter("://")
         val fragmentRaw = withoutScheme.substringAfterLast('#', "")
@@ -149,7 +156,7 @@ object SubscriptionPayloadParser {
         val authority = beforeFragment.substringBefore('?')
         val hostPort = authority.substringAfterLast('@', authority)
         val host = parseHost(hostPort)
-        val port = parsePort(hostPort)
+        val port = parsePort(hostPort).let { if (it == 0 && (scheme.startsWith("naive") || scheme == "tuic")) 443 else it }
         val params = parseQuery(queryRaw)
         val canonicalProtocol = when (scheme) {
             "hy2" -> "hysteria2"
@@ -162,10 +169,13 @@ object SubscriptionPayloadParser {
         val fragment = splitFragment(fragmentRaw)
         val name = fragment.first.ifBlank { fallbackName }
         val transport = when {
+            scheme == "tuic" -> "quic"
+            scheme == "naive" -> "https"
             scheme.startsWith("naive+") -> scheme.substringAfter('+')
             else -> params["type"] ?: params["network"] ?: params["net"] ?: ""
         }
         val security = params["security"] ?: params["tls"] ?: when {
+            scheme.startsWith("naive") || scheme == "tuic" -> "tls"
             params.containsKey("pbk") || params.containsKey("publickey") -> "reality"
             else -> ""
         }
@@ -178,6 +188,23 @@ object SubscriptionPayloadParser {
             port = port,
             transport = transport,
             security = security,
+            rawConfiguration = link,
+            description = fragment.second
+        )
+    }
+
+    /** Binary `tt://?` deep link: everything lives in the TLV payload. */
+    private fun parseTrustTunnel(link: String): NormalizedSubscriptionServer? {
+        val endpoint = TrustTunnelLink.decodeOrNull(link) ?: return null
+        val fragment = splitFragment(link.substringAfter('#', ""))
+        return NormalizedSubscriptionServer(
+            id = stableId("tt|" + link.trim().substringBefore('#')),
+            name = fragment.first.ifBlank { TrustTunnelLink.displayName(endpoint) },
+            protocol = TrustTunnelLink.PROTOCOL,
+            host = endpoint.host,
+            port = endpoint.port,
+            transport = if (endpoint.http3) "http3" else "http2",
+            security = "tls",
             rawConfiguration = link,
             description = fragment.second
         )
@@ -241,11 +268,7 @@ object SubscriptionPayloadParser {
     }
 
     private fun extractShareLinks(raw: String): List<String> {
-        val pattern = Regex("(?i)(?:vless|vmess|trojan|ss|ssr|hysteria2|hy2|tuic|naive(?:\\+https|\\+quic)?|wg|wireguard|awg|amneziawg)://[^\\s<>\\\"]+")
-        return pattern.findAll(raw)
-            .map { it.value.trim().trimEnd(',', ';', '\'', ')', ']') }
-            .distinct()
-            .toList()
+        return SubscriptionShareLinks.extract(raw)
     }
 
     /**

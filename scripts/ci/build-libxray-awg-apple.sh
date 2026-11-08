@@ -3,19 +3,22 @@ set -euo pipefail
 
 # Compile upstream API3, AWG, diagnostics and Mihomo V1 in ONE package main.
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LIBXRAY_COMMIT=3c694b23290f9849fe52284a345ebd4343bc90cd
-LIBXRAY_SOURCE_SHA256=0b9162518c1eb2aadca13f39e63e9c5f7c904c4843ad6bc8f8251f2d1f99c185
-GO_VERSION=go1.27.1
+LIBXRAY_COMMIT=7fe8528063e54343af8ba9a37431afc56000de21
+LIBXRAY_SOURCE_SHA256=738a99755c184923fcc5aaede114953bef8156f4bf918c1977ab0743739a1bf5
+GO_VERSION=go1.27.3
 AWG_VERSION=v3.1.20260828
 BRIDGE_DIR="${ROOT_DIR}/iosApp/GoBridge"
 AWG_DIR="${ROOT_DIR}/tools/native/awg-core"
 MIHOMO_DIR="${ROOT_DIR}/tools/native/mihomo-core"
+NAIVE_DIR="${ROOT_DIR}/tools/native/naive-core"
+TRUSTTUNNEL_DIR="${ROOT_DIR}/tools/native/trusttunnel-core"
 CACHE_DIR="${ROOT_DIR}/.build-dependencies/libxray-awg/${LIBXRAY_COMMIT}"
 DESTINATION="${ROOT_DIR}/iosApp/Vendor/LibXray.xcframework"
 ARCHIVE="${CACHE_DIR}/libxray-source.tar.gz"
 
 [[ "$(uname -s)" == Darwin ]] || { echo 'Apple archives require macOS and Xcode' >&2; exit 20; }
-export GOFLAGS='-tags=no_tailscale,no_zerotier,no_easytier'
+export GOFLAGS='-tags=with_naive,with_gvisor,no_tailscale,no_zerotier,no_easytier'
+export CGO_LDFLAGS='-lc++'
 export GOTOOLCHAIN=local GOWORK=off GOSUMDB=sum.golang.org
 [[ "$(go env GOVERSION)" == "${GO_VERSION}" ]] || { echo "Use ${GO_VERSION}" >&2; exit 20; }
 [[ -f "${AWG_DIR}/go.mod" ]] || { echo 'Shared AWG sources are missing' >&2; exit 20; }
@@ -30,9 +33,11 @@ trap 'rm -rf "${WORK_DIR}"' EXIT
 tar -xzf "${ARCHIVE}" -C "${WORK_DIR}"
 SOURCE_DIR="${WORK_DIR}/libXray-${LIBXRAY_COMMIT}"
 cp "${BRIDGE_DIR}/"*.go "${SOURCE_DIR}/cgo_bridge/"
+cp "${ROOT_DIR}/tools/native/libxray-memory/memory_ios.go" "${SOURCE_DIR}/memory/memory_ios.go"
 cp "${BRIDGE_DIR}/go.mod" "${BRIDGE_DIR}/go.sum" "${SOURCE_DIR}/"
 cd "${SOURCE_DIR}"
-go mod edit "-replace=nimbo/awgcore=${AWG_DIR}"
+go mod edit "-replace=nimbo/awgcore=${AWG_DIR}" "-replace=nimbo/naivecore=${NAIVE_DIR}" \
+  "-replace=nimbo/trusttunnelcore=${TRUSTTUNNEL_DIR}"
 python3 "${ROOT_DIR}/scripts/ci/prepare-mihomo-merged.py" \
   --source-dir "${SOURCE_DIR}" --dependency-dir "${WORK_DIR}/mihomo-dependencies"
 go mod download
@@ -46,13 +51,21 @@ cp go.mod go.sum "${WORK_DIR}/verify/"
   cd "${WORK_DIR}/verify"
   go mod edit -droprequire=nimbo/awgcore -dropreplace=nimbo/awgcore \
     -droprequire=nimbo/mihomocore -dropreplace=nimbo/mihomocore \
+    -droprequire=nimbo/naivecore -dropreplace=nimbo/naivecore \
+    -droprequire=nimbo/trusttunnelcore -dropreplace=nimbo/trusttunnelcore \
     -dropreplace=google.golang.org/protobuf \
     -dropreplace=github.com/metacubex/mihomo
   go mod verify
 )
 [[ "$(go list -m -f '{{.Version}}' github.com/amnezia-vpn/amneziawg-go/v3)" == "${AWG_VERSION}" ]]
-[[ "$(go list -m -f '{{.Version}}' github.com/metacubex/mihomo)" == 'v1.19.31' ]]
+[[ "$(go list -m -f '{{.Version}}' github.com/metacubex/mihomo)" == 'v1.19.33' ]]
+python3 "${ROOT_DIR}/scripts/ci/prepare-xray-apple-tun.py" --dependency-dir "${WORK_DIR}/xray-apple"
+go test -mod=readonly -race -count=1 -timeout=90s -run '^TestNimboBorrowedDescriptorReconnect$' github.com/xtls/xray-core/proxy/tun
+go test -mod=readonly -race -count=1 -timeout=120s -run '^TestNimboSticky' github.com/xtls/xray-core/app/router github.com/xtls/xray-core/app/observatory
+
 go test -mod=readonly -count=1 nimbo/awgcore nimbo/mihomocore ./cgo_bridge
+go test -mod=readonly -count=1 -timeout=120s nimbo/naivecore
+go test -mod=readonly -count=1 -timeout=120s nimbo/trusttunnelcore
 
 # Execute the production request contract against the same merged C bridge on
 # the macOS host. This temporary library contains both engines in one Go build;
@@ -61,6 +74,7 @@ go build -mod=readonly -trimpath -buildvcs=false -buildmode=c-shared \
   -o "${WORK_DIR}/libXray-contract.dylib" ./cgo_bridge
 python3 "${ROOT_DIR}/scripts/ci/test-libxray-cabi.py" "${WORK_DIR}/libXray-contract.dylib"
 python3 "${ROOT_DIR}/scripts/ci/test-libxray-mihomo-cabi.py" "${WORK_DIR}/libXray-contract.dylib"
+python3 "${ROOT_DIR}/scripts/ci/test-libxray-naive-cabi.py" "${WORK_DIR}/libXray-contract.dylib"
 
 build_slice() {
   local sdk="$1" go_arch="$2" apple_arch="$3" target="$4"
@@ -68,20 +82,42 @@ build_slice() {
   local sdk_path
   sdk_path="$(xcrun --sdk "${sdk}" --show-sdk-path)"
   local flags="-isysroot ${sdk_path} -target ${target}"
+  local tags='ios,with_naive,with_gvisor,no_tailscale,no_zerotier,no_easytier'
+  local cronet_module="github.com/sagernet/cronet-go/lib/ios_${go_arch}"
+  if [[ "${sdk}" == iphonesimulator ]]; then
+    tags="${tags},iossimulator"
+    cronet_module="${cronet_module}_simulator"
+  fi
+  local cronet_dir
+  cronet_dir="$(go list -m -f '{{.Dir}}' "${cronet_module}")"
+  [[ -f "${cronet_dir}/libcronet.a" ]] || { echo 'Pinned Cronet slice missing' >&2; exit 21; }
   mkdir -p "${out}/Headers"
   env GOOS=ios GOARCH="${go_arch}" CGO_ENABLED=1 \
     CC="$(xcrun --sdk "${sdk}" --find clang)" \
     CXX="$(xcrun --sdk "${sdk}" --find clang++)" \
-    CGO_CFLAGS="${flags}" CGO_CXXFLAGS="${flags}" CGO_LDFLAGS="${flags}" \
-    go build -mod=readonly -tags=ios,no_tailscale,no_zerotier,no_easytier -trimpath -buildvcs=false \
+    CGO_CFLAGS="${flags}" CGO_CXXFLAGS="${flags}" CGO_LDFLAGS="${flags} -lc++" \
+    go build -mod=readonly -tags="${tags}" -trimpath -buildvcs=false \
       -ldflags='-s -w -buildid=' -buildmode=c-archive -o "${out}/libXray.a" ./cgo_bridge
+  # c-archive does not carry third-party static archives into the final Swift
+  # link. Merge Cronet objects, not another Go runtime, into this exact slice.
+  # Exact upstream iOS archives reference a feature initializer for the absent
+  # kqueue pump; iOS Cronet uses CFRunLoop. Fail closed on any dependency change.
+  local compat="${ROOT_DIR}/tools/native/naive-apple-compat"
+  python3 "${compat}/test_check_archive.py"
+  python3 "${compat}/check_archive.py" "${cronet_dir}/libcronet.a" "${cronet_module##*/}"
+  xcrun --sdk "${sdk}" clang++ -isysroot "${sdk_path}" -target "${target}" \
+    -fapplication-extension -c "${compat}/unused_kqueue_feature.cc" -o "${out}/unused_kqueue_feature.o"
+  xcrun libtool -static -o "${out}/libXray-complete.a" "${out}/libXray.a" \
+    "${cronet_dir}/libcronet.a" "${out}/unused_kqueue_feature.o"
+  mv "${out}/libXray-complete.a" "${out}/libXray.a"
   cp "${out}/libXray.h" "${out}/Headers/"
   cp build/template/module.modulemap "${out}/Headers/"
   nm -gU "${out}/libXray.a" > "${out}/symbols.txt"
-  for symbol in CGoInvoke CGoFree NimboAWGStart NimboAWGStop NimboAWGStats NimboDiagnosticRun NimboDiagnosticCancel NimboMihomoInvokeV1 NimboMihomoCancelV1 NimboMihomoSetSocketProtectorV1 NimboMihomoStartIOSV1 NimboMihomoFreeV1; do
+  for symbol in NimboNaiveStart NimboNaiveStop NimboNaiveStatus NimboNaiveResetConnections CGoInvoke CGoFree NimboAWGStart NimboAWGStop NimboAWGStats NimboDiagnosticRun NimboDiagnosticCancel NimboMihomoInvokeV1 NimboMihomoCancelV1 NimboMihomoSetSocketProtectorV1 NimboMihomoStartIOSV1 NimboMihomoFreeV1 NimboMihomoStartIOSPacketFlowV1 NimboMihomoWriteIOSPacketV1 NimboMihomoReadIOSPacketV1; do
     grep -q " _${symbol}$" "${out}/symbols.txt" || { echo "Missing ${symbol} in ${sdk}/${apple_arch} archive" >&2; exit 21; }
     grep -q "${symbol}(" "${out}/Headers/libXray.h" || { echo "Missing ${symbol} in generated C header" >&2; exit 21; }
   done
+  grep -q " _Cronet_Engine_Create$" "${out}/symbols.txt" || { echo "Cronet not linked" >&2; exit 21; }
   # Compile and link the production Swift bridge against this real C archive.
   # This catches header/module/link errors before the much larger IPA build.
   # The temporary dylib is a link check only and is never shipped or executed.
@@ -89,39 +125,68 @@ build_slice() {
     -swift-version 5 -application-extension -emit-library \
     -module-name NimboAWGLinkCheck -I "${out}/Headers" \
     "${ROOT_DIR}/iosApp/Shared/NimboAWGConfiguration.swift" \
+    "${ROOT_DIR}/iosApp/Shared/NimboNaiveConfiguration.swift" \
+    "${ROOT_DIR}/iosApp/PacketTunnel/NaiveProxyBridge.swift" \
+    "${ROOT_DIR}/iosApp/Shared/NimboTrustTunnelConfiguration.swift" \
+    "${ROOT_DIR}/iosApp/PacketTunnel/TrustTunnelBridge.swift" \
+    "${ROOT_DIR}/iosApp/Shared/NimboMihomoSessionPolicy.swift" \
+    "${ROOT_DIR}/iosApp/Shared/NimboAdBlocking.swift" \
     "${ROOT_DIR}/iosApp/PacketTunnel/AmneziaWGBridge.swift" \
-    "${out}/libXray.a" -lresolv -framework Security -framework CoreFoundation \
+    "${ROOT_DIR}/iosApp/PacketTunnel/MihomoPacketBridge.swift" \
+    "${out}/libXray.a" -lresolv -framework Security -framework CoreFoundation -framework Network -framework NetworkExtension -lc++ -framework CoreGraphics -framework CoreText -framework Foundation -framework UIKit -framework CFNetwork -framework MobileCoreServices -framework SystemConfiguration -framework UniformTypeIdentifiers -framework CoreTelephony -framework CryptoTokenKit -framework LocalAuthentication \
     -o "${out}/NimboAWGLinkCheck.dylib"
 }
 build_slice iphoneos arm64 arm64 arm64-apple-ios16.0
-build_slice iphonesimulator arm64 arm64 arm64-apple-ios16.0-simulator
-build_slice iphonesimulator amd64 x86_64 x86_64-apple-ios16.0-simulator
-mkdir -p "${WORK_DIR}/simulator"
-lipo -create "${WORK_DIR}/iphonesimulator-arm64/libXray.a" \
-  "${WORK_DIR}/iphonesimulator-x86_64/libXray.a" -output "${WORK_DIR}/simulator/libXray.a"
-xcodebuild -create-xcframework \
-  -library "${WORK_DIR}/iphoneos-arm64/libXray.a" -headers "${WORK_DIR}/iphoneos-arm64/Headers" \
-  -library "${WORK_DIR}/simulator/libXray.a" -headers "${WORK_DIR}/iphonesimulator-arm64/Headers" \
-  -output "${WORK_DIR}/LibXray.xcframework"
+SELECTED_SLICES=iphoneos-arm64
+XCFRAMEWORK_ARGS=(-create-xcframework
+  -library "${WORK_DIR}/iphoneos-arm64/libXray.a" -headers "${WORK_DIR}/iphoneos-arm64/Headers")
+# Opt in for xtool; ordinary Apple builds retain both simulator architectures.
+if [[ "${NIMBO_APPLE_DEVICE_ONLY:-0}" != "1" ]]; then
+  build_slice iphonesimulator arm64 arm64 arm64-apple-ios16.0-simulator
+  build_slice iphonesimulator amd64 x86_64 x86_64-apple-ios16.0-simulator
+  SELECTED_SLICES="${SELECTED_SLICES},iphonesimulator-arm64,iphonesimulator-x86_64"
+  mkdir -p "${WORK_DIR}/simulator"
+  lipo -create "${WORK_DIR}/iphonesimulator-arm64/libXray.a" \
+    "${WORK_DIR}/iphonesimulator-x86_64/libXray.a" -output "${WORK_DIR}/simulator/libXray.a"
+  XCFRAMEWORK_ARGS+=(-library "${WORK_DIR}/simulator/libXray.a" -headers "${WORK_DIR}/iphonesimulator-arm64/Headers")
+fi
+xcodebuild "${XCFRAMEWORK_ARGS[@]}" -output "${WORK_DIR}/LibXray.xcframework"
 rm -rf "${DESTINATION}"
 ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
 {
-  echo 'libxray_version=26.9.30'
+  echo 'libxray_version=26.10.31'
   echo "libxray_commit=${LIBXRAY_COMMIT}"
   echo "libxray_source_sha256=${LIBXRAY_SOURCE_SHA256}"
   echo "awg_version=${AWG_VERSION}"
   echo "go_version=${GO_VERSION}"
   echo 'go_runtime_archives_per_slice=1'
+  echo 'runtime_memory_policy=soft-budget-no-forced-gc-timer'
+  shasum -a 256 "${ROOT_DIR}/tools/native/libxray-memory/memory_ios.go"
+  echo 'naive_version=150.0.7871.63'
+  echo 'cronet_go_commit=0d28acc44093df24b2526dea3d6ffefd6b0a54f0'
+  echo 'native_naive_contract_test=passed'
+  echo 'cronet_ios_compat=pinned-unused-kqueue-feature-init'
+  shasum -a 256 "${ROOT_DIR}/tools/native/naive-apple-compat/"*.py "${ROOT_DIR}/tools/native/naive-apple-compat/"*.cc
+  echo 'naive_ios_device_acceptance=required'
+  echo 'xray_version=26.10.31'
+  echo 'xray_apple_tun_ownership=upstream-duplicate-cloexec'
+  echo 'nimbo_auto_strategy=sticky-v1-generated-config-only'
+  echo 'native_sticky_router_observatory_race_tests=passed'
+  shasum -a 256 "${ROOT_DIR}/scripts/ci/prepare-xray-apple-tun.py" \
+    "${ROOT_DIR}/scripts/ci/prepare_xray_sticky.py" \
+    "${ROOT_DIR}/tools/native/xray-apple-sticky/"*.go \
+    "${ROOT_DIR}/tools/native/xray-apple-tun/descriptor_darwin_test.go"
   echo 'native_api3_awg_contract_test=passed'
   echo 'native_mihomo_v1_contract_test=passed'
-  echo 'mihomo_version=v1.19.31'
-  echo 'mihomo_ios_tun=unavailable'
-  echo 'swift_awg_link_check=iphoneos-arm64,iphonesimulator-arm64,iphonesimulator-x86_64'
+  echo 'mihomo_version=v1.19.33'
+  echo 'mihomo_ios_tun=public-packet-flow-source-linked-device-unverified'
+  echo "apple_slices=${SELECTED_SLICES}"
+  echo "swift_awg_link_check=${SELECTED_SLICES}"
   shasum -a 256 "${BRIDGE_DIR}/"*.go "${BRIDGE_DIR}/go.mod" "${BRIDGE_DIR}/go.sum"
-  find "${AWG_DIR}" -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) -print | LC_ALL=C sort | while IFS= read -r file; do
+  find "${AWG_DIR}" "${NAIVE_DIR}" -type f \( -name '*.go' -o -name go.mod -o -name go.sum \) -print | LC_ALL=C sort | while IFS= read -r file; do
     shasum -a 256 "${file}"
   done
 } > "${ROOT_DIR}/iosApp/Vendor/libxray-build-info.txt"
 cp "${WORK_DIR}/mihomo-dependencies/mihomo-source-verification.json" \
   "${ROOT_DIR}/iosApp/Vendor/mihomo-source-verification.json"
-echo "Prepared single-runtime LibXray 26.9.30 / AWG ${AWG_VERSION} / Mihomo V1 bridge; iOS Mihomo TUN remains unavailable"
+echo "Prepared single-runtime LibXray 26.10.31 / AWG ${AWG_VERSION} / Mihomo V1 bridge; iOS Mihomo public packet-flow linked; device acceptance remains required"

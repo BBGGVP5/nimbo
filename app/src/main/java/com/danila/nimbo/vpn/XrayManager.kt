@@ -29,6 +29,9 @@ object XrayManager {
     var isConnected = false
         private set
 
+    var activeAdBlockingEnabled: Boolean? = null
+        private set
+
     var connectionError: String? = null
         private set
 
@@ -44,6 +47,7 @@ object XrayManager {
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             disconnect()
+            val adBlocking = PreferencesManager(context).adBlockingEnabled
             NebulaGuardApplication.ensureXrayCoreLoaded()
 
             val vpnFd = establishTun(vpnService, underlyingNetwork)
@@ -72,8 +76,15 @@ object XrayManager {
             val healthRouteVerified = LocalProxyConfig.authenticateVerifiedRoute(
                 authenticatedConfig, healthSession, server.remoteOutboundTag, server.remoteBalancerTag
             )
+            // Apply after health-route authentication and every provider/profile rewrite.
+            // Both individual servers and full templates enter this common final path.
+            val effectiveConfig = AdBlockingRules.overlay(authenticatedConfig, adBlocking)
+            // После всех перезаписей правил: зеркальный вход должен повторить итоговый маршрут tun-in.
+            healthSession.mirrorReady = runCatching { LocalProxyConfig.addMirrorInbound(effectiveConfig, healthSession) }
+                .onFailure { Logger.w(TAG, "Service status mirror inbound skipped: ${it.message}") }
+                .getOrDefault(false)
             val config = XrayCoreProtocol.withAndroidRuntimeEnv(
-                configJson = authenticatedConfig.toString(),
+                configJson = effectiveConfig.toString(),
                 assetDirectory = datDir.absolutePath,
                 tunFd = vpnFd
             )
@@ -82,6 +93,7 @@ object XrayManager {
             val runResult = LibXray.invoke(XrayCoreProtocol.runXrayFromJson(config))
             if (isOk(runResult)) {
                 isConnected = true
+                activeAdBlockingEnabled = adBlocking
                 // Keep existing authenticated startup health checks available even when
                 // this route is too complex to certify for user-facing Nimbo Ping.
                 HealthProxySessions.activate(healthSession, verifiedRoute = healthRouteVerified)
@@ -106,6 +118,7 @@ object XrayManager {
     }
 
     fun disconnect() {
+        activeAdBlockingEnabled = null
         HealthProxySessions.invalidate()
         runCatching { LibXray.invoke(XrayCoreProtocol.stopXray()) }
         runCatching { tunInterface?.close() }
@@ -307,7 +320,8 @@ object XrayManager {
                 hasTunInbound = true
                 if (RoutingRuntimePolicy.shouldEnableSniffing(
                         userEnabled = prefs.trafficSniffingEnabled,
-                        routingEnabled = prefs.isRoutingEnabled
+                        routingEnabled = prefs.isRoutingEnabled,
+                        adBlockingEnabled = prefs.adBlockingEnabled
                     )
                 ) {
                     inbound.put("sniffing", buildSniffingConfig())
@@ -355,7 +369,8 @@ object XrayManager {
         // dies. Inject the profile's concrete servers as proxy/<i> outbounds (matching the
         // balancer selector prefix) and drop the remnawave key xray-core doesn't understand.
         if (proxyServers.isNotEmpty() &&
-            (RemnawaveApiClient.hasBalancerOrInjectHosts(json) || (server != null && com.danila.nimbo.utils.isAutoBalancerServer(server)))
+            (RemnawaveApiClient.hasBalancerOrInjectHosts(json) || (server != null && com.danila.nimbo.utils.isAutoBalancerServer(server))) &&
+            XrayBalancerMembers.needsInjection(json)
         ) {
             val injectHosts = json.optJSONObject("remnawave")?.optJSONArray("injectHosts")
             var injected = 0
@@ -811,7 +826,8 @@ object XrayManager {
             })
             if (RoutingRuntimePolicy.shouldEnableSniffing(
                     userEnabled = prefs.trafficSniffingEnabled,
-                    routingEnabled = prefs.isRoutingEnabled
+                    routingEnabled = prefs.isRoutingEnabled,
+                    adBlockingEnabled = prefs.adBlockingEnabled
                 )
             ) {
                 put("sniffing", buildSniffingConfig())
@@ -871,7 +887,7 @@ object XrayManager {
 
     /** Build only; never touches the running core, TUN or selected server. */
     internal fun diagnosticConfig(server: Server, template: String?, peers: List<Server>): String? = runCatching {
-        require(!server.isNaiveProxy()) // Its live sidecar would measure a different connection.
+        require(!server.usesLocalSocksSidecar()) // Its live sidecar would measure a different connection.
         require(!server.protocol.lowercase().let { it.contains("awg") || it.contains("amnezia") || it == "wireguard" || it == "wg" })
         if (server.isRemoteTemplateServer() || !server.remoteOutboundTag.isNullOrBlank() || !server.remoteBalancerTag.isNullOrBlank()) {
             // Never substitute a generated/default node when a template is missing or invalid.
@@ -1109,6 +1125,7 @@ object XrayManager {
             protocol == "ss" || protocol.contains("shadowsocks") -> "shadowsocks"
             protocol == "hy2" || protocol.contains("hysteria") -> "hysteria"
             protocol == "naive" || protocol == "naiveproxy" || protocol.startsWith("naive+") -> "socks"
+            protocol == "trusttunnel" -> "socks"
             else -> protocol
         }
     }
@@ -1146,18 +1163,33 @@ object XrayManager {
                 .put("version", 2)
                 .put("address", server.host)
                 .put("port", server.port)
-            "socks" -> JSONObject().put("servers", JSONArray().put(
-                JSONObject()
-                    .put("address", "127.0.0.1")
-                    .put("port", server.naiveLocalPort
-                        ?: error("NaiveProxy sidecar has not supplied a local SOCKS port"))
-            ))
+            "socks" -> if (server.isTrustTunnel()) {
+                // Authenticated loopback SOCKS of the in-process TrustTunnel bridge.
+                JSONObject().put("servers", JSONArray().put(
+                    JSONObject()
+                        .put("address", "127.0.0.1")
+                        .put("port", server.trustTunnelSocksPort
+                            ?: error("TrustTunnel bridge has not supplied a local SOCKS port"))
+                        .put("users", JSONArray().put(
+                            JSONObject()
+                                .put("user", server.trustTunnelSocksUsername.orEmpty())
+                                .put("pass", server.trustTunnelSocksPassword.orEmpty())
+                        ))
+                ))
+            } else {
+                JSONObject().put("servers", JSONArray().put(
+                    JSONObject()
+                        .put("address", "127.0.0.1")
+                        .put("port", server.naiveLocalPort
+                            ?: error("NaiveProxy sidecar has not supplied a local SOCKS port"))
+                ))
+            }
             else -> error("Unsupported protocol for Xray: $protocol")
         }
     }
 
     internal fun buildStreamSettings(server: Server): JSONObject? {
-        if (server.isNaiveProxy()) return null
+        if (server.usesLocalSocksSidecar()) return null
         val serverProtocol = server.protocol.trim().lowercase()
         val rawNetwork = server.network
             ?.lowercase()

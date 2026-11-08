@@ -39,6 +39,38 @@ enum NimboPingPolicy {
         milliseconds > 0 ? min(10, max(1, Double(milliseconds) / 1000)) : 3
     }
 
+    /// Negative-only optimisation, not a ping. Do not guess a QUIC transport,
+    /// chained route, alternate XHTTP download endpoint or opaque share format.
+    /// The endpoint must match the immutable configuration, not just its label.
+    static func canPreflight(configuration: String, host: String, port: Int) -> Bool {
+        guard !host.isEmpty, (1...65535).contains(port) else { return false }
+        let tcpNetworks = ["tcp", "raw", "ws", "websocket", "grpc", "httpupgrade", "http", "h2"]
+        let source = configuration.trimmingCharacters(in: .whitespacesAndNewlines)
+        if source.hasPrefix("{") {
+            guard let root = (try? JSONSerialization.jsonObject(with: Data(source.utf8))) as? [String: Any],
+                  let outbounds = root["outbounds"] as? [[String: Any]] else { return false }
+            let proxies = outbounds.filter { !["freedom", "blackhole", "dns"].contains($0["protocol"] as? String ?? "") }
+            guard proxies.count == 1, let proxy = proxies.first,
+                  ["vless", "vmess", "trojan", "shadowsocks", "socks", "http"].contains(proxy["protocol"] as? String ?? ""),
+                  proxy["proxySettings"] == nil, proxy["sendThrough"] == nil else { return false }
+            let stream = proxy["streamSettings"] as? [String: Any] ?? [:]
+            guard tcpNetworks.contains(stream["network"] as? String ?? "tcp"),
+                  stream["sockopt"] == nil else { return false }
+            let settings = proxy["settings"] as? [String: Any] ?? [:]
+            let peers = (settings["vnext"] ?? settings["servers"]) as? [[String: Any]] ?? []
+            // Multi-address retries cannot be rejected from the first address.
+            return peers.count == 1 && peers[0]["address"] as? String == host && peers[0]["port"] as? Int == port
+        }
+        guard !source.contains("\n"), !source.contains("\r"),
+              let link = URLComponents(string: source),
+              ["vless", "trojan", "ss", "socks", "socks5"].contains(link.scheme?.lowercased() ?? ""),
+              link.host == host, link.port == port else { return false }
+        let query = link.queryItems ?? []
+        guard !query.contains(where: { ["plugin", "dialerProxy", "chain", "downloadSettings"].contains($0.name) }),
+              query.filter({ $0.name == "type" }).count <= 1 else { return false }
+        return tcpNetworks.contains(query.first(where: { $0.name == "type" })?.value ?? "tcp")
+    }
+
     static func checkedURL(_ raw: String) -> URL? {
         guard raw.utf8.count <= 4096,
               !raw.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) || CharacterSet.whitespacesAndNewlines.contains($0) }),

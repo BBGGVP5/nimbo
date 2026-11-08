@@ -10,6 +10,57 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NodePingConfigTest {
+    @Test fun `ordinary fragmented TLS node keeps its terminal transport helper without direct fallback`() {
+        val node = JSONObject("""{"tag":"node","protocol":"vless","streamSettings":{"security":"reality","sockopt":{"dialerProxy":"fragment"}}}""")
+        val root = config(node)
+        val fragmenter = JSONObject("""{"tag":"fragment","protocol":"freedom","settings":{"fragment":{"packets":"tlshello","length":"100-200","interval":"10-20"}},"streamSettings":{"sockopt":{"tcpNoDelay":true}}}""")
+        root.getJSONArray("outbounds").put(fragmenter)
+        val output = JSONObject(requireNotNull(NodePingConfig.prepare(root.toString(), 32103, HealthProxySession("fragment"))))
+        assertEquals(fragmenter.toString(), output.getJSONArray("outbounds").getJSONObject(3).toString())
+        fragmenter.getJSONObject("settings").put("redirect", "different.example:443")
+        assertNull(NodePingConfig.prepare(root.toString(), 32103, HealthProxySession("redirect")))
+        fragmenter.getJSONObject("settings").remove("redirect")
+        fragmenter.getJSONObject("streamSettings").getJSONObject("sockopt").put("dialerProxy", "direct")
+        assertNull(NodePingConfig.prepare(root.toString(), 32103, HealthProxySession("chain")))
+    }
+
+    @Test fun `balancer fallback loopback keeps its backup routing and observer members`() {
+        val root = JSONObject("""{"outbounds":[
+          {"tag":"main/1","protocol":"vless"},{"tag":"backup/1","protocol":"vless"},
+          {"tag":"retry","protocol":"loopback","settings":{"inboundTag":"backup-in"}},
+          {"tag":"block","protocol":"blackhole"}],
+          "routing":{"rules":[{"type":"field","inboundTag":["nimbo-health-in"],"balancerTag":"main"},
+            {"type":"field","inboundTag":["backup-in"],"network":"tcp,udp","balancerTag":"backup"}],
+            "balancers":[{"tag":"main","selector":["main/"],"strategy":{"type":"leastPing"},"fallbackTag":"retry"},
+              {"tag":"backup","selector":["backup/"],"strategy":{"type":"leastPing"},"fallbackTag":"block"}]},
+          "observatory":{"subjectSelector":["main/","backup/"],"probeUrl":"https://probe.example"},
+          "transport":{"tcpSettings":{"header":{"type":"none"}}}}""")
+        val output = JSONObject(requireNotNull(NodePingConfig.prepare(root.toString(), 32101, HealthProxySession("backup"), 32102)))
+        assertEquals(2, output.getJSONObject("routing").getJSONArray("balancers").length())
+        assertEquals("backup", output.getJSONObject("routing").getJSONArray("rules").getJSONObject(1).getString("balancerTag"))
+        assertEquals(setOf("main/1", "backup/1"), NodePingConfig.leastPingCandidates(root.toString()))
+        assertEquals(root.getJSONObject("transport").toString(), output.getJSONObject("transport").toString())
+        val virtual = JSONObject(root.toString())
+        val virtualRules = JSONArray().put(JSONObject().put("type", "field")
+            .put("inboundTag", JSONArray().put(LocalProxyConfig.INBOUND_TAG)).put("outboundTag", "retry"))
+        virtualRules.put(root.getJSONObject("routing").getJSONArray("rules").getJSONObject(1))
+        virtual.getJSONObject("routing").put("rules", virtualRules)
+        val virtualOutput = JSONObject(requireNotNull(NodePingConfig.prepare(virtual.toString(), 32101, HealthProxySession("virtual"), 32102)))
+        assertEquals("retry", virtualOutput.getJSONObject("routing").getJSONArray("rules").getJSONObject(0).getString("outboundTag"))
+        assertEquals(setOf("backup/1"), NodePingConfig.leastPingCandidates(virtual.toString()))
+        val unsafe = JSONObject(root.toString())
+        unsafe.getJSONObject("routing").getJSONArray("rules").getJSONObject(1).remove("balancerTag")
+        unsafe.getJSONObject("routing").getJSONArray("rules").getJSONObject(1).put("outboundTag", "direct")
+        unsafe.getJSONArray("outbounds").put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
+        assertNull(NodePingConfig.prepare(unsafe.toString(), 32101, HealthProxySession("unsafe")))
+        val conditional = JSONObject(root.toString())
+        conditional.getJSONObject("routing").getJSONArray("rules").getJSONObject(1).put("domain", JSONArray().put("test.example"))
+        assertNull(NodePingConfig.prepare(conditional.toString(), 32101, HealthProxySession("conditional")))
+        val cycle = JSONObject(root.toString())
+        cycle.getJSONObject("routing").getJSONArray("rules").getJSONObject(1).put("balancerTag", "main")
+        assertNull(NodePingConfig.prepare(cycle.toString(), 32101, HealthProxySession("cycle")))
+    }
+
     private fun config(node: JSONObject, tag: String = "node") = JSONObject()
         .put("inbounds", JSONArray().put(JSONObject().put("protocol", "tun")))
         .put("env", JSONObject().put("xray.tun.fd", "123"))

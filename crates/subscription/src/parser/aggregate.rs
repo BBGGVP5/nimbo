@@ -1,6 +1,7 @@
 use crate::model::Server;
 use crate::parser::{
-    awg, b64_decode_str, hysteria2, naive, shadowsocks, trojan, vless, vmess, xray_json, ParseError,
+    awg, b64_decode_str, hysteria2, naive, shadowsocks, trojan, trusttunnel, vless, vmess,
+    xray_json, ParseError,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9,6 +10,7 @@ pub enum Format {
     AwgIni,
     PlainList,
     XrayJson,
+    TrustTunnelJson,
     SingboxJson,
     ClashYaml,
     Unknown,
@@ -30,6 +32,9 @@ pub fn detect_format(body: &str) -> Format {
                 serde_json::Value::Object(_) => Some(&value),
                 _ => None,
             };
+            if trusttunnel::looks_like_subscription_json(&value) {
+                return Format::TrustTunnelJson;
+            }
             if let Some(node) = probe {
                 if node.get("outbounds").is_some() {
                     if has_singbox_marker(node) {
@@ -78,6 +83,7 @@ pub fn parse_aggregate(body: &str) -> Result<Vec<Server>, ParseError> {
         }
         Format::PlainList => parse_plain_list(body),
         Format::XrayJson => xray_json::parse(body),
+        Format::TrustTunnelJson => trusttunnel::parse_subscription_json(body).map(|s| vec![s]),
         Format::SingboxJson | Format::ClashYaml => Err(ParseError::InvalidUrl(
             "sing-box/clash subscription formats not yet supported".into(),
         )),
@@ -129,6 +135,8 @@ pub fn parse_single(line: &str) -> Result<Server, ParseError> {
         || line.starts_with("naive+quic://")
     {
         naive::parse(line)
+    } else if trusttunnel::is_uri(line) {
+        trusttunnel::parse(line)
     } else {
         Err(ParseError::UnsupportedScheme(
             line.split("://").next().unwrap_or("").to_string(),
@@ -148,6 +156,7 @@ fn looks_like_proxy_url(line: &str) -> bool {
         || line.starts_with("naive+https://")
         || line.starts_with("naive+quic://")
         || line.starts_with("tuic://")
+        || trusttunnel::is_uri(line)
 }
 
 fn has_singbox_marker(v: &serde_json::Value) -> bool {
@@ -188,6 +197,8 @@ mod tests {
     const SS_LINE: &str = "ss://aes-256-gcm:p@h.tld:8388#ss-srv";
     const HY2_LINE: &str = "hysteria2://secret@hy.tld:443?sni=cdn.hy.tld#hy2-srv";
     const NAIVE_LINE: &str = "naive+https://user:secret@naive.tld:443#naive-srv";
+    // hostname=tt.tld, addresses=tt.tld:443, username=u, password=p
+    const TT_LINE: &str = "tt://?AQZ0dC50bGQCCnR0LnRsZDo0NDMFAXUGAXA";
 
     #[test]
     fn detects_plain_list() {
@@ -234,6 +245,19 @@ mod tests {
         let body = format!("# comment\n\n{VLESS_LINE}\nnot-a-url\n{TROJAN_LINE}\n");
         let servers = parse_aggregate(&body).unwrap();
         assert_eq!(servers.len(), 2);
+    }
+
+    #[test]
+    fn detects_base64_trusttunnel_list_and_endpoint_json() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(format!(
+            "{TT_LINE}
+"
+        ));
+        assert_eq!(detect_format(&encoded), Format::Base64Aggregate);
+        assert_eq!(parse_aggregate(&encoded).unwrap().len(), 1);
+        let json = r#"{"hostname":"h","address":"h:443","username":"u","password":"p","upstream_protocol":"http2"}"#;
+        assert_eq!(detect_format(json), Format::TrustTunnelJson);
+        assert_eq!(parse_aggregate(json).unwrap().len(), 1);
     }
 
     #[test]

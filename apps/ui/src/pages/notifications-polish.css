@@ -1,0 +1,26 @@
+/* Keep row geometry authoritative across the older themes. */
+body[data-ui-style] .notification-page .notification-workspace { padding: 20px; }
+body[data-ui-style] .notification-page .notification-history-group-items { gap: 0; }
+body[data-ui-style] .notification-page .notification-history-item {
+  display: grid; grid-template-columns: 36px minmax(0,1fr) auto 44px; align-items: center; gap: 14px;
+  padding: 14px 16px; min-height: 76px; border: 0; border-bottom: 1px solid var(--color-border);
+  border-radius: 0; background: transparent; box-shadow: none; transform: none;
+}
+body[data-ui-style] .notification-page .notification-history-item:last-child { border-bottom: 0; }
+body[data-ui-style] .notification-page .notification-history-item::before { content: none; }
+body[data-ui-style] .notification-page .notification-history-item:hover { background: var(--color-card); box-shadow: none; transform: none; }
+body[data-ui-style] .notification-page .notification-history-icon { width: 36px; height: 36px; border-radius: 10px; background: var(--color-card); }
+body[data-ui-style] .notification-page .notification-history-icon svg { width: 20px; height: 20px; }
+body[data-ui-style] .notification-page .notification-history-message { white-space: normal; overflow-wrap: anywhere; line-height: 1.5; font-size: 13px; font-weight: 400; overflow: visible; }
+body[data-ui-style] .notification-page .notification-history-tone { font-size: 10px; font-weight: 550; letter-spacing: .04em; color: var(--color-text-dim); }
+body[data-ui-style] .notification-page .notification-history-time { font-size: 11px; font-weight: 400; color: var(--color-text-dim); white-space: nowrap; }
+body[data-ui-style] .notification-page .notification-history-delete { width: 44px; height: 44px; opacity: 1; transform: none; }
+body[data-ui-style] .notification-page .notification-history-delete:focus-visible { outline: 2px solid var(--color-text); outline-offset: 2px; }
+@media (max-width: 600px) {
+  body[data-ui-style] .notification-page .notification-workspace { padding: 8px; }
+  body[data-ui-style] .notification-page .notification-history-item { grid-template-columns: 32px minmax(0,1fr) 44px; padding: 12px; gap: 4px 10px; }
+  body[data-ui-style] .notification-page .notification-history-icon { width: 32px; height: 32px; grid-column: 1; grid-row: 1; align-self: start; }
+  body[data-ui-style] .notification-page .notification-history-body { grid-column: 2; grid-row: 1; }
+  body[data-ui-style] .notification-page .notification-history-time { grid-column: 2; grid-row: 2; justify-self: start; }
+  body[data-ui-style] .notification-page .notification-history-delete { grid-column: 3; grid-row: 1 / 3; }
+}

@@ -9,6 +9,7 @@ import com.danila.nimbo.mihomo.MihomoProtocol
 import com.danila.nimbo.mihomo.MihomoSubscriptionFetcher
 import com.danila.nimbo.mihomo.MihomoSubscriptionTemplates
 import com.danila.nimbo.utils.AppVersionManager
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URLDecoder
@@ -606,6 +607,12 @@ object SubscriptionManager {
             .header("User-Agent", requestUserAgent)
             .header("Cache-Control", "no-cache")
             .header("Pragma", "no-cache")
+        // OkHttp never sends URL userinfo. TrustTunnel endpoint subscriptions
+        // embed their HTTP Basic credentials there (https://user:pass@host/path).
+        cacheBusterUrl.toHttpUrlOrNull()?.takeIf { it.username.isNotEmpty() }?.let { parsed ->
+            requestBuilder.url(parsed.newBuilder().username("").password("").build())
+            requestBuilder.header("Authorization", okhttp3.Credentials.basic(parsed.username, parsed.password))
+        }
 
         val request = requestBuilder.build()
 
@@ -1914,13 +1921,8 @@ object SubscriptionManager {
     }
 
     private fun findProtocolLinksInText(text: String): List<String> {
-        val regex = Regex("""(?i)\b(?:vless|vmess|trojan|ss|hysteria2|hysteria|hy2|hy|tuic|awg|amneziawg|wireguard|wg)://[^\s"'<>]+""")
-        return regex.findAll(text)
-            .map { match ->
-                match.value.trim().trimEnd(',', ';', ']', '}', ')')
-            }
+        return com.danila.nimbo.shared.subscription.SubscriptionShareLinks.extract(text)
             .filter { isProtocolLink(it) }
-            .toList()
     }
 
     private fun parseHysteriaLinksFromClashYaml(text: String): List<String> {
@@ -2182,6 +2184,8 @@ object SubscriptionManager {
 
     internal fun parseServerLinksFromApiJson(jsonText: String): List<String>? {
         if (!jsonText.startsWith("{") || !jsonText.endsWith("}")) return null
+        // Per-user JSON of a TrustTunnel endpoint's [subscription] section.
+        com.danila.nimbo.shared.subscription.TrustTunnelLink.fromSubscriptionJson(jsonText)?.let { return listOf(it) }
         return runCatching {
             val root = JSONObject(jsonText)
             val collectedLinks = findProtocolLinksInText(jsonText) +
@@ -2447,7 +2451,9 @@ object SubscriptionManager {
             normalized.startsWith("naive://") ||
             normalized.startsWith("naive+https://") ||
             normalized.startsWith("naive+quic://") ||
+            normalized.startsWith("tt://") ||
             normalized.startsWith("tuic://") ||
+            normalized.startsWith("mieru://") ||
             normalized.startsWith("awg://") ||
             normalized.startsWith("amneziawg://") ||
             normalized.startsWith("wireguard://") ||

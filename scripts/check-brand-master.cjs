@@ -27,15 +27,16 @@ async function main() {
   const png=await sharp(path.join(root,'nimbo.png')).metadata();
   assert.equal(png.width,1024); assert.equal(png.height,1024);
   const ico=fs.readFileSync(path.join(root,'nimbo.ico'));
-  assert.equal(ico.readUInt16LE(2),1); assert.equal(ico.readUInt16LE(4),7);
+  assert.equal(ico.readUInt16LE(2),1); assert.equal(ico.readUInt16LE(4),10);
   const sizes=[];
-  for(let i=0;i<7;i++) {
+  for(let i=0;i<10;i++) {
     const e=6+i*16, size=ico[e]||256;
     const offset=ico.readUInt32LE(e+12), length=ico.readUInt32LE(e+8);
     assert.ok(offset+length<=ico.length);
     const m=await sharp(ico.subarray(offset,offset+length)).metadata();
     assert.equal(m.width,size); assert.equal(m.height,size); sizes.push(size);
   }
+  assert.deepEqual(sizes,[256,128,96,64,48,40,32,24,20,16]);
   const result={passed:true,masterSize:info.width,opaque:true,maxRgbTint:maxTint,templateAlpha:true,icoSizes:sizes};
   fs.writeFileSync(path.join(dir,'master-verification.json'),JSON.stringify(result,null,2)+'\n');
   console.log(JSON.stringify(result));

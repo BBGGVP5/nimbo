@@ -4,6 +4,16 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class NimboPingPresentationTest {
+    @Test fun newAttemptCannotResurrectACancelledCachedSuccess() {
+        val previous = mapOf("a" to 10, "b" to 20, "failed" to -1)
+        val fresh = invalidatingPingIds(previous, setOf("a", "missing"))
+        assertEquals(mapOf("b" to 20, "failed" to -1), fresh)
+        assertEquals(emptySet(), remainingPingIds(setOf("a"), emptyList(), false))
+        assertEquals(null, fresh["a"])
+        assertEquals(10, previous["a"], "Invalidation must not mutate another UI snapshot")
+        assertEquals(emptyMap(), invalidatingPingIds(previous, previous.keys))
+        assertEquals(previous, invalidatingPingIds(previous, emptySet()))
+    }
     @Test fun nimboEstimateIsOnlyAPresentationTransform() {
         assertEquals(300, pingDisplayValue(990, "nimbo"))
         assertEquals(420, pingDisplayValue(1387, "nimbo"))

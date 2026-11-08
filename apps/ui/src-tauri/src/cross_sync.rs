@@ -23,6 +23,13 @@ const AAD_PREFIX: &str = "nimbo-sync-v1:";
 const SESSION_LIFETIME_MS: u64 = 60_000;
 const MAX_FRAME_BYTES: usize = 2 * 1024 * 1024;
 
+/// Device-local document IDs contain no transferable YAML in link-only sync v1.
+pub(crate) fn is_internal_mihomo_url(url: &str) -> bool {
+    url.trim()
+        .split_once(':')
+        .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("mihomo"))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncDirection {
@@ -177,8 +184,8 @@ impl SyncBundle {
             subscriptions: state
                 .subscriptions
                 .iter()
+                .filter(|item| !item.url.trim().is_empty() && !is_internal_mihomo_url(&item.url))
                 .enumerate()
-                .filter(|(_, item)| !item.url.trim().is_empty())
                 .map(|(index, item)| SyncSubscription {
                     url: item.url.trim().to_string(),
                     name: item.name.clone(),
@@ -1419,7 +1426,7 @@ fn apply_bundle(
         for incoming in &bundle.subscriptions {
             let url = incoming.url.trim();
             let key = canonical_url(url);
-            if url.is_empty() || known.contains(&key) {
+            if url.is_empty() || is_internal_mihomo_url(url) || known.contains(&key) {
                 continue;
             }
             state.subscriptions.push(Subscription {
@@ -1765,6 +1772,63 @@ fn lock_inner(inner: &Arc<Mutex<ManagerInner>>) -> std::sync::MutexGuard<'_, Man
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn internal_mihomo_links_never_become_subscription_cards() {
+        let mut state = PersistedState::default();
+        let mut bundle = SyncBundle::from_state(&state);
+        bundle.platform = "android".into();
+        bundle.subscriptions = vec![
+            SyncSubscription {
+                url: "  MiHoMo://child  ".into(),
+                name: Some("Provider · Mihomo".into()),
+                order: 0,
+            },
+            SyncSubscription {
+                url: "https://example.test/sub?token=ExactCase".into(),
+                name: Some("Provider".into()),
+                order: 1,
+            },
+        ];
+        let result = apply_bundle(&mut state, &bundle, SyncCategories::default());
+        assert_eq!(state.subscriptions.len(), 1);
+        assert_eq!(
+            state.subscriptions[0].url,
+            "https://example.test/sub?token=ExactCase"
+        );
+        assert_eq!(
+            result.added_subscriptions,
+            ["https://example.test/sub?token=ExactCase"]
+        );
+        assert!(apply_bundle(&mut state, &bundle, SyncCategories::default())
+            .added_subscriptions
+            .is_empty());
+    }
+
+    #[test]
+    fn export_does_not_relay_legacy_internal_mihomo_links() {
+        let mut state = PersistedState::default();
+        for url in [
+            "mihomo://child",
+            "https://example.test/sub",
+            "vless://inline-user@host:443",
+        ] {
+            state.subscriptions.push(Subscription {
+                url: url.into(),
+                name: Some("Provider · Mihomo".into()),
+                parser_revision: 0,
+                meta: SubscriptionMeta::default(),
+                servers: vec![],
+                info: None,
+                fetched_at: 0,
+            });
+        }
+        let bundle = SyncBundle::from_state(&state);
+        assert_eq!(bundle.subscriptions.len(), 2);
+        assert_eq!(bundle.subscriptions[0].url, "https://example.test/sub");
+        assert_eq!(bundle.subscriptions[0].order, 0);
+        assert_eq!(bundle.subscriptions[1].url, "vless://inline-user@host:443");
+    }
 
     #[test]
     fn encrypted_frame_round_trips_and_detects_tampering() {

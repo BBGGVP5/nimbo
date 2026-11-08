@@ -1,19 +1,26 @@
 {
-  "version": "26.9.30",
-  "tag": "v26.9.30",
-  "source": "https://github.com/XTLS/Xray-core/releases/tag/v26.9.30",
-  "prerelease": true,
+  "version": "26.10.31",
+  "tag": "v26.10.31",
+  "source": "https://github.com/XTLS/Xray-core/releases/tag/v26.10.31",
+  "prerelease": false,
+  "geo": {
+    "source": "https://github.com/Loyalsoldier/v2ray-rules-dat",
+    "urls": {
+      "geoip.dat": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202605022234/geoip.dat",
+      "geosite.dat": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202605012242/geosite.dat"
+    }
+  },
   "assets": [
     {
       "os": "linux",
       "arch": "x86",
       "target": "i686-unknown-linux-gnu",
       "archive": "Xray-linux-32.zip",
-      "sha256": "277ffde84d86cb593ae9c3d144b11a5e4c80ba579fdfe6fe09830e04c85d04aa",
+      "sha256": "4064a12c7712f28f0a85082be3564c088f7861f2220ddb5e4de409c91837511d",
       "files": {
-        "xray": "886b4dabdcb12f6c7cfe14f2b27d98cd69af2f75021bd61b109c050d7faadde9",
-        "geoip.dat": "3cf2236c19063c1c80803368cca5ff589c5033129fdf9ba154230c689b81fc2a",
-        "geosite.dat": "51211fde21696bbde05d1102f47f586261e98987a3cae23f7dd1cd742c62c2d2"
+        "xray": "5cbe521bdac6c6dca751e189bb34d65f417c5de5085c9dcbbe8efd4ee95c9b14",
+        "geoip.dat": "a405080a7cf35e3b024730a072937c0dc971e870da7d6616efba3caa693ca60a",
+        "geosite.dat": "cba83c8bb6803b96ef642de5a4fef3fcff00979220e0a3d1995be7e4042684b0"
       }
     },
     {
@@ -21,11 +28,11 @@
       "arch": "x86_64",
       "target": "x86_64-unknown-linux-gnu",
       "archive": "Xray-linux-64.zip",
-      "sha256": "f851110beaff16e78d643f0ccfd9524b4a44dfd59bae3e34bb52bba378f7690e",
+      "sha256": "e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214",
       "files": {
-        "xray": "96efb28b8b2086275598dc46e73b5dc340da948b4e1ccc4f1719f83f67b793a7",
-        "geoip.dat": "3cf2236c19063c1c80803368cca5ff589c5033129fdf9ba154230c689b81fc2a",
-        "geosite.dat": "51211fde21696bbde05d1102f47f586261e98987a3cae23f7dd1cd742c62c2d2"
+        "xray": "cc4b84d3069569f297a61f04b914f2bb37e9d202fd7b84cb50def1fc30fd40e1",
+        "geoip.dat": "a405080a7cf35e3b024730a072937c0dc971e870da7d6616efba3caa693ca60a",
+        "geosite.dat": "cba83c8bb6803b96ef642de5a4fef3fcff00979220e0a3d1995be7e4042684b0"
       }
     },
     {
@@ -33,11 +40,11 @@
       "arch": "aarch64",
       "target": "aarch64-unknown-linux-gnu",
       "archive": "Xray-linux-arm64-v8a.zip",
-      "sha256": "9886f077f9fd8e6713b84c377c1c7db4e53b9bfa8c276a5bd12561139522b473",
+      "sha256": "1811c8f1da0c3b6dc707ebaf1c8390e987ba39859a8f0a7aadd8526157f2ec8d",
       "files": {
-        "xray": "d16ca768110de6ed098dfc2e9068cbdadf886c9b9715671ee252b1339a50452d",
-        "geoip.dat": "3cf2236c19063c1c80803368cca5ff589c5033129fdf9ba154230c689b81fc2a",
-        "geosite.dat": "51211fde21696bbde05d1102f47f586261e98987a3cae23f7dd1cd742c62c2d2"
+        "xray": "5939649960deaf535bcd5f7ce0467a2b1d63b72a2758a6f42eade714ae8d5328",
+        "geoip.dat": "a405080a7cf35e3b024730a072937c0dc971e870da7d6616efba3caa693ca60a",
+        "geosite.dat": "cba83c8bb6803b96ef642de5a4fef3fcff00979220e0a3d1995be7e4042684b0"
       }
     },
     {
@@ -45,11 +52,11 @@
       "arch": "x86",
       "target": "i686-pc-windows-msvc",
       "archive": "Xray-windows-32.zip",
-      "sha256": "709a5f478b7314805c19ad6248cfd15b40dd224efdebfaa48282a41821b7f715",
+      "sha256": "9ea3a5849463f155b2484f8f32a9e8fd2a5628886571579d0c75d7fd0d888881",
       "files": {
-        "xray.exe": "8fef35c35970e30a3cfff8a9e6bb60a500621d718f93967bc9ee69a7794b2365",
-        "geoip.dat": "3cf2236c19063c1c80803368cca5ff589c5033129fdf9ba154230c689b81fc2a",
-        "geosite.dat": "51211fde21696bbde05d1102f47f586261e98987a3cae23f7dd1cd742c62c2d2"
+        "xray.exe": "dd6cf590c81d7e2818e314f57ea42611555286e13911fd2fb4f72e99b9d2c8d3",
+        "geoip.dat": "a405080a7cf35e3b024730a072937c0dc971e870da7d6616efba3caa693ca60a",
+        "geosite.dat": "cba83c8bb6803b96ef642de5a4fef3fcff00979220e0a3d1995be7e4042684b0"
       }
     },
     {
@@ -57,11 +64,11 @@
       "arch": "x86_64",
       "target": "x86_64-pc-windows-msvc",
       "archive": "Xray-windows-64.zip",
-      "sha256": "b17a619343c11b89d8faf36278298856749b15c52277d875d32051b33dcda617",
+      "sha256": "2e04a9995a6f2ad1b28c0bb25c708ecb2695e43a1c9c7889c4b6ac2b48cf7a6a",
       "files": {
-        "xray.exe": "43fa465275a8a64ddce4a27c3317ae3e99f0c264fec1962e04c3fadda83adc79",
-        "geoip.dat": "3cf2236c19063c1c80803368cca5ff589c5033129fdf9ba154230c689b81fc2a",
-        "geosite.dat": "51211fde21696bbde05d1102f47f586261e98987a3cae23f7dd1cd742c62c2d2"
+        "xray.exe": "d5b558191cccb1e92a5772b68b8cab67717b26f634b0f15153215f65ae982a7e",
+        "geoip.dat": "a405080a7cf35e3b024730a072937c0dc971e870da7d6616efba3caa693ca60a",
+        "geosite.dat": "cba83c8bb6803b96ef642de5a4fef3fcff00979220e0a3d1995be7e4042684b0"
       }
     },
     {
@@ -69,11 +76,11 @@
       "arch": "aarch64",
       "target": "aarch64-pc-windows-msvc",
       "archive": "Xray-windows-arm64-v8a.zip",
-      "sha256": "5cf7ad4fd9aac5aa248ae7e598f3f0a0d0f79a6195089d611ddef9653830f1b0",
+      "sha256": "db062e8a177facacc8ae53d4c9c0df4132b13fc3a89acda6f21d92d36633077e",
       "files": {
-        "xray.exe": "9b38318d22f0abb2a64aa8030e59e606f6048ffc45c193d68998ac5d08d55416",
-        "geoip.dat": "3cf2236c19063c1c80803368cca5ff589c5033129fdf9ba154230c689b81fc2a",
-        "geosite.dat": "51211fde21696bbde05d1102f47f586261e98987a3cae23f7dd1cd742c62c2d2"
+        "xray.exe": "e2a5e1584b73970665f3f83a77808f7dacee3e2ba4e8c657dd545f48eb19ea60",
+        "geoip.dat": "a405080a7cf35e3b024730a072937c0dc971e870da7d6616efba3caa693ca60a",
+        "geosite.dat": "cba83c8bb6803b96ef642de5a4fef3fcff00979220e0a3d1995be7e4042684b0"
       }
     }
   ]

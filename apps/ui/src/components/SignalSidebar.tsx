@@ -5,8 +5,7 @@ import type { Messages } from "../lib/i18n";
 
 /**
  * Рельс навигации стиля Signal — ровно как в макете: марка с градиентом,
- * пункты с квадратной точкой, тонкие разделители между группами и два
- * чипа состояния внизу (ядро и версия приложения).
+ * пункты с иконками и состояние соединения внизу.
  *
  * Состав пунктов тот же, что и в обычной панели, поэтому ни один раздел
  * не пропадает при переключении стиля.
@@ -128,14 +127,11 @@ export function SignalSidebar({
           <span>{coreLabel}</span>
           <b>{coreState}</b>
         </span>
-        <span className="signal-core-chip">
-          <span>NIMBO {version}</span>
-          {updateLabel && (
-            <button type="button" className="signal-core-update" onClick={onUpdate}>
-              {updateLabel}
-            </button>
-          )}
-        </span>
+        {updateLabel && (
+          <button type="button" className="signal-core-update" onClick={onUpdate}>
+            {updateLabel}
+          </button>
+        )}
       </div>
     </aside>
   );

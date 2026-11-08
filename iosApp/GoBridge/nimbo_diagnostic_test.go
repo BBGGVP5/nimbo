@@ -1,9 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -115,5 +121,51 @@ func TestDiagnosticCancelConcurrentIDs(t *testing.T) {
 	workers.Wait()
 	if ctx.Err() == nil {
 		t.Fatal("matching cancellation did not signal request")
+	}
+}
+
+// Real app-process Xray dispatch against a loopback CONNECT fixture. The target
+// hostname cannot resolve locally; success therefore proves forced proxy use.
+func TestDiagnosticRealHTTPRoute(t *testing.T) {
+	var hits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "CONNECT" {
+			t.Error("expected proxy CONNECT")
+			w.WriteHeader(405)
+			return
+		}
+		conn, reader, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		reader.WriteString("HTTP/1.1 200 Connection established\r\n\r\n")
+		reader.Flush()
+		request, err := http.ReadRequest(bufio.NewReader(reader))
+		if err != nil {
+			return
+		}
+		if request.Method != "GET" || request.URL.Path != "/probe" {
+			t.Error("wrong probe request")
+			return
+		}
+		hits.Add(1)
+		reader.WriteString("HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+		reader.Flush()
+	}))
+	defer proxy.Close()
+	endpoint, _ := url.Parse(proxy.URL)
+	port, _ := strconv.Atoi(endpoint.Port())
+	request := diagnosticFixture()
+	request.URL = "http://no-direct-probe.invalid/probe"
+	request.TimeoutMs = 2000
+	request.Config = diagnosticJSON(map[string]any{"outbounds": []any{
+		map[string]any{"tag": "direct", "protocol": "freedom"},
+		map[string]any{"tag": "node", "protocol": "http", "settings": map[string]any{"servers": []any{map[string]any{"address": "127.0.0.1", "port": port}}}},
+	}, "routing": map[string]any{"rules": []any{map[string]any{"outboundTag": "direct"}}}})
+	result := runDiagnosticJSON(diagnosticJSON(request), false)
+	if !result.OK || result.Latency < 0 || hits.Load() != 1 {
+		t.Fatalf("not the selected HTTP route: %+v hits=%d", result, hits.Load())
 	}
 }

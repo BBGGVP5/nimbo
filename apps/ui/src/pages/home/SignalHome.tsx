@@ -65,12 +65,13 @@ export function SignalHome(props: SignalHomeProps) {
   return <div className="universal-home">
     <header className="universal-page-heading"><div><h1>{m.app.home}</h1><p>{profileSubtitle}</p></div>
       </header>
+    <div className="universal-connect-control"><div className="universal-power">{actions}</div></div>
     <div className="universal-home-grid">
       <section className="universal-connection-section">
         <header className="universal-section-heading"><h2>{m.settings.connection}</h2><span>{profileTitle}</span></header>
         <Surface className={`universal-connection universal-connection--${state}`}>
           <div className="universal-connection-top"><div><span className="universal-eyebrow"><i aria-hidden="true" />{state === "connected" ? (ru ? "VPN АКТИВЕН" : "VPN ACTIVE") : modeLabel}{state === "connected" ? ` · ${modeLabel}` : ""}</span>
-            <h2 role="status">{state === "connected" ? (ru ? "Вы подключены" : "You are connected") : stateWord}</h2><p>{state === "connected" ? (ru ? "Через выбранный сервер" : "Using the selected server") : metaLine}</p></div><div className="universal-power">{actions}</div></div>
+            <h2 role="status">{state === "connected" ? (ru ? "Вы подключены" : "You are connected") : stateWord}</h2><p>{state === "connected" ? (ru ? "Через выбранный сервер" : "Using the selected server") : metaLine}</p></div></div>
           <button type="button" className="universal-selected-server" title={m.signal.serversTitle} onClick={onOpenServers}>
             <span className="signal-server-flag">{serverFlag}</span><span className="signal-server-copy">
               <span className="signal-tile-key">{autoSelected ? (ru ? "Авто · текущий сервер" : "Auto · current server") : m.home.selectedServer}</span><strong>{serverName}</strong><small>{profileTitle} · {serverProtocol}</small></span><ChevronIcon direction="right"/>
@@ -82,9 +83,9 @@ export function SignalHome(props: SignalHomeProps) {
       </section>
       <section className="universal-subscription-section"><header className="universal-section-heading"><h2>{ru ? "Мои подписки" : "My subscriptions"}</h2><Link to="/subscriptions">{m.app.profiles} ↗</Link></header>
         {serverRail}
-        {pinging && <div className="universal-home-tools"><button type="button" className="signal-btn signal-btn--ghost" onClick={onCheckPings}>{m.common.cancel}</button></div>}
       </section>
     </div>
+    {pinging && <div className="universal-home-tools"><button type="button" className="signal-btn signal-btn--ghost" onClick={onCheckPings}>{m.common.cancel}</button></div>}
     {state === "connected" && <div className="universal-metrics-grid">
       <Surface className={`universal-speed${telemetryAvailable ? "" : " is-waiting"}`}><h2 className="universal-metric-title">{ru ? "Скорость соединения" : "Connection speed"}</h2>{!telemetryAvailable ? <p className="universal-telemetry-wait" role="status">{ru ? "Ожидаем данные от ядра" : "Waiting for core measurements"}</p> : <><div className="signal-flow">
         <div className="signal-flow-cell"><span className="signal-flow-label">↓ {m.signal.download}</span><span className="signal-flow-value">{downloadRate}<small>{downloadUnit}</small></span><span className="signal-flow-total">{fillTemplate(m.signal.perSession, { value: downloadTotal })}</span></div>

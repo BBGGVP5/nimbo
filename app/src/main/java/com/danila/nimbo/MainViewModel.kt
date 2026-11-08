@@ -25,6 +25,7 @@ import com.danila.nimbo.ui.screens.SubscriptionProfileMetadata
 import com.danila.nimbo.ui.screens.toMetadata
 import com.danila.nimbo.ui.i18n.serverCountEn
 import com.danila.nimbo.ui.i18n.serverCountRu
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
@@ -594,6 +595,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         type: com.danila.nimbo.ui.components.NotificationType = com.danila.nimbo.ui.components.NotificationType.PING,
         silent: Boolean = false
     ) {
+        if (!silent && pingJob?.isActive == true) { cancelActivePing(); return }
         launchPing(targetServers = null, customStartMessage = customStartMessage, type = type, silent = silent)
     }
 
@@ -605,6 +607,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         servers: List<Server>,
         silent: Boolean = false
     ) {
+        if (!silent && pingJob?.isActive == true) { cancelActivePing(); return }
         if (servers.isEmpty()) return
         launchPing(
             targetServers = servers,
@@ -825,6 +828,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun pingSingleServer(server: Server, silent: Boolean = true) {
+        // A repeat action cancels the current check; completed cache values stay intact.
+        if (pingJob?.isActive == true && server.pingMeasurementKey() in _activePingKeys.value) {
+            cancelActivePing()
+            return
+        }
         if (MihomoProfiles.isMihomo(server)) {
             if (!silent) showTopNotification(userText("Пинг узлов Mihomo доступен в разделе ядра после подключения", "Mihomo node delay is available in VPN core settings after connection"))
             return
@@ -875,6 +883,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         } ?: -1
                     }.getOrDefault(-1)
                 }
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 if (isCurrentPingRun(runId)) {
                     updateServersPings(mapOf(server.pingMeasurementKey() to pingValue))
                     maybePersistPingCache()
@@ -957,7 +966,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 if (!silent) showTopNotification(userText("Nimbo Ping: проверка…", "Nimbo Ping: checking…"), com.danila.nimbo.ui.components.NotificationType.PING)
                 val targets = servers.map { server ->
-                    NimboPingTarget(server.pingMeasurementKey(), nimboConfigForServer(server))
+                    if (server.isTrustTunnel()) {
+                        NimboPingTarget(server.pingMeasurementKey(), null) {
+                            com.danila.nimbo.vpn.TrustTunnelManager.probe(server, settings.timeoutMs, null)
+                        }
+                    } else {
+                        NimboPingTarget(server.pingMeasurementKey(), nimboConfigForServer(server))
+                    }
                 }
                 NimboPingSweep.run(targets,
                     measure = { config -> NimboNodePing.measure(getApplication(), config, settings.testUrl, settings.timeoutMs) },
@@ -1640,8 +1655,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             profile.themeSpec?.takeIf { it.isNotBlank() }
         }
 
-    fun addSubscription(rawUrl: String) {
+    fun addSubscription(rawInput: String) {
         Log.d("MainViewModel", "=== addSubscription ===")
+        // A TrustTunnel v2 deep link may carry the endpoint's own HTTPS
+        // subscription; that URL becomes the refreshable profile source.
+        val rawUrl = com.danila.nimbo.shared.subscription.TrustTunnelLink.subscriptionUrl(rawInput.trim()) ?: rawInput
         Log.d("MainViewModel", "Loading subscription")
         Log.d("MainViewModel", "Current profiles count: ${_profilesState.value.size}")
 

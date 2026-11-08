@@ -255,6 +255,9 @@ func ruleStrings(v any) ([]string, error) {
 }
 func rebindRuleProviders(cfg *config.Config, d *inspection, home string) error {
 	defs, _ := d.root["rule-providers"].(map[string]any)
+	if d.desktop {
+		return nil
+	} // Preserve upstream process/rule classifier on desktop.
 	if d.android {
 		// Use Mihomo's native rule provider implementation for YAML, text, MRS,
 		// inline payloads, HTTP headers/size limits and bundled MRS assets. The

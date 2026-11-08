@@ -32,12 +32,17 @@ kotlin {
         }
     }
 
-    val iosFramework = XCFramework("NimboShared")
-    listOf(iosArm64(), iosSimulatorArm64()).forEach { target ->
-        target.binaries.framework {
-            baseName = "NimboShared"
-            isStatic = true
-            iosFramework.add(this)
+    // iOS can never be built on Windows, but declaring the targets still makes
+    // every Android Studio sync prepare Kotlin/Native for them. macOS and Linux
+    // (CI, xtool export) keep them.
+    if (!System.getProperty("os.name").startsWith("Windows")) {
+        val iosFramework = XCFramework("NimboShared")
+        listOf(iosArm64(), iosSimulatorArm64()).forEach { target ->
+            target.binaries.framework {
+                baseName = "NimboShared"
+                isStatic = true
+                iosFramework.add(this)
+            }
         }
     }
 

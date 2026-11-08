@@ -1,8 +1,11 @@
 # Mihomo V1 in the single LibXray/AWG Go runtime
 
-This is a source-linked native adapter milestone, not iOS VPN/TUN support. It
-does not change Swift settings, enable the picker, borrow a utun or install routes.
-`nimbo/mihomocore.StartIOS` still returns `PLATFORM_UNAVAILABLE` (or `INVALID_FD`).
+The public iOS packet-flow owner is now integrated with NetworkExtension in
+source: bounded raw IPv4/IPv6 packets, native Mihomo rules/groups/DNS and physical
+interface socket binding. The first Apple archive/provider link passed; corrected
+full IPA and real-phone traffic/leak/path-change acceptance are separate gates.
+The deprecated borrowed-FD `StartIOS` remains denied (`PLATFORM_UNAVAILABLE` or
+`INVALID_FD`). It is not the new packet-flow entry; no utun FD scan is used.
 
 ## C interface and ownership
 
@@ -16,7 +19,11 @@ checked into the repository.
 ```c
 char *NimboMihomoInvokeV1(char *requestJSON);
 char *NimboMihomoCancelV1(char *requestJSON);
-char *NimboMihomoStartIOSV1(char *requestJSON, int64_t borrowedFD);
+char *NimboMihomoStartIOSV1(char *requestJSON, int64_t borrowedFD); // denied legacy ABI
+char *NimboMihomoStartIOSPacketFlowV1(char *requestJSON);
+int NimboMihomoWriteIOSPacketV1(uint64_t generation, void *input, int length);
+int NimboMihomoReadIOSPacketV1(uint64_t generation, void *output,
+                             int capacity, int timeoutMs);
 typedef int (*NimboMihomoSocketProtectorV1)(int64_t fd, void *context);
 char *NimboMihomoSetSocketProtectorV1(NimboMihomoSocketProtectorV1 callback,
                                     void *context);
@@ -53,8 +60,8 @@ AWG ABI, and it does not claim multi-engine mobile TUN concurrency is safe.
 
 ## Root dependency graph and build
 
-`go.mod`/`go.sum` now include `nimbo/mihomocore v0.0.0` and Mihomo v1.19.31,
-commit `ab405bad5beeeac8b003bb01f60f134f6df54471`. Xray-core, AWG and canonical
+`go.mod`/`go.sum` now include `nimbo/mihomocore v0.0.0` and Mihomo v1.19.32,
+commit `88dcbf7f1614a67c3b36b848ee3592dfa92ada36`. Xray-core, AWG and canonical
 gVisor remain at their previous pins. Minimal version selection increases
 Brotli 1.0.6 → 1.1.1, compress 1.17.4 → 1.17.9, and x/exp from its 2024-05 pin
 to `v0.0.0-20240904232852-e7e105dedf7e`; unused direct `kr/text` is removed.
@@ -112,3 +119,22 @@ not compile C exports. Safe Darwin borrowed-FD duplication/ownership, AF framing
 native stack-ready acknowledgement, DNS/UDP protection and mobile lifecycle
 remain separate acceptance gates. Source/lock hashes and exact commands are in
 `.codex-tmp/mihomo-ios-gobridge/` at the repository root.
+
+## Public packet-flow lifecycle
+
+Production `MihomoPacketBridge.swift` starts a physical-interface path monitor
+before NE route installation, retains the socket callback context, and connects
+public readPackets/writePackets to the generation-owned native device. No second
+Go archive, loopback SOCKS translation, Internet startup gate or FD discovery is
+used. The adapter forces process classification off and explicitly rejects rules
+that need unavailable app/UID ownership, custom host routes and classical remote
+rule providers. Source DNS must be enabled; physical system-DNS discovery is not
+implemented, so system placeholders requiring it fail rather than use public DNS.
+
+Stop clears Swift generation before native cancellation and pump joining; late
+callbacks cannot submit to the replacement session. Packet read timeout is at
+most one second, output batching at most 32 packets, native queue 128 packets,
+MTU 1500. Binary buffers are caller-owned; input is copied, output is filled
+synchronously without malloc/base64/JSON per packet. See API.md for exact limits.
+The app preserves the entire YAML, routes live group commands to the selected
+provider, and persists choices only after native current-member readback.

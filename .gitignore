@@ -1,50 +1,52 @@
-# Rust
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/shared/build
+/iosApp/Nimbo.xcodeproj
+/iosApp/build
+/artifacts
+/app/debug/
+/app/release/
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/.codex-tmp/
+
+# Desktop outputs; Android exclusions above are kept.
 target/
 **/*.rs.bk
 Cargo.lock.bak
-
-# Node
 node_modules/
 dist/
 .vite/
 *.log
 .npm/
-
-# IDEs
 .idea/
 .vscode/*
 !.vscode/extensions.json
 *.swp
 *.swo
-
-# OS
-.DS_Store
 Thumbs.db
 desktop.ini
-
-# Local env
 .env
 .env.*
 !.env.example
-
-# Tauri
 apps/**/src-tauri/gen/
 apps/ui/src-tauri/target/
-
-# UI design references (not for repo)
 ui-template/
-
-# Local agent workspaces
 .claude/
 .codex-logs/
-# Local agent workspaces (продолжение)
 .supergoal/
-
-# Артефакт сборки Linux-инсталлятора: cargo однажды развернул CARGO_TARGET_DIR
-# внутрь исходников. Это build output, а не код.
 apps/installer/src-tauri/C*Users*/
-
-# Android / Kotlin Multiplatform / iOS build outputs (current root project)
 /.gradle/
 /.kotlin/
 /build/
@@ -55,9 +57,10 @@ apps/installer/src-tauri/C*Users*/
 /iosApp/Nimbo.xcodeproj/
 /artifacts/
 /.build-dependencies/
-/.codex-tmp/
 /tools/native/*/.build/
-local.properties
 *.hprof
 __pycache__/
 *.pyc
+/apps/ui/src-tauri/resources/helper/
+/apps/ui/src-tauri/resources/mihomo/linux-x64/
+/apps/ui/src-tauri/resources/mihomo/linux-arm64/

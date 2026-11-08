@@ -1,19 +1,27 @@
 {
-  "sourceRoot": "C:\\Users\\Danila\\AndroidStudioProjects\\Nimbo\\tools\\native\\mihomo-core",
+  "sourceRoot": "C:\\Users\\Danila\\AndroidStudioProjects\\Nimbo\\.codex-tmp\\github-ios-build-20260928\\tools\\native\\mihomo-core",
   "target": "windows/amd64",
-  "binarySHA256": "5195dce5c76fe3cc39975b72d4815b7d1b2730e6aaf4002b72811781de6f3255",
+  "binarySHA256": "94dd25fbbc6918215c11d7970be5c0806713882d683d32fab6a57bca1dd92bed",
   "buildSourceFiles": [
+    {
+      "path": "ad_blocking_test.go",
+      "sha256": "9ac6cf11886fd3f97003353ffcc60552127f1b4e1c518c98d8f359b7ec558c48"
+    },
+    {
+      "path": "ad_blocking.go",
+      "sha256": "9a70d52b75e3befed21d64b5f8c3b0531fb6256b0d523ac7c3299aecd020f4aa"
+    },
     {
       "path": "android_runtime_test.go",
       "sha256": "7280698e1663e6eb8ebecc445ce76944f18037201dfa04a807042b3b1c7eb5c1"
     },
     {
       "path": "android_runtime.go",
-      "sha256": "6b6818b045a043eedc681cf9c8a8edc2fad66a62b360e4596da62eea84276076"
+      "sha256": "e014e6467ec69346a028797a39ab8650886b61c4faa2b175af0a05f0c9a9e2eb"
     },
     {
       "path": "API.md",
-      "sha256": "1694d593d1831c94c876120129607c8a9f5a42b040e4ca7263d9cb7c108ceed5"
+      "sha256": "cc8fbf4ec555b00594c4d3b6e1ac9c5566e206ca595c401ef53dd88384ea6302"
     },
     {
       "path": "cache_test.go",
@@ -29,7 +37,55 @@
     },
     {
       "path": "cmd/nimbo-mihomo/main.go",
-      "sha256": "5a2cfebc49acfe276c201b0cc8937363cd4a956af35862b49bb796a86a9d6ba9"
+      "sha256": "a666f882762f25446bb5d57c98adfa433adc02f5342624b90191039923844fca"
+    },
+    {
+      "path": "cmd/nimbo-mihomo/tun_lease_test.go",
+      "sha256": "3b1e77f929ff10bb422dc49164e21b727661aa45215676440a631728031cd79f"
+    },
+    {
+      "path": "cmd/nimbo-mihomo/tun_lease.go",
+      "sha256": "d8d5803a28ca5ebb22d2c2bbe0f90e075a2612953d5ab84681ed15cba703a23a"
+    },
+    {
+      "path": "desktop_journal_linux_test.go",
+      "sha256": "2e1cdab1d4e1763bf29c576b456fc974c224d731d41492d7a6324ba32701c760"
+    },
+    {
+      "path": "desktop_journal_linux.go",
+      "sha256": "e8d1813f4a72fa59f59b5b9fbc9f974707e1051f473f35be9765694cb1dfeda7"
+    },
+    {
+      "path": "desktop_journal_stub.go",
+      "sha256": "21b4ccc1cc181fe1c1d08025c5b551e3fcbbad05bdca1a68630ec8468668b611"
+    },
+    {
+      "path": "desktop_probe_test.go",
+      "sha256": "8c95549c64a7e9d406ecbefaeebeea410f01c346f28b7f58e856057a9fdbc709"
+    },
+    {
+      "path": "desktop_probe.go",
+      "sha256": "a4d1f037338b22f206884f7ddd980d0398df157e0673842d66fc578cbff1251a"
+    },
+    {
+      "path": "desktop_runtime_test.go",
+      "sha256": "8601cd54a2f21bb222f4e0662a9990f868d9953047ef14e85327a04e5804e35e"
+    },
+    {
+      "path": "desktop_runtime.go",
+      "sha256": "0dc2ca2d420ac3946e3450c5159f62e60506575a9b44c4b48b3f1943d34d1d08"
+    },
+    {
+      "path": "desktop_tun_linux.go",
+      "sha256": "d2d66fcb34250bdb2fdc64e4aa6fd9820780b6e82da3eb34ea46f8bea950157b"
+    },
+    {
+      "path": "desktop_tun_stub.go",
+      "sha256": "f21c8ab55d908463630b799a2d16dff36ba6fc6a106b962a2f5dfa72f9bbffa8"
+    },
+    {
+      "path": "desktop_tun_windows.go",
+      "sha256": "fedc771fbba0ca5a24c5bc46835526ab76b8b42f15a085224deb863220b39e8c"
     },
     {
       "path": "dns.go",
@@ -49,11 +105,11 @@
     },
     {
       "path": "go.mod",
-      "sha256": "162e45c25acfced804116dadd24eff907bbd5c40252f9aa667b6a79ea073a3dd"
+      "sha256": "548e63999b7672300d463086c956214412265fe983db3f1fd7508b4fa50913c5"
     },
     {
       "path": "go.sum",
-      "sha256": "f57878079bd857d4a96d56fc07bbe7223db63049dbf48c29bb03f8a26f6daf99"
+      "sha256": "bf159aa1fbbdced5ba49be1d3486f403aae75239bb4f65352a1bc000ad61456b"
     },
     {
       "path": "hardening_test.go",
@@ -61,7 +117,7 @@
     },
     {
       "path": "inspect.go",
-      "sha256": "97b3bb116e69f6d9ab973402437ac1c06daeb257c68e8b3654c9dcdebe702a26"
+      "sha256": "bcd614bbddee15f89db80975cdcef93c7bf9f211a5bcc904f094d4df41eaf140"
     },
     {
       "path": "json.go",
@@ -72,16 +128,20 @@
       "sha256": "909c006fb7f6479289bb789f43b812026b2808a1a7fc85335b87fca162977716"
     },
     {
-      "path": "managed_protocols_test.go",
-      "sha256": "1c21f271bd4e301e673037038308ed2e85512545cb9169500288968d700dbe7b"
-    },
-    {
       "path": "mihomo-reality-client-version.patch",
       "sha256": "a9cbaa2055b43c0ca1e6fe0eb5af6009e0257dc12e76754e61a015e5f66f3e2a"
     },
     {
+      "path": "mihomo-rule-journal.patch",
+      "sha256": "66f63436d89f380a82ef58f6e0447b826861f1a72bd8ea97776c24f7d1a3a9c6"
+    },
+    {
       "path": "mihomo-session-lifecycle.patch",
-      "sha256": "d16bc518d4252dd33af042040157a8e42fac85b814812854ac4c1db20bb26774"
+      "sha256": "813cb7270731694bbea2f25f77d15b15c6b107d4c963f201ed4d0324995c7fd5"
+    },
+    {
+      "path": "mihomo-traffic-counters.patch",
+      "sha256": "fd337d685c990e9368144ae91f226db36fb06d2df236a2ad954c1ae156547234"
     },
     {
       "path": "mobile_dns.go",
@@ -93,15 +153,15 @@
     },
     {
       "path": "mobile_session.go",
-      "sha256": "0ca3ce32ce4eee2bed2d1eda87bafb3738a450ac2240606ec38faf9d9e41a75d"
+      "sha256": "dc305c159296246279856d9b5b3172a8340c3a15d0fcd44dc88acace9dbc2f18"
     },
     {
       "path": "mobile_stack_test.go",
-      "sha256": "7feaf0e9cfca9217b213a342ed4dd0f302cfc5ed44fa360f68ccc369549cff21"
+      "sha256": "23978475b48abba4ba13120f3f278df6b309eec696909f6214d75ce0e935cc6f"
     },
     {
       "path": "mobile_test.go",
-      "sha256": "f399af1340acd12d30b1e6328d5aad6d35abda49d6a1a35ac1e54ce259a97b7c"
+      "sha256": "923f3e309589aa13b79efdc2c94a4015d6700e083da8ca3b88b9c9a15a5978ee"
     },
     {
       "path": "mobile_tun_android.go",
@@ -109,15 +169,43 @@
     },
     {
       "path": "mobile.go",
-      "sha256": "2498b5e61e094c88b4f4408d7be581d3da31ab4abe1d23bfdb108cc5a3e6a55e"
+      "sha256": "900a3ddce80826909d4d280633e3a39dc29d43b6fee557aba77042415b002f92"
+    },
+    {
+      "path": "netlink-rule-identity.patch",
+      "sha256": "be1a030b449a69caec8b0c6409448a0f77fc15d53640c615757f239618b5c39b"
+    },
+    {
+      "path": "packet_api.go",
+      "sha256": "2a0792e1ab0bcdddd9b71d0ad76d0a4d669f6aded26bea4e0951df61e5911956"
+    },
+    {
+      "path": "packet_flow_test.go",
+      "sha256": "090a3c42bd049e7b89ce5c052093c9874ac8db316584106f5bc8c5df89310f54"
+    },
+    {
+      "path": "packet_flow.go",
+      "sha256": "d0bd60d64a26be1c34ab44078c03e2e48378f8e61d88625acba1bd7cf54bcdf5"
+    },
+    {
+      "path": "packet_runtime_stub.go",
+      "sha256": "48f7d353e441abc6f82941db6cc4b88598609e10c42eb5c12d4c1a2c0b4d5978"
+    },
+    {
+      "path": "packet_runtime_test.go",
+      "sha256": "4d9834c4d29d0519fcdacefd099ba9400c297165a8079abf985f299d23ad8d4d"
+    },
+    {
+      "path": "packet_runtime.go",
+      "sha256": "baa4c99635d934859a34d54593dca43f0df8a8202265d822510908a3a9b4ed2e"
     },
     {
       "path": "pins.json",
-      "sha256": "0b781ac7f5e2882087b8ccf74499205732f952d2d7bbf9ca3da697cfdfa8326c"
+      "sha256": "20c291a40cc3fe38c7dfd53ea89c22f0a33f3a5961ec042177ecd5c8d9c79d6c"
     },
     {
       "path": "platform.go",
-      "sha256": "375f8ac09d3199c99d297a224cb916ef666aa92c34be2bb40b78b39399c88f5d"
+      "sha256": "452fd2f7a5e6ffeef6452235fa2c3474bc17577c0592c93bcda7541d96cb1b20"
     },
     {
       "path": "policy.go",
@@ -137,15 +225,23 @@
     },
     {
       "path": "providers.go",
-      "sha256": "c3450055a2b489f2e04850374dbb0a769061d8cd183b1855880d059cf09b3ce6"
+      "sha256": "41b6c43022ae723ab4dcc5f14570eba2b4ee71290eac65ff71c839ad5768114f"
     },
     {
       "path": "README.md",
-      "sha256": "815461e133decc40c82d11fb0123bb45473871679c451a5417731cf56a1cda43"
+      "sha256": "ecd09f4af6fdfc8056a4be34861c603191f6d77098082f607d52322ebb64b911"
     },
     {
       "path": "ruleproviders.go",
-      "sha256": "519caa0615af1ebff0666fdfcecdca75f6454594478cdaf8a2fc4f27dc952834"
+      "sha256": "36f5934b2ff1006833233e5c2cb54479924aaa46d120028b9b4fb53f514d7611"
+    },
+    {
+      "path": "runtime_memory_test.go",
+      "sha256": "35062ac1f0aea062419602373fce1e3f11285039c2bd507a015ae4f863f32399"
+    },
+    {
+      "path": "runtime_memory.go",
+      "sha256": "97b170e3e2510b621878aaa54bade7c8c6d132163dea10827294568f78bf3179"
     },
     {
       "path": "runtime_test.go",
@@ -153,15 +249,35 @@
     },
     {
       "path": "runtime.go",
-      "sha256": "635064691ba220459b176b4ed7f120170a316e77396f0f568a0337dc8e04de06"
+      "sha256": "5f65bf3a3cfcc84557f28e03215695de0675271bee151fb95cbf92eb05aac420"
+    },
+    {
+      "path": "selection_test.go",
+      "sha256": "9b963dea4696ce0bc237624c7c2f8b625f6576d90ae1025e637425fb4b1a3d41"
+    },
+    {
+      "path": "selection.go",
+      "sha256": "24e78534dfddfa519c5eb21ee28c423fa59f13e60b66ef643193fc9690ba2f1b"
+    },
+    {
+      "path": "sing-tun-rule-journal.patch",
+      "sha256": "6de32f3cfd140096f6c15e603a9f8bcddf9dc7c8409daa2a960ea660c138b63e"
     },
     {
       "path": "standalone_probe_test.go",
-      "sha256": "bc4a6fcd8e9b5902cedcc64851e0514a79cc0f22342eb557650d0ee00b0cd9ff"
+      "sha256": "7ee1d3d0b5ed7195e99f885cb87edc4497767e99472cf11ba3c5f194c7b5cb18"
     },
     {
       "path": "standalone_probe.go",
-      "sha256": "2b56cb122dc79862fe0bee90eeb014a9ec014cc1c35777c5b72b4bd229dd3513"
+      "sha256": "560d10516a9a326540a7953eabc459983f2a0817d5591e8d79639d2e79889f32"
+    },
+    {
+      "path": "telemetry_test.go",
+      "sha256": "0e18e30005949da11b20930186e6287d6efe71eda6c2cecabe1ed4d10021993f"
+    },
+    {
+      "path": "telemetry.go",
+      "sha256": "7aa1d7e37f035c1081747c7ae03552ba6db72d5a2611ef506d231bcb01fffbbd"
     },
     {
       "path": "testdata/inspect-source.yaml",
@@ -169,13 +285,13 @@
     },
     {
       "path": "testdata/inspect-wire-v1.json",
-      "sha256": "d7c879f2f22757fcf1857746f33abcb0482481c523bf9528ba529069408f9c78"
+      "sha256": "ddd746ad34861752a9047c1fe9479c511230a0269f3a4e0aabb37f9e876b06e7"
     },
     {
       "path": "VERIFICATION.md",
-      "sha256": "47855203e05fa2ef6821d9f0e6d182a85e494aa361b7b82b7b585e026f788248"
+      "sha256": "75b9ee63389b8c1c53357c58e8eae592240b59a4fb59ff4faaa1fcfc7b620aca"
     }
   ],
-  "sourceLicenseManifestSHA256": "697da3f41e768d57cdf0c28a9eb2af544bd0c8962969a33f31c7eb845a821270",
+  "sourceLicenseManifestSHA256": "e44df71632dba5e746091d3d55d754f95d07eba78204d411de2a06a9326dd4ac",
   "releaseGate": "Corresponding-source/license review remains mandatory; no deployment performed"
 }
