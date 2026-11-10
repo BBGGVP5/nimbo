@@ -82,7 +82,6 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
                         }
                     }
                 }
-                BasicText("Меняется только список разделов, не параметры VPN. Поиск — по всем разделам.", style = NimboBodyStyle.copy(fontSize = 12.sp))
                 NimboSurface(Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
                     BasicTextField(query, { query = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
                         .semantics { contentDescription = "Поиск настроек" }, singleLine = true,

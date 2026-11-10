@@ -4799,10 +4799,6 @@ private fun NimboSettingsScreen(
         MiniSegmented(t("Простой", "Simple"), t("Расширенный", "Advanced"), !advanced,
             { advanced = false; preferencesManager.settingsAdvanced = false },
             { advanced = true; preferencesManager.settingsAdvanced = true })
-        Spacer(Modifier.height(8.dp))
-        Text(t("Меняется только список разделов, не параметры VPN. Поиск — по всем разделам.",
-            "Only the section list changes, not VPN settings. Search covers all sections."),
-            style = MaterialTheme.typography.bodySmall, color = LocalNebulaColors.current.textSecondary)
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true,
             modifier = Modifier.fillMaxWidth(), label = { Text(t("Поиск настроек", "Search settings")) },
