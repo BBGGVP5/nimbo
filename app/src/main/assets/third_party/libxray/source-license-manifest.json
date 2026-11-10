@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "scope": "Modules compiled into the four-ABI merged Android LibXray AAR",
-  "libXrayVersion": "26.10.31",
-  "aarSHA256": "8995e2ffbe8fe8153e6741437a2a5ef7de60bba5bcea71638540ac3ed2ed7479",
+  "libXrayVersion": "26.11.9",
+  "aarSHA256": "ed75a3f92bf18cfc2112d4b4721c4839e9399d7fabf79761d8e92955e2b69b17",
   "goVersion": "go1.27.3",
-  "goModSHA256": "1ec7bc39cf73f12c51790069ec3a728e241723154bcbf5fc5d8273e05a3250e6",
-  "goSumSHA256": "85ababf73274ab1500104502a0a1fd9b5113afd02536438e1c479c029e3e9430",
-  "verifiedSourceManifestSHA256": "b35fe775877963d5a4b217aa924eaef64db46e72dacd112036e7946c5956bb94",
+  "goModSHA256": "e64218c712bdc7393b980bf3060d49483aeb7fb7fd7448dbdb0a61865f3fdd20",
+  "goSumSHA256": "44277a73937180d5d775fd9ef32319521c001effcdd2901d5ed49ff248698d50",
+  "verifiedSourceManifestSHA256": "c505c1a8af73605aeff33f2d6b8650eb9c47b081d6e0e409af3031fc992449b3",
   "modules": [
     {
       "module": "github.com/RyuaNerin/go-krypto",
@@ -647,17 +647,17 @@
     },
     {
       "module": "github.com/klauspost/cpuid/v2",
-      "version": "v2.4.1",
+      "version": "v2.4.2",
       "compiledABIs": [
         "armeabi-v7a",
         "arm64-v8a",
         "x86",
         "x86_64"
       ],
-      "sum": "h1:I9KxadAkvo+QjtcEE2f2tyfEvmIla/T0m+14PrZNl0U=",
+      "sum": "h1:xRw7IZEsAgVCp6trS/DgWbTAqpixhmywgVgBjYGg1bQ=",
       "notices": [
         {
-          "path": "licenses/modules/github.com_klauspost_cpuid_v2@v2.4.1/LICENSE",
+          "path": "licenses/modules/github.com_klauspost_cpuid_v2@v2.4.2/LICENSE",
           "sha256": "5d966570d7a442d4e969892860a914e542c97f262c873baee8f0aa48e1f40212"
         }
       ]
@@ -1599,6 +1599,23 @@
       ]
     },
     {
+      "module": "github.com/molecule-man/go-brrr",
+      "version": "v1.2.0",
+      "compiledABIs": [
+        "armeabi-v7a",
+        "arm64-v8a",
+        "x86",
+        "x86_64"
+      ],
+      "sum": "h1:dOJU45BC3Gc2WXoxAW0rgCAgVuu2gruAOGncfieA0Jw=",
+      "notices": [
+        {
+          "path": "licenses/modules/github.com_molecule-man_go-brrr@v1.2.0/LICENSE",
+          "sha256": "a12fbad03be79cbaf575982d5dfa5ba515d42ffa4c08a42da137fe938e28e851"
+        }
+      ]
+    },
+    {
       "module": "github.com/mroth/weightedrand/v2",
       "version": "v2.1.0",
       "compiledABIs": [
@@ -1838,21 +1855,21 @@
     },
     {
       "module": "github.com/refraction-networking/utls",
-      "version": "v1.8.3-0.20260301010127-aa6edf4b11af",
+      "version": "v1.8.3-0.20261108164504-a13c59ffe98b",
       "compiledABIs": [
         "armeabi-v7a",
         "arm64-v8a",
         "x86",
         "x86_64"
       ],
-      "sum": "h1:er2acxbi3N1nvEq6HXHUAR1nTWEJmQfqiGR8EVT9rfs=",
+      "sum": "h1:Mi/DuaTxHeNIQ9g1ylZicAqa6Cb9wkHRiNtQH9uZ7Ts=",
       "notices": [
         {
-          "path": "licenses/modules/github.com_refraction-networking_utls@v1.8.3-0.20260301010127-aa6edf4b11af/dicttls/LICENSE",
+          "path": "licenses/modules/github.com_refraction-networking_utls@v1.8.3-0.20261108164504-a13c59ffe98b/dicttls/LICENSE",
           "sha256": "ac089a3cb515b32ba1c8c2b401646527f55815a9022013693d515f2e2e4fb6ec"
         },
         {
-          "path": "licenses/modules/github.com_refraction-networking_utls@v1.8.3-0.20260301010127-aa6edf4b11af/LICENSE",
+          "path": "licenses/modules/github.com_refraction-networking_utls@v1.8.3-0.20261108164504-a13c59ffe98b/LICENSE",
           "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067"
         }
       ]
@@ -2135,42 +2152,42 @@
     },
     {
       "module": "github.com/xtls/reality",
-      "version": "v0.0.0-20261014101318-83f621788ca8",
+      "version": "v0.0.0-20261108101329-4bb46b2afd8b",
       "compiledABIs": [
         "armeabi-v7a",
         "arm64-v8a",
         "x86",
         "x86_64"
       ],
-      "sum": "h1:RjLnVvlzK4q6zWaSBPNRGsrgx2fbJDeUWffjw574uzs=",
+      "sum": "h1:fAn11r21QiUY2oAGwENWb5ummjhWwMcs2WzkbjDMh+k=",
       "notices": [
         {
-          "path": "licenses/modules/github.com_xtls_reality@v0.0.0-20261014101318-83f621788ca8/LICENSE",
+          "path": "licenses/modules/github.com_xtls_reality@v0.0.0-20261108101329-4bb46b2afd8b/LICENSE",
           "sha256": "7c1bcfe5b0a8009ffae73984bad8e3b5f6bc562f67d6d67bafb600a3b8c08c5e"
         },
         {
-          "path": "licenses/modules/github.com_xtls_reality@v0.0.0-20261014101318-83f621788ca8/LICENSE-Go",
+          "path": "licenses/modules/github.com_xtls_reality@v0.0.0-20261108101329-4bb46b2afd8b/LICENSE-Go",
           "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067"
         }
       ]
     },
     {
       "module": "github.com/xtls/xray-core",
-      "version": "v1.260327.1-0.20261031132019-a4a3dff5b20c",
+      "version": "v1.260327.1-0.20261109052709-676eaf66f8f0",
       "compiledABIs": [
         "armeabi-v7a",
         "arm64-v8a",
         "x86",
         "x86_64"
       ],
-      "sum": "h1:XijTasBJ2fImHZo1GoAgSfHuDqloQGYHEADLy9CgrJ8=",
+      "sum": "h1:p2uoadP+ulClbJ9dn+QioF2SfBqRly6VoKJosHqwcRo=",
       "notices": [
         {
-          "path": "licenses/modules/github.com_xtls_xray-core@v1.260327.1-0.20261031132019-a4a3dff5b20c/LICENSE",
+          "path": "licenses/modules/github.com_xtls_xray-core@v1.260327.1-0.20261109052709-676eaf66f8f0/LICENSE",
           "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
         },
         {
-          "path": "licenses/modules/github.com_xtls_xray-core@v1.260327.1-0.20261031132019-a4a3dff5b20c/transport/internet/masque/connectip/LICENSE",
+          "path": "licenses/modules/github.com_xtls_xray-core@v1.260327.1-0.20261109052709-676eaf66f8f0/transport/internet/masque/connectip/LICENSE",
           "sha256": "8bcbabf56e2d09741d209292f583cc1d0fe3c894040a03b972a656da87beeddf"
         }
       ]
@@ -2623,7 +2640,6 @@
         "x86_64"
       ],
       "sum": "",
-      "notices": [],
       "replacement": "repository-source",
       "replacementVersion": "(devel)",
       "repositoryOwned": true
@@ -2638,7 +2654,6 @@
         "x86_64"
       ],
       "sum": "",
-      "notices": [],
       "replacement": "repository-source",
       "replacementVersion": "(devel)",
       "repositoryOwned": true

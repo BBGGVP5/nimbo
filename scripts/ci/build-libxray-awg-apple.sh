@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Compile upstream API3, AWG, diagnostics and Mihomo V1 in ONE package main.
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LIBXRAY_COMMIT=7fe8528063e54343af8ba9a37431afc56000de21
-LIBXRAY_SOURCE_SHA256=738a99755c184923fcc5aaede114953bef8156f4bf918c1977ab0743739a1bf5
+LIBXRAY_COMMIT=5a0f7d8d1c28b34afb5727b04b26a10f6dbac7e3
+LIBXRAY_SOURCE_SHA256=10b0c62e4a69db89ba9a7dd155980dbd912d49b1c3dd7a1f93de2fededf90ca8
 GO_VERSION=go1.27.3
 AWG_VERSION=v3.1.20260828
 BRIDGE_DIR="${ROOT_DIR}/iosApp/GoBridge"
@@ -154,7 +154,7 @@ xcodebuild "${XCFRAMEWORK_ARGS[@]}" -output "${WORK_DIR}/LibXray.xcframework"
 rm -rf "${DESTINATION}"
 ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
 {
-  echo 'libxray_version=26.10.31'
+  echo 'libxray_version=26.11.9'
   echo "libxray_commit=${LIBXRAY_COMMIT}"
   echo "libxray_source_sha256=${LIBXRAY_SOURCE_SHA256}"
   echo "awg_version=${AWG_VERSION}"
@@ -168,7 +168,7 @@ ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
   echo 'cronet_ios_compat=pinned-unused-kqueue-feature-init'
   shasum -a 256 "${ROOT_DIR}/tools/native/naive-apple-compat/"*.py "${ROOT_DIR}/tools/native/naive-apple-compat/"*.cc
   echo 'naive_ios_device_acceptance=required'
-  echo 'xray_version=26.10.31'
+  echo 'xray_version=26.11.9'
   echo 'xray_apple_tun_ownership=upstream-duplicate-cloexec'
   echo 'nimbo_auto_strategy=sticky-v1-generated-config-only'
   echo 'native_sticky_router_observatory_race_tests=passed'
@@ -189,4 +189,4 @@ ditto "${WORK_DIR}/LibXray.xcframework" "${DESTINATION}"
 } > "${ROOT_DIR}/iosApp/Vendor/libxray-build-info.txt"
 cp "${WORK_DIR}/mihomo-dependencies/mihomo-source-verification.json" \
   "${ROOT_DIR}/iosApp/Vendor/mihomo-source-verification.json"
-echo "Prepared single-runtime LibXray 26.10.31 / AWG ${AWG_VERSION} / Mihomo V1 bridge; iOS Mihomo public packet-flow linked; device acceptance remains required"
+echo "Prepared single-runtime LibXray 26.11.9 / AWG ${AWG_VERSION} / Mihomo V1 bridge; iOS Mihomo public packet-flow linked; device acceptance remains required"

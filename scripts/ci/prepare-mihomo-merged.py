@@ -254,12 +254,13 @@ def main():
         raise RuntimeError('Exact netlink rule identity replacement missing')
     requirements = {r['Path']: r['Version'] for r in graph['Require']}
     for module, version in {
-        'github.com/xtls/xray-core': 'v1.260327.1-0.20261031132019-a4a3dff5b20c',
+        'github.com/xtls/xray-core': 'v1.260327.1-0.20261109052709-676eaf66f8f0',
         'github.com/amnezia-vpn/amneziawg-go/v3': 'v3.1.20260828',
-        # iOS GoBridge stays on 20261010: the 20261031 snapshot ships
-        # pkg/tcpip/stack/bridge_test.go as package bridge_test, which breaks
-        # loading gonet under `go test`. Upstream libXray (Android) keeps 20261031.
-        'gvisor.dev/gvisor': ('v0.0.0-20261010064756-cd110d9dec04', 'v0.0.0-20261031105741-aa767e4c43d0'),
+        # iOS GoBridge stays on 20261010: the 20261031 and 20261108 snapshots
+        # ship pkg/tcpip/stack/bridge_test.go as package bridge_test, which
+        # breaks loading gonet under `go test`. Upstream libXray (Android)
+        # follows its own go.mod (20261108 for libXray 26.11.9).
+        'gvisor.dev/gvisor': ('v0.0.0-20261010064756-cd110d9dec04', 'v0.0.0-20261108131121-975fb172241c'),
     }.items():
         allowed = version if isinstance(version, tuple) else (version,)
         if requirements.get(module) not in allowed:

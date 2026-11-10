@@ -147,12 +147,12 @@ mod tests {
 
     #[test]
     fn xray_pins_cover_all_supported_architectures_without_latest() {
-        assert_eq!(release().version, "26.10.31");
+        assert_eq!(release().version, "26.11.9");
         for os in ["windows", "linux"] {
             for arch in ["x86", "x86_64", "aarch64"] {
                 let asset = asset(os, arch).unwrap();
                 let urls = asset.urls();
-                assert!(urls.last().unwrap().contains("/v26.10.31/"));
+                assert!(urls.last().unwrap().contains("/v26.11.9/"));
                 assert!(urls.iter().all(|url| !url.contains("latest")));
                 assert_eq!(asset.sha256.len(), 64);
                 assert_eq!(asset.files.len(), 3);

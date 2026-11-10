@@ -17,7 +17,7 @@ spec.loader.exec_module(stage)
 class XrayStagingTests(unittest.TestCase):
     def test_manifest_has_reviewed_six_platforms(self):
         manifest = json.loads(stage.MANIFEST.read_text())
-        self.assertEqual(manifest["version"], "26.10.31")
+        self.assertEqual(manifest["version"], "26.11.9")
         self.assertEqual(len(manifest["assets"]), 6)
         self.assertEqual(len({a["target"] for a in manifest["assets"]}), 6)
         if manifest.get("mirror"):
@@ -48,7 +48,7 @@ class XrayStagingTests(unittest.TestCase):
                 archive.writestr(name, b"upstream " + name.encode())
         payload = buffer.getvalue()
         mirror = "https://mirror.test/core"
-        manifest = {"version": "26.10.31", "tag": "v26.10.31", "mirror": mirror,
+        manifest = {"version": "26.11.9", "tag": "v26.11.9", "mirror": mirror,
                     "geo": {"urls": {name: "https://geo.test/" + name for name in geo}},
                     "assets": [{
                         "target": "test", "os": "windows", "archive": "test.zip",
@@ -56,7 +56,7 @@ class XrayStagingTests(unittest.TestCase):
                         "files": {name: hashlib.sha256(data).hexdigest()
                                   for name, data in {"xray.exe": binary, **geo}.items()},
                     }]}
-        upstream = "https://github.com/XTLS/Xray-core/releases/download/v26.10.31/test.zip"
+        upstream = "https://github.com/XTLS/Xray-core/releases/download/v26.11.9/test.zip"
         served = {}
 
         def network(url, timeout):

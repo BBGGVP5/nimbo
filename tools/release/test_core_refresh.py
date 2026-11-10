@@ -5,13 +5,13 @@ import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = "26.10.31"
-COMMIT = "7fe8528063e54343af8ba9a37431afc56000de21"
-SOURCE_SHA = "738a99755c184923fcc5aaede114953bef8156f4bf918c1977ab0743739a1bf5"
-CORE = "v1.260327.1-0.20261031132019-a4a3dff5b20c"
+VERSION = "26.11.9"
+COMMIT = "5a0f7d8d1c28b34afb5727b04b26a10f6dbac7e3"
+SOURCE_SHA = "10b0c62e4a69db89ba9a7dd155980dbd912d49b1c3dd7a1f93de2fededf90ca8"
+CORE = "v1.260327.1-0.20261109052709-676eaf66f8f0"
 # Desktop downloads release assets, so it must follow a tag that still exists
 # upstream; mobile builds from the reviewed commit via Go modules.
-DESKTOP_VERSION = "26.10.31"
+DESKTOP_VERSION = "26.11.9"
 
 
 class CoreRefreshTests(unittest.TestCase):

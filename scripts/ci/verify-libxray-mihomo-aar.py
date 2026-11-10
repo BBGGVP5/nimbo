@@ -21,7 +21,7 @@ EXPORTS = (
     "java.lang.String nimboMihomoStartAndroid(java.lang.String, long);",
 )
 
-# Upstream 26.10.31 removed the unused ping-location API (not Nimbo's own
+# Upstream 26.11.9 removed the unused ping-location API (not Nimbo's own
 # diagnostic bridge). This exception applies ONLY to our exact prior AAR and
 # exact four removed generated members, never to Invoke or other JNI exports.
 LEGACY_AAR_SHA = "b15d4c1afc35f115e78bfa3177071e7eddbc9cd64a27046122610629e83195a1"
@@ -151,7 +151,7 @@ def main():
                 metadata = subprocess.run([args.go, "version", "-m", str(native)],
                                           check=True, capture_output=True, text=True).stdout
                 for module, version in (
-                    ("github.com/xtls/xray-core", "v1.260327.1-0.20261031132019-a4a3dff5b20c"),
+                    ("github.com/xtls/xray-core", "v1.260327.1-0.20261109052709-676eaf66f8f0"),
                     ("github.com/metacubex/mihomo", "v1.19.33"),
                 ):
                     replacement = dependency(metadata, module, version)
@@ -164,7 +164,7 @@ def main():
                         raise ValueError(f"Missing or changed compiled core pin in {abi}: {module}")
                     if module == "github.com/xtls/xray-core" and not any(
                         line.strip().split() == ["dep", module, version,
-                            "h1:XijTasBJ2fImHZo1GoAgSfHuDqloQGYHEADLy9CgrJ8="]
+                            "h1:p2uoadP+ulClbJ9dn+QioF2SfBqRly6VoKJosHqwcRo="]
                         for line in metadata.splitlines()
                     ):
                         raise ValueError(f"Compiled Xray source checksum mismatch in {abi}")
