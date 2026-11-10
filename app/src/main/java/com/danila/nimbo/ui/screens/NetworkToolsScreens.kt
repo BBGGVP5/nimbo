@@ -13,6 +13,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
@@ -117,7 +121,11 @@ private data class PingToolResult(
     val avgMs = success.takeIf { it.isNotEmpty() }?.average()?.roundToInt()
     val minMs = success.minOrNull()
     val maxMs = success.maxOrNull()
+    /** Mean difference between consecutive replies. */
+    val jitterMs = success.zipWithNext { a, b -> kotlin.math.abs(a - b) }.takeIf { it.isNotEmpty() }?.average()?.roundToInt()
 }
+
+private val PING_QUICK_TARGETS = listOf("google.com", "ya.ru", "1.1.1.1", "8.8.8.8", "telegram.org")
 
 private data class SpeedTestResult(
     val pingMs: Int,
@@ -238,7 +246,8 @@ private val speedHttpClient = OkHttpClient.Builder()
     .build()
 
 @Composable
-fun PingToolScreen(mainViewModel: com.danila.nimbo.MainViewModel, onNavigateBack: () -> Unit) {
+fun PingToolScreen(mainViewModel: com.danila.nimbo.MainViewModel, onNavigateBack: () -> Unit,
+    onSelectTool: (DiagnosticsTool) -> Unit = {}) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val application = context.applicationContext as Application
@@ -327,49 +336,61 @@ fun PingToolScreen(mainViewModel: com.danila.nimbo.MainViewModel, onNavigateBack
     }
 
     NimboSubPageScaffold(
-        title = "Проверка пинга",
-        subtitle = if (nimbo) "GET через маршрут выбранного сервера подписки; VPN не переключается" else if (activeRouteOnly) "Только активный маршрут, не проверка всего списка серверов" else "Отдельный замер домена или IP-адреса",
+        title = t("Пинг", "Ping"),
+        subtitle = null,
         onBack = onNavigateBack
     ) {
-        WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                NetworkSettingsTextField(
-                    value = if (usesHealthUrl) pingUrl else targetText,
-                    onValueChange = { if (usesHealthUrl) preferencesManager.pingUrl = it else targetText = it },
-                    label = if (usesHealthUrl) "URL проверки" else "Домен или IP-адрес",
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (activeRouteOnly && HealthProxySessions.connected() == null) {
-                    Text("Недоступно: подключите поддерживаемый VPN-маршрут", color = nebulaColors.textTertiary, style = MaterialTheme.typography.bodySmall)
-                }
-                error?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text(it, color = Color(0xFFE75555), style = MaterialTheme.typography.bodySmall)
-                }
-            }
+        DiagnosticsToolTabs(DiagnosticsTool.PING, onSelectTool)
+        Spacer(Modifier.height(16.dp))
+        DiagnosticsEyebrow(
+            when {
+                nimbo -> t("Через выбранный сервер · GET", "Through the selected server · GET")
+                activeRouteOnly -> t("Активный маршрут · HTTP", "Active route · HTTP")
+                usesHealthUrl -> t("Диагностика · HTTP", "Diagnostics · HTTP")
+                else -> t("Диагностика · TCP", "Diagnostics · TCP")
+            },
+            Modifier.padding(start = 4.dp)
+        )
+        Spacer(Modifier.height(8.dp))
+        DiagnosticsTargetField(
+            value = if (usesHealthUrl) pingUrl else targetText,
+            onValueChange = { if (usesHealthUrl) preferencesManager.pingUrl = it else targetText = it },
+            placeholder = if (usesHealthUrl) t("URL проверки", "Check URL") else t("Домен или IP-адрес", "Domain or IP address"),
+            icon = if (usesHealthUrl) Icons.Default.Link else Icons.Default.Public
+        )
+        if (!usesHealthUrl) {
+            Spacer(Modifier.height(14.dp))
+            DiagnosticsEyebrow(t("Быстрый выбор", "Quick pick"), Modifier.padding(start = 4.dp))
+            Spacer(Modifier.height(8.dp))
+            DiagnosticsChips(PING_QUICK_TARGETS, targetText.trim()) { targetText = it }
         }
-        Spacer(Modifier.height(14.dp))
-        Button(
+        if (activeRouteOnly && HealthProxySessions.connected() == null) {
+            Spacer(Modifier.height(8.dp))
+            Text(t("Недоступно: подключите поддерживаемый VPN-маршрут", "Unavailable: connect a supported VPN route"),
+                color = nebulaColors.textTertiary, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 4.dp))
+        }
+        error?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, color = DiagnosticsBad, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 4.dp))
+        }
+        Spacer(Modifier.height(16.dp))
+        DiagnosticsPrimaryButton(
+            text = if (isRunning) t("Пингуем…", "Pinging…") else t("Запустить пинг", "Run ping"),
+            icon = Icons.Default.PlayArrow,
             onClick = ::startPing,
-            enabled = !isRunning && (!activeRouteOnly || HealthProxySessions.connected() != null),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = nebulaColors.accent, contentColor = contrastingLabel(nebulaColors.accent))
-        ) {
-            if (isRunning) {
-                ExpressiveCircularLoader(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = nebulaColors.textPrimary)
-                Spacer(Modifier.width(10.dp))
-            }
-            Text(if (isRunning) "Пингуем..." else "Запустить пинг", color = if (isRunning) nebulaColors.textSecondary else contrastingLabel(nebulaColors.accent), fontWeight = FontWeight.Bold)
-        }
-        Spacer(Modifier.height(14.dp))
-        PingResultCard(result)
+            enabled = !activeRouteOnly || HealthProxySessions.connected() != null,
+            busy = isRunning
+        )
+        Spacer(Modifier.height(16.dp))
+        PingResultCard(result, isRunning)
         Spacer(Modifier.height(32.dp))
     }
 }
 
 @Composable
-fun SpeedTestScreen(onNavigateBack: () -> Unit) {
+fun SpeedTestScreen(onNavigateBack: () -> Unit, onSelectTool: (DiagnosticsTool) -> Unit = {}) {
     val nebulaColors = LocalNebulaColors.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -546,211 +567,115 @@ fun SpeedTestScreen(onNavigateBack: () -> Unit) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedGradientBackground()
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-        ) {
-            GlassHeader(
-                title = "Тест скорости",
-                icon = Icons.Default.Speed,
-                iconColor = nebulaColors.accent,
-                onBack = onNavigateBack
+    val shownPing = (pingMs ?: result?.pingMs)?.takeIf { it >= 0 }
+    val gaugeValue = if (isRunning) liveSpeed.toDouble()
+        else result?.downloadMbps ?: downloadSpeed ?: result?.uploadMbps ?: uploadSpeed ?: 0.0
+    var gaugeMax by remember { mutableStateOf(100.0) }
+    LaunchedEffect(gaugeValue) { if (gaugeValue * 1.15 > gaugeMax) gaugeMax = speedGaugeMax(gaugeValue) }
+    val phase = when {
+        !isRunning && result != null -> t("Готово", "Done")
+        !isRunning -> t("Готов к тесту", "Ready")
+        progress < 0.30f -> t("Подготовка", "Preparing")
+        progress < 0.80f -> t("Загрузка", "Download")
+        else -> t("Отдача", "Upload")
+    }
+
+    NimboSubPageScaffold(title = t("Скорость", "Speed"), subtitle = null, onBack = onNavigateBack) {
+        DiagnosticsToolTabs(DiagnosticsTool.SPEED, onSelectTool)
+        Spacer(Modifier.height(16.dp))
+        DiagnosticsSpeedGauge(
+            value = gaugeValue,
+            scaleMax = gaugeMax,
+            phase = phase,
+            server = result?.server?.host,
+            progress = if (isRunning) progress else if (result != null) 1f else 0f
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            DiagnosticsSmallMetric(t("Пинг", "Ping"), shownPing?.toString() ?: "—", t("мс", "ms"), Modifier.weight(1f))
+            DiagnosticsSmallMetric(t("Загрузка", "Download"),
+                if (animatedDownloadMetric > 0f) animatedDownloadMetric.toDouble().formatOne() else "—",
+                t("Мбит/с", "Mbps"), Modifier.weight(1f))
+            DiagnosticsSmallMetric(t("Отдача", "Upload"),
+                if (animatedUploadMetric > 0f) animatedUploadMetric.toDouble().formatOne() else "—",
+                t("Мбит/с", "Mbps"), Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(10.dp))
+        NimboPanel(Modifier.fillMaxWidth()) {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(44.dp).background(nebulaColors.softFill, CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Dns, null, Modifier.size(22.dp), tint = nebulaColors.textSecondary)
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(t("Сервер", "Server"), color = nebulaColors.textPrimary, style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold)
+                    Text(
+                        result?.server?.let { "${it.providerLabel} · ${it.locationLabel}" }
+                            ?: if (isRunning) statusText else t("Авто (ближайший)", "Auto (nearest)"),
+                        color = nebulaColors.textSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 2
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        DiagnosticsPrimaryButton(
+            text = if (isRunning) t("Идёт тест…", "Testing…") else if (result != null) t("Повторить тест", "Run again") else t("Начать тест", "Start test"),
+            icon = Icons.Default.PlayArrow,
+            onClick = ::startSpeedTest,
+            busy = isRunning
+        )
+        Spacer(Modifier.height(32.dp))
+    }
+}
+
+@Composable
+private fun PingResultCard(result: PingToolResult?, running: Boolean) {
+    val colors = LocalNebulaColors.current
+    val ms = { value: Int? -> value?.let { com.danila.nimbo.network.displayPingLabel(it, result?.protocol ?: 0) } ?: "—" }
+    DiagnosticsCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            DiagnosticsEyebrow(t("Средний отклик", "Average response"), Modifier.weight(1f))
+            result?.takeIf { !running }?.let { DiagnosticsEyebrow(it.host.take(28), color = colors.textSecondary) }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                when {
+                    running -> "…"
+                    result == null -> "—"
+                    result.successCount == 0 -> t("нет ответа", "no reply")
+                    else -> ms(result.avgMs)
+                },
+                color = if (!running && result != null && result.successCount == 0) DiagnosticsBad else colors.textPrimary,
+                style = if (!running && result != null && result.successCount == 0) MaterialTheme.typography.headlineMedium
+                    else MaterialTheme.typography.displayMedium,
+                fontWeight = FontWeight.Bold
             )
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 112.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                SpeedGaugeCard(
-                    value = if (isRunning) {
-                        liveSpeed.toDouble()
-                    } else {
-                        result?.downloadMbps ?: downloadSpeed ?: result?.uploadMbps ?: uploadSpeed ?: 0.0
-                    },
-                    isRunning = isRunning,
-                    progress = progress
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    SpeedMetricCard("PING", (pingMs ?: result?.pingMs)?.takeIf { it >= 0 }?.toString() ?: "-", "мс", Modifier.weight(1f))
-                    SpeedMetricCard(
-                        "СКАЧАТЬ",
-                        if (animatedDownloadMetric > 0f) animatedDownloadMetric.toDouble().formatOne() else "-",
-                        "Мбит/с",
-                        Modifier.weight(1f)
-                    )
-                    SpeedMetricCard(
-                        "ОТДАЧА",
-                        if (animatedUploadMetric > 0f) animatedUploadMetric.toDouble().formatOne() else "-",
-                        "Мбит/с",
-                        Modifier.weight(1f)
-                    )
-                }
-                GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Сервер", color = nebulaColors.textSecondary)
-                            Text(
-                                result?.server?.providerLabel ?: "Авто",
-                                color = nebulaColors.textPrimary,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.End
-                            )
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            result?.server?.locationLabel ?: statusText,
-                            color = nebulaColors.textPrimary,
-                            textAlign = TextAlign.Start
-                        )
-                        result?.server?.detailsLabel?.let { details ->
-                            if (details.isBlank()) return@let
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                details,
-                                color = nebulaColors.textSecondary,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
-                }
-                Button(
-                    onClick = ::startSpeedTest,
-                    enabled = !isRunning,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = nebulaColors.accent.copy(alpha = 0.82f))
-                ) {
-                    Text(if (isRunning) "Идёт тест..." else "Начать тест", color = nebulaColors.textPrimary, fontWeight = FontWeight.Bold)
-                }
+            if (running || result == null || result.successCount > 0) {
+                Spacer(Modifier.width(8.dp))
+                Text(t("мс", "ms"), color = colors.textSecondary, modifier = Modifier.padding(bottom = 10.dp),
+                    style = MaterialTheme.typography.labelLarge.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace))
             }
         }
-    }
-}
-
-@Composable
-private fun ToolHero(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String) {
-    val nebulaColors = LocalNebulaColors.current
-    GlassCard(modifier = Modifier.fillMaxWidth().height(178.dp)) {
-        Box(modifier = Modifier.fillMaxSize().background(nebulaColors.accent.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(icon, null, tint = nebulaColors.textPrimary, modifier = Modifier.size(52.dp))
-                Spacer(Modifier.height(14.dp))
-                Text(title, color = nebulaColors.textPrimary, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text(subtitle, color = nebulaColors.textSecondary, style = MaterialTheme.typography.bodyMedium)
-            }
+        Spacer(Modifier.height(18.dp))
+        val shown = result?.takeIf { !running }
+        Row {
+            DiagnosticsHeroMetric(t("Мин", "Min"), ms(shown?.minMs), Modifier.weight(1f))
+            DiagnosticsHeroMetric(t("Макс", "Max"), ms(shown?.maxMs), Modifier.weight(1f))
+            DiagnosticsHeroMetric(t("Джиттер", "Jitter"), shown?.jitterMs?.toString() ?: "—", Modifier.weight(1f))
+            DiagnosticsHeroMetric(t("Потери", "Loss"), shown?.let { "${it.lossPercent}%" } ?: "—", Modifier.weight(1f),
+                valueColor = if ((shown?.lossPercent ?: 0) > 0) DiagnosticsWarn else colors.textPrimary)
         }
-    }
-}
-
-@Composable
-private fun PingResultCard(result: PingToolResult?) {
-    if (result == null) {
-        NimboToolSection(t("Результаты проверки", "Check results"),
-            t("Запустите проверку. Здесь появятся фактические измерения.", "Start a check to see measured results here.")) {}
-        return
-    }
-    NimboToolSection(result.host) {
-        Text(result.avgMs?.let { com.danila.nimbo.network.displayPingLabel(it, result.protocol) + " ms" }
-            ?: t("Недоступен", "Unavailable"), style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.SemiBold, color = if (result.successCount == 0) LocalNebulaColors.current.statusError else LocalNebulaColors.current.textPrimary)
-        NimboToolActions(minCellDp = 112f) {
-            NimboToolMetric(t("Успешно", "Successful"), "${result.successCount}/${result.attempts.size}", Modifier.weight(1f))
-            NimboToolMetric(t("Потери", "Loss"), "${result.lossPercent}%", Modifier.weight(1f))
-            NimboToolMetric(t("Минимум", "Minimum"), com.danila.nimbo.network.displayPingLabel(result.minMs, result.protocol) + " ms", Modifier.weight(1f))
-            NimboToolMetric(t("Максимум", "Maximum"), com.danila.nimbo.network.displayPingLabel(result.maxMs, result.protocol) + " ms", Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
-private fun SpeedGaugeCard(value: Double, isRunning: Boolean, progress: Float) {
-    val nebulaColors = LocalNebulaColors.current
-    val animatedValue by animateFloatAsState(
-        targetValue = value.toFloat(),
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow),
-        label = "speedValue"
-    )
-    val animatedProgress by animateFloatAsState(
-        targetValue = progress,
-        animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow),
-        label = "speedProgress"
-    )
-    GlassCard(modifier = Modifier.fillMaxWidth().height(280.dp)) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Canvas(modifier = Modifier.size(210.dp)) {
-                val stroke = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Round)
-                val arcSize = Size(size.width, size.height)
-                val gaugeFraction = (animatedValue / 200f).coerceIn(0f, 1f)
-                val sweep = 250f * if (isRunning) maxOf(gaugeFraction, animatedProgress * 0.2f) else gaugeFraction
-                drawArc(nebulaColors.textPrimary.copy(alpha = 0.16f), 145f, 250f, false, style = stroke, size = arcSize)
-                drawArc(nebulaColors.textPrimary.copy(alpha = 0.07f), 145f, 250f, false, style = Stroke(width = 28.dp.toPx(), cap = StrokeCap.Round), size = arcSize)
-                drawArc(nebulaColors.accent, 145f, sweep, false, style = stroke, size = arcSize)
-
-                val center = Offset(size.width / 2f, size.height / 2f)
-                val angleDeg = 145f + 250f * gaugeFraction
-                val angleRad = Math.toRadians(angleDeg.toDouble())
-                val needleLength = size.width * 0.39f
-                val needleEnd = Offset(
-                    x = center.x + cos(angleRad).toFloat() * needleLength,
-                    y = center.y + sin(angleRad).toFloat() * needleLength
-                )
-                val dir = Offset(cos(angleRad).toFloat(), sin(angleRad).toFloat())
-                val perp = Offset(-dir.y, dir.x)
-                val tail = center - dir * 24.dp.toPx()
-                val tip = needleEnd
-                val left = center + perp * 9.dp.toPx()
-                val right = center - perp * 9.dp.toPx()
-                val shadowOffset = Offset(2.5.dp.toPx(), 3.dp.toPx())
-                val needleShadow = Path().apply {
-                    moveTo(tip.x + shadowOffset.x, tip.y + shadowOffset.y)
-                    lineTo(left.x + shadowOffset.x, left.y + shadowOffset.y)
-                    lineTo(tail.x + shadowOffset.x, tail.y + shadowOffset.y)
-                    lineTo(right.x + shadowOffset.x, right.y + shadowOffset.y)
-                    close()
-                }
-                val needle = Path().apply {
-                    moveTo(tip.x, tip.y)
-                    lineTo(left.x, left.y)
-                    lineTo(tail.x, tail.y)
-                    lineTo(right.x, right.y)
-                    close()
-                }
-                drawPath(needleShadow, Color.Black.copy(alpha = 0.28f))
-                drawPath(needle, nebulaColors.accent.copy(alpha = 0.96f))
-                drawLine(
-                    color = nebulaColors.textPrimary.copy(alpha = 0.72f),
-                    start = center + perp * 3.dp.toPx(),
-                    end = tip - dir * 13.dp.toPx(),
-                    strokeWidth = 2.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-                drawCircle(Color.Black.copy(alpha = 0.26f), radius = 15.dp.toPx(), center = center + shadowOffset)
-                drawCircle(nebulaColors.textPrimary.copy(alpha = 0.15f), radius = 16.dp.toPx(), center = center)
-                drawCircle(nebulaColors.textPrimary.copy(alpha = 0.88f), radius = 10.dp.toPx(), center = center)
-                drawCircle(nebulaColors.accent.copy(alpha = 0.9f), radius = 4.dp.toPx(), center = center)
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 116.dp)) {
-                Text(if (animatedValue > 0f) animatedValue.toDouble().formatOne() else "-", color = nebulaColors.textPrimary, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                Text("Мбит/с", color = nebulaColors.textSecondary)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SpeedMetricCard(title: String, value: String, unit: String, modifier: Modifier) {
-    val nebulaColors = LocalNebulaColors.current
-    GlassCard(modifier = modifier.height(116.dp)) {
-        Column(modifier = Modifier.fillMaxSize().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text(title, color = nebulaColors.textSecondary, style = MaterialTheme.typography.labelMedium)
-            Text(value, color = nebulaColors.textPrimary, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(unit, color = nebulaColors.textTertiary, style = MaterialTheme.typography.bodySmall)
-        }
+        Spacer(Modifier.height(14.dp))
+        Text(
+            when {
+                running -> t("Отправляем 4 запроса…", "Sending 4 probes…")
+                shown == null -> t("Введите адрес и запустите пинг.", "Enter an address and run the ping.")
+                else -> t("Ответов ${shown.successCount} из ${shown.attempts.size}", "${shown.successCount} of ${shown.attempts.size} replies")
+            },
+            color = colors.textTertiary, style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 

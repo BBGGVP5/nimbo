@@ -6,6 +6,19 @@ import com.danila.nimbo.ui.components.*
 import androidx.compose.foundation.layout.*
 
 import android.app.Application
+import android.content.Context
+import android.content.Intent
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
+import java.util.concurrent.atomic.AtomicInteger
 import com.danila.nimbo.BuildConfig
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -79,6 +92,8 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 private const val CONNECTIVITY_HISTORY_KEY = "connectivity_diagnostics_history"
+/** Shown before the first progress callback; runConnectivityDiagnostics reports the real count. */
+private const val CONNECTIVITY_TARGET_COUNT = 13
 
 private enum class CheckGroup(val title: String) {
     INTERNATIONAL("Международные сервисы"),
@@ -128,13 +143,13 @@ private data class ConnectivityDiagnosticResult(
     val averagePingMs: Long? = checks.mapNotNull { it.pingMs }.takeIf { it.isNotEmpty() }?.average()?.roundToInt()?.toLong()
 
     val title: String = when (verdict) {
-        ConnectivityVerdict.NORMAL -> "Интернет работает нормально"
-        ConnectivityVerdict.RESTRICTED -> "Возможны ограничения связи"
-        ConnectivityVerdict.NO_INTERNET -> "Интернет недоступен"
+        ConnectivityVerdict.NORMAL -> "Интернет работает"
+        ConnectivityVerdict.RESTRICTED -> "Есть ограничения"
+        ConnectivityVerdict.NO_INTERNET -> "Нет интернета"
     }
 
     val description: String = when (verdict) {
-        ConnectivityVerdict.NORMAL -> "Признаков блокировок не обнаружено."
+        ConnectivityVerdict.NORMAL -> "Признаков ограничений не обнаружено."
         ConnectivityVerdict.RESTRICTED -> "Часть контрольных хостов недоступна. Проверьте подключение без VPN или резервный режим."
         ConnectivityVerdict.NO_INTERNET -> "Все контрольные хосты недоступны. Проверьте мобильную сеть, Wi-Fi или VPN."
     }
@@ -144,7 +159,8 @@ private data class ConnectivityDiagnosticResult(
 fun ConnectivityDiagnosticsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToHistory: () -> Unit,
-    onNavigateToPingTool: () -> Unit
+    onNavigateToPingTool: () -> Unit,
+    onSelectTool: (DiagnosticsTool) -> Unit = { if (it == DiagnosticsTool.PING) onNavigateToPingTool() }
 ) {
     val context = LocalContext.current
     val application = context.applicationContext as Application
@@ -154,14 +170,18 @@ fun ConnectivityDiagnosticsScreen(
 
     var isRunning by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(true) }
-    var result by remember { mutableStateOf<ConnectivityDiagnosticResult?>(null) }
+    var completed by remember { mutableIntStateOf(0) }
+    var total by remember { mutableIntStateOf(CONNECTIVITY_TARGET_COUNT) }
     var history by remember { mutableStateOf(loadConnectivityHistory(preferencesManager)) }
+    // The last stored check stays on screen, so the card is never empty after a relaunch.
+    var result by remember { mutableStateOf(history.firstOrNull()) }
 
     fun startCheck() {
         if (isRunning) return
         isRunning = true
+        completed = 0
         scope.launch {
-            val newResult = runConnectivityDiagnostics()
+            val newResult = runConnectivityDiagnostics { done, count -> completed = done; total = count }
             result = newResult
             history = (listOf(newResult) + history).take(20)
             saveConnectivityHistory(preferencesManager, history)
@@ -172,84 +192,104 @@ fun ConnectivityDiagnosticsScreen(
 
     NimboSubPageScaffold(
         title = t("Проверка БС", "Allowlist check"),
-        subtitle = t(
-            "Доступность контрольных доменов в текущей сети",
-            "Reachability of reference domains on the current network"
-        ),
+        subtitle = null,
         onBack = onNavigateBack
     ) {
-        DiagnosticsHero()
-        Spacer(Modifier.height(14.dp))
-
-        NimboToolActions {
-            ToolNavButton(
-                title = t("История", "History"),
-                icon = Icons.Default.History,
-                onClick = onNavigateToHistory,
-                modifier = Modifier.weight(1f)
-            )
-            ToolNavButton(
-                title = t("Проверка пинга", "Ping check"),
-                icon = Icons.Default.NetworkPing,
-                onClick = onNavigateToPingTool,
-                modifier = Modifier.weight(1f),
-                accent = true
-            )
-        }
-
-        Spacer(Modifier.height(14.dp))
-        Button(
-            onClick = ::startCheck,
-            enabled = !isRunning,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = nebulaColors.accent,
-                contentColor = contrastingLabel(nebulaColors.accent),
-                disabledContainerColor = nebulaColors.textPrimary.copy(alpha = 0.10f)
-            )
-        ) {
-            if (isRunning) {
-                ExpressiveCircularLoader(
-                    modifier = Modifier.size(22.dp),
-                    strokeWidth = 2.dp,
-                    color = contrastingLabel(nebulaColors.accent)
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(t("Проверка…", "Checking…"), color = if (isRunning) nebulaColors.textSecondary else contrastingLabel(nebulaColors.accent), fontWeight = FontWeight.Bold)
-            } else {
-                Text(t("Начать проверку", "Start check"), color = if (isRunning) nebulaColors.textSecondary else contrastingLabel(nebulaColors.accent), fontWeight = FontWeight.Bold)
-            }
-        }
-
+        DiagnosticsToolTabs(DiagnosticsTool.CHECK, onSelectTool)
         Spacer(Modifier.height(16.dp))
+        StatusCard(result = result, running = isRunning, completed = completed, total = total)
+        Spacer(Modifier.height(16.dp))
+        DiagnosticsPrimaryButton(
+            text = if (isRunning) t("Проверяем… $completed/$total", "Checking… $completed/$total")
+                else t("Начать проверку", "Start check"),
+            icon = Icons.Default.PlayArrow,
+            onClick = ::startCheck,
+            busy = isRunning
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            DiagnosticsSecondaryButton(t("История", "History"), Icons.Default.History, onNavigateToHistory,
+                Modifier.weight(1f), tonal = true)
+            DiagnosticsSecondaryButton(t("Поделиться", "Share"), Icons.Default.Share,
+                { result?.let { shareConnectivityResult(context, it) } }, Modifier.weight(1f),
+                enabled = result != null && !isRunning)
+        }
         result?.let { current ->
-            ResultSummaryCard(current)
-            Spacer(Modifier.height(12.dp))
-            ToolNavButton(
-                title = if (showDetails) t("Скрыть результаты", "Hide results") else t("Показать результаты", "Show results"),
-                icon = if (showDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                onClick = { showDetails = !showDetails },
-                modifier = Modifier.fillMaxWidth()
-            )
+            Spacer(Modifier.height(22.dp))
+            DiagnosticsSectionHeader(
+                t("Результаты по узлам", "Results by node"),
+                if (showDetails) t("Скрыть", "Hide") else t("Показать все", "Show all")
+            ) { showDetails = !showDetails }
             AnimatedVisibility(visible = showDetails) {
                 Column {
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(6.dp))
                     ResultDetails(current)
                 }
             }
-        } ?: EmptyStateCard()
-
+        } ?: run {
+            Spacer(Modifier.height(18.dp))
+            Text(
+                t("Проверка обращается к контрольным сайтам и DNS в текущей сети и показывает, похожа ли она на режим белых списков. Это не проверка всех сервисов.",
+                  "The check contacts reference sites and DNS on the current network and shows whether it looks like an allowlist mode. It does not test every service."),
+                color = nebulaColors.textTertiary, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+        }
         Spacer(Modifier.height(32.dp))
     }
 }
 
 @Composable
-private fun ToolNavButton(title: String, icon: ImageVector, onClick: () -> Unit,
-    modifier: Modifier = Modifier, accent: Boolean = false) {
-    NimboAction(icon, title, onClick, modifier)
+private fun StatusCard(result: ConnectivityDiagnosticResult?, running: Boolean, completed: Int, total: Int) {
+    val nebulaColors = LocalNebulaColors.current
+    val tint = when {
+        running -> nebulaColors.accent
+        result == null -> nebulaColors.textTertiary
+        else -> result.verdict.color()
+    }
+    DiagnosticsCard {
+        Row(verticalAlignment = Alignment.Top) {
+            DiagnosticsEyebrow(t("Статус сети", "Network status"), Modifier.weight(1f).padding(top = 4.dp))
+            DiagnosticsBadge(
+                icon = when {
+                    running -> Icons.Default.Sync
+                    result == null -> Icons.Default.Wifi
+                    else -> result.verdict.icon()
+                },
+                tint = tint
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        when {
+            running -> DiagnosticsHeroTitle(t("Проверяем сеть", "Checking network"),
+                t("Опрашиваем контрольные узлы: $completed из $total.", "Probing reference nodes: $completed of $total."))
+            result == null -> DiagnosticsHeroTitle(t("Не проверено", "Not checked"),
+                t("Запустите проверку, чтобы узнать, есть ли ограничения.", "Run a check to see whether the network is restricted."))
+            else -> DiagnosticsHeroTitle(result.title, result.description)
+        }
+        if (running) {
+            Spacer(Modifier.height(14.dp))
+            LinearProgressIndicator(
+                progress = { if (total == 0) 0f else completed / total.toFloat() },
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                color = nebulaColors.accent, trackColor = nebulaColors.softFill, drawStopIndicator = {}
+            )
+        }
+        Spacer(Modifier.height(18.dp))
+        Row {
+            DiagnosticsHeroMetric(t("Узлы", "Nodes"),
+                result?.takeIf { !running }?.let { "${it.availableCount}/${it.checkedCount}" } ?: "—", Modifier.weight(1f))
+            DiagnosticsHeroMetric(t("Пинг, мс", "Ping, ms"),
+                result?.takeIf { !running }?.averagePingMs?.toString() ?: "—", Modifier.weight(1f))
+            DiagnosticsHeroMetric(t("Успех", "Success"),
+                result?.takeIf { !running }?.let { "${it.successRate}%" } ?: "—", Modifier.weight(1f))
+        }
+        result?.takeIf { !running }?.let {
+            Spacer(Modifier.height(12.dp))
+            Text(t("Проверено ${formatHistoryTime(it.checkedAt)}", "Checked ${formatHistoryTime(it.checkedAt)}"),
+                color = nebulaColors.textTertiary, style = MaterialTheme.typography.bodySmall)
+        }
+    }
 }
 
 @Composable
@@ -275,57 +315,24 @@ fun ConnectivityDiagnosticsHistoryScreen(
 }
 
 @Composable
-private fun DiagnosticsHero() {
-    NimboToolSection(t("Контроль доступности", "Reachability check"),
-        t("Проверяем контрольные домены и DNS в текущей сети. Это не проверка всех сервисов.",
-          "Check reference domains and DNS on the current network. This does not test every service.")) {}
-}
-
-@Composable
-private fun EmptyStateCard() {
-    val nebulaColors = LocalNebulaColors.current
-    WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
-        Text(
-            text = t(
-                "Запустите проверку, чтобы увидеть, какие группы сайтов доступны в текущей сети. Результат показывает возможные ограничения, но не гарантирует работу всех сервисов.",
-                "Run the check to see which site groups are reachable on the current network. The result indicates possible restrictions but cannot guarantee every service."
-            ),
-            modifier = Modifier.padding(16.dp),
-            style = MaterialTheme.typography.bodyLarge,
-            color = nebulaColors.textSecondary,
-            textAlign = TextAlign.Start
-        )
-    }
-}
-
-@Composable
-private fun ResultSummaryCard(result: ConnectivityDiagnosticResult) {
-    NimboToolSection(result.title, result.description) {
-        Icon(result.verdict.icon(), null, tint = result.verdict.color(), modifier = Modifier.size(24.dp))
-        NimboToolActions(minCellDp = 112f) {
-            NimboToolMetric(t("Доступно хостов", "Hosts available"), "${result.availableCount}/${result.checkedCount}", Modifier.weight(1f))
-            NimboToolMetric(t("Успешность", "Success rate"), "${result.successRate}%", Modifier.weight(1f))
-            NimboToolMetric(t("Средний пинг", "Average ping"), result.averagePingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
 private fun ResultDetails(result: ConnectivityDiagnosticResult) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         CheckGroup.entries.forEach { group ->
             val groupChecks = result.checks.filter { it.target.group == group }
             if (groupChecks.isNotEmpty()) {
                 Column {
-                    SubPageSectionHeader(text = group.title, icon = group.icon())
-                    WindowsFlatPanel(shape = RoundedCornerShape(18.dp)) {
+                    Row(Modifier.padding(start = 4.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        DiagnosticsEyebrow(group.title, Modifier.weight(1f))
+                        DiagnosticsEyebrow("${groupChecks.count { it.isAvailable }}/${groupChecks.size}")
+                    }
+                    NimboPanel(Modifier.fillMaxWidth()) {
                         Column {
                             groupChecks.forEachIndexed { index, check ->
                                 HostResultRow(check)
                                 if (index != groupChecks.lastIndex) {
                                     HorizontalDivider(
                                         modifier = Modifier.padding(horizontal = 16.dp),
-                                        color = LocalNebulaColors.current.textTertiary.copy(alpha = 0.1f)
+                                        color = LocalNebulaColors.current.divider
                                     )
                                 }
                             }
@@ -340,44 +347,50 @@ private fun ResultDetails(result: ConnectivityDiagnosticResult) {
 @Composable
 private fun HostResultRow(check: HostCheckResult) {
     val nebulaColors = LocalNebulaColors.current
-    val statusColor = if (check.isAvailable) Color(0xFF33C75A) else Color(0xFFE75555)
+    val statusColor = if (check.isAvailable) DiagnosticsOk else DiagnosticsBad
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 14.dp),
+            .heightIn(min = 56.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = if (check.isAvailable) Icons.Default.CheckCircle else Icons.Default.Cancel,
-            contentDescription = null,
-            tint = statusColor,
-            modifier = Modifier.size(28.dp)
-        )
-        Spacer(Modifier.width(12.dp))
+        Box(Modifier.size(10.dp).background(statusColor, CircleShape))
+        Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
+            Text(check.target.name, style = MaterialTheme.typography.titleSmall, color = nebulaColors.textPrimary,
+                fontWeight = FontWeight.SemiBold)
             Text(
-                text = check.target.name,
-                style = MaterialTheme.typography.titleMedium,
-                color = nebulaColors.textPrimary,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = if (check.isAvailable) {
-                    val probe = if (check.target.probeType == ProbeType.HTTPS) "HTTPS" else "TCP ${check.target.port}"
-                    "пинг ${check.pingMs?.let { "$it мс" } ?: "-"} · доступен через $probe"
-                } else {
-                    "пинг ${check.pingMs?.let { "$it мс" } ?: "-"} · недоступен: ${check.error ?: "нет ответа"}"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = statusColor
-            )
-            Text(
-                text = check.target.host,
-                style = MaterialTheme.typography.bodySmall,
-                color = nebulaColors.textTertiary
+                if (check.isAvailable) check.target.host
+                else "${check.target.host} · ${check.error ?: t("нет ответа", "no response")}",
+                style = MaterialTheme.typography.bodySmall, color = nebulaColors.textTertiary,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
             )
         }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            if (check.isAvailable) check.pingMs?.let { t("$it мс", "$it ms") } ?: "OK" else t("недоступен", "blocked"),
+            color = if (check.isAvailable) nebulaColors.textPrimary else statusColor,
+            style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace),
+            fontWeight = FontWeight.SemiBold
+        )
     }
+}
+
+private fun shareConnectivityResult(context: Context, result: ConnectivityDiagnosticResult) {
+    val lines = buildList {
+        add("Nimbo · проверка сети · ${formatHistoryTime(result.checkedAt)}")
+        add("${result.title}. ${result.description}")
+        add("Узлы ${result.availableCount}/${result.checkedCount} · успех ${result.successRate}%" +
+            (result.averagePingMs?.let { " · пинг $it мс" } ?: ""))
+        result.checks.filterNot { it.isAvailable }.map { it.target.name }.takeIf { it.isNotEmpty() }
+            ?.let { add("Недоступны: ${it.joinToString()}") }
+    }
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, lines.joinToString("\n"))
+    }
+    context.startActivity(Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
 @Composable
@@ -459,16 +472,16 @@ private fun HistorySection(history: List<ConnectivityDiagnosticResult>) {
 }
 
 private fun ConnectivityVerdict.icon(): ImageVector = when (this) {
-    ConnectivityVerdict.NORMAL -> Icons.Default.CheckCircle
+    ConnectivityVerdict.NORMAL -> Icons.Default.Wifi
     ConnectivityVerdict.RESTRICTED -> Icons.Default.Warning
-    ConnectivityVerdict.NO_INTERNET -> Icons.Default.Cancel
+    ConnectivityVerdict.NO_INTERNET -> Icons.Default.WifiOff
 }
 
 @Composable
 private fun ConnectivityVerdict.color(): Color = when (this) {
-    ConnectivityVerdict.NORMAL -> Color(0xFF33C75A)
-    ConnectivityVerdict.RESTRICTED -> Color(0xFFF5A524)
-    ConnectivityVerdict.NO_INTERNET -> Color(0xFFE75555)
+    ConnectivityVerdict.NORMAL -> DiagnosticsOk
+    ConnectivityVerdict.RESTRICTED -> DiagnosticsWarn
+    ConnectivityVerdict.NO_INTERNET -> DiagnosticsBad
 }
 
 private fun CheckGroup.icon(): ImageVector = when (this) {
@@ -478,7 +491,9 @@ private fun CheckGroup.icon(): ImageVector = when (this) {
     CheckGroup.INFRA -> Icons.Default.Dns
 }
 
-private suspend fun runConnectivityDiagnostics(): ConnectivityDiagnosticResult = withContext(Dispatchers.IO) {
+private suspend fun runConnectivityDiagnostics(
+    onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
+): ConnectivityDiagnosticResult = withContext(Dispatchers.IO) {
     val targets = listOf(
         CheckTarget("Google", "www.google.com", group = CheckGroup.INTERNATIONAL, url = "https://www.google.com/generate_204"),
         CheckTarget(
@@ -529,9 +544,11 @@ private suspend fun runConnectivityDiagnostics(): ConnectivityDiagnosticResult =
         CheckTarget("DNS Cloudflare", "1.1.1.1", port = 53, group = CheckGroup.INFRA, probeType = ProbeType.TCP)
     )
 
+    val done = AtomicInteger(0)
+    onProgress(0, targets.size)
     val checks = coroutineScope {
         targets.map { target ->
-            async { checkTarget(target) }
+            async { checkTarget(target).also { onProgress(done.incrementAndGet(), targets.size) } }
         }.awaitAll()
     }
 

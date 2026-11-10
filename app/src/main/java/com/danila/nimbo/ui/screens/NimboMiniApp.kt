@@ -448,12 +448,12 @@ internal enum class MiniDestination {
     Home, Subscription, AppAccess, Settings,
     Theme, AppIcon, Language, PingSettings, About, Disclaimer, ConnectionId, Notifications, Updates, Logs,
     Routing, RoutingModules, Connections, Statistics, Firewall, WhitelistCheck, WhitelistPing,
-    WhitelistHistory, CrossPlatformSync;
+    WhitelistSpeed, WhitelistHistory, CrossPlatformSync;
 
     fun isSettingsSubPage(): Boolean = when (this) {
         Theme, AppIcon, Language, PingSettings, About, ConnectionId, Notifications, Updates, Logs,
         Routing, RoutingModules, Connections, Statistics, Firewall, WhitelistCheck, WhitelistPing,
-        WhitelistHistory, CrossPlatformSync -> true
+        WhitelistSpeed, WhitelistHistory, CrossPlatformSync -> true
         else -> false
     }
 
@@ -471,7 +471,7 @@ internal enum class MiniDestination {
         Updates -> 0.70f
         About -> 0.78f
         Logs -> 0.86f
-        WhitelistCheck, WhitelistPing, WhitelistHistory, CrossPlatformSync -> 0.50f
+        WhitelistCheck, WhitelistPing, WhitelistSpeed, WhitelistHistory, CrossPlatformSync -> 0.50f
         else -> 0.5f
     }
 
@@ -647,6 +647,16 @@ fun NimboMiniApp(
             if (destinationHistory.size > 24) destinationHistory.removeAt(0)
         }
         destination = target
+    }
+
+    // Check / Ping / Speed are tabs of one tool: switching swaps the screen
+    // without a history entry, so Back always returns to where the tool was opened.
+    fun switchDiagnosticsTool(tool: DiagnosticsTool) {
+        destination = when (tool) {
+            DiagnosticsTool.CHECK -> MiniDestination.WhitelistCheck
+            DiagnosticsTool.PING -> MiniDestination.WhitelistPing
+            DiagnosticsTool.SPEED -> MiniDestination.WhitelistSpeed
+        }
     }
 
     fun replaceDestination(target: MiniDestination) {
@@ -1158,12 +1168,19 @@ fun NimboMiniApp(
                 MiniDestination.WhitelistCheck -> ConnectivityDiagnosticsScreen(
                     onNavigateBack = { navigateBackInMiniApp() },
                     onNavigateToHistory = { navigateTo(MiniDestination.WhitelistHistory) },
-                    onNavigateToPingTool = { navigateTo(MiniDestination.WhitelistPing) }
+                    onNavigateToPingTool = { switchDiagnosticsTool(DiagnosticsTool.PING) },
+                    onSelectTool = ::switchDiagnosticsTool
                 )
 
                 MiniDestination.WhitelistPing -> PingToolScreen(
                     mainViewModel = mainViewModel,
-                    onNavigateBack = { navigateBackInMiniApp() }
+                    onNavigateBack = { navigateBackInMiniApp() },
+                    onSelectTool = ::switchDiagnosticsTool
+                )
+
+                MiniDestination.WhitelistSpeed -> SpeedTestScreen(
+                    onNavigateBack = { navigateBackInMiniApp() },
+                    onSelectTool = ::switchDiagnosticsTool
                 )
 
                 MiniDestination.WhitelistHistory -> ConnectivityDiagnosticsHistoryScreen(
