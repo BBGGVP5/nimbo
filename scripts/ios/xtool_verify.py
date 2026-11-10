@@ -180,7 +180,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("ipa", type=Path)
     parser.add_argument("--dependencies-root", required=True, type=Path)
-    parser.add_argument("--version", default="1.3.0-beta.2")
+    parser.add_argument("--version", default="1.3.0")
     parser.add_argument("--build", default="181")
     parser.add_argument("--source-commit")
     parser.add_argument("--receipt", type=Path)

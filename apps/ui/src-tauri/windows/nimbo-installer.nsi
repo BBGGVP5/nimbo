@@ -3,7 +3,7 @@ SetCompressor /SOLID lzma
 
 !define PRODUCT_NAME "Nimbo"
 !ifndef PRODUCT_VERSION
-  !define PRODUCT_VERSION "1.3.0-beta.2"
+  !define PRODUCT_VERSION "1.3.0"
 !endif
 !ifndef PRODUCT_FILE_VERSION
   !define PRODUCT_FILE_VERSION "1.3.0.2"

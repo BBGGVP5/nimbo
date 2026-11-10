@@ -4,8 +4,8 @@ set -euo pipefail
 # Run on macOS, then transfer the archive to Windows/WSL. No app build/signing.
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXPORT_DIR="${NIMBO_XTOOL_EXPORT_DIR:-${ROOT_DIR}/artifacts/ios-xtool-dependencies}"
-VERSION="${NIMBO_VERSION:-1.3.0-beta.2}"
-BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-181}"
+VERSION="${NIMBO_VERSION:-1.3.0}"
+BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-191}"
 usage() {
   echo 'Usage: bash scripts/ci/export-ios-xtool-dependencies.sh [--output DIRECTORY]'
 }
