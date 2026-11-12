@@ -14,6 +14,7 @@ import { Routing } from "./pages/Routing";
 import RoutingModules from "./pages/RoutingModules";
 import { Statistics } from "./pages/Statistics";
 import { TunnelLogs } from "./pages/TunnelLogs";
+import { NetworkCheck } from "./pages/NetworkCheck";
 import { Settings } from "./pages/Settings";
 import { MihomoProfiles } from "./pages/MihomoProfiles";
 import { Notifications } from "./pages/Notifications";
@@ -642,6 +643,7 @@ export default function App() {
           <Route path="/connections" element={<Connections />} />
           <Route path="/statistics" element={<Statistics />} />
           <Route path="/tunnel-logs" element={<TunnelLogs />} />
+          <Route path="/network-check" element={<NetworkCheck />} />
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/sync" element={<CrossPlatformSync />} />
           <Route path="/settings" element={<Settings />} />
@@ -991,6 +993,7 @@ function normalizeTrayRoute(route: unknown): string | null {
   if (route === "/subscriptions") return "/subscriptions";
   if (route === "/statistics") return "/statistics";
   if (route === "/tunnel-logs") return "/tunnel-logs";
+  if (route === "/network-check") return "/network-check";
   if (route === "/routing") return "/routing";
   if (route === "/apps") return "/apps";
   if (route === "/connections") return "/connections";

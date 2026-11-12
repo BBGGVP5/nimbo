@@ -27,7 +27,7 @@ function renderOverview() {
     sectionItems:ids.map(id=>({id,labelKey:id,icon:null})),
     Link:({to,children,...props})=>jsx.jsx('a',{...props,href:to,children}),
     useCoreStore:selector=>selector({data:{preferred_core:'auto'}}),
-    ListIcon:()=>null,RouteIcon:()=>null,RefreshIcon:()=>null,ConnectionsIcon:()=>null,InfoIcon:()=>null,StatsBarsIcon:()=>null,LogsIcon:()=>null,
+    ListIcon:()=>null,RouteIcon:()=>null,RefreshIcon:()=>null,PingGlyph:()=>null,ConnectionsIcon:()=>null,InfoIcon:()=>null,StatsBarsIcon:()=>null,LogsIcon:()=>null,
   });
 }
 

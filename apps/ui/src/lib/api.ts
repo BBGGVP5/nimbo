@@ -1398,7 +1398,35 @@ export interface RoutingModule {
   text: string;
 }
 
+
+export type NetworkCheckItem = { id: string; group: "international" | "local" | "telemetry" | "infra"; available: boolean; elapsed_ms: number | null; detail: string };
+export type NetworkCheckReport = { via_proxy: boolean; items: NetworkCheckItem[] };
+export type NetworkPingReport = { host: string; via_proxy: boolean; samples: Array<number | null> };
+export type NetworkSpeedStage = "latency" | "download" | "upload";
+
+/** Browser preview: deterministic sample data so the page can be laid out without Tauri. */
+function browserNetworkCheck(): NetworkCheckReport {
+  const rows: Array<[string, NetworkCheckItem["group"], number | null]> = [
+    ["Google", "international", 84], ["Cloudflare", "international", 41], ["GitHub", "international", 112], ["Telegram", "international", 96],
+    ["Яндекс", "local", 23], ["VK", "local", 31], ["Google Analytics", "telemetry", 88], ["Google Static", "telemetry", 52],
+    ["Яндекс Метрика", "telemetry", null], ["DNS Google", "infra", 19], ["DNS Cloudflare", "infra", 17],
+  ];
+  return { via_proxy: false, items: rows.map(([id, group, ms]) => ({ id, group, available: ms !== null, elapsed_ms: ms, detail: ms === null ? "Нет ответа" : "HTTP 204" })) };
+}
+
 export const api = {
+  networkCheckRun: () =>
+    isTauriRuntime()
+      ? invoke<NetworkCheckReport>("network_check_run")
+      : new Promise<NetworkCheckReport>((resolve) => setTimeout(() => resolve(browserNetworkCheck()), 600)),
+  networkPing: (target: string) =>
+    isTauriRuntime()
+      ? invoke<NetworkPingReport>("network_ping", { target })
+      : Promise.resolve<NetworkPingReport>({ host: target.trim(), via_proxy: false, samples: [42, 39, 45, null, 41] }),
+  networkSpeed: (stage: NetworkSpeedStage) =>
+    isTauriRuntime()
+      ? invoke<number>("network_speed", { stage })
+      : new Promise<number>((resolve) => setTimeout(() => resolve(stage === "latency" ? 38 : stage === "download" ? 87.4 : 41.2), 700)),
   appReady: () =>
     isTauriRuntime()
       ? invoke<void>("app_ready")

@@ -456,6 +456,7 @@ function SettingsOverview({ preferences, version, onSelect }: { preferences: App
     ]},
     {title: ru ? "Диагностика" : "Diagnostics", entries: [
       row("latency", preferences.latency_protocol === "nimbo" ? "Nimbo Ping" : preferences.latency_protocol, false, "пинг ping timeout таймаут URL"),
+      link("/network-check", ru ? "Проверка сети" : "Network check", <PingGlyph />, ru ? "Белые списки, пинг и скорость" : "Allowlists, ping and speed"),
       link("/connections", m.app.connections, <ConnectionsIcon />, ru ? "Активные соединения" : "Active connections", false, true),
       link("/tunnel-logs", m.app.tunnelLogs, <LogsIcon />, ru ? "Отчёт об ошибке · журнал ядра" : "Error report · core log")
     ]},
@@ -2156,6 +2157,10 @@ function TelegramIcon() {
 function StarIcon() {
   return <Icon><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z" /></Icon>;
 }
+function PingGlyph() {
+  return <Icon><path d="M4.5 17.5a10.5 10.5 0 0 1 15 0" /><path d="M8 14a5.5 5.5 0 0 1 8 0" /><path d="m12 18 3.2-4.6" /></Icon>;
+}
+
 function RouteIcon() {
   return <Icon><circle cx="6" cy="19" r="2.4" /><circle cx="18" cy="5" r="2.4" /><path d="M16.6 6.4 7.4 17.6" /><path d="M8 7h5a3 3 0 0 1 0 6h-2a3 3 0 0 0 0 6h5" /></Icon>;
 }

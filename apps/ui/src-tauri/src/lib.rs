@@ -13,6 +13,7 @@ mod latency;
 pub mod logging;
 mod mihomo_proxy;
 mod mihomo_runtime;
+mod network_check;
 mod on_demand;
 mod recovery_policy;
 pub mod state;
@@ -468,6 +469,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            network_check::network_check_run,
+            network_check::network_ping,
+            network_check::network_speed,
             on_demand::get_on_demand,
             on_demand::set_on_demand,
             commands::resume_saved_connection,
