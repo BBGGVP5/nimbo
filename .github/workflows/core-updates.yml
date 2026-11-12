@@ -1,0 +1,53 @@
+name: Обновления ядер
+
+# Раз в неделю сверяет закреплённые версии Xray, Mihomo, AmneziaWG,
+# NaiveProxy, TrustTunnel и Go с последними выпусками и держит одну
+# открытую задачу «Обновления ядер» со свежей таблицей. Сами пины не
+# меняет: обновление ядра — проверяемая правка с пересборкой AAR и хешами.
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: core-updates
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v4
+
+      - name: Сверить версии ядер
+        id: report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/release/check-core-updates.py --issue-body-file core-updates.md
+
+      - name: Обновить задачу
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTDATED: ${{ steps.report.outputs.outdated }}
+        run: |
+          title="Обновления ядер"
+          number=$(gh issue list --state open --search "in:title \"$title\"" --json number,title \
+            -q ".[] | select(.title == \"$title\") | .number" | head -n1)
+          if [ "${OUTDATED:-0}" = "0" ]; then
+            if [ -n "$number" ]; then
+              gh issue comment "$number" --body-file core-updates.md
+              gh issue close "$number" --reason completed
+            fi
+            exit 0
+          fi
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file core-updates.md
+          else
+            gh issue create --title "$title" --body-file core-updates.md
+          fi
