@@ -59,7 +59,7 @@ class FinalNativeRoutes(unittest.TestCase):
         self.assertEqual(posted, set(constants))
         literal = set(re.findall(r'postIosAction\("(com.nimbo.action.[^"]+)"', kotlin))
         expected = {'toggle-vpn', 'add-profile', 'refresh-profile', 'profile-settings', 'save-app-rule',
-                    'diagnostics', 'about', 'system-settings', 'open-core-settings', 'select-server',
+                    'diagnostics', 'network-check', 'about', 'system-settings', 'open-core-settings', 'select-server',
                     'connect-fastest', 'copy-text', 'export-module', 'ping-server', 'ping-all',
                     'import-subscription', 'import-clipboard', 'import-file', 'scan-qr', 'open-url',
                     'routing', 'open-screen', 'open-update', 'check-update', 'download-update',
@@ -85,7 +85,7 @@ class FinalNativeRoutes(unittest.TestCase):
     def test_reachable_presentations_and_dormant_exclusions(self):
         root = read('Nimbo/RootView.swift')
         sheet_bindings = set(re.findall(r'\.sheet\((?:isPresented|item): \$(\w+)', root))
-        self.assertEqual(sheet_bindings, {'showQrScanner','showProfiles','showDiagnostics','showAbout','showSync',
+        self.assertEqual(sheet_bindings, {'showQrScanner','showProfiles','showDiagnostics','showNetworkCheck','showAbout','showSync',
                                         'backupUrl','showUpdateDownload','showBackupPicker','showCoreSettings','showOnDemandSettings'})
         self.assertNotIn('showReadiness', root, 'Readiness is pushed from Diagnostics, not presented over startup')
         for binding, destination in [('showCoreSettings', 'NimboCoreSettingsView()'),

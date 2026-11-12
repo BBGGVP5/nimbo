@@ -21,6 +21,7 @@ struct RootView: View {
     @AppStorage("com.nimbo.appearance.pingAfterRefresh") private var pingAfterRefresh = true
     @AppStorage("com.nimbo.appearance.refreshOnLaunch") private var refreshOnLaunch = false
     @State private var showDiagnostics = false
+    @State private var showNetworkCheck = false
     @State private var showAbout = false
     @State private var showCoreSettings = false
     @State private var showOnDemandSettings = false
@@ -333,6 +334,9 @@ struct RootView: View {
             .onReceive(NotificationCenter.default.publisher(for: .nimboDiagnostics)) { _ in
                 showDiagnostics = true
             }
+            .onReceive(NotificationCenter.default.publisher(for: .nimboNetworkCheck)) { _ in
+                showNetworkCheck = true
+            }
             .onReceive(NotificationCenter.default.publisher(for: .nimboAbout)) { _ in
                 showAbout = true
             }
@@ -354,6 +358,17 @@ struct RootView: View {
             }
             .sheet(isPresented: $showDiagnostics) {
                 DiagnosticsView().environmentObject(vpn)
+            }
+            .sheet(isPresented: $showNetworkCheck) {
+                NavigationStack {
+                    AllowlistCheckView()
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Готово") { showNetworkCheck = false }.frame(minWidth: 44, minHeight: 44)
+                            }
+                        }
+                        .nimboSheetStyle()
+                }
             }
             .sheet(isPresented: $showAbout) { AboutView() }
             .sheet(isPresented: $showCoreSettings) {
@@ -1169,6 +1184,7 @@ private extension Notification.Name {
     static let nimboProfileSettings = Notification.Name("com.nimbo.action.profile-settings")
     static let nimboSaveAppRule = Notification.Name("com.nimbo.action.save-app-rule")
     static let nimboDiagnostics = Notification.Name("com.nimbo.action.diagnostics")
+    static let nimboNetworkCheck = Notification.Name("com.nimbo.action.network-check")
     static let nimboAbout = Notification.Name("com.nimbo.action.about")
     static let nimboSystemSettings = Notification.Name("com.nimbo.action.system-settings")
     static let nimboOpenCoreSettings = Notification.Name("com.nimbo.action.open-core-settings")

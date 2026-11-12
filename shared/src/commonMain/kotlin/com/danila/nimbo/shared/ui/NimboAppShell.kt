@@ -233,6 +233,8 @@ data class NimboUiActions(
     val onSelectServer: (String) -> Unit = {},
     val onSaveAppRule: (String) -> Unit = {},
     val onOpenDiagnostics: () -> Unit = {},
+    /** Проверка сети: белые списки, пинг и скорость. */
+    val onOpenNetworkCheck: () -> Unit = {},
     val onOpenAbout: () -> Unit = {},
     val onOpenSystemSettings: () -> Unit = {},
     /** Открыть ссылку во внешнем браузере. */

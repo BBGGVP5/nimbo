@@ -116,8 +116,11 @@ internal fun NimboSettingsScreen(state: NimboUiState, actions: NimboUiActions) {
                         }
                         add(SettingsDestination("Приложение", entry.title, entry.icon, null, keywords, false) { tab = entry })
                     }
+                    add(SettingsDestination("Помощь", "Проверка сети", NimboIconName.PING,
+                        "Белые списки, пинг и скорость", "бс белые списки whitelist пинг ping скорость speed", false,
+                        actions.onOpenNetworkCheck))
                     add(SettingsDestination("Помощь", "Диагностика", NimboIconName.INFO,
-                        "Проверка подключения и отчёт об ошибке", "журнал логи report logs", false, actions.onOpenDiagnostics))
+                        "Готовность установки и отчёт об ошибке", "журнал логи report logs", false, actions.onOpenDiagnostics))
                 }.filter { matchesSettingsEntry(query, "${it.title} ${it.subtitle.orEmpty()} ${it.keywords}", it.advanced, state.settingsAdvanced) }
                 if (destinations.isEmpty()) BasicText("Ничего не найдено. Попробуйте другое название.", style = NimboBodyStyle)
                 destinations.groupBy { it.group }.forEach { (group, entries) ->

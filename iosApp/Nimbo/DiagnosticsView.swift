@@ -26,7 +26,7 @@ struct DiagnosticsView: View {
                     AllowlistCheckView()
                 } label: {
                     HStack {
-                        Label("Проверка БС", systemImage: "network")
+                        Label("Проверка сети", systemImage: "network")
                         Spacer(minLength: 8)
                         Image(systemName: "chevron.right").accessibilityHidden(true)
                     }
