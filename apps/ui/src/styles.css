@@ -90,8 +90,6 @@
 .cross-sync-device-identity > span:not(.cross-sync-device-eyebrow) { color: var(--color-text-dim); font-size: 11px; }
 .cross-sync-device-eyebrow { color: var(--color-accent); font-size: 9px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
 .cross-sync-online { margin-left: auto; color: #58d49a; font-size: 12px; font-weight: 700; }
-.cross-sync-device-specs { display: flex; flex-wrap: wrap; gap: 6px; }
-.cross-sync-device-specs span { padding: 5px 8px; border-radius: 9px; color: var(--color-text-dim); background: color-mix(in srgb, var(--color-text) 5%, transparent); border: 1px solid var(--color-border); font-size: 10px; }
 .cross-sync-subscriptions-preview { display: grid; gap: 7px; padding-top: 10px; border-top: 1px solid var(--color-border); }
 .cross-sync-subscriptions-label { color: var(--color-text-faint); font-size: 9px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
 .cross-sync-subscription-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -3644,12 +3642,6 @@ body[data-theme="light"] .conflict-dialog {
   text-align: left;
 }
 
-body[data-theme="light"] .update-dialog {
-  /* Прежде здесь стояла подложка панелей, зависящая от ползунка
-     прозрачности, и она перекрывала плотный фон окна. */
-  background: var(--color-surface);
-  box-shadow: 0 24px 50px rgba(40, 32, 64, 0.22);
-}
 
 .update-dialog-text {
   max-width: none;
@@ -3782,8 +3774,10 @@ body[data-theme="light"] .update-dialog {
 }
 
 body[data-theme="light"] .update-dialog {
-  background:
-    radial-gradient(68% 38% at 50% -10%, var(--color-bg-aura-1), transparent 74%),
+  /* Прежде здесь стояла подложка панелей, зависящая от ползунка
+     прозрачности, и она перекрывала плотный фон окна. */
+  box-shadow: 0 24px 50px rgba(40, 32, 64, 0.22);
+  background: radial-gradient(68% 38% at 50% -10%, var(--color-bg-aura-1), transparent 74%),
     radial-gradient(40% 35% at 50% 100%, var(--color-bg-aura-2), transparent 78%),
     linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.78)),
     rgba(255, 255, 255, 0.88);
@@ -5859,15 +5853,6 @@ body[data-ui-style="material_you"][data-theme="black"] .settings-accent-card {
   color: var(--color-text-faint);
 }
 
-.settings-interface-preview {
-  min-height: 64px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border-radius: calc(var(--ui-radius-md) + 2px);
-  background: linear-gradient(160deg, #1a1c26, #0f1018);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-}
 
 .settings-interface-preview-panel {
   width: 70%;
@@ -8580,66 +8565,6 @@ body[data-theme="light"] .tunnel-logs-level-debug {
 }
 
 /* Material You Expressive mode */
-body[data-ui-style="material_you"] {
-  --md-shape-xs: var(--ui-radius-md);
-  --md-shape-sm: var(--ui-radius-lg);
-  --md-shape-md: var(--ui-radius-xl);
-  --md-shape-lg: var(--ui-radius-2xl);
-  --md-shape-xl: var(--ui-radius-3xl);
-  --md-shape-pill: 999px;
-  --md-state-hover: color-mix(in srgb, var(--color-accent) 8%, transparent);
-  --md-state-press: color-mix(in srgb, var(--color-accent) 14%, transparent);
-  --md-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.12);
-  --md-elevation-2: 0 2px 6px rgba(0, 0, 0, 0.18), 0 4px 14px rgba(0, 0, 0, 0.12);
-  --md-elevation-3: 0 6px 18px rgba(0, 0, 0, 0.20), 0 10px 26px rgba(0, 0, 0, 0.14);
-  --md-motion: 220ms cubic-bezier(0.2, 0, 0, 1);
-  --md-motion-expressive: 360ms cubic-bezier(0.2, 0.9, 0.18, 1);
-  --md-surface: color-mix(in srgb, var(--color-accent) 8%, #141416);
-  --md-surface-dim: color-mix(in srgb, var(--color-accent) 5%, #0f0f11);
-  --md-surface-container-low: color-mix(in srgb, var(--color-accent) 8%, #1d1d20);
-  --md-surface-container: color-mix(in srgb, var(--color-accent) 11%, #242427);
-  --md-surface-container-high: color-mix(in srgb, var(--color-accent) 15%, #2d2d31);
-  --md-surface-container-highest: color-mix(in srgb, var(--color-accent) 18%, #37373b);
-  --md-on-surface: #ececee;
-  --md-on-surface-variant: #cbcbce;
-  --md-outline: color-mix(in srgb, var(--color-accent) 28%, #909094);
-  --md-outline-variant: color-mix(in srgb, var(--color-accent) 18%, #4f4f53);
-  --md-primary: var(--color-accent);
-  --md-on-primary: #ffffff;
-  --md-primary-container: color-mix(in srgb, var(--color-accent) 42%, #28282c);
-  --md-on-primary-container: color-mix(in srgb, var(--color-accent-soft) 34%, #fafafb);
-  --md-secondary-container: color-mix(in srgb, var(--color-accent) 18%, #494a4e);
-  --md-tertiary-container: color-mix(in srgb, var(--color-accent-bright) 22%, #45454a);
-  --color-bg: var(--md-surface);
-  --color-surface: var(--md-surface-container-low);
-  --color-card: var(--md-surface-container);
-  --color-border: var(--md-outline-variant);
-  --color-border-strong: var(--md-outline);
-  --color-text: var(--md-on-surface);
-  --color-text-dim: color-mix(in srgb, var(--md-on-surface-variant) 92%, transparent);
-  --color-text-faint: color-mix(in srgb, var(--md-on-surface-variant) 68%, transparent);
-  --color-glass-bg: var(--md-surface-container);
-  --color-glass-bg-strong: var(--md-surface-container-high);
-  --color-material-bg: var(--md-surface-container);
-  --color-material-bg-strong: var(--md-surface-container-high);
-  --color-material-glaze: transparent;
-  --color-material-glaze-strong: transparent;
-  --color-material-shadow: rgba(0, 0, 0, 0.18);
-  --color-material-inset: transparent;
-  --color-accent-active-bg: var(--md-secondary-container);
-  --color-accent-panel: var(--md-primary-container);
-  --color-settings-divider: var(--md-outline-variant);
-  --color-glow-accent: transparent;
-  --ui-panel-bg:
-    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
-    color-mix(in srgb, var(--md-surface-container) var(--ui-panel-alpha-percent), transparent);
-  --ui-panel-bg-strong:
-    linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
-    color-mix(in srgb, var(--md-surface-container-high) var(--ui-panel-alpha-percent), transparent);
-  --ui-control-bg: color-mix(in srgb, var(--md-surface-container-high) var(--ui-control-alpha-percent), transparent);
-  background: var(--md-surface-dim);
-  font-size: 14px;
-}
 
 body[data-ui-style="material_you"][data-theme="light"] {
   --md-surface: color-mix(in srgb, var(--color-accent) 5%, #fdfdfe);
@@ -9383,9 +9308,7 @@ body[data-ui-style="nimbo"] .settings-interface-card-nimbo .settings-interface-p
     inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
-.settings-interface-preview {
-  position: relative;
-}
+.settings-interface-preview { min-height: 64px; display: grid; place-items: center; overflow: hidden; border-radius: calc(var(--ui-radius-md) + 2px); background: linear-gradient(160deg, #1a1c26, #0f1018); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); position: relative; }
 
 .settings-interface-preview-nav {
   position: absolute;
@@ -9458,6 +9381,58 @@ body[data-ui-style="nimbo"] .settings-interface-card-nimbo .settings-interface-p
 
 /* Material You Expressive refresh: larger shapes and floating navigation. */
 body[data-ui-style="material_you"] {
+  --md-shape-xs: var(--ui-radius-md);
+  --md-shape-sm: var(--ui-radius-lg);
+  --md-shape-pill: 999px;
+  --md-state-hover: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  --md-state-press: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --md-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.12);
+  --md-elevation-2: 0 2px 6px rgba(0, 0, 0, 0.18), 0 4px 14px rgba(0, 0, 0, 0.12);
+  --md-elevation-3: 0 6px 18px rgba(0, 0, 0, 0.20), 0 10px 26px rgba(0, 0, 0, 0.14);
+  --md-motion: 220ms cubic-bezier(0.2, 0, 0, 1);
+  --md-surface: color-mix(in srgb, var(--color-accent) 8%, #141416);
+  --md-surface-dim: color-mix(in srgb, var(--color-accent) 5%, #0f0f11);
+  --md-surface-container-low: color-mix(in srgb, var(--color-accent) 8%, #1d1d20);
+  --md-surface-container: color-mix(in srgb, var(--color-accent) 11%, #242427);
+  --md-surface-container-high: color-mix(in srgb, var(--color-accent) 15%, #2d2d31);
+  --md-surface-container-highest: color-mix(in srgb, var(--color-accent) 18%, #37373b);
+  --md-on-surface: #ececee;
+  --md-on-surface-variant: #cbcbce;
+  --md-outline: color-mix(in srgb, var(--color-accent) 28%, #909094);
+  --md-outline-variant: color-mix(in srgb, var(--color-accent) 18%, #4f4f53);
+  --md-primary: var(--color-accent);
+  --md-on-primary: #ffffff;
+  --md-primary-container: color-mix(in srgb, var(--color-accent) 42%, #28282c);
+  --md-on-primary-container: color-mix(in srgb, var(--color-accent-soft) 34%, #fafafb);
+  --md-secondary-container: color-mix(in srgb, var(--color-accent) 18%, #494a4e);
+  --md-tertiary-container: color-mix(in srgb, var(--color-accent-bright) 22%, #45454a);
+  --color-bg: var(--md-surface);
+  --color-surface: var(--md-surface-container-low);
+  --color-card: var(--md-surface-container);
+  --color-border: var(--md-outline-variant);
+  --color-border-strong: var(--md-outline);
+  --color-text: var(--md-on-surface);
+  --color-text-dim: color-mix(in srgb, var(--md-on-surface-variant) 92%, transparent);
+  --color-text-faint: color-mix(in srgb, var(--md-on-surface-variant) 68%, transparent);
+  --color-glass-bg: var(--md-surface-container);
+  --color-glass-bg-strong: var(--md-surface-container-high);
+  --color-material-bg: var(--md-surface-container);
+  --color-material-bg-strong: var(--md-surface-container-high);
+  --color-material-glaze: transparent;
+  --color-material-glaze-strong: transparent;
+  --color-material-shadow: rgba(0, 0, 0, 0.18);
+  --color-material-inset: transparent;
+  --color-accent-active-bg: var(--md-secondary-container);
+  --color-accent-panel: var(--md-primary-container);
+  --color-settings-divider: var(--md-outline-variant);
+  --color-glow-accent: transparent;
+  --ui-panel-bg: linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    color-mix(in srgb, var(--md-surface-container) var(--ui-panel-alpha-percent), transparent);
+  --ui-panel-bg-strong: linear-gradient(180deg, var(--ui-panel-overlay), var(--ui-panel-overlay)),
+    color-mix(in srgb, var(--md-surface-container-high) var(--ui-panel-alpha-percent), transparent);
+  --ui-control-bg: color-mix(in srgb, var(--md-surface-container-high) var(--ui-control-alpha-percent), transparent);
+  background: var(--md-surface-dim);
+  font-size: 14px;
   --md-shape-md: calc(var(--ui-radius-xl) + 2px);
   --md-shape-lg: calc(var(--ui-radius-2xl) + 4px);
   --md-shape-xl: calc(var(--ui-radius-3xl) + 4px);
@@ -9895,17 +9870,7 @@ body[data-ui-style="signal"] .server-profile-row-connecting {
 }
 
 /* ---------------------------------------------- настройки */
-body[data-ui-style="signal"] .settings-side-item {
-  border-radius: var(--ui-radius-sm);
-  color: var(--color-text-dim);
-}
 
-body[data-ui-style="signal"] .settings-side-item-active {
-  background: color-mix(in srgb, var(--color-text) 6%, transparent) !important;
-  color: var(--color-text) !important;
-  font-weight: 650;
-  box-shadow: none !important;
-}
 
 /* ---------------------------------------------- карточка стиля в настройках */
 .settings-interface-card-signal .settings-interface-preview {
@@ -10035,13 +10000,6 @@ body[data-ui-style="signal"] .server-side-panel .interactive.panel {
   100% { transform: scale(1.12); opacity: 0; }
 }
 
-.signal-server-flag {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  flex: none;
-  color: var(--color-text-dim);
-}
 
 .signal-server-copy {
   display: flex;
@@ -10113,13 +10071,6 @@ body[data-ui-style="signal"] .server-side-panel .interactive.panel {
 
 /* ---------------------------------------------- плитки */
 
-.signal-tile-key {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: var(--color-text-faint);
-}
 
 /* ---------------------------------------------- рельс серверов */
 
@@ -10206,28 +10157,11 @@ body[data-ui-style="signal"] .server-side-panel .interactive.panel {
   font-weight: 600;
 }
 
-.signal-star {
-  flex: none;
-  width: 20px;
-  height: 20px;
-  display: grid;
-  place-items: center;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-faint);
-  font-size: 13px;
-  cursor: pointer;
-  transition: color 0.16s ease;
-}
 
 .signal-star:hover {
   color: var(--color-text);
 }
 
-.signal-star.is-on {
-  color: var(--signal-warn, #ffc857);
-}
 
 /* =============================================================
    Signal — рельс серверов, кнопки действия, боковая навигация
@@ -10281,20 +10215,6 @@ body[data-theme="light"] .signal-btn--primary {
   color: var(--color-text-faint);
 }
 
-.signal-srv-collapse {
-  margin-left: auto;
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: transparent;
-  color: var(--color-text-faint);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-}
 
 .signal-srv-collapse:hover {
   color: var(--color-text);
@@ -10366,19 +10286,6 @@ body[data-theme="light"] .signal-srv-search {
   border-color: color-mix(in srgb, var(--signal-ok, #43d98a) 26%, transparent);
 }
 
-.signal-srv-pick {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 9px 4px 9px 10px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
 
 .signal-srv-copy {
   display: flex;
@@ -10386,14 +10293,6 @@ body[data-theme="light"] .signal-srv-search {
   min-width: 0;
 }
 
-.signal-srv-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .signal-srv-sub {
   font-family: var(--font-mono);
@@ -10556,24 +10455,13 @@ body[data-ui-style="signal"] .connections-tab-active {
 }
 
 /* ---------------------------------------------- настройки */
-body[data-ui-style="signal"] .settings-side {
-  border-radius: var(--ui-radius-xl, 18px);
-}
 
 body[data-ui-style="signal"] .settings-row,
 body[data-ui-style="signal"] .settings-option-row {
   border-radius: var(--ui-radius-md, 12px);
 }
 
-body[data-ui-style="signal"] .settings-row-title {
-  font-size: 13.5px;
-  font-weight: 600;
-}
 
-body[data-ui-style="signal"] .settings-row-description {
-  font-size: 12px;
-  color: var(--color-text-faint);
-}
 
 body[data-ui-style="signal"] .settings-toggle,
 body[data-ui-style="signal"] .switch,
@@ -10585,11 +10473,6 @@ body[data-ui-style="signal"] .settings-tools-row {
   gap: 10px;
 }
 
-body[data-ui-style="signal"] .settings-tools-icon {
-  border-radius: var(--ui-radius-sm, 8px);
-  background: color-mix(in srgb, var(--signal-accent) 14%, transparent);
-  color: var(--signal-accent-bright);
-}
 
 /* ---------------------------------------------- маршрутизация и приложения */
 body[data-ui-style="signal"] .routing-action-button,
@@ -10646,11 +10529,6 @@ body[data-ui-style="signal"] .notification-page {
    Чернильная подложка с тёплым свечением сверху, тонкая линия
    справа, бренд-марка градиентом, пункты капсулами.
    ============================================================= */
-body[data-ui-style="signal"] .app-shell {
-  background:
-    radial-gradient(720px 420px at 26% -12%, color-mix(in srgb, var(--signal-accent) 9%, transparent), transparent 64%),
-    transparent;
-}
 
 /* бренд: марка градиентом и плотная подпись */
 
@@ -10659,179 +10537,37 @@ body[data-ui-style="signal"] .app-shell {
 /* нижние чипы: версия приложения и состояние ядра — как в макете */
 
 /* ---------------------------------------------- список серверов */
-body[data-ui-style="signal"] .signal-srv {
-  border-radius: var(--ui-radius-3xl, 26px);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.012)),
-    color-mix(in srgb, var(--signal-ink-2, #090d14) 60%, transparent);
-  padding: 14px 14px 10px;
-}
 
-body[data-theme="light"] body[data-ui-style="signal"] .signal-srv {
-  background: rgba(255, 255, 255, 0.86);
-}
 
-body[data-ui-style="signal"] .signal-srv-head {
-  padding-bottom: 2px;
-}
 
-body[data-ui-style="signal"] .signal-srv-count {
-  margin-left: auto;
-  margin-right: 2px;
-}
 
-body[data-ui-style="signal"] .signal-srv-collapse {
-  margin-left: 0;
-}
 
 /* поиск — тёмная врезка, как в макете */
-body[data-ui-style="signal"] .signal-srv-search {
-  background: rgba(0, 0, 0, 0.25);
-  border-color: var(--signal-hairline, rgba(255, 255, 255, 0.075));
-}
 
 /* чипы фильтров */
 
 /* строки: активная — зелёная, как «подключено» в макете */
-body[data-ui-style="signal"] .signal-srv-row.is-active {
-  background: color-mix(in srgb, var(--signal-ok, #43d98a) 8%, transparent);
-  border-color: color-mix(in srgb, var(--signal-ok, #43d98a) 26%, transparent);
-}
 
-body[data-ui-style="signal"] .signal-srv-row.is-active .signal-srv-sub {
-  color: color-mix(in srgb, var(--signal-ok, #43d98a) 80%, var(--color-text-faint));
-}
 
 /* =============================================================
    Signal — рельс навигации по макету
    216 px, тонкая линия справа, марка градиентом, пункты с точкой,
    разделители групп и чипы состояния внизу.
    ============================================================= */
-.signal-rail {
-  width: var(--sidebar-width, 216px);
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 16px 12px;
-  border-right: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background:
-    radial-gradient(300px 220px at 20% -8%, color-mix(in srgb, var(--signal-accent) 10%, transparent), transparent 70%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.006)),
-    color-mix(in srgb, var(--signal-ink-2, #090d14) 96%, transparent);
-  overflow: hidden;
-}
 
-body[data-theme="light"] .signal-rail {
-  background: rgba(255, 255, 255, 0.9);
-}
 
-.signal-rail-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 8px 18px;
-}
 
-.signal-rail-mark {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: linear-gradient(150deg, var(--signal-accent), color-mix(in srgb, var(--signal-accent) 66%, #ff5f2e));
-  color: #180a02;
-  font-family: var(--font-display, inherit);
-  font-weight: 900;
-  font-size: 16px;
-  box-shadow: 0 8px 22px -10px color-mix(in srgb, var(--signal-accent) 90%, transparent);
-}
 
-.signal-rail-name {
-  font-family: var(--font-display, inherit);
-  font-weight: 700;
-  font-size: 15px;
-  letter-spacing: -0.01em;
-  color: var(--color-text);
-}
 
-.signal-rail-nav {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-}
 
-.signal-rail-slot {
-  display: contents;
-}
 
-.signal-rail-sep {
-  display: block;
-  height: 1px;
-  margin: 10px 6px;
-  background: var(--signal-hairline, rgba(255, 255, 255, 0.075));
-}
 
-.signal-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 9px 11px;
-  margin: 1px 0;
-  border-radius: var(--ui-radius-md, 12px);
-  border: 1px solid transparent;
-  color: var(--color-text-dim);
-  font-size: 13.5px;
-  font-weight: 500;
-  text-decoration: none;
-  transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease;
-}
 
-.signal-nav-item:hover {
-  background: color-mix(in srgb, var(--color-text) 5%, transparent);
-  color: var(--color-text);
-}
 
-.signal-nav-dot {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  border-radius: 5px;
-  border: 1.5px solid currentColor;
-  opacity: 0.55;
-}
 
-.signal-nav-item.is-active {
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--signal-accent) 13%, transparent);
-  border-color: color-mix(in srgb, var(--signal-accent) 32%, transparent);
-  font-weight: 600;
-}
 
-.signal-nav-item.is-active .signal-nav-dot {
-  opacity: 1;
-  color: var(--signal-accent);
-  background: color-mix(in srgb, var(--signal-accent) 25%, transparent);
-}
 
-.signal-nav-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.signal-nav-badge {
-  margin-left: auto;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--signal-accent) 20%, transparent);
-  color: var(--signal-accent-bright);
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
 
 .signal-rail[data-collapsed="true"] .signal-rail-name,
 .signal-rail[data-collapsed="true"] .signal-nav-label,
@@ -10876,67 +10612,14 @@ body[data-theme="light"] .signal-rail {
   transform: rotate(180deg);
 }
 
-.signal-rail-foot {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-}
 
-.signal-core-chip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 7px 9px;
-  border-radius: var(--ui-radius-sm, 8px);
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: var(--color-text-faint);
-}
 
-.signal-core-chip b {
-  color: var(--signal-ok, #43d98a);
-  font-weight: 500;
-}
 
 /* ---------------------------------------------- строка сервера: флаг */
-.signal-srv-pick {
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-}
 
-.signal-srv-flag {
-  display: grid;
-  place-items: center;
-  font-size: 15px;
-  color: var(--color-text-dim);
-}
 
-.signal-srv-globe {
-  font-size: 12px;
-  color: var(--color-text-faint);
-}
 
-.signal-srv-hidden {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 4px 2px;
-  font-size: 11.5px;
-  color: var(--color-text-faint);
-}
 
-.signal-srv-hidden button {
-  border: none;
-  background: none;
-  color: var(--signal-accent);
-  font-weight: 600;
-  cursor: pointer;
-}
 
 /* в узком окне рельс уезжает вниз вместе с остальной навигацией */
 @media (max-width: 720px) {
@@ -10984,8 +10667,7 @@ body[data-theme="light"] .signal-rail {
    справа, бренд-марка градиентом, пункты капсулами.
    ============================================================= */
 body[data-ui-style="signal"] .app-shell {
-  background:
-    radial-gradient(720px 420px at 26% -12%, color-mix(in srgb, var(--color-accent) 9%, transparent), transparent 64%),
+  background: radial-gradient(720px 420px at 26% -12%, color-mix(in srgb, var(--color-accent) 9%, transparent), transparent 64%),
     transparent;
 }
 
@@ -10998,28 +10680,21 @@ body[data-ui-style="signal"] .app-shell {
 /* ---------------------------------------------- список серверов */
 body[data-ui-style="signal"] .signal-srv {
   border-radius: var(--ui-radius-3xl, 26px);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.012)),
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.012)),
     color-mix(in srgb, var(--signal-ink-2, #090d14) 60%, transparent);
   padding: 14px 14px 10px;
 }
 
-body[data-theme="light"] body[data-ui-style="signal"] .signal-srv {
-  background: rgba(255, 255, 255, 0.86);
-}
+body[data-theme="light"] body[data-ui-style="signal"] .signal-srv { background: rgba(255, 255, 255, 0.86); }
 
-body[data-ui-style="signal"] .signal-srv-head {
-  padding-bottom: 2px;
-}
+body[data-ui-style="signal"] .signal-srv-head { padding-bottom: 2px; }
 
 body[data-ui-style="signal"] .signal-srv-count {
   margin-left: auto;
   margin-right: 2px;
 }
 
-body[data-ui-style="signal"] .signal-srv-collapse {
-  margin-left: 0;
-}
+body[data-ui-style="signal"] .signal-srv-collapse { margin-left: 0; }
 
 /* поиск — тёмная врезка, как в макете */
 body[data-ui-style="signal"] .signal-srv-search {
@@ -11035,9 +10710,7 @@ body[data-ui-style="signal"] .signal-srv-row.is-active {
   border-color: color-mix(in srgb, var(--signal-ok, #43d98a) 26%, transparent);
 }
 
-body[data-ui-style="signal"] .signal-srv-row.is-active .signal-srv-sub {
-  color: color-mix(in srgb, var(--signal-ok, #43d98a) 80%, var(--color-text-faint));
-}
+body[data-ui-style="signal"] .signal-srv-row.is-active .signal-srv-sub { color: color-mix(in srgb, var(--signal-ok, #43d98a) 80%, var(--color-text-faint)); }
 
 /* =============================================================
    Signal — оставшиеся экраны: статистика, трей, окно обновления,
@@ -11053,21 +10726,12 @@ body[data-ui-style="signal"] .signal-srv-row.is-active .signal-srv-sub {
   color: var(--color-text-faint);
 }
 
-.signal-srv-flag {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  flex: none;
-}
 
 .signal-srv-globe {
   color: var(--color-text-faint);
   font-size: 12px;
 }
 
-.signal-srv-pick {
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-}
 
 .signal-srv-hidden {
   display: flex;
@@ -11229,15 +10893,7 @@ body[data-ui-style="signal"] .update-dialog-later {
 }
 
 /* ---------------------------------------------- настройки: строки макета */
-body[data-ui-style="signal"] .settings-side-item {
-  border: 1px solid transparent;
-  padding: 8px 11px;
-}
 
-body[data-ui-style="signal"] .settings-side-item-active {
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent) !important;
-  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent) !important;
-}
 
 body[data-ui-style="signal"] .settings-theme-card,
 body[data-ui-style="signal"] .settings-interface-card {
@@ -11378,21 +11034,21 @@ body[data-ui-style="signal"] .routing-card-name {
    Signal — рельс навигации: десктоп, узкое окно и нижняя панель
    ============================================================= */
 .signal-rail {
+  gap: 4px;
+  overflow: hidden;
   width: var(--sidebar-width, 216px);
   flex: none;
   display: flex;
   flex-direction: column;
   padding: 14px 12px;
   border-right: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background:
-    radial-gradient(320px 220px at 20% -6%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 70%),
+  background: radial-gradient(320px 220px at 20% -6%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 70%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.006)),
     color-mix(in srgb, var(--signal-ink-2, #090d14) 97%, transparent);
 }
 
 body[data-theme="light"] .signal-rail {
-  background:
-    radial-gradient(320px 220px at 20% -6%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 70%),
+  background: radial-gradient(320px 220px at 20% -6%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 70%),
     rgba(255, 255, 255, 0.9);
 }
 
@@ -11434,9 +11090,7 @@ body[data-theme="light"] .signal-rail {
   overflow: auto;
 }
 
-.signal-rail-slot {
-  display: contents;
-}
+.signal-rail-slot { display: contents; }
 
 .signal-rail-sep {
   display: block;
@@ -11446,6 +11100,8 @@ body[data-theme="light"] .signal-rail {
 }
 
 .signal-nav-item {
+  margin: 1px 0;
+  text-decoration: none;
   display: flex;
   align-items: center;
   gap: 11px;
@@ -11508,6 +11164,7 @@ body[data-theme="light"] .signal-rail {
 }
 
 .signal-rail-foot {
+  margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -11632,35 +11289,14 @@ body[data-theme="light"] .signal-rail {
 /* =============================================================
    Signal — меню настроек: список, а не стопка коробок
    ============================================================= */
-body[data-ui-style="signal"] .settings-side {
-  padding: 8px;
-  gap: 2px;
-}
 
-body[data-ui-style="signal"] .settings-side-item {
-  border: 1px solid transparent !important;
-  background: transparent !important;
-  border-radius: var(--ui-radius-md, 12px) !important;
-  padding: 9px 11px !important;
-  box-shadow: none !important;
-}
 
 body[data-ui-style="signal"] .settings-side-item:hover {
   background: color-mix(in srgb, var(--color-text) 5%, transparent) !important;
 }
 
-body[data-ui-style="signal"] .settings-side-item-active {
-  background: color-mix(in srgb, var(--color-accent) 13%, transparent) !important;
-  border-color: color-mix(in srgb, var(--color-accent) 32%, transparent) !important;
-}
 
-body[data-ui-style="signal"] .settings-side-icon {
-  color: var(--color-text-faint);
-}
 
-body[data-ui-style="signal"] .settings-side-item-active .settings-side-icon {
-  color: var(--color-accent);
-}
 
 /* =============================================================
    Signal — соединения: шапка, поиск и таблица как в макете
@@ -11719,17 +11355,6 @@ body[data-ui-style="signal"] .connections-cell {
 }
 
 /* ---------------------------------------------- Signal: строки соединений */
-body[data-ui-style="signal"] .connections-live-head {
-  padding: 10px 12px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--color-text-faint);
-  background: color-mix(in srgb, var(--color-text) 3%, transparent);
-  border-bottom: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-}
 
 body[data-ui-style="signal"] .connections-live-row {
   padding: 10px 12px;
@@ -11754,9 +11379,6 @@ body[data-ui-style="signal"] .connections-live-table {
 /* =============================================================
    Signal — журнал: колонки, уровни-бейджи, чипы фильтров
    ============================================================= */
-body[data-ui-style="signal"] .tunnel-logs-page {
-  gap: 12px;
-}
 
 /* уровни — компактные бейджи с подложкой, а не просто цветной текст */
 body[data-ui-style="signal"] .tunnel-logs-level {
@@ -11796,13 +11418,6 @@ body[data-ui-style="signal"] .tunnel-logs-level-error {
 }
 
 /* колонки: уровень, источник, время, сообщение — без провалов */
-body[data-ui-style="signal"] .tunnel-logs-row {
-  grid-template-columns: 62px 96px 156px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  padding: 8px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 5%, transparent);
-}
 
 body[data-ui-style="signal"] .tunnel-logs-source {
   font-family: var(--font-mono);
@@ -11884,6 +11499,14 @@ body[data-ui-style="signal"] .tunnel-logs-icon-btn {
    Signal — соединения: шапка и строки в одной сетке
    ============================================================= */
 body[data-ui-style="signal"] .connections-live-head {
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  border-bottom: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
   position: sticky;
   top: 0;
   z-index: 1;
@@ -11936,6 +11559,11 @@ body[data-ui-style="signal"] .connections-live-head > * {
 /* плитки: одинаковая высота, значение переносится, а не обрезается */
 
 .signal-tile-key {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
   min-height: 12px;
   line-height: 1.25;
   white-space: normal;
@@ -11946,14 +11574,8 @@ body[data-ui-style="signal"] .connections-live-head > * {
 /* кнопка возврата рельса — там же, где была кнопка сворачивания */
 
 /* строки серверов в рельсе: имя не наезжает на полоски */
-.signal-srv-pick {
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-  gap: 8px;
-}
 
-.signal-srv-name {
-  max-width: 100%;
-}
+.signal-srv-name { font-size: 13px; font-weight: 500; color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 
 /* ------------------------------------------- карточки профилей Signal */
 .signal-profiles-list {
@@ -12134,12 +11756,6 @@ body[data-ui-style="signal"] .connections-live-head > * {
 
 /* ------------------------------------------------ рельс серверов */
 /* Сортировка и протокол — выпадающими списками вместо ряда чипов. */
-.signal-srv-tools {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 
 /* Выпадающий список рельса. Системный <select> рисует своё окно
    средствами ОС — оно не поддаётся стилям, поэтому это обычная кнопка,
@@ -12194,6 +11810,8 @@ body[data-theme="light"] .signal-select {
 
 /* Сортировка с кнопками в одной строке, фильтр протокола — во всю ширину. */
 .signal-srv-tools {
+  align-items: stretch;
+  flex-wrap: wrap;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 36px 36px;
   gap: 8px;
@@ -12221,6 +11839,15 @@ body[data-theme="light"] .signal-select {
 
 /* Кнопка сворачивания рельса — обычная иконочная, а не голая стрелка. */
 .signal-srv-collapse {
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
+  background: transparent;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
   margin-left: auto;
   width: 28px;
   height: 28px;
@@ -12231,12 +11858,24 @@ body[data-theme="light"] .signal-select {
 
 /* Флаг сервера не липнет к названию. */
 .signal-srv-pick {
+  display: grid;
+  align-items: center;
+  min-width: 0;
+  padding: 9px 4px 9px 10px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
   grid-template-columns: 26px minmax(0, 1fr) auto;
   gap: 12px;
   padding-left: 12px;
 }
 
 .signal-srv-flag {
+  font-size: 15px;
+  color: var(--color-text-dim);
+  flex: none;
   display: grid;
   place-items: center;
   width: 26px;
@@ -12329,6 +11968,10 @@ body[data-ui-style="signal"] .settings-side {
 }
 
 body[data-ui-style="signal"] .settings-side-item {
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  border-radius: var(--ui-radius-md, 12px) !important;
+  box-shadow: none !important;
   position: relative;
   gap: 11px !important;
   padding: 10px 12px !important;
@@ -12337,6 +11980,7 @@ body[data-ui-style="signal"] .settings-side-item {
 }
 
 body[data-ui-style="signal"] .settings-side-item-active {
+  box-shadow: none !important;
   background: color-mix(in srgb, var(--color-accent) 12%, transparent) !important;
   border-color: color-mix(in srgb, var(--color-accent) 30%, transparent) !important;
   color: var(--color-text) !important;
@@ -12441,9 +12085,7 @@ body[data-ui-style="signal"] .settings-tools-item:hover {
   background: color-mix(in srgb, var(--color-accent) 8%, transparent) !important;
 }
 
-body[data-ui-style="signal"] .settings-tools-icon {
-  color: var(--color-accent-bright);
-}
+body[data-ui-style="signal"] .settings-tools-icon { border-radius: var(--ui-radius-sm, 8px); background: color-mix(in srgb, var(--signal-accent) 14%, transparent); color: var(--color-accent-bright); }
 
 /* ------------------------------------------------ лист серверов (Signal) */
 /* Полноэкранный список для узких окон: та же панель, что в рельсе. */
@@ -12457,44 +12099,30 @@ body[data-ui-style="signal"] .settings-tools-icon {
 }
 
 .signal-star {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.16s ease;
   display: grid;
   place-items: center;
   color: var(--color-text-faint);
 }
 
-.signal-star.is-on {
-  color: var(--signal-warn, #ffc857);
-}
+.signal-star.is-on { color: var(--signal-warn, #ffc857); }
 
 /* ------------------------------------------ логи и уведомления: фон в тон */
 /* Обе страницы рисовали свои поверхности прежними токенами (--color-surface
    с примесью белого), из-за чего панели уходили в серо-синий и выпадали из
    палитры. Здесь они собираются из тех же слоёв, что и остальные карточки. */
-body[data-ui-style="signal"] .tunnel-logs-container {
-  --tunnel-logs-row-border: var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  --tunnel-logs-row-hover: color-mix(in srgb, var(--color-text) 4%, transparent);
-  /* Нижняя полоса не липкая и ничего не перекрывает, поэтому она
-     полупрозрачная — сплошной цвет выбивался светлой плашкой. */
-  --tunnel-logs-footer-bg: color-mix(in srgb, var(--color-text) 3%, transparent);
-  border-radius: var(--ui-radius-xl, 18px);
-  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-text) 2%, transparent);
-  box-shadow: none;
-}
 
-body[data-ui-style="signal"] .tunnel-logs-row {
-  background: transparent;
-}
+body[data-ui-style="signal"] .tunnel-logs-row { grid-template-columns: 62px 96px 156px minmax(0, 1fr); gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid color-mix(in srgb, var(--color-text) 5%, transparent); background: transparent; }
 
-body[data-ui-style="signal"] .tunnel-logs-footer {
-  border-top: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
-}
 
-body[data-ui-style="signal"] .notification-history-item {
-  border-color: var(--signal-hairline, rgba(255, 255, 255, 0.075));
-  background: color-mix(in srgb, var(--color-text) 2%, transparent);
-  border-radius: var(--ui-radius-xl, 18px);
-}
 
 body[data-ui-style="signal"] .notification-history-item:hover {
   border-color: color-mix(in srgb, var(--signal-accent) 26%, transparent);
@@ -12509,6 +12137,10 @@ body[data-ui-style="signal"] .notification-history-group-line {
 /* Флаг стоит в своей колонке — раньше он прилипал к названию. */
 
 .signal-server-flag {
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--color-text-dim);
   width: 26px;
   margin-right: 2px;
 }
@@ -12534,6 +12166,7 @@ body[data-ui-style="signal"] .notification-history-group-line {
 /* Панель логов занимает всю доступную высоту: под ней оставалась полоса
    пустого фона, потому что страница тянулась, а карточка — нет. */
 body[data-ui-style="signal"] .tunnel-logs-page {
+  gap: 12px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -12542,13 +12175,20 @@ body[data-ui-style="signal"] .tunnel-logs-page {
 }
 
 body[data-ui-style="signal"] .tunnel-logs-container {
+  /* Нижняя полоса не липкая и ничего не перекрывает, поэтому она
+     полупрозрачная — сплошной цвет выбивался светлой плашкой. */
+  --tunnel-logs-row-border: var(--signal-hairline, rgba(255, 255, 255, 0.075));
+  --tunnel-logs-row-hover: color-mix(in srgb, var(--color-text) 4%, transparent);
+  --tunnel-logs-footer-bg: color-mix(in srgb, var(--color-text) 3%, transparent);
+  border-radius: var(--ui-radius-xl, 18px);
+  border: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075));
+  background: color-mix(in srgb, var(--color-text) 2%, transparent);
+  box-shadow: none;
   flex: 1 1 auto;
   min-height: 0;
 }
 
-body[data-ui-style="signal"] .tunnel-logs-footer {
-  border-top-color: var(--signal-hairline, rgba(255, 255, 255, 0.075));
-}
+body[data-ui-style="signal"] .tunnel-logs-footer { border-top: 1px solid var(--signal-hairline, rgba(255, 255, 255, 0.075)); border-top-color: var(--signal-hairline, rgba(255, 255, 255, 0.075)); }
 
 /* ------------------------------------------ переключатели в стиле Signal */
 /* На превью тумблер — не сплошная заливка, а капсула с акцентной рамкой
@@ -12627,9 +12267,7 @@ body[data-ui-style="signal"] .settings-choice-button-active:hover {
 }
 
 /* ------------------------------------------ уведомления: время по центру */
-body[data-ui-style="signal"] .notification-history-item {
-  align-items: center;
-}
+body[data-ui-style="signal"] .notification-history-item { border-color: var(--signal-hairline, rgba(255, 255, 255, 0.075)); background: color-mix(in srgb, var(--color-text) 2%, transparent); border-radius: var(--ui-radius-xl, 18px); align-items: center; }
 
 body[data-ui-style="signal"] .notification-history-time {
   align-self: center;
@@ -12801,16 +12439,6 @@ body[data-ui-style="manga"] .server-plaque {
 /* Рельс навигации: сплошная линия отреза вместо мягкой границы. */
 
 /* Кнопки: заливка акцентом и контур, никаких градиентов. */
-body[data-ui-style="manga"] .btn,
-body[data-ui-style="manga"] button.btn-primary,
-body[data-ui-style="manga"] .settings-button {
-  border: 1.5px solid var(--manga-ink) !important;
-  border-radius: var(--ui-radius-sm) !important;
-  box-shadow: 3px 3px 0 0 var(--manga-ink) !important;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  font-weight: 700;
-}
 
 body[data-ui-style="manga"] .btn:active,
 body[data-ui-style="manga"] button.btn-primary:active,
@@ -13199,6 +12827,10 @@ body[data-ui-style="manga"] .compact-server-bar .server-plaque {
 body[data-ui-style="manga"] .btn,
 body[data-ui-style="manga"] button.btn-primary,
 body[data-ui-style="manga"] .settings-button {
+  border: 1.5px solid var(--manga-ink) !important;
+  border-radius: var(--ui-radius-sm) !important;
+  box-shadow: 3px 3px 0 0 var(--manga-ink) !important;
+  font-weight: 700;
   text-transform: none;
   letter-spacing: normal;
 }
