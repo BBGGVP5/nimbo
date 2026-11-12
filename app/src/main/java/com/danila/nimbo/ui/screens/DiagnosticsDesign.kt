@@ -265,7 +265,12 @@ internal fun DiagnosticsTargetField(value: String, onValueChange: (String) -> Un
 }
 
 @Composable
-internal fun DiagnosticsChips(items: List<String>, selected: String?, onPick: (String) -> Unit) {
+internal fun DiagnosticsChips(
+    items: List<String>,
+    selected: String?,
+    label: (String) -> String = { it },
+    onPick: (String) -> Unit
+) {
     val colors = LocalNebulaColors.current
     val shape = RoundedCornerShape(scaled(14.dp))
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -275,7 +280,7 @@ internal fun DiagnosticsChips(items: List<String>, selected: String?, onPick: (S
                 .background(if (active) colors.softFill else Color.Transparent)
                 .border(1.dp, colors.textPrimary.copy(alpha = if (active) 0.22f else 0.12f), shape)
                 .clickable { onPick(item) }.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
-                Text(item, color = colors.textPrimary,
+                Text(label(item), color = colors.textPrimary,
                     style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace))
             }
         }

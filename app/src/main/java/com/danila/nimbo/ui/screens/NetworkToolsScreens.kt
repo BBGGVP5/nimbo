@@ -126,6 +126,16 @@ private data class PingToolResult(
 }
 
 private val PING_QUICK_TARGETS = listOf("google.com", "ya.ru", "1.1.1.1", "8.8.8.8", "telegram.org")
+private val PING_QUICK_URLS = listOf(
+    "https://www.gstatic.com/generate_204",
+    "https://cp.cloudflare.com/generate_204",
+    "https://www.google.com/generate_204",
+    "https://ya.ru",
+    "https://telegram.org"
+)
+
+private fun quickUrlLabel(url: String): String =
+    url.substringAfter("://").removePrefix("www.").substringBefore('/')
 
 private data class SpeedTestResult(
     val pingMs: Int,
@@ -358,10 +368,15 @@ fun PingToolScreen(mainViewModel: com.danila.nimbo.MainViewModel, onNavigateBack
             placeholder = if (usesHealthUrl) t("URL проверки", "Check URL") else t("Домен или IP-адрес", "Domain or IP address"),
             icon = if (usesHealthUrl) Icons.Default.Link else Icons.Default.Public
         )
-        if (!usesHealthUrl) {
-            Spacer(Modifier.height(14.dp))
-            DiagnosticsEyebrow(t("Быстрый выбор", "Quick pick"), Modifier.padding(start = 4.dp))
-            Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(14.dp))
+        DiagnosticsEyebrow(t("Быстрый выбор", "Quick pick"), Modifier.padding(start = 4.dp))
+        Spacer(Modifier.height(8.dp))
+        if (usesHealthUrl) {
+            // Health-URL modes ping a URL, so offer known check endpoints instead of hosts.
+            DiagnosticsChips(PING_QUICK_URLS, pingUrl.trim(), label = ::quickUrlLabel) {
+                preferencesManager.pingUrl = it
+            }
+        } else {
             DiagnosticsChips(PING_QUICK_TARGETS, targetText.trim()) { targetText = it }
         }
         if (activeRouteOnly && HealthProxySessions.connected() == null) {

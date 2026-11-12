@@ -4855,8 +4855,11 @@ private fun NimboSettingsScreen(
                 t("Экспорт и восстановление", "Export and restore")) { section = 7 })
             add(MiniSettingsDestination(toolsGroup, t("Подписки и серверы", "Subscriptions and servers"), Icons.Default.Layers,
                 t("Обновление и выбор серверов", "Refresh and server selection"), keywords = "сортировка") { section = 12 })
+            add(MiniSettingsDestination(toolsGroup, t("Проверка сети", "Network check"), Icons.Default.Speed,
+                t("Белые списки, пинг и скорость", "Allowlists, ping and speed"),
+                keywords = "бс белые списки whitelist ping пинг speed скорость", open = onWhitelistClick))
             add(MiniSettingsDestination(toolsGroup, t("Диагностика", "Diagnostics"), Icons.Default.NetworkCheck,
-                t("Проверка сети, журнал и уведомления", "Network checks, logs and notifications"), keywords = "отчёт report logs") { section = 13 })
+                t("Журнал, отчёт и уведомления", "Logs, report and notifications"), keywords = "отчёт report logs") { section = 13 })
             add(MiniSettingsDestination(aboutGroup, t("Обновления", "Updates"), Icons.Default.SystemUpdate,
                 "Nimbo v${BuildConfig.VERSION_NAME}", keywords = "beta бета", open = onUpdatesClick))
             add(MiniSettingsDestination(aboutGroup, t("О приложении", "About"), Icons.Default.Info,
