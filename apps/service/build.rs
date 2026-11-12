@@ -64,6 +64,26 @@ fn main() {
     } else {
         root.clone()
     };
+    // Debug/test builds on a checkout without the staged corresponding sources
+    // fail closed like a missing helper; release builds must carry them.
+    let notices = provenance.join("notices/source-license-manifest.json");
+    let sources_present = m["sourceFiles"].as_array().is_some_and(|rows| {
+        rows.iter().all(|entry| {
+            entry["path"]
+                .as_str()
+                .is_some_and(|path| provenance.join("adapter-source").join(path).is_file())
+        })
+    });
+    if !sources_present || !notices.is_file() {
+        if std::env::var("PROFILE").as_deref() == Ok("release") {
+            panic!("Mihomo staged helper is missing its corresponding sources or notices");
+        }
+        println!(
+            "cargo:warning=Mihomo helper sources not staged; root Mihomo operations stay disabled"
+        );
+        println!("cargo:rustc-env=NIMBO_SERVICE_MIHOMO_SHA256=");
+        return;
+    }
     let sources = m["sourceFiles"].as_array().expect("frozen source manifest");
     assert!(!sources.is_empty());
     for entry in sources {
@@ -76,7 +96,7 @@ fn main() {
     }
     assert_eq!(
         m["sourceLicenseManifestSHA256"].as_str().unwrap(),
-        hash(&provenance.join("notices/source-license-manifest.json"))
+        hash(&notices)
     );
     let hash = hash(&binary);
     assert_eq!(m["sha256"].as_str(), Some(hash.as_str()));

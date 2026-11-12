@@ -11,10 +11,10 @@ use std::{
     net::{TcpStream, UdpSocket},
     time::Duration,
 };
-#[path = "support/windows_proxy_guard.rs"]
-mod fixture_guard;
 #[path = "support/windows_dns_reauthorization.rs"]
 mod dns_reauthorization;
+#[path = "support/windows_proxy_guard.rs"]
+mod fixture_guard;
 
 fn stage(case: u8, current: &Cell<&'static str>, name: &'static str) {
     current.set(name);
@@ -717,14 +717,26 @@ fn assert_registered_reboot_policy() {
                     assert_eq!(key(conditions[0].fieldKey), key(FWPM_CONDITION_FLAGS));
                     assert_eq!(conditions[0].matchType, FWP_MATCH_FLAGS_ALL_SET);
                     assert_eq!(conditions[0].conditionValue.r#type, FWP_UINT32);
-                    assert_eq!(conditions[0].conditionValue.Anonymous.uint32, FWP_CONDITION_FLAG_IS_REAUTHORIZE);
-                    assert_eq!(key(conditions[1].fieldKey), key(FWPM_CONDITION_IP_NEXTHOP_INTERFACE));
+                    assert_eq!(
+                        conditions[0].conditionValue.Anonymous.uint32,
+                        FWP_CONDITION_FLAG_IS_REAUTHORIZE
+                    );
+                    assert_eq!(
+                        key(conditions[1].fieldKey),
+                        key(FWPM_CONDITION_IP_NEXTHOP_INTERFACE)
+                    );
                     assert_eq!(conditions[1].matchType, FWP_MATCH_EQUAL);
                     assert_eq!(conditions[1].conditionValue.r#type, FWP_EMPTY);
-                    assert_eq!(key(conditions[2].fieldKey), key(FWPM_CONDITION_IP_ARRIVAL_INTERFACE));
+                    assert_eq!(
+                        key(conditions[2].fieldKey),
+                        key(FWPM_CONDITION_IP_ARRIVAL_INTERFACE)
+                    );
                     assert_eq!(conditions[2].matchType, FWP_MATCH_EQUAL);
                     assert_eq!(conditions[2].conditionValue.r#type, FWP_UINT64);
-                    assert_eq!(*conditions[2].conditionValue.Anonymous.uint64, journal["device"]["luid"].as_u64().unwrap());
+                    assert_eq!(
+                        *conditions[2].conditionValue.Anonymous.uint64,
+                        journal["device"]["luid"].as_u64().unwrap()
+                    );
                 }
                 FwpmFreeMemory0((&mut f as *mut *mut FWPM_FILTER0).cast());
             }
