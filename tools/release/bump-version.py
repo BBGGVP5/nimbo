@@ -110,6 +110,19 @@ def main():
     e.sub(wf, r"(inputs\.build_number \|\| ')\d+(')", rf"\g<1>{build}\g<2>")
     e.sub(wf, r"(inputs\.version \|\| ')[^']+(')", rf"\g<1>{version}\g<2>", count=0)
 
+    # Tests and helper defaults that pin the current version (CI fails without these).
+    channel = "beta" if "-" in version else "stable"
+    e.sub("shared/src/commonTest/kotlin/com/danila/nimbo/shared/updates/ReleaseDefaultsTest.kt",
+          r'(assertEquals\(")[^"]+(", NimboUiState\(\)\.appVersion\))', rf"\g<1>{version}\g<2>")
+    ios_test = "scripts/ci/test-ios-release.py"
+    e.sub(ios_test, r'(MARKETING_VERSION: )[0-9\\.]+(\$")', lambda m: m[1] + re.escape(numeric) + m[2])
+    e.sub(ios_test, r'(NIMBO_DISPLAY_VERSION: )[0-9A-Za-z\\.-]+(\$")', lambda m: m[1] + re.escape(version) + m[2])
+    e.sub(ios_test, r'(\(None, None, ")[^"]+("\))', rf"\g<1>{version}|{build}|{numeric}|{channel}\g<2>")
+    e.sub(ios_test, r"(CURRENT_PROJECT_VERSION: )\d+(\$\")", rf"\g<1>{build}\g<2>")
+    xtool = "scripts/ci/export-ios-xtool-dependencies.sh"
+    e.sub(xtool, r'(VERSION="\$\{NIMBO_VERSION:-)[^}]+(\}")', rf"\g<1>{version}\g<2>")
+    e.sub(xtool, r'(BUILD_NUMBER="\$\{NIMBO_BUILD_NUMBER:-)\d+(\}")', rf"\g<1>{build}\g<2>")
+
     # The checker's default tag follows the current version.
     e.sub("tools/release/check-versions.py", r'(os\.environ\.get\("TAG", "v)[^"]+("\))', rf"\g<1>{version}\g<2>")
 
