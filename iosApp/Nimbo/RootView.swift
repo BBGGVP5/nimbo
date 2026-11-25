@@ -1190,7 +1190,7 @@ private extension VpnController.State {
     }
 }
 
-private extension Notification.Name {
+extension Notification.Name {
     static let nimboToggleVpn = Notification.Name("com.nimbo.action.toggle-vpn")
     static let nimboAddProfile = Notification.Name("com.nimbo.action.add-profile")
     static let nimboRefreshProfile = Notification.Name("com.nimbo.action.refresh-profile")

@@ -288,11 +288,8 @@ fn capture_precedes_proxy_restore_even_when_diagnostics_or_restore_fail() {
                 pending_once().await;
                 panic!("original DNS receive failure");
             }));
-            // The fixture always panics, so newer rustc sees Ok as uninhabited.
-            #[allow(irrefutable_let_patterns)]
-            let Err(original) = outcome else {
-                panic!("mandatory case became successful");
-            };
+            // The fixture always panics; newer rustc sees Ok as uninhabited, so no let-else here.
+            let original = outcome.expect_err("mandatory case became successful");
             let (diagnostic_panicked, cleanup) = complete(guard::capture_before_proxy_cleanup(
                 async {
                     assert_eq!(
