@@ -26,7 +26,7 @@ jobs:
           java-version: "21"
 
       - name: Кэш Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Проверить исходники объединённого Mihomo
         run: python3 scripts/ci/test-ios-mihomo-source.py
