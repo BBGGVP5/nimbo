@@ -66,9 +66,13 @@ class BrandingContracts(unittest.TestCase):
 
     def test_all_target_versions_inherit_release(self):
         project = read('project.yml')
-        self.assertEqual(re.findall(r'CURRENT_PROJECT_VERSION: (.+)', project), ['191'])
-        self.assertEqual(re.findall(r'MARKETING_VERSION: (.+)', project), ['1.3.0'])
-        self.assertEqual(re.findall(r'NIMBO_DISPLAY_VERSION: (.+)', project), ['1.3.0'])
+        # Single project-wide values that follow the shared release version (bump-version.py).
+        release = re.search(r'const val VERSION = "([^"]+)"', (IOS.parent / 'shared/src/commonMain/kotlin/com/danila/nimbo/shared/updates/ReleaseDefaults.kt').read_text(encoding='utf-8'))[1]
+        builds = re.findall(r'CURRENT_PROJECT_VERSION: (.+)', project)
+        self.assertEqual(len(builds), 1)
+        self.assertRegex(builds[0], r'^[1-9]\d*$')
+        self.assertEqual(re.findall(r'MARKETING_VERSION: (.+)', project), [release.split('-')[0]])
+        self.assertEqual(re.findall(r'NIMBO_DISPLAY_VERSION: (.+)', project), [release])
         for folder in ['Nimbo', 'PacketTunnel', 'ControlWidget']:
             plist = plistlib.loads((IOS / folder / 'Info.plist').read_bytes())
             self.assertEqual(plist['CFBundleVersion'], '$(CURRENT_PROJECT_VERSION)')

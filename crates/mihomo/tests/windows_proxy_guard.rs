@@ -288,6 +288,8 @@ fn capture_precedes_proxy_restore_even_when_diagnostics_or_restore_fail() {
                 pending_once().await;
                 panic!("original DNS receive failure");
             }));
+            // The fixture always panics, so newer rustc sees Ok as uninhabited.
+            #[allow(irrefutable_let_patterns)]
             let Err(original) = outcome else {
                 panic!("mandatory case became successful");
             };
