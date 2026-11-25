@@ -2,19 +2,19 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VERSION="${NIMBO_VERSION:-1.4.0-beta.2}"
+VERSION="${NIMBO_VERSION:-1.4.0-beta.1}"
 MARKETING_VERSION="${VERSION%%-*}"
-BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-193}"
+BUILD_NUMBER="${NIMBO_BUILD_NUMBER:-192}"
 LAUNCH_DIAGNOSTICS="${NIMBO_LAUNCH_DIAGNOSTICS:-0}"
 RELEASE_CHANNEL=stable
 # Keep Apple marketing versions numeric; the display/filename retain prerelease.
 if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]*)?$ ]]; then
-  echo 'NIMBO_VERSION must be numeric semver with optional -beta.N (default: 1.4.0-beta.2)' >&2
+  echo 'NIMBO_VERSION must be numeric semver with optional -beta.N (default: 1.4.0-beta.1)' >&2
   exit 2
 fi
 [[ "${VERSION}" != *-beta.* ]] || RELEASE_CHANNEL=beta
 if [[ ! "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,3}$ ]] || (( BUILD_NUMBER <= 170 )); then
-  echo 'NIMBO_BUILD_NUMBER must be an integer from 171 to 9999 (default: 193)' >&2
+  echo 'NIMBO_BUILD_NUMBER must be an integer from 171 to 9999 (default: 192)' >&2
   exit 2
 fi
 if [[ "${LAUNCH_DIAGNOSTICS}" != 0 && "${LAUNCH_DIAGNOSTICS}" != 1 ]]; then
