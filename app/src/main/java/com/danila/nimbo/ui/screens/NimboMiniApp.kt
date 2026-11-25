@@ -1603,6 +1603,7 @@ private fun NimboHomeScreen(
     val showMemory by preferencesManager.memoryMonitoringState
     val serviceStatusOnHome by preferencesManager.serviceStatusOnHomeState
     val compactConnectButton by preferencesManager.compactConnectButtonState
+    val homeMapLayout by preferencesManager.homeMapLayoutState
     val speedWidgetsVisible = showSpeed && vpnState == VpnState.CONNECTED
     val memoryWidgetVisible = showMemory && vpnState == VpnState.CONNECTED
     val speedSamples = rememberSpeedSamples(speedWidgetsVisible)
@@ -1644,6 +1645,38 @@ private fun NimboHomeScreen(
         .padding(horizontal = 16.dp).padding(top = 12.dp, bottom = LocalFloatingNavHeight.current + 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
         com.danila.nimbo.ui.components.NimboBrandHeader(onNeedSubscription)
+        val compactLabel = when {
+            recoveryStatus != VpnRecoveryStatus.IDLE -> instruction
+            vpnState == VpnState.CONNECTED -> t("Отключить · ${formatDuration(connectedSeconds)}", "Disconnect · ${formatDuration(connectedSeconds)}")
+            vpnState == VpnState.CONNECTING -> t("Отменить подключение", "Cancel connection")
+            needsServerChoice -> t("Выбрать сервер", "Choose server")
+            else -> t("Подключить", "Connect")
+        }
+        // Вид «Карта»: карта сверху, под ней карточка сервера и кнопка.
+        val mapConnectionControl: @Composable () -> Unit = {
+            Spacer(Modifier.height(12.dp))
+            NimboConnectionControl(vpnState == VpnState.CONNECTED, vpnState == VpnState.CONNECTING,
+                onConnectToggle, modifier = Modifier.fillMaxWidth(), compact = true, statusText = compactLabel)
+        }
+        if (homeMapLayout) {
+            Spacer(Modifier.height(14.dp))
+            NimboHomeMap(
+                servers = profile?.servers.orEmpty(),
+                targetServer = targetServer,
+                connected = vpnState == VpnState.CONNECTED,
+                connecting = vpnState == VpnState.CONNECTING,
+                statusText = when {
+                    recoveryStatus != VpnRecoveryStatus.IDLE -> t("Восстановление", "Recovering")
+                    vpnState == VpnState.CONNECTED -> t("Защищено · ${formatDuration(connectedSeconds)}", "Protected · ${formatDuration(connectedSeconds)}")
+                    vpnState == VpnState.CONNECTING -> t("Подключение…", "Connecting…")
+                    else -> t("Не подключено", "Not connected")
+                },
+                onSelectServer = onSelectServer,
+                modifier = Modifier.fillMaxWidth().height(300.dp)
+            )
+            Spacer(Modifier.height(12.dp))
+            if (profile == null || needsServerChoice) { mapConnectionControl(); Spacer(Modifier.height(16.dp)) }
+        } else {
         Spacer(Modifier.height(24.dp))
         Text("•\u00A0\u00A0" + when {
                 vpnState == VpnState.CONNECTED -> t("ЗАЩИЩЁННОЕ СОЕДИНЕНИЕ", "SECURE CONNECTION")
@@ -1666,17 +1699,11 @@ private fun NimboHomeScreen(
             style = MaterialTheme.typography.bodySmall, color = colors.textSecondary,
             textAlign = TextAlign.Center, modifier = Modifier.padding(top = 7.dp))
         Spacer(Modifier.height(22.dp))
-        val compactLabel = when {
-            recoveryStatus != VpnRecoveryStatus.IDLE -> instruction
-            vpnState == VpnState.CONNECTED -> t("Отключить · ${formatDuration(connectedSeconds)}", "Disconnect · ${formatDuration(connectedSeconds)}")
-            vpnState == VpnState.CONNECTING -> t("Отменить подключение", "Cancel connection")
-            needsServerChoice -> t("Выбрать сервер", "Choose server")
-            else -> t("Подключить", "Connect")
-        }
         NimboConnectionControl(vpnState == VpnState.CONNECTED, vpnState == VpnState.CONNECTING,
             onConnectToggle, modifier = Modifier.fillMaxWidth(), compact = compactConnectButton,
             statusText = if (compactConnectButton) compactLabel else instruction)
         Spacer(Modifier.height(16.dp))
+        }
         if (profile == null) {
             EmptyHomeProfilePanel(onAction = onAddMethod)
         } else if (needsServerChoice) {
@@ -1718,6 +1745,7 @@ private fun NimboHomeScreen(
                     pingDisplayMode = pingDisplayMode, autoSelected = autoProgress.selected,
                     connected = vpnState == VpnState.CONNECTED, modifier = Modifier.fillMaxWidth())
             }
+            if (homeMapLayout) mapConnectionControl()
             // Строка появляется плавно: подключение не должно толчком сдвигать главную.
             androidx.compose.animation.AnimatedVisibility(vpnState == VpnState.CONNECTED && serviceStatusOnHome,
                 enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),

@@ -270,6 +270,8 @@ export type XudpUdp443Mode = "reject" | "allow" | "skip";
 export type PreferredIpFamily = "auto" | "ipv4" | "ipv6";
 export type ServerSorting = "provider" | "name" | "ping" | "protocol";
 export type ConnectButtonStyle = "classic" | "compact";
+/** Вид главного экрана: круглая кнопка или карта с серверами. */
+export type HomeView = "button" | "map";
 export type AppRoutingMode = "direct" | "proxy";
 export type UpdateChannel = "stable" | "beta";
 
@@ -332,6 +334,7 @@ export interface AppPreferences {
   subscriptions_ping_after_update: boolean;
   servers_sorting: ServerSorting;
   servers_connect_button: ConnectButtonStyle;
+  home_view: HomeView;
   servers_ui_scale: number;
   servers_proxy_only_button: boolean;
 }
@@ -713,6 +716,7 @@ export const defaultAppPreferences: AppPreferences = {
   subscriptions_ping_after_update: false,
   servers_sorting: "provider",
   servers_connect_button: "classic",
+  home_view: "button",
   servers_ui_scale: 100,
   servers_proxy_only_button: false,
 };
@@ -838,6 +842,7 @@ function normalizePreferences(value: Partial<AppPreferences> | null | undefined)
     subscriptions_ping_after_update: Boolean(value?.subscriptions_ping_after_update),
     servers_sorting: serversSorting,
     servers_connect_button: connectButton,
+    home_view: value?.home_view === "map" ? "map" : "button",
     servers_ui_scale: clampNumber(value?.servers_ui_scale, defaultAppPreferences.servers_ui_scale, 80, 125),
     servers_proxy_only_button: Boolean(value?.servers_proxy_only_button),
   };

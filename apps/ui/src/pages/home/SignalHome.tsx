@@ -5,6 +5,7 @@ import type { Messages } from "../../lib/i18n";
 import { fillTemplate } from "../../lib/i18n";
 import { ChevronIcon } from "./SignalServerRail";
 import { Surface } from "../../components/Universal";
+import { HomeMap, type HomeMapServer } from "./HomeMap";
 
 export type SignalConnectionState = "connected" | "connecting" | "disconnecting" | "switching" | "idle";
 
@@ -54,18 +55,50 @@ export interface SignalHomeProps {
   onResizeReset: () => void;
   onExpandRail: () => void;
   expandLabel: string;
+  /** «Карта» вместо круглой кнопки; по умолчанию — кнопка. */
+  homeView?: "button" | "map";
+  map?: {
+    servers: HomeMapServer[];
+    targetId: string | null;
+    countryLabel: string | null;
+    action: ReactNode;
+    onPickServer?: (serverId: string) => void;
+  };
 }
 
 export function SignalHome(props: SignalHomeProps) {
   const { labels: m, state, stateWord, modeLabel, sessionLabel, metaLine, profileTitle, profileSubtitle,
     serverFlag, serverName, autoSelected, serverProtocol, serverPing, telemetryAvailable, downloadRate, downloadUnit, downloadTotal,
     uploadRate, uploadUnit, uploadTotal, tiles, chart, extras, actions, serverRail, onOpenServers, onCheckPings,
-    pinging } = props;
+    pinging, homeView, map } = props;
   const ru = m.common.locale.startsWith("ru");
   return <div className="universal-home">
     <header className="universal-page-heading"><div><h1>{m.app.home}</h1><p>{profileSubtitle}</p></div>
       </header>
-    <div className="universal-connect-control"><div className="universal-power">{actions}</div></div>
+    {homeView === "map" && map
+      ? <HomeMap
+          servers={map.servers}
+          targetId={map.targetId}
+          state={state}
+          locale={m.common.locale}
+          youAreHereLabel={m.signal.mapYouAreHere}
+          regionLabel={m.signal.mapRegion}
+          pickLabel={(country, count) => fillTemplate(m.signal.mapPickCountry, { country, count })}
+          onPickServer={map.onPickServer}
+          card={<>
+            <div className="home-map-server">
+              <span className="signal-server-flag">{serverFlag}</span>
+              <span className="home-map-server-copy">
+                <small>{map.countryLabel ?? (autoSelected ? (ru ? "Авто · текущий сервер" : "Auto · current server") : m.home.selectedServer)}</small>
+                <strong>{serverName}</strong>
+              </span>
+              <span className="home-map-server-ping"><HomeMetaIcon kind="ping" />{serverPing}</span>
+            </div>
+            <div className="home-map-status"><i aria-hidden="true" />{state === "connected" ? `${stateWord} · ${sessionLabel}` : stateWord}</div>
+            {map.action}
+          </>}
+        />
+      : <div className="universal-connect-control"><div className="universal-power">{actions}</div></div>}
     <div className="universal-home-grid">
       <section className="universal-connection-section">
         <header className="universal-section-heading"><h2>{m.settings.connection}</h2><span>{profileTitle}</span></header>

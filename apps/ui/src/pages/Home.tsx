@@ -30,6 +30,7 @@ import {
   formatBytes,
   formatExpire,
   protocolLabel,
+  serverCountryCode,
   serverListDescription,
   subscriptionVisibleOnHome,
   transportLabel,
@@ -682,6 +683,54 @@ export function Home() {
       },
     ];
 
+    // «Вид главного экрана: Карта» — флаги серверов текущей подписки и дуга
+    // до выбранного/подключённого. Для Mihomo-профиля серверов нет — кнопка.
+    const mapView = preferences.home_view === "map" && !displayedMihomo;
+    const mapData = mapView ? (() => {
+      const pool = [...(currentSub?.servers ?? [])];
+      if (activeServer && !pool.some(server => server.id === activeServer.id)) pool.push(activeServer);
+      const servers = pool.flatMap(server => {
+        const country = serverCountryCode(server.name);
+        return country ? [{ id: server.id, country, ping: serverPings[server.id] ?? null }] : [];
+      });
+      const targetCountry = activeServer ? serverCountryCode(activeServer.name) : null;
+      let countryLabel: string | null = null;
+      if (targetCountry) {
+        try { countryLabel = new Intl.DisplayNames([m.common.locale], { type: "region" }).of(targetCountry) ?? targetCountry; }
+        catch { countryLabel = targetCountry; }
+      }
+      const busy = connecting || disconnecting || switching;
+      return {
+        servers,
+        targetId: activeServer?.id ?? null,
+        countryLabel,
+        onPickServer: (serverId: string) => {
+          if (busy || serverId === activeId) return;
+          void (async () => {
+            try { await setActive(serverId); }
+            catch (e) {
+              const message = String(e);
+              if (isAdminRestartError(message)) setAdminDialogOpen(true);
+              else notifyError(message);
+            }
+          })();
+        },
+        action: (
+          <button
+            type="button"
+            className={`signal-btn home-map-action${connected ? " is-connected" : " signal-btn--primary"}`}
+            aria-pressed={connected}
+            aria-busy={busy}
+            onClick={() => void onToggleConnection()}
+            disabled={(!connected && !fallbackEntry) || busy || !!core.busy}
+          >
+            <ConnectionStateIcon connected={connected} busy={busy} motion={preferences.nav_icon_motion} />
+            <span>{connectionActionLabel}</span>
+          </button>
+        ),
+      };
+    })() : undefined;
+
     return (
       <div className="nimbo-home-profile nimbo-home-refresh" {...subscriptionRefresh.gestureProps}>
         <RefreshFeedback progress={subscriptionRefresh.progress} refreshing={subscriptionRefresh.refreshing} locale={m.common.locale}/>
@@ -805,6 +854,8 @@ export function Home() {
           onResizeReset={serversPanelWidth.reset}
           onExpandRail={toggleSidePanelCollapsed}
           expandLabel={m.signal.expandRail}
+          homeView={mapView ? "map" : "button"}
+          map={mapData}
         />
         {compactSheetOpen && (
           <CompactServerSheet {...sharedPanelProps} onClose={() => setCompactSheetOpen(false)} />

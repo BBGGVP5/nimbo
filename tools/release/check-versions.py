@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("tag", nargs="?", default=os.environ.get("TAG", "v1.3.0"))
+    parser.add_argument("tag", nargs="?", default=os.environ.get("TAG", "v1.4.0-beta.1"))
     parser.add_argument("--desktop-root", type=Path, default=ROOT)
     args = parser.parse_args()
     tag = args.tag

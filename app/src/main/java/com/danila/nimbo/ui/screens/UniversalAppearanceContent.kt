@@ -40,6 +40,7 @@ internal fun ColumnScope.UniversalAppearanceContent(
     val contrast by preferences.highContrastUiState
     val motion by preferences.backgroundAnimationEnabledState
     val compactConnectButton by preferences.compactConnectButtonState
+    val homeMapLayout by preferences.homeMapLayoutState
     val colors = LocalNebulaColors.current
     val systemColorActive = dynamic && android.os.Build.VERSION.SDK_INT >= 31
     val providerAccent = subscriptionAccent(providerSpec)
@@ -99,7 +100,18 @@ internal fun ColumnScope.UniversalAppearanceContent(
     }
     Spacer(Modifier.height(20.dp))
     SettingsSection(t("Главная", "Home"), Icons.Default.PowerSettingsNew) {
-        SettingsSwitch(Icons.Default.PowerSettingsNew,
+        Text(t("Вид главного экрана", "Home screen layout"), style = MaterialTheme.typography.labelMedium,
+            color = colors.textSecondary, modifier = Modifier.padding(start = 14.dp, top = 8.dp, bottom = 4.dp))
+        NimboChoiceRow(t("Кнопка", "Button"), selected = !homeMapLayout,
+            onClick = { preferences.homeMapLayout = false },
+            subtitle = t("Большая кнопка подключения", "Large connect button"),
+            leading = { Icon(Icons.Default.PowerSettingsNew, null, Modifier.size(22.dp), tint = colors.textSecondary) })
+        NimboChoiceRow(t("Карта", "Map"), selected = homeMapLayout,
+            onClick = { preferences.homeMapLayout = true },
+            subtitle = t("Карта мира с маршрутом до сервера", "World map with the route to your server"),
+            divider = !homeMapLayout,
+            leading = { Icon(Icons.Default.Public, null, Modifier.size(22.dp), tint = colors.textSecondary) })
+        if (!homeMapLayout) SettingsSwitch(Icons.Default.PowerSettingsNew,
             t("Компактная кнопка подключения", "Compact connect button"),
             t("Небольшая кнопка вместо большого круга", "Use a smaller button instead of the large circle"),
             compactConnectButton) { preferences.compactConnectButton = it }

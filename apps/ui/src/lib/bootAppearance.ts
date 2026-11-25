@@ -19,6 +19,8 @@ export interface BootAppearance {
   /** Тема после разрешения `system` — её и ставим атрибутом. */
   theme: string;
   navMotion: "on" | "off";
+  /** Вид главной: без него карта на миг сменялась бы кнопкой. */
+  homeView?: "button" | "map";
 }
 
 export function readBootAppearance(): BootAppearance | null {
@@ -32,6 +34,7 @@ export function readBootAppearance(): BootAppearance | null {
       themeMode: typeof value.themeMode === "string" ? value.themeMode : value.theme,
       theme: value.theme,
       navMotion: value.navMotion === "off" ? "off" : "on",
+      homeView: value.homeView === "map" ? "map" : "button",
     };
   } catch {
     // Приватный режим, запрет на хранилище, битое значение — заготовки просто

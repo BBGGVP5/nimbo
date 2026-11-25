@@ -9,9 +9,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    CURRENT_PROJECT_VERSION: 191
-    MARKETING_VERSION: 1.3.0
-    NIMBO_DISPLAY_VERSION: 1.3.0
+    CURRENT_PROJECT_VERSION: 192
+    MARKETING_VERSION: 1.4.0
+    NIMBO_DISPLAY_VERSION: 1.4.0-beta.1
     NIMBO_BUILD_REVISION: local
     NIMBO_LAUNCH_DIAGNOSTICS: '0'
     NIMBO_APP_BUNDLE_ID: com.nimbo.resignable
@@ -72,6 +72,9 @@ targets:
         type: folder
         buildPhase: resources
       - path: Branding/Branding.xcassets
+        buildPhase: resources
+      # Общая сетка суши и координаты стран для карты на главной (формат: assets/geo/README.md).
+      - path: ../assets/geo/nimbo-world-map.json
         buildPhase: resources
     dependencies:
       - target: NimboPacketTunnel

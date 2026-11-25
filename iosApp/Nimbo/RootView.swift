@@ -15,6 +15,8 @@ struct RootView: View {
     @State private var fullConfiguration: NimboFullConfiguration?
     @State private var fullServerCount = 0
     @AppStorage("com.nimbo.appearance.themeMode") private var themeMode = "system"
+    /// «button» — Compose-главная с кнопкой, «map» — нативная карта (NimboMapHomeView).
+    @AppStorage("com.nimbo.appearance.homeLayout") private var homeLayout = "button"
     @State private var isRefreshingSubscription = false
     @State private var didCheckLaunchSubscription = false
     @AppStorage("com.nimbo.appearance.pingOnLaunch") private var pingOnLaunch = true
@@ -93,6 +95,7 @@ struct RootView: View {
                         }
                     }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .overlay { mapHome(bottomInset: 0) }
                 }
             } else {
                 Group {
@@ -110,6 +113,9 @@ struct RootView: View {
                         .ignoresSafeArea(.keyboard)
                     }
                 }
+                    // Compose-контроллер остаётся под картой: при переключении вида
+                    // и вкладок он не пересоздаётся.
+                    .overlay { mapHome(bottomInset: bottomBarHeight + 12) }
                     .overlay(alignment: .bottom) {
                         // Above the keyboard the floating bar would cover the focused field.
                         if !keyboardVisible {
@@ -136,6 +142,13 @@ struct RootView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             if selectedTab == .notifications { NimboLiveActivitySettingsView() }
 
+        }
+    }
+
+    @ViewBuilder private func mapHome(bottomInset: CGFloat) -> some View {
+        if selectedTab == .home && homeLayout == "map" {
+            NimboMapHomeView(bottomInset: bottomInset) { selectedTab = .profiles }
+                .environmentObject(vpn)
         }
     }
 

@@ -157,6 +157,8 @@ data class NimboUiState(
     val statusParticles: Boolean = false,
     /** Стиль главной кнопки: «classic» — кольцо, «compact» — полоса. */
     val connectStyle: String = "classic",
+    /** Вид главного экрана: «button» — кнопка подключения, «map» — карта серверов (iOS). */
+    val homeLayout: String = "button",
     /** История уведомлений и сообщение, которое показывается сейчас. */
     val notifications: List<NimboNotification> = emptyList(),
     val toast: NimboNotification? = null,

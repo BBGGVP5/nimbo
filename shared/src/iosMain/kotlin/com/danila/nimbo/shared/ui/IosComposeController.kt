@@ -78,6 +78,41 @@ private fun loadAppearance(): NimboAppearance = NimboAppearance(
     haptics = appearanceFlag("haptics", true)
 ).normalized()
 
+private fun loadHomeLayout(): String =
+    appearanceText("homeLayout", "button").takeIf { it in setOf("button", "map") } ?: "button"
+
+/** Имя уведомления: снимок для нативной карты на главной устарел. */
+private const val HomeMapChangedNotification = "com.nimbo.home-map.changed"
+
+/**
+ * Нативная карта (SwiftUI) не видит Compose-состояние, поэтому после каждой
+ * правки серверов, пингов или состояния VPN ей посылается уведомление, а сам
+ * снимок она забирает через [NimboIosHomeMapJson]. Объекта у уведомления нет.
+ */
+private fun notifyIosHomeMap() {
+    NSNotificationCenter.defaultCenter.postNotificationName(HomeMapChangedNotification, null)
+}
+
+/** Серверы текущего профиля, их пинги и выбранный сервер — для карты на главной. */
+fun NimboIosHomeMapJson(): String {
+    val state = iosUiState.value
+    val servers = state.servers.map { server ->
+        kotlinx.serialization.json.JsonObject(mapOf(
+            "id" to JsonPrimitive(server.id),
+            "name" to JsonPrimitive(server.name),
+            "description" to JsonPrimitive(server.description),
+            "ping" to (server.ping?.let { JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+        ))
+    }
+    return kotlinx.serialization.json.JsonObject(mapOf(
+        "vpnState" to JsonPrimitive(state.vpnState),
+        "activeServerId" to (state.activeServerId?.let { JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull),
+        "activeServerName" to JsonPrimitive(state.activeServerName),
+        "pingInProgress" to JsonPrimitive(state.pingInProgress),
+        "servers" to JsonArray(servers)
+    )).toString()
+}
+
 /** Сведения о доступном обновлении приносит Swift: в сеть ходит он. */
 fun NimboUpdateIosRelease(version: String, notes: String) {
     iosUiState.value = iosUiState.value.copy(updateVersion = version, updateNotes = notes)
@@ -127,7 +162,7 @@ private fun applyUpdateChange(key: String, value: String) {
 private fun applyAppearanceChange(key: String, value: String) {
     if (key !in setOf("themeMode", "accentHex", "textScale", "haptics", "navIconMotion",
             "showSpeedWidget", "showMemoryWidget", "settingsAdvanced", "serverSort", "favoritesFirst",
-            "pingOnLaunch", "pingAfterRefresh", "refreshOnLaunch", "connectStyle")) return
+            "pingOnLaunch", "pingAfterRefresh", "refreshOnLaunch", "connectStyle", "homeLayout")) return
     val defaults = NSUserDefaults.standardUserDefaults
     when (key) {
         "textScale" -> {
@@ -139,6 +174,11 @@ private fun applyAppearanceChange(key: String, value: String) {
             defaults.setObject(value, AppearanceDefaultsPrefix + key)
         "connectStyle" -> {
             if (value !in setOf("classic", "compact")) return
+            defaults.setObject(value, AppearanceDefaultsPrefix + key)
+        }
+        // Читает и SwiftUI (@AppStorage): при «map» вкладку «Главная» рисует нативная карта.
+        "homeLayout" -> {
+            if (value !in setOf("button", "map")) return
             defaults.setObject(value, AppearanceDefaultsPrefix + key)
         }
         else -> defaults.setBool(value == "true", AppearanceDefaultsPrefix + key)
@@ -159,6 +199,7 @@ private fun applyAppearanceChange(key: String, value: String) {
         serverSort = appearanceText("serverSort", "subscription"),
         favoritesFirst = appearanceFlag("favoritesFirst", true),
         connectStyle = appearanceText("connectStyle", "classic").takeIf { it in setOf("classic", "compact") } ?: "classic",
+        homeLayout = loadHomeLayout(),
         statusParticles = false
     )
 
@@ -730,6 +771,7 @@ fun NimboUpdateIosConnectionState(vpnState: String, errorCode: String?, errorMes
         errorCode = errorCode,
         errorMessage = errorMessage
     )
+    notifyIosHomeMap()
 }
 
 fun NimboUpdateIosUiState(
@@ -801,6 +843,7 @@ fun NimboUpdateIosUiState(
         serverSort = appearanceText("serverSort", "subscription"),
         favoritesFirst = appearanceFlag("favoritesFirst", true),
         connectStyle = appearanceText("connectStyle", "classic").takeIf { it in setOf("classic", "compact") } ?: "classic",
+        homeLayout = loadHomeLayout(),
         statusParticles = false,
         pingProtocol = normalizePingProtocol(pingText("protocol", "nimbo")),
         pingDisplay = normalizePingDisplay(pingText("display", "numeric")),
@@ -813,6 +856,7 @@ fun NimboUpdateIosUiState(
         updateChannel = NimboIosUpdateChannel(),
         updateNotify = NimboIosUpdateNotify()
     )
+    notifyIosHomeMap()
 }
 
 /** Замеры задержки: приходят из Swift, там их считает NimboPingService. */
@@ -866,6 +910,7 @@ fun NimboUpdateIosPings(serverIds: List<String>, values: List<Int>, inProgress: 
             )
         }
     )
+    notifyIosHomeMap()
 }
 
 /** Завершённые сессии: считает их приложение, ядро статистики не отдаёт. */

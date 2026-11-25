@@ -1,0 +1,95 @@
+/* Главная: «Вид главного экрана — Карта». Цвета только из токенов Signal/Universal. */
+.home-map {
+  position: relative;
+  margin-bottom: 20px;
+  border: 1px solid var(--signal-hairline);
+  border-radius: var(--ui-radius-2xl, 22px);
+  background:
+    radial-gradient(120% 90% at 30% 20%, color-mix(in srgb, var(--universal-primary) 7%, transparent), transparent 60%),
+    var(--signal-panel);
+  overflow: hidden;
+  isolation: isolate;
+}
+.home-map-frame { position: relative; height: clamp(320px, 48vh, 540px); }
+/* Мягкое затухание к краям, чтобы точки не обрывались ножом. */
+.home-map-frame::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1;
+  background: radial-gradient(130% 110% at 50% 45%, transparent 62%, var(--signal-panel) 100%);
+}
+.home-map-canvas { position: absolute; inset: 0; display: block; }
+
+.home-map-you {
+  position: absolute; z-index: 2; transform: translate(-50%, 14px);
+  padding: 3px 8px; border-radius: 999px; pointer-events: none; white-space: nowrap;
+  font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--color-text-dim);
+  background: color-mix(in srgb, var(--signal-panel) 82%, transparent);
+  border: 1px solid var(--signal-hairline);
+}
+
+.home-map-flag {
+  position: absolute; z-index: 3; transform: translate(-50%, -50%);
+  width: 28px; height: 28px; padding: 0; border-radius: 50%;
+  border: 2px solid var(--signal-panel);
+  background: var(--color-card);
+  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, .55);
+  cursor: pointer;
+  transition: transform .18s cubic-bezier(.22,.9,.24,1), box-shadow .18s ease, width .18s ease, height .18s ease;
+}
+.home-map-flag .fi {
+  display: block; width: 100%; height: 100%; border-radius: 50%;
+  background-size: cover; background-position: center; line-height: 1;
+}
+.home-map-flag .fi::before { content: none; }
+.home-map-flag small {
+  position: absolute; top: -6px; right: -8px; min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 999px; font-size: 9px; font-weight: 700; line-height: 16px; text-align: center;
+  color: var(--universal-on-primary); background: var(--universal-primary);
+  border: 1.5px solid var(--signal-panel);
+}
+.home-map-flag:hover { transform: translate(-50%, -50%) scale(1.14); z-index: 4; }
+.home-map-flag:focus-visible { outline: 2px solid var(--universal-primary); outline-offset: 2px; }
+.home-map-flag.is-target {
+  width: 36px; height: 36px; z-index: 4; cursor: default;
+  box-shadow: 0 0 0 2px var(--universal-primary), 0 0 22px -2px color-mix(in srgb, var(--universal-primary) 60%, transparent);
+}
+
+.home-map-card {
+  position: absolute; z-index: 5; left: 16px; bottom: 16px;
+  width: min(340px, calc(100% - 32px));
+  display: grid; gap: 12px; padding: 14px;
+  border-radius: var(--ui-radius-xl, 16px);
+  border: 1px solid var(--signal-hairline);
+  background: color-mix(in srgb, var(--signal-panel) 86%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: 0 18px 40px -24px rgba(0, 0, 0, .6);
+}
+.home-map-server { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.home-map-server .signal-server-flag {
+  width: 40px; height: 40px; margin: 0; border-radius: 50%; overflow: hidden; background: var(--color-card);
+}
+.home-map-server .signal-server-flag .fi { width: 100%; height: 100%; background-size: cover; border-radius: 50%; }
+.home-map-server .signal-server-flag .country-flag-sm { width: 100%; height: 100%; }
+.home-map-server-copy { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.home-map-server-copy small { font-size: 11px; color: var(--color-text-dim); }
+.home-map-server-copy strong { font-size: 15px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-map-server-ping { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--color-text-dim); flex-shrink: 0; }
+.home-map-status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--color-text-dim); }
+.home-map-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--color-border-strong); }
+.home-map[data-state="connected"] .home-map-status i { background: var(--universal-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--universal-primary) 22%, transparent); }
+.home-map[data-state="connecting"] .home-map-status i,
+.home-map[data-state="switching"] .home-map-status i { background: var(--universal-primary); animation: home-map-blink 1s ease-in-out infinite; }
+@keyframes home-map-blink { 50% { opacity: .3; } }
+
+.home-map-action { width: 100%; justify-content: center; min-height: 44px; font-size: 14px; }
+.home-map-action .connection-state-morph { width: 20px; height: 20px; }
+
+@media (max-width: 640px) {
+  .home-map-frame { height: 300px; }
+  .home-map-card { position: relative; left: auto; bottom: auto; width: auto; margin: 0 12px 12px; backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--signal-panel-strong); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-map-flag { transition: none; }
+  .home-map-status i { animation: none !important; }
+}

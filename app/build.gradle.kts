@@ -37,8 +37,8 @@ android {
         minSdk = 29
         targetSdk = 37
         // Stable 1.3.0 (20) installs over 1.3.0 Beta 2 (19) and stable 1.2.0 (17).
-        versionCode = 20
-        versionName = "1.3.0"
+        versionCode = 21
+        versionName = "1.4.0-beta.1"
         buildConfigField("String", "LIBXRAY_VERSION", "\"26.11.9\"")
 
 

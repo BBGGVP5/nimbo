@@ -28,7 +28,7 @@ import '../../src/preview-fonts.css';
 const params = new URLSearchParams(location.search);
 const mode = params.get('mode') ?? 'home';
 const mihomo = params.has('mihomo');
-const prefs = {...defaultAppPreferences,language:'ru',ui_style:'signal',theme_mode:params.get('theme')==='light'?'light':'dark',show_subscription_logo:false,servers_connect_button:params.get('button')==='compact'?'compact':'classic'} as typeof defaultAppPreferences;
+const prefs = {...defaultAppPreferences,language:'ru',ui_style:'signal',theme_mode:params.get('theme')==='light'?'light':'dark',show_subscription_logo:false,servers_connect_button:params.get('button')==='compact'?'compact':'classic',home_view:params.get('view')==='map'?'map':'button'} as typeof defaultAppPreferences;
 document.body.dataset.uiStyle='signal'; document.body.dataset.theme=prefs.theme_mode;
 const server = {id:'test-fi',name:'Финляндия',protocol:{kind:'vless',address:'fixture.invalid',port:443,uuid:'fixture',encryption:'none',stream:{network:'tcp',security:'reality'}}} as Subscription['servers'][number];
 const sub: Subscription = {url:'https://fixture.invalid/sub',name:'Провайдер',servers:[server],info:{upload:1024,download:4096,total:1048576,expire:0},fetched_at:1,meta:{description:'Описание подписки: доступные локации и новости провайдера.',mihomo_profile_id:'yaml-fixture'}};
@@ -40,6 +40,9 @@ if(params.has('releasePreview')) {
  sub.info={upload:0,download:12*1024**3,total:100*1024**3,expire:0};
  sub.fetched_at=Date.UTC(2026,9,8,8,0)/1000;
  sub.meta!.description='🇫🇮 Финляндия · 🇩🇪 Германия · 🇳🇱 Нидерланды\nДоступные локации и обновления профиля.';
+}
+if(params.has('mapDemo')) {
+ sub.servers=['🇫🇮 Финляндия','🇩🇪 Германия','🇩🇪 Германия 2','🇳🇱 Нидерланды','🇺🇸 США','🇹🇷 Турция','🇯🇵 Япония','🇰🇿 Казахстан'].map((name,index)=>({...server,id:index===0?server.id:`map-${index}`,name}));
 }
 const announcementFixture=window as unknown as {fixtureDescription:string;setFixtureDescription:(description:string)=>void};
 announcementFixture.fixtureDescription=sub.meta!.description!;

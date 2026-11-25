@@ -175,6 +175,11 @@ private fun GeneralPage(state: NimboUiState, actions: NimboUiActions) {
 private fun AppearancePage(state: NimboUiState, actions: NimboUiActions) {
     NimboAppearanceDetails(state, actions)
     SettingsSection("Главная") {
+        NimboSettingsSelector("Вид главного экрана", listOf(
+            NimboDropdownOption("button", "Кнопка", "Большая кнопка подключения и список серверов"),
+            NimboDropdownOption("map", "Карта", "Карта с флагами серверов и маршрутом до текущего")
+        ), if (state.homeLayout == "map") "map" else "button") { actions.onSetAppearance("homeLayout", it) }
+        SettingsDivider()
         AppearanceToggle("Компактная кнопка подключения", state.connectStyle == "compact",
             info = "Широкая кнопка вместо круглой на главном экране") {
             actions.onSetAppearance("connectStyle", if (it) "compact" else "classic")

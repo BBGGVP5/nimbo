@@ -114,6 +114,7 @@ function seededPreferences(): AppPreferences {
     ui_style: "signal",
     theme_mode: remembered.themeMode as AppPreferences["theme_mode"],
     nav_icon_motion: remembered.navMotion === "on",
+    home_view: remembered.homeView === "map" ? "map" : "button",
   };
 }
 

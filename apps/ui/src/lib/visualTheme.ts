@@ -54,6 +54,7 @@ export function applyVisualPreferences(
       themeMode: preferences.theme_mode,
       theme: resolvedTheme,
       navMotion: preferences.nav_icon_motion ? "on" : "off",
+      homeView: preferences.home_view,
     });
     // Признак вместо класса: CSS сам решает, что делать, а перерисовка
     // ограничивается одним атрибутом.

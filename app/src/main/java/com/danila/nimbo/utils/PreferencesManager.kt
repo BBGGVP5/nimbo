@@ -208,6 +208,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         private const val KEY_CONNECT_BUTTON_STYLE = "connect_button_style"
         private const val KEY_CONNECT_BUTTON_SIZE_SCALE = "connect_button_size_scale"
         private const val KEY_COMPACT_CONNECT_BUTTON = "compact_connect_button"
+        private const val KEY_HOME_MAP_LAYOUT = "home_map_layout"
         private const val KEY_SHOW_CONNECTION_WIDGETS_ONLY_WHEN_CONNECTED = "show_connection_widgets_only_when_connected"
         private const val KEY_SHOW_PROTECTED_STATUS_CARD = "show_protected_status_card"
         private const val KEY_SHOW_CONNECTION_TIME_CARD = "show_connection_time_card"
@@ -328,6 +329,8 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
     val connectButtonStyleState = mutableStateOf(sharedPreferences.getInt(KEY_CONNECT_BUTTON_STYLE, 0))
     val connectButtonSizeScaleState = mutableStateOf(sharedPreferences.getFloat(KEY_CONNECT_BUTTON_SIZE_SCALE, 1f))
     val compactConnectButtonState = mutableStateOf(sharedPreferences.getBoolean(KEY_COMPACT_CONNECT_BUTTON, false))
+    /** Вид главного экрана: false — кнопка (по умолчанию), true — карта. */
+    val homeMapLayoutState = mutableStateOf(sharedPreferences.getBoolean(KEY_HOME_MAP_LAYOUT, false))
     val showConnectionWidgetsOnlyWhenConnectedState = mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_CONNECTION_WIDGETS_ONLY_WHEN_CONNECTED, false))
     val showProtectedStatusCardState = mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_PROTECTED_STATUS_CARD, true))
     val showConnectionTimeCardState = mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_CONNECTION_TIME_CARD, true))
@@ -651,6 +654,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
             KEY_CONNECT_BUTTON_STYLE -> connectButtonStyleState.value = prefs.getInt(KEY_CONNECT_BUTTON_STYLE, 0)
             KEY_CONNECT_BUTTON_SIZE_SCALE -> connectButtonSizeScaleState.value = prefs.getFloat(KEY_CONNECT_BUTTON_SIZE_SCALE, 1f)
             KEY_COMPACT_CONNECT_BUTTON -> compactConnectButtonState.value = prefs.getBoolean(KEY_COMPACT_CONNECT_BUTTON, false)
+            KEY_HOME_MAP_LAYOUT -> homeMapLayoutState.value = prefs.getBoolean(KEY_HOME_MAP_LAYOUT, false)
             KEY_SHOW_CONNECTION_WIDGETS_ONLY_WHEN_CONNECTED -> showConnectionWidgetsOnlyWhenConnectedState.value = prefs.getBoolean(KEY_SHOW_CONNECTION_WIDGETS_ONLY_WHEN_CONNECTED, false)
             KEY_SHOW_PROTECTED_STATUS_CARD -> showProtectedStatusCardState.value = prefs.getBoolean(KEY_SHOW_PROTECTED_STATUS_CARD, true)
             KEY_SHOW_CONNECTION_TIME_CARD -> showConnectionTimeCardState.value = prefs.getBoolean(KEY_SHOW_CONNECTION_TIME_CARD, true)
@@ -727,6 +731,7 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         connectButtonStyleState.value = sharedPreferences.getInt(KEY_CONNECT_BUTTON_STYLE, 0)
         connectButtonSizeScaleState.value = sharedPreferences.getFloat(KEY_CONNECT_BUTTON_SIZE_SCALE, 1f)
         compactConnectButtonState.value = sharedPreferences.getBoolean(KEY_COMPACT_CONNECT_BUTTON, false)
+        homeMapLayoutState.value = sharedPreferences.getBoolean(KEY_HOME_MAP_LAYOUT, false)
         showConnectionWidgetsOnlyWhenConnectedState.value = sharedPreferences.getBoolean(KEY_SHOW_CONNECTION_WIDGETS_ONLY_WHEN_CONNECTED, false)
         showProtectedStatusCardState.value = sharedPreferences.getBoolean(KEY_SHOW_PROTECTED_STATUS_CARD, true)
         showConnectionTimeCardState.value = sharedPreferences.getBoolean(KEY_SHOW_CONNECTION_TIME_CARD, true)
@@ -1762,6 +1767,13 @@ private const val KEY_CROSS_SYNC_PAIRED_DEVICES = "cross_sync_paired_devices_v2"
         set(value) {
             sharedPreferences.edit().putBoolean(KEY_COMPACT_CONNECT_BUTTON, value).apply()
             compactConnectButtonState.value = value
+        }
+
+    var homeMapLayout: Boolean
+        get() = sharedPreferences.getBoolean(KEY_HOME_MAP_LAYOUT, false)
+        set(value) {
+            sharedPreferences.edit().putBoolean(KEY_HOME_MAP_LAYOUT, value).apply()
+            homeMapLayoutState.value = value
         }
 
     var showConnectionWidgetsOnlyWhenConnected: Boolean

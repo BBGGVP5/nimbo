@@ -366,6 +366,9 @@ pub struct AppPreferences {
     pub servers_sorting: String,
     #[serde(default = "default_servers_connect_button")]
     pub servers_connect_button: String,
+    /// Вид главного экрана: "button" (по умолчанию) или "map".
+    #[serde(default = "default_home_view")]
+    pub home_view: String,
     #[serde(default = "default_servers_ui_scale")]
     pub servers_ui_scale: u32,
     #[serde(default)]
@@ -446,6 +449,10 @@ fn default_servers_connect_button() -> String {
     "classic".into()
 }
 
+fn default_home_view() -> String {
+    "button".into()
+}
+
 fn default_servers_ui_scale() -> u32 {
     100
 }
@@ -520,6 +527,7 @@ impl Default for AppPreferences {
             subscriptions_ping_after_update: false,
             servers_sorting: default_servers_sorting(),
             servers_connect_button: default_servers_connect_button(),
+            home_view: default_home_view(),
             servers_ui_scale: default_servers_ui_scale(),
             servers_proxy_only_button: false,
         }

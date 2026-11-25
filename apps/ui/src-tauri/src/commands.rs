@@ -803,6 +803,11 @@ pub async fn set_preferences(
     preferences.servers_sorting = normalize_server_sorting(&preferences.servers_sorting);
     preferences.servers_connect_button =
         normalize_connect_button_style(&preferences.servers_connect_button);
+    preferences.home_view = if preferences.home_view.trim() == "map" {
+        "map".into()
+    } else {
+        "button".into()
+    };
     preferences.servers_ui_scale = preferences.servers_ui_scale.clamp(80, 125);
     set_launch_at_login(&app, preferences.launch_at_login)?;
     state
