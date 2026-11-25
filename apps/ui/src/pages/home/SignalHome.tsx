@@ -60,7 +60,13 @@ export interface SignalHomeProps {
   map?: {
     servers: HomeMapServer[];
     targetId: string | null;
+    /** ISO2 страны выбранного сервера — для ровного круглого флага. */
+    countryCode: string | null;
     countryLabel: string | null;
+    /** Пинг или null, если замера нет — тогда в панели ничего не пишем. */
+    ping: ReactNode | null;
+    trafficRate: number | null;
+    sessionKey: string | number | null;
     action: ReactNode;
     onPickServer?: (serverId: string) => void;
   };
@@ -81,22 +87,39 @@ export function SignalHome(props: SignalHomeProps) {
           targetId={map.targetId}
           state={state}
           locale={m.common.locale}
-          youAreHereLabel={m.signal.mapYouAreHere}
-          regionLabel={m.signal.mapRegion}
-          pickLabel={(country, count) => fillTemplate(m.signal.mapPickCountry, { country, count })}
+          labels={{
+            youAreHere: m.signal.mapYouAreHere,
+            region: m.signal.mapRegion,
+            pickCountry: (country, count) => fillTemplate(m.signal.mapPickCountry, { country, count }),
+            cluster: (countries) => fillTemplate(m.signal.mapCluster, { countries }),
+            showServers: (country) => fillTemplate(m.signal.mapShowServers, { country }),
+            resetView: m.signal.mapResetView,
+            zoomIn: m.signal.mapZoomIn,
+            zoomOut: m.signal.mapZoomOut,
+          }}
           onPickServer={map.onPickServer}
-          card={<>
-            <div className="home-map-server">
-              <span className="signal-server-flag">{serverFlag}</span>
-              <span className="home-map-server-copy">
-                <small>{map.countryLabel ?? (autoSelected ? (ru ? "Авто · текущий сервер" : "Auto · current server") : m.home.selectedServer)}</small>
-                <strong>{serverName}</strong>
+          trafficRate={map.trafficRate}
+          sessionKey={map.sessionKey}
+          renderDock={({ exitCountryName }) => {
+            // Имя сервера крупно; страна — только если её нет в имени, плюс протокол.
+            const details = [
+              map.countryLabel && !serverName.toLowerCase().includes(map.countryLabel.toLowerCase()) ? map.countryLabel : null,
+              serverProtocol || null,
+            ].filter(Boolean).join(" · ");
+            return <>
+              <span className="home-map-dock-flag" aria-hidden="true">
+                {map.countryCode ? <span className={`fi fis fi-${map.countryCode.toLowerCase()}`} /> : serverFlag}
               </span>
-              <span className="home-map-server-ping"><HomeMetaIcon kind="ping" />{serverPing}</span>
-            </div>
-            <div className="home-map-status"><i aria-hidden="true" />{state === "connected" ? `${stateWord} · ${sessionLabel}` : stateWord}</div>
-            {map.action}
-          </>}
+              <span className="home-map-dock-copy">
+                <strong title={serverName}>{serverName}</strong>
+                <small>{autoSelected ? (ru ? "Авто · " : "Auto · ") : ""}{details || m.home.selectedServer}</small>
+                {exitCountryName && <small className="home-map-exit">{fillTemplate(m.signal.mapExit, { country: exitCountryName })}</small>}
+              </span>
+              {map.ping != null && <span className="home-map-dock-ping"><HomeMetaIcon kind="ping" />{map.ping}</span>}
+              <span className="home-map-status"><i aria-hidden="true" />{state === "connected" ? `${stateWord} · ${sessionLabel}` : stateWord}</span>
+              {map.action}
+            </>;
+          }}
         />
       : <div className="universal-connect-control"><div className="universal-power">{actions}</div></div>}
     <div className="universal-home-grid">

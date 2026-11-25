@@ -700,10 +700,20 @@ export function Home() {
         catch { countryLabel = targetCountry; }
       }
       const busy = connecting || disconnecting || switching;
+      const pingValue = activeServer ? serverPings[activeServer.id] : undefined;
+      const pingBusy = !!activeServer && pingingServerIds.has(activeServer.id);
       return {
         servers,
         targetId: activeServer?.id ?? null,
+        countryCode: targetCountry,
         countryLabel,
+        ping: typeof pingValue === "number" || pingBusy
+          ? <LatencyDisplay value={pingValue} loading={pingBusy} />
+          : null,
+        trafficRate: trafficMonitoringAvailable
+          ? Math.max(0, (trafficStats?.download_speed ?? 0) + (trafficStats?.upload_speed ?? 0))
+          : null,
+        sessionKey: connected ? sessionStartedAt ?? null : null,
         onPickServer: (serverId: string) => {
           if (busy || serverId === activeId) return;
           void (async () => {

@@ -1653,7 +1653,16 @@ private fun NimboHomeScreen(
             else -> t("Подключить", "Connect")
         }
         // Вид «Карта»: карта сверху, под ней карточка сервера и кнопка.
+        val mapConnected = vpnState == VpnState.CONNECTED
+        val mapExit = if (homeMapLayout) rememberExitCountry(mapConnected,
+            VpnManager.connectedServer.value?.pingMeasurementKey()) else null
+        val mapServerCountry = targetServer?.let { serverCountryCode(it) }
         val mapConnectionControl: @Composable () -> Unit = {
+            if (mapConnected && mapExit != null && mapExit != mapServerCountry) {
+                Text(t("Выход: ", "Exit: ") + (countryFlagEmoji(mapExit)?.plus(" ") ?: "") + countryDisplayName(mapExit),
+                    style = MaterialTheme.typography.bodySmall, color = colors.textSecondary,
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp))
+            }
             Spacer(Modifier.height(12.dp))
             NimboConnectionControl(vpnState == VpnState.CONNECTED, vpnState == VpnState.CONNECTING,
                 onConnectToggle, modifier = Modifier.fillMaxWidth(), compact = true, statusText = compactLabel)
@@ -1671,8 +1680,12 @@ private fun NimboHomeScreen(
                     vpnState == VpnState.CONNECTING -> t("Подключение…", "Connecting…")
                     else -> t("Не подключено", "Not connected")
                 },
+                exitCountry = mapExit,
+                trafficBytesPerSecond = { VpnManager.downloadSpeed.value + VpnManager.uploadSpeed.value },
                 onSelectServer = onSelectServer,
-                modifier = Modifier.fillMaxWidth().height(300.dp)
+                // Карта — главное на экране: ~55% высоты телефона.
+                modifier = Modifier.fillMaxWidth()
+                    .height((LocalConfiguration.current.screenHeightDp * 0.56f).dp.coerceIn(360.dp, 640.dp))
             )
             Spacer(Modifier.height(12.dp))
             if (profile == null || needsServerChoice) { mapConnectionControl(); Spacer(Modifier.height(16.dp)) }

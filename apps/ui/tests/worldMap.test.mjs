@@ -57,3 +57,47 @@ test('viewport keeps every point inside the inner rect above the card', () => {
   const single = geo.fitViewport([data.countries.DE], width, height);
   assert.ok(width / single.pxPerLon > 40);
 });
+
+test('clusters merge flags whose circles (with badge) overlap, keep distant ones apart', () => {
+  const markers = [
+    { x: 100, y: 100, weight: 16, item: 'FI' },
+    { x: 120, y: 110, weight: 8, item: 'LV' },
+    { x: 300, y: 100, weight: 8, item: 'RU' },
+  ];
+  const clusters = geo.clusterMarkers(markers, 21);
+  assert.equal(clusters.length, 2);
+  assert.equal(clusters[0].members.map((m) => m.item).join(','), 'FI,LV');
+  assert.equal(clusters[0].x, 100, 'cluster stays on its heaviest flag');
+  for (let i = 0; i < clusters.length; i++) for (let j = i + 1; j < clusters.length; j++) {
+    assert.ok(Math.hypot(clusters[i].x - clusters[j].x, clusters[i].y - clusters[j].y) >= 42);
+  }
+});
+
+test('edge anchor points from the centre to an off-screen marker', () => {
+  const rect = { left: 24, top: 24, right: 976, bottom: 476 };
+  assert.equal(geo.edgeAnchor(500, 250, rect), null);
+  const left = geo.edgeAnchor(-400, 250, rect);
+  assert.ok(Math.abs(left.x - 24) < 1e-9);
+  assert.ok(Math.abs(left.y - 250) < 1e-9);
+  assert.ok(Math.abs(Math.abs(left.angle) - Math.PI) < 1e-9);
+});
+
+test('cloudflare trace country', () => {
+  assert.equal(geo.parseTraceCountry('fl=1\nip=203.0.113.1\nloc=de\ncolo=FRA\n'), 'DE');
+  assert.equal(geo.parseTraceCountry('loc=XX\n'), null);
+  assert.equal(geo.parseTraceCountry('loc=T1\n'), null);
+  assert.equal(geo.parseTraceCountry('no country'), null);
+});
+
+test('zoom is bounded: whole world at most, a few degrees at least', () => {
+  const view = geo.fitView([data.countries.FI, data.countries.RU], 1000, 500);
+  const far = geo.clampView({ ...view, ppd: 0.01 }, 1000, 500);
+  // Самый мелкий масштаб — мир по ширине (с запасом 2%).
+  assert.ok(1000 / (far.ppd * far.kx) <= 360 / 0.98 + 0.01);
+  const near = geo.clampView({ ...view, ppd: 10_000 }, 1000, 500);
+  assert.ok(500 / near.ppd >= 5.9);
+  // Плавный перелёт сходится к цели.
+  let current = far;
+  for (let i = 0; i < 80; i++) current = geo.approachView(current, view, 0.2);
+  assert.ok(geo.viewsClose(current, view));
+});

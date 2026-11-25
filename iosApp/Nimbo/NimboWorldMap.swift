@@ -203,7 +203,7 @@ struct NimboMapViewport: Equatable {
     var maxLat: Double
 
     /// Рамка вокруг точек с отступом; ширина по долготе поправлена на cos(средней широты).
-    static func fitting(_ points: [NimboGeoPoint], aspect: Double) -> NimboMapViewport {
+    static func fitting(_ points: [NimboGeoPoint], aspect: Double, minLonSpan: Double = 25) -> NimboMapViewport {
         let source = points.isEmpty ? [NimboWorldMap.fallbackHere] : points
         var minLon = source.map(\.lon).min() ?? 0
         var maxLon = source.map(\.lon).max() ?? 0
@@ -215,6 +215,11 @@ struct NimboMapViewport: Equatable {
         let padLat = max((maxLat - minLat) * 0.30, 6)
         minLon -= padLon; maxLon += padLon
         minLat -= padLat; maxLat += padLat
+        // Минимальный охват: соседние страны должны оставаться различимыми.
+        if maxLon - minLon < minLonSpan {
+            let grow = (minLonSpan - (maxLon - minLon)) / 2
+            minLon -= grow; maxLon += grow
+        }
 
         let midLat = (minLat + maxLat) / 2
         let cosine = max(cos(midLat * .pi / 180), 0.2)
@@ -248,5 +253,66 @@ struct NimboMapViewport: Equatable {
     func contains(_ point: NimboGeoPoint, margin: Double) -> Bool {
         point.lon >= minLon - margin && point.lon <= maxLon + margin &&
             point.lat >= minLat - margin && point.lat <= maxLat + margin
+    }
+}
+
+extension NimboMapViewport {
+    static let minLonSpan: Double = 8
+    static let maxLonSpan: Double = 360
+    static let maxLatSpan: Double = 136
+
+    var center: NimboGeoPoint { NimboGeoPoint(lat: (minLat + maxLat) / 2, lon: (minLon + maxLon) / 2) }
+
+    /// Окно с центром в точке и заданным охватом; не выходит за сетку и не теряет пропорций.
+    static func centered(_ center: NimboGeoPoint, lonSpan: Double, latSpan: Double) -> NimboMapViewport {
+        var lon = max(lonSpan, 0.001)
+        var lat = max(latSpan, 0.001)
+        var factor = 1.0
+        if lon < minLonSpan { factor = minLonSpan / lon }
+        if lon * factor > maxLonSpan { factor = maxLonSpan / lon }
+        if lat * factor > maxLatSpan { factor = min(factor, maxLatSpan / lat) }
+        lon *= factor
+        lat *= factor
+        let centerLon = min(max(center.lon, -180 + lon / 2), 180 - lon / 2)
+        let centerLat = min(max(center.lat, -56 + lat / 2), 80 - lat / 2)
+        return NimboMapViewport(minLon: centerLon - lon / 2, maxLon: centerLon + lon / 2,
+                                minLat: centerLat - lat / 2, maxLat: centerLat + lat / 2)
+    }
+
+    /// Сдвиг пальцем: точки экрана → градусы.
+    func panned(by translation: CGSize, in size: CGSize) -> NimboMapViewport {
+        guard size.width > 0, size.height > 0 else { return self }
+        let dLon = -Double(translation.width / size.width) * lonSpan
+        let dLat = Double(translation.height / size.height) * latSpan
+        return .centered(NimboGeoPoint(lat: center.lat + dLat, lon: center.lon + dLon), lonSpan: lonSpan, latSpan: latSpan)
+    }
+
+    /// Щипок: scale > 1 — приблизить.
+    func zoomed(by scale: Double, around focus: NimboGeoPoint? = nil) -> NimboMapViewport {
+        let safe = max(scale, 0.05)
+        let anchor = focus ?? center
+        let newCenter = NimboGeoPoint(lat: anchor.lat + (center.lat - anchor.lat) / safe,
+                                      lon: anchor.lon + (center.lon - anchor.lon) / safe)
+        return .centered(newCenter, lonSpan: lonSpan / safe, latSpan: latSpan / safe)
+    }
+
+    func interpolated(to other: NimboMapViewport, fraction: Double) -> NimboMapViewport {
+        let f = min(max(fraction, 0), 1)
+        func mix(_ a: Double, _ b: Double) -> Double { a + (b - a) * f }
+        return NimboMapViewport(minLon: mix(minLon, other.minLon), maxLon: mix(maxLon, other.maxLon),
+                                minLat: mix(minLat, other.minLat), maxLat: mix(maxLat, other.maxLat))
+    }
+
+    /// Обратная проекция: точка экрана → градусы.
+    func unproject(_ point: CGPoint, in size: CGSize) -> NimboGeoPoint {
+        NimboGeoPoint(lat: maxLat - Double(point.y / max(size.height, 1)) * latSpan,
+                      lon: minLon + Double(point.x / max(size.width, 1)) * lonSpan)
+    }
+}
+
+extension NimboGeoPoint {
+    func interpolated(to other: NimboGeoPoint, fraction: Double) -> NimboGeoPoint {
+        let f = min(max(fraction, 0), 1)
+        return NimboGeoPoint(lat: lat + (other.lat - lat) * f, lon: lon + (other.lon - lon) * f)
     }
 }

@@ -472,6 +472,7 @@ pub fn run() {
             network_check::network_check_run,
             network_check::network_ping,
             network_check::network_speed,
+            network_check::network_exit_country,
             on_demand::get_on_demand,
             on_demand::set_on_demand,
             commands::resume_saved_connection,

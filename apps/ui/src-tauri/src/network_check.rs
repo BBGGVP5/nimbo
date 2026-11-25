@@ -450,6 +450,43 @@ pub async fn network_speed(state: State<'_, AppState>, stage: String) -> Result<
     }
 }
 
+/// Страна выхода для карты на главной: один запрос к Cloudflare trace тем же
+/// путём, что и у браузера (через туннель). Ошибки не важны — тогда карта
+/// остаётся со страной из названия сервера.
+#[tauri::command]
+pub async fn network_exit_country(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let status = get_status(state.clone());
+    if !matches!(status.state, ConnectionState::Connected) {
+        return Ok(None);
+    }
+    let route = route(&state);
+    let Ok(client) = client(&route, Duration::from_secs(5)) else {
+        return Ok(None);
+    };
+    let Ok(response) = client
+        .get("https://www.cloudflare.com/cdn-cgi/trace")
+        .send()
+        .await
+    else {
+        return Ok(None);
+    };
+    let Ok(text) = response.text().await else {
+        return Ok(None);
+    };
+    Ok(parse_trace_country(&text))
+}
+
+/// `loc=DE` → `DE`; служебные коды Cloudflare (`XX`, `T1`) отбрасываются.
+fn parse_trace_country(text: &str) -> Option<String> {
+    let code = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("loc="))?
+        .trim()
+        .to_ascii_uppercase();
+    (code.len() == 2 && code.bytes().all(|b| b.is_ascii_uppercase()) && code != "XX")
+        .then_some(code)
+}
+
 fn mbps(bytes: u64, start: Instant) -> f64 {
     let seconds = start.elapsed().as_secs_f64().max(0.001);
     (bytes as f64 * 8.0 / seconds / 1_000_000.0 * 10.0).round() / 10.0
@@ -457,7 +494,39 @@ fn mbps(bytes: u64, start: Instant) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::clean_host;
+    use super::{clean_host, parse_trace_country};
+
+    #[test]
+    fn trace_country_is_iso2_only() {
+        let trace = "fl=1
+h=www.cloudflare.com
+ip=203.0.113.7
+loc=de
+colo=FRA
+";
+        assert_eq!(parse_trace_country(trace).as_deref(), Some("DE"));
+        assert_eq!(
+            parse_trace_country(
+                "loc=XX
+"
+            ),
+            None
+        );
+        assert_eq!(
+            parse_trace_country(
+                "loc=T1
+"
+            ),
+            None
+        );
+        assert_eq!(
+            parse_trace_country(
+                "ip=1.1.1.1
+"
+            ),
+            None
+        );
+    }
 
     #[test]
     fn ping_target_accepts_hosts_urls_and_ips() {

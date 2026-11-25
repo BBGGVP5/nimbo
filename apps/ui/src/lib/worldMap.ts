@@ -137,9 +137,8 @@ function fitInner(points: readonly LatLon[], width: number, height: number, padd
   // Подгоняем под пропорции холста.
   if (spanX / spanY > aspect) spanY = spanX / aspect;
   else spanX = spanY * aspect;
-  // Не шире мира.
-  spanX = Math.min(spanX, 360 * kx);
-  spanY = Math.min(spanY, (LAT_MAX - LAT_MIN) * 1.15);
+  // Охват не обрезаем отдельно по осям: иначе пропорции окна расходились с
+  // холстом, масштаб рос и точки по краям уходили за рамку.
 
   const centerLon = (west + east) / 2;
   const midLat = (south + north) / 2;
@@ -174,4 +173,160 @@ export function arcControl(a: [number, number], b: [number, number]): [number, n
 export function quadPoint(a: [number, number], c: [number, number], b: [number, number], t: number): [number, number] {
   const u = 1 - t;
   return [u * u * a[0] + 2 * u * t * c[0] + t * t * b[0], u * u * a[1] + 2 * u * t * c[1] + t * t * b[1]];
+}
+
+// ── Вид карты (Beta 2): зум, сдвиг, плавные перелёты ─────────────────────
+
+/** Центр окна (градусы), пикселей на градус широты и поправка долготы. */
+export interface MapView {
+  cx: number;
+  cy: number;
+  ppd: number;
+  kx: number;
+}
+
+export function viewToViewport(view: MapView, width: number, height: number): MapViewport {
+  const pxPerLon = view.ppd * view.kx;
+  return {
+    lonWest: view.cx - width / 2 / pxPerLon,
+    latNorth: view.cy + height / 2 / view.ppd,
+    pxPerLat: view.ppd,
+    pxPerLon,
+  };
+}
+
+export function viewportToView(viewport: MapViewport, width: number, height: number): MapView {
+  return {
+    cx: viewport.lonWest + width / 2 / viewport.pxPerLon,
+    cy: viewport.latNorth - height / 2 / viewport.pxPerLat,
+    ppd: viewport.pxPerLat,
+    kx: viewport.pxPerLon / viewport.pxPerLat,
+  };
+}
+
+export function fitView(
+  points: readonly LatLon[],
+  width: number,
+  height: number,
+  options?: Parameters<typeof fitViewport>[3],
+): MapView {
+  return viewportToView(fitViewport(points, width, height, options), width, height);
+}
+
+export function unproject(viewport: MapViewport, x: number, y: number): LatLon {
+  return [viewport.latNorth - y / viewport.pxPerLat, viewport.lonWest + x / viewport.pxPerLon];
+}
+
+/** Самый мелкий масштаб — весь мир по ширине; самый крупный — ~6° на экран. */
+export function clampView(view: MapView, width: number, height: number): MapView {
+  const minPpd = Math.max(width / (360 * view.kx), height / ((LAT_MAX - LAT_MIN) + 24)) * 0.98;
+  const maxPpd = Math.max(minPpd, Math.min(width, height) / 6);
+  const ppd = Math.min(maxPpd, Math.max(minPpd, view.ppd));
+  const halfLon = width / 2 / (ppd * view.kx);
+  const halfLat = height / 2 / ppd;
+  const cx = halfLon >= 180 ? 0 : Math.min(180 - halfLon, Math.max(-180 + halfLon, view.cx));
+  const top = LAT_MAX + 8;
+  const bottom = LAT_MIN - 8;
+  const cy = halfLat * 2 >= top - bottom ? (top + bottom) / 2 : Math.min(top - halfLat, Math.max(bottom + halfLat, view.cy));
+  return { ...view, ppd, cx, cy };
+}
+
+/** Шаг сглаживания к цели; масштаб — в логарифме, чтобы зум шёл равномерно. */
+export function approachView(current: MapView, target: MapView, amount: number): MapView {
+  const t = Math.min(1, Math.max(0, amount));
+  return {
+    cx: current.cx + (target.cx - current.cx) * t,
+    cy: current.cy + (target.cy - current.cy) * t,
+    ppd: Math.exp(Math.log(current.ppd) + (Math.log(target.ppd) - Math.log(current.ppd)) * t),
+    kx: current.kx + (target.kx - current.kx) * t,
+  };
+}
+
+export function viewsClose(a: MapView, b: MapView): boolean {
+  const px = a.ppd;
+  return Math.abs(a.cx - b.cx) * px * a.kx < 0.5 && Math.abs(a.cy - b.cy) * px < 0.5 && Math.abs(a.ppd / b.ppd - 1) < 0.002;
+}
+
+// ── Кластеры флагов в экранных координатах ───────────────────────────────
+
+export interface ScreenMarker<T> {
+  x: number;
+  y: number;
+  /** Чем больше, тем вероятнее стать главным флагом кластера. */
+  weight: number;
+  item: T;
+}
+
+export interface MarkerCluster<T> {
+  x: number;
+  y: number;
+  members: ScreenMarker<T>[];
+}
+
+/**
+ * Жадная кластеризация: маркер, чей кружок (radius — вместе с бейджем)
+ * пересекается с уже стоящим кластером, входит в него. Центр кластера —
+ * его главный (самый тяжёлый) маркер, поэтому флаг не «уплывает» от страны.
+ */
+export function clusterMarkers<T>(markers: readonly ScreenMarker<T>[], radius: number): MarkerCluster<T>[] {
+  const sorted = [...markers].sort((a, b) => b.weight - a.weight);
+  const clusters: MarkerCluster<T>[] = [];
+  const minDistance = radius * 2;
+  for (const marker of sorted) {
+    const hit = clusters.find((cluster) => Math.hypot(cluster.x - marker.x, cluster.y - marker.y) < minDistance);
+    if (hit) hit.members.push(marker);
+    else clusters.push({ x: marker.x, y: marker.y, members: [marker] });
+  }
+  // Второй проход: два кластера, которые после слияния всё ещё касаются, объединяем.
+  for (let i = 0; i < clusters.length; i++) {
+    for (let j = clusters.length - 1; j > i; j--) {
+      if (Math.hypot(clusters[i].x - clusters[j].x, clusters[i].y - clusters[j].y) < minDistance) {
+        clusters[i].members.push(...clusters[j].members);
+        clusters.splice(j, 1);
+      }
+    }
+  }
+  return clusters;
+}
+
+/**
+ * Точка у края окна в направлении внеэкранного маркера (для стрелки).
+ * Возвращает null, если маркер и так внутри прямоугольника.
+ */
+export function edgeAnchor(
+  x: number,
+  y: number,
+  rect: { left: number; top: number; right: number; bottom: number },
+): { x: number; y: number; angle: number } | null {
+  if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return null;
+  const cx = (rect.left + rect.right) / 2;
+  const cy = (rect.top + rect.bottom) / 2;
+  const dx = x - cx;
+  const dy = y - cy;
+  const sx = dx === 0 ? Infinity : ((dx > 0 ? rect.right : rect.left) - cx) / dx;
+  const sy = dy === 0 ? Infinity : ((dy > 0 ? rect.bottom : rect.top) - cy) / dy;
+  const s = Math.min(sx, sy);
+  return { x: cx + dx * s, y: cy + dy * s, angle: Math.atan2(dy, dx) };
+}
+
+/** `loc=DE` из ответа https://www.cloudflare.com/cdn-cgi/trace. */
+export function parseTraceCountry(text: string): string | null {
+  const line = text.split(/\r?\n/).find((value) => value.trim().startsWith("loc="));
+  const code = line?.trim().slice(4).trim().toUpperCase() ?? "";
+  return /^[A-Z]{2}$/.test(code) && code !== "XX" && code !== "T1" ? code : null;
+}
+
+/** Расстояние от точки до ломаной (для подсветки суши вдоль дуги). */
+export function distanceToPolyline(x: number, y: number, points: readonly [number, number][]): number {
+  let best = Infinity;
+  for (let i = 1; i < points.length; i++) {
+    const [ax, ay] = points[i - 1];
+    const [bx, by] = points[i];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const length = dx * dx + dy * dy;
+    const t = length ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / length)) : 0;
+    best = Math.min(best, Math.hypot(x - (ax + dx * t), y - (ay + dy * t)));
+  }
+  return best;
 }

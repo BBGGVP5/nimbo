@@ -1432,6 +1432,11 @@ export const api = {
     isTauriRuntime()
       ? invoke<number>("network_speed", { stage })
       : new Promise<number>((resolve) => setTimeout(() => resolve(stage === "latency" ? 38 : stage === "download" ? 87.4 : 41.2), 700)),
+  /** ISO2 страны выхода по Cloudflare trace через туннель; null — неизвестно. */
+  networkExitCountry: () =>
+    isTauriRuntime()
+      ? invoke<string | null>("network_exit_country").catch(() => null)
+      : Promise.resolve<string | null>(null),
   appReady: () =>
     isTauriRuntime()
       ? invoke<void>("app_ready")

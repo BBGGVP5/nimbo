@@ -44,6 +44,14 @@ if(params.has('releasePreview')) {
 if(params.has('mapDemo')) {
  sub.servers=['🇫🇮 Финляндия','🇩🇪 Германия','🇩🇪 Германия 2','🇳🇱 Нидерланды','🇺🇸 США','🇹🇷 Турция','🇯🇵 Япония','🇰🇿 Казахстан'].map((name,index)=>({...server,id:index===0?server.id:`map-${index}`,name}));
 }
+if(params.has('map79')) {
+ // Как у пользователя на Beta 1: 79 серверов в 8 странах Европы и Азии.
+ const plan:[string,string,number][]=[['🇫🇮','Финляндия',16],['🇸🇪','Швеция',8],['🇱🇻','Латвия',8],['🇳🇱','Нидерланды',8],['🇩🇪','Германия',8],['🇵🇱','Польша',4],['🇷🇺','Россия',4],['🇰🇿','Казахстан',8],['🇩🇪','Германия',7],['🇫🇮','Финляндия',8]];
+ let n=0; sub.servers=plan.flatMap(([flag,name,count])=>Array.from({length:count},(_,i)=>({...server,id:n++===0?server.id:`m79-${n}`,name:`${flag} ${name} ${i+1}`})));
+ sub.name='BBGGVP5';
+}
+// Страна выхода по trace в стенде: ?exit=DE.
+if(params.get('exit')) api.networkExitCountry=async()=>params.get('exit');
 const announcementFixture=window as unknown as {fixtureDescription:string;setFixtureDescription:(description:string)=>void};
 announcementFixture.fixtureDescription=sub.meta!.description!;
 announcementFixture.setFixtureDescription=description=>{
